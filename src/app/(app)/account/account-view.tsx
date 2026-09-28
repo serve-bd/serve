@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Laptop, LogOut } from "lucide-react";
+import { Laptop, LogOut, ShieldCheck } from "lucide-react";
+import QRCode from "qrcode";
+import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, TimeAgo, Badge } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
@@ -20,7 +22,7 @@ function device(ua?: string | null) {
   return `${browser}${os ? ` on ${os}` : ""}`;
 }
 
-export function AccountView({ user }: { user: { name: string; email: string } }) {
+export function AccountView({ user }: { user: { name: string; email: string; twoFactorEnabled: boolean } }) {
   const router = useRouter();
   const [name, setName] = React.useState(user.name);
   const [saving, setSaving] = React.useState(false);
@@ -81,6 +83,8 @@ export function AccountView({ user }: { user: { name: string; email: string } })
         </form>
       </Card>
 
+      <TwoFactorCard enabled={user.twoFactorEnabled} />
+
       <Card className="overflow-hidden">
         <CardHeader title="Sessions" description="Devices signed in to your account." actions={sessions.length > 1 && <Button size="sm" onClick={async () => { await authClient.revokeOtherSessions(); toast.success("Signed out other devices"); void load(); }}>Sign out others</Button>} />
         <div className="divide-y divide-line">
@@ -101,5 +105,111 @@ export function AccountView({ user }: { user: { name: string; email: string } })
         </div>
       </Card>
     </div>
+  );
+}
+
+function TwoFactorCard({ enabled }: { enabled: boolean }) {
+  const router = useRouter();
+  const [open, setOpen] = React.useState(false);
+  const [step, setStep] = React.useState<"password" | "scan">("password");
+  const [password, setPassword] = React.useState("");
+  const [code, setCode] = React.useState("");
+  const [qr, setQr] = React.useState<string | null>(null);
+  const [backupCodes, setBackupCodes] = React.useState<string[]>([]);
+  const [pending, setPending] = React.useState(false);
+
+  const reset = () => {
+    setStep("password");
+    setPassword("");
+    setCode("");
+    setQr(null);
+    setBackupCodes([]);
+  };
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setPending(true);
+    try {
+      if (enabled) {
+        const { error } = await authClient.twoFactor.disable({ password });
+        if (error) return toast.error(error.message ?? "Could not disable two-factor authentication");
+        toast.success("Two-factor authentication disabled");
+        setOpen(false);
+        router.refresh();
+      } else if (step === "password") {
+        const { data, error } = await authClient.twoFactor.enable({ password });
+        if (error || !data || !("totpURI" in data)) return toast.error(error?.message ?? "Wrong password");
+        setQr(await QRCode.toDataURL(data.totpURI, { margin: 1, width: 200 }));
+        setBackupCodes(data.backupCodes);
+        setStep("scan");
+      } else {
+        const { error } = await authClient.twoFactor.verifyTotp({ code });
+        if (error) return toast.error(error.message ?? "That code is not valid");
+        toast.success("Two-factor authentication enabled");
+        setOpen(false);
+        router.refresh();
+      }
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Two-factor authentication"
+        description="Require a code from an authenticator app when signing in."
+        actions={
+          <Button size="sm" variant={enabled ? "secondary" : "primary"} onClick={() => { reset(); setOpen(true); }}>
+            <ShieldCheck /> {enabled ? "Disable" : "Enable"}
+          </Button>
+        }
+      />
+      <CardBody>
+        <p className="flex items-center gap-2 text-[13px] text-fg-2">
+          <span className={`size-2 rounded-full ${enabled ? "bg-ok" : "bg-idle"}`} />
+          {enabled ? "Enabled" : "Not enabled"}
+        </p>
+      </CardBody>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent size="sm">
+          <form onSubmit={submit}>
+            <DialogHeader
+              title={enabled ? "Disable two-factor authentication" : step === "password" ? "Enable two-factor authentication" : "Scan the QR code"}
+              description={step === "scan" ? "Scan with 1Password, Google Authenticator or any TOTP app, then enter the code." : "Confirm your password to continue."}
+            />
+            <DialogBody>
+              {step === "password" ? (
+                <Field label="Password">
+                  <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus autoComplete="current-password" />
+                </Field>
+              ) : (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- generated data URL */}
+                  {qr && <img src={qr} alt="Authenticator QR code" className="mx-auto size-[200px] rounded-xl border border-line bg-white p-2" />}
+                  <Field label="6-digit code">
+                    <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} required autoFocus inputMode="numeric" maxLength={6} className="text-center font-mono text-lg tracking-[0.4em]" />
+                  </Field>
+                  <div className="rounded-xl border border-line bg-surface-2 p-3">
+                    <p className="mb-2 text-xs font-medium text-fg-2">Backup codes — store them somewhere safe</p>
+                    <div className="grid grid-cols-2 gap-1 font-mono text-xs text-muted">
+                      {backupCodes.map((c) => (
+                        <span key={c}>{c}</span>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </DialogBody>
+            <DialogFooter>
+              <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
+              <Button type="submit" size="sm" variant={enabled ? "danger" : "primary"} loading={pending}>
+                {enabled ? "Disable" : step === "password" ? "Continue" : "Verify and enable"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }

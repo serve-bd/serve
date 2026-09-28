@@ -10,7 +10,7 @@ export default async function AccountPage() {
     <>
       <PageHeader title="Account" description="Your profile, password and signed-in devices." />
       <PageBody className="max-w-3xl">
-        <AccountView user={{ name: ctx.user.name, email: ctx.user.email }} />
+        <AccountView user={{ name: ctx.user.name, email: ctx.user.email, twoFactorEnabled: !!(ctx.user as { twoFactorEnabled?: boolean }).twoFactorEnabled }} />
       </PageBody>
     </>
   );

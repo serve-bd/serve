@@ -29,6 +29,13 @@
       "when": 1790639050563,
       "tag": "0003_request_metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790639157187,
+      "tag": "0004_two_factor",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { cancelDeployment, redeployDeployment, rollbackTo } from "@/server/actions/services";
 import { formatDuration } from "@/lib/utils";
+import { triggerText } from "@/lib/labels";
 
 type Dep = {
   id: string;
@@ -148,7 +149,7 @@ export function DeploymentView({
               )}
               <span className="inline-flex items-center gap-1">
                 <User className="size-3.5" />
-                {deployment.userName ?? deployment.commitAuthor ?? "System"} · <span className="capitalize">{deployment.trigger}</span>
+                {deployment.userName ?? deployment.commitAuthor ?? "System"} · {triggerText(deployment.trigger)}
               </span>
               <span className="inline-flex items-center gap-1">
                 <Clock className="size-3.5" />

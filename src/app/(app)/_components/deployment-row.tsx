@@ -3,6 +3,7 @@ import { GitCommitHorizontal, RotateCcw, Upload, Webhook } from "lucide-react";
 import { StatusDot, statusText } from "@/components/ui/status";
 import { TimeAgo } from "@/components/ui/misc";
 import { cn, formatDuration } from "@/lib/utils";
+import { triggerText } from "@/lib/labels";
 
 export type DeploymentRowData = {
   id: string;
@@ -61,7 +62,7 @@ export function DeploymentRow({ d, showService = true, current }: { d: Deploymen
           </span>
         )}
         {d.branch && <span className="truncate font-mono">{d.branch}</span>}
-        <span className="flex items-center gap-1 capitalize">{triggerIcon[d.trigger] ?? <Upload className="size-3" />}{d.trigger}</span>
+        <span className="flex items-center gap-1">{triggerIcon[d.trigger] ?? <Upload className="size-3" />}{triggerText(d.trigger)}</span>
       </div>
       <span className="text-right text-xs text-faint tabular-nums">{duration}</span>
     </Link>

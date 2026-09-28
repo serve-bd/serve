@@ -11,6 +11,7 @@ export type ServiceCardData = {
   source: string | null;
   domain: string | null;
   domainHttps: boolean;
+  previewPr: number | null;
   lastDeploy: { id: string; status: string; commitMessage: string | null; createdAt: Date } | null;
 };
 
@@ -59,6 +60,7 @@ export async function environmentServices(environmentId: string): Promise<Servic
                 : null,
       domain: primary?.hostname ?? null,
       domainHttps: primary?.https ?? false,
+      previewPr: s.previewPr ?? null,
       lastDeploy: dep ? { id: dep.id, status: dep.status, commitMessage: dep.commitMessage, createdAt: dep.createdAt } : null,
     };
   });

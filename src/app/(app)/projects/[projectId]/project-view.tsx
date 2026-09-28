@@ -94,7 +94,10 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
       <div className="flex items-start gap-3 p-4">
         <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="truncate text-[14px] font-semibold text-fg">{s.name}</span>
+          <span className="flex items-center gap-2">
+            <span className="truncate text-[14px] font-semibold text-fg">{s.name}</span>
+            {s.previewPr !== null && <span className="shrink-0 rounded-full bg-info-soft px-1.5 text-[10px] font-semibold text-info">PREVIEW</span>}
+          </span>
           <span className="truncate text-xs text-muted">{s.source ?? (s.engine ? s.engine : s.type)}</span>
         </div>
       </div>

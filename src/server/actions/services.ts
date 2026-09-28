@@ -283,6 +283,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   autoDeploy: z.boolean().optional(),
+  previewsEnabled: z.boolean().optional(),
   source: z
     .discriminatedUnion("type", [
       z.object({ type: z.literal("git"), repository: z.string().trim().min(3), branch: z.string().trim().min(1), credentialId: z.string().nullable().optional() }),
@@ -349,6 +350,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     const patch: Partial<typeof schema.service.$inferInsert> = {};
     if (data.name) patch.name = data.name;
     if (data.autoDeploy !== undefined) patch.autoDeploy = data.autoDeploy;
+    if (data.previewsEnabled !== undefined) patch.previewsEnabled = data.previewsEnabled;
     if (data.source) {
       if (data.source.type === "git") {
         patch.source = { type: "git", repository: normalizeRepoUrl(data.source.repository), branch: data.source.branch, credentialId: data.source.credentialId ?? null };

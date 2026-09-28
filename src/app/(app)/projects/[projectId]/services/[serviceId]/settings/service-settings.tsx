@@ -27,6 +27,8 @@ type Props = {
     slug: string;
     type: string;
     autoDeploy: boolean;
+    previewsEnabled: boolean;
+    isPreview: boolean;
     source: Source | null;
     build: BuildConfig | null;
     runtime: RuntimeConfig;
@@ -130,11 +132,12 @@ export function ServiceSettings(props: Props) {
         <Section
           title="Source"
           description="The repository and branch Serve builds from."
-          initial={{ repository: service.source.repository, branch: service.source.branch, credentialId: service.source.credentialId ?? "public", autoDeploy: service.autoDeploy }}
+          initial={{ repository: service.source.repository, branch: service.source.branch, credentialId: service.source.credentialId ?? "public", autoDeploy: service.autoDeploy, previewsEnabled: service.previewsEnabled }}
           onSave={(v) =>
             save.run({
               source: { type: "git", repository: v.repository, branch: v.branch, credentialId: v.credentialId === "public" ? null : v.credentialId },
               autoDeploy: v.autoDeploy,
+              previewsEnabled: v.previewsEnabled,
             })
           }
         >
@@ -156,6 +159,14 @@ export function ServiceSettings(props: Props) {
                 </Field>
               </div>
               <SwitchRow title="Deploy on push" description="Pushes to this branch trigger a deployment through the webhook below." checked={v.autoDeploy} onCheckedChange={(c) => set({ autoDeploy: c })} />
+              {!service.isPreview && (
+                <SwitchRow
+                  title="Preview deployments"
+                  description="Deploy every pull request to its own temporary URL, and remove it when the pull request closes. Enable pull request events on the webhook."
+                  checked={v.previewsEnabled}
+                  onCheckedChange={(c) => set({ previewsEnabled: c })}
+                />
+              )}
             </>
           )}
         </Section>

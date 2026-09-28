@@ -32,6 +32,8 @@ export default async function SettingsPage(props: PageProps<"/projects/[projectI
           slug: service.slug,
           type: service.type,
           autoDeploy: service.autoDeploy,
+          previewsEnabled: service.previewsEnabled,
+          isPreview: !!service.parentServiceId,
           source: service.source
             ? service.source.type === "git"
               ? service.source

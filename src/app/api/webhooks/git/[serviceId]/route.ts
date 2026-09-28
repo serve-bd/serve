@@ -4,6 +4,52 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { timingSafeEqual } from "@/server/crypto";
 import { queueDeployment } from "@/server/services/create";
+import { commentOnGithub, deployPreview, removePreview, type PullRequest } from "@/server/services/previews";
+
+type PrEvent = { action: "deploy" | "close"; pr: PullRequest };
+
+function parsePullRequest(headers: Headers, body: Record<string, unknown>): PrEvent | null {
+  const ghEvent = headers.get("x-github-event") ?? headers.get("x-gitea-event");
+  if (ghEvent === "pull_request") {
+    const action = String(body.action ?? "");
+    const pr = body.pull_request as {
+      number: number;
+      title: string;
+      head: { ref: string; sha: string; repo?: { clone_url?: string } };
+      user?: { login?: string };
+    };
+    const repo = body.repository as { full_name?: string } | undefined;
+    if (!pr) return null;
+    const info: PullRequest = {
+      number: pr.number ?? (body.number as number),
+      branch: pr.head.ref,
+      repository: pr.head.repo?.clone_url ?? "",
+      title: pr.title,
+      sha: pr.head.sha,
+      author: pr.user?.login ?? null,
+      fullName: repo?.full_name ?? null,
+    };
+    if (["opened", "reopened", "synchronize", "synchronized", "ready_for_review"].includes(action)) return { action: "deploy", pr: info };
+    if (action === "closed") return { action: "close", pr: info };
+    return null;
+  }
+  if (headers.get("x-gitlab-event") === "Merge Request Hook") {
+    const mr = body.object_attributes as {
+      iid: number;
+      action?: string;
+      state?: string;
+      title: string;
+      source_branch: string;
+      last_commit?: { id: string };
+      source?: { git_http_url?: string };
+    };
+    if (!mr) return null;
+    const info: PullRequest = { number: mr.iid, branch: mr.source_branch, repository: mr.source?.git_http_url ?? "", title: mr.title, sha: mr.last_commit?.id ?? null, author: null };
+    if (["open", "reopen", "update"].includes(mr.action ?? "")) return { action: "deploy", pr: info };
+    if (["close", "merge"].includes(mr.action ?? "")) return { action: "close", pr: info };
+  }
+  return null;
+}
 
 const hmac = (secret: string, body: string) => crypto.createHmac("sha256", secret).update(body).digest("hex");
 
@@ -56,6 +102,21 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/webhook
   } catch {
     return NextResponse.json({ error: "Expected a JSON payload" }, { status: 400 });
   }
+  const prEvent = parsePullRequest(request.headers, body);
+  if (prEvent) {
+    if (!service.previewsEnabled || service.parentServiceId) return NextResponse.json({ ok: true, skipped: "Preview deployments are off" });
+    if (prEvent.action === "close") {
+      const removed = await removePreview(service, prEvent.pr.number);
+      return NextResponse.json({ ok: true, removed });
+    }
+    const result = await deployPreview(service, prEvent.pr);
+    if (result) {
+      const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, result.preview.id));
+      void commentOnGithub(service, prEvent.pr, domain ? `${domain.https ? "https" : "http"}://${domain.hostname}` : null);
+    }
+    return NextResponse.json({ ok: true, previewServiceId: result?.preview.id, deploymentId: result?.deploymentId });
+  }
+
   const push = parsePush(request.headers, body);
   if (push === "ping") return NextResponse.json({ ok: true, message: "pong" });
   if (!push) return NextResponse.json({ ok: true, skipped: "Not a push event" });

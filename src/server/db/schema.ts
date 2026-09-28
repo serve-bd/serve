@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   index,
@@ -225,6 +226,11 @@ export const service = pgTable(
     database: jsonb("database").$type<DatabaseConfig>(),
     compose: jsonb("compose").$type<ComposeConfig>(),
     autoDeploy: boolean("auto_deploy").notNull().default(true),
+    /** Deploy pull requests as temporary preview services. */
+    previewsEnabled: boolean("previews_enabled").notNull().default(false),
+    /** Set on preview services: the service they were created from. */
+    parentServiceId: text("parent_service_id").references((): AnyPgColumn => service.id, { onDelete: "cascade" }),
+    previewPr: integer("preview_pr"),
     webhookSecret: text("webhook_secret").notNull(),
     currentDeploymentId: text("current_deployment_id"),
     createdAt: createdAt(),

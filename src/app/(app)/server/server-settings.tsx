@@ -51,6 +51,7 @@ export function ServerSettingsView({
   settings,
   status,
   organizations,
+  disk,
 }: {
   settings: S;
   status: {
@@ -67,6 +68,7 @@ export function ServerSettingsView({
     proxyPorts: string;
   };
   organizations: { id: string; name: string; createdAt: string; members: number; isRoot: boolean }[];
+  disk: { images: { count: number; size: number; unused: number }; containers: { count: number; size: number }; volumes: { count: number; size: number }; buildCache: { count: number; size: number } } | null;
 }) {
   const [v, setV] = React.useState<S>(settings);
   const [saved, setSaved] = React.useState<S>(settings);
@@ -102,6 +104,26 @@ export function ServerSettingsView({
           </dl>
         </div>
       </Card>
+
+      {disk && (
+        <Card>
+          <CardHeader title="Docker storage" description="Totals for the whole Docker host. Clean up removes dangling images and build cache older than a week." />
+          <div className="grid grid-cols-2 divide-line sm:grid-cols-4 sm:divide-x">
+            {[
+              ["Images", disk.images.size, `${disk.images.count} images · ${disk.images.unused} unused`],
+              ["Build cache", disk.buildCache.size, `${disk.buildCache.count} entries`],
+              ["Volumes", disk.volumes.size, `${disk.volumes.count} volumes`],
+              ["Containers", disk.containers.size, `${disk.containers.count} containers`],
+            ].map(([label, size, sub]) => (
+              <div key={String(label)} className="flex flex-col gap-1 px-5 py-4">
+                <span className="text-xs text-muted">{label}</span>
+                <span className="text-[18px] font-semibold tabular-nums text-fg">{formatBytes(Number(size))}</span>
+                <span className="text-[11px] text-faint">{sub}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Section title="General" fields={["instanceName", "serverIp"]} values={v} saved={saved} onSaved={onSaved}>
         <Field label="Server name"><Input value={v.instanceName} onChange={(e) => set("instanceName")(e.target.value)} /></Field>

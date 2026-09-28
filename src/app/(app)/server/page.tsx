@@ -3,7 +3,7 @@ import { asc, sql } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
-import { systemStatus } from "@/server/system";
+import { dockerDiskUsage, systemStatus } from "@/server/system";
 import { env } from "@/server/env";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { ServerSettingsView } from "./server-settings";
@@ -13,13 +13,14 @@ export const metadata = { title: "Server settings" };
 export default async function ServerPage() {
   const ctx = await requireOrg();
   if (!ctx.isInstanceAdmin) redirect("/");
-  const [settings, status, orgs] = await Promise.all([
+  const [settings, status, orgs, disk] = await Promise.all([
     getSettings(),
     systemStatus(),
     db
       .select({ id: schema.organization.id, name: schema.organization.name, createdAt: schema.organization.createdAt, members: sql<number>`(select count(*)::int from member m where m.organization_id = "organization"."id")` })
       .from(schema.organization)
       .orderBy(asc(schema.organization.createdAt)),
+    dockerDiskUsage(),
   ]);
   return (
     <>
@@ -54,6 +55,7 @@ export default async function ServerPage() {
             dataDir: env.dataDir,
             proxyPorts: `${env.proxyHttpPort} / ${env.proxyHttpsPort}`,
           }}
+          disk={disk}
           organizations={orgs.map((o) => ({ ...o, createdAt: o.createdAt.toISOString(), isRoot: o.id === settings.rootOrganizationId }))}
         />
       </PageBody>

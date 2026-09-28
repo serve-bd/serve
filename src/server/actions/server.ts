@@ -111,7 +111,7 @@ export async function resyncProxy() {
 export async function runCleanup() {
   return act(async () => {
     await requireInstanceAdmin();
-    await enqueue("cleanup", {});
+    await enqueue("cleanup", { full: true });
     return null;
   });
 }

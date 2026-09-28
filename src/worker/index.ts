@@ -49,7 +49,7 @@ async function handle(job: Job, signal: AbortSignal) {
       await ensureProxy();
       return syncAllProxy();
     case "cleanup":
-      return cleanup();
+      return cleanup((job.payload as { full?: boolean }).full === true);
     case "task.run":
       return runTask(p.runId);
   }
@@ -188,13 +188,21 @@ async function scheduleBackups() {
   }
 }
 
-async function cleanup() {
+/**
+ * Routine housekeeping. Only touches Serve's own data and images, so it is safe
+ * on hosts that also run other Docker workloads.
+ */
+async function cleanup(full = false) {
   await pruneJobs();
   await pruneMetrics();
   await pruneRequestMetrics();
   await db.execute(dsql`DELETE FROM activity WHERE created_at < now() - interval '90 days'`);
-  await run("docker", ["builder", "prune", "-f", "--filter", "until=168h"]).catch(() => {});
-  await run("docker", ["image", "prune", "-f"]).catch(() => {});
+  await run("docker", ["image", "prune", "-f", "--filter", `label=${LABEL.managed}=true`]).catch(() => {});
+  if (full) {
+    // Requested explicitly by an admin: reclaim host-wide build cache and dangling images.
+    await run("docker", ["builder", "prune", "-f", "--filter", "until=168h"]).catch(() => {});
+    await run("docker", ["image", "prune", "-f"]).catch(() => {});
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -259,7 +267,7 @@ async function main() {
   every(60_000, "tasks", scheduleTasks);
   every(20_000, "analytics", ingestAccessLog, true);
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
-  every(12 * 3600_000, "cleanup", cleanup);
+  every(12 * 3600_000, "cleanup", () => cleanup(false));
   every(5 * 60_000, "proxy-health", async () => {
     const info = await docker.getContainer(process.env.SERVE_PROXY_CONTAINER ?? "serve-proxy").inspect().catch(() => null);
     if (!info?.State.Running) await ensureProxy((l) => log(l));

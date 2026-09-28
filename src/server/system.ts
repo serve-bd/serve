@@ -40,3 +40,27 @@ export async function systemStatus() {
 }
 
 export { resolveA } from "@/server/dns";
+
+/** Docker disk usage summary (images, containers, volumes, build cache). */
+export async function dockerDiskUsage() {
+  try {
+    const df = (await docker.df()) as {
+      LayersSize?: number;
+      Images?: { Size: number; Containers: number }[];
+      Containers?: { SizeRw?: number }[];
+      Volumes?: { UsageData?: { Size: number; RefCount: number } }[];
+      BuildCache?: { Size: number; InUse: boolean }[];
+    };
+    const images = df.Images ?? [];
+    const volumes = df.Volumes ?? [];
+    const cache = df.BuildCache ?? [];
+    return {
+      images: { count: images.length, size: df.LayersSize ?? images.reduce((a, i) => a + i.Size, 0), unused: images.filter((i) => i.Containers === 0).length },
+      containers: { count: (df.Containers ?? []).length, size: (df.Containers ?? []).reduce((a, c) => a + (c.SizeRw ?? 0), 0) },
+      volumes: { count: volumes.length, size: volumes.reduce((a, v) => a + Math.max(0, v.UsageData?.Size ?? 0), 0) },
+      buildCache: { count: cache.length, size: cache.reduce((a, c) => a + c.Size, 0) },
+    };
+  } catch {
+    return null;
+  }
+}

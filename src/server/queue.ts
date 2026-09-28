@@ -27,7 +27,7 @@ export type JobPayloads = {
   "backup.run": { backupId: string };
   "backup.restore": { backupId: string };
   "proxy.sync": Record<string, never>;
-  cleanup: Record<string, never>;
+  cleanup: { full?: boolean };
   "task.run": { runId: string };
 };
 

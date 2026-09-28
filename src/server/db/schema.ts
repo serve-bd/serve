@@ -606,6 +606,25 @@ export const metric = pgTable(
   (t) => [index("metric_scope_idx").on(t.scope, t.createdAt)],
 );
 
+/** Requests per hostname per minute, aggregated from the proxy access log. */
+export const requestMetric = pgTable(
+  "request_metric",
+  {
+    hostname: text("hostname").notNull(),
+    minute: timestamp("minute", { withTimezone: true }).notNull(),
+    requests: integer("requests").notNull().default(0),
+    s2xx: integer("s2xx").notNull().default(0),
+    s3xx: integer("s3xx").notNull().default(0),
+    s4xx: integer("s4xx").notNull().default(0),
+    s5xx: integer("s5xx").notNull().default(0),
+    bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+    /** Sum of response times in milliseconds. */
+    durationMs: bigint("duration_ms", { mode: "number" }).notNull().default(0),
+    maxMs: integer("max_ms").notNull().default(0),
+  },
+  (t) => [uniqueIndex("request_metric_pk").on(t.hostname, t.minute)],
+);
+
 /* -------------------------------------------------------------------------- */
 /*                                 Relations                                  */
 /* -------------------------------------------------------------------------- */

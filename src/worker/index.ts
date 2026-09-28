@@ -16,6 +16,7 @@ import { getSettings } from "@/server/settings";
 import { notify, orgOfService } from "@/server/notify";
 import { run } from "@/server/process";
 import { runTask, scheduleTasks } from "@/server/services/tasks";
+import { ingestAccessLog, pruneRequestMetrics } from "@/server/analytics";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -190,6 +191,7 @@ async function scheduleBackups() {
 async function cleanup() {
   await pruneJobs();
   await pruneMetrics();
+  await pruneRequestMetrics();
   await db.execute(dsql`DELETE FROM activity WHERE created_at < now() - interval '90 days'`);
   await run("docker", ["builder", "prune", "-f", "--filter", "until=168h"]).catch(() => {});
   await run("docker", ["image", "prune", "-f"]).catch(() => {});
@@ -255,6 +257,7 @@ async function main() {
   every(30_000, "metrics", collectMetrics, true);
   every(60_000, "backups", scheduleBackups);
   every(60_000, "tasks", scheduleTasks);
+  every(20_000, "analytics", ingestAccessLog, true);
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
   every(12 * 3600_000, "cleanup", cleanup);
   every(5 * 60_000, "proxy-health", async () => {

@@ -11,7 +11,7 @@ export default async function MetricsPage(props: PageProps<"/projects/[projectId
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   return (
     <PageBody>
-      <ServiceMetrics serviceId={service.id} memoryLimit={service.runtime.memoryLimit ?? null} />
+      <ServiceMetrics serviceId={service.id} memoryLimit={service.runtime.memoryLimit ?? null} hasDomains={service.type !== "database"} />
     </PageBody>
   );
 }

@@ -153,3 +153,29 @@ export async function removeMember(memberId: string) {
     return { self };
   });
 }
+
+export async function createApiToken(name: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const clean = z.string().trim().min(1, "Enter a name").max(60).parse(name);
+    const { randomSecret, sha256 } = await import("@/server/crypto");
+    const token = `srv_${randomSecret(30)}`;
+    await db.insert(schema.apiToken).values({
+      id: newId(),
+      organizationId: ctx.org.id,
+      userId: ctx.user.id,
+      name: clean,
+      tokenHash: sha256(token),
+      prefix: token.slice(0, 10),
+    });
+    return { token };
+  });
+}
+
+export async function revokeApiToken(id: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    await db.delete(schema.apiToken).where(and(eq(schema.apiToken.id, id), eq(schema.apiToken.organizationId, ctx.org.id)));
+    return null;
+  });
+}

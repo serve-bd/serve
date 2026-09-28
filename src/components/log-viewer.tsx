@@ -9,13 +9,14 @@ export type LogLine = { text: string; time?: string; source?: string | null; err
 
 const MAX_LINES = 5000;
 
-function lineTone(text: string, error?: boolean) {
+function lineTone(text: string) {
   if (text.startsWith("==> ")) {
     if (/failed/i.test(text)) return "step-bad";
     if (/successfully/i.test(text)) return "step-ok";
     return "step";
   }
-  if (error || /\b(error|fatal|panic|exception)\b/i.test(text)) return "err";
+  // Many apps log normally to stderr, so only the content decides the tone.
+  if (/\b(error|fatal|panic|exception|failed)\b/i.test(text)) return "err";
   if (/\bwarn(ing)?\b/i.test(text)) return "warn";
   return "";
 }
@@ -107,17 +108,17 @@ export function LogViewer({
           <table className="w-full border-collapse">
             <tbody>
               {visible.map((l) => {
-                const tone = lineTone(l.text, l.error);
+                const tone = lineTone(l.text);
                 return (
                   <tr key={l.n} className={cn("group align-top hover:bg-white/[0.03]", tone.startsWith("step") && "bg-white/[0.035]")}>
-                    <td className="w-12 pr-3 pl-3 text-right text-white/20 select-none tabular-nums">{l.n}</td>
+                    <td className="w-px pr-3 pl-4 text-right whitespace-nowrap text-white/20 select-none tabular-nums">{l.n}</td>
                     {showTime && (
-                      <td className="pr-3 whitespace-nowrap text-white/30 select-none tabular-nums">
+                      <td className="w-px pr-3 whitespace-nowrap text-white/30 select-none tabular-nums">
                         {l.time ? new Date(l.time).toLocaleTimeString([], { hour12: false }) : ""}
                       </td>
                     )}
                     {l.source !== undefined && l.source !== null && (
-                      <td className="pr-3 whitespace-nowrap text-[#64d2ff]/70 select-none">{l.source}</td>
+                      <td className="w-px pr-3 whitespace-nowrap text-[#64d2ff]/70 select-none">{l.source}</td>
                     )}
                     <td
                       className={cn(

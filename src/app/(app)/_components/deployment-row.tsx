@@ -25,6 +25,16 @@ const triggerIcon: Record<string, React.ReactNode> = {
   "deploy-hook": <Webhook className="size-3" />,
 };
 
+const triggerLabel: Record<string, string> = {
+  create: "Initial deployment",
+  manual: "Manual deployment",
+  redeploy: "Redeploy",
+  rollback: "Rollback",
+  webhook: "Git push",
+  "deploy-hook": "Deploy hook",
+  api: "API deployment",
+};
+
 export function DeploymentRow({ d, showService = true, current }: { d: DeploymentRowData; showService?: boolean; current?: boolean }) {
   const duration = d.startedAt && d.finishedAt ? formatDuration(new Date(d.finishedAt).getTime() - new Date(d.startedAt).getTime()) : null;
   return (
@@ -35,7 +45,7 @@ export function DeploymentRow({ d, showService = true, current }: { d: Deploymen
       <StatusDot status={d.status} kind="deployment" />
       <div className="flex min-w-0 items-center gap-2">
         {showService && d.serviceName && <span className="shrink-0 text-[13px] font-medium text-fg">{d.serviceName}</span>}
-        <span className="truncate text-[13px] text-fg-2">{d.commitMessage || (d.trigger === "rollback" ? "Rollback" : `${d.trigger[0].toUpperCase()}${d.trigger.slice(1)} deploy`)}</span>
+        <span className="truncate text-[13px] text-fg-2">{d.commitMessage || triggerLabel[d.trigger] || "Deployment"}</span>
         {current && <span className="shrink-0 rounded-full bg-ok-soft px-1.5 text-[10px] font-semibold text-ok">CURRENT</span>}
       </div>
       <span className="text-right text-xs text-faint">

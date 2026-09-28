@@ -777,3 +777,31 @@ export async function latestDeployments(serviceIds: string[]) {
     .limit(serviceIds.length * 3);
   return rows.map((r) => r.d);
 }
+
+export async function checkDomainDns(domainId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
+    if (!domain) throw new UserError("Domain not found.");
+    await serviceInOrg(domain.serviceId, ctx.org.id);
+    const { domainDnsStatus } = await import("@/server/dns");
+    const settings = await getSettings();
+    return domainDnsStatus(domain.hostname, settings.serverIp);
+  });
+}
+
+export async function retryCertificate(domainId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
+    if (!domain) throw new UserError("Domain not found.");
+    await serviceInOrg(domain.serviceId, ctx.org.id);
+    const settings = await getSettings();
+    if (!settings.acmeEmail) throw new UserError("Set a Let's Encrypt email in Server settings first.");
+    const cert = await ensureCertificateFor(domain, ctx.org.id);
+    if (cert && cert.status !== "active") {
+      await enqueue("certificate.issue", { certificateId: cert.id }, { concurrencyKey: `cert:${cert.id}` });
+    }
+    return null;
+  });
+}

@@ -163,7 +163,7 @@ export async function metricSeries(scope: string, hours = 6, buckets = 72) {
       avg(cpu)::float / 100 AS cpu, avg(memory)::float AS memory, max(memory_limit)::float AS memory_limit,
       max(net_rx)::float AS net_rx, max(net_tx)::float AS net_tx,
       avg(disk)::float AS disk, max(disk_total)::float AS disk_total
-    FROM metric WHERE scope = ${scope} AND created_at >= ${since}
+    FROM metric WHERE scope = ${scope} AND created_at >= ${since.toISOString()}::timestamptz
     GROUP BY 1 ORDER BY 1
   `);
   return [...rows].map((r) => ({

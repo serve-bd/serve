@@ -344,3 +344,24 @@ export async function testS3Destination(id: string) {
     return null;
   });
 }
+
+/** Find the Cloudflare zone (across connected accounts) that owns a hostname. */
+export async function findCloudflareZone(hostname: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const accounts = await db
+      .select()
+      .from(schema.cloudflareAccount)
+      .where(eq(schema.cloudflareAccount.organizationId, ctx.org.id));
+    for (const account of accounts) {
+      try {
+        const cf = new Cloudflare(decrypt(account.apiToken));
+        const zone = await cf.zoneFor(hostname);
+        if (zone) return { accountId: account.id, accountName: account.name, zoneId: zone.id, zoneName: zone.name };
+      } catch {
+        // try next account
+      }
+    }
+    return null;
+  });
+}

@@ -14,6 +14,7 @@ import { useAction } from "@/hooks/use-action";
 import { createAppService, createComposeService, createDatabaseService } from "@/server/actions/services";
 import { fetchBranches, fetchRepositories } from "@/server/actions/integrations";
 import { cn } from "@/lib/utils";
+import { parseEnv } from "@/lib/env";
 import type { DbEngine } from "@/server/services/types";
 
 type Kind = "git" | "image" | "database" | "compose" | "template";
@@ -45,22 +46,6 @@ const kinds: { id: Kind; title: string; body: string; icon: React.ReactNode }[] 
   { id: "compose", title: "Docker Compose", body: "Deploy a multi-container stack from a compose file.", icon: <Layers /> },
   { id: "template", title: "One-click service", body: "n8n, Umami, Ghost, Uptime Kuma and other ready-made apps.", icon: <Sparkles /> },
 ];
-
-/** Parse KEY=VALUE lines (supports quotes and comments). */
-export function parseEnv(text: string) {
-  const out: { key: string; value: string }[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq < 1) continue;
-    const key = line.slice(0, eq).replace(/^export\s+/, "").trim();
-    let value = line.slice(eq + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
-    out.push({ key, value });
-  }
-  return out;
-}
 
 function repoName(url: string) {
   return (

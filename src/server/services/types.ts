@@ -17,7 +17,7 @@ export type ImageSource = {
 
 export type SourceConfig = GitSource | ImageSource;
 
-export type Builder = "auto" | "dockerfile" | "nixpacks" | "railpack" | "static";
+export type Builder = "auto" | "dockerfile" | "nixpacks" | "static";
 
 export type BuildConfig = {
   builder: Builder;

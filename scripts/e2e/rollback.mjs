@@ -1,4 +1,4 @@
-import { base, open, waitStatus } from "./lib.mjs";
+import { base, open } from "./lib.mjs";
 const svc = process.argv[2];
 const { browser, page } = await open();
 await page.goto(base + svc, { waitUntil: "networkidle" });

@@ -1,9 +1,13 @@
 import path from "node:path";
 
+const building = process.env.NEXT_PHASE === "phase-production-build";
+
 function required(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`Missing required environment variable ${name}`);
-  return value;
+  if (value) return value;
+  // `next build` evaluates route modules; real values are only needed at runtime.
+  if (building) return `build-placeholder-${name.toLowerCase()}`;
+  throw new Error(`Missing required environment variable ${name}`);
 }
 
 export const env = {

@@ -39,16 +39,4 @@ export async function systemStatus() {
   };
 }
 
-/** Resolve A records through public DNS over HTTPS (avoids local resolver caching). */
-export async function resolveA(hostname: string): Promise<string[]> {
-  try {
-    const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`, {
-      headers: { accept: "application/dns-json" },
-      signal: AbortSignal.timeout(5000),
-    });
-    const json = (await res.json()) as { Answer?: { type: number; data: string }[] };
-    return (json.Answer ?? []).filter((a) => a.type === 1).map((a) => a.data);
-  } catch {
-    return [];
-  }
-}
+export { resolveA } from "@/server/dns";

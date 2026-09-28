@@ -47,7 +47,7 @@ export function DeploymentView({
   const confirm = useConfirm();
   const [lines, setLines] = React.useState<LogLine[]>([]);
   const [state, setState] = React.useState<LogState>({ status: deployment.status, error: null, startedAt: null, finishedAt: null });
-  const [now, setNow] = React.useState(Date.now());
+  const [now, setNow] = React.useState(() => Date.now());
   const offset = React.useRef(0);
   const partial = React.useRef("");
 

@@ -17,6 +17,7 @@ import {
   type SiteUpstream,
 } from "./templates";
 import { certificateCovers } from "@/server/ssl/match";
+import { composeAlias } from "./names";
 
 async function writeIfChanged(file: string, content: string): Promise<boolean> {
   try {
@@ -205,9 +206,7 @@ export async function renderServiceSite(serviceId: string): Promise<string | nul
   ].join("\n");
 }
 
-export function composeAlias(slug: string, composeService: string) {
-  return `${slug}-${composeService}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-}
+export { composeAlias };
 
 async function renderDashboardSite(): Promise<string | null> {
   const settings = await getSettings();

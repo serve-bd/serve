@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Check, Copy } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
+import { useNow } from "@/hooks/use-client";
 import { Tooltip } from "./tooltip";
 
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
@@ -161,13 +162,8 @@ export function CopyField({ value, secret, className }: { value: string; secret?
 
 /** Relative time that renders on the client to avoid timezone mismatches. */
 export function TimeAgo({ date, className }: { date: Date | string | number | null | undefined; className?: string }) {
-  const [, force] = React.useReducer((x: number) => x + 1, 0);
-  const [mounted, setMounted] = React.useState(false);
-  React.useEffect(() => {
-    setMounted(true);
-    const t = setInterval(force, 30_000);
-    return () => clearInterval(t);
-  }, []);
+  const now = useNow();
+  const mounted = now !== null;
   if (!date) return <span className={className}>—</span>;
   const d = new Date(date);
   return (
@@ -195,6 +191,7 @@ export function Avatar({ name, src, className }: { name: string; src?: string | 
         className,
       )}
     >
+      {/* eslint-disable-next-line @next/next/no-img-element -- small remote avatars */}
       {src ? <img src={src} alt="" className="size-full object-cover" /> : initials || "?"}
     </span>
   );

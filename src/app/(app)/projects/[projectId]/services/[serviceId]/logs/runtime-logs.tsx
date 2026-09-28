@@ -5,6 +5,7 @@ import { Pause, Play, Trash2 } from "lucide-react";
 import { LogViewer, type LogLine } from "@/components/log-viewer";
 import { Led } from "@/components/ui/status";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useLatest } from "@/hooks/use-client";
 
 type Incoming = { t: string; m: string; s: string | null; e: boolean };
 
@@ -12,14 +13,12 @@ export function RuntimeLogs({ serviceId, name }: { serviceId: string; name: stri
   const [lines, setLines] = React.useState<LogLine[]>([]);
   const [connected, setConnected] = React.useState(false);
   const [paused, setPaused] = React.useState(false);
-  const pausedRef = React.useRef(false);
+  const pausedRef = useLatest(paused);
   const buffer = React.useRef<LogLine[]>([]);
-  pausedRef.current = paused;
 
   React.useEffect(() => {
     let es: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout>;
-    let flush: ReturnType<typeof setInterval>;
     const connect = () => {
       es = new EventSource(`/api/services/${serviceId}/logs?tail=500`);
       es.onopen = () => setConnected(true);
@@ -39,7 +38,7 @@ export function RuntimeLogs({ serviceId, name }: { serviceId: string; name: stri
     };
     connect();
     // Batch UI updates for smooth scrolling under heavy output.
-    flush = setInterval(() => {
+    const flush = setInterval(() => {
       if (pausedRef.current || !buffer.current.length) return;
       const next = buffer.current.splice(0);
       setLines((prev) => {
@@ -52,7 +51,7 @@ export function RuntimeLogs({ serviceId, name }: { serviceId: string; name: stri
       clearTimeout(retry);
       clearInterval(flush);
     };
-  }, [serviceId]);
+  }, [serviceId, pausedRef]);
 
   return (
     <LogViewer

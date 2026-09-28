@@ -1,0 +1,64 @@
+# Production stack for Serve. Used by install.sh (copied to /data/serve/docker-compose.yml).
+name: serve
+
+services:
+  serve:
+    image: ${SERVE_IMAGE:-ghcr.io/shahriyardx/serve:latest}
+    container_name: serve
+    command: web
+    restart: unless-stopped
+    env_file: /data/serve/.env
+    environment:
+      SERVE_ROLE: web
+    ports:
+      - "${SERVE_DASHBOARD_PORT:-8000}:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /data/serve:/data/serve
+    depends_on:
+      serve-db:
+        condition: service_healthy
+    networks: [serve]
+
+  serve-worker:
+    image: ${SERVE_IMAGE:-ghcr.io/shahriyardx/serve:latest}
+    container_name: serve-worker
+    command: worker
+    restart: unless-stopped
+    env_file: /data/serve/.env
+    environment:
+      SERVE_ROLE: worker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /data/serve:/data/serve
+    depends_on:
+      serve:
+        condition: service_healthy
+    networks: [serve]
+
+  serve-db:
+    image: postgres:17-alpine
+    container_name: serve-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: serve
+      POSTGRES_PASSWORD: ${SERVE_DB_PASSWORD}
+      POSTGRES_DB: serve
+    volumes:
+      - serve-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U serve"]
+      interval: 5s
+      retries: 20
+    networks: [serve]
+
+networks:
+  serve:
+    name: serve
+    # Fixed range so the stack starts even when Docker's default pools are exhausted.
+    ipam:
+      config:
+        - subnet: ${SERVE_NETWORK_SUBNET:-10.209.0.0/16}
+
+volumes:
+  serve-db-data:

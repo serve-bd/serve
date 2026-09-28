@@ -218,6 +218,12 @@ async function recover() {
 }
 
 async function main() {
+  if (process.argv.includes("--migrate")) {
+    await runMigrations();
+    log("Migrations applied");
+    await sql.end({ timeout: 5 });
+    process.exit(0);
+  }
   log("Starting Serve worker");
   await runMigrations();
   log("Migrations applied");

@@ -28,13 +28,11 @@ type S = {
   allowOrganizationCreation: boolean;
 };
 
-function Section({ title, description, children, fields, values, initial }: { title: string; description?: string; children: React.ReactNode; fields: (keyof S)[]; values: S; initial: React.RefObject<S> }) {
-  const dirty = fields.some((f) => values[f] !== initial.current[f]);
+function Section({ title, description, children, fields, values, saved, onSaved }: { title: string; description?: string; children: React.ReactNode; fields: (keyof S)[]; values: S; saved: S; onSaved: (patch: Partial<S>) => void }) {
+  const dirty = fields.some((f) => values[f] !== saved[f]);
   const save = useAction(() => saveServerSettings(Object.fromEntries(fields.map((f) => [f, values[f]]))), {
     success: "Settings saved",
-    onSuccess: () => {
-      for (const f of fields) (initial.current as Record<string, unknown>)[f] = values[f];
-    },
+    onSuccess: () => onSaved(Object.fromEntries(fields.map((f) => [f, values[f]])) as Partial<S>),
   });
   return (
     <Card>
@@ -71,7 +69,8 @@ export function ServerSettingsView({
   organizations: { id: string; name: string; createdAt: string; members: number; isRoot: boolean }[];
 }) {
   const [v, setV] = React.useState<S>(settings);
-  const initial = React.useRef<S>({ ...settings });
+  const [saved, setSaved] = React.useState<S>(settings);
+  const onSaved = (patch: Partial<S>) => setSaved((p) => ({ ...p, ...patch }));
   const set = <K extends keyof S>(k: K) => (val: S[K]) => setV((p) => ({ ...p, [k]: val }));
   const sync = useAction(resyncProxy, { success: "Proxy configuration is being rebuilt" });
   const clean = useAction(runCleanup, { success: "Cleanup started" });
@@ -104,7 +103,7 @@ export function ServerSettingsView({
         </div>
       </Card>
 
-      <Section title="General" fields={["instanceName", "serverIp"]} values={v} initial={initial}>
+      <Section title="General" fields={["instanceName", "serverIp"]} values={v} saved={saved} onSaved={onSaved}>
         <Field label="Server name"><Input value={v.instanceName} onChange={(e) => set("instanceName")(e.target.value)} /></Field>
         <Field label="Public IPv4" description="Used for DNS records and generated domains.">
           <div className="flex gap-2">
@@ -114,7 +113,7 @@ export function ServerSettingsView({
         </Field>
       </Section>
 
-      <Section title="Domains" description="How apps and the dashboard are reached." fields={["wildcardDomain", "sslipFallback", "dashboardDomain", "dashboardHttps"]} values={v} initial={initial}>
+      <Section title="Domains" description="How apps and the dashboard are reached." fields={["wildcardDomain", "sslipFallback", "dashboardDomain", "dashboardHttps"]} values={v} saved={saved} onSaved={onSaved}>
         <Field label="Wildcard domain for apps" optional description="Point *.your-domain to this server. New apps get a subdomain automatically.">
           <InputGroup prefix="*."><Input value={v.wildcardDomain} onChange={(e) => set("wildcardDomain")(e.target.value)} placeholder="apps.example.com" /></InputGroup>
         </Field>
@@ -125,12 +124,12 @@ export function ServerSettingsView({
         <SwitchRow title="HTTPS for the dashboard" description="Requests a Let's Encrypt certificate for the dashboard domain." checked={v.dashboardHttps} onCheckedChange={set("dashboardHttps")} />
       </Section>
 
-      <Section title="Let's Encrypt" fields={["acmeEmail", "acmeStaging"]} values={v} initial={initial}>
+      <Section title="Let's Encrypt" fields={["acmeEmail", "acmeStaging"]} values={v} saved={saved} onSaved={onSaved}>
         <Field label="Account email" description="Required for automatic certificates."><Input type="email" value={v.acmeEmail} onChange={(e) => set("acmeEmail")(e.target.value)} placeholder="ops@example.com" /></Field>
         <SwitchRow title="Use staging" description="Untrusted test certificates with higher rate limits." checked={v.acmeStaging} onCheckedChange={set("acmeStaging")} />
       </Section>
 
-      <Section title="Builds and limits" fields={["buildConcurrency", "imageRetention", "metricsRetentionHours", "proxyMaxBodySize"]} values={v} initial={initial}>
+      <Section title="Builds and limits" fields={["buildConcurrency", "imageRetention", "metricsRetentionHours", "proxyMaxBodySize"]} values={v} saved={saved} onSaved={onSaved}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Concurrent builds"><Input value={String(v.buildConcurrency)} onChange={(e) => set("buildConcurrency")(Number(e.target.value.replace(/\D/g, "")) || 1)} inputMode="numeric" /></Field>
           <Field label="Images kept per service" description="For instant rollbacks."><Input value={String(v.imageRetention)} onChange={(e) => set("imageRetention")(Number(e.target.value.replace(/\D/g, "")) || 1)} inputMode="numeric" /></Field>
@@ -139,7 +138,7 @@ export function ServerSettingsView({
         </div>
       </Section>
 
-      <Section title="Organizations" description="Organizations on this server." fields={["allowOrganizationCreation"]} values={v} initial={initial}>
+      <Section title="Organizations" description="Organizations on this server." fields={["allowOrganizationCreation"]} values={v} saved={saved} onSaved={onSaved}>
         <SwitchRow title="Let every user create organizations" description="When off, only Root admins can create them." checked={v.allowOrganizationCreation} onCheckedChange={set("allowOrganizationCreation")} />
         <div className="divide-y divide-line rounded-xl border border-line">
           {organizations.map((o) => (

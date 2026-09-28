@@ -4,7 +4,7 @@ import YAML from "yaml";
 import { env } from "@/server/env";
 import { LABEL } from "@/server/docker/client";
 import { run } from "@/server/process";
-import { composeAlias } from "@/server/proxy/nginx";
+import { composeAlias } from "@/server/proxy/names";
 
 type ComposeFile = {
   services?: Record<string, ComposeService>;

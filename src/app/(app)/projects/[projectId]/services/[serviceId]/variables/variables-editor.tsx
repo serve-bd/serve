@@ -47,15 +47,15 @@ export function VariablesEditor({
   const [raw, setRaw] = React.useState<string | null>(null);
   const [revealed, setRevealed] = React.useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const baseline = React.useRef(JSON.stringify(initial));
+  const [baseline, setBaseline] = React.useState(() => JSON.stringify(initial));
 
-  const current = raw !== null ? parseEnv(raw).map((v) => ({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? false, runtime: vars.find((x) => x.key === v.key)?.runtime ?? true })) : vars.map(({ id: _id, ...v }) => v);
-  const dirty = JSON.stringify(current.filter((v) => v.key)) !== baseline.current;
+  const current = raw !== null ? parseEnv(raw).map((v) => ({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? false, runtime: vars.find((x) => x.key === v.key)?.runtime ?? true })) : vars.map((v) => ({ key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime }));
+  const dirty = JSON.stringify(current.filter((v) => v.key)) !== baseline;
 
   const save = useAction((redeploy: boolean) => saveEnvVars(serviceId, current, redeploy), {
     success: (d) => (d.deploymentId ? "Saved. Redeploying…" : "Variables saved"),
     onSuccess: () => {
-      baseline.current = JSON.stringify(current.filter((v) => v.key));
+      setBaseline(JSON.stringify(current.filter((v) => v.key)));
       if (raw !== null) {
         setVars(current.map(withId));
         setRaw(null);

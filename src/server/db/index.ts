@@ -9,7 +9,7 @@ const globalForDb = globalThis as unknown as {
 
 export const sql =
   globalForDb.sql ??
-  postgres(env.databaseUrl, {
+  postgres(env.databaseUrl.startsWith("build-placeholder") ? "postgres://build@127.0.0.1:1/build" : env.databaseUrl, {
     max: Number(process.env.DATABASE_POOL_SIZE ?? 10),
     idle_timeout: 30,
     onnotice: () => {},

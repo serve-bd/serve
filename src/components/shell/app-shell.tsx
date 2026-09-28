@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { OrgSwitcher, type OrgItem } from "./org-switcher";
 import { projectColor } from "./project-color";
 import { CommandPalette, useCommandPalette } from "./command-palette";
+import { useTheme } from "@/hooks/use-client";
 
 type ShellProps = {
   user: { id: string; name: string; email: string; image: string | null };
@@ -95,22 +96,6 @@ function NavGroup({ title, children }: { title?: string; children: React.ReactNo
       {children}
     </div>
   );
-}
-
-export function useTheme() {
-  const [theme, setTheme] = React.useState<"light" | "dark">("dark");
-  React.useEffect(() => {
-    setTheme((document.documentElement.dataset.theme as "light" | "dark") ?? "dark");
-  }, []);
-  const toggle = React.useCallback(() => {
-    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    try {
-      localStorage.setItem("serve-theme", next);
-    } catch {}
-    setTheme(next);
-  }, []);
-  return { theme, toggle };
 }
 
 function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?: () => void }) {
@@ -225,8 +210,6 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
 
 export function AppShell(props: ShellProps) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  const pathname = usePathname();
-  React.useEffect(() => setMobileOpen(false), [pathname]);
 
   return (
     <CommandPalette projects={props.projects} isInstanceAdmin={props.isInstanceAdmin}>

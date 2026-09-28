@@ -17,7 +17,6 @@ export class DeployLogger {
   }
 
   private clean(line: string) {
-    // eslint-disable-next-line no-control-regex
     let out = line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r/g, "");
     for (const secret of this.redactions) out = out.split(secret).join("********");
     return out;

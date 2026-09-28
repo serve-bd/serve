@@ -48,14 +48,6 @@ function RecordDialog({
   const [proxied, setProxied] = React.useState(record?.proxied ?? false);
   const [ttl, setTtl] = React.useState(String(record?.ttl ?? 1));
   const [priority, setPriority] = React.useState(String(record?.priority ?? 10));
-  React.useEffect(() => {
-    if (!open) return;
-    setType(record?.type ?? "A");
-    setName(record ? (record.name === zoneName ? "@" : record.name.replace(`.${zoneName}`, "")) : "");
-    setContent(record?.content ?? (serverIp ?? ""));
-    setProxied(record?.proxied ?? false);
-    setTtl(String(record?.ttl ?? 1));
-  }, [open, record, serverIp, zoneName]);
   const full = name === "@" || !name ? zoneName : `${name}.${zoneName}`;
   const proxiable = ["A", "AAAA", "CNAME"].includes(type);
   return (
@@ -136,6 +128,12 @@ export function ZoneManager({
   const [typeFilter, setTypeFilter] = React.useState("all");
   const [editing, setEditing] = React.useState<Rec | null>(null);
   const [open, setOpen] = React.useState(false);
+  const [dialogKey, setDialogKey] = React.useState(0);
+  const openDialog = (r: Rec | null) => {
+    setEditing(r);
+    setDialogKey((k) => k + 1);
+    setOpen(true);
+  };
   const save = useAction(
     (r: { type: string; name: string; content: string; proxied: boolean; ttl: number; priority?: number }) =>
       upsertDnsRecord(accountId, zone.id, editing?.id ?? null, r as Parameters<typeof upsertDnsRecord>[3]),
@@ -161,7 +159,7 @@ export function ZoneManager({
           <Select size="sm" value={typeFilter} onValueChange={setTypeFilter} options={[{ value: "all", label: "All types" }, ...types.map((t) => ({ value: t, label: t }))]} className="w-32" />
           <div className="flex-1" />
           {isAdmin && (
-            <Button size="sm" variant="primary" onClick={() => { setEditing(null); setOpen(true); }}>
+            <Button size="sm" variant="primary" onClick={() => openDialog(null)}>
               <Plus /> Add record
             </Button>
           )}
@@ -206,7 +204,7 @@ export function ZoneManager({
                     <td className="px-3 py-2.5 text-right">
                       {isAdmin && (
                         <div className="flex justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
-                          <Button variant="ghost" size="icon-sm" onClick={() => { setEditing(r); setOpen(true); }} aria-label="Edit record">
+                          <Button variant="ghost" size="icon-sm" onClick={() => openDialog(r)} aria-label="Edit record">
                             <Pencil />
                           </Button>
                           <Button
@@ -280,7 +278,7 @@ export function ZoneManager({
         </Card>
       </div>
 
-      <RecordDialog zoneName={zone.name} record={editing} serverIp={serverIp} open={open} onOpenChange={setOpen} onSave={(r) => save.run(r)} pending={save.pending} />
+      <RecordDialog key={dialogKey} zoneName={zone.name} record={editing} serverIp={serverIp} open={open} onOpenChange={setOpen} onSave={(r) => save.run(r)} pending={save.pending} />
     </div>
   );
 }

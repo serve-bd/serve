@@ -8,6 +8,7 @@ import { Card, CardBody, CardFooter, CardHeader, TimeAgo, Badge } from "@/compon
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
+import useSWR from "swr";
 import { authClient } from "@/lib/auth-client";
 
 type SessionRow = { id: string; token: string; userAgent?: string | null; ipAddress?: string | null; createdAt: Date; updatedAt: Date };
@@ -26,17 +27,13 @@ export function AccountView({ user }: { user: { name: string; email: string } })
   const [current, setCurrent] = React.useState("");
   const [next, setNext] = React.useState("");
   const [changing, setChanging] = React.useState(false);
-  const [sessions, setSessions] = React.useState<SessionRow[]>([]);
-  const [currentToken, setCurrentToken] = React.useState<string | null>(null);
-
-  const load = React.useCallback(async () => {
+  const { data, mutate } = useSWR("account-sessions", async () => {
     const [list, me] = await Promise.all([authClient.listSessions(), authClient.getSession()]);
-    if (list.data) setSessions(list.data as SessionRow[]);
-    setCurrentToken(me.data?.session.token ?? null);
-  }, []);
-  React.useEffect(() => {
-    void load();
-  }, [load]);
+    return { sessions: (list.data ?? []) as SessionRow[], currentToken: me.data?.session.token ?? null };
+  });
+  const sessions = data?.sessions ?? [];
+  const currentToken = data?.currentToken ?? null;
+  const load = () => void mutate();
 
   return (
     <div className="flex flex-col gap-6">

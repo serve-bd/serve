@@ -1,0 +1,11 @@
+node_modules
+.next
+.next-*
+.data
+.data-e2e
+dist
+.git
+.env
+.env.e2e
+*.log
+scripts/e2e

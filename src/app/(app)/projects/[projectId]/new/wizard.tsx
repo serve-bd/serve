@@ -15,6 +15,7 @@ import { createAppService, createComposeService, createDatabaseService } from "@
 import { fetchBranches, fetchRepositories } from "@/server/actions/integrations";
 import { cn } from "@/lib/utils";
 import { parseEnv } from "@/lib/env";
+import useSWR from "swr";
 import type { DbEngine } from "@/server/services/types";
 
 type Kind = "git" | "image" | "database" | "compose" | "template";
@@ -129,7 +130,6 @@ function EnvTextarea({ value, onChange }: { value: string; onChange: (v: string)
 function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const router = useRouter();
   const [credentialId, setCredentialId] = React.useState<string>(props.credentials.find((c) => c.provider !== "ssh")?.id ?? "public");
-  const [repos, setRepos] = React.useState<{ fullName: string; cloneUrl: string; defaultBranch: string; private: boolean }[] | null>(null);
   const [query, setQuery] = React.useState("");
   const [repository, setRepository] = React.useState("");
   const [branch, setBranch] = React.useState("main");
@@ -145,19 +145,15 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const cred = props.credentials.find((c) => c.id === credentialId);
   const canList = cred && cred.provider !== "ssh";
 
-  React.useEffect(() => {
-    setRepos(null);
-    if (!canList) return;
-    let cancelled = false;
-    fetchRepositories(credentialId).then((res) => {
-      if (cancelled) return;
-      if (res.ok) setRepos(res.data);
-      else toast.error(res.error);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [credentialId, canList]);
+  const { data: repoData } = useSWR(canList ? ["repos", credentialId] : null, async () => {
+    const res = await fetchRepositories(credentialId);
+    if (!res.ok) {
+      toast.error(res.error);
+      return [];
+    }
+    return res.data;
+  });
+  const repos = canList ? (repoData ?? null) : null;
 
   const loadBranches = React.useCallback(
     async (repo: string) => {
@@ -391,10 +387,13 @@ function DatabaseForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const [engine, setEngine] = React.useState<DbEngine>("postgres");
   const info = props.engines.find((e) => e.engine === engine)!;
   const [version, setVersion] = React.useState(info.defaultVersion);
+  const pickEngine = (e: DbEngine) => {
+    setEngine(e);
+    setVersion(props.engines.find((x) => x.engine === e)!.defaultVersion);
+  };
   const [name, setName] = React.useState("");
   const [username, setUsername] = React.useState("");
   const [database, setDatabase] = React.useState("");
-  React.useEffect(() => setVersion(info.defaultVersion), [info.defaultVersion]);
   const { run, pending } = useAction(createDatabaseService, {
     refresh: false,
     success: "Database created. Starting…",
@@ -427,7 +426,7 @@ function DatabaseForm({ props, onBack }: { props: Props; onBack: () => void }) {
           <button
             key={e.engine}
             type="button"
-            onClick={() => setEngine(e.engine)}
+            onClick={() => pickEngine(e.engine)}
             className={cn(
               "flex flex-col items-center gap-2 rounded-xl border p-3 text-[13px] font-medium transition-all",
               engine === e.engine ? "border-accent bg-accent-soft text-fg shadow-[0_0_0_1px_var(--accent)]" : "border-line text-fg-2 hover:border-line-strong hover:bg-hover/50",

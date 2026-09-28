@@ -17,6 +17,8 @@ import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
 import { addDomain, checkDomainDns, generateDomain, removeDomain, retryCertificate, updateDomain } from "@/server/actions/services";
 import { findCloudflareZone } from "@/server/actions/integrations";
+import useSWR from "swr";
+import { useDebounced } from "@/hooks/use-client";
 
 type DomainRow = {
   id: string;
@@ -67,17 +69,11 @@ function HttpsState({ d, hasAcme }: { d: DomainRow; hasAcme: boolean }) {
 }
 
 function DnsBadge({ domainId }: { domainId: string }) {
-  const [state, setState] = React.useState<{ status: string; records: string[] } | null>(null);
-  const [loading, setLoading] = React.useState(false);
-  const check = React.useCallback(async () => {
-    setLoading(true);
+  const { data: state, isValidating: loading, mutate } = useSWR(["dns", domainId], async () => {
     const res = await checkDomainDns(domainId);
-    setLoading(false);
-    if (res.ok) setState(res.data);
-  }, [domainId]);
-  React.useEffect(() => {
-    void check();
-  }, [check]);
+    return res.ok ? res.data : null;
+  }, { revalidateOnFocus: false });
+  const check = () => void mutate();
   const map: Record<string, { tone: "ok" | "info" | "bad" | "warn" | "neutral"; label: string }> = {
     ok: { tone: "ok", label: "DNS OK" },
     proxied: { tone: "info", label: "Cloudflare proxy" },
@@ -98,30 +94,20 @@ function DnsBadge({ domainId }: { domainId: string }) {
 function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: boolean; onOpenChange: (o: boolean) => void }) {
   const [hostname, setHostname] = React.useState("");
   const [https, setHttps] = React.useState(true);
-  const [port, setPort] = React.useState("");
+  const [port, setPort] = React.useState(() => (props.type === "compose" ? String(props.composePorts[props.composeServices[0] ?? ""]?.[0] ?? "") : ""));
   const [composeService, setComposeService] = React.useState(props.composeServices[0] ?? "");
-  const [zone, setZone] = React.useState<{ accountId: string; zoneId: string; zoneName: string; accountName: string } | null>(null);
+  const defaultPortFor = (svc: string) => String(props.composePorts[svc]?.[0] ?? "");
   const [createRecord, setCreateRecord] = React.useState(true);
   const [proxied, setProxied] = React.useState(false);
   const [redirect, setRedirect] = React.useState("");
   const [mode, setMode] = React.useState<"route" | "redirect">("route");
 
-  React.useEffect(() => {
-    if (!props.hasCloudflare || !/\.[a-z]{2,}$/i.test(hostname)) {
-      setZone(null);
-      return;
-    }
-    const t = setTimeout(async () => {
-      const res = await findCloudflareZone(hostname);
-      setZone(res.ok ? res.data : null);
-    }, 500);
-    return () => clearTimeout(t);
-  }, [hostname, props.hasCloudflare]);
-
-  React.useEffect(() => {
-    const ports = props.composePorts[composeService];
-    if (ports?.length && !port) setPort(String(ports[0]));
-  }, [composeService, props.composePorts, port]);
+  const lookup = useDebounced(hostname, 500);
+  const { data: zoneData } = useSWR(props.hasCloudflare && /\.[a-z]{2,}$/i.test(lookup) ? ["cf-zone", lookup] : null, async () => {
+    const res = await findCloudflareZone(lookup);
+    return res.ok ? res.data : null;
+  });
+  const zone = props.hasCloudflare && /\.[a-z]{2,}$/i.test(hostname) ? (zoneData ?? null) : null;
 
   const { run, pending } = useAction(
     () =>
@@ -173,7 +159,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
               <div className="grid gap-4 sm:grid-cols-2">
                 {props.type === "compose" && (
                   <Field label="Compose service">
-                    <Select value={composeService} onValueChange={(v) => { setComposeService(v); setPort(""); }} options={props.composeServices.map((s) => ({ value: s, label: s }))} />
+                    <Select value={composeService} onValueChange={(v) => { setComposeService(v); setPort(defaultPortFor(v)); }} options={props.composeServices.map((s) => ({ value: s, label: s }))} />
                   </Field>
                 )}
                 <Field label="Container port" optional={props.type !== "compose"} description={props.type === "app" && props.defaultPort ? `Defaults to ${props.defaultPort}` : undefined}>

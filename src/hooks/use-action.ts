@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/ui/toast";
 import type { ActionResult } from "@/server/action";
+import { useLatest } from "./use-client";
 
 type Options<T> = {
   success?: string | ((data: T) => string);
@@ -16,8 +17,7 @@ type Options<T> = {
 export function useAction<A extends unknown[], T>(action: (...args: A) => Promise<ActionResult<T>>, opts: Options<T> = {}) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
-  const optsRef = React.useRef(opts);
-  optsRef.current = opts;
+  const optsRef = useLatest(opts);
 
   const run = React.useCallback(
     async (...args: A): Promise<T | undefined> => {
@@ -40,7 +40,7 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
         setPending(false);
       }
     },
-    [action, router],
+    [action, router, optsRef],
   );
 
   return { run, pending };

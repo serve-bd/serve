@@ -15,6 +15,7 @@ import { collectMetrics, pruneMetrics } from "@/server/metrics";
 import { getSettings } from "@/server/settings";
 import { notify, orgOfService } from "@/server/notify";
 import { run } from "@/server/process";
+import { runTask, scheduleTasks } from "@/server/services/tasks";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -48,6 +49,8 @@ async function handle(job: Job, signal: AbortSignal) {
       return syncAllProxy();
     case "cleanup":
       return cleanup();
+    case "task.run":
+      return runTask(p.runId);
   }
 }
 
@@ -251,6 +254,7 @@ async function main() {
   every(15_000, "monitor", monitorServices, true);
   every(30_000, "metrics", collectMetrics, true);
   every(60_000, "backups", scheduleBackups);
+  every(60_000, "tasks", scheduleTasks);
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
   every(12 * 3600_000, "cleanup", cleanup);
   every(5 * 60_000, "proxy-health", async () => {

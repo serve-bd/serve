@@ -63,10 +63,11 @@ export function ServiceHeader({ project, environment, service, initialLive }: Pr
   const tabs = [
     { href: base, label: service.type === "database" ? "Overview" : "Deployments", exact: true },
     { href: `${base}/logs`, label: "Logs" },
+    { href: `${base}/console`, label: "Console" },
     { href: `${base}/metrics`, label: "Metrics" },
     { href: `${base}/variables`, label: "Variables" },
     ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains" }] : []),
-    ...(service.type === "database" ? [{ href: `${base}/backups`, label: "Backups" }] : []),
+    ...(service.type === "database" ? [{ href: `${base}/backups`, label: "Backups" }] : [{ href: `${base}/tasks`, label: "Tasks" }]),
     { href: `${base}/settings`, label: "Settings" },
   ];
 

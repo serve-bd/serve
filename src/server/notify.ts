@@ -10,7 +10,8 @@ export type NotifyEvent =
   | "backup.failed"
   | "backup.success"
   | "certificate.failed"
-  | "certificate.renewed";
+  | "certificate.renewed"
+  | "task.failed";
 
 export const notifyEvents: { id: NotifyEvent; label: string }[] = [
   { id: "deploy.success", label: "Deployment succeeded" },
@@ -20,6 +21,7 @@ export const notifyEvents: { id: NotifyEvent; label: string }[] = [
   { id: "backup.failed", label: "Backup failed" },
   { id: "certificate.renewed", label: "Certificate issued or renewed" },
   { id: "certificate.failed", label: "Certificate failed" },
+  { id: "task.failed", label: "Scheduled task failed" },
 ];
 
 type Message = { title: string; body: string; url?: string; ok: boolean };

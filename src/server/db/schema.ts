@@ -492,6 +492,54 @@ export const s3Destination = pgTable("s3_destination", {
 });
 
 /* -------------------------------------------------------------------------- */
+/*                              Scheduled tasks                               */
+/* -------------------------------------------------------------------------- */
+
+export const scheduledTask = pgTable(
+  "scheduled_task",
+  {
+    id: id(),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    schedule: text("schedule").notNull(),
+    command: text("command").notNull(),
+    /** For compose services: which container runs the command. */
+    composeService: text("compose_service"),
+    enabled: boolean("enabled").notNull().default(true),
+    timeoutSeconds: integer("timeout_seconds").notNull().default(3600),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastStatus: text("last_status"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("scheduled_task_service_idx").on(t.serviceId)],
+);
+
+export type TaskRunStatus = "running" | "success" | "failed";
+
+export const taskRun = pgTable(
+  "task_run",
+  {
+    id: id(),
+    taskId: text("task_id").references(() => scheduledTask.id, { onDelete: "cascade" }),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    command: text("command").notNull(),
+    trigger: text("trigger").notNull().default("schedule"),
+    status: text("status").$type<TaskRunStatus>().notNull().default("running"),
+    exitCode: integer("exit_code"),
+    output: text("output").notNull().default(""),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index("task_run_task_idx").on(t.taskId, t.startedAt), index("task_run_service_idx").on(t.serviceId, t.startedAt)],
+);
+
+/* -------------------------------------------------------------------------- */
 /*                              Jobs & telemetry                              */
 /* -------------------------------------------------------------------------- */
 
@@ -638,6 +686,16 @@ export const sharedVarRelations = relations(sharedVar, ({ one }) => ({
 
 export const backupRelations = relations(backup, ({ one }) => ({
   service: one(service, { fields: [backup.serviceId], references: [service.id] }),
+}));
+
+export const scheduledTaskRelations = relations(scheduledTask, ({ one, many }) => ({
+  service: one(service, { fields: [scheduledTask.serviceId], references: [service.id] }),
+  runs: many(taskRun),
+}));
+
+export const taskRunRelations = relations(taskRun, ({ one }) => ({
+  task: one(scheduledTask, { fields: [taskRun.taskId], references: [scheduledTask.id] }),
+  service: one(service, { fields: [taskRun.serviceId], references: [service.id] }),
 }));
 
 export const activityRelations = relations(activity, ({ one }) => ({

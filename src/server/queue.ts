@@ -13,7 +13,8 @@ export type JobType =
   | "backup.run"
   | "backup.restore"
   | "proxy.sync"
-  | "cleanup";
+  | "cleanup"
+  | "task.run";
 
 export type JobPayloads = {
   deploy: { deploymentId: string };
@@ -27,6 +28,7 @@ export type JobPayloads = {
   "backup.restore": { backupId: string };
   "proxy.sync": Record<string, never>;
   cleanup: Record<string, never>;
+  "task.run": { runId: string };
 };
 
 export type Job<T extends JobType = JobType> = Omit<typeof schema.job.$inferSelect, "payload" | "type"> & {

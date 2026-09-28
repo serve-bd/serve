@@ -96,6 +96,8 @@ export type ComposeConfig = {
   path: string;
   /** Template id when created from a one-click template. */
   template?: string | null;
+  /** Private /24 subnet Serve assigned to the stack's default network. */
+  subnet?: string | null;
 };
 
 export const defaultRuntime = (port: number | null = null): RuntimeConfig => ({

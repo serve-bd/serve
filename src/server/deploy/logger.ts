@@ -42,8 +42,8 @@ export class DeployLogger {
       await db
         .update(schema.deployment)
         .set({
-          logs: sql`CASE WHEN length(${schema.deployment.logs}) > ${MAX_LOG_BYTES}
-            THEN right(${schema.deployment.logs}, ${MAX_LOG_BYTES / 2}) || ${chunk}
+          logs: sql`CASE WHEN length(${schema.deployment.logs}) > ${MAX_LOG_BYTES}::int
+            THEN right(${schema.deployment.logs}, ${MAX_LOG_BYTES / 2}::int) || ${chunk}
             ELSE ${schema.deployment.logs} || ${chunk} END`,
         })
         .where(eq(schema.deployment.id, this.deploymentId));

@@ -15,7 +15,7 @@ import { buildImage } from "./builders";
 import { cloneRepository } from "./git";
 import { DeployLogger } from "./logger";
 import { startContainer, volumeName, waitHealthy } from "./containers";
-import { composeServiceNames, composeUp, transformCompose, writeComposeFiles } from "./compose";
+import { allocateSubnet, composeServiceNames, composeUp, transformCompose, writeComposeFiles } from "./compose";
 import type { ServiceStatus } from "@/server/db/schema";
 
 type Service = typeof schema.service.$inferSelect;
@@ -312,7 +312,14 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   }
   checkCancelled(signal);
 
-  const transformed = transformCompose(content, service.slug, service.id);
+  let subnet = cfg.subnet ?? null;
+  if (!subnet) {
+    const others = await db.select({ compose: schema.service.compose }).from(schema.service).where(eq(schema.service.type, "compose"));
+    subnet = await allocateSubnet(others.map((o) => o.compose?.subnet).filter(Boolean) as string[]);
+    const [fresh] = await db.select({ compose: schema.service.compose }).from(schema.service).where(eq(schema.service.id, service.id));
+    await db.update(schema.service).set({ compose: { ...(fresh?.compose ?? cfg), subnet } }).where(eq(schema.service.id, service.id));
+  }
+  const transformed = transformCompose(content, service.slug, service.id, subnet);
   const run = { projectName: service.slug, dir, file: ".serve-compose.yml", vars: env.runtime, log: log.line, signal, redact: env.secrets };
   await writeComposeFiles({ ...run, content: transformed });
   await setDeployment(dep.id, { status: "deploying" });
@@ -331,6 +338,15 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   } catch (error) {
     log.line(`Warning: proxy update failed: ${(error as Error).message}`);
   }
+}
+
+function failureHint(message: string) {
+  if (/address pools/i.test(message)) return "Docker has no free network ranges. Remove unused networks with `docker network prune`.";
+  if (/no space left on device/i.test(message)) return "The disk is full. Run Clean up in Server settings or free some space.";
+  if (/port is already allocated|address already in use/i.test(message)) return "A published host port is already used by another container.";
+  if (/pull access denied|manifest unknown|not found: manifest/i.test(message)) return "The image does not exist or needs registry credentials.";
+  if (/Authentication failed|could not read Username|Repository not found/i.test(message)) return "The repository is private or the URL is wrong. Add a git provider token.";
+  return null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -397,9 +413,19 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     });
   } catch (error) {
     const cancelled = error instanceof DeployCancelled || signal?.aborted;
-    const message = error instanceof Error ? error.message : String(error);
+    const output = (error as { output?: string }).output ?? "";
+    // For failed commands, the useful part is the tail of their output.
+    const tail = output
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !/^#\d+ (sha256|DONE|CACHED|\[internal\])/.test(l))
+      .slice(-6)
+      .join("\n");
+    const message = error instanceof Error ? (tail ? `${error.message}\n${tail}` : error.message) : String(error);
     log.line("");
-    log.line(cancelled ? "==> Deployment cancelled" : `==> Deployment failed: ${message}`);
+    log.line(cancelled ? "==> Deployment cancelled" : `==> Deployment failed: ${(error as Error).message ?? message}`);
+    const hint = failureHint(message);
+    if (hint && !cancelled) log.line(`Hint: ${hint}`);
     await log.flush();
     await setDeployment(dep.id, {
       status: cancelled ? "cancelled" : "failed",

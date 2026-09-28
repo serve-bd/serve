@@ -73,7 +73,7 @@ export function BackupsManager(props: {
   const backups = data?.backups ?? [];
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+    <div className="grid items-start gap-6 lg:grid-cols-[1fr_340px]">
       <Card className="overflow-hidden">
         <CardHeader
           title="Backups"

@@ -25,12 +25,19 @@ export function ensureNetwork(): Promise<void> {
     networkReady = (async () => {
       const networks = await docker.listNetworks({ filters: { name: [env.network] } });
       if (!networks.some((n) => n.Name === env.network)) {
-        await docker.createNetwork({
+        const options = {
           Name: env.network,
           Driver: "bridge",
           Attachable: true,
           Labels: { [LABEL.managed]: "true" },
-        });
+        };
+        try {
+          await docker.createNetwork(options);
+        } catch (error) {
+          // Docker's default pools can be exhausted on busy hosts; fall back to a fixed range.
+          if (!/address pools/i.test((error as Error).message)) throw error;
+          await docker.createNetwork({ ...options, IPAM: { Driver: "default", Config: [{ Subnet: "10.209.0.0/16" }] } });
+        }
       }
     })().catch((error) => {
       networkReady = null;

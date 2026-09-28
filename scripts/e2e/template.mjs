@@ -1,0 +1,12 @@
+import { base, firstProject, open, waitStatus } from "./lib.mjs";
+const name = process.argv[2] ?? "Uptime Kuma";
+const { browser, page } = await open();
+const project = await firstProject(page);
+await page.goto(project + "/new?type=template", { waitUntil: "networkidle" });
+await page.screenshot({ path: "/tmp/claude-1000/templates.png" });
+await page.getByRole("button", { name: new RegExp(name) }).click();
+await page.waitForURL(/\/services\/[a-z0-9]+$/, { timeout: 30000 });
+console.log("service:", page.url().replace(base, ""));
+console.log("status:", await waitStatus(page, /Running|Failed|Crashed/, 600000));
+await page.screenshot({ path: "/tmp/claude-1000/template-svc.png" });
+await browser.close();

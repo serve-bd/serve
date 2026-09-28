@@ -17,7 +17,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/deployme
       startedAt: schema.deployment.startedAt,
       finishedAt: schema.deployment.finishedAt,
       length: sql<number>`length(${schema.deployment.logs})`,
-      chunk: sql<string>`substring(${schema.deployment.logs} from ${offset + 1})`,
+      chunk: sql<string>`substring(${schema.deployment.logs} from ${offset + 1}::int)`,
     })
     .from(schema.deployment)
     .where(eq(schema.deployment.id, deploymentId));

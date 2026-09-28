@@ -1,0 +1,16 @@
+import { base, open, waitStatus } from "./lib.mjs";
+const svc = process.argv[2];
+const { browser, page } = await open();
+await page.goto(base + svc, { waitUntil: "networkidle" });
+const rows = page.locator("ol > li");
+const count = await rows.count();
+const last = rows.nth(count - 1);
+await last.hover();
+await last.getByRole("button", { name: "Deployment actions" }).click();
+await page.getByRole("menuitem", { name: "Roll back to this" }).click();
+await page.getByRole("button", { name: "Roll back" }).click();
+await page.waitForURL(/deployments\//, { timeout: 15000 });
+await page.waitForTimeout(12000);
+await page.screenshot({ path: "/tmp/claude-1000/rollback.png" });
+console.log(await page.locator("h2").first().textContent(), "|", await page.getByText(/^(Ready|Failed|Deploying|Building|Queued)$/).first().textContent());
+await browser.close();

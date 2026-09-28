@@ -59,7 +59,7 @@ export function composeServicePorts(content: string): Record<string, number[]> {
  * Attach every service to the shared Serve network with a predictable alias,
  * so the proxy can route to `<slug>-<service>`.
  */
-export function transformCompose(content: string, slug: string, serviceId: string): string {
+export function transformCompose(content: string, slug: string, serviceId: string, subnet?: string | null): string {
   const doc = parseCompose(content);
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
     if (svc.network_mode) continue;
@@ -82,7 +82,31 @@ export function transformCompose(content: string, slug: string, serviceId: strin
     }
   }
   doc.networks = { ...(doc.networks ?? {}), [env.network]: { external: true, name: env.network } };
+  // Use a Serve-assigned subnet so stacks never exhaust Docker's default address pools.
+  if (subnet && !(doc.networks as Record<string, unknown>).default) {
+    (doc.networks as Record<string, unknown>).default = { ipam: { config: [{ subnet }] } };
+  }
   return YAML.stringify(doc);
+}
+
+/** Pick the lowest free 10.210-10.219.x.0/24 subnet not used by other stacks or networks. */
+export async function allocateSubnet(taken: string[]): Promise<string> {
+  const { docker } = await import("@/server/docker/client");
+  const used = new Set(taken);
+  try {
+    for (const n of await docker.listNetworks()) {
+      for (const c of n.IPAM?.Config ?? []) if (c.Subnet) used.add(c.Subnet);
+    }
+  } catch {
+    // ignore
+  }
+  for (let a = 210; a < 220; a++) {
+    for (let b = 0; b < 256; b++) {
+      const subnet = `10.${a}.${b}.0/24`;
+      if (!used.has(subnet)) return subnet;
+    }
+  }
+  throw new Error("No free private subnet left for this stack.");
 }
 
 function envFile(vars: Record<string, string>) {

@@ -39,7 +39,7 @@ export function DatabaseOverview(props: {
   const changed = (publicOn ? Number(port) : null) !== props.publicPort;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+    <div className="grid items-start gap-6 lg:grid-cols-[1fr_320px]">
       <div className="flex flex-col gap-6">
         <Card>
           <CardHeader title="Connect" description="Other services in this environment connect over the private network." />

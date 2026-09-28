@@ -1,0 +1,16 @@
+import { base, firstProject, open, waitStatus, toastText } from "./lib.mjs";
+const { browser, page } = await open();
+const project = await firstProject(page);
+await page.goto(project + "/new?type=database", { waitUntil: "networkidle" });
+await page.getByRole("button", { name: "Create database" }).click();
+await page.waitForURL(/\/services\/[a-z0-9]+$/, { timeout: 30000 });
+const svc = page.url();
+console.log("db status:", await waitStatus(page));
+await page.screenshot({ path: "/tmp/claude-1000/db.png" });
+await page.goto(svc + "/backups", { waitUntil: "networkidle" });
+await page.getByRole("button", { name: "Back up now" }).click();
+await page.waitForTimeout(6000);
+await page.screenshot({ path: "/tmp/claude-1000/db-backups.png" });
+console.log("toasts:", await toastText(page));
+console.log("service:", svc.replace(base, ""));
+await browser.close();

@@ -69,7 +69,7 @@ export function VariablesEditor({
   const canRedeploy = status !== "idle";
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+    <div className="grid items-start gap-6 lg:grid-cols-[1fr_300px]">
       <Card className="overflow-hidden">
         <CardHeader
           title="Environment variables"

@@ -1,0 +1,53 @@
+import { eq, sql } from "drizzle-orm";
+import { db, schema } from "@/server/db";
+
+const MAX_LOG_BYTES = 4_000_000;
+
+/** Buffers log lines and appends them to the deployment row in batches. */
+export class DeployLogger {
+  private buffer: string[] = [];
+  private timer: NodeJS.Timeout | null = null;
+  private flushing: Promise<void> = Promise.resolve();
+  private redactions: string[] = [];
+
+  constructor(private deploymentId: string) {}
+
+  redact(values: string[]) {
+    this.redactions.push(...values.filter((v) => v && v.length >= 4));
+  }
+
+  private clean(line: string) {
+    // eslint-disable-next-line no-control-regex
+    let out = line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r/g, "");
+    for (const secret of this.redactions) out = out.split(secret).join("********");
+    return out;
+  }
+
+  line = (text: string) => {
+    for (const l of text.split("\n")) this.buffer.push(this.clean(l));
+    if (!this.timer) this.timer = setTimeout(() => void this.flush(), 400);
+  };
+
+  step = (title: string) => this.line(`==> ${title}`);
+
+  flush(): Promise<void> {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (!this.buffer.length) return this.flushing;
+    const chunk = this.buffer.join("\n") + "\n";
+    this.buffer = [];
+    this.flushing = this.flushing.then(async () => {
+      await db
+        .update(schema.deployment)
+        .set({
+          logs: sql`CASE WHEN length(${schema.deployment.logs}) > ${MAX_LOG_BYTES}
+            THEN right(${schema.deployment.logs}, ${MAX_LOG_BYTES / 2}) || ${chunk}
+            ELSE ${schema.deployment.logs} || ${chunk} END`,
+        })
+        .where(eq(schema.deployment.id, this.deploymentId));
+    }).catch(() => {});
+    return this.flushing;
+  }
+}

@@ -1,0 +1,645 @@
+import {
+  bigint,
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
+import type {
+  BuildConfig,
+  ComposeConfig,
+  DatabaseConfig,
+  RuntimeConfig,
+  SourceConfig,
+} from "@/server/services/types";
+
+const id = () => text("id").primaryKey();
+const createdAt = () =>
+  timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+const updatedAt = () =>
+  timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date());
+
+/* -------------------------------------------------------------------------- */
+/*                                    Auth                                    */
+/* -------------------------------------------------------------------------- */
+
+export const user = pgTable("user", {
+  id: id(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const session = pgTable(
+  "session",
+  {
+    id: id(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    token: text("token").notNull().unique(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    activeOrganizationId: text("active_organization_id"),
+    activeTeamId: text("active_team_id"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("session_user_idx").on(t.userId)],
+);
+
+export const account = pgTable(
+  "account",
+  {
+    id: id(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", {
+      withTimezone: true,
+    }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
+      withTimezone: true,
+    }),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("account_user_idx").on(t.userId)],
+);
+
+export const verification = pgTable("verification", {
+  id: id(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/* -------------------------------------------------------------------------- */
+/*                               Organizations                                */
+/* -------------------------------------------------------------------------- */
+
+export type MemberRole = "owner" | "admin" | "member";
+
+export const organization = pgTable("organization", {
+  id: id(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  logo: text("logo"),
+  metadata: text("metadata"),
+  createdAt: createdAt(),
+});
+
+export const member = pgTable(
+  "member",
+  {
+    id: id(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role").$type<MemberRole>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("member_org_user_idx").on(t.organizationId, t.userId),
+    index("member_user_idx").on(t.userId),
+  ],
+);
+
+export const invitation = pgTable(
+  "invitation",
+  {
+    id: id(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role").$type<MemberRole>(),
+    teamId: text("team_id"),
+    status: text("status").notNull().default("pending"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    inviterId: text("inviter_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("invitation_org_idx").on(t.organizationId)],
+);
+
+const orgRef = () =>
+  text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" });
+
+/* -------------------------------------------------------------------------- */
+/*                                  Settings                                  */
+/* -------------------------------------------------------------------------- */
+
+/** Key/value store for instance-wide settings. */
+export const setting = pgTable("setting", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: updatedAt(),
+});
+
+/* -------------------------------------------------------------------------- */
+/*                            Projects & services                             */
+/* -------------------------------------------------------------------------- */
+
+export const project = pgTable("project", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  description: text("description"),
+  color: text("color").notNull().default("blue"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const environment = pgTable(
+  "environment",
+  {
+    id: id(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("environment_project_name_idx").on(t.projectId, t.name)],
+);
+
+export type ServiceType = "app" | "database" | "compose";
+export type ServiceStatus =
+  | "idle"
+  | "building"
+  | "deploying"
+  | "running"
+  | "stopped"
+  | "failed"
+  | "crashed"
+  | "restarting";
+
+export const service = pgTable(
+  "service",
+  {
+    id: id(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    environmentId: text("environment_id")
+      .notNull()
+      .references(() => environment.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Docker-safe unique identifier used for containers, networks and hosts. */
+    slug: text("slug").notNull().unique(),
+    type: text("type").$type<ServiceType>().notNull(),
+    icon: text("icon"),
+    status: text("status").$type<ServiceStatus>().notNull().default("idle"),
+    source: jsonb("source").$type<SourceConfig>(),
+    build: jsonb("build").$type<BuildConfig>(),
+    runtime: jsonb("runtime").$type<RuntimeConfig>().notNull(),
+    database: jsonb("database").$type<DatabaseConfig>(),
+    compose: jsonb("compose").$type<ComposeConfig>(),
+    autoDeploy: boolean("auto_deploy").notNull().default(true),
+    webhookSecret: text("webhook_secret").notNull(),
+    currentDeploymentId: text("current_deployment_id"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("service_project_idx").on(t.projectId),
+    index("service_env_idx").on(t.environmentId),
+  ],
+);
+
+export const envVar = pgTable(
+  "env_var",
+  {
+    id: id(),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    /** Encrypted value. */
+    value: text("value").notNull(),
+    buildTime: boolean("build_time").notNull().default(false),
+    runtime: boolean("runtime").notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("env_var_service_key_idx").on(t.serviceId, t.key)],
+);
+
+/** Variables shared by all services of a project environment. */
+export const sharedVar = pgTable(
+  "shared_var",
+  {
+    id: id(),
+    environmentId: text("environment_id")
+      .notNull()
+      .references(() => environment.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("shared_var_env_key_idx").on(t.environmentId, t.key)],
+);
+
+export type DeploymentStatus =
+  | "queued"
+  | "building"
+  | "deploying"
+  | "success"
+  | "failed"
+  | "cancelled"
+  | "superseded";
+
+export type DeploymentTrigger =
+  | "manual"
+  | "webhook"
+  | "rollback"
+  | "redeploy"
+  | "create"
+  | "deploy-hook"
+  | "api";
+
+export const deployment = pgTable(
+  "deployment",
+  {
+    id: id(),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    status: text("status").$type<DeploymentStatus>().notNull().default("queued"),
+    trigger: text("trigger").$type<DeploymentTrigger>().notNull(),
+    /** Image tag produced (or reused) by this deployment. */
+    image: text("image"),
+    commitSha: text("commit_sha"),
+    commitMessage: text("commit_message"),
+    commitAuthor: text("commit_author"),
+    branch: text("branch"),
+    /** When rolling back, deploy the image of this deployment without building. */
+    rollbackOf: text("rollback_of"),
+    logs: text("logs").notNull().default(""),
+    error: text("error"),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("deployment_service_idx").on(t.serviceId, t.createdAt),
+    index("deployment_status_idx").on(t.status),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*                           Domains & certificates                           */
+/* -------------------------------------------------------------------------- */
+
+export const domain = pgTable(
+  "domain",
+  {
+    id: id(),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    hostname: text("hostname").notNull().unique(),
+    /** Container port to route to. Falls back to the service port. */
+    port: integer("port"),
+    /** For compose services: which compose service receives traffic. */
+    composeService: text("compose_service"),
+    pathPrefix: text("path_prefix").notNull().default("/"),
+    https: boolean("https").notNull().default(true),
+    forceHttps: boolean("force_https").notNull().default(true),
+    /** Redirect this hostname to another URL instead of proxying. */
+    redirectTo: text("redirect_to"),
+    certificateId: text("certificate_id").references(() => certificate.id, {
+      onDelete: "set null",
+    }),
+    cloudflareAccountId: text("cloudflare_account_id").references(
+      () => cloudflareAccount.id,
+      { onDelete: "set null" },
+    ),
+    cloudflareZoneId: text("cloudflare_zone_id"),
+    cloudflareRecordId: text("cloudflare_record_id"),
+    /** Auto-generated domain (sslip.io or wildcard). */
+    generated: boolean("generated").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("domain_service_idx").on(t.serviceId)],
+);
+
+export type CertificateProvider =
+  | "letsencrypt-http"
+  | "letsencrypt-cloudflare"
+  | "cloudflare-origin"
+  | "custom";
+
+export type CertificateStatus = "pending" | "issuing" | "active" | "failed" | "expired";
+
+export const certificate = pgTable("certificate", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  domains: text("domains").array().notNull(),
+  provider: text("provider").$type<CertificateProvider>().notNull(),
+  status: text("status").$type<CertificateStatus>().notNull().default("pending"),
+  /** Absolute paths to PEM files inside the data dir. */
+  certPath: text("cert_path"),
+  keyPath: text("key_path"),
+  issuer: text("issuer"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  autoRenew: boolean("auto_renew").notNull().default(true),
+  cloudflareAccountId: text("cloudflare_account_id").references(
+    () => cloudflareAccount.id,
+    { onDelete: "set null" },
+  ),
+  lastError: text("last_error"),
+  logs: text("logs").notNull().default(""),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/* -------------------------------------------------------------------------- */
+/*                                Integrations                                */
+/* -------------------------------------------------------------------------- */
+
+export const cloudflareAccount = pgTable("cloudflare_account", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  /** Encrypted API token. */
+  apiToken: text("api_token").notNull(),
+  /** Optional encrypted Origin CA key (for origin certificates with legacy keys). */
+  originCaKey: text("origin_ca_key"),
+  cfAccountId: text("cf_account_id"),
+  email: text("email"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export type GitProviderType = "github" | "gitlab" | "bitbucket" | "gitea" | "ssh";
+
+export const gitCredential = pgTable("git_credential", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  provider: text("provider").$type<GitProviderType>().notNull(),
+  /** Encrypted token or private SSH key. */
+  secret: text("secret").notNull(),
+  /** Public SSH key (for ssh credentials) or account login. */
+  publicInfo: text("public_info"),
+  /** Base URL for self-hosted providers. */
+  baseUrl: text("base_url"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export type NotificationKind = "discord" | "slack" | "telegram" | "webhook";
+
+export const notificationChannel = pgTable("notification_channel", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  kind: text("kind").$type<NotificationKind>().notNull(),
+  /** Encrypted JSON config (webhook url, bot token, chat id...). */
+  config: text("config").notNull(),
+  events: text("events").array().notNull().default(sql`'{}'::text[]`),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: createdAt(),
+});
+
+export const apiToken = pgTable("api_token", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  /** SHA-256 hash of the token. */
+  tokenHash: text("token_hash").notNull().unique(),
+  prefix: text("prefix").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  createdAt: createdAt(),
+});
+
+/* -------------------------------------------------------------------------- */
+/*                                  Backups                                   */
+/* -------------------------------------------------------------------------- */
+
+export type BackupStatus = "running" | "success" | "failed";
+
+export const backup = pgTable(
+  "backup",
+  {
+    id: id(),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    status: text("status").$type<BackupStatus>().notNull().default("running"),
+    filename: text("filename"),
+    size: bigint("size", { mode: "number" }),
+    destination: text("destination").notNull().default("local"),
+    error: text("error"),
+    trigger: text("trigger").notNull().default("manual"),
+    createdAt: createdAt(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index("backup_service_idx").on(t.serviceId, t.createdAt)],
+);
+
+export const s3Destination = pgTable("s3_destination", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  endpoint: text("endpoint").notNull(),
+  region: text("region").notNull().default("auto"),
+  bucket: text("bucket").notNull(),
+  accessKeyId: text("access_key_id").notNull(),
+  /** Encrypted. */
+  secretAccessKey: text("secret_access_key").notNull(),
+  pathPrefix: text("path_prefix").notNull().default(""),
+  createdAt: createdAt(),
+});
+
+/* -------------------------------------------------------------------------- */
+/*                              Jobs & telemetry                              */
+/* -------------------------------------------------------------------------- */
+
+export type JobStatus = "pending" | "running" | "done" | "failed";
+
+export const job = pgTable(
+  "job",
+  {
+    id: id(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").notNull().default({}),
+    status: text("status").$type<JobStatus>().notNull().default("pending"),
+    /** Jobs sharing a key run one at a time (e.g. per service). */
+    concurrencyKey: text("concurrency_key"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(1),
+    runAt: timestamp("run_at", { withTimezone: true }).notNull().defaultNow(),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    error: text("error"),
+    createdAt: createdAt(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index("job_pending_idx").on(t.status, t.runAt)],
+);
+
+export const activity = pgTable(
+  "activity",
+  {
+    id: id(),
+    organizationId: text("organization_id").references(() => organization.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    targetType: text("target_type"),
+    targetId: text("target_id"),
+    projectId: text("project_id"),
+    message: text("message").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("activity_org_idx").on(t.organizationId, t.createdAt)],
+);
+
+/** Periodic resource samples, used for charts. */
+export const metric = pgTable(
+  "metric",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    /** "server" or a service id. */
+    scope: text("scope").notNull(),
+    cpu: integer("cpu").notNull(), // percent * 100
+    memory: bigint("memory", { mode: "number" }).notNull(), // bytes
+    memoryLimit: bigint("memory_limit", { mode: "number" }),
+    netRx: bigint("net_rx", { mode: "number" }),
+    netTx: bigint("net_tx", { mode: "number" }),
+    disk: bigint("disk", { mode: "number" }),
+    diskTotal: bigint("disk_total", { mode: "number" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("metric_scope_idx").on(t.scope, t.createdAt)],
+);
+
+/* -------------------------------------------------------------------------- */
+/*                                 Relations                                  */
+/* -------------------------------------------------------------------------- */
+
+export const organizationRelations = relations(organization, ({ many }) => ({
+  members: many(member),
+  invitations: many(invitation),
+  projects: many(project),
+}));
+
+export const memberRelations = relations(member, ({ one }) => ({
+  organization: one(organization, { fields: [member.organizationId], references: [organization.id] }),
+  user: one(user, { fields: [member.userId], references: [user.id] }),
+}));
+
+export const invitationRelations = relations(invitation, ({ one }) => ({
+  organization: one(organization, { fields: [invitation.organizationId], references: [organization.id] }),
+  inviter: one(user, { fields: [invitation.inviterId], references: [user.id] }),
+}));
+
+export const userRelations = relations(user, ({ many }) => ({
+  members: many(member),
+}));
+
+export const projectRelations = relations(project, ({ many, one }) => ({
+  organization: one(organization, { fields: [project.organizationId], references: [organization.id] }),
+  environments: many(environment),
+  services: many(service),
+}));
+
+export const environmentRelations = relations(environment, ({ one, many }) => ({
+  project: one(project, { fields: [environment.projectId], references: [project.id] }),
+  services: many(service),
+  sharedVars: many(sharedVar),
+}));
+
+export const serviceRelations = relations(service, ({ one, many }) => ({
+  project: one(project, { fields: [service.projectId], references: [project.id] }),
+  environment: one(environment, {
+    fields: [service.environmentId],
+    references: [environment.id],
+  }),
+  domains: many(domain),
+  deployments: many(deployment),
+  envVars: many(envVar),
+  backups: many(backup),
+}));
+
+export const deploymentRelations = relations(deployment, ({ one }) => ({
+  service: one(service, { fields: [deployment.serviceId], references: [service.id] }),
+  user: one(user, { fields: [deployment.createdBy], references: [user.id] }),
+}));
+
+export const domainRelations = relations(domain, ({ one }) => ({
+  service: one(service, { fields: [domain.serviceId], references: [service.id] }),
+  certificate: one(certificate, {
+    fields: [domain.certificateId],
+    references: [certificate.id],
+  }),
+  cloudflareAccount: one(cloudflareAccount, {
+    fields: [domain.cloudflareAccountId],
+    references: [cloudflareAccount.id],
+  }),
+}));
+
+export const certificateRelations = relations(certificate, ({ many, one }) => ({
+  domains: many(domain),
+  cloudflareAccount: one(cloudflareAccount, {
+    fields: [certificate.cloudflareAccountId],
+    references: [cloudflareAccount.id],
+  }),
+}));
+
+export const envVarRelations = relations(envVar, ({ one }) => ({
+  service: one(service, { fields: [envVar.serviceId], references: [service.id] }),
+}));
+
+export const sharedVarRelations = relations(sharedVar, ({ one }) => ({
+  environment: one(environment, {
+    fields: [sharedVar.environmentId],
+    references: [environment.id],
+  }),
+}));
+
+export const backupRelations = relations(backup, ({ one }) => ({
+  service: one(service, { fields: [backup.serviceId], references: [service.id] }),
+}));
+
+export const activityRelations = relations(activity, ({ one }) => ({
+  user: one(user, { fields: [activity.userId], references: [user.id] }),
+}));

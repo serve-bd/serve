@@ -1,0 +1,432 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { and, desc, eq, gt, ne } from "drizzle-orm";
+import { db, schema } from "@/server/db";
+import { decryptOrNull } from "@/server/crypto";
+import { docker, ensureNetwork, imageExists, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
+import { paths } from "@/server/paths";
+import { syncServiceProxy } from "@/server/proxy/nginx";
+import { getSettings } from "@/server/settings";
+import { resolveEnv } from "@/server/services/variables";
+import { engineImage, engines } from "@/server/databases/engines";
+import { logActivity } from "@/server/activity";
+import { notify, orgOfService } from "@/server/notify";
+import { buildImage } from "./builders";
+import { cloneRepository } from "./git";
+import { DeployLogger } from "./logger";
+import { startContainer, volumeName, waitHealthy } from "./containers";
+import { composeServiceNames, composeUp, transformCompose, writeComposeFiles } from "./compose";
+import type { ServiceStatus } from "@/server/db/schema";
+
+type Service = typeof schema.service.$inferSelect;
+type Deployment = typeof schema.deployment.$inferSelect;
+
+export class DeployCancelled extends Error {}
+
+const imageRepo = (slug: string) => `serve/${slug}`;
+
+async function setDeployment(id: string, patch: Partial<Deployment>) {
+  await db.update(schema.deployment).set(patch).where(eq(schema.deployment.id, id));
+}
+
+export async function setServiceStatus(id: string, status: ServiceStatus) {
+  await db.update(schema.service).set({ status }).where(eq(schema.service.id, id));
+}
+
+function checkCancelled(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DeployCancelled("Deployment cancelled");
+}
+
+/** Pick the first TCP port an image exposes. */
+async function imagePort(image: string): Promise<number | null> {
+  try {
+    const info = await docker.getImage(image).inspect();
+    const ports = Object.keys(info.Config.ExposedPorts ?? {})
+      .filter((p) => p.endsWith("/tcp"))
+      .map((p) => Number(p.split("/")[0]))
+      .sort((a, b) => a - b);
+    return ports[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                    Apps                                    */
+/* -------------------------------------------------------------------------- */
+
+async function prepareAppImage(service: Service, dep: Deployment, log: DeployLogger, signal?: AbortSignal) {
+  const target = `${imageRepo(service.slug)}:${dep.id}`;
+
+  if (dep.rollbackOf) {
+    const [original] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, dep.rollbackOf));
+    if (!original?.image || !(await imageExists(original.image))) {
+      throw new Error("The image for that deployment was cleaned up and can no longer be restored.");
+    }
+    log.step(`Rolling back to deployment ${original.id.slice(0, 8)}`);
+    await setDeployment(dep.id, {
+      commitSha: original.commitSha,
+      commitMessage: original.commitMessage,
+      commitAuthor: original.commitAuthor,
+      branch: original.branch,
+    });
+    return { image: original.image, detectedPort: null as number | null };
+  }
+
+  const source = service.source;
+  if (!source) throw new Error("This service has no source configured.");
+
+  if (source.type === "image") {
+    log.step(`Pulling ${source.image}`);
+    const password = decryptOrNull(source.registryPassword);
+    const auth =
+      source.registryUsername && password
+        ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) }
+        : null;
+    await pullImage(source.image, log.line, auth);
+    checkCancelled(signal);
+    const ref = source.image.includes(":") || source.image.includes("@") ? source.image : `${source.image}:latest`;
+    await docker.getImage(ref).tag({ repo: imageRepo(service.slug), tag: dep.id });
+    return { image: target, detectedPort: await imagePort(target) };
+  }
+
+  // Git source: clone and build.
+  const env = await resolveEnv(service);
+  log.redact(env.secrets);
+  const workDir = path.join(paths.builds, dep.id);
+  try {
+    log.step("Cloning repository");
+    const clone = await cloneRepository(source, workDir, log.line, signal);
+    await setDeployment(dep.id, {
+      commitSha: clone.commitSha,
+      commitMessage: clone.commitMessage,
+      commitAuthor: clone.commitAuthor,
+      branch: source.branch,
+    });
+    checkCancelled(signal);
+
+    const build = service.build!;
+    const contextDir = path.join(workDir, (build.rootDir || "/").replace(/^\/+/, ""));
+    await fs.access(contextDir).catch(() => {
+      throw new Error(`Root directory "${build.rootDir}" does not exist in the repository.`);
+    });
+
+    log.step("Building image");
+    const started = Date.now();
+    const result = await buildImage({
+      contextDir,
+      image: target,
+      build,
+      buildEnv: env.build,
+      labels: { [LABEL.managed]: "true", [LABEL.service]: service.id, [LABEL.deployment]: dep.id },
+      log: log.line,
+      signal,
+      redact: env.secrets,
+    });
+    log.line(`Build finished in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+    return { image: target, detectedPort: result.detectedPort ?? (await imagePort(target)) };
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+function registryOf(image: string) {
+  const first = image.split("/")[0];
+  return first.includes(".") || first.includes(":") ? first : "https://index.docker.io/v1/";
+}
+
+async function deployApp(service: Service, dep: Deployment, log: DeployLogger, signal?: AbortSignal) {
+  const { image, detectedPort } = await prepareAppImage(service, dep, log, signal);
+  await setDeployment(dep.id, { image, status: "deploying" });
+  await setServiceStatus(service.id, "deploying");
+  checkCancelled(signal);
+
+  // Fill in the port if it was never configured.
+  let runtime = service.runtime;
+  if (!runtime.port && detectedPort) {
+    runtime = { ...runtime, port: detectedPort };
+    await db.update(schema.service).set({ runtime }).where(eq(schema.service.id, service.id));
+    log.line(`Using detected port ${detectedPort}`);
+  }
+
+  const env = await resolveEnv({ ...service, runtime });
+  log.redact(env.secrets);
+  if (env.missing.length) log.line(`Warning: unresolved variable references: ${env.missing.join(", ")}`);
+
+  const old = (await listServiceContainers(service.id)).filter((c) => c.Labels[LABEL.deployment] !== dep.id);
+  const replicas = Math.max(1, Math.min(runtime.replicas || 1, 20));
+  const needsStopFirst = runtime.ports.length > 0;
+  if (needsStopFirst && old.length) {
+    log.line("Stopping the previous version first because host ports are published");
+    for (const c of old) await removeContainer(c.Id);
+  }
+
+  log.step(`Starting ${replicas} container${replicas > 1 ? "s" : ""}`);
+  const started: string[] = [];
+  try {
+    for (let i = 0; i < replicas; i++) {
+      const name = `${service.slug}-${dep.id.slice(0, 6)}-${i + 1}`;
+      await removeContainer(name, 0);
+      const container = await startContainer({
+        name,
+        image,
+        slug: service.slug,
+        serviceId: service.id,
+        deploymentId: dep.id,
+        kind: "app",
+        env: env.runtime,
+        runtime,
+        aliases: [service.slug],
+      });
+      started.push(container.id);
+      log.line(`Started ${name}`);
+    }
+
+    log.step("Waiting for healthchecks");
+    await Promise.all(started.map((id) => waitHealthy(id, runtime, log.line, signal)));
+    log.line("All containers are healthy");
+  } catch (error) {
+    for (const id of started) await removeContainer(id, 0);
+    throw error;
+  }
+
+  // Switch traffic.
+  await db
+    .update(schema.service)
+    .set({ currentDeploymentId: dep.id, status: "running" })
+    .where(eq(schema.service.id, service.id));
+  log.step("Routing traffic");
+  try {
+    await syncServiceProxy(service.id);
+    log.line("Proxy updated");
+  } catch (error) {
+    log.line(`Warning: proxy update failed: ${(error as Error).message}`);
+  }
+
+  if (old.length && !needsStopFirst) {
+    log.line(`Draining ${old.length} old container${old.length > 1 ? "s" : ""}`);
+    await new Promise((r) => setTimeout(r, 3000));
+    await Promise.all(old.map((c) => removeContainer(c.Id, 15)));
+  }
+  await pruneImages(service).catch(() => {});
+}
+
+/** Keep the newest N images per service for rollbacks. */
+async function pruneImages(service: Service) {
+  const settings = await getSettings();
+  const keep = await db
+    .select({ image: schema.deployment.image })
+    .from(schema.deployment)
+    .where(and(eq(schema.deployment.serviceId, service.id), eq(schema.deployment.status, "success")))
+    .orderBy(desc(schema.deployment.createdAt))
+    .limit(settings.imageRetention + 1);
+  const keepSet = new Set(keep.map((k) => k.image).filter(Boolean));
+  const images = await docker.listImages({ filters: { reference: [`${imageRepo(service.slug)}:*`] } });
+  for (const img of images) {
+    const tags = img.RepoTags ?? [];
+    if (tags.some((t) => keepSet.has(t))) continue;
+    for (const tag of tags) await docker.getImage(tag).remove().catch(() => {});
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 Databases                                  */
+/* -------------------------------------------------------------------------- */
+
+export async function deployDatabase(service: Service, log: DeployLogger | null, signal?: AbortSignal) {
+  const cfg = service.database!;
+  const engine = engines[cfg.engine];
+  const image = engineImage(cfg.engine, cfg.version);
+  const line = log?.line ?? (() => {});
+
+  if (!(await imageExists(image))) {
+    log?.step(`Pulling ${image}`);
+    await pullImage(image, line);
+  }
+  checkCancelled(signal);
+  const creds = { username: cfg.username, password: decryptOrNull(cfg.password) ?? "", database: cfg.database };
+  log?.redact([creds.password]);
+
+  log?.step("Starting database");
+  await removeContainer(service.slug, 30);
+  const container = await startContainer({
+    name: service.slug,
+    image,
+    slug: service.slug,
+    serviceId: service.id,
+    kind: "database",
+    env: engine.env(creds),
+    cmd: engine.command?.(creds),
+    healthcheck: engine.healthcheck(creds),
+    runtime: {
+      ...service.runtime,
+      port: engine.port,
+      command: null,
+      volumes: [{ kind: "volume", source: "data", mountPath: engine.dataPath }],
+      ports: cfg.publicPort ? [{ host: cfg.publicPort, container: engine.port, protocol: "tcp" }] : [],
+      healthcheckPath: null,
+      healthcheckTimeout: 180,
+    },
+    aliases: [service.slug],
+  });
+  line(`Volume ${volumeName(service.slug, "data")} mounted at ${engine.dataPath}`);
+  log?.step("Waiting for the database to accept connections");
+  await waitHealthy(container.id, { ...service.runtime, port: null, healthcheckTimeout: 180 }, line, signal);
+  line(`${engine.label} is ready`);
+  await setServiceStatus(service.id, "running");
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  Compose                                   */
+/* -------------------------------------------------------------------------- */
+
+async function deployCompose(service: Service, dep: Deployment, log: DeployLogger, signal?: AbortSignal) {
+  const cfg = service.compose!;
+  const env = await resolveEnv(service);
+  log.redact(env.secrets);
+  const serviceDir = paths.service(service.id);
+  let dir = path.join(serviceDir, "compose");
+  let content = cfg.content;
+
+  if (cfg.mode === "git") {
+    if (!service.source || service.source.type !== "git") throw new Error("Compose from git needs a git source.");
+    log.step("Cloning repository");
+    const repoDir = path.join(serviceDir, "repo");
+    const clone = await cloneRepository(service.source, repoDir, log.line, signal);
+    await setDeployment(dep.id, {
+      commitSha: clone.commitSha,
+      commitMessage: clone.commitMessage,
+      commitAuthor: clone.commitAuthor,
+      branch: service.source.branch,
+    });
+    const composePath = path.join(repoDir, cfg.path.replace(/^\/+/, ""));
+    content = await fs.readFile(composePath, "utf8").catch(() => {
+      throw new Error(`Compose file ${cfg.path} not found in the repository.`);
+    });
+    dir = path.dirname(composePath);
+    // Remember the file so the UI can show services and ports.
+    await db
+      .update(schema.service)
+      .set({ compose: { ...cfg, content } })
+      .where(eq(schema.service.id, service.id));
+  }
+  checkCancelled(signal);
+
+  const transformed = transformCompose(content, service.slug, service.id);
+  const run = { projectName: service.slug, dir, file: ".serve-compose.yml", vars: env.runtime, log: log.line, signal, redact: env.secrets };
+  await writeComposeFiles({ ...run, content: transformed });
+  await setDeployment(dep.id, { status: "deploying" });
+  await setServiceStatus(service.id, "deploying");
+  log.step(`Starting ${composeServiceNames(content).length} compose services`);
+  await ensureNetwork();
+  await composeUp(run);
+  await db
+    .update(schema.service)
+    .set({ currentDeploymentId: dep.id, status: "running" })
+    .where(eq(schema.service.id, service.id));
+  log.step("Routing traffic");
+  try {
+    await syncServiceProxy(service.id);
+    log.line("Proxy updated");
+  } catch (error) {
+    log.line(`Warning: proxy update failed: ${(error as Error).message}`);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                   Runner                                   */
+/* -------------------------------------------------------------------------- */
+
+export async function runDeployment(deploymentId: string, signal?: AbortSignal) {
+  const dep = await db.query.deployment.findFirst({ where: eq(schema.deployment.id, deploymentId) });
+  if (!dep || dep.status !== "queued") return;
+  const service = await db.query.service.findFirst({ where: eq(schema.service.id, dep.serviceId) });
+  if (!service) return;
+
+  // A newer deployment is already waiting: skip this one.
+  const newer = await db
+    .select({ id: schema.deployment.id })
+    .from(schema.deployment)
+    .where(
+      and(
+        eq(schema.deployment.serviceId, service.id),
+        eq(schema.deployment.status, "queued"),
+        gt(schema.deployment.createdAt, dep.createdAt),
+        ne(schema.deployment.id, dep.id),
+      ),
+    )
+    .limit(1);
+  if (newer.length) {
+    await setDeployment(dep.id, { status: "superseded", finishedAt: new Date(), logs: "Skipped: a newer deployment was queued.\n" });
+    return;
+  }
+
+  const log = new DeployLogger(dep.id);
+  const previousStatus = service.status;
+  const startedAt = new Date();
+  await setDeployment(dep.id, { status: "building", startedAt });
+  await setServiceStatus(service.id, "building");
+  log.line(`Deployment ${dep.id} started (${dep.trigger})`);
+
+  try {
+    await ensureNetwork();
+    if (service.type === "app") await deployApp(service, dep, log, signal);
+    else if (service.type === "database") {
+      await setDeployment(dep.id, { status: "deploying" });
+      await deployDatabase(service, log, signal);
+      await db.update(schema.service).set({ currentDeploymentId: dep.id }).where(eq(schema.service.id, service.id));
+    } else await deployCompose(service, dep, log, signal);
+
+    const seconds = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
+    log.step(`Deployed successfully in ${seconds}s`);
+    await log.flush();
+    await setDeployment(dep.id, { status: "success", finishedAt: new Date() });
+    await logActivity({
+      userId: dep.createdBy,
+      action: "deploy.success",
+      message: `Deployed ${service.name}`,
+      targetType: "service",
+      targetId: service.id,
+      projectId: service.projectId,
+    });
+    void notify(await orgOfService(service.id), "deploy.success", {
+      ok: true,
+      title: `${service.name} deployed`,
+      body: dep.commitMessage ? `Commit: ${dep.commitMessage}` : `Deployment finished in ${seconds}s.`,
+      url: `/projects/${service.projectId}/services/${service.id}/deployments/${dep.id}`,
+    });
+  } catch (error) {
+    const cancelled = error instanceof DeployCancelled || signal?.aborted;
+    const message = error instanceof Error ? error.message : String(error);
+    log.line("");
+    log.line(cancelled ? "==> Deployment cancelled" : `==> Deployment failed: ${message}`);
+    await log.flush();
+    await setDeployment(dep.id, {
+      status: cancelled ? "cancelled" : "failed",
+      error: cancelled ? null : message.slice(0, 4000),
+      finishedAt: new Date(),
+    });
+    // Keep the old version running if there is one.
+    const running = (await listServiceContainers(service.id, false)).length > 0;
+    await setServiceStatus(
+      service.id,
+      running ? "running" : cancelled ? (previousStatus === "building" ? "idle" : previousStatus) : "failed",
+    );
+    if (!cancelled) {
+      await logActivity({
+        userId: dep.createdBy,
+        action: "deploy.failed",
+        message: `Deployment of ${service.name} failed`,
+        targetType: "service",
+        targetId: service.id,
+        projectId: service.projectId,
+      });
+      void notify(await orgOfService(service.id), "deploy.failed", {
+        ok: false,
+        title: `${service.name} failed to deploy`,
+        body: message.split("\n")[0].slice(0, 500),
+        url: `/projects/${service.projectId}/services/${service.id}/deployments/${dep.id}`,
+      });
+    }
+  }
+}

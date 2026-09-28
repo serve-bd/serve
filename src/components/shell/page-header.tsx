@@ -56,6 +56,11 @@ export function PageHeader({
   );
 }
 
+/** Page content aligned with the header. `className` styles the inner column (e.g. max-w-3xl). */
 export function PageBody({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={cn("mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-8", className)}>{children}</div>;
+  return (
+    <div className="mx-auto w-full max-w-[1200px] px-4 pt-6 pb-16 sm:px-8">
+      <div className={className}>{children}</div>
+    </div>
+  );
 }

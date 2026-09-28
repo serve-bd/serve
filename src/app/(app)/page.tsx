@@ -71,7 +71,7 @@ export default async function OverviewPage() {
           )}
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
+        <div className="grid items-start gap-6 lg:grid-cols-[1.6fr_1fr]">
           <Card>
             <CardHeader title="Recent deployments" />
             {deployments.length ? (

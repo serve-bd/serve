@@ -66,7 +66,10 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
         await enqueue("certificate.issue", { certificateId: id }, { concurrencyKey: `cert:${id}`, maxAttempts: 2 });
       }
     }
-    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.settings", message: "Updated server settings" });
+    // The setup guide saves each step; only log changes made afterwards.
+    if (before.onboardingDone) {
+      await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.settings", message: "Updated server settings" });
+    }
     return null;
   });
 }

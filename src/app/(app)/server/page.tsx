@@ -17,7 +17,7 @@ export default async function ServerPage() {
     getSettings(),
     systemStatus(),
     db
-      .select({ id: schema.organization.id, name: schema.organization.name, createdAt: schema.organization.createdAt, members: sql<number>`(select count(*)::int from member m where m.organization_id = ${schema.organization.id})` })
+      .select({ id: schema.organization.id, name: schema.organization.name, createdAt: schema.organization.createdAt, members: sql<number>`(select count(*)::int from member m where m.organization_id = "organization"."id")` })
       .from(schema.organization)
       .orderBy(asc(schema.organization.createdAt)),
   ]);

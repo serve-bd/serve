@@ -1,0 +1,22 @@
+import { base, open, waitStatus } from "./lib.mjs";
+const svc = process.argv[2];
+const host = process.argv[3];
+const { browser, page } = await open();
+import { execSync } from "node:child_process";
+// curl, because fetch() silently drops custom Host headers.
+const code = async () => execSync(`curl -s -o /dev/null -w '%{http_code}' -H 'Host: ${host}' http://localhost:8081/`).toString();
+await page.goto(base + svc, { waitUntil: "networkidle" });
+await page.getByRole("button", { name: /Manage/ }).click();
+await page.getByRole("menuitem", { name: "Stop" }).click();
+await page.getByRole("button", { name: "Stop service" }).click();
+console.log("after stop:", await waitStatus(page, /Stopped/, 60000));
+await page.waitForTimeout(8000);
+console.log("http while stopped:", await code());
+await page.getByRole("button", { name: /Manage/ }).click();
+await page.getByRole("menuitem", { name: "Start" }).click();
+console.log("after start:", await waitStatus(page, /Running/, 60000), "http", await code());
+await page.getByRole("button", { name: /Manage/ }).click();
+await page.getByRole("menuitem", { name: "Restart" }).click();
+await page.waitForTimeout(4000);
+console.log("after restart:", await waitStatus(page, /Running/, 60000), "http", await code());
+await browser.close();

@@ -1,0 +1,11 @@
+import { base, open } from "./lib.mjs";
+const svc = process.argv[2];
+const { browser, page } = await open();
+await page.goto(base + svc + "/settings", { waitUntil: "networkidle" });
+const name = (await page.locator("header h1").textContent()).trim();
+await page.getByRole("button", { name: "Delete service" }).click();
+await page.locator('[role="alertdialog"] input').fill(name);
+await page.locator('[role="alertdialog"]').getByRole("button", { name: "Delete service" }).click();
+await page.waitForURL(/\/projects\/[a-z0-9]+$/, { timeout: 20000 });
+console.log("redirected to", page.url().replace(base, ""));
+await browser.close();

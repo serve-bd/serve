@@ -86,9 +86,14 @@ http {
         }
 
         location / {
+            return 404;
+        }
+
+        error_page 404 /__serve_not_found.html;
+        location = /__serve_not_found.html {
+            internal;
             root ${proxyPaths.pages};
             try_files /not-found.html =404;
-            error_page 404 /not-found.html;
         }
     }
 
@@ -199,8 +204,14 @@ function body(s: SiteServer) {
   const target = s.upstream ?? s.directTarget;
   if (!target) {
     return `    location / {
+        return 503;
+    }
+
+    error_page 503 /__serve_unavailable.html;
+    location = /__serve_unavailable.html {
+        internal;
         root ${proxyPaths.pages};
-        try_files /unavailable.html =502;
+        try_files /unavailable.html =503;
     }`;
   }
   return proxyLocation(target);

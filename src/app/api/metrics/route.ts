@@ -1,0 +1,19 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { requireOrg } from "@/server/auth";
+import { metricSeries, serverSnapshot } from "@/server/metrics";
+import { serviceInOrg } from "@/server/services/access";
+
+export async function GET(request: NextRequest) {
+  const ctx = await requireOrg();
+  const scope = request.nextUrl.searchParams.get("scope") ?? "server";
+  const hours = Math.min(Math.max(Number(request.nextUrl.searchParams.get("hours") ?? 6), 1), 168);
+  if (scope !== "server") {
+    try {
+      await serviceInOrg(scope, ctx.org.id);
+    } catch {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+  }
+  const [series, now] = await Promise.all([metricSeries(scope, hours), scope === "server" ? serverSnapshot() : null]);
+  return NextResponse.json({ series, now });
+}

@@ -60,7 +60,10 @@ export async function getSetting<K extends keyof Settings>(key: K): Promise<Sett
 }
 
 export async function updateSettings(patch: Partial<Settings>) {
-  const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
+  // null means "back to default": remove the row.
+  const cleared = Object.entries(patch).filter(([, v]) => v === null).map(([k]) => k);
+  if (cleared.length) await db.delete(schema.setting).where(inArray(schema.setting.key, cleared));
+  const entries = Object.entries(patch).filter(([, v]) => v !== undefined && v !== null);
   if (!entries.length) return;
   await db
     .insert(schema.setting)

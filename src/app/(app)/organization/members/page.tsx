@@ -1,7 +1,8 @@
 import { and, asc, eq, gt } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
-import { env } from "@/server/env";
+import { isEmailConfigured } from "@/server/email/send";
+import { publicBaseUrl } from "@/server/git/github-app";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { MembersView } from "./members-view";
 
@@ -35,7 +36,9 @@ export default async function MembersPage() {
       <PageHeader title="Members" description={`People with access to ${ctx.org.name}.`} />
       <PageBody>
         <MembersView
-          baseUrl={env.appUrl.replace(/\/$/, "")}
+          baseUrl={await publicBaseUrl()}
+          emailEnabled={await isEmailConfigured()}
+          canResetPasswords={ctx.isInstanceAdmin}
           me={ctx.user.id}
           myRole={ctx.role}
           members={members.map((m) => ({ ...m, createdAt: m.createdAt.toISOString() }))}

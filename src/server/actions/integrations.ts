@@ -378,9 +378,15 @@ export async function fetchBranches(repository: string, credentialId: string | n
 /*                               Notifications                                */
 /* -------------------------------------------------------------------------- */
 
+const emailRecipients = (value: string) =>
+  value
+    .split(/[,;\s]+/)
+    .map((a) => a.trim().toLowerCase())
+    .filter(Boolean);
+
 const channelSchema = z.object({
   name: z.string().trim().min(1).max(60),
-  kind: z.enum(["discord", "slack", "telegram", "webhook"]),
+  kind: z.enum(["discord", "slack", "telegram", "webhook", "email"]),
   config: z.record(z.string(), z.string()),
   events: z.array(z.string()).min(1, "Pick at least one event"),
 });
@@ -394,8 +400,16 @@ export async function saveNotificationChannel(id: string | null, input: z.infer<
       slack: ["webhookUrl"],
       telegram: ["botToken", "chatId"],
       webhook: ["url"],
+      email: ["to"],
     };
     for (const k of required[data.kind]) if (!data.config[k]?.trim()) throw new UserError(`Fill in ${k}.`);
+    if (data.kind === "email") {
+      const { isEmailConfigured } = await import("@/server/email/send");
+      if (!(await isEmailConfigured())) throw new UserError("Email is not set up on this instance. A Root admin can configure it in Settings → Email.");
+      const list = emailRecipients(data.config.to);
+      if (!list.length || list.length > 20 || list.some((a) => !z.email().safeParse(a).success)) throw new UserError("Enter up to 20 email addresses, separated by commas.");
+      data.config.to = list.join(", ");
+    }
     const values = { name: data.name, kind: data.kind, config: encrypt(JSON.stringify(data.config)), events: data.events };
     if (id) {
       await db

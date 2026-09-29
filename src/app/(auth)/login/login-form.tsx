@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -9,7 +10,7 @@ import { AuthCard, AuthError } from "../_components/auth-card";
 import { PasswordInput } from "../_components/password-input";
 import { authClient } from "@/lib/auth-client";
 
-export function LoginForm({ next }: { next: string }) {
+export function LoginForm({ next, canReset = false }: { next: string; canReset?: boolean }) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -99,6 +100,11 @@ export function LoginForm({ next }: { next: string }) {
         <Field label="Password">
           <PasswordInput name="password" required autoComplete="current-password" className="h-10" />
         </Field>
+        {canReset && (
+          <Link href="/forgot-password" className="-mt-1 self-end text-[13px] text-muted transition-colors hover:text-accent">
+            Forgot password?
+          </Link>
+        )}
         <AuthError>{error}</AuthError>
         <Button type="submit" variant="primary" size="lg" loading={pending} className="mt-1 w-full">
           Sign in

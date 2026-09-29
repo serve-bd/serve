@@ -582,7 +582,7 @@ export const gitCredential = pgTable("git_credential", {
   updatedAt: updatedAt(),
 });
 
-export type NotificationKind = "discord" | "slack" | "telegram" | "webhook";
+export type NotificationKind = "discord" | "slack" | "telegram" | "webhook" | "email";
 
 export const notificationChannel = pgTable("notification_channel", {
   id: id(),

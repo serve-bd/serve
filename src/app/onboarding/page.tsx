@@ -9,7 +9,8 @@ import { OnboardingWizard } from "./wizard";
 
 export const metadata = { title: "Welcome" };
 
-export default async function OnboardingPage() {
+export default async function OnboardingPage(props: PageProps<"/onboarding">) {
+  const { step, error } = await props.searchParams;
   const ctx = await requireOrg();
   if (!ctx.isInstanceAdmin) redirect("/");
   const settings = await getSettings();
@@ -30,6 +31,8 @@ export default async function OnboardingPage() {
       </header>
       <main className="relative mx-auto w-full max-w-4xl px-4 pt-6 pb-20">
         <OnboardingWizard
+          initialStep={step === "git" ? "git" : null}
+          notice={typeof error === "string" ? error : null}
           userName={ctx.user.name}
           initial={{
             instanceName: settings.instanceName,

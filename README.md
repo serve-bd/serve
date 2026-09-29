@@ -25,7 +25,7 @@ cd /data/serve && docker compose pull && docker compose up -d
 ## Features
 
 **Deploy anything**
-- Git repositories (GitHub, GitLab, Gitea, Bitbucket, any Git URL, SSH deploy keys)
+- Git repositories: connect GitHub in one click through a GitHub App Serve creates for you (no tokens or webhooks to set up), or use GitLab, Gitea, Bitbucket, any Git URL and SSH deploy keys
 - Automatic builds: Dockerfile, Nixpacks, or built-in detection for Node.js, Bun, Next.js, Vite and other static sites, Python, Go, Rust and PHP
 - Docker images from any registry, including private ones
 - Docker Compose stacks, inline or from a repository
@@ -122,6 +122,16 @@ src/worker/         Worker entry point
 drizzle/            SQL migrations
 docker/             Production compose file and entrypoint
 ```
+
+## Connecting GitHub
+
+Git providers → **Connect GitHub** uses GitHub's app manifest flow:
+
+1. Serve sends GitHub a manifest for a private app with read access to code, write access to pull requests (for preview comments) and `push` / `pull_request` events.
+2. You confirm the app on GitHub, then choose which repositories it may access.
+3. Serve stores the app's private key encrypted, mints one-hour installation tokens to clone and list repositories, and receives webhooks at `/api/webhooks/github/<id>`, verified with the app's webhook secret.
+
+Push events need GitHub to reach the dashboard, so set a public dashboard domain in Server settings. Each GitHub account or organization can have its own app.
 
 ## Configuration
 

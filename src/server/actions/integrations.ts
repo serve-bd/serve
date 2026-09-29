@@ -194,6 +194,10 @@ export async function fetchRepositories(credentialId: string): Promise<{ ok: tru
       .from(schema.gitCredential)
       .where(and(eq(schema.gitCredential.id, credentialId), eq(schema.gitCredential.organizationId, ctx.org.id)));
     if (!cred || cred.provider === "ssh") return [];
+    if (cred.provider === "github-app") {
+      const { listAppRepositories } = await import("@/server/git/github-app");
+      return listAppRepositories(cred);
+    }
     return listRepositories(cred.provider, decrypt(cred.secret), cred.baseUrl);
   });
 }
@@ -363,5 +367,35 @@ export async function findCloudflareZone(hostname: string) {
       }
     }
     return null;
+  });
+}
+
+/** Prepare the GitHub App manifest form. The browser posts it to GitHub. */
+export async function startGithubApp(input: { organization?: string }) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const { buildManifest, signState } = await import("@/server/git/github-app");
+    const owner = input.organization?.trim();
+    if (owner && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(owner)) throw new UserError("Enter a valid GitHub organization name.");
+    const credentialId = newId();
+    const state = signState({ credentialId, organizationId: ctx.org.id, userId: ctx.user.id });
+    const base = owner ? `https://github.com/organizations/${owner}/settings/apps/new` : "https://github.com/settings/apps/new";
+    return { action: `${base}?state=${encodeURIComponent(state)}`, manifest: JSON.stringify(await buildManifest(credentialId)) };
+  });
+}
+
+/** Link to manage which repositories the app can access. */
+export async function githubAppInstallUrl(credentialId: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const [cred] = await db
+      .select()
+      .from(schema.gitCredential)
+      .where(and(eq(schema.gitCredential.id, credentialId), eq(schema.gitCredential.organizationId, ctx.org.id)));
+    if (!cred || cred.provider !== "github-app") throw new UserError("GitHub App not found.");
+    const { readAppSecret, signState } = await import("@/server/git/github-app");
+    const secret = readAppSecret(cred);
+    const state = signState({ credentialId, organizationId: ctx.org.id, userId: ctx.user.id });
+    return `${secret.htmlUrl}/installations/new?state=${encodeURIComponent(state)}`;
   });
 }

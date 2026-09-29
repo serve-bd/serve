@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { pageService } from "@/server/services/access";
-import { env } from "@/server/env";
 import { commandExists } from "@/server/process";
 import { engines } from "@/server/databases/engines";
 import { PageBody } from "@/components/shell/page-header";
@@ -21,7 +20,10 @@ export default async function SettingsPage(props: PageProps<"/projects/[projectI
       .where(eq(schema.gitCredential.organizationId, ctx.org.id)),
     commandExists("nixpacks"),
   ]);
-  const base = env.appUrl.replace(/\/$/, "");
+  const { publicBaseUrl } = await import("@/server/git/github-app");
+  const base = await publicBaseUrl();
+  const source = service.source;
+  const viaApp = source?.type === "git" && credentials.find((c) => c.id === source.credentialId)?.provider === "github-app";
   return (
     <PageBody>
       <ServiceSettings
@@ -48,6 +50,7 @@ export default async function SettingsPage(props: PageProps<"/projects/[projectI
         credentials={credentials}
         nixpacks={nixpacks}
         webhookUrl={`${base}/api/webhooks/git/${service.id}`}
+        viaGithubApp={!!viaApp}
         webhookSecret={service.webhookSecret}
         deployHookUrl={`${base}/api/deploy-hooks/${service.id}?token=${service.webhookSecret}`}
       />

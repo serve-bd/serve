@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Check, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
@@ -39,6 +39,7 @@ type Props = {
   credentials: { id: string; name: string; provider: string }[];
   nixpacks: boolean;
   webhookUrl: string;
+  viaGithubApp: boolean;
   webhookSecret: string;
   deployHookUrl: string;
 };
@@ -440,9 +441,16 @@ export function ServiceSettings(props: Props) {
         <Card>
           <CardHeader title="Webhooks" description="Trigger deployments from your Git provider or CI." />
           <CardBody className="flex flex-col gap-4 py-5">
-            <Field label="Git webhook URL" description="Add to GitHub, GitLab or Gitea as a push webhook. Use the secret below. Content type: application/json.">
-              <CopyField value={props.webhookUrl} />
-            </Field>
+            {props.viaGithubApp ? (
+              <p className="flex items-start gap-2 rounded-xl bg-ok-soft px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
+                <Check className="mt-0.5 size-4 shrink-0 text-ok" />
+                Push and pull request events arrive automatically through the GitHub App. No webhook setup is needed.
+              </p>
+            ) : (
+              <Field label="Git webhook URL" description="Add to GitHub, GitLab or Gitea as a push webhook. Use the secret below. Content type: application/json.">
+                <CopyField value={props.webhookUrl} />
+              </Field>
+            )}
             <Field label="Webhook secret">
               <div className="flex gap-2">
                 <CopyField value={props.webhookSecret} secret className="flex-1" />

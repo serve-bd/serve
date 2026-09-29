@@ -430,7 +430,7 @@ export const cloudflareAccount = pgTable("cloudflare_account", {
   updatedAt: updatedAt(),
 });
 
-export type GitProviderType = "github" | "gitlab" | "bitbucket" | "gitea" | "ssh";
+export type GitProviderType = "github-app" | "github" | "gitlab" | "bitbucket" | "gitea" | "ssh";
 
 export const gitCredential = pgTable("git_credential", {
   id: id(),

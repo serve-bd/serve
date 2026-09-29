@@ -105,8 +105,13 @@ export async function removePreview(parent: Service, prNumber: number) {
 export async function commentOnGithub(parent: Service, pr: PullRequest, url: string | null) {
   if (parent.source?.type !== "git" || !parent.source.credentialId || !pr.fullName) return;
   const [cred] = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.id, parent.source.credentialId));
-  if (!cred || cred.provider !== "github") return;
-  const token = decrypt(cred.secret);
+  if (!cred || (cred.provider !== "github" && cred.provider !== "github-app")) return;
+  let token: string;
+  try {
+    token = cred.provider === "github-app" ? await (await import("@/server/git/github-app")).installationToken(cred) : decrypt(cred.secret);
+  } catch {
+    return;
+  }
   const api = `${cred.baseUrl ? `${cred.baseUrl.replace(/\/$/, "")}/api/v3` : "https://api.github.com"}/repos/${pr.fullName}/issues/${pr.number}/comments`;
   const marker = "<!-- serve-preview -->";
   const body = `${marker}\n**Serve preview** for \`${parent.name}\`\n\n${url ? `🔗 ${url}` : "Deploying…"}\n\nCommit \`${pr.sha?.slice(0, 7) ?? "latest"}\``;

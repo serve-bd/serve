@@ -15,6 +15,7 @@ import { createAppService, createComposeService, createDatabaseService } from "@
 import { fetchBranches, fetchRepositories } from "@/server/actions/integrations";
 import { cn } from "@/lib/utils";
 import { parseEnv } from "@/lib/env";
+import { GithubMark } from "@/components/github-mark";
 import useSWR from "swr";
 import type { DbEngine } from "@/server/services/types";
 
@@ -129,7 +130,8 @@ function EnvTextarea({ value, onChange }: { value: string; onChange: (v: string)
 
 function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const router = useRouter();
-  const [credentialId, setCredentialId] = React.useState<string>(props.credentials.find((c) => c.provider !== "ssh")?.id ?? "public");
+  const preferred = props.credentials.find((c) => c.provider === "github-app") ?? props.credentials.find((c) => c.provider !== "ssh");
+  const [credentialId, setCredentialId] = React.useState<string>(preferred?.id ?? "public");
   const [query, setQuery] = React.useState("");
   const [repository, setRepository] = React.useState("");
   const [branch, setBranch] = React.useState("main");
@@ -204,10 +206,26 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
           onValueChange={setCredentialId}
           options={[
             { value: "public", label: "Public repository", description: "No credentials needed" },
-            ...props.credentials.map((c) => ({ value: c.id, label: c.name, description: c.provider === "ssh" ? "SSH deploy key" : c.provider })),
+            ...props.credentials.map((c) => ({
+              value: c.id,
+              label: c.name,
+              description: c.provider === "github-app" ? "GitHub App · deploys on push" : c.provider === "ssh" ? "SSH deploy key" : `${c.provider} token`,
+            })),
           ]}
         />
       </Field>
+      {!props.credentials.some((c) => c.provider === "github-app") && (
+        <a href="/integrations/git" className="-mt-2 flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-[13px] transition-colors hover:border-line-strong">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-fg text-bg">
+            <GithubMark className="size-4" />
+          </span>
+          <span className="flex flex-1 flex-col">
+            <span className="font-medium text-fg">Connect GitHub</span>
+            <span className="text-xs text-muted">Browse private repositories and deploy automatically on every push.</span>
+          </span>
+          <ChevronRight className="size-4 text-faint" />
+        </a>
+      )}
 
       {canList && (
         <Field label="Repository">

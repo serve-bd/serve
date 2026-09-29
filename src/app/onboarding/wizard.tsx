@@ -7,12 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup } from "@/components/ui/input";
 import { SwitchRow } from "@/components/ui/switch";
-import { Select } from "@/components/ui/select";
 import { Card, CopyField } from "@/components/ui/misc";
 import { Led } from "@/components/ui/status";
 import { toast } from "@/components/ui/toast";
 import { saveServerSettings, finishOnboarding, detectIp } from "@/server/actions/server";
-import { connectCloudflare, addGitToken } from "@/server/actions/integrations";
+import { connectCloudflare, startGithubApp } from "@/server/actions/integrations";
+import { postManifest } from "@/lib/github";
+import { GithubMark } from "@/components/github-mark";
 import { createProject } from "@/server/actions/projects";
 import { cn, formatBytes } from "@/lib/utils";
 
@@ -65,19 +66,39 @@ export function OnboardingWizard({
   initial,
   status,
   counts,
+  initialStep,
+  notice,
 }: {
+  initialStep?: StepId | null;
+  notice?: string | null;
   userName: string;
   initial: Initial;
   status: Status;
   counts: { cloudflare: number; git: number; hasProject: boolean };
 }) {
   const router = useRouter();
-  const [step, setStep] = React.useState<StepId>("server");
-  const [done, setDone] = React.useState<Set<StepId>>(new Set());
+  const [step, setStep] = React.useState<StepId>(initialStep ?? "server");
+  const [done, setDone] = React.useState<Set<StepId>>(() => new Set(initialStep ? steps.slice(0, steps.findIndex((s) => s.id === initialStep)).map((s) => s.id) : []));
   const [values, setValues] = React.useState(initial);
   const [pending, setPending] = React.useState(false);
   const [cf, setCf] = React.useState({ token: "", connected: counts.cloudflare > 0 });
-  const [git, setGit] = React.useState({ provider: "github", token: "", connected: counts.git > 0 });
+  const git = { connected: counts.git > 0 };
+  const announced = React.useRef(false);
+  React.useEffect(() => {
+    if (!notice || announced.current) return;
+    announced.current = true;
+    toast.error("GitHub setup did not finish", notice);
+  }, [notice]);
+  const [connecting, setConnecting] = React.useState(false);
+  async function connectGithub() {
+    setConnecting(true);
+    const res = await startGithubApp({});
+    if (!res.ok) {
+      setConnecting(false);
+      return toast.error(res.error);
+    }
+    postManifest(res.data.action, res.data.manifest);
+  }
   const [projectName, setProjectName] = React.useState("My first project");
 
   const index = steps.findIndex((s) => s.id === step);
@@ -121,13 +142,6 @@ export function OnboardingWizard({
       setCf({ token: "", connected: true });
       next();
     } else if (step === "git") {
-      if (git.connected || !git.token.trim()) return next();
-      setPending(true);
-      const res = await addGitToken({ provider: git.provider as "github", name: "", token: git.token });
-      setPending(false);
-      if (!res.ok) return toast.error(res.error);
-      toast.success(`Connected as ${res.data.login}`);
-      setGit((g) => ({ ...g, token: "", connected: true }));
       next();
     } else if (step === "project") {
       setPending(true);
@@ -357,33 +371,25 @@ export function OnboardingWizard({
 
             {step === "git" &&
               (git.connected ? (
-                <ConnectedNote text="A git provider is connected. Private repositories are available when creating apps." />
+                <ConnectedNote text="GitHub is connected. Private repositories appear when you create a service, and pushes deploy automatically." />
               ) : (
-                <>
-                  <Field label="Provider">
-                    <Select
-                      value={git.provider}
-                      onValueChange={(v) => setGit({ ...git, provider: v })}
-                      options={[
-                        { value: "github", label: "GitHub" },
-                        { value: "gitlab", label: "GitLab" },
-                        { value: "gitea", label: "Gitea" },
-                        { value: "bitbucket", label: "Bitbucket" },
-                      ]}
-                    />
-                  </Field>
-                  <Field
-                    label="Personal access token"
-                    description={
-                      git.provider === "github"
-                        ? "Create a fine-grained token with read access to Contents and Metadata for the repositories you want to deploy."
-                        : "Create a token with read access to repositories."
-                    }
-                  >
-                    <Input type="password" value={git.token} onChange={(e) => setGit({ ...git, token: e.target.value })} placeholder="Paste token" className="font-mono" />
-                  </Field>
-                  <p className="text-[13px] text-muted">Public repositories work without a token. You can also add SSH deploy keys later.</p>
-                </>
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-start gap-4 rounded-xl border border-line bg-surface-2 p-4">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-fg text-bg">
+                      <GithubMark className="size-5" />
+                    </span>
+                    <div className="flex flex-col gap-1">
+                      <p className="text-[14px] font-medium text-fg">Connect GitHub with a GitHub App</p>
+                      <p className="text-[13px] leading-relaxed text-muted">
+                        Serve creates a private app for this server. You choose the repositories it can read, and pushes and pull requests deploy automatically.
+                      </p>
+                    </div>
+                  </div>
+                  <Button variant="secondary" onClick={connectGithub} loading={connecting} className="w-fit">
+                    <GithubMark className="size-4" /> Continue on GitHub
+                  </Button>
+                  <p className="text-[13px] text-muted">Public repositories work without this. GitLab, Gitea, Bitbucket and SSH keys can be added later in Git providers.</p>
+                </div>
               ))}
 
             {step === "project" &&

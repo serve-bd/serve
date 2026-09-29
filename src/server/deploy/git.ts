@@ -49,6 +49,12 @@ export async function gitAccess(source: GitSource, workDir: string, organization
           : eq(schema.gitCredential.id, source.credentialId),
       );
     if (!cred) throw new Error("The git credential for this service no longer exists.");
+    if (cred.provider === "github-app") {
+      const { installationToken } = await import("@/server/git/github-app");
+      const token = await installationToken(cred);
+      redact.push(token);
+      return { url, cloneUrl: withToken(url, "github", token), gitEnv, redact };
+    }
     const secret = decrypt(cred.secret);
     redact.push(secret);
     if (cred.provider === "ssh" || url.startsWith("git@") || url.startsWith("ssh://")) {

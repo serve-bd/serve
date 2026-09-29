@@ -389,6 +389,38 @@ export const sharedVar = pgTable(
   ],
 );
 
+/** Compose templates an organization saved for its own one-click catalog. */
+export type CustomTemplateVar = {
+  key: string;
+  generate?: "password" | "secret" | "hex32" | "base64key";
+  value?: string;
+  publicUrl?: boolean;
+  publicHost?: boolean;
+  label?: string;
+};
+
+export const customTemplate = pgTable(
+  "custom_template",
+  {
+    id: id(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    category: text("category").notNull().default("Custom"),
+    iconUrl: text("icon_url"),
+    compose: text("compose").notNull(),
+    vars: jsonb("vars").$type<CustomTemplateVar[]>().notNull().default([]),
+    exposeService: text("expose_service"),
+    exposePort: integer("expose_port"),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("custom_template_org_idx").on(t.organizationId)],
+);
+
 export type DeploymentStatus =
   | "queued"
   | "building"

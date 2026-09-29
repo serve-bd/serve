@@ -5,7 +5,7 @@ import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requireOrg, requireOrgAdmin } from "@/server/auth";
 import { db, schema, sql } from "@/server/db";
-import { encrypt, randomPassword, randomSecret } from "@/server/crypto";
+import { encrypt, randomPassword } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
@@ -13,7 +13,7 @@ import { projectInOrg, serviceInOrg } from "@/server/services/access";
 import { generatedHostname, newWebhookSecret, queueDeployment, uniqueServiceSlug } from "@/server/services/create";
 import { defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig } from "@/server/services/types";
 import { engines } from "@/server/databases/engines";
-import { getTemplate } from "@/server/services/templates";
+import { resolveTemplate, templateVarValue } from "@/server/services/custom-templates";
 import { normalizeRepoUrl } from "@/server/deploy/git";
 import { composeServiceNames, parseCompose } from "@/server/deploy/compose";
 import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
@@ -235,6 +235,8 @@ const composeSchema = z.object({
     .object({ repository: z.string().trim().min(3), branch: z.string().trim().default("main"), credentialId: z.string().nullable().optional() })
     .optional(),
   template: z.string().optional(),
+  /** Values chosen on the configure step; anything missing is generated from the template. */
+  vars: z.record(z.string(), z.string().max(4000)).optional(),
   serverId: z.string().nullable().optional(),
 });
 
@@ -245,7 +247,8 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
     await projectInOrg(data.projectId, ctx.org.id);
     await assertEnvironment(data.projectId, data.environmentId);
 
-    const template = data.template ? getTemplate(data.template) : null;
+    const template = data.template ? await resolveTemplate(data.template, ctx.org.id) : null;
+    if (data.template && !template) throw new UserError("Template not found.");
     let content = template?.compose ?? data.content ?? "";
     if (data.mode === "inline") {
       try {
@@ -253,7 +256,8 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
       } catch (e) {
         throw new UserError(`The compose file is not valid: ${(e as Error).message}`);
       }
-      if (!template) assertSafeCompose(ctx, content);
+      // Built-in templates are reviewed; only those that touch the host need the Root organization.
+      if (!template || template.custom || template.hostAccess) assertSafeCompose(ctx, content);
     } else if (!data.source) throw new UserError("Enter a repository.");
     await assertCredential(data.source?.credentialId, ctx.org.id);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
@@ -272,7 +276,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
       name: data.name,
       slug,
       type: "compose",
-      icon: template?.id ?? null,
+      icon: template && !template.custom ? template.id : null,
       source:
         data.mode === "git" && data.source
           ? { type: "git", repository: normalizeRepoUrl(data.source.repository), branch: data.source.branch, credentialId: data.source.credentialId ?? null }
@@ -283,8 +287,8 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
     });
 
     if (template) {
-      const generated = await generatedHostname(slug, server.id);
-      if (generated) {
+      const generated = template.expose ? await generatedHostname(slug, server.id) : null;
+      if (generated && template.expose) {
         const [domain] = await db
           .insert(schema.domain)
           .values({
@@ -300,19 +304,9 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
           .returning();
         if (domain.https) await ensureCertificateFor(domain, ctx.org.id);
       }
-      // A reference, so the value follows the service's primary domain (a custom domain replaces the generated one).
-      const publicUrl = generated ? "${{SERVE_PUBLIC_URL}}" : "http://localhost";
       const vars = template.vars.map((v) => ({
         key: v.key,
-        value: v.publicUrl
-          ? publicUrl
-          : v.generate === "password"
-            ? randomPassword(24)
-            : v.generate === "secret"
-              ? randomSecret(32)
-              : v.generate === "hex32"
-                ? randomSecret(48).replace(/[^a-zA-Z0-9]/g, "").slice(0, 64)
-                : (v.value ?? ""),
+        value: data.vars?.[v.key] ?? templateVarValue(v, !!generated),
         buildTime: false,
         runtime: true,
       }));

@@ -1,14 +1,16 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChevronRight, Container, Database, GitBranch, Layers, Lock, Search, Server, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ChevronRight, Container, Database, GitBranch, Layers, Lock, Search, Server, ShieldAlert, Sparkles, Star, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, CardBody, CardFooter, CardHeader, Badge } from "@/components/ui/misc";
 import { ServiceIcon } from "@/components/service-icon";
+import { TemplateLogo } from "@/components/template-logo";
 import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
 import { createAppService, createComposeService, createDatabaseService } from "@/server/actions/services";
@@ -19,7 +21,21 @@ import { GithubMark } from "@/components/github-mark";
 import useSWR from "swr";
 import type { DbEngine } from "@/server/services/types";
 
-type Kind = "git" | "image" | "database" | "compose" | "template";
+type Kind = "git" | "image" | "database" | "compose";
+
+export type CatalogTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  website: string | null;
+  popular: boolean;
+  hostAccess: boolean;
+  custom: boolean;
+  iconUrl: string | null;
+  note: string | null;
+  vars: { key: string; generate?: string; value?: string; publicUrl?: boolean; publicHost?: boolean; label?: string }[];
+};
 
 type ServerOption = { id: string; name: string; host: string; status: string; isLocal: boolean };
 
@@ -34,7 +50,10 @@ type Props = {
   credentials: { id: string; name: string; provider: string }[];
   nixpacks: boolean;
   initialType: string | null;
-  templates: { id: string; name: string; description: string; category: string }[];
+  initialTemplate: string | null;
+  templates: CatalogTemplate[];
+  /** Organization admins can manage templates. */
+  canManageTemplates: boolean;
   engines: {
     engine: DbEngine;
     label: string;
@@ -47,12 +66,11 @@ type Props = {
   }[];
 };
 
-const kinds: { id: Kind; title: string; body: string; icon: React.ReactNode }[] = [
-  { id: "git", title: "Git repository", body: "Build and deploy from GitHub, GitLab or any Git URL. Redeploys on push.", icon: <GitBranch /> },
-  { id: "image", title: "Docker image", body: "Run any public or private image from a registry.", icon: <Container /> },
-  { id: "database", title: "Database", body: "PostgreSQL, MySQL, MongoDB, Redis and more, with backups.", icon: <Database /> },
-  { id: "compose", title: "Docker Compose", body: "Deploy a multi-container stack from a compose file.", icon: <Layers /> },
-  { id: "template", title: "One-click service", body: "n8n, Umami, Ghost, Uptime Kuma and other ready-made apps.", icon: <Sparkles /> },
+const starts: { id: Kind; title: string; body: string; icon: React.ReactNode }[] = [
+  { id: "git", title: "Git repository", body: "GitHub, GitLab or any Git URL", icon: <GitBranch /> },
+  { id: "image", title: "Docker image", body: "From any registry", icon: <Container /> },
+  { id: "compose", title: "Docker Compose", body: "A multi-container stack", icon: <Layers /> },
+  { id: "database", title: "Database", body: "Managed, with backups", icon: <Database /> },
 ];
 
 function repoName(url: string) {
@@ -62,31 +80,6 @@ function repoName(url: string) {
       .split(/[/:]/)
       .filter(Boolean)
       .pop() ?? ""
-  );
-}
-
-function KindPicker({ onPick }: { onPick: (k: Kind) => void }) {
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {kinds.map((k, i) => (
-        <button
-          key={k.id}
-          type="button"
-          onClick={() => onPick(k.id)}
-          style={{ animationDelay: `${i * 40}ms` }}
-          className="group flex animate-rise flex-col gap-3 rounded-2xl border border-line bg-surface p-5 text-left shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-md"
-        >
-          <span className="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent [&_svg]:size-5">{k.icon}</span>
-          <span className="flex flex-col gap-1">
-            <span className="flex items-center gap-1 text-[15px] font-semibold text-fg">
-              {k.title}
-              <ChevronRight className="size-4 text-faint transition-transform group-hover:translate-x-0.5" />
-            </span>
-            <span className="text-[13px] leading-relaxed text-muted">{k.body}</span>
-          </span>
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -114,7 +107,7 @@ function FormShell({
       }}
     >
       <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg">
-        <ArrowLeft className="size-3.5" /> All service types
+        <ArrowLeft className="size-3.5" /> All services
       </button>
       <Card>
         <CardHeader title={title} description={description} />
@@ -407,9 +400,9 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
   );
 }
 
-function DatabaseForm({ props, onBack }: { props: Props; onBack: () => void }) {
+function DatabaseForm({ props, onBack, initialEngine }: { props: Props; onBack: () => void; initialEngine?: DbEngine }) {
   const router = useRouter();
-  const [engine, setEngine] = React.useState<DbEngine>("postgres");
+  const [engine, setEngine] = React.useState<DbEngine>(initialEngine ?? "postgres");
   const info = props.engines.find((e) => e.engine === engine)!;
   const [version, setVersion] = React.useState(info.defaultVersion);
   const pickEngine = (e: DbEngine) => {
@@ -576,72 +569,243 @@ function ComposeForm({ props, onBack }: { props: Props; onBack: () => void }) {
   );
 }
 
-function TemplatePicker({ props, onBack }: { props: Props; onBack: () => void }) {
-  const router = useRouter();
+const POPULAR = "Popular";
+const YOURS = "Your templates";
+
+function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Kind, engine?: DbEngine) => void; onTemplate: (id: string) => void }) {
   const [query, setQuery] = React.useState("");
-  const [category, setCategory] = React.useState("All");
-  const [creating, setCreating] = React.useState<string | null>(null);
-  const categories = ["All", ...new Set(props.templates.map((t) => t.category))];
-  const list = props.templates.filter(
-    (t) => (category === "All" || t.category === category) && `${t.name} ${t.description}`.toLowerCase().includes(query.toLowerCase()),
+  const hasCustom = props.templates.some((t) => t.custom);
+  const [category, setCategory] = React.useState(POPULAR);
+  const builtIn = [...new Set(props.templates.filter((t) => !t.custom).map((t) => t.category))];
+  const chips = [POPULAR, "All", ...(hasCustom ? [YOURS] : []), ...builtIn];
+  const q = query.trim().toLowerCase();
+  const list = props.templates
+    .filter((t) =>
+      q
+        ? `${t.name} ${t.description} ${t.category}`.toLowerCase().includes(q)
+        : category === POPULAR
+          ? t.popular || t.custom
+          : category === YOURS
+            ? t.custom
+            : category === "All" || t.category === category,
+    )
+    .sort((a, b) => Number(b.custom) - Number(a.custom) || a.name.localeCompare(b.name));
+
+  return (
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-3">
+        <h2 className="text-[13px] font-medium text-muted">Start from</h2>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+          {starts.map((k) => (
+            <button
+              key={k.id}
+              type="button"
+              onClick={() => onStart(k.id)}
+              className="group flex items-center gap-3 rounded-xl border border-line bg-surface px-3.5 py-3 text-left shadow-sm transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md"
+            >
+              <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-accent-soft text-accent [&_svg]:size-[18px]">{k.icon}</span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[14px] font-medium text-fg">{k.title}</span>
+                <span className="truncate text-xs text-muted">{k.body}</span>
+              </span>
+              <ChevronRight className="size-4 flex-none text-faint transition-transform group-hover:translate-x-0.5" />
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {props.engines.map((e) => (
+            <button
+              key={e.engine}
+              type="button"
+              onClick={() => onStart("database", e.engine)}
+              className="inline-flex h-8 items-center gap-2 rounded-full border border-line bg-surface pr-3 pl-1 text-[13px] text-fg-2 shadow-sm transition-colors hover:border-line-strong hover:text-fg"
+            >
+              <ServiceIcon type="database" engine={e.engine} size="sm" className="size-6 rounded-full [&_svg]:size-3" />
+              {e.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-[15px] font-semibold text-fg">Services</h2>
+            <p className="text-[13px] text-muted">Ready-made apps. Review the settings after creating, then deploy.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative w-full sm:w-64">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${props.templates.length} services`} className="pl-8" aria-label="Search services" />
+            </div>
+            {props.canManageTemplates && (
+              <Link href="/templates" className="hidden h-9 flex-none items-center rounded-lg px-2.5 text-[13px] text-muted transition-colors hover:bg-hover hover:text-fg sm:inline-flex">
+                Manage templates
+              </Link>
+            )}
+          </div>
+        </div>
+        {!q && (
+          <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 scrollbar-none sm:mx-0 sm:flex-wrap sm:px-0">
+            {chips.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCategory(c)}
+                className={cn(
+                  "inline-flex h-7 flex-none items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors",
+                  category === c ? "bg-fg text-bg" : "bg-surface text-muted ring-1 ring-line hover:text-fg",
+                )}
+              >
+                {c === POPULAR && <Star className="size-3" />}
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
+        {list.length ? (
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+            {list.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onTemplate(t.id)}
+                className="group flex items-start gap-3 rounded-xl border border-line bg-surface p-3.5 text-left shadow-sm transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md"
+              >
+                <TemplateLogo id={t.id} name={t.name} iconUrl={t.iconUrl} custom={t.custom} />
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-[14px] font-medium text-fg">{t.name}</span>
+                    {t.custom && <Badge tone="info">Custom</Badge>}
+                    {t.hostAccess && <ShieldAlert className="size-3.5 flex-none text-warn" aria-label="Needs host access" />}
+                  </span>
+                  <span className="line-clamp-2 text-[12.5px] leading-snug text-muted">{t.description || t.category}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] text-muted">
+            No service matches “{query}”. Paste its compose file with <button type="button" className="font-medium text-accent" onClick={() => onStart("compose")}>Docker Compose</button>
+            {props.canManageTemplates && (
+              <>
+                {" "}
+                or <Link href="/templates/new" className="font-medium text-accent">add a template</Link>
+              </>
+            )}
+            .
+          </div>
+        )}
+      </section>
+    </div>
   );
-  const { run } = useAction(createComposeService, {
+}
+
+function varHint(v: CatalogTemplate["vars"][number]) {
+  if (v.publicUrl) return "Follows the service's domain (https://…)";
+  if (v.publicHost) return "Follows the service's domain";
+  if (v.generate === "password") return "Strong password generated for you";
+  if (v.generate) return "Random secret generated for you";
+  return null;
+}
+
+function TemplateConfigure({ props, template, onBack }: { props: Props; template: CatalogTemplate; onBack: () => void }) {
+  const router = useRouter();
+  const [name, setName] = React.useState(template.name);
+  const [values, setValues] = React.useState<Record<string, string>>(() => Object.fromEntries(template.vars.filter((v) => !v.generate && !v.publicUrl && !v.publicHost).map((v) => [v.key, v.value ?? ""])));
+  const [custom, setCustom] = React.useState<Record<string, string>>({});
+  const [showGenerated, setShowGenerated] = React.useState(false);
+  const editable = template.vars.filter((v) => !v.generate && !v.publicUrl && !v.publicHost);
+  const automatic = template.vars.filter((v) => v.generate || v.publicUrl || v.publicHost);
+  const { run, pending } = useAction(createComposeService, {
     refresh: false,
     success: "Service created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
+  const overrides = { ...values, ...Object.fromEntries(Object.entries(custom).filter(([, v]) => v.trim())) };
 
   return (
-    <div className="animate-rise">
+    <form
+      className="mx-auto max-w-2xl animate-rise"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void run({ projectId: props.projectId, environmentId: props.environmentId, serverId: props.serverId, name: name.trim() || template.name, mode: "inline", template: template.id, vars: overrides });
+      }}
+    >
       <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg">
-        <ArrowLeft className="size-3.5" /> All service types
+        <ArrowLeft className="size-3.5" /> All services
       </button>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative w-full max-w-xs">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search services" className="pl-8" autoFocus />
+      <Card>
+        <div className="flex items-start gap-4 border-b border-line px-5 py-5">
+          <TemplateLogo id={template.id} name={template.name} iconUrl={template.iconUrl} custom={template.custom} size="lg" />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-[17px] font-semibold text-fg">{template.name}</h2>
+              <Badge>{template.custom ? "Custom template" : template.category}</Badge>
+            </div>
+            <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{template.description}</p>
+            {template.website && (
+              <a href={template.website} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted hover:text-accent">
+                {template.website.replace(/^https?:\/\//, "").replace(/\/$/, "")} <ArrowUpRight className="size-3" />
+              </a>
+            )}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {categories.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setCategory(c)}
-              className={cn(
-                "h-7 rounded-full px-3 text-xs font-medium transition-colors",
-                category === c ? "bg-fg text-bg" : "bg-surface text-muted ring-1 ring-line hover:text-fg",
-              )}
-            >
-              {c}
-            </button>
+        <CardBody className="flex flex-col gap-5 py-5">
+          {template.hostAccess && (
+            <div className="flex gap-2.5 rounded-xl border border-warn/30 bg-warn-soft px-3.5 py-3 text-[13px] text-fg-2">
+              <ShieldAlert className="mt-0.5 size-4 flex-none text-warn" />
+              <span>This service gets access to the server (Docker socket). Only admins of the Root organization can create it.</span>
+            </div>
+          )}
+          {template.note && (
+            <div className="flex gap-2.5 rounded-xl bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
+              <TriangleAlert className="mt-0.5 size-4 flex-none text-muted" />
+              <span>{template.note}</span>
+            </div>
+          )}
+          <Field label="Service name">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={template.name} autoFocus />
+          </Field>
+          {editable.map((v) => (
+            <Field key={v.key} label={v.label ?? v.key} description={v.label ? v.key : undefined}>
+              <Input value={values[v.key] ?? ""} onChange={(e) => setValues((s) => ({ ...s, [v.key]: e.target.value }))} className="font-mono text-[13px]" />
+            </Field>
           ))}
-        </div>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {list.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            disabled={!!creating}
-            onClick={async () => {
-              setCreating(t.id);
-              await run({ projectId: props.projectId, environmentId: props.environmentId, serverId: props.serverId, name: t.name, mode: "inline", template: t.id });
-              setCreating(null);
-            }}
-            className="group flex items-start gap-3 rounded-2xl border border-line bg-surface p-4 text-left shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-md disabled:opacity-60"
-          >
-            <ServiceIcon type="compose" icon={t.id} />
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="flex items-center gap-2 text-[14px] font-semibold text-fg">
-                {t.name}
-                {creating === t.id && <span className="text-xs font-normal text-muted">Creating…</span>}
-              </span>
-              <span className="text-[13px] leading-relaxed text-muted">{t.description}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
+          {automatic.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <button type="button" onClick={() => setShowGenerated((s) => !s)} className="flex w-fit items-center gap-1 text-[13px] font-medium text-accent">
+                <ChevronRight className={cn("size-3.5 transition-transform", showGenerated && "rotate-90")} />
+                {automatic.length} value{automatic.length === 1 ? "" : "s"} set automatically
+              </button>
+              {showGenerated && (
+                <div className="flex animate-rise flex-col divide-y divide-line overflow-hidden rounded-xl border border-line">
+                  {automatic.map((v) => (
+                    <div key={v.key} className="grid grid-cols-1 gap-2 px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate font-mono text-[12.5px] text-fg">{v.key}</span>
+                        <span className="text-xs text-muted">{varHint(v)}</span>
+                      </span>
+                      {v.generate ? (
+                        <Input value={custom[v.key] ?? ""} onChange={(e) => setCustom((s) => ({ ...s, [v.key]: e.target.value }))} placeholder="Generate" className="font-mono text-[12.5px]" aria-label={`${v.key} value`} />
+                      ) : (
+                        <span className="truncate font-mono text-[12px] text-faint">{v.publicUrl ? "${{SERVE_PUBLIC_URL}}" : "${{SERVE_PUBLIC_DOMAIN}}"}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </CardBody>
+        <CardFooter className="justify-between gap-3">
+          <span className="hidden text-xs text-muted sm:inline">Nothing runs until you deploy.</span>
+          <Button type="submit" variant="primary" size="sm" loading={pending}>
+            <Sparkles /> Create service
+          </Button>
+        </CardFooter>
+      </Card>
+    </form>
   );
 }
 
@@ -681,15 +845,21 @@ export function NewServiceWizard(props: Props) {
   );
 }
 
-function WizardSteps({ props }: { props: Props }) {
-  const initial = kinds.some((k) => k.id === props.initialType) ? (props.initialType as Kind) : null;
-  const [kind, setKind] = React.useState<Kind | null>(initial);
-  const back = () => setKind(null);
-  if (!kind) return <KindPicker onPick={setKind} />;
-  if (kind === "git") return <GitForm props={props} onBack={back} />;
-  if (kind === "image") return <ImageForm props={props} onBack={back} />;
-  if (kind === "database") return <DatabaseForm props={props} onBack={back} />;
-  if (kind === "compose") return <ComposeForm props={props} onBack={back} />;
-  return <TemplatePicker props={props} onBack={back} />;
-}
+type Step = { kind: Kind; engine?: DbEngine } | { template: string } | null;
 
+function WizardSteps({ props }: { props: Props }) {
+  const initial: Step =
+    props.initialType && starts.some((k) => k.id === props.initialType)
+      ? { kind: props.initialType as Kind }
+      : props.initialTemplate && props.templates.some((t) => t.id === props.initialTemplate)
+        ? { template: props.initialTemplate }
+        : null;
+  const [step, setStep] = React.useState<Step>(initial);
+  const back = () => setStep(null);
+  if (!step) return <Catalog props={props} onStart={(kind, engine) => setStep({ kind, engine })} onTemplate={(id) => setStep({ template: id })} />;
+  if ("template" in step) return <TemplateConfigure props={props} template={props.templates.find((t) => t.id === step.template)!} onBack={back} />;
+  if (step.kind === "git") return <GitForm props={props} onBack={back} />;
+  if (step.kind === "image") return <ImageForm props={props} onBack={back} />;
+  if (step.kind === "database") return <DatabaseForm props={props} onBack={back} initialEngine={step.engine} />;
+  return <ComposeForm props={props} onBack={back} />;
+}

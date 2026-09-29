@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { pageProject } from "@/server/services/access";
@@ -8,24 +8,53 @@ import { engineList } from "@/server/databases/engines";
 import { commandExists } from "@/server/process";
 import { serversForOrg } from "@/server/servers/access";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
-import { NewServiceWizard } from "./wizard";
+import { NewServiceWizard, type CatalogTemplate } from "./wizard";
 
 export const metadata = { title: "New service" };
 
 export default async function NewServicePage(props: PageProps<"/projects/[projectId]/new">) {
   const { projectId } = await props.params;
-  const { env, type } = await props.searchParams;
+  const { env, type, template } = await props.searchParams;
   const ctx = await requireOrg();
   const project = await pageProject(projectId, ctx.org.id);
   const { current } = await resolveEnvironment(projectId, typeof env === "string" ? env : undefined);
-  const [credentials, nixpacks, servers] = await Promise.all([
+  const [credentials, nixpacks, servers, custom] = await Promise.all([
     db
       .select({ id: schema.gitCredential.id, name: schema.gitCredential.name, provider: schema.gitCredential.provider })
       .from(schema.gitCredential)
       .where(eq(schema.gitCredential.organizationId, ctx.org.id)),
     commandExists("nixpacks"),
     serversForOrg(ctx.org.id),
+    db.select().from(schema.customTemplate).where(eq(schema.customTemplate.organizationId, ctx.org.id)).orderBy(asc(schema.customTemplate.name)),
   ]);
+  const catalog: CatalogTemplate[] = [
+    ...custom.map((t) => ({
+      id: `custom:${t.id}`,
+      name: t.name,
+      description: t.description,
+      category: t.category,
+      website: null,
+      popular: false,
+      hostAccess: false,
+      custom: true,
+      iconUrl: t.iconUrl,
+      note: null,
+      vars: t.vars,
+    })),
+    ...templates.map((t) => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      category: t.category,
+      website: t.website,
+      popular: !!t.popular,
+      hostAccess: !!t.hostAccess,
+      custom: false,
+      iconUrl: null,
+      note: t.note ?? null,
+      vars: t.vars,
+    })),
+  ];
 
   return (
     <>
@@ -47,7 +76,9 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
           credentials={credentials}
           nixpacks={nixpacks}
           initialType={typeof type === "string" ? type : null}
-          templates={templates.map((t) => ({ id: t.id, name: t.name, description: t.description, category: t.category }))}
+          initialTemplate={typeof template === "string" ? template : null}
+          templates={catalog}
+          canManageTemplates={ctx.isAdmin}
           engines={engineList.map((e) => ({
             engine: e.engine,
             label: e.label,

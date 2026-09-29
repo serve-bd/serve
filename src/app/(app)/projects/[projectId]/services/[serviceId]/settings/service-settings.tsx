@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRightLeft, Check, RefreshCw, Server as ServerIcon, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ArrowRightLeft, Check, LayoutTemplate, RefreshCw, Server as ServerIcon, Trash2 } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, Textarea } from "@/components/ui/input";
@@ -314,6 +315,13 @@ export function ServiceSettings(props: Props) {
           description={service.compose.mode === "git" ? "Read from the repository on every deploy." : "Edit the stack and deploy to apply."}
           initial={{ content: service.compose.content, path: service.compose.path }}
           onSave={(v) => save.run({ compose: service.compose?.mode === "git" ? { path: v.path } : { content: v.content } })}
+          footerAction={() =>
+            service.compose?.mode === "inline" && (
+              <Link href={`/templates/new?service=${service.id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                <LayoutTemplate /> Save as template
+              </Link>
+            )
+          }
         >
           {(v, set) =>
             service.compose?.mode === "git" ? (

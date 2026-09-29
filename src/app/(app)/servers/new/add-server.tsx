@@ -115,10 +115,7 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
   }
 
   return (
-    <div className="mx-auto flex max-w-2xl animate-rise flex-col gap-5">
-      <Link href="/servers" className="inline-flex w-fit items-center gap-1.5 text-[13px] text-muted hover:text-fg">
-        <ArrowLeft className="size-3.5" /> Servers
-      </Link>
+    <div className="flex animate-rise flex-col gap-5">
       <Stepper step={step} />
 
       {step === "connection" && (

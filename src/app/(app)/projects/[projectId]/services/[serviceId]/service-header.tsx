@@ -107,7 +107,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     <>
       {/* Thin header: breadcrumbs only. Title, actions and tabs belong to the page. */}
       <header className="border-b border-line bg-bg">
-        <div className="mx-auto w-full max-w-[1200px] px-4 py-3 sm:px-8">
+        <div className="w-full px-4 py-3 sm:px-8">
           <Breadcrumbs items={[{ label: "Projects", href: "/projects" }, { label: project.name, href: `/projects/${project.id}?env=${environment}` }, { label: service.name }]} />
         </div>
       </header>

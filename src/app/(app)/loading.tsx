@@ -5,7 +5,7 @@ export default function Loading() {
     <div className="animate-fade-in">
       {/* Same shape as PageHeader: thin breadcrumb bar, then the title block in the content. */}
       <div className="border-b border-line">
-        <div className="mx-auto flex h-11 w-full max-w-[1200px] items-center px-4 sm:px-8">
+        <div className="flex h-11 w-full items-center px-4 sm:px-8">
           <Skeleton className="h-3 w-40" />
         </div>
       </div>

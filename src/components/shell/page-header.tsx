@@ -51,7 +51,7 @@ export function PageHeader({
     <>
       {/* Every page keeps the thin breadcrumb bar; top-level pages show just their own name. */}
       <header className={cn("border-b border-line bg-bg", className)}>
-        <div className="mx-auto w-full max-w-[1200px] px-4 py-3 sm:px-8">
+        <div className="w-full px-4 py-3 sm:px-8">
           <Breadcrumbs items={breadcrumbs ?? [{ label: crumb ?? title }]} />
         </div>
       </header>

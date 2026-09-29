@@ -81,20 +81,16 @@ async function loop() {
     const others = running.size - deploys;
     let claimed = false;
 
-    if (running.size < buildLimit + 4) {
+    const buildsFull = deploys >= buildLimit;
+    const othersFull = others >= 4;
+    if (!(buildsFull && othersFull)) {
       const busyKeys = [...running.values()].map((r) => r.job.concurrencyKey).filter(Boolean) as string[];
       try {
-        const job = await claimJob(busyKeys);
+        // Only ask for job types that have a free slot, so a waiting build never blocks other work.
+        const job = await claimJob(busyKeys, buildsFull ? { excludeTypes: ["deploy"] } : othersFull ? { onlyTypes: ["deploy"] } : {});
         if (job) {
-          if (job.type === "deploy" && deploys >= buildLimit) {
-            // Put it back; builds are at capacity.
-            await db.update(schema.job).set({ status: "pending", attempts: dsql`attempts - 1` }).where(eq(schema.job.id, job.id));
-          } else if (job.type !== "deploy" && others >= 4) {
-            await db.update(schema.job).set({ status: "pending", attempts: dsql`attempts - 1` }).where(eq(schema.job.id, job.id));
-          } else {
-            claimed = true;
-            void execute(job);
-          }
+          claimed = true;
+          void execute(job);
         }
       } catch (error) {
         log("claim failed", (error as Error).message);
@@ -221,6 +217,14 @@ async function recover() {
     const up = (await listServiceContainers(serviceId, false)).length > 0;
     await setServiceStatus(serviceId, up ? "running" : "failed");
   }
+  // Certificates interrupted mid-issue get another attempt.
+  const certs = await db
+    .update(schema.certificate)
+    .set({ status: "pending" })
+    .where(eq(schema.certificate.status, "issuing"))
+    .returning({ id: schema.certificate.id });
+  for (const c of certs) await enqueue("certificate.issue", { certificateId: c.id }, { concurrencyKey: `cert:${c.id}` });
+
   // Re-queue deployments that never got a job (e.g. created while the worker was down).
   const queued = await db.select().from(schema.deployment).where(eq(schema.deployment.status, "queued"));
   const pending = await db.select().from(schema.job).where(and(eq(schema.job.type, "deploy"), eq(schema.job.status, "pending")));

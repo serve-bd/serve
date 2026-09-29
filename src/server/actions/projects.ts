@@ -7,7 +7,6 @@ import { requireOrg, requireOrgAdmin } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
-import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { projectInOrg } from "@/server/services/access";
 import { projectColors } from "@/components/shell/project-color";
@@ -55,9 +54,8 @@ export async function deleteProject(projectId: string) {
     const ctx = await requireOrgAdmin();
     const project = await projectInOrg(projectId, ctx.org.id);
     const services = await db.select().from(schema.service).where(eq(schema.service.projectId, projectId));
-    for (const s of services) {
-      await enqueue("service.delete", { serviceId: s.id, slug: s.slug, type: s.type, removeVolumes: true });
-    }
+    const { teardownServices } = await import("@/server/services/teardown");
+    await teardownServices(services, true);
     await db.delete(schema.project).where(eq(schema.project.id, projectId));
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "project.deleted", message: `Deleted project ${project.name}` });
     return null;
@@ -94,9 +92,8 @@ export async function deleteEnvironment(environmentId: string) {
     const all = await db.select().from(schema.environment).where(eq(schema.environment.projectId, env.projectId));
     if (all.length <= 1) throw new UserError("A project needs at least one environment.");
     const services = await db.select().from(schema.service).where(eq(schema.service.environmentId, environmentId));
-    for (const s of services) {
-      await enqueue("service.delete", { serviceId: s.id, slug: s.slug, type: s.type, removeVolumes: true });
-    }
+    const { teardownServices } = await import("@/server/services/teardown");
+    await teardownServices(services, true);
     await db.delete(schema.environment).where(eq(schema.environment.id, environmentId));
     return null;
   });

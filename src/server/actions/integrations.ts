@@ -209,7 +209,7 @@ export async function fetchBranches(repository: string, credentialId: string | n
       if (!cred) throw new UserError("Credential not found.");
     }
     try {
-      return await listRemoteBranches({ type: "git", repository: normalizeRepoUrl(repository), branch: "main", credentialId });
+      return await listRemoteBranches({ type: "git", repository: normalizeRepoUrl(repository), branch: "main", credentialId }, ctx.org.id);
     } catch {
       throw new UserError("Could not reach the repository. Check the URL and access.");
     }

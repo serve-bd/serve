@@ -78,6 +78,8 @@ export const auth = betterAuth({
       allowUserToCreateOrganization: async (user) =>
         (await getSetting("allowOrganizationCreation")) || (await isInstanceAdmin(user.id)),
       creatorRole: "owner",
+      // Deletion goes through Serve's own action, which checks projects and the Root organization.
+      disableOrganizationDeletion: true,
       membershipLimit: 500,
       invitationExpiresIn: 60 * 60 * 24 * 7,
       cancelPendingInvitationsOnReInvite: true,

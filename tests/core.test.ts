@@ -116,3 +116,52 @@ describe("helpers", () => {
     expect(url).toBe("postgresql://u:p%40ss%2Fword@h:5432/db");
   });
 });
+
+import { composeSecurityIssues, containedPath, safeRedirectUrl } from "@/server/security";
+
+describe("security", () => {
+  it("rejects redirect URLs that could inject nginx config", () => {
+    expect(safeRedirectUrl("https://www.example.com/path?x=1")).toBe("https://www.example.com/path?x=1");
+    expect(() => safeRedirectUrl("https://a.com/x; } location /k { alias /etc/; }")).toThrow();
+    expect(() => safeRedirectUrl("https://a.com/$host")).toThrow();
+    expect(() => safeRedirectUrl("javascript:alert(1)")).toThrow();
+  });
+  it("keeps paths inside the base directory", () => {
+    expect(containedPath("/repo", "docker/compose.yml")).toBe("/repo/docker/compose.yml");
+    expect(containedPath("/repo", "/apps/web")).toBe("/repo/apps/web");
+    expect(() => containedPath("/repo", "../../etc/passwd")).toThrow();
+  });
+  it("flags compose options that escape the sandbox", () => {
+    const issues = composeSecurityIssues(`services:
+  a:
+    image: x
+    privileged: true
+    pid: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+      - named:/x
+  b:
+    image: y
+    network_mode: "service:a"
+`);
+    expect(issues).toHaveLength(3);
+    expect(issues.join()).toContain("privileged");
+    expect(issues.join()).toContain("docker.sock");
+  });
+});
+
+describe("compose build contexts", () => {
+  it("rejects build contexts and env files outside the repository", () => {
+    const issues = composeSecurityIssues(`services:
+  a:
+    build: ../../
+    env_file: [../../.env]
+  b:
+    build: { context: ./api }
+  c:
+    build: https://github.com/org/repo.git
+`);
+    expect(issues).toHaveLength(2);
+  });
+});

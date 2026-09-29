@@ -17,6 +17,8 @@ import { DeployLogger } from "./logger";
 import { startContainer, volumeName, waitHealthy } from "./containers";
 import { allocateSubnet, composeServiceNames, composeUp, transformCompose, writeComposeFiles } from "./compose";
 import type { ServiceStatus } from "@/server/db/schema";
+import { composeSecurityIssues, containedPath } from "@/server/security";
+import { getSetting } from "@/server/settings";
 
 type Service = typeof schema.service.$inferSelect;
 type Deployment = typeof schema.deployment.$inferSelect;
@@ -96,7 +98,7 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
   const workDir = path.join(paths.builds, dep.id);
   try {
     log.step("Cloning repository");
-    const clone = await cloneRepository(source, workDir, log.line, signal);
+    const clone = await cloneRepository(source, workDir, log.line, signal, await orgIdOf(service));
     await setDeployment(dep.id, {
       commitSha: clone.commitSha,
       commitMessage: clone.commitMessage,
@@ -106,7 +108,8 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
     checkCancelled(signal);
 
     const build = service.build!;
-    const contextDir = path.join(workDir, (build.rootDir || "/").replace(/^\/+/, ""));
+    const contextDir = containedPath(workDir, build.rootDir || "/", "Root directory");
+    containedPath(contextDir, build.dockerfile || "Dockerfile", "Dockerfile path");
     await fs.access(contextDir).catch(() => {
       throw new Error(`Root directory "${build.rootDir}" does not exist in the repository.`);
     });
@@ -128,6 +131,11 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
   } finally {
     await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+async function orgIdOf(service: Service) {
+  const [row] = await db.select({ organizationId: schema.project.organizationId }).from(schema.project).where(eq(schema.project.id, service.projectId));
+  return row?.organizationId ?? null;
 }
 
 function registryOf(image: string) {
@@ -161,6 +169,8 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     for (const c of old) await removeContainer(c.Id);
   }
 
+  const [stillThere] = await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.id, service.id));
+  if (!stillThere) throw new DeployCancelled("The service was deleted");
   log.step(`Starting ${replicas} container${replicas > 1 ? "s" : ""}`);
   const started: string[] = [];
   try {
@@ -292,18 +302,29 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     if (!service.source || service.source.type !== "git") throw new Error("Compose from git needs a git source.");
     log.step("Cloning repository");
     const repoDir = path.join(serviceDir, "repo");
-    const clone = await cloneRepository(service.source, repoDir, log.line, signal);
+    const clone = await cloneRepository(service.source, repoDir, log.line, signal, await orgIdOf(service));
     await setDeployment(dep.id, {
       commitSha: clone.commitSha,
       commitMessage: clone.commitMessage,
       commitAuthor: clone.commitAuthor,
       branch: service.source.branch,
     });
-    const composePath = path.join(repoDir, cfg.path.replace(/^\/+/, ""));
+    const composePath = containedPath(repoDir, cfg.path, "Compose file path");
+    // Resolve symlinks so a link in the repository cannot point at files on the server.
+    const realRepo = await fs.realpath(repoDir);
+    const realCompose = await fs.realpath(composePath).catch(() => composePath);
+    if (realCompose !== realRepo && !realCompose.startsWith(realRepo + path.sep)) {
+      throw new Error(`Compose file ${cfg.path} points outside the repository.`);
+    }
     content = await fs.readFile(composePath, "utf8").catch(() => {
       throw new Error(`Compose file ${cfg.path} not found in the repository.`);
     });
     dir = path.dirname(composePath);
+    // Compose files from git are checked at deploy time; only the Root organization may use host-level options.
+    const issues = composeSecurityIssues(content);
+    if (issues.length && (await orgIdOf(service)) !== (await getSetting("rootOrganizationId"))) {
+      throw new Error(`The compose file uses options that can access the host: ${issues.slice(0, 3).join("; ")}`);
+    }
     // Remember the file so the UI can show services and ports.
     await db
       .update(schema.service)

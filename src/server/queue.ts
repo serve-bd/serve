@@ -58,12 +58,19 @@ export async function enqueue<T extends JobType>(
 }
 
 /** Claim the next runnable job, respecting per-key concurrency. */
-export async function claimJob(excludeKeys: string[] = []): Promise<Job | null> {
+export async function claimJob(
+  excludeKeys: string[] = [],
+  filter: { excludeTypes?: string[]; onlyTypes?: string[] } = {},
+): Promise<Job | null> {
+  const exclude = JSON.stringify(filter.excludeTypes ?? []);
+  const only = filter.onlyTypes ? JSON.stringify(filter.onlyTypes) : null;
   const rows = await db.execute<typeof schema.job.$inferSelect & Record<string, unknown>>(dsql`
     UPDATE job SET status = 'running', locked_at = now(), attempts = attempts + 1
     WHERE id = (
       SELECT j.id FROM job j
       WHERE j.status = 'pending' AND j.run_at <= now()
+        AND NOT (${exclude}::jsonb ? j.type)
+        AND (${only}::jsonb IS NULL OR ${only}::jsonb ? j.type)
         AND (
           j.concurrency_key IS NULL OR (
             NOT EXISTS (

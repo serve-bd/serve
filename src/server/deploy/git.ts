@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt } from "@/server/crypto";
 import { run } from "@/server/process";
@@ -30,7 +30,7 @@ export function normalizeRepoUrl(input: string) {
 }
 
 /** Build the clone URL and git environment for a source. */
-export async function gitAccess(source: GitSource, workDir: string) {
+export async function gitAccess(source: GitSource, workDir: string, organizationId?: string | null) {
   const url = normalizeRepoUrl(source.repository);
   const gitEnv: Record<string, string> = {
     GIT_TERMINAL_PROMPT: "0",
@@ -43,7 +43,11 @@ export async function gitAccess(source: GitSource, workDir: string) {
     const [cred] = await db
       .select()
       .from(schema.gitCredential)
-      .where(eq(schema.gitCredential.id, source.credentialId));
+      .where(
+        organizationId
+          ? and(eq(schema.gitCredential.id, source.credentialId), eq(schema.gitCredential.organizationId, organizationId))
+          : eq(schema.gitCredential.id, source.credentialId),
+      );
     if (!cred) throw new Error("The git credential for this service no longer exists.");
     const secret = decrypt(cred.secret);
     redact.push(secret);
@@ -64,11 +68,12 @@ export async function cloneRepository(
   dir: string,
   log: (line: string) => void,
   signal?: AbortSignal,
+  organizationId?: string | null,
 ): Promise<CloneResult> {
   await fs.rm(dir, { recursive: true, force: true });
   const parent = path.dirname(dir);
   await fs.mkdir(parent, { recursive: true });
-  const access = await gitAccess(source, `${dir}.auth`);
+  const access = await gitAccess(source, `${dir}.auth`, organizationId);
 
   try {
     log(`Cloning ${access.url} (branch ${source.branch})`);
@@ -99,9 +104,9 @@ export async function cloneRepository(
 }
 
 /** Quick remote check used by the UI to validate a repository and list branches. */
-export async function listRemoteBranches(source: GitSource): Promise<string[]> {
+export async function listRemoteBranches(source: GitSource, organizationId?: string | null): Promise<string[]> {
   const tmp = path.join((await import("node:os")).tmpdir(), `serve-ls-${Date.now()}`);
-  const access = await gitAccess(source, tmp);
+  const access = await gitAccess(source, tmp, organizationId);
   try {
     const out = await run("git", ["ls-remote", "--heads", access.cloneUrl], {
       env: access.gitEnv,

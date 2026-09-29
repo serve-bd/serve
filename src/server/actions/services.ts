@@ -20,6 +20,9 @@ import { syncServiceProxy } from "@/server/proxy/nginx";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { getSettings } from "@/server/settings";
+import { teardownServices } from "@/server/services/teardown";
+import { composeSecurityIssues, safeRedirectUrl } from "@/server/security";
+import type { OrgContext } from "@/server/auth";
 
 async function assertEnvironment(projectId: string, environmentId: string) {
   const [env] = await db
@@ -28,6 +31,27 @@ async function assertEnvironment(projectId: string, environmentId: string) {
     .where(and(eq(schema.environment.id, environmentId), eq(schema.environment.projectId, projectId)));
   if (!env) throw new UserError("Environment not found.");
   return env;
+}
+
+async function assertCredential(credentialId: string | null | undefined, orgId: string) {
+  if (!credentialId) return;
+  const [cred] = await db
+    .select({ id: schema.gitCredential.id })
+    .from(schema.gitCredential)
+    .where(and(eq(schema.gitCredential.id, credentialId), eq(schema.gitCredential.organizationId, orgId)));
+  if (!cred) throw new UserError("Git credential not found.");
+}
+
+/** Host-level options (bind mounts, host ports, privileged compose keys) are reserved for server admins. */
+function assertHostAccess(ctx: OrgContext, what: string) {
+  if (!ctx.isInstanceAdmin) throw new UserError(`${what} is only available to admins of the Root organization.`);
+}
+
+function assertSafeCompose(ctx: OrgContext, content: string) {
+  const issues = composeSecurityIssues(content);
+  if (issues.length && !ctx.isInstanceAdmin) {
+    throw new UserError(`This compose file uses options that can access the host: ${issues.slice(0, 3).join("; ")}.`);
+  }
 }
 
 async function addGeneratedDomain(serviceId: string, slug: string, organizationId: string, port?: number | null, composeService?: string | null) {
@@ -98,13 +122,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
     await projectInOrg(data.projectId, ctx.org.id);
     await assertEnvironment(data.projectId, data.environmentId);
 
-    if (data.source.type === "git" && data.source.credentialId) {
-      const [cred] = await db
-        .select({ id: schema.gitCredential.id })
-        .from(schema.gitCredential)
-        .where(and(eq(schema.gitCredential.id, data.source.credentialId), eq(schema.gitCredential.organizationId, ctx.org.id)));
-      if (!cred) throw new UserError("Git credential not found.");
-    }
+    if (data.source.type === "git") await assertCredential(data.source.credentialId, ctx.org.id);
 
     const source: SourceConfig =
       data.source.type === "git"
@@ -213,7 +231,9 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
       } catch (e) {
         throw new UserError(`The compose file is not valid: ${(e as Error).message}`);
       }
+      if (!template) assertSafeCompose(ctx, content);
     } else if (!data.source) throw new UserError("Enter a repository.");
+    await assertCredential(data.source?.credentialId, ctx.org.id);
     if (data.mode === "git") content = "";
 
     const id = newId();
@@ -353,6 +373,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     if (data.previewsEnabled !== undefined) patch.previewsEnabled = data.previewsEnabled;
     if (data.source) {
       if (data.source.type === "git") {
+        await assertCredential(data.source.credentialId, ctx.org.id);
         patch.source = { type: "git", repository: normalizeRepoUrl(data.source.repository), branch: data.source.branch, credentialId: data.source.credentialId ?? null };
       } else {
         const prev = service.source?.type === "image" ? service.source : null;
@@ -372,6 +393,13 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     if (data.build) patch.build = { ...defaultBuild(), ...service.build, ...data.build } as BuildConfig;
     if (data.runtime) {
       const runtime = { ...service.runtime, ...data.runtime } as RuntimeConfig;
+      const addsBind = runtime.volumes.some((v) => v.kind === "bind") && JSON.stringify(runtime.volumes) !== JSON.stringify(service.runtime.volumes);
+      const addsPorts = runtime.ports.length > 0 && JSON.stringify(runtime.ports) !== JSON.stringify(service.runtime.ports);
+      if (addsBind) assertHostAccess(ctx, "Mounting host paths");
+      if (addsPorts) assertHostAccess(ctx, "Publishing host ports");
+      if (runtime.ports.some((p) => p.host < 1024 || [80, 443].includes(p.host))) {
+        throw new UserError("Ports below 1024 are reserved for the proxy and system services.");
+      }
       if (runtime.replicas > 1 && runtime.ports.length) throw new UserError("Published host ports only work with a single replica.");
       patch.runtime = runtime;
     }
@@ -403,6 +431,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         } catch (e) {
           throw new UserError(`The compose file is not valid: ${(e as Error).message}`);
         }
+        assertSafeCompose(ctx, data.compose.content);
       }
       patch.compose = { ...service.compose, ...data.compose };
     }
@@ -514,12 +543,7 @@ export async function deleteService(serviceId: string, removeVolumes: boolean) {
           .catch(() => {});
       }
     }
-    await db
-      .update(schema.deployment)
-      .set({ status: "cancelled" })
-      .where(and(eq(schema.deployment.serviceId, serviceId), eq(schema.deployment.status, "queued")));
-    await db.delete(schema.service).where(eq(schema.service.id, serviceId));
-    await enqueue("service.delete", { serviceId, slug: service.slug, type: service.type, removeVolumes });
+    await teardownServices([service], removeVolumes);
     await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: "service.deleted", message: `Deleted ${service.name}` });
     return null;
   });
@@ -576,7 +600,7 @@ const domainSchema = z.object({
   composeService: z.string().nullable().optional(),
   https: z.boolean().default(true),
   forceHttps: z.boolean().default(true),
-  redirectTo: z.string().trim().url().nullable().optional(),
+  redirectTo: z.string().trim().nullable().optional(),
   certificateId: z.string().nullable().optional(),
   cloudflare: z
     .object({ accountId: z.string(), zoneId: z.string(), proxied: z.boolean(), createRecord: z.boolean() })
@@ -590,6 +614,7 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type === "database") throw new UserError("Databases are reached over TCP, not domains. Enable a public port instead.");
     const data = domainSchema.parse(input);
+    data.redirectTo = safeRedirectUrl(data.redirectTo);
     if (service.type === "compose" && !data.composeService && !data.redirectTo) throw new UserError("Pick which compose service receives traffic.");
     const [taken] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, data.hostname));
     if (taken) throw new UserError("That domain is already connected to a service.");
@@ -610,6 +635,12 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
         .where(and(eq(schema.cloudflareAccount.id, data.cloudflare.accountId), eq(schema.cloudflareAccount.organizationId, ctx.org.id)));
       if (!account) throw new UserError("Cloudflare account not found.");
       if (data.cloudflare.createRecord) {
+        if (!ctx.isAdmin) throw new UserError("Only organization admins can create DNS records.");
+        const cfCheck = await Cloudflare.forAccount(account.id);
+        const zone = await cfCheck.zone(data.cloudflare.zoneId).catch(() => null);
+        if (!zone || (data.hostname !== zone.name && !data.hostname.endsWith(`.${zone.name}`))) {
+          throw new UserError("That domain is not part of the selected Cloudflare zone.");
+        }
         const settings = await getSettings();
         if (!settings.serverIp) throw new UserError("Set the server IP in Server settings before creating DNS records.");
         const cf = await Cloudflare.forAccount(account.id);
@@ -653,7 +684,7 @@ const domainUpdateSchema = z.object({
   composeService: z.string().nullable().optional(),
   https: z.boolean().optional(),
   forceHttps: z.boolean().optional(),
-  redirectTo: z.string().trim().url().nullable().optional(),
+  redirectTo: z.string().trim().nullable().optional(),
   certificateId: z.string().nullable().optional(),
 });
 
@@ -664,6 +695,14 @@ export async function updateDomain(domainId: string, input: z.input<typeof domai
     if (!domain) throw new UserError("Domain not found.");
     await serviceInOrg(domain.serviceId, ctx.org.id);
     const data = domainUpdateSchema.parse(input);
+    if (data.redirectTo !== undefined) data.redirectTo = safeRedirectUrl(data.redirectTo);
+    if (data.certificateId) {
+      const [cert] = await db
+        .select({ id: schema.certificate.id })
+        .from(schema.certificate)
+        .where(and(eq(schema.certificate.id, data.certificateId), eq(schema.certificate.organizationId, ctx.org.id)));
+      if (!cert) throw new UserError("Certificate not found.");
+    }
     const [updated] = await db.update(schema.domain).set(data).where(eq(schema.domain.id, domainId)).returning();
     if (updated.https && !updated.certificateId) await ensureCertificateFor(updated, ctx.org.id);
     await syncServiceProxy(domain.serviceId);

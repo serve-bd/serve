@@ -1,0 +1,31 @@
+import { chromium } from "playwright-core";
+const base = process.env.BASE ?? "http://localhost:3001";
+const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
+const admin = await (await browser.newContext({ storageState: `/tmp/claude-1000/e2e-state-${new URL(base).port}.json` })).newPage();
+const email = `member${Date.now()}@serve.test`;
+await admin.goto(base + "/organization/members", { waitUntil: "networkidle" });
+await admin.getByRole("button", { name: "Invite" }).click();
+await admin.getByPlaceholder("teammate@company.com").fill(email);
+await admin.getByRole("button", { name: "Create invite link" }).click();
+const link = await admin.locator('[role="dialog"] code').first().textContent();
+console.log("invite link:", link);
+
+const member = await (await browser.newContext()).newPage();
+await member.goto(link.trim(), { waitUntil: "networkidle" });
+await member.fill('input[name="name"]', "Mia Member");
+await member.fill('input[name="password"]', "member-pass-123");
+await member.getByRole("button", { name: "Create account and join" }).click();
+await member.waitForURL((u) => !u.pathname.startsWith("/invite"), { timeout: 30000 });
+await member.waitForLoadState("networkidle");
+console.log("member landed on:", member.url().replace(base, ""));
+console.log("member sees Server settings nav:", await member.getByRole("link", { name: "Server settings" }).count());
+await member.goto(base + "/server", { waitUntil: "networkidle" });
+console.log("member /server redirected to:", member.url().replace(base, ""));
+await member.goto(base + "/organization/members", { waitUntil: "networkidle" });
+console.log("member can invite:", await member.getByRole("button", { name: "Invite" }).count());
+await member.screenshot({ path: "/tmp/claude-1000/member.png" });
+// Link cannot be reused.
+const again = await (await browser.newContext()).newPage();
+await again.goto(link.trim(), { waitUntil: "networkidle" });
+console.log("reused link shows:", await again.locator("h1").textContent());
+await browser.close();

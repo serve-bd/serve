@@ -38,33 +38,41 @@ const triggerLabel: Record<string, string> = {
 
 export function DeploymentRow({ d, showService = true, current }: { d: DeploymentRowData; showService?: boolean; current?: boolean }) {
   const duration = d.startedAt && d.finishedAt ? formatDuration(new Date(d.finishedAt).getTime() - new Date(d.startedAt).getTime()) : null;
+  const title = d.commitMessage || triggerLabel[d.trigger] || "Deployment";
+  const settled = d.status === "success";
   return (
     <Link
       href={`/projects/${d.projectId}/services/${d.serviceId}/deployments/${d.id}`}
-      className="group grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-0.5 px-4 py-3 transition-colors hover:bg-hover/50"
+      className="group flex items-center gap-3.5 px-5 py-3 transition-colors hover:bg-hover/50"
     >
       <StatusDot status={d.status} kind="deployment" />
-      <div className="flex min-w-0 items-center gap-2">
-        {showService && d.serviceName && <span className="shrink-0 text-[13px] font-medium text-fg">{d.serviceName}</span>}
-        <span className="truncate text-[13px] text-fg-2">{d.commitMessage || triggerLabel[d.trigger] || "Deployment"}</span>
-        {current && <span className="shrink-0 rounded-full bg-ok-soft px-1.5 text-[10px] font-semibold text-ok">CURRENT</span>}
-      </div>
-      <span className="text-right text-xs text-faint">
-        <TimeAgo date={d.createdAt} />
-      </span>
-      <span />
-      <div className="flex min-w-0 items-center gap-3 text-xs text-muted">
-        <span className={cn(d.status === "failed" && "text-bad")}>{statusText(d.status, "deployment")}</span>
-        {d.commitSha && (
-          <span className="flex items-center gap-1 font-mono">
-            <GitCommitHorizontal className="size-3" />
-            {d.commitSha.slice(0, 7)}
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          {showService && d.serviceName && <span className="shrink-0 text-[13px] font-medium text-fg">{d.serviceName}</span>}
+          {d.commitMessage && <span className="truncate text-[13px] text-fg-2">{d.commitMessage}</span>}
+          {current && <span className="shrink-0 self-center rounded-full bg-ok-soft px-1.5 text-[10px] font-semibold text-ok">CURRENT</span>}
+          <span className="ml-auto pl-2 shrink-0 text-xs text-faint">
+            <TimeAgo date={d.createdAt} />
           </span>
-        )}
-        {d.branch && <span className="truncate font-mono">{d.branch}</span>}
-        <span className="flex items-center gap-1">{triggerIcon[d.trigger] ?? <Upload className="size-3" />}{triggerText(d.trigger)}</span>
+        </div>
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">
+          {!settled && <span className={cn("shrink-0 font-medium", d.status === "failed" ? "text-bad" : "text-fg-2")}>{statusText(d.status, "deployment")}</span>}
+          {!settled && <span className="text-faint">·</span>}
+          <span className="flex shrink-0 items-center gap-1">
+            {triggerIcon[d.trigger] ?? <Upload className="size-3" />}
+            {d.commitMessage ? triggerText(d.trigger) : title}
+          </span>
+          {d.commitSha && <span className="text-faint">·</span>}
+          {d.commitSha && (
+            <span className="flex shrink-0 items-center gap-1 font-mono">
+              <GitCommitHorizontal className="size-3" />
+              {d.commitSha.slice(0, 7)}
+            </span>
+          )}
+          {d.branch && <span className="hidden shrink-0 truncate font-mono sm:inline">{d.branch}</span>}
+          {duration && <span className="ml-auto shrink-0 pl-2 text-faint tabular-nums">{duration}</span>}
+        </div>
       </div>
-      <span className="text-right text-xs text-faint tabular-nums">{duration}</span>
     </Link>
   );
 }

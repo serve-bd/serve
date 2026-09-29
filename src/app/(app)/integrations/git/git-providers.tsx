@@ -43,7 +43,30 @@ const tokenHelp: Record<string, string> = {
   bitbucket: "An access token or app password with repository read access.",
 };
 
-function ConnectGithub({ publicUrl, baseUrl }: { publicUrl: boolean; baseUrl: string }) {
+function OwnerOption({ selected, title, body, onSelect }: { selected: boolean; title: string; body: string; onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        "flex flex-1 items-start gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors",
+        selected ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong hover:bg-hover/40",
+      )}
+    >
+      <span className={cn("mt-0.5 flex size-4 flex-none items-center justify-center rounded-full border", selected ? "border-accent bg-accent" : "border-line-strong")}>
+        {selected && <span className="size-1.5 rounded-full bg-white" />}
+      </span>
+      <span className="flex min-w-0 flex-col">
+        <span className="text-[13px] font-medium text-fg">{title}</span>
+        <span className="text-xs text-muted">{body}</span>
+      </span>
+    </button>
+  );
+}
+
+function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: boolean; baseUrl: string; embedded?: boolean }) {
   const [ownerType, setOwnerType] = React.useState<"personal" | "organization">("personal");
   const [organization, setOrganization] = React.useState("");
   const [pending, setPending] = React.useState(false);
@@ -58,71 +81,50 @@ function ConnectGithub({ publicUrl, baseUrl }: { publicUrl: boolean; baseUrl: st
     postManifest(res.data.action, res.data.manifest);
   }
 
-  return (
-    <Card className="overflow-hidden">
-      <div className="flex flex-col gap-5 p-6 sm:flex-row sm:items-start">
-        <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-fg text-bg shadow-sm">
-          <GithubMark className="size-6" />
+  const body = (
+    <div className="flex flex-col gap-5 p-5 sm:p-6">
+      <div className="flex items-start gap-4">
+        <span className="flex size-10 flex-none items-center justify-center rounded-xl bg-fg text-bg">
+          <GithubMark className="size-5" />
         </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <h3 className="text-[17px] font-semibold text-fg">Connect GitHub</h3>
-            <p className="text-[13px] leading-relaxed text-muted">
-              Serve creates a private GitHub App for this server. You choose which repositories it can read. Deploys on push and pull request previews then work without any
-              webhook setup.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1 sm:max-w-sm">
-            {(["personal", "organization"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setOwnerType(t)}
-                className={cn("h-8 rounded-lg text-[13px] font-medium transition-all", ownerType === t ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
-              >
-                {t === "personal" ? "Personal account" : "GitHub organization"}
-              </button>
-            ))}
-          </div>
-          {ownerType === "organization" && (
-            <Field label="Organization name" description="You need to be an owner of the GitHub organization.">
-              <Input value={organization} onChange={(e) => setOrganization(e.target.value)} placeholder="acme" className="sm:max-w-sm" autoFocus />
-            </Field>
-          )}
-          {!publicUrl && (
-            <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2.5 text-xs leading-relaxed text-warn">
-              <AlertTriangle className="mt-px size-3.5 shrink-0" />
-              <span>
-                Serve is reached at <span className="font-mono">{baseUrl}</span>, which GitHub cannot reach. Repositories and deploys work, but push events need a public dashboard
-                domain (Server settings).
-              </span>
-            </p>
-          )}
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="primary" onClick={connect} loading={pending} disabled={ownerType === "organization" && !organization.trim()}>
-              <GithubMark className="size-4" /> Continue on GitHub
-            </Button>
-            <span className="text-xs text-faint">Takes about 30 seconds.</span>
-          </div>
+        <div className="flex min-w-0 flex-col gap-1">
+          <h3 className="text-[15px] font-semibold text-fg">Connect GitHub</h3>
+          <p className="max-w-xl text-[13px] leading-relaxed text-muted">
+            Serve creates a private GitHub App for this server. You choose which repositories it can read, and pushes and pull requests deploy automatically.
+          </p>
         </div>
       </div>
-      <div className="grid gap-px border-t border-line bg-line sm:grid-cols-3">
-        {[
-          ["Create the app", "Review the name and click Create on GitHub."],
-          ["Pick repositories", "Allow all or only the ones you want to deploy."],
-          ["Deploy", "Choose a repository when creating a service."],
-        ].map(([title, body], i) => (
-          <div key={title} className="flex gap-3 bg-surface-2 px-5 py-3.5">
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-surface text-[11px] font-semibold text-muted ring-1 ring-line">{i + 1}</span>
-            <span className="flex flex-col">
-              <span className="text-[13px] font-medium text-fg-2">{title}</span>
-              <span className="text-xs text-muted">{body}</span>
-            </span>
-          </div>
-        ))}
+
+      <div className="flex flex-col gap-2" role="radiogroup" aria-label="Install on">
+        <span className="text-[13px] font-medium text-fg-2">Install on</span>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <OwnerOption selected={ownerType === "personal"} onSelect={() => setOwnerType("personal")} title="Personal account" body="Repositories you own" />
+          <OwnerOption selected={ownerType === "organization"} onSelect={() => setOwnerType("organization")} title="GitHub organization" body="You must be an owner" />
+        </div>
+        {ownerType === "organization" && (
+          <Input value={organization} onChange={(e) => setOrganization(e.target.value)} placeholder="Organization name, e.g. acme" className="mt-1 sm:max-w-xs" autoFocus aria-label="GitHub organization name" />
+        )}
       </div>
-    </Card>
+
+      <div className="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between">
+        {publicUrl ? (
+          <p className="text-xs text-muted">You will review the app on GitHub before it is created.</p>
+        ) : (
+          <p className="flex items-start gap-2 text-xs leading-relaxed text-muted">
+            <AlertTriangle className="mt-px size-3.5 flex-none text-warn" />
+            <span>
+              GitHub can&apos;t reach <span className="font-mono text-fg-2">{new URL(baseUrl).host}</span>, so pushes won&apos;t deploy automatically until you set a public dashboard domain.
+            </span>
+          </p>
+        )}
+        <Button variant="primary" onClick={connect} loading={pending} disabled={ownerType === "organization" && !organization.trim()} className="flex-none">
+          <GithubMark className="size-4" /> Continue on GitHub
+        </Button>
+      </div>
+    </div>
   );
+
+  return embedded ? body : <Card>{body}</Card>;
 }
 
 function OtherProviders({ isAdmin }: { isAdmin: boolean }) {
@@ -303,7 +305,7 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
             <Plus className="size-4 text-muted" /> Connect another GitHub account or organization
             <ChevronRight className="ml-auto size-4 text-faint transition-transform group-open:rotate-90" />
           </summary>
-          <div className="border-t border-line p-2"><ConnectGithub publicUrl={publicUrl} baseUrl={baseUrl} /></div>
+          <div className="border-t border-line"><ConnectGithub publicUrl={publicUrl} baseUrl={baseUrl} embedded /></div>
         </details>
       ))}
 

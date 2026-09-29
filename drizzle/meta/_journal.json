@@ -169,6 +169,13 @@
       "when": 1790706818411,
       "tag": "0023_roles_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790716533675,
+      "tag": "0024_live_events",
+      "breakpoints": true
     }
   ]
 }

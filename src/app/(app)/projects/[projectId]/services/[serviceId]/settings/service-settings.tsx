@@ -6,7 +6,7 @@ import { ArrowRightLeft, Check, Plus, RefreshCw, Server as ServerIcon, Trash2 } 
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
-import { Input, InputGroup, Textarea } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,6 +15,8 @@ import { useAction } from "@/hooks/use-action";
 import { applyDatabaseChanges, deleteService, moveService, regenerateWebhookSecret, updateService } from "@/server/actions/services";
 import { cn } from "@/lib/utils";
 import type { BuildConfig, RuntimeConfig, VolumeMount } from "@/server/services/types";
+import { Section } from "./section";
+import { AdvancedSection, BuildSection, DeploySection, HealthSection, ResourcesSection, RuntimeSection } from "./config-sections";
 
 type Source =
   | { type: "git"; repository: string; branch: string; credentialId?: string | null }
@@ -46,67 +48,9 @@ type Props = {
   /** Server the service runs on, and the servers it could move to. */
   server: { id: string; name: string; host: string; isLocal: boolean };
   servers: { id: string; name: string; host: string; status: string; isLocal: boolean }[];
+  /** Admin of the Root organization: may grant host access (privileged, capabilities). */
+  isRootAdmin: boolean;
 };
-
-/** A settings card with its own form state and save button. */
-function Section<T>({
-  title,
-  description,
-  initial,
-  onSave,
-  children,
-  footerNote,
-  footerAction,
-}: {
-  title: string;
-  description?: string;
-  initial: T;
-  onSave: (value: T) => Promise<unknown>;
-  children: (value: T, set: (patch: Partial<T>) => void) => React.ReactNode;
-  footerNote?: React.ReactNode;
-  /** Secondary action shown at the start of the footer, like "Add volume". */
-  footerAction?: (value: T, set: (patch: Partial<T>) => void) => React.ReactNode;
-}) {
-  const [value, setValue] = React.useState<T>(initial);
-  const [saved, setSaved] = React.useState(JSON.stringify(initial));
-  const [pending, setPending] = React.useState(false);
-  const dirty = JSON.stringify(value) !== saved;
-  const set = (patch: Partial<T>) => setValue((v) => ({ ...v, ...patch }));
-  return (
-    <Card>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setPending(true);
-          const ok = await onSave(value);
-          setPending(false);
-          if (ok !== undefined) setSaved(JSON.stringify(value));
-        }}
-      >
-        <CardHeader title={title} description={description} />
-        <CardBody className="flex flex-col gap-4 py-5">{children(value, set)}</CardBody>
-        <CardFooter>
-          <div className="flex min-w-0 items-center gap-3">
-            {footerAction?.(value, set)}
-            <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : footerNote}</span>
-          </div>
-          <div className="flex flex-none gap-2">
-            {dirty && (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setValue(JSON.parse(saved))}>
-                Discard
-              </Button>
-            )}
-            <Button type="submit" variant="primary" size="sm" disabled={!dirty} loading={pending}>
-              Save
-            </Button>
-          </div>
-        </CardFooter>
-      </form>
-    </Card>
-  );
-}
-
-const num = (v: string) => (v.trim() === "" ? null : Number(v));
 
 function ServerCard({ service, server, servers }: { service: Props["service"]; server: Props["server"]; servers: Props["servers"] }) {
   const router = useRouter();
@@ -122,7 +66,7 @@ function ServerCard({ service, server, servers }: { service: Props["service"]; s
   });
   const to = servers.find((s) => s.id === target);
   return (
-    <Card>
+    <Card id="server" className="scroll-mt-6">
       <CardHeader title="Server" description="The machine this service runs on." />
       <CardBody className="flex flex-col gap-4 py-5">
         <div className="flex items-center gap-3">
@@ -191,9 +135,44 @@ export function ServiceSettings(props: Props) {
   });
   const [removeVolumes, setRemoveVolumes] = React.useState(true);
 
+  const nav = [
+    { id: "general", label: "General" },
+    { id: "server", label: "Server" },
+    ...(service.source ? [{ id: "source", label: "Source" }] : []),
+    ...(service.build && service.source?.type === "git" ? [{ id: "build", label: "Build" }] : []),
+    ...(service.compose ? [{ id: "compose", label: "Compose file" }] : []),
+    ...(service.type === "app"
+      ? [
+          { id: "deploy", label: "Deploy" },
+          { id: "health", label: "Health check" },
+          { id: "runtime", label: "Runtime" },
+        ]
+      : []),
+    ...(service.type !== "compose" ? [{ id: "resources", label: "Resources" }] : []),
+    ...(service.type === "app" ? [{ id: "volumes", label: "Volumes" }, { id: "advanced", label: "Advanced" }] : []),
+    ...(service.database ? [{ id: "version", label: "Version" }] : []),
+    ...(service.type !== "database" ? [{ id: "webhooks", label: "Webhooks" }] : []),
+    { id: "danger", label: "Danger zone" },
+  ];
+
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
-      <Section title="General" initial={{ name: service.name }} onSave={(v) => save.run({ name: v.name })}>
+    <div className="flex gap-10">
+      <nav aria-label="Settings sections" className="sticky top-6 hidden w-40 flex-none flex-col gap-0.5 self-start xl:flex">
+        {nav.map((item) => (
+          <a
+            key={item.id}
+            href={`#${item.id}`}
+            className={cn(
+              "rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-fg-2/80 transition-colors hover:bg-fg/[0.04] hover:text-fg",
+              item.id === "danger" && "text-bad/80 hover:text-bad",
+            )}
+          >
+            {item.label}
+          </a>
+        ))}
+      </nav>
+    <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
+      <Section id="general" title="General" initial={{ name: service.name }} onSave={(v) => save.run({ name: v.name })}>
         {(v, set) => (
           <>
             <Field label="Service name">
@@ -210,6 +189,7 @@ export function ServiceSettings(props: Props) {
 
       {service.source?.type === "git" && (
         <Section
+          id="source"
           title="Source"
           description="The repository and branch Serve builds from."
           initial={{ repository: service.source.repository, branch: service.source.branch, credentialId: service.source.credentialId ?? "public", autoDeploy: service.autoDeploy, previewsEnabled: service.previewsEnabled }}
@@ -254,6 +234,7 @@ export function ServiceSettings(props: Props) {
 
       {service.source?.type === "image" && (
         <Section
+          id="source"
           title="Image"
           initial={{ image: service.source.image, registryUsername: service.source.registryUsername ?? "", registryPassword: "" }}
           onSave={(v) =>
@@ -285,58 +266,11 @@ export function ServiceSettings(props: Props) {
         </Section>
       )}
 
-      {service.build && (
-        <Section title="Build" description="How the image is built from your repository." initial={service.build} onSave={(v) => save.run({ build: v })}>
-          {(v, set) => (
-            <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Builder">
-                  <Select
-                    value={v.builder}
-                    onValueChange={(b) => set({ builder: b as BuildConfig["builder"] })}
-                    options={[
-                      { value: "auto", label: "Automatic", description: "Dockerfile if present, otherwise detect" },
-                      { value: "dockerfile", label: "Dockerfile" },
-                      { value: "nixpacks", label: "Nixpacks", disabled: !props.nixpacks, description: props.nixpacks ? undefined : "Not installed" },
-                      { value: "static", label: "Static site" },
-                    ]}
-                  />
-                </Field>
-                <Field label="Root directory">
-                  <InputGroup prefix="/">
-                    <Input value={v.rootDir.replace(/^\//, "")} onChange={(e) => set({ rootDir: `/${e.target.value.replace(/^\//, "")}` })} placeholder="" />
-                  </InputGroup>
-                </Field>
-                {(v.builder === "dockerfile" || v.builder === "auto") && (
-                  <>
-                    <Field label="Dockerfile path">
-                      <Input value={v.dockerfile} onChange={(e) => set({ dockerfile: e.target.value })} className="font-mono text-[13px]" />
-                    </Field>
-                    <Field label="Target stage" optional>
-                      <Input value={v.target ?? ""} onChange={(e) => set({ target: e.target.value || null })} className="font-mono text-[13px]" />
-                    </Field>
-                  </>
-                )}
-                <Field label="Install command" optional>
-                  <Input value={v.installCommand ?? ""} onChange={(e) => set({ installCommand: e.target.value || null })} placeholder="npm ci" className="font-mono text-[13px]" />
-                </Field>
-                <Field label="Build command" optional>
-                  <Input value={v.buildCommand ?? ""} onChange={(e) => set({ buildCommand: e.target.value || null })} placeholder="npm run build" className="font-mono text-[13px]" />
-                </Field>
-                <Field label="Start command" optional>
-                  <Input value={v.startCommand ?? ""} onChange={(e) => set({ startCommand: e.target.value || null })} placeholder="npm start" className="font-mono text-[13px]" />
-                </Field>
-                <Field label="Output directory" optional description="For static sites.">
-                  <Input value={v.publishDir ?? ""} onChange={(e) => set({ publishDir: e.target.value || null })} placeholder="dist" className="font-mono text-[13px]" />
-                </Field>
-              </div>
-            </>
-          )}
-        </Section>
-      )}
+      {service.build && service.source?.type === "git" && <BuildSection serviceId={service.id} build={service.build} nixpacks={props.nixpacks} save={save.run} />}
 
       {service.compose && (
         <Section
+          id="compose"
           title="Compose file"
           description={service.compose.mode === "git" ? "Read from the repository on every deploy." : "Edit the stack and deploy to apply."}
           initial={{ content: service.compose.content, path: service.compose.path }}
@@ -355,90 +289,18 @@ export function ServiceSettings(props: Props) {
       )}
 
       {service.type === "app" && (
-        <Section
-          title="Runtime"
-          description="How containers run. Changes apply on the next deploy."
-          initial={{
-            port: String(service.runtime.port ?? ""),
-            replicas: String(service.runtime.replicas),
-            command: service.runtime.command ?? "",
-            healthcheckPath: service.runtime.healthcheckPath ?? "",
-            healthcheckTimeout: String(service.runtime.healthcheckTimeout ?? 120),
-            restartPolicy: service.runtime.restartPolicy,
-          }}
-          onSave={(v) =>
-            save.run({
-              runtime: {
-                port: num(v.port),
-                replicas: Math.max(1, Number(v.replicas) || 1),
-                command: v.command || null,
-                healthcheckPath: v.healthcheckPath || null,
-                healthcheckTimeout: num(v.healthcheckTimeout),
-                restartPolicy: v.restartPolicy,
-              },
-            })
-          }
-        >
-          {(v, set) => (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Port" description="The port your app listens on.">
-                <Input value={v.port} onChange={(e) => set({ port: e.target.value.replace(/\D/g, "") })} inputMode="numeric" placeholder="3000" />
-              </Field>
-              <Field label="Replicas" description="Traffic is balanced across replicas.">
-                <Input value={v.replicas} onChange={(e) => set({ replicas: e.target.value.replace(/\D/g, "") })} inputMode="numeric" />
-              </Field>
-              <Field label="Healthcheck path" optional description="Must answer before traffic switches over.">
-                <Input value={v.healthcheckPath} onChange={(e) => set({ healthcheckPath: e.target.value })} placeholder="/health" className="font-mono text-[13px]" />
-              </Field>
-              <Field label="Healthcheck timeout" description="Seconds to wait for a healthy start.">
-                <Input value={v.healthcheckTimeout} onChange={(e) => set({ healthcheckTimeout: e.target.value.replace(/\D/g, "") })} inputMode="numeric" />
-              </Field>
-              <Field label="Restart policy">
-                <Select
-                  value={v.restartPolicy}
-                  onValueChange={(r) => set({ restartPolicy: r as RuntimeConfig["restartPolicy"] })}
-                  options={[
-                    { value: "unless-stopped", label: "Unless stopped" },
-                    { value: "always", label: "Always" },
-                    { value: "on-failure", label: "On failure" },
-                    { value: "no", label: "Never" },
-                  ]}
-                />
-              </Field>
-              <Field label="Command override" optional>
-                <Input value={v.command} onChange={(e) => set({ command: e.target.value })} placeholder="node server.js" className="font-mono text-[13px]" />
-              </Field>
-            </div>
-          )}
-        </Section>
+        <>
+          <DeploySection runtime={service.runtime} save={save.run} />
+          <HealthSection runtime={service.runtime} save={save.run} />
+          <RuntimeSection runtime={service.runtime} save={save.run} />
+        </>
       )}
 
-      {service.type !== "compose" && (
-        <Section
-          title="Resources"
-          description="Limits per container. Leave empty for no limit."
-          initial={{ cpu: String(service.runtime.cpuLimit ?? ""), memory: String(service.runtime.memoryLimit ?? "") }}
-          onSave={(v) => save.run({ runtime: { cpuLimit: v.cpu ? Number(v.cpu) : null, memoryLimit: num(v.memory) } })}
-        >
-          {(v, set) => (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="CPU limit">
-                <InputGroup suffix="cores">
-                  <Input value={v.cpu} onChange={(e) => set({ cpu: e.target.value.replace(/[^\d.]/g, "") })} placeholder="1.0" inputMode="decimal" />
-                </InputGroup>
-              </Field>
-              <Field label="Memory limit">
-                <InputGroup suffix="MB">
-                  <Input value={v.memory} onChange={(e) => set({ memory: e.target.value.replace(/\D/g, "") })} placeholder="512" inputMode="numeric" />
-                </InputGroup>
-              </Field>
-            </div>
-          )}
-        </Section>
-      )}
+      {service.type !== "compose" && <ResourcesSection runtime={service.runtime} save={save.run} />}
 
       {service.type === "app" && (
         <Section
+          id="volumes"
           title="Volumes"
           description="Persistent storage that survives deploys. Named volumes are managed by Serve."
           initial={{ volumes: service.runtime.volumes }}
@@ -470,8 +332,11 @@ export function ServiceSettings(props: Props) {
         </Section>
       )}
 
+      {service.type === "app" && <AdvancedSection runtime={service.runtime} save={save.run} isRootAdmin={props.isRootAdmin} />}
+
       {service.database && (
         <Section
+          id="version"
           title="Version"
           description="Changing the major version of a database may need a manual migration. Back up first."
           initial={{ version: service.database.version }}
@@ -490,7 +355,7 @@ export function ServiceSettings(props: Props) {
       )}
 
       {service.type !== "database" && (
-        <Card>
+        <Card id="webhooks" className="scroll-mt-6">
           <CardHeader title="Webhooks" description="Trigger deployments from your Git provider or CI." />
           <CardBody className="flex flex-col gap-4 py-5">
             {props.viaGithubApp ? (
@@ -523,7 +388,7 @@ export function ServiceSettings(props: Props) {
         </Card>
       )}
 
-      <Card className="border-bad/30">
+      <Card id="danger" className="scroll-mt-6 border-bad/30">
         <CardHeader title="Delete service" description="Stops and removes all containers, images and domains for this service." />
         <CardBody className="flex flex-col gap-3">
           <label className="flex items-center gap-2 text-[13px] text-fg-2">
@@ -553,6 +418,7 @@ export function ServiceSettings(props: Props) {
           </Button>
         </CardFooter>
       </Card>
+    </div>
     </div>
   );
 }

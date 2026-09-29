@@ -25,6 +25,7 @@ import { composeSecurityIssues, safeRedirectUrl } from "@/server/security";
 import type { OrgContext } from "@/server/auth";
 import { requestServiceControl } from "@/server/services/control";
 import { resolveServerForOrg, serverPublicIp } from "@/server/servers/access";
+import { CAPABILITIES } from "@/server/deploy/options";
 
 async function assertEnvironment(projectId: string, environmentId: string) {
   const [env] = await db
@@ -347,6 +348,11 @@ const updateSchema = z.object({
       startCommand: z.string().nullable(),
       publishDir: z.string().nullable(),
       target: z.string().nullable(),
+      buildArgs: z.array(z.object({ key: z.string().trim().max(200), value: z.string().max(4000) })).max(100),
+      noCache: z.boolean(),
+      buildTimeoutMinutes: z.number().int().min(1).max(240).nullable(),
+      submodules: z.boolean(),
+      watchPaths: z.array(z.string().trim().min(1).max(300)).max(50),
     })
     .partial()
     .optional(),
@@ -375,6 +381,31 @@ const updateSchema = z.object({
           bindAddress: z.enum(["0.0.0.0", "127.0.0.1"]).optional(),
         }),
       ),
+      preDeployCommand: z.string().max(4000).nullable(),
+      deployStrategy: z.enum(["rolling", "recreate"]),
+      drainSeconds: z.number().int().min(0).max(600).nullable(),
+      restartSchedule: z.string().max(100).nullable(),
+      healthcheckPort: z.number().int().min(1).max(65535).nullable(),
+      healthcheckInterval: z.number().int().min(1).max(300).nullable(),
+      healthcheckStartPeriod: z.number().int().min(0).max(1800).nullable(),
+      healthcheckStatus: z
+        .string()
+        .regex(/^\s*\d{3}(\s*-\s*\d{3})?(\s*,\s*\d{3}(\s*-\s*\d{3})?)*\s*$/, "Use a status or range like 200-399")
+        .nullable(),
+      healthcheckSuccesses: z.number().int().min(1).max(20).nullable(),
+      workingDir: z.string().regex(/^\//, "Use an absolute path").max(500).nullable(),
+      user: z.string().regex(/^[a-zA-Z0-9_.-]+(:[a-zA-Z0-9_.-]+)?$/, "Use a user like node or 1000:1000").nullable(),
+      stopTimeout: z.number().int().min(0).max(3600).nullable(),
+      stopSignal: z.enum(["SIGTERM", "SIGINT", "SIGQUIT", "SIGHUP", "SIGUSR1", "SIGUSR2"]).nullable(),
+      init: z.boolean(),
+      shmSize: z.number().int().min(1).max(65536).nullable(),
+      extraHosts: z.array(z.string().trim().regex(/^[a-z0-9.-]+:([0-9a-f.:]+|host-gateway)$/i, "Use hostname:ip lines")).max(50),
+      labels: z.array(z.object({ key: z.string().trim().max(200), value: z.string().max(4000) })).max(100),
+      logMaxSizeMb: z.number().int().min(1).max(1024).nullable(),
+      logMaxFiles: z.number().int().min(1).max(50).nullable(),
+      memoryReservation: z.number().int().min(16).max(1024 * 1024).nullable(),
+      privileged: z.boolean(),
+      capAdd: z.array(z.enum(CAPABILITIES)).max(20),
     })
     .partial()
     .optional(),
@@ -448,6 +479,19 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         throw new UserError("Ports below 1024 are reserved for the proxy and system services.");
       }
       if (runtime.replicas > 1 && runtime.ports.length) throw new UserError("Published host ports only work with a single replica.");
+      const grantsHost =
+        (data.runtime.privileged === true && !service.runtime.privileged) ||
+        (data.runtime.capAdd !== undefined && data.runtime.capAdd.some((c) => !(service.runtime.capAdd ?? []).includes(c)));
+      if (grantsHost) assertHostAccess(ctx, "Privileged mode and extra capabilities");
+      if (data.runtime.labels?.some((l) => l.key.startsWith("serve."))) throw new UserError("Labels starting with serve. are reserved.");
+      if (data.runtime.restartSchedule) {
+        const { CronExpressionParser } = await import("cron-parser");
+        try {
+          CronExpressionParser.parse(data.runtime.restartSchedule);
+        } catch {
+          throw new UserError("The restart schedule is not a valid cron expression.");
+        }
+      }
       patch.runtime = runtime;
     }
     if (data.database && service.database) {
@@ -517,6 +561,18 @@ export async function deployService(serviceId: string) {
     const ctx = await requireOrg();
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type === "app" && !service.source) throw new UserError("Connect a source before deploying.");
+    const id = await queueDeployment(serviceId, "manual", { userId: ctx.user.id });
+    return { id };
+  });
+}
+
+/** Deploy once without the build cache (fresh base images and layers). */
+export async function deployWithoutCache(serviceId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (service.type !== "app" || service.source?.type !== "git" || !service.build) throw new UserError("Only services built from a repository have a build cache.");
+    await db.update(schema.service).set({ build: { ...service.build, noCacheOnce: true } }).where(eq(schema.service.id, serviceId));
     const id = await queueDeployment(serviceId, "manual", { userId: ctx.user.id });
     return { id };
   });

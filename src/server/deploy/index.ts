@@ -4,7 +4,7 @@ import { and, desc, eq, gt, ne } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import type Docker from "dockerode";
-import type { PortMapping } from "@/server/services/types";
+import type { BuildConfig, PortMapping } from "@/server/services/types";
 import { ensureNetwork, imageExists, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
 import { serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
@@ -17,7 +17,7 @@ import { notify, orgOfService } from "@/server/notify";
 import { buildImage } from "./builders";
 import { cloneRepository } from "./git";
 import { DeployLogger } from "./logger";
-import { startContainer, volumeName, waitHealthy } from "./containers";
+import { createSpec, startContainer, volumeName, waitHealthy } from "./containers";
 import { allocateSubnet, composeServiceNames, composeUp, transformCompose, writeComposeFiles } from "./compose";
 import type { ServiceStatus } from "@/server/db/schema";
 import { composeSecurityIssues, containedPath } from "@/server/security";
@@ -106,9 +106,22 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
   const env = await resolveEnv(service);
   log.redact(env.secrets);
   const workDir = path.join(paths.builds, dep.id);
+  const build: BuildConfig = { ...service.build!, noCache: service.build?.noCache || service.build?.noCacheOnce };
+  if (service.build?.noCacheOnce) {
+    // One-shot "build without cache": consume the flag so later deploys use the cache again.
+    await db.update(schema.service).set({ build: { ...service.build, noCacheOnce: false } }).where(eq(schema.service.id, service.id));
+  }
+  // A build timeout aborts clone + build like a cancellation.
+  const timeoutMinutes = build.buildTimeoutMinutes;
+  const buildController = new AbortController();
+  const onAbort = () => buildController.abort();
+  signal?.addEventListener("abort", onAbort);
+  const timer = timeoutMinutes ? setTimeout(() => buildController.abort(new Error(`The build exceeded ${timeoutMinutes} minutes.`)), timeoutMinutes * 60_000) : undefined;
+  const buildSignal = buildController.signal;
   try {
     log.step("Cloning repository");
-    const clone = await cloneRepository(source, workDir, log.line, signal, await orgIdOf(service));
+    if (build.noCache) log.line("Building without cache");
+    const clone = await cloneRepository(source, workDir, log.line, buildSignal, await orgIdOf(service), { submodules: build.submodules });
     await setDeployment(dep.id, {
       commitSha: clone.commitSha,
       commitMessage: clone.commitMessage,
@@ -117,7 +130,6 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
     });
     checkCancelled(signal);
 
-    const build = service.build!;
     const contextDir = containedPath(workDir, build.rootDir || "/", "Root directory");
     containedPath(contextDir, build.dockerfile || "Dockerfile", "Dockerfile path");
     await fs.access(contextDir).catch(() => {
@@ -133,13 +145,18 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
       buildEnv: env.build,
       labels: { [LABEL.managed]: "true", [LABEL.service]: service.id, [LABEL.deployment]: dep.id },
       log: log.line,
-      signal,
+      signal: buildSignal,
       redact: env.secrets,
       dockerEnv: await server.cliEnv(),
     });
     log.line(`Build finished in ${((Date.now() - started) / 1000).toFixed(1)}s`);
     return { image: target, detectedPort: result.detectedPort ?? (await imagePort(target, d)) };
+  } catch (error) {
+    if (buildSignal.aborted && !signal?.aborted && buildSignal.reason instanceof Error) throw buildSignal.reason;
+    throw error;
   } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
     await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
 }
@@ -175,19 +192,30 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
 
   const old = (await listServiceContainers(service.id, true, d)).filter((c) => c.Labels[LABEL.deployment] !== dep.id);
   const replicas = Math.max(1, Math.min(runtime.replicas || 1, 20));
-  const needsStopFirst = runtime.ports.length > 0;
-  if (needsStopFirst) {
+  const recreate = runtime.deployStrategy === "recreate";
+  const needsStopFirst = runtime.ports.length > 0 || recreate;
+  if (runtime.ports.length) {
     // Fail before touching the running version when another container holds a port.
     await assertPortsFree(d, server.name, runtime.ports, service.id);
-  }
-  if (needsStopFirst && old.length) {
-    log.line("Stopping the previous version first because host ports are published");
-    for (const c of old) await d.getContainer(c.Id).stop({ t: 10 }).catch(() => {});
   }
 
   const [stillThere] = await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.id, service.id));
   if (!stillThere) throw new DeployCancelled("The service was deleted");
   const network = await ensureEnvNetwork(service.environmentId, server);
+
+  if (runtime.preDeployCommand && dep.rollbackOf) log.line("Skipping the pre-deploy command for a rollback");
+  if (runtime.preDeployCommand && !dep.rollbackOf) {
+    // Runs before the old version stops, so a failing migration never takes the app down.
+    log.step("Running the pre-deploy command");
+    await runPreDeploy({ service, dep, image, env: env.runtime, runtime, network, d, log, signal });
+    checkCancelled(signal);
+  }
+
+  if (needsStopFirst && old.length) {
+    log.line(recreate ? "Stopping the previous version first (recreate strategy)" : "Stopping the previous version first because host ports are published");
+    const stopWait = runtime.stopTimeout ?? 10;
+    for (const c of old) await d.getContainer(c.Id).stop({ t: stopWait }).catch(() => {});
+  }
   log.step(`Starting ${replicas} container${replicas > 1 ? "s" : ""}`);
   const started: string[] = [];
   try {
@@ -237,13 +265,74 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   }
 
   if (old.length && !needsStopFirst) {
-    log.line(`Draining ${old.length} old container${old.length > 1 ? "s" : ""}`);
-    await new Promise((r) => setTimeout(r, 3000));
-    await Promise.all(old.map((c) => removeContainer(c.Id, 15, d)));
+    const drain = runtime.drainSeconds ?? 3;
+    log.line(`Draining ${old.length} old container${old.length > 1 ? "s" : ""}${drain ? ` for ${drain}s` : ""}`);
+    if (drain) await new Promise((r) => setTimeout(r, drain * 1000));
+    await Promise.all(old.map((c) => removeContainer(c.Id, runtime.stopTimeout ?? 15, d)));
   } else if (old.length) {
     await Promise.all(old.map((c) => removeContainer(c.Id, 0, d)));
   }
   await pruneImages(service, d).catch(() => {});
+}
+
+/**
+ * Run the pre-deploy command in a one-off container from the new image, with the
+ * service's variables and network. A non-zero exit fails the deployment.
+ */
+async function runPreDeploy(opts: {
+  service: Service;
+  dep: Deployment;
+  image: string;
+  env: Record<string, string>;
+  runtime: Service["runtime"];
+  network: string;
+  d: Docker;
+  log: DeployLogger;
+  signal?: AbortSignal;
+}) {
+  const { service, dep, d, log } = opts;
+  const name = `${service.slug}-${dep.id.slice(0, 6)}-predeploy`;
+  await removeContainer(name, 0, d);
+  const spec = createSpec({
+    name,
+    image: opts.image,
+    slug: service.slug,
+    serviceId: service.id,
+    deploymentId: dep.id,
+    kind: "predeploy",
+    env: opts.env,
+    // No published ports, no restarts: it runs once next to the live version.
+    runtime: { ...opts.runtime, ports: [], restartPolicy: "no", command: null },
+    aliases: [],
+    network: opts.network,
+    cmd: ["sh", "-c", opts.runtime.preDeployCommand!],
+  });
+  const container = await d.createContainer(spec);
+  try {
+    await container.start();
+    const stream = (await container.logs({ follow: true, stdout: true, stderr: true })) as unknown as NodeJS.ReadableStream;
+    const { PassThrough } = await import("node:stream");
+    const out = new PassThrough();
+    let partial = "";
+    out.on("data", (chunk: Buffer) => {
+      const lines = (partial + chunk.toString("utf8")).split(/\r?\n/);
+      partial = lines.pop() ?? "";
+      for (const line of lines) log.line(line);
+    });
+    d.modem.demuxStream(stream, out, out);
+    const timeoutMs = Math.max(60, opts.runtime.healthcheckTimeout ?? 900) * 1000;
+    const result = (await Promise.race([
+      container.wait(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("The pre-deploy command timed out.")), timeoutMs)),
+      new Promise((_, reject) => opts.signal?.addEventListener("abort", () => reject(new DeployCancelled("Deployment cancelled")))),
+    ])) as { StatusCode: number };
+    await new Promise((r) => setTimeout(r, 200));
+    if (partial) log.line(partial);
+    if (result.StatusCode !== 0) throw new Error(`The pre-deploy command exited with code ${result.StatusCode}. The previous version keeps running.`);
+    log.line("Pre-deploy command finished");
+  } finally {
+    await container.remove({ force: true }).catch(() => {});
+  }
 }
 
 /** Throws a clear error when another container already publishes one of the ports. */

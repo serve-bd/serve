@@ -32,7 +32,21 @@ export type BuildConfig = {
   publishDir?: string | null;
   /** Docker build target stage. */
   target?: string | null;
+  /** Extra --build-arg values (not secret: use build-time variables for secrets). */
+  buildArgs?: KeyValue[];
+  /** Always build without the layer cache and pull fresh base images. */
+  noCache?: boolean;
+  /** Build the next deployment without cache once, then clear this flag. */
+  noCacheOnce?: boolean;
+  /** Abort builds that take longer (minutes). */
+  buildTimeoutMinutes?: number | null;
+  /** Clone Git submodules (default true). */
+  submodules?: boolean;
+  /** Only auto-deploy pushes that change a matching path (globs). Empty deploys every push. */
+  watchPaths?: string[];
 };
+
+export type KeyValue = { key: string; value: string };
 
 export type VolumeMount = {
   /** Named volume (managed by Serve) or absolute host path. */
@@ -68,6 +82,51 @@ export type RuntimeConfig = {
   memoryLimit?: number | null;
   volumes: VolumeMount[];
   ports: PortMapping[];
+
+  /* Deploy */
+  /** One-off command run from the new image before traffic switches, e.g. migrations. */
+  preDeployCommand?: string | null;
+  /** rolling: start new, then stop old (zero downtime). recreate: stop old first. */
+  deployStrategy?: "rolling" | "recreate";
+  /** Seconds old containers keep serving in-flight requests after the switch. */
+  drainSeconds?: number | null;
+  /** Cron expression for scheduled restarts. */
+  restartSchedule?: string | null;
+
+  /* Health check (deploy-time, run by Serve) */
+  /** Port to probe; defaults to the app port. */
+  healthcheckPort?: number | null;
+  /** Seconds between probes. */
+  healthcheckInterval?: number | null;
+  /** Seconds to wait before the first probe. */
+  healthcheckStartPeriod?: number | null;
+  /** Accepted HTTP status range, e.g. "200-399". */
+  healthcheckStatus?: string | null;
+  /** Consecutive successful probes needed. */
+  healthcheckSuccesses?: number | null;
+
+  /* Container */
+  workingDir?: string | null;
+  /** User to run as, e.g. "1000:1000" or "node". */
+  user?: string | null;
+  /** Seconds to wait after the stop signal before killing. */
+  stopTimeout?: number | null;
+  stopSignal?: "SIGTERM" | "SIGINT" | "SIGQUIT" | "SIGHUP" | "SIGUSR1" | "SIGUSR2" | null;
+  /** Run a tiny init as PID 1 that reaps zombies and forwards signals (default true). */
+  init?: boolean;
+  /** /dev/shm size in MB. */
+  shmSize?: number | null;
+  /** "hostname:ip" entries added to /etc/hosts. */
+  extraHosts?: string[];
+  labels?: KeyValue[];
+  /** Container log rotation. */
+  logMaxSizeMb?: number | null;
+  logMaxFiles?: number | null;
+  /** Soft memory reservation in MB. */
+  memoryReservation?: number | null;
+  /** Root organization only. */
+  privileged?: boolean;
+  capAdd?: string[];
 };
 
 export type DbEngine =

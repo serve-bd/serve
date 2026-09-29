@@ -61,6 +61,7 @@ export default async function SettingsPage(props: PageProps<"/projects/[projectI
         deployHookUrl={`${base}/api/deploy-hooks/${service.id}?token=${service.webhookSecret}`}
         server={server ?? { id: service.serverId, name: "Unknown server", host: "", isLocal: false }}
         servers={servers}
+        isRootAdmin={ctx.isInstanceAdmin}
       />
     </PageBody>
   );

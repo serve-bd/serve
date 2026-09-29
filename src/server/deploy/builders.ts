@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { commandExists, run } from "@/server/process";
 import type { BuildConfig } from "@/server/services/types";
+import { buildArgFlags } from "./options";
 
 export type BuildContext = {
   /** Absolute path of the build context (repo + rootDir). */
@@ -289,8 +290,12 @@ async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileCont
     args.push("-f", path.join(ctx.contextDir, dockerfile));
   }
   for (const [k, v] of Object.entries(ctx.buildEnv)) args.push("--build-arg", `${k}=${v}`);
+  const extra = buildArgFlags(ctx.build.buildArgs);
+  if (extra.length) ctx.log(`Build arguments: ${extra.filter((_, i) => i % 2).map((a) => a.split("=")[0]).join(", ")}`);
+  args.push(...extra);
   for (const [k, v] of Object.entries(ctx.labels)) args.push("--label", `${k}=${v}`);
   if (ctx.build.target) args.push("--target", ctx.build.target);
+  if (ctx.build.noCache) args.push("--no-cache", "--pull");
   args.push(ctx.contextDir);
   try {
     await run("docker", args, {
@@ -330,7 +335,9 @@ export async function buildImage(ctx: BuildContext): Promise<BuildResult> {
     if (build.buildCommand) args.push("--build-cmd", build.buildCommand);
     if (build.startCommand) args.push("--start-cmd", build.startCommand);
     for (const [k, v] of Object.entries(ctx.buildEnv)) args.push("--env", `${k}=${v}`);
+    for (const a of ctx.build.buildArgs ?? []) if (a.key.trim()) args.push("--env", `${a.key.trim()}=${a.value}`);
     for (const [k, v] of Object.entries(ctx.labels)) args.push("--label", `${k}=${v}`);
+    if (ctx.build.noCache) args.push("--no-cache");
     await run("nixpacks", args, { onLine: ctx.log, signal: ctx.signal, redact: ctx.redact, env: ctx.dockerEnv });
     return { builder: "nixpacks" };
   }

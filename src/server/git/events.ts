@@ -2,10 +2,36 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { queueDeployment } from "@/server/services/create";
 import { commentOnGithub, deployPreview, removePreview, type PullRequest } from "@/server/services/previews";
+import { matchesWatchPaths } from "@/server/deploy/options";
 
 type Service = typeof schema.service.$inferSelect;
 
-export type PushInfo = { branch: string | null; sha: string | null; message: string | null; author: string | null };
+export type PushInfo = {
+  branch: string | null;
+  sha: string | null;
+  message: string | null;
+  author: string | null;
+  /** Files changed by the pushed commits; null when the provider does not send them. */
+  files?: string[] | null;
+};
+
+/** Changed files from GitHub, Gitea and GitLab push payloads (commits[].added/modified/removed). */
+function changedFiles(body: Record<string, unknown>): string[] | null {
+  const commits = body.commits as { added?: string[]; modified?: string[]; removed?: string[] }[] | undefined;
+  if (!Array.isArray(commits) || !commits.length) return null;
+  const files = new Set<string>();
+  let known = false;
+  for (const c of commits) {
+    for (const list of [c.added, c.modified, c.removed]) {
+      if (!Array.isArray(list)) continue;
+      known = true;
+      for (const f of list) files.add(f);
+    }
+  }
+  // GitHub caps commits at 20 per payload; beyond that the list is incomplete, so deploy.
+  if (!known || commits.length >= 20) return null;
+  return [...files];
+}
 
 export type PrEvent = { action: "deploy" | "close" | "fork"; pr: PullRequest };
 
@@ -78,10 +104,10 @@ export function parsePush(headers: Headers, body: Record<string, unknown>): Push
   if (glEvent) {
     const commits = (body.commits as { id: string; message: string; author?: { name?: string } }[]) ?? [];
     const last = commits.at(-1);
-    return { branch, sha: (body.checkout_sha as string) ?? last?.id ?? null, message: last?.message?.trim() ?? null, author: last?.author?.name ?? (body.user_name as string) ?? null };
+    return { branch, sha: (body.checkout_sha as string) ?? last?.id ?? null, message: last?.message?.trim() ?? null, author: last?.author?.name ?? (body.user_name as string) ?? null, files: changedFiles(body) };
   }
   const head = body.head_commit as { id?: string; message?: string; author?: { name?: string } } | undefined;
-  return { branch, sha: head?.id ?? (body.after as string) ?? null, message: head?.message?.split("\n")[0] ?? null, author: head?.author?.name ?? null };
+  return { branch, sha: head?.id ?? (body.after as string) ?? null, message: head?.message?.split("\n")[0] ?? null, author: head?.author?.name ?? null, files: changedFiles(body) };
 }
 
 
@@ -106,6 +132,9 @@ export async function applyPush(service: Service, push: PushInfo): Promise<Event
   if (service.source?.type !== "git") return { skipped: "Service does not deploy from git" };
   if (push.branch && push.branch !== service.source.branch) {
     return { skipped: `Push to ${push.branch}, service tracks ${service.source.branch}` };
+  }
+  if (!matchesWatchPaths(push.files ?? null, service.build?.watchPaths)) {
+    return { skipped: "No changed file matches the watch paths" };
   }
   const id = await queueDeployment(service.id, "webhook", { commitSha: push.sha, commitMessage: push.message, branch: push.branch });
   if (push.author) await db.update(schema.deployment).set({ commitAuthor: push.author }).where(eq(schema.deployment.id, id));

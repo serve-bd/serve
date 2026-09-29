@@ -75,6 +75,7 @@ export async function cloneRepository(
   log: (line: string) => void,
   signal?: AbortSignal,
   organizationId?: string | null,
+  opts: { submodules?: boolean } = {},
 ): Promise<CloneResult> {
   await fs.rm(dir, { recursive: true, force: true });
   const parent = path.dirname(dir);
@@ -92,8 +93,7 @@ export async function cloneRepository(
         "--branch",
         source.branch,
         "--single-branch",
-        "--recurse-submodules",
-        "--shallow-submodules",
+        ...(opts.submodules === false ? [] : ["--recurse-submodules", "--shallow-submodules"]),
         access.cloneUrl,
         dir,
       ],

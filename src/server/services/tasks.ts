@@ -101,9 +101,33 @@ export async function scheduleTasks() {
       // invalid cron expression: skip
     }
   }
+  await scheduleRestarts(now, tz);
   // Runs stuck after a worker restart.
   await db
     .update(schema.taskRun)
     .set({ status: "failed", finishedAt: new Date(), output: "Interrupted." })
     .where(and(eq(schema.taskRun.status, "running"), lt(schema.taskRun.startedAt, new Date(Date.now() - 24 * 3600_000))));
+}
+
+const lastRestart = new Map<string, number>();
+
+/** Restart running services whose restartSchedule (cron) fired in the last minute. */
+async function scheduleRestarts(now: Date, tz: string) {
+  const services = await db
+    .select({ id: schema.service.id, runtime: schema.service.runtime, status: schema.service.status })
+    .from(schema.service)
+    .where(eq(schema.service.status, "running"));
+  for (const s of services) {
+    const cron = s.runtime.restartSchedule;
+    if (!cron) continue;
+    try {
+      const prev = CronExpressionParser.parse(cron, { currentDate: now, tz }).prev().toDate().getTime();
+      if (now.getTime() - prev < 60_000 && lastRestart.get(s.id) !== prev) {
+        lastRestart.set(s.id, prev);
+        await enqueue("service.restart", { serviceId: s.id }, { concurrencyKey: `service:${s.id}` });
+      }
+    } catch {
+      // invalid cron expression: skip
+    }
+  }
 }

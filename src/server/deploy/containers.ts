@@ -4,6 +4,7 @@ import type Docker from "dockerode";
 import { docker, LABEL } from "@/server/docker/client";
 import { env } from "@/server/env";
 import type { RuntimeConfig } from "@/server/services/types";
+import { statusMatcher, userLabels, validExtraHosts } from "./options";
 
 export function volumeName(slug: string, source: string) {
   return `serve-${slug}-${source}`.toLowerCase().replace(/[^a-z0-9_.-]/g, "-");
@@ -54,7 +55,12 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
     Image: spec.image,
     Env: Object.entries(spec.env).map(([k, v]) => `${k}=${v}`),
     Cmd: spec.cmd ?? (runtime.command ? splitCommand(runtime.command) : undefined),
+    WorkingDir: runtime.workingDir || undefined,
+    User: runtime.user || undefined,
+    StopSignal: runtime.stopSignal || undefined,
+    StopTimeout: runtime.stopTimeout ?? undefined,
     Labels: {
+      ...userLabels(runtime.labels),
       [LABEL.managed]: "true",
       [LABEL.service]: spec.serviceId,
       [LABEL.slug]: spec.slug,
@@ -72,9 +78,17 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
         restart === "no" ? { Name: "no" } : restart === "on-failure" ? { Name: "on-failure", MaximumRetryCount: 5 } : { Name: restart },
       NanoCpus: runtime.cpuLimit ? Math.round(runtime.cpuLimit * 1e9) : undefined,
       Memory: runtime.memoryLimit ? runtime.memoryLimit * 1024 * 1024 : undefined,
-      LogConfig: { Type: "json-file", Config: { "max-size": "20m", "max-file": "5" } },
-      ExtraHosts: ["host.docker.internal:host-gateway"],
-      Init: true,
+      MemoryReservation: runtime.memoryReservation ? runtime.memoryReservation * 1024 * 1024 : undefined,
+      LogConfig: {
+        Type: "json-file",
+        Config: { "max-size": `${runtime.logMaxSizeMb ?? 20}m`, "max-file": String(runtime.logMaxFiles ?? 5) },
+      },
+      ExtraHosts: ["host.docker.internal:host-gateway", ...validExtraHosts(runtime.extraHosts)],
+      Init: runtime.init ?? true,
+      ShmSize: runtime.shmSize ? runtime.shmSize * 1024 * 1024 : undefined,
+      // Only settable by Root organization admins (checked when saving).
+      Privileged: runtime.privileged || undefined,
+      CapAdd: runtime.capAdd?.length ? runtime.capAdd : undefined,
     },
     NetworkingConfig: {
       EndpointsConfig: {
@@ -124,7 +138,13 @@ function tcpCheck(host: string, port: number, timeout = 2000) {
 const inContainer = existsSync("/.dockerenv");
 
 /** Probe from inside the proxy container, which joins every environment network. Null when the proxy is missing. */
-async function proxyProbe(target: ContainerTarget, host: string, port: number, pathName: string | null): Promise<boolean | null> {
+async function proxyProbe(
+  target: ContainerTarget,
+  host: string,
+  port: number,
+  pathName: string | null,
+  accept: (status: number) => boolean = (s) => s > 0 && s < 500,
+): Promise<boolean | null> {
   const { execInContainer } = await import("@/server/docker/client");
   const cmd = pathName
     ? `wget -S -q -T 4 -O /dev/null "http://${host}:${port}${pathName}" 2>&1 | awk '/HTTP\//{print $2}' | tail -1`
@@ -139,13 +159,13 @@ async function proxyProbe(target: ContainerTarget, host: string, port: number, p
   const out = res.output.trim();
   if (!pathName) return out.includes("open");
   const status = Number(out.split(/\s+/).pop());
-  return status > 0 && status < 500;
+  return accept(status);
 }
 
-async function httpCheck(url: string) {
+async function httpCheck(url: string, accept: (status: number) => boolean) {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(4000), redirect: "manual" });
-    return res.status < 500;
+    return accept(res.status);
   } catch {
     return false;
   }
@@ -178,6 +198,15 @@ export async function waitHealthy(
   const timeoutMs = (runtime.healthcheckTimeout ?? 120) * 1000;
   const started = Date.now();
   let stableSince = 0;
+  const probePort = runtime.healthcheckPort || runtime.port;
+  const intervalMs = Math.max(1, runtime.healthcheckInterval ?? 1) * 1000;
+  const accept = statusMatcher(runtime.healthcheckStatus);
+  const needed = Math.max(1, runtime.healthcheckSuccesses ?? 1);
+  let successes = 0;
+  if (runtime.healthcheckStartPeriod) {
+    log(`Waiting ${runtime.healthcheckStartPeriod}s before the first health check`);
+    await sleep(runtime.healthcheckStartPeriod * 1000, signal);
+  }
   let lastNote = "";
   const note = (msg: string) => {
     if (msg !== lastNote) log(msg);
@@ -204,15 +233,15 @@ export async function waitHealthy(
     }
 
     const ip = info.NetworkSettings.Networks?.[network]?.IPAddress;
-    if (runtime.port && ip) {
+    if (probePort && ip) {
       const probePath = runtime.healthcheckPath ? `${runtime.healthcheckPath.startsWith("/") ? "" : "/"}${runtime.healthcheckPath}` : null;
       // Remote servers (and a containerized worker) cannot reach bridge IPs directly.
       let ok: boolean | null =
         !target.local || inContainer
-          ? await proxyProbe(target, ip, runtime.port, probePath)
+          ? await proxyProbe(target, ip, probePort, probePath, accept)
           : probePath
-            ? await httpCheck(`http://${ip}:${runtime.port}${probePath}`)
-            : await tcpCheck(ip, runtime.port);
+            ? await httpCheck(`http://${ip}:${probePort}${probePath}`, accept)
+            : await tcpCheck(ip, probePort);
       if (ok === null) {
         // No proxy on that server yet: rely on the container staying up (and its own healthcheck).
         if (!proxyMissingNoted) log("Proxy not running on this server yet, skipping the port check");
@@ -221,19 +250,25 @@ export async function waitHealthy(
       }
       if (!ok) {
         stableSince = 0;
+        successes = 0;
         note(
           runtime.healthcheckPath
-            ? `Waiting for ${runtime.healthcheckPath} to respond on port ${runtime.port}`
-            : `Waiting for the app to listen on port ${runtime.port}`,
+            ? `Waiting for ${runtime.healthcheckPath} to respond on port ${probePort}${runtime.healthcheckStatus ? ` with ${runtime.healthcheckStatus}` : ""}`
+            : `Waiting for the app to listen on port ${probePort}`,
         );
-        await sleep(1000, signal);
+        await sleep(intervalMs, signal);
+        continue;
+      }
+      if (++successes < needed) {
+        note(`Health check passed ${successes} of ${needed} times`);
+        await sleep(intervalMs, signal);
         continue;
       }
     }
 
     // Consider healthy after staying up briefly without restarts.
     if (!stableSince) stableSince = Date.now();
-    if (Date.now() - stableSince >= (runtime.port ? 1500 : 5000)) return;
+    if (Date.now() - stableSince >= (probePort ? 1500 : 5000)) return;
     await sleep(500, signal);
   }
   const tail = await containerLogsTail(d, containerId);

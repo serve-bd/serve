@@ -2,7 +2,6 @@ import Link from "next/link";
 import { Box, Database, Layers } from "lucide-react";
 import { StatusDot } from "@/components/ui/status";
 import { TimeAgo } from "@/components/ui/misc";
-import { projectColor } from "@/components/shell/project-color";
 
 export type ProjectSummary = {
   id: string;
@@ -22,21 +21,13 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
   const running = project.services.filter((s) => s.status === "running").length;
   const failing = project.services.filter((s) => s.status === "failed" || s.status === "crashed").length;
   const counts = (Object.keys(typeIcon) as (keyof typeof typeIcon)[]).map((t) => ({ t, n: project.services.filter((s) => s.type === t).length })).filter((c) => c.n);
-  const color = projectColor(project.color);
   const health = total === 0 ? "idle" : failing ? "failed" : running === total ? "running" : "stopped";
   return (
     <Link
       href={`/projects/${project.id}`}
       className="group flex flex-col gap-4 rounded-xl border border-line bg-surface p-4 shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-md"
     >
-      <div className="flex items-start gap-3">
-        <span
-          className="flex size-9 flex-none items-center justify-center rounded-lg text-[14px] font-semibold text-white"
-          style={{ background: color }}
-          aria-hidden
-        >
-          {project.name.trim().charAt(0).toUpperCase() || "P"}
-        </span>
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[15px] font-semibold text-fg">{project.name}</h3>
           <p className="truncate text-[13px] text-muted">

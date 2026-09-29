@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUpRight, CircleCheck, Download, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowUpRight, CircleCheck, Download, RefreshCw, Sparkles, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, CardBody, CardHeader, CopyField, TimeAgo } from "@/components/ui/misc";
+import { Badge, Card, CardBody, CardHeader, TimeAgo } from "@/components/ui/misc";
 import { SwitchRow } from "@/components/ui/switch";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
@@ -169,24 +169,18 @@ export function UpdatesView({
           </CardBody>
         </Card>
       )}
-
-      {mode === "manual" && !available && (
-        <Card>
-          <CardHeader title="Updating this installation" description="This instance runs from a checkout, not the Docker Compose install, so it is updated by hand." />
-          <CardBody className="py-5">
-            <ManualSteps />
-          </CardBody>
-        </Card>
-      )}
     </>
   );
 }
 
 function ManualSteps() {
   return (
-    <div className="flex flex-col gap-2 text-[13px] text-fg-2">
-      <p>Run in the repository, then restart the web and worker processes:</p>
-      <CopyField value="git pull && pnpm install && pnpm db:migrate && pnpm build && pnpm build:worker" />
-    </div>
+    <p className="flex items-start gap-2 rounded-xl border border-line bg-sunken px-3 py-2.5 text-[13px] leading-relaxed text-fg-2">
+      <Info className="mt-0.5 size-4 flex-none text-muted" />
+      <span>
+        One-click updates work on the Docker install. This instance runs outside Docker (a development setup), so it cannot replace itself. Install with{" "}
+        <span className="font-mono text-[12px]">install.sh</span> to update from here.
+      </span>
+    </p>
   );
 }

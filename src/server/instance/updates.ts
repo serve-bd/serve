@@ -28,7 +28,12 @@ export async function checkForUpdates(): Promise<UpdateCheck> {
   let check: UpdateCheck;
   try {
     const res = await fetch(`https://api.github.com/repos/${updateRepository()}/releases/latest`, {
-      headers: { accept: "application/vnd.github+json", "user-agent": `serve/${currentVersion()}` },
+      headers: {
+        accept: "application/vnd.github+json",
+        "user-agent": `serve/${currentVersion()}`,
+        // Only needed while the repository is private.
+        ...(process.env.SERVE_UPDATE_TOKEN ? { authorization: `Bearer ${process.env.SERVE_UPDATE_TOKEN}` } : {}),
+      },
       signal: AbortSignal.timeout(10_000),
     });
     if (res.status === 404) {

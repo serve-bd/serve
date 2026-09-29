@@ -102,11 +102,10 @@ To update by hand instead:
 cd /data/serve && docker compose pull && docker compose up -d
 ```
 
-A development checkout (not the Docker Compose install) is updated with `git pull && pnpm install && pnpm db:migrate && pnpm build && pnpm build:worker`, then restart the web and worker processes.
-
 | Variable | Default | Description |
 | --- | --- | --- |
 | `SERVE_UPDATE_REPO` | `shahriyardx/serve` | GitHub repository whose releases announce updates |
+| `SERVE_UPDATE_TOKEN` | | GitHub token that can read the releases, only while the repository is private |
 
 ## Backup and restore
 

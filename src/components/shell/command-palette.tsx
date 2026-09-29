@@ -21,6 +21,7 @@ import {
   Settings,
   ShieldCheck,
   Users,
+  KeyRound,
 } from "lucide-react";
 import { StatusDot } from "@/components/ui/status";
 import { projectColor } from "./project-color";
@@ -141,6 +142,9 @@ export function CommandPalette({
                     </Command.Item>
                     <Command.Item onSelect={() => go("/organization/members")} className={itemClass}>
                       <Users /> Members
+                    </Command.Item>
+                    <Command.Item onSelect={() => go("/keys")} className={itemClass}>
+                      <KeyRound /> Keys &amp; tokens
                     </Command.Item>
                     <Command.Item onSelect={() => go("/activity")} className={itemClass}>
                       <Activity /> Activity

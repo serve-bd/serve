@@ -112,8 +112,8 @@ export function ConnectionSettings({ server, keys }: { server: ServerDetails; ke
               description={
                 <>
                   Manage keys in{" "}
-                  <Link href="/settings/keys" className="text-accent hover:underline">
-                    Settings
+                  <Link href="/keys/ssh" className="text-accent hover:underline">
+                    Keys &amp; tokens
                   </Link>
                   .
                 </>

@@ -68,7 +68,7 @@ const integrationNav: NavItem[] = [
 
 const orgNav: NavItem[] = [
   { href: "/organization/members", label: "Members", icon: Users },
-  { href: "/organization/tokens", label: "API tokens", icon: KeyRound },
+  { href: "/keys", label: "Keys & tokens", icon: KeyRound },
 ];
 
 function isActive(pathname: string, item: NavItem) {

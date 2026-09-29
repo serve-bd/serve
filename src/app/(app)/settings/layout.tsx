@@ -29,7 +29,6 @@ export default async function SettingsLayout({ children }: LayoutProps<"/setting
               title: "Security",
               items: [
                 { href: "/settings/security", label: "Security", icon: "ShieldCheck", warn: security },
-                { href: "/settings/keys", label: "SSH keys", icon: "KeyRound" },
               ],
             },
           ]}

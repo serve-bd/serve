@@ -694,6 +694,25 @@ export async function serviceControl(serviceId: string, command: "stop" | "start
   });
 }
 
+/** The compose file Serve last deployed for a stack: the user's file plus labels, networks and ports. Values stay in .env. */
+export async function deployedCompose(serviceId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (service.type !== "compose" || !service.compose) throw new UserError("Only Docker Compose services have a compose file.");
+    const { default: fs } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const { paths } = await import("@/server/paths");
+    const { containedPath } = await import("@/server/security");
+    const root = paths.service(service.id);
+    const dir = service.compose.mode === "git" ? path.dirname(containedPath(path.join(root, "repo"), service.compose.path, "Compose file path")) : path.join(root, "compose");
+    const file = path.join(dir, ".serve-compose.yml");
+    const stat = await fs.stat(file).catch(() => null);
+    if (!stat) return null;
+    return { content: await fs.readFile(file, "utf8"), writtenAt: stat.mtime.toISOString() };
+  });
+}
+
 /** Restart one container of a service (for example one compose service), without a deployment. */
 export async function restartContainer(serviceId: string, containerId: string) {
   return act(async () => {

@@ -23,6 +23,7 @@ import { AdvancedSection, BuildSection, DeploySection, HealthSection, ResourcesS
 import { ApplyBar, DatabaseSections, type DatabaseSettingsProps } from "./database-sections";
 import type { SettingsNavItem } from "./settings-nav";
 import { SectionPicker } from "@/components/shell/section-picker";
+import { DeployedCompose } from "./deployed-compose";
 import { addPendingApply, clearPendingApply, usePendingApply } from "./pending-apply";
 import { StorageSection } from "./storage-section";
 import { MonitoringSection } from "./monitoring-section";
@@ -431,6 +432,7 @@ export function ServiceSettings(props: Props) {
             }
           </Section>
         )}
+        {show("compose") && service.compose && <DeployedCompose serviceId={service.id} />}
 
         {service.type === "app" && (
           <>

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "@/hooks/use-router";
 import YAML from "yaml";
-import { ArrowLeft, Download, RefreshCw } from "lucide-react";
+import { Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input, Textarea } from "@/components/ui/input";
@@ -127,7 +127,7 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
 
   return (
     <form
-      className="mx-auto flex max-w-3xl flex-col gap-5"
+      className="flex flex-col gap-5"
       onSubmit={(e) => {
         e.preventDefault();
         void save.run({
@@ -142,129 +142,130 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
         });
       }}
     >
-      <button type="button" onClick={() => router.push("/templates")} className="inline-flex w-fit items-center gap-1.5 text-[13px] text-muted hover:text-fg">
-        <ArrowLeft className="size-3.5" /> Templates
-      </button>
 
-      <Card>
-        <CardHeader title="Details" description="How the template appears in the New service catalog." />
-        <CardBody className="flex flex-col gap-4 py-5">
-          <div className="flex items-start gap-4">
-            <TemplateLogo id={initial.id ?? "new"} name={name || "?"} iconUrl={iconUrl.trim() || null} custom size="lg" className="mt-6" />
-            <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="flex min-w-0 flex-col gap-5">
+          <Card>
+            <CardHeader title="Compose file" description="Use ${VARIABLE} for values that differ per service. Serve fills them when a service is created." />
+            <CardBody className="flex flex-col gap-4 py-5">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input value={importUrl} onChange={(e) => setImportUrl(e.target.value)} placeholder="Import from a URL, e.g. a GitHub link to docker-compose.yml" className="font-mono text-[12.5px]" aria-label="Compose file URL" />
+                <Button type="button" size="md" loading={fetchUrl.pending} disabled={!importUrl.trim()} onClick={() => fetchUrl.run(importUrl)} className="flex-none">
+                  <Download /> Import
+                </Button>
+              </div>
+              <Textarea
+                value={compose}
+                onChange={(e) => setCompose(e.target.value)}
+                onBlur={() => refresh(compose)}
+                rows={22}
+                spellCheck={false}
+                className="font-mono text-[12.5px] leading-relaxed"
+                aria-label="docker-compose.yml"
+                placeholder={"services:\n  app:\n    image: ghcr.io/owner/app:latest\n    environment:\n      SECRET_KEY: ${SECRET_KEY}\n"}
+              />
+              {parsed.error ? (
+                <p className={cn("text-xs", compose.trim() ? "text-bad" : "text-muted")}>{compose.trim() ? parsed.error : "Paste a compose file or import one."}</p>
+              ) : (
+                <p className="text-xs text-muted">
+                  {parsed.services.length} service{parsed.services.length === 1 ? "" : "s"}: {parsed.services.map((s) => s.name).join(", ")}
+                </p>
+              )}
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader
+              title="Variables"
+              description="How each ${VARIABLE} is filled when someone creates a service."
+              actions={
+                <Button type="button" size="sm" variant="ghost" onClick={() => refresh(compose)}>
+                  <RefreshCw /> Detect
+                </Button>
+              }
+            />
+            {rows.length ? (
+              <div className="divide-y divide-line">
+                {rows.map((r, i) => {
+                  const set = (patch: Partial<VarRow>) => setRows((all) => all.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+                  return (
+                    <div key={r.key} className="grid grid-cols-1 gap-2 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_11rem_minmax(0,1fr)] sm:items-center">
+                      <span className={cn("truncate font-mono text-[12.5px]", unused.includes(r) ? "text-faint line-through" : "text-fg")} title={unused.includes(r) ? "Not used in the compose file" : undefined}>
+                        {r.key}
+                      </span>
+                      <Select size="sm" value={r.kind} onValueChange={(v) => set({ kind: v as VarKind })} options={kindOptions} />
+                      {r.kind === "value" ? (
+                        <Input value={r.value} onChange={(e) => set({ value: e.target.value })} placeholder="Default value" className="h-8 font-mono text-[12.5px]" aria-label={`${r.key} default`} />
+                      ) : (
+                        <Input value={r.label} onChange={(e) => set({ label: e.target.value })} placeholder="Label (optional)" className="h-8 text-[12.5px]" aria-label={`${r.key} label`} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <CardBody className="py-5 text-[13px] text-muted">No ${"{VARIABLES}"} in the compose file.</CardBody>
+            )}
+            {missing.length > 0 && (
+              <CardBody className="border-t border-line py-3 text-xs text-warn">
+                Not listed yet: {missing.map((m) => m.name).join(", ")}. Click Detect.
+              </CardBody>
+            )}
+          </Card>
+        </div>
+        <aside className="flex min-w-0 flex-col gap-5 lg:sticky lg:top-6">
+          <Card>
+            <CardHeader title="Details" description="How the template appears in the New service catalog." />
+            <CardBody className="flex flex-col gap-4 py-5">
               <Field label="Name">
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Internal wiki" required maxLength={60} />
               </Field>
               <Field label="Category">
                 <Select value={category} onValueChange={setCategory} options={categoryOptions} />
               </Field>
-            </div>
-          </div>
-          <Field label="Description" optional>
-            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What it is, in one line" maxLength={200} />
-          </Field>
-          <Field label="Icon URL" optional description="A square PNG or SVG. Leave empty for a lettered tile.">
-            <Input value={iconUrl} onChange={(e) => setIconUrl(e.target.value)} placeholder="https://example.com/logo.svg" className="font-mono text-[13px]" />
-          </Field>
-        </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader title="Compose file" description="Use ${VARIABLE} for values that differ per service. Serve fills them when a service is created." />
-        <CardBody className="flex flex-col gap-4 py-5">
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input value={importUrl} onChange={(e) => setImportUrl(e.target.value)} placeholder="Import from a URL, e.g. a GitHub link to docker-compose.yml" className="font-mono text-[12.5px]" aria-label="Compose file URL" />
-            <Button type="button" size="md" loading={fetchUrl.pending} disabled={!importUrl.trim()} onClick={() => fetchUrl.run(importUrl)} className="flex-none">
-              <Download /> Import
-            </Button>
-          </div>
-          <Textarea
-            value={compose}
-            onChange={(e) => setCompose(e.target.value)}
-            onBlur={() => refresh(compose)}
-            rows={16}
-            spellCheck={false}
-            className="font-mono text-[12.5px] leading-relaxed"
-            aria-label="docker-compose.yml"
-            placeholder={"services:\n  app:\n    image: ghcr.io/owner/app:latest\n    environment:\n      SECRET_KEY: ${SECRET_KEY}\n"}
-          />
-          {parsed.error ? (
-            <p className="text-xs text-bad">{compose.trim() ? parsed.error : "Paste a compose file or import one."}</p>
-          ) : (
-            <p className="text-xs text-muted">
-              {parsed.services.length} service{parsed.services.length === 1 ? "" : "s"}: {parsed.services.map((s) => s.name).join(", ")}
-            </p>
-          )}
-        </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader
-          title="Variables"
-          description="How each ${VARIABLE} is filled when someone creates a service."
-          actions={
-            <Button type="button" size="sm" variant="ghost" onClick={() => refresh(compose)}>
-              <RefreshCw /> Detect
-            </Button>
-          }
-        />
-        {rows.length ? (
-          <div className="divide-y divide-line">
-            {rows.map((r, i) => {
-              const set = (patch: Partial<VarRow>) => setRows((all) => all.map((x, j) => (j === i ? { ...x, ...patch } : x)));
-              return (
-                <div key={r.key} className="grid grid-cols-1 gap-2 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_11rem_minmax(0,1fr)] sm:items-center">
-                  <span className={cn("truncate font-mono text-[12.5px]", unused.includes(r) ? "text-faint line-through" : "text-fg")} title={unused.includes(r) ? "Not used in the compose file" : undefined}>
-                    {r.key}
-                  </span>
-                  <Select size="sm" value={r.kind} onValueChange={(v) => set({ kind: v as VarKind })} options={kindOptions} />
-                  {r.kind === "value" ? (
-                    <Input value={r.value} onChange={(e) => set({ value: e.target.value })} placeholder="Default value" className="h-8 font-mono text-[12.5px]" aria-label={`${r.key} default`} />
-                  ) : (
-                    <Input value={r.label} onChange={(e) => set({ label: e.target.value })} placeholder="Label (optional)" className="h-8 text-[12.5px]" aria-label={`${r.key} label`} />
-                  )}
+              <Field label="Description" optional>
+                <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What it is, in one line" maxLength={200} />
+              </Field>
+              <Field label="Icon" optional description="URL of a square PNG or SVG. Leave empty for a lettered tile.">
+                <div className="flex items-center gap-3">
+                  <TemplateLogo id={initial.id ?? "new"} name={name || "?"} iconUrl={iconUrl.trim() || null} custom className="size-9 flex-none rounded-[10px]" />
+                  <Input value={iconUrl} onChange={(e) => setIconUrl(e.target.value)} placeholder="https://example.com/logo.svg" className="font-mono text-[13px]" />
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <CardBody className="py-5 text-[13px] text-muted">No ${"{VARIABLES}"} in the compose file.</CardBody>
-        )}
-        {missing.length > 0 && (
-          <CardBody className="border-t border-line py-3 text-xs text-warn">
-            Not listed yet: {missing.map((m) => m.name).join(", ")}. Click Detect.
-          </CardBody>
-        )}
-      </Card>
+              </Field>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader title="Domain" description="The compose service and port that get the generated domain. Leave empty for stacks without a web UI." />
+            <CardBody className="grid grid-cols-1 gap-4 py-5">
+              <Field label="Service">
+                <Select
+                  value={exposeService || "none"}
+                  onValueChange={(v) => {
+                    const svc = v === "none" ? "" : v;
+                    setExposeService(svc);
+                    const ports = parsed.services.find((s) => s.name === svc)?.ports ?? [];
+                    if (ports[0]) setExposePort(String(ports[0]));
+                  }}
+                  options={[{ value: "none", label: "No domain" }, ...parsed.services.map((s) => ({ value: s.name, label: s.name, description: s.ports.length ? `Ports ${s.ports.join(", ")}` : undefined }))]}
+                />
+              </Field>
+              <Field label="Port" description={exposed?.ports.length ? `Found in the file: ${exposed.ports.join(", ")}` : "The port the app listens on inside the container."}>
+                <Input value={exposePort} onChange={(e) => setExposePort(e.target.value.replace(/\D/g, ""))} placeholder="3000" inputMode="numeric" disabled={!exposeService} />
+              </Field>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardFooter className="justify-end gap-2 border-t-0">
+              <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/templates")}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" size="sm" loading={save.pending} disabled={!name.trim() || !!parsed.error}>
+                {initial.id ? "Save template" : "Create template"}
+              </Button>
+            </CardFooter>
+          </Card>
+        </aside>
+      </div>
 
-      <Card>
-        <CardHeader title="Domain" description="The compose service and port that get the generated domain. Leave empty for stacks without a web UI." />
-        <CardBody className="grid grid-cols-1 gap-4 py-5 sm:grid-cols-2">
-          <Field label="Service">
-            <Select
-              value={exposeService || "none"}
-              onValueChange={(v) => {
-                const svc = v === "none" ? "" : v;
-                setExposeService(svc);
-                const ports = parsed.services.find((s) => s.name === svc)?.ports ?? [];
-                if (ports[0]) setExposePort(String(ports[0]));
-              }}
-              options={[{ value: "none", label: "No domain" }, ...parsed.services.map((s) => ({ value: s.name, label: s.name, description: s.ports.length ? `Ports ${s.ports.join(", ")}` : undefined }))]}
-            />
-          </Field>
-          <Field label="Port" description={exposed?.ports.length ? `Found in the file: ${exposed.ports.join(", ")}` : "The port the app listens on inside the container."}>
-            <Input value={exposePort} onChange={(e) => setExposePort(e.target.value.replace(/\D/g, ""))} placeholder="3000" inputMode="numeric" disabled={!exposeService} />
-          </Field>
-        </CardBody>
-        <CardFooter className="justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/templates")}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary" size="sm" loading={save.pending} disabled={!name.trim() || !!parsed.error}>
-            {initial.id ? "Save template" : "Create template"}
-          </Button>
-        </CardFooter>
-      </Card>
     </form>
   );
 }

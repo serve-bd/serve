@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { SwitchRow } from "@/components/ui/switch";
 import { DnsCheck } from "@/components/dns-check";
 import { SettingsCard } from "../_components/settings-card";
+import { ConnectionCheck } from "./connection-check";
 
 export function DashboardSettings({
   serverIp,
@@ -63,7 +64,8 @@ export function DashboardSettings({
               </>
             ) : (
               <>
-                <DnsCheck host={v.dashboardDomain} serverIp={serverIp} />
+                {/* The Connection card checks the saved domain; this covers a domain being typed. */}
+                {v.dashboardDomain !== dashboard.dashboardDomain && <DnsCheck host={v.dashboardDomain} serverIp={serverIp} />}
                 <SwitchRow title="HTTPS" description="Request a Let's Encrypt certificate for the dashboard domain." checked={v.dashboardHttps} onCheckedChange={set("dashboardHttps")} />
                 {tunnels.length === 0 && (
                   <p className="text-xs text-muted">
@@ -79,6 +81,8 @@ export function DashboardSettings({
           </>
         )}
       </SettingsCard>
+
+      {dashboard.dashboardDomain && <ConnectionCheck domain={dashboard.dashboardDomain} tunnel={!!dashboard.dashboardTunnelId} />}
 
       <SettingsCard title="Let's Encrypt" description="Free certificates for every server, renewed automatically." initial={acme}>
         {(v, set) => (

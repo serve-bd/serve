@@ -11,21 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/misc";
 import { toast } from "@/components/ui/toast";
 import { createOrg, switchOrganization } from "@/server/actions/org";
-import { cn } from "@/lib/utils";
 
 export type OrgItem = { id: string; name: string; logo: string | null; role: string; isRoot: boolean };
-
-export function OrgAvatar({ name, className }: { name: string; className?: string }) {
-  const hue = [...name].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
-  return (
-    <span
-      className={cn("flex size-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white", className)}
-      style={{ background: `linear-gradient(135deg, oklch(0.62 0.14 ${hue}), oklch(0.5 0.14 ${(hue + 40) % 360}))` }}
-    >
-      {name.slice(0, 1).toUpperCase()}
-    </span>
-  );
-}
 
 export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; orgs: OrgItem[]; canCreate: boolean }) {
   const router = useRouter();
@@ -43,8 +30,7 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
   return (
     <>
       <Menu>
-        <MenuTrigger className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-hover data-[popup-open]:bg-hover">
-          <OrgAvatar name={current.name} />
+        <MenuTrigger className="group flex w-full items-center gap-2.5 rounded-lg bg-fg/[0.04] px-3 py-2 text-left ring-1 ring-line transition-colors hover:bg-fg/[0.07] data-[popup-open]:bg-fg/[0.07]">
           <span className="flex min-w-0 flex-1 flex-col leading-tight">
             <span className="truncate text-[13px] font-semibold text-fg">{current.name}</span>
             <span className="truncate text-[11px] text-muted capitalize">
@@ -58,7 +44,6 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
           <MenuLabel>Organizations</MenuLabel>
           {orgs.map((o) => (
             <MenuItem key={o.id} onClick={() => switchTo(o.id)}>
-              <OrgAvatar name={o.name} className="size-5 text-[10px]" />
               <span className="flex-1 truncate">{o.name}</span>
               {o.isRoot && <Badge tone="accent">Root</Badge>}
               {o.id === current.id && <Check className="!text-accent" />}

@@ -193,7 +193,7 @@ export function VariablesEditor({
                         value={v.value}
                         type={shown || isRef ? "text" : "password"}
                         onChange={(e) => update(v.id!, { value: e.target.value, hidden: false })}
-                        placeholder={v.hidden ? "Hidden. Type to replace it." : "value"}
+                        placeholder={v.hidden ? (canEdit ? "Hidden. Type to replace it." : "Hidden") : canEdit ? "value" : ""}
                         className={cn("pr-9 font-mono text-[12.5px]", isRef && "text-accent")}
                         autoComplete="off"
                         disabled={!canEdit}

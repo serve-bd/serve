@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ssoErrorMessage } from "@/lib/sso-errors";
 import {
   activeProviders,
@@ -60,12 +60,16 @@ describe("sso config", () => {
     expect(activeProviders(settings)).toEqual(["github", "oidc"]);
   });
 
-  it("changes the instance key when credentials change, not when sign-up rules do", () => {
+  it("changes the instance key when credentials or the rules baked into providers change", () => {
     const a: SignInSettings = { passwordEnabled: true, providers: { github: provider() } };
     const b: SignInSettings = { passwordEnabled: true, providers: { github: provider({ allowSignUp: false, allowedDomains: ["x.io"] }) } };
     const c: SignInSettings = { passwordEnabled: true, providers: { github: provider({ clientSecret: "enc:other" }) } };
-    expect(configHash(a)).toBe(configHash(b));
+    const d: SignInSettings = { passwordEnabled: true, providers: { github: provider({ allowedOrgs: ["acme"] }) } };
+    // Sign-up, domains and organizations are part of the provider setup better-auth builds once.
+    expect(configHash(a)).not.toBe(configHash(b));
     expect(configHash(a)).not.toBe(configHash(c));
+    expect(configHash(a)).not.toBe(configHash(d));
+    expect(configHash(a)).toBe(configHash({ passwordEnabled: false, providers: { github: provider() } }));
   });
 
   it("never exposes the secret", () => {
@@ -106,13 +110,13 @@ describe("allowed email domains", () => {
   });
 
   it("blanks a disallowed email and reports it with its own error code", async () => {
-    const { guardProfileEmail, withDomainGuard, domainBlocked } = await import("@/server/sso/domain-guard");
+    const { guardProfileEmail, withSignInGuard, signInRefused } = await import("@/server/sso/domain-guard");
     const guard = guardProfileEmail(["acme.com"]);
     let seen = false;
-    const res = await withDomainGuard(async () => {
+    const res = await withSignInGuard(async () => {
       expect(guard({ email: "me@acme.com" })).toEqual({});
       expect(guard({ email: "me@gmail.com" })).toEqual({ email: "" });
-      seen = domainBlocked();
+      seen = signInRefused();
       return new Response(null, { status: 302, headers: { location: "/login?error=email_not_found" } });
     });
     expect(seen).toBe(true);
@@ -120,8 +124,47 @@ describe("allowed email domains", () => {
   });
 
   it("leaves other requests alone", async () => {
-    const { withDomainGuard } = await import("@/server/sso/domain-guard");
-    const res = await withDomainGuard(async () => new Response(null, { status: 302, headers: { location: "/login?error=state_mismatch" } }));
+    const { withSignInGuard } = await import("@/server/sso/domain-guard");
+    const res = await withSignInGuard(async () => new Response(null, { status: 302, headers: { location: "/login?error=state_mismatch" } }));
     expect(res.headers.get("location")).toBe("/login?error=state_mismatch");
+  });
+});
+
+describe("GitHub organization rule", () => {
+  const github = (member: boolean) =>
+    vi.fn(async (url: string) => {
+      if (url.endsWith("/user")) return Response.json({ id: 7, login: "sam", name: "Sam", email: null, avatar_url: "https://x/a.png" });
+      if (url.endsWith("/user/emails")) return Response.json([{ email: "sam@gmail.com", primary: true, verified: true }]);
+      if (url.includes("/user/memberships/orgs/acme")) return member ? Response.json({ state: "active" }) : new Response("{}", { status: 404 });
+      return new Response("{}", { status: 404 });
+    });
+
+  it("lets active members in and allows them to sign up", async () => {
+    const { githubMembersOnly } = await import("@/server/sso/github-orgs");
+    const { signUpAllowed } = await import("@/server/sso/config");
+    vi.stubGlobal("fetch", github(true));
+    const info = await githubMembersOnly(["acme"], [])({ accessToken: "t" });
+    expect(info?.user).toMatchObject({ email: "sam@gmail.com", emailVerified: true, name: "Sam" });
+    expect(signUpAllowed(provider({ allowSignUp: false, allowedOrgs: ["acme"] }), "sam@gmail.com")).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("refuses people outside the organization with its own error", async () => {
+    const { githubMembersOnly } = await import("@/server/sso/github-orgs");
+    const { withSignInGuard } = await import("@/server/sso/domain-guard");
+    vi.stubGlobal("fetch", github(false));
+    let email: string | null | undefined;
+    const res = await withSignInGuard(async () => {
+      email = (await githubMembersOnly(["acme"], [])({ accessToken: "t" }))?.user.email;
+      return new Response(null, { status: 302, headers: { location: "/login?error=email_not_found" } });
+    });
+    expect(email).toBe("");
+    expect(res.headers.get("location")).toBe("/login?error=github_org_not_allowed");
+    vi.unstubAllGlobals();
+  });
+
+  it("accepts organization URLs and @names", () => {
+    const parsed = providerInput.safeParse({ enabled: true, clientId: "id", allowSignUp: false, allowedOrgs: ["https://github.com/Acme/", "@team-x"] });
+    expect(parsed.success && parsed.data.allowedOrgs).toEqual(["acme", "team-x"]);
   });
 });

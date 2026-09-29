@@ -99,6 +99,7 @@ export async function saveSsoProvider(id: string, input: ProviderInput) {
       clientSecret,
       allowSignUp: v.allowSignUp,
       allowedDomains: [...new Set(v.allowedDomains)],
+      ...(id === "github" && v.allowedOrgs.length ? { allowedOrgs: [...new Set(v.allowedOrgs)] } : {}),
       defaultOrganizationId: v.defaultOrganizationId,
       defaultRole: v.defaultRole,
       ...(id === "oidc" ? { issuer: v.issuer, scopes: v.scopes?.length ? v.scopes : undefined, label: v.label || undefined } : {}),

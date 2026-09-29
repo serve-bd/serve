@@ -126,7 +126,11 @@ function ProviderItem({ row, organizations }: { row: ProviderRow; organizations:
   const [open, setOpen] = React.useState(false);
   const c = row.config;
   const on = !!c?.enabled && !!c.hasSecret;
-  const domains = c?.allowedDomains.length ? ` · ${c.allowedDomains.map((d) => `@${d}`).join(", ")} only` : "";
+  const domains = c?.allowedOrgs?.length
+    ? ` · members of ${c.allowedOrgs.join(", ")}`
+    : c?.allowedDomains.length
+      ? ` · ${c.allowedDomains.map((d) => `@${d}`).join(", ")} only`
+      : "";
   const sub = !c ? blurb[row.id] : on ? `${c.allowSignUp ? "On · new accounts allowed" : "On · existing accounts only"}${domains}` : "Off";
   return (
     <div className="flex items-center gap-3.5 px-5 py-4">
@@ -179,6 +183,7 @@ function ProviderDialog({
     clientSecret: "",
     allowSignUp: c?.allowSignUp ?? false,
     allowedDomains: (c?.allowedDomains ?? []).join(", "),
+    allowedOrgs: (c?.allowedOrgs ?? []).join(", "),
     defaultOrganizationId: c?.defaultOrganizationId ?? "",
     defaultRole: (c?.defaultRole ?? "member") as string,
     issuer: c?.issuer ?? "",
@@ -197,6 +202,7 @@ function ProviderDialog({
         clientSecret: v.clientSecret || undefined,
         allowSignUp: v.allowSignUp,
         allowedDomains: list(v.allowedDomains),
+        allowedOrgs: row.id === "github" ? list(v.allowedOrgs) : [],
         defaultOrganizationId: v.defaultOrganizationId || null,
         defaultRole: v.defaultRole as "member" | "admin",
         ...(row.id === "oidc" ? { issuer: v.issuer, scopes: list(v.scopes), label: v.label } : {}),
@@ -274,6 +280,15 @@ function ProviderDialog({
 
             <div className="flex flex-col gap-4 border-t border-line pt-5">
               <SwitchRow title="Show on the sign-in page" description="People with a linked account can sign in with it." checked={v.enabled} onCheckedChange={set("enabled")} />
+              {row.id === "github" && (
+                <Field
+                  label="Only members of these GitHub organizations"
+                  optional
+                  description="Comma separated, like acme. Checked on every sign-in; members may also sign up. GitHub asks each person to share their organizations, and an organization with app access restrictions must approve this app first."
+                >
+                  <Input value={v.allowedOrgs} onChange={(e) => set("allowedOrgs")(e.target.value)} placeholder="acme" className="font-mono text-[13px]" />
+                </Field>
+              )}
               <Field
                 label="Only allow emails from"
                 optional
@@ -281,13 +296,17 @@ function ProviderDialog({
               >
                 <Input value={v.allowedDomains} onChange={(e) => set("allowedDomains")(e.target.value)} placeholder="example.com" className="font-mono text-[13px]" />
               </Field>
-              <SwitchRow
-                title="Allow new accounts"
-                description="Off: only people who already have an account, or were invited, can sign in."
-                checked={v.allowSignUp}
-                onCheckedChange={set("allowSignUp")}
-              />
-              {v.allowSignUp && (
+              {row.id === "github" && list(v.allowedOrgs).length > 0 ? (
+                <p className="text-xs leading-relaxed text-muted">New accounts: members of {list(v.allowedOrgs).join(", ")} get one on their first sign-in.</p>
+              ) : (
+                <SwitchRow
+                  title="Allow new accounts"
+                  description="Off: only people who already have an account, or were invited, can sign in."
+                  checked={v.allowSignUp}
+                  onCheckedChange={set("allowSignUp")}
+                />
+              )}
+              {(v.allowSignUp || (row.id === "github" && list(v.allowedOrgs).length > 0)) && (
                 <div className="flex flex-col gap-4 rounded-xl border border-line bg-surface-2 p-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
                     <Field label="New accounts join">

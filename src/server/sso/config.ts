@@ -18,8 +18,10 @@ export type SsoProvider = {
   clientSecret: string;
   /** Create accounts for people who have none yet. Off: only existing users can sign in. */
   allowSignUp: boolean;
-  /** Only these email domains may sign up (empty: any). Existing users are never blocked by it. */
+  /** Only emails from these domains may sign in, sign up or link (empty: any). */
   allowedDomains: string[];
+  /** GitHub only: only active members of these GitHub organizations may sign in, and they may sign up. */
+  allowedOrgs?: string[];
   /** New accounts join this organization with `defaultRole`; null: no organization until invited. */
   defaultOrganizationId: string | null;
   defaultRole: SsoRole;
@@ -64,9 +66,12 @@ export function emailDomainAllowed(allowedDomains: string[], email: string) {
   return allowedDomains.some((d) => domain === d || domain.endsWith(`.${d}`));
 }
 
-/** Whether a new account with this email may be created through the provider. */
-export function signUpAllowed(provider: Pick<SsoProvider, "allowSignUp" | "allowedDomains">, email: string) {
-  return provider.allowSignUp && emailDomainAllowed(provider.allowedDomains, email);
+/**
+ * Whether a new account with this email may be created through the provider. Members of an
+ * allowed GitHub organization may sign up (membership was checked when the profile was read).
+ */
+export function signUpAllowed(provider: Pick<SsoProvider, "allowSignUp" | "allowedDomains" | "allowedOrgs">, email: string) {
+  return (provider.allowSignUp || !!provider.allowedOrgs?.length) && emailDomainAllowed(provider.allowedDomains, email);
 }
 
 /** Providers the login page offers: enabled and complete. */
@@ -94,7 +99,8 @@ export function configHash(settings: SignInSettings) {
   return JSON.stringify(
     activeProviders(settings).map((id) => {
       const p = settings.providers[id]!;
-      return [id, p.clientId, p.clientSecret, p.issuer ?? "", (p.scopes ?? []).join(" ")];
+      // Everything baked into the provider setup: a change must rebuild it.
+      return [id, p.clientId, p.clientSecret, p.issuer ?? "", (p.scopes ?? []).join(" "), p.allowSignUp, p.allowedDomains.join(","), (p.allowedOrgs ?? []).join(",")];
     }),
   );
 }
@@ -115,6 +121,22 @@ export const providerInput = z
     clientSecret: z.string().trim().max(1000).optional(),
     allowSignUp: z.boolean(),
     allowedDomains: z.array(domain).max(50).default([]),
+    allowedOrgs: z
+      .array(
+        z
+          .string()
+          .trim()
+          .toLowerCase()
+          .transform((o) =>
+            o
+              .replace(/^https?:\/\/github\.com\//, "")
+              .replace(/^@/, "")
+              .replace(/\/$/, ""),
+          )
+          .pipe(z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38})$/, "Enter GitHub organization names like acme")),
+      )
+      .max(20)
+      .default([]),
     defaultOrganizationId: z.string().trim().min(1).nullable().default(null),
     defaultRole: z.enum(["member", "admin"]).default("member"),
     issuer: z.string().trim().max(500).optional(),

@@ -13,7 +13,8 @@ import { env } from "@/server/env";
 import type { MemberRole } from "@/server/db/schema";
 import { newId } from "@/server/id";
 import { getSetting } from "@/server/settings";
-import { domainBlocked, guardProfileEmail } from "@/server/sso/domain-guard";
+import { guardProfileEmail, signInRefused } from "@/server/sso/domain-guard";
+import { githubMembersOnly } from "@/server/sso/github-orgs";
 import { activeProviders, callbackUrl, configHash, discoveryUrl, providerIdOf, providerNames, type SignInSettings, signUpAllowed } from "@/server/sso/config";
 import { cannotMessage, type Permission } from "@/lib/permissions";
 import { accessFrom, organizationRoles } from "@/server/permissions";
@@ -51,6 +52,7 @@ type SocialConfig = {
   disableImplicitSignUp: boolean;
   scope?: string[];
   mapProfileToUser?: (profile: { email?: string | null }) => Record<string, unknown>;
+  getUserInfo?: ReturnType<typeof githubMembersOnly>;
 };
 type SsoRuntime = { social: Record<string, SocialConfig>; oidc: GenericOAuthConfig[] };
 
@@ -81,6 +83,9 @@ function ssoRuntime(settings: SignInSettings, base: string): SsoRuntime {
         pkce: true,
         requireIdTokenVerification: true,
       });
+    } else if (id === "github" && p.allowedOrgs?.length) {
+      // Organization members only: read:org lets Serve see private memberships too.
+      out.social[id] = { ...common, disableImplicitSignUp: false, scope: ["read:org"], getUserInfo: githubMembersOnly(p.allowedOrgs, p.allowedDomains) };
     } else {
       // GitHub and Google already ask for the profile and email by default.
       out.social[id] = common;
@@ -193,7 +198,7 @@ function createAuth(sso: SsoRuntime) {
         create: {
           // Linking from the Account page skips the email check, so refuse the new link here.
           before: async () => {
-            if (domainBlocked()) return false;
+            if (signInRefused()) return false;
           },
         },
       },

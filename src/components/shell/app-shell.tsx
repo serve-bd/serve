@@ -1,5 +1,6 @@
 "use client";
 
+import { DeploymentsIndicator } from "./deployments-indicator";
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -254,6 +255,7 @@ export function AppShell(props: ShellProps) {
               </div>
             )}
             <main className="flex-1">{props.children}</main>
+            <DeploymentsIndicator />
           </div>
         </div>
       </CommandPalette>

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { ProjectSummary } from "@/app/(app)/_components/project-card";
 
@@ -88,4 +88,36 @@ export async function recentActivity(orgId: string, limit = 12, projectIds: stri
     )
     .orderBy(desc(schema.activity.createdAt))
     .limit(limit);
+}
+
+/**
+ * Deployments running now, plus the ones that finished in the last `recentSeconds`, for the
+ * floating indicator. `projectIds` limits them to the projects a member can reach.
+ */
+export async function liveDeployments(orgId: string, projectIds: string[] | null = null, recentSeconds = 20) {
+  if (projectIds && !projectIds.length) return [];
+  return db
+    .select({
+      id: schema.deployment.id,
+      status: schema.deployment.status,
+      createdAt: schema.deployment.createdAt,
+      startedAt: schema.deployment.startedAt,
+      finishedAt: schema.deployment.finishedAt,
+      serviceId: schema.service.id,
+      serviceName: schema.service.name,
+      projectId: schema.project.id,
+      projectName: schema.project.name,
+    })
+    .from(schema.deployment)
+    .innerJoin(schema.service, eq(schema.deployment.serviceId, schema.service.id))
+    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .where(
+      and(
+        eq(schema.project.organizationId, orgId),
+        projectIds ? inArray(schema.project.id, projectIds) : undefined,
+        or(inArray(schema.deployment.status, ["queued", "building", "deploying"]), gt(schema.deployment.finishedAt, new Date(Date.now() - recentSeconds * 1000))),
+      ),
+    )
+    .orderBy(desc(schema.deployment.createdAt))
+    .limit(20);
 }

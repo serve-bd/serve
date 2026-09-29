@@ -174,6 +174,26 @@ export async function checkTunnels() {
     }
     await refreshTunnelStatus(tunnel);
   }
+  await removeOrphanTunnelContainers(new Set(tunnels.map((t) => t.id)));
+}
+
+/**
+ * Connectors whose tunnel no longer exists (for example after its Cloudflare account was
+ * disconnected) would keep serving traffic. Only containers on this instance's network are
+ * touched, so a second Serve instance on the same Docker engine keeps its own.
+ */
+async function removeOrphanTunnelContainers(known: Set<string>) {
+  const servers = await db.select({ id: schema.server.id }).from(schema.server);
+  for (const { id } of servers) {
+    const ctx = await getServer(id).catch(() => null);
+    if (!ctx) continue;
+    const containers = await ctx.docker.listContainers({ all: true, filters: { label: [`${LABEL.kind}=tunnel`] } }).catch(() => []);
+    for (const c of containers) {
+      const tunnelId = c.Labels["serve.tunnel"];
+      if (!tunnelId || known.has(tunnelId) || c.HostConfig?.NetworkMode !== ctx.network) continue;
+      await ctx.docker.getContainer(c.Id).remove({ force: true }).catch(() => {});
+    }
+  }
 }
 
 /** Domains currently routed through tunnels (for warnings when a tunnel is removed). */

@@ -11,7 +11,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { connectCloudflare, disableTunnel, disconnectCloudflare, enableTunnel, refreshTunnels } from "@/server/actions/integrations";
+import { cloudflareDisconnectImpact, connectCloudflare, disableTunnel, disconnectCloudflare, enableTunnel, refreshTunnels } from "@/server/actions/integrations";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 
 type Account = { id: string; name: string; zones: { id: string; name: string; status: string; plan: string | null }[]; error: string | null };
@@ -220,7 +220,37 @@ export function CloudflareAccounts({
                       variant="danger-ghost"
                       size="sm"
                       onClick={async () => {
-                        if (await confirm({ title: `Disconnect ${a.name}?`, description: "Existing DNS records stay in Cloudflare. Certificates using this account stop renewing.", confirmLabel: "Disconnect", danger: true })) remove.run(a.id);
+                        const impact = await cloudflareDisconnectImpact(a.id);
+                        const tunnels = impact.ok ? impact.data : [];
+                        const offline = tunnels.flatMap((t) => t.domains);
+                        const ok = await confirm({
+                          title: `Disconnect ${a.name}?`,
+                          description: tunnels.length
+                            ? `This stops and deletes ${tunnels.length === 1 ? "the Cloudflare Tunnel" : `${tunnels.length} Cloudflare Tunnels`} of this account. Other DNS records stay in Cloudflare, and certificates using this account stop renewing.`
+                            : "Existing DNS records stay in Cloudflare. Certificates using this account stop renewing.",
+                          confirmLabel: tunnels.length ? "Disconnect and stop tunnels" : "Disconnect",
+                          danger: true,
+                          typeToConfirm: offline.length ? a.name : undefined,
+                          children:
+                            tunnels.length > 0 ? (
+                              <div className="flex flex-col gap-2 rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-3 text-[13px]">
+                                <p className="font-medium text-fg">
+                                  {offline.length ? `${offline.length} site${offline.length === 1 ? "" : "s"} will stop working:` : "No domains use these tunnels."}
+                                </p>
+                                {offline.length > 0 && (
+                                  <ul className="flex flex-col gap-0.5 font-mono text-[12.5px] text-fg-2">
+                                    {offline.map((h) => (
+                                      <li key={h}>{h}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                                <p className="text-xs text-muted">
+                                  {tunnels.map((t) => `${t.name} on ${t.serverName}`).join(", ")}
+                                </p>
+                              </div>
+                            ) : undefined,
+                        });
+                        if (ok) remove.run(a.id);
                       }}
                     >
                       <Trash2 /> Disconnect

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requireOrg, requireOrgAdmin } from "@/server/auth";
@@ -14,6 +14,9 @@ import { logActivity } from "@/server/activity";
 import { sendToChannel, type NotifyEvent } from "@/server/notify";
 import { s3Test } from "@/server/backups/s3";
 import type { GitProviderType, NotificationKind } from "@/server/db/schema";
+import { getSettings, updateSettings } from "@/server/settings";
+import { enqueue } from "@/server/queue";
+import { syncServiceProxy } from "@/server/proxy/nginx";
 
 /* -------------------------------------------------------------------------- */
 /*                                 Cloudflare                                 */
@@ -55,12 +58,58 @@ export async function connectCloudflare(input: { name: string; apiToken: string;
   });
 }
 
+/** What stops working when an account is disconnected: its tunnels and the domains they carry. */
+export async function cloudflareDisconnectImpact(accountId: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const { tunnelDomains } = await import("@/server/cloudflare/tunnels");
+    const tunnels = await db
+      .select({ id: schema.cloudflareTunnel.id, name: schema.cloudflareTunnel.name, serverName: schema.server.name })
+      .from(schema.cloudflareTunnel)
+      .innerJoin(schema.server, eq(schema.cloudflareTunnel.serverId, schema.server.id))
+      .where(and(eq(schema.cloudflareTunnel.cloudflareAccountId, accountId), eq(schema.cloudflareTunnel.organizationId, ctx.org.id)));
+    return Promise.all(tunnels.map(async (t) => ({ ...t, domains: (await tunnelDomains(t.id)).map((d) => d.hostname) })));
+  });
+}
+
+/**
+ * Disconnect an account. Its tunnels are stopped and deleted first (containers, Cloudflare
+ * tunnel, the DNS records Serve made for them), so no connector keeps serving traffic.
+ */
 export async function disconnectCloudflare(accountId: string) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
-    await db
-      .delete(schema.cloudflareAccount)
+    const [account] = await db
+      .select()
+      .from(schema.cloudflareAccount)
       .where(and(eq(schema.cloudflareAccount.id, accountId), eq(schema.cloudflareAccount.organizationId, ctx.org.id)));
+    if (!account) throw new UserError("Cloudflare account not found.");
+    const { deleteTunnel } = await import("@/server/cloudflare/tunnels");
+    const tunnels = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.cloudflareAccountId, accountId));
+    const tunnelIds = tunnels.map((t) => t.id);
+    const routed = tunnelIds.length ? await db.select().from(schema.domain).where(inArray(schema.domain.tunnelId, tunnelIds)) : [];
+    // DNS records Serve created that point at these tunnels would only show Cloudflare errors.
+    const cf = new Cloudflare(decrypt(account.apiToken));
+    for (const d of routed) {
+      if (d.cloudflareZoneId && d.cloudflareRecordId) await cf.deleteDnsRecord(d.cloudflareZoneId, d.cloudflareRecordId).catch(() => {});
+    }
+    for (const t of tunnels) await deleteTunnel(t.id);
+    if (routed.length) {
+      await db.update(schema.domain).set({ cloudflareRecordId: null }).where(inArray(schema.domain.id, routed.map((d) => d.id)));
+    }
+    const settings = await getSettings();
+    if (settings.dashboardTunnelId && tunnelIds.includes(settings.dashboardTunnelId)) {
+      await updateSettings({ dashboardTunnelId: null });
+      await enqueue("proxy.sync", {});
+    }
+    await db.delete(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, accountId));
+    for (const serviceId of new Set(routed.map((d) => d.serviceId))) await syncServiceProxy(serviceId).catch(() => {});
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      action: "cloudflare.disconnect",
+      message: tunnels.length ? `Disconnected Cloudflare ${account.name} and removed ${tunnels.length} tunnel${tunnels.length === 1 ? "" : "s"}` : `Disconnected Cloudflare ${account.name}`,
+    });
     return null;
   });
 }

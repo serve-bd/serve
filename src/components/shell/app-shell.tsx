@@ -32,7 +32,6 @@ import { Avatar, Kbd } from "@/components/ui/misc";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { OrgSwitcher, type OrgItem } from "./org-switcher";
-import { projectColor } from "./project-color";
 import { CommandPalette, useCommandPalette } from "./command-palette";
 import { useTheme } from "@/hooks/use-client";
 
@@ -137,29 +136,6 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
             <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
           ))}
         </NavGroup>
-
-        {props.projects.length > 0 && (
-          <NavGroup title="Projects">
-            {props.projects.slice(0, 8).map((p) => {
-              const href = `/projects/${p.id}`;
-              const active = pathname === href || pathname.startsWith(`${href}/`);
-              return (
-                <Link
-                  key={p.id}
-                  href={href}
-                  onClick={onNavigate}
-                  className={cn(
-                    "flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors",
-                    active ? "bg-fg/[0.06] font-medium text-fg" : "text-fg-2/80 hover:bg-fg/[0.04] hover:text-fg",
-                  )}
-                >
-                  <span className="size-2 shrink-0 rounded-[3px]" style={{ background: projectColor(p.color) }} />
-                  <span className="truncate">{p.name}</span>
-                </Link>
-              );
-            })}
-          </NavGroup>
-        )}
 
         <NavGroup title="Integrations">
           {integrationNav.map((item) => (

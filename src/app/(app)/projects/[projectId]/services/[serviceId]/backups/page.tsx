@@ -5,6 +5,7 @@ import { db, schema } from "@/server/db";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
 import { BackupsManager } from "./backups-manager";
+import { getSettings } from "@/server/settings";
 
 export const metadata = { title: "Backups" };
 
@@ -26,6 +27,7 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
         retention={service.database.backupRetention}
         s3DestinationId={service.database.s3DestinationId ?? null}
         destinations={destinations}
+        timezone={(await getSettings()).timezone}
       />
     </PageBody>
   );

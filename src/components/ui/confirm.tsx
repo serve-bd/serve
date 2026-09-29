@@ -4,7 +4,30 @@ import * as React from "react";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Button } from "./button";
 import { Input } from "./input";
+import { Check, Copy } from "lucide-react";
 import { actionsRunning, onActionsChange } from "@/hooks/use-action";
+
+/** The text to type, as a chip that copies itself when clicked. */
+function CopyChip({ text }: { text: string }) {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <button
+      type="button"
+      title="Click to copy"
+      onClick={(e) => {
+        e.preventDefault();
+        void navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      className="inline-flex items-center gap-1 rounded bg-sunken px-1.5 py-0.5 font-mono text-[12.5px] text-fg transition-colors hover:bg-hover"
+    >
+      {text}
+      {copied ? <Check className="size-3 text-ok" /> : <Copy className="size-3 text-faint" />}
+    </button>
+  );
+}
 
 type ConfirmOptions = {
   title: string;
@@ -94,7 +117,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                   {pending?.typeToConfirm && (
                     <label className="mt-2 flex flex-col gap-1.5 text-[13px] text-fg-2">
                       <span>
-                        Type <code className="rounded bg-sunken px-1 py-0.5 text-fg">{pending.typeToConfirm}</code> to confirm
+                        Type <CopyChip text={pending.typeToConfirm} /> to confirm
                       </span>
                       <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
                     </label>

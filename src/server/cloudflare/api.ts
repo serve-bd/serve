@@ -50,7 +50,11 @@ export type CfTunnel = {
   name: string;
   /** healthy | degraded | down | inactive */
   status: string;
-  connections?: { colo_name: string; is_pending_reconnect: boolean; origin_ip?: string }[];
+  connections?: { id?: string; colo_name: string; is_pending_reconnect: boolean; origin_ip?: string; opened_at?: string; client_id?: string; client_version?: string }[];
+  created_at?: string;
+  /** When the tunnel last gained or lost all its connections. */
+  conns_active_at?: string | null;
+  conns_inactive_at?: string | null;
   token?: string;
 };
 

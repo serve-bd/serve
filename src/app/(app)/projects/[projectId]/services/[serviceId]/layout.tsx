@@ -33,6 +33,8 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
           id: service.id,
           name: service.name,
           type: service.type,
+          environmentId: service.environmentId,
+          isPreview: !!service.parentServiceId,
           icon: service.icon,
           engine: service.database?.engine ?? null,
           sourceType: service.source?.type ?? null,

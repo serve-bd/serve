@@ -3,7 +3,8 @@ import net from "node:net";
 import type Docker from "dockerode";
 import { docker, LABEL } from "@/server/docker/client";
 import { env } from "@/server/env";
-import type { RuntimeConfig } from "@/server/services/types";
+import type { RuntimeConfig, VolumeMount } from "@/server/services/types";
+import { fileMountHostPath } from "@/server/services/mounts";
 import { statusMatcher, userLabels, validExtraHosts } from "./options";
 
 export function volumeName(slug: string, source: string) {
@@ -28,17 +29,29 @@ export type ContainerSpec = {
   network: string;
   cmd?: string[];
   healthcheck?: string[];
+  /** Health check timing in seconds (defaults: every 5s, 5s timeout, 10 retries, 10s start period). */
+  healthTiming?: { interval: number; timeout: number; retries: number; startPeriod: number };
   extraBinds?: string[];
+  /** The service's directory on the server; file mounts live under it. */
+  serviceDir?: string;
 };
+
+/** Docker bind strings for a service's mounts. File mounts need the service directory. */
+export function mountBinds(slug: string, volumes: VolumeMount[], serviceDir?: string) {
+  const binds: string[] = [];
+  for (const v of volumes) {
+    const ro = v.readOnly ? ":ro" : "";
+    if (v.kind === "bind") binds.push(`${v.source}:${v.mountPath}${ro}`);
+    else if (v.kind === "file") {
+      if (serviceDir) binds.push(`${fileMountHostPath(serviceDir, v.source)}:${v.mountPath}${ro}`);
+    } else binds.push(`${volumeName(slug, v.source)}:${v.mountPath}${ro}`);
+  }
+  return binds;
+}
 
 export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
   const { runtime } = spec;
-  const binds = [
-    ...runtime.volumes.map((v) =>
-      v.kind === "bind" ? `${v.source}:${v.mountPath}` : `${volumeName(spec.slug, v.source)}:${v.mountPath}`,
-    ),
-    ...(spec.extraBinds ?? []),
-  ];
+  const binds = [...mountBinds(spec.slug, runtime.volumes, spec.serviceDir), ...(spec.extraBinds ?? [])];
   const exposed: Record<string, object> = {};
   const bindings: Record<string, { HostPort: string; HostIp?: string }[]> = {};
   if (runtime.port) exposed[`${runtime.port}/tcp`] = {};
@@ -69,7 +82,13 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
     },
     ExposedPorts: exposed,
     Healthcheck: spec.healthcheck
-      ? { Test: spec.healthcheck, Interval: 5e9, Timeout: 5e9, Retries: 10, StartPeriod: 10e9 }
+      ? {
+          Test: spec.healthcheck,
+          Interval: (spec.healthTiming?.interval ?? 5) * 1e9,
+          Timeout: (spec.healthTiming?.timeout ?? 5) * 1e9,
+          Retries: spec.healthTiming?.retries ?? 10,
+          StartPeriod: (spec.healthTiming?.startPeriod ?? 10) * 1e9,
+        }
       : undefined,
     HostConfig: {
       Binds: binds,

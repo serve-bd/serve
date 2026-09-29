@@ -4,11 +4,60 @@ import { db, schema } from "@/server/db";
 import { pageService } from "@/server/services/access";
 import { commandExists } from "@/server/process";
 import { engines } from "@/server/databases/engines";
+import { databaseCreds, databaseUrl } from "@/server/databases/options";
+import { decryptOrNull } from "@/server/crypto";
 import { serversForOrg } from "@/server/servers/access";
 import { PageBody } from "@/components/shell/page-header";
 import { ServiceSettings } from "./service-settings";
 
 export const metadata = { title: "Settings" };
+
+function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean) {
+  const cfg = service.database;
+  if (!cfg) return null;
+  const engine = engines[cfg.engine];
+  const password = decryptOrNull(cfg.password) ?? "";
+  const creds = databaseCreds(cfg, password);
+  const check = engine.healthcheck(creds);
+  return {
+    config: {
+      engine: cfg.engine,
+      version: cfg.version,
+      username: cfg.username,
+      database: cfg.database,
+      description: cfg.description ?? null,
+      image: cfg.image ?? null,
+      initdbArgs: cfg.initdbArgs ?? null,
+      hostAuthMethod: cfg.hostAuthMethod ?? null,
+      charset: cfg.charset ?? null,
+      collation: cfg.collation ?? null,
+      initScripts: cfg.initScripts ?? [],
+      customConfig: cfg.customConfig ?? null,
+      extraArgs: cfg.extraArgs ?? null,
+      tls: cfg.tls ?? null,
+      healthcheck: cfg.healthcheck ?? null,
+      publicPort: cfg.publicPort ?? null,
+      publicBind: cfg.publicBind ?? ("0.0.0.0" as const),
+    },
+    password,
+    isAdmin,
+    engine: {
+      label: engine.label,
+      image: engine.image,
+      versions: engine.versions,
+      port: engine.port,
+      hasUser: engine.hasUser,
+      hasDatabase: engine.hasDatabase,
+      initScripts: engine.initScripts,
+      config: { kind: engine.config.kind, placeholder: engine.config.placeholder, path: engine.config.kind === "file" ? engine.config.path : null },
+      tls: !!engine.tlsArgs,
+      healthcheck: (check[0] === "CMD-SHELL" ? check[1] : check.slice(1).join(" ")).replaceAll(password, "••••••"),
+    },
+    internalUrl: databaseUrl(cfg, creds, service.slug, engine.port),
+    dataPath: cfg.dataMountPath || engine.dataPath,
+    defaultDataPath: engine.dataPath,
+  };
+}
 
 export default async function SettingsPage(props: PageProps<"/projects/[projectId]/services/[serviceId]/settings">) {
   const { projectId, serviceId } = await props.params;
@@ -51,7 +100,9 @@ export default async function SettingsPage(props: PageProps<"/projects/[projectI
           runtime: service.runtime,
           compose: service.compose ? { mode: service.compose.mode, content: service.compose.content, path: service.compose.path } : null,
           database: service.database ? { engine: service.database.engine, version: service.database.version } : null,
+          status: service.status,
         }}
+        db={dbProps(service, ctx.isAdmin)}
         versions={service.database ? engines[service.database.engine].versions : []}
         credentials={credentials}
         nixpacks={nixpacks}

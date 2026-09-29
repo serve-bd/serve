@@ -49,10 +49,20 @@ export type BuildConfig = {
 export type KeyValue = { key: string; value: string };
 
 export type VolumeMount = {
-  /** Named volume (managed by Serve) or absolute host path. */
+  /**
+   * volume: a named Docker volume managed by Serve (source is its short name).
+   * bind: an existing file or directory on the server (source is an absolute path).
+   * file: a file whose content Serve stores and writes to the server (source is its file name).
+   */
   source: string;
   mountPath: string;
-  kind: "volume" | "bind";
+  kind: "volume" | "bind" | "file";
+  readOnly?: boolean;
+  /** file mounts: the file content. */
+  content?: string;
+  /** bind mounts: what the host path is, and whether Serve creates a missing directory. */
+  hostType?: "file" | "directory";
+  create?: boolean;
 };
 
 /** "127.0.0.1" publishes only on the server itself (e.g. localhost:3000 on a dev machine). */
@@ -152,7 +162,33 @@ export type DatabaseConfig = {
   /** Cron expression for automatic backups. */
   backupSchedule?: string | null;
   backupRetention: number;
+  /** Backups kept in S3; defaults to backupRetention. */
+  backupRetentionS3?: number | null;
   s3DestinationId?: string | null;
+
+  /* Everything below is optional so older configs keep working. */
+  description?: string | null;
+  /** Full image reference that replaces engine image + version, e.g. pgvector/pgvector:pg17. */
+  image?: string | null;
+  /** Postgres: POSTGRES_INITDB_ARGS (first start only). */
+  initdbArgs?: string | null;
+  /** Postgres: POSTGRES_HOST_AUTH_METHOD (first start only). */
+  hostAuthMethod?: "scram-sha-256" | "md5" | "trust" | null;
+  /** MySQL / MariaDB server character set and collation. */
+  charset?: string | null;
+  collation?: string | null;
+  /** Files run by the image on an empty data directory (/docker-entrypoint-initdb.d). */
+  initScripts?: { name: string; content: string }[];
+  /** Engine configuration: postgresql.conf lines, my.cnf, redis.conf, mongod.conf or ClickHouse XML. */
+  customConfig?: string | null;
+  /** Extra arguments appended to the server process. */
+  extraArgs?: string | null;
+  /** Where the data volume is mounted; defaults to the engine's data directory. */
+  dataMountPath?: string | null;
+  /** TLS with a certificate authority Serve creates for this database. */
+  tls?: { enabled: boolean; mode?: "prefer" | "require" } | null;
+  /** Container health check timing (seconds). */
+  healthcheck?: { interval?: number | null; timeout?: number | null; retries?: number | null; startPeriod?: number | null } | null;
 };
 
 export type ComposeConfig = {

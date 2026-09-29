@@ -7,11 +7,11 @@ import { runMigrations } from "@/server/db/migrate";
 import { newId } from "@/server/id";
 import { docker, ensureNetwork, LABEL, listServiceContainers } from "@/server/docker/client";
 import { ensureProxy, ensureServerProxy, syncAllProxy } from "@/server/proxy/nginx";
-import { CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job } from "@/server/queue";
+import { CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
 import { runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
 import { issueCertificate, renewDueCertificates } from "@/server/ssl/certificates";
-import { restoreBackup, runBackup } from "@/server/backups";
+import { importBackup, restoreBackup, runBackup } from "@/server/backups";
 import { collectMetrics } from "@/server/metrics";
 import { getSettings, updateSettings } from "@/server/settings";
 import { notify, orgOfService } from "@/server/notify";
@@ -50,6 +50,10 @@ async function handle(job: Job, signal: AbortSignal) {
       return runBackup(p.backupId);
     case "backup.restore":
       return void (await restoreBackup(p.backupId));
+    case "backup.import": {
+      const { backupId, ...opts } = job.payload as JobPayloads["backup.import"];
+      return importBackup(backupId, opts);
+    }
     case "proxy.sync":
       await ensureProxy();
       return syncAllProxy();

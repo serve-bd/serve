@@ -11,13 +11,16 @@ import { paths } from "@/server/paths";
 import { syncServiceProxy } from "@/server/proxy/nginx";
 import { getSettings } from "@/server/settings";
 import { resolveEnv } from "@/server/services/variables";
-import { engineImage, engines } from "@/server/databases/engines";
+import { engines } from "@/server/databases/engines";
 import { logActivity } from "@/server/activity";
 import { notify, orgOfService } from "@/server/notify";
 import { buildImage } from "./builders";
 import { cloneRepository } from "./git";
 import { DeployLogger } from "./logger";
 import { createSpec, startContainer, volumeName, waitHealthy } from "./containers";
+import { prepareMounts } from "@/server/services/mounts";
+import { databasePlan } from "@/server/databases/options";
+import { ensureDatabaseTls } from "@/server/databases/tls";
 import { allocateSubnet, composeServiceNames, composeUp, transformCompose, writeComposeFiles } from "./compose";
 import type { ServiceStatus } from "@/server/db/schema";
 import { composeSecurityIssues, containedPath } from "@/server/security";
@@ -202,12 +205,13 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   const [stillThere] = await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.id, service.id));
   if (!stillThere) throw new DeployCancelled("The service was deleted");
   const network = await ensureEnvNetwork(service.environmentId, server);
+  if (runtime.volumes.some((v) => v.kind !== "volume")) await prepareMounts(server, service.id, runtime.volumes, log.line);
 
   if (runtime.preDeployCommand && dep.rollbackOf) log.line("Skipping the pre-deploy command for a rollback");
   if (runtime.preDeployCommand && !dep.rollbackOf) {
     // Runs before the old version stops, so a failing migration never takes the app down.
     log.step("Running the pre-deploy command");
-    await runPreDeploy({ service, dep, image, env: env.runtime, runtime, network, d, log, signal });
+    await runPreDeploy({ service, dep, image, env: env.runtime, runtime, network, d, log, signal, serviceDir: server.paths.service(service.id) });
     checkCancelled(signal);
   }
 
@@ -233,6 +237,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
         runtime,
         aliases: [service.slug],
         network,
+        serviceDir: server.paths.service(service.id),
       }, server);
       started.push(container.id);
       log.line(`Started ${name}`);
@@ -289,6 +294,7 @@ async function runPreDeploy(opts: {
   d: Docker;
   log: DeployLogger;
   signal?: AbortSignal;
+  serviceDir: string;
 }) {
   const { service, dep, d, log } = opts;
   const name = `${service.slug}-${dep.id.slice(0, 6)}-predeploy`;
@@ -305,6 +311,7 @@ async function runPreDeploy(opts: {
     runtime: { ...opts.runtime, ports: [], restartPolicy: "no", command: null },
     aliases: [],
     network: opts.network,
+    serviceDir: opts.serviceDir,
     cmd: ["sh", "-c", opts.runtime.preDeployCommand!],
   });
   const container = await d.createContainer(spec);
@@ -382,16 +389,28 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   const d = server.docker;
   const cfg = service.database!;
   const engine = engines[cfg.engine];
-  const image = engineImage(cfg.engine, cfg.version);
+  const serviceDir = server.paths.service(service.id);
+  const plan = databasePlan(cfg, decryptOrNull(cfg.password) ?? "", serviceDir);
+  const image = plan.image;
   const line = log?.line ?? (() => {});
+  log?.redact([plan.creds.password]);
 
   if (!(await imageExists(image, d))) {
     log?.step(`Pulling ${image}`);
     await pullImage(image, line, null, d);
   }
   checkCancelled(signal);
-  const creds = { username: cfg.username, password: decryptOrNull(cfg.password) ?? "", database: cfg.database };
-  log?.redact([creds.password]);
+
+  // Generated files: configuration, initialization scripts and TLS certificates.
+  for (const dir of plan.resetDirs) await server.fs.rm(dir);
+  for (const f of plan.files) await server.fs.writeFile(f.path, f.content, f.mode);
+  if (plan.files.length) line(`Wrote ${plan.files.length} configuration file${plan.files.length === 1 ? "" : "s"}`);
+  if (plan.tls) {
+    await ensureDatabaseTls(server, service.id, [service.slug, "localhost", "127.0.0.1", server.row.publicIp ?? "", server.local ? "" : server.row.host], line);
+    line(`TLS on (${cfg.tls?.mode === "require" ? "required" : "optional"} for clients)`);
+  }
+  const extra = service.runtime.volumes ?? [];
+  if (extra.some((v) => v.kind !== "volume")) await prepareMounts(server, service.id, extra, line);
 
   log?.step("Starting database");
   await ensureNetwork(d, server.network);
@@ -403,14 +422,18 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
     slug: service.slug,
     serviceId: service.id,
     kind: "database",
-    env: engine.env(creds),
-    cmd: engine.command?.(creds),
-    healthcheck: engine.healthcheck(creds),
+    env: plan.env,
+    cmd: plan.cmd,
+    healthcheck: plan.healthcheck,
+    healthTiming: plan.health,
+    extraBinds: plan.binds,
+    serviceDir,
     runtime: {
       ...service.runtime,
       port: engine.port,
       command: null,
-      volumes: [{ kind: "volume", source: "data", mountPath: engine.dataPath }],
+      // The data volume first, then any mounts added in Persistent storage.
+      volumes: [{ kind: "volume", source: "data", mountPath: plan.dataMountPath }, ...extra.filter((v) => !(v.kind === "volume" && v.source === "data"))],
       ports: cfg.publicPort ? [{ host: cfg.publicPort, container: engine.port, protocol: "tcp", bindAddress: cfg.publicBind }] : [],
       healthcheckPath: null,
       healthcheckTimeout: 180,
@@ -418,9 +441,9 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
     aliases: [service.slug],
     network,
   }, server);
-  line(`Volume ${volumeName(service.slug, "data")} mounted at ${engine.dataPath}`);
+  line(`Volume ${volumeName(service.slug, "data")} mounted at ${plan.dataMountPath}`);
   log?.step("Waiting for the database to accept connections");
-  await waitHealthy(container.id, { ...service.runtime, port: null, healthcheckTimeout: 180 }, line, signal, network, server);
+  await waitHealthy(container.id, { ...service.runtime, port: null, healthcheckTimeout: Math.max(180, plan.health.startPeriod + plan.health.interval * plan.health.retries + 30) }, line, signal, network, server);
   line(`${engine.label} is ready`);
   await setServiceStatus(service.id, "running");
 }

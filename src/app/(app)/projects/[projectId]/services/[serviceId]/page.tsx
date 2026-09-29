@@ -5,6 +5,7 @@ import { ServiceOverview } from "./overview";
 import { loadOverview } from "./overview-data";
 import { DatabaseOverview } from "./database-overview";
 import { engines } from "@/server/databases/engines";
+import { databaseUrl } from "@/server/databases/options";
 import { decryptOrNull } from "@/server/crypto";
 import { publishedPorts } from "@/server/services/ports";
 
@@ -25,8 +26,8 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           projectId={projectId}
           engine={{ label: engine.label, port: engine.port, hasUser: engine.hasUser, hasDatabase: engine.hasDatabase }}
           creds={creds}
-          internalUrl={engine.url({ ...creds, host: service.slug, port: engine.port })}
-          publicUrl={published ? engine.url({ ...creds, host: published.address, port: published.host }) : null}
+          internalUrl={databaseUrl(cfg, creds, service.slug, engine.port)}
+          publicUrl={published ? databaseUrl(cfg, creds, published.address, published.host) : null}
           host={service.slug}
           publicPort={cfg.publicPort ?? null}
           publicBind={cfg.publicBind ?? "0.0.0.0"}

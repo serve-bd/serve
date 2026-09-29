@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRightLeft, Check, Plus, RefreshCw, Server as ServerIcon, Trash2 } from "lucide-react";
+import { ArrowRightLeft, Check, RefreshCw, Server as ServerIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
@@ -17,6 +17,9 @@ import { cn } from "@/lib/utils";
 import type { BuildConfig, RuntimeConfig, VolumeMount } from "@/server/services/types";
 import { Section } from "./section";
 import { AdvancedSection, BuildSection, DeploySection, HealthSection, ResourcesSection, RuntimeSection } from "./config-sections";
+import { ApplyBar, DatabaseSections, databaseNav, type DatabaseSettingsProps } from "./database-sections";
+import { StorageSection } from "./storage-section";
+import { updateDatabaseSettings } from "@/server/actions/databases";
 
 type Source =
   | { type: "git"; repository: string; branch: string; credentialId?: string | null }
@@ -37,7 +40,10 @@ type Props = {
     runtime: RuntimeConfig;
     compose: { mode: "inline" | "git"; content: string; path: string } | null;
     database: { engine: string; version: string } | null;
+    status: string;
   };
+  /** Database services: everything the database sections need. */
+  db: Omit<DatabaseSettingsProps, "onNeedsRestart" | "serviceId" | "running" | "restartPolicy" | "stopTimeout"> & { dataPath: string; defaultDataPath: string } | null;
   versions: string[];
   credentials: { id: string; name: string; provider: string }[];
   nixpacks: boolean;
@@ -126,7 +132,27 @@ export function ServiceSettings(props: Props) {
   const save = useAction((patch: Parameters<typeof updateService>[1]) => updateService(service.id, patch), {
     success: "Settings saved. Deploy to apply runtime changes.",
   });
-  const applyDb = useAction(() => applyDatabaseChanges(service.id), { success: "Restarting the database with the new settings" });
+  const [pendingApply, setPendingApply] = React.useState<string[]>([]);
+  const needsRestart = React.useCallback((what: string) => setPendingApply((p) => (p.includes(what) ? p : [...p, what])), []);
+  const applyDb = useAction(() => applyDatabaseChanges(service.id), { success: "Restarting the database with the new settings", onSuccess: () => setPendingApply([]) });
+  const isDb = service.type === "database";
+  const running = service.status === "running" || service.status === "deploying" || service.status === "restarting";
+  /** Runtime saves on a database also need a restart. */
+  const saveRuntime = async (patch: Parameters<typeof updateService>[1], what: string) => {
+    const r = await save.run(patch);
+    if (r !== undefined && isDb) needsRestart(what);
+    return r;
+  };
+  const saveStorage = async (volumes: VolumeMount[], dataMountPath?: string | null) => {
+    const r = await save.run({ runtime: { volumes } });
+    if (r === undefined) return undefined;
+    if (isDb && dataMountPath !== undefined) {
+      const d = await updateDatabaseSettings(service.id, { dataMountPath });
+      if (!d.ok) return undefined;
+    }
+    if (isDb) needsRestart("Storage");
+    return r;
+  };
   const regen = useAction(() => regenerateWebhookSecret(service.id), { success: "New secret generated" });
   const remove = useAction((volumes: boolean) => deleteService(service.id, volumes), {
     refresh: false,
@@ -148,9 +174,10 @@ export function ServiceSettings(props: Props) {
           { id: "runtime", label: "Runtime" },
         ]
       : []),
+    ...(props.db ? databaseNav(props.db) : []),
+    ...(service.type === "app" ? [{ id: "storage", label: "Persistent storage" }] : []),
     ...(service.type !== "compose" ? [{ id: "resources", label: "Resources" }] : []),
-    ...(service.type === "app" ? [{ id: "volumes", label: "Volumes" }, { id: "advanced", label: "Advanced" }] : []),
-    ...(service.database ? [{ id: "version", label: "Version" }] : []),
+    ...(service.type !== "compose" ? [{ id: "advanced", label: "Advanced" }] : []),
     ...(service.type !== "database" ? [{ id: "webhooks", label: "Webhooks" }] : []),
     { id: "danger", label: "Danger zone" },
   ];
@@ -172,6 +199,7 @@ export function ServiceSettings(props: Props) {
         ))}
       </nav>
     <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
+      {isDb && <ApplyBar pending={pendingApply} running={running} applying={applyDb.pending} onApply={() => applyDb.run()} />}
       <Section id="general" title="General" initial={{ name: service.name }} onSave={(v) => save.run({ name: v.name })}>
         {(v, set) => (
           <>
@@ -186,6 +214,17 @@ export function ServiceSettings(props: Props) {
       </Section>
 
       <ServerCard service={service} server={props.server} servers={props.servers} />
+
+      {props.db && (
+        <DatabaseSections
+          {...props.db}
+          serviceId={service.id}
+          running={running}
+          restartPolicy={service.runtime.restartPolicy}
+          stopTimeout={service.runtime.stopTimeout ?? null}
+          onNeedsRestart={needsRestart}
+        />
+      )}
 
       {service.source?.type === "git" && (
         <Section
@@ -296,63 +335,24 @@ export function ServiceSettings(props: Props) {
         </>
       )}
 
-      {service.type !== "compose" && <ResourcesSection runtime={service.runtime} save={save.run} />}
+      {props.db && (
+        <StorageSection
+          serviceId={service.id}
+          volumes={service.runtime.volumes}
+          running={running}
+          isRootAdmin={props.isRootAdmin}
+          onSave={saveStorage}
+          data={{ mountPath: props.db.dataPath, defaultPath: props.db.defaultDataPath }}
+        />
+      )}
+
+      {service.type !== "compose" && <ResourcesSection runtime={service.runtime} save={(p) => saveRuntime(p, "Resources")} />}
 
       {service.type === "app" && (
-        <Section
-          id="volumes"
-          title="Volumes"
-          description="Persistent storage that survives deploys. Named volumes are managed by Serve."
-          initial={{ volumes: service.runtime.volumes }}
-          onSave={(v) => save.run({ runtime: { volumes: v.volumes.filter((x) => x.source && x.mountPath) } })}
-          footerAction={(v, set) => (
-            <Button size="sm" onClick={() => set({ volumes: [...v.volumes, { kind: "volume", source: "", mountPath: "" }] })}>
-              <Plus /> Add volume
-            </Button>
-          )}
-        >
-          {(v, set) => (
-            <div className="flex flex-col gap-2">
-              {v.volumes.map((vol, i) => {
-                const update = (patch: Partial<VolumeMount>) => set({ volumes: v.volumes.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
-                return (
-                  <div key={i} className="grid grid-cols-[96px_minmax(0,1fr)_minmax(0,1fr)_32px] gap-2">
-                    <Select size="sm" value={vol.kind} onValueChange={(k) => update({ kind: k as VolumeMount["kind"] })} options={[{ value: "volume", label: "Volume" }, { value: "bind", label: "Host path" }]} />
-                    <Input value={vol.source} onChange={(e) => update({ source: e.target.value })} placeholder={vol.kind === "volume" ? "data" : "/srv/data"} className="h-8 font-mono text-[12.5px]" />
-                    <Input value={vol.mountPath} onChange={(e) => update({ mountPath: e.target.value })} placeholder="/app/data" className="h-8 font-mono text-[12.5px]" />
-                    <Button variant="ghost" size="icon" onClick={() => set({ volumes: v.volumes.filter((_, j) => j !== i) })} aria-label="Remove volume">
-                      <Trash2 />
-                    </Button>
-                  </div>
-                );
-              })}
-              {v.volumes.length === 0 && <p className="text-[13px] text-muted">No volumes. Data written inside the container is lost on every deploy.</p>}
-            </div>
-          )}
-        </Section>
+        <StorageSection serviceId={service.id} volumes={service.runtime.volumes} running={running} isRootAdmin={props.isRootAdmin} onSave={saveStorage} />
       )}
 
-      {service.type === "app" && <AdvancedSection runtime={service.runtime} save={save.run} isRootAdmin={props.isRootAdmin} />}
-
-      {service.database && (
-        <Section
-          id="version"
-          title="Version"
-          description="Changing the major version of a database may need a manual migration. Back up first."
-          initial={{ version: service.database.version }}
-          onSave={async (v) => {
-            const r = await save.run({ database: { version: v.version } });
-            if (r !== undefined) await applyDb.run();
-            return r;
-          }}
-        >
-          {(v, set) => (
-            <Field label="Image tag">
-              <Select value={v.version} onValueChange={(x) => set({ version: x })} options={props.versions.map((x) => ({ value: x, label: x }))} />
-            </Field>
-          )}
-        </Section>
-      )}
+      {service.type !== "compose" && <AdvancedSection runtime={service.runtime} save={(p) => saveRuntime(p, "Advanced")} isRootAdmin={props.isRootAdmin} />}
 
       {service.type !== "database" && (
         <Card id="webhooks" className="scroll-mt-6">

@@ -77,6 +77,13 @@ export async function s3Download(cfg: S3Config, key: string, file: string) {
   await pipeline(Readable.fromWeb(res.body as never), fs.createWriteStream(file));
 }
 
+/** Opens an object as a web stream with its size, or null when it is missing. */
+export async function s3Stream(cfg: S3Config, key: string) {
+  const res = await signedFetch(cfg, "GET", key);
+  if (res.status === 404 || !res.body) return null;
+  return { body: res.body, size: Number(res.headers.get("content-length") ?? 0) || null };
+}
+
 export async function s3Delete(cfg: S3Config, key: string) {
   await signedFetch(cfg, "DELETE", key);
 }

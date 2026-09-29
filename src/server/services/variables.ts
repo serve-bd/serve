@@ -2,6 +2,7 @@ import { eq, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull } from "@/server/crypto";
 import { engines } from "@/server/databases/engines";
+import { databaseUrl } from "@/server/databases/options";
 import { referenceName } from "@/lib/refs";
 
 type Service = typeof schema.service.$inferSelect;
@@ -34,7 +35,7 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
       password: decryptOrNull(cfg.password) ?? "",
       database: cfg.database,
     };
-    const url = engine.url({ ...creds, host: service.slug, port: engine.port });
+    const url = databaseUrl(cfg, creds, service.slug, engine.port);
     Object.assign(vars, {
       HOST: service.slug,
       PORT: String(engine.port),

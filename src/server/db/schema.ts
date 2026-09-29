@@ -634,6 +634,13 @@ export const backup = pgTable(
     destination: text("destination").notNull().default("local"),
     error: text("error"),
     trigger: text("trigger").notNull().default("manual"),
+    /** Upload to S3: uploaded, failed, or null when no S3 destination was set. */
+    s3Status: text("s3_status").$type<"uploaded" | "failed" | "deleted">(),
+    /** Last restore of this backup. */
+    restoreStatus: text("restore_status").$type<"running" | "success" | "failed">(),
+    restoredAt: timestamp("restored_at", { withTimezone: true }),
+    /** Progress and output of the backup, import and restore steps. */
+    log: text("log"),
     createdAt: createdAt(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },

@@ -26,6 +26,7 @@ import type { OrgContext } from "@/server/auth";
 import { requestServiceControl } from "@/server/services/control";
 import { resolveServerForOrg, serverPublicIp } from "@/server/servers/access";
 import { CAPABILITIES } from "@/server/deploy/options";
+import { volumeSchema } from "@/server/services/volume-schema";
 
 async function assertEnvironment(projectId: string, environmentId: string) {
   const [env] = await db
@@ -370,13 +371,7 @@ const updateSchema = z.object({
       restartPolicy: z.enum(["always", "unless-stopped", "on-failure", "no"]),
       cpuLimit: z.number().min(0.05).max(256).nullable(),
       memoryLimit: z.number().int().min(16).max(1024 * 1024).nullable(),
-      volumes: z.array(
-        z.object({
-          source: z.string().trim().min(1),
-          mountPath: z.string().trim().regex(/^\//, "Mount paths must be absolute"),
-          kind: z.enum(["volume", "bind"]),
-        }),
-      ),
+      volumes: z.array(volumeSchema).max(50),
       ports: z.array(
         z.object({
           host: z.number().int().min(1).max(65535),
@@ -420,6 +415,7 @@ const updateSchema = z.object({
       publicBind: z.enum(["0.0.0.0", "127.0.0.1"]).optional(),
       backupSchedule: z.string().nullable(),
       backupRetention: z.number().int().min(1).max(365),
+      backupRetentionS3: z.number().int().min(1).max(3650).nullable(),
       s3DestinationId: z.string().nullable(),
     })
     .partial()
@@ -988,13 +984,17 @@ export async function createBackup(serviceId: string) {
   });
 }
 
-export async function restoreFromBackup(backupId: string) {
+export async function restoreFromBackup(backupId: string, opts: { backupFirst?: boolean } = {}) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
     const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
     if (!b || b.status !== "success") throw new UserError("Backup not found.");
     const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
-    await enqueue("backup.restore", { backupId }, { concurrencyKey: `backup:${b.serviceId}` });
+    if (service.status !== "running") throw new UserError("Start the database before restoring.");
+    await db.update(schema.backup).set({ restoreStatus: "running" }).where(eq(schema.backup.id, backupId));
+    // With a safety backup, the import job takes the backup and restores only if it succeeded.
+    if (opts.backupFirst) await enqueue("backup.import", { backupId, backupFirst: true }, { concurrencyKey: `backup:${b.serviceId}` });
+    else await enqueue("backup.restore", { backupId }, { concurrencyKey: `backup:${b.serviceId}` });
     await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: "backup.restore", targetType: "service", targetId: service.id, message: `Restoring ${service.name} from a backup` });
     return null;
   });

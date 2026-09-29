@@ -85,6 +85,13 @@
       "when": 1790679968171,
       "tag": "0011_shared_var_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790683603639,
+      "tag": "0012_backup_restore_log",
+      "breakpoints": true
     }
   ]
 }

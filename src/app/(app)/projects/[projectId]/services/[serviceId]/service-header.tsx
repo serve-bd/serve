@@ -173,74 +173,77 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
               </div>
             </div>
           </div>
-          <div className="ml-auto flex flex-none items-center gap-2">
-            <Menu>
-              <MenuTrigger
-                disabled={!can("services.deploy")}
-                title={cannot("services.deploy")}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-[13px] font-medium text-fg shadow-sm hover:bg-hover disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Power className="size-3.5" /> Manage <ChevronDown className="size-3.5 text-muted" />
-              </MenuTrigger>
-              <MenuContent>
-                {notDeployed ? (
-                  <MenuItem disabled>
-                    <Rocket /> Deploy first to start it
-                  </MenuItem>
-                ) : stopped ? (
-                  <MenuItem onClick={() => control.run("start")}>
-                    <Play /> Start
-                  </MenuItem>
-                ) : (
-                  <MenuItem onClick={() => control.run("restart")} disabled={busy}>
-                    <RotateCw /> Restart
-                  </MenuItem>
-                )}
-                {!service.isPreview && can("services.manage") && (
-                  <>
-                    <MenuSeparator />
-                    <MenuItem onClick={() => setMoving(true)}>
-                      <FolderInput /> Move to project…
+          {/* Roles that cannot deploy only look: no Manage or Deploy buttons. */}
+          {can("services.deploy") && (
+            <div className="ml-auto flex flex-none items-center gap-2">
+              <Menu>
+                <MenuTrigger
+                  disabled={!can("services.deploy")}
+                  title={cannot("services.deploy")}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-[13px] font-medium text-fg shadow-sm hover:bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Power className="size-3.5" /> Manage <ChevronDown className="size-3.5 text-muted" />
+                </MenuTrigger>
+                <MenuContent>
+                  {notDeployed ? (
+                    <MenuItem disabled>
+                      <Rocket /> Deploy first to start it
                     </MenuItem>
-                  </>
-                )}
-                {maintenance && (
-                  <>
-                    <MenuSeparator />
-                    <MenuItem onClick={() => (maintenance.enabled ? toggleMaintenance.run(false) : turnOnMaintenance())} disabled={toggleMaintenance.pending}>
-                      <Construction /> {maintenance.enabled ? "Turn off maintenance mode" : "Maintenance mode…"}
+                  ) : stopped ? (
+                    <MenuItem onClick={() => control.run("start")}>
+                      <Play /> Start
                     </MenuItem>
-                  </>
-                )}
-                {!stopped && !notDeployed && (
-                  <>
-                    <MenuSeparator />
-                    <MenuItem
-                      danger
-                      disabled={busy}
-                      onClick={async () => {
-                        if (
-                          await confirm({
-                            title: `Stop ${service.name}?`,
-                            description: "Containers are stopped and traffic gets an unavailable page until you start it again.",
-                            confirmLabel: "Stop service",
-                            danger: true,
-                          })
-                        )
-                          control.run("stop");
-                      }}
-                    >
-                      <Square /> Stop
+                  ) : (
+                    <MenuItem onClick={() => control.run("restart")} disabled={busy}>
+                      <RotateCw /> Restart
                     </MenuItem>
-                  </>
-                )}
-              </MenuContent>
-            </Menu>
-            <MoveServicesDialog serviceIds={[service.id]} environmentId={service.environmentId} open={moving} onOpenChange={setMoving} />
-            <Button variant="primary" size="sm" onClick={() => deploy.run()} loading={deploy.pending} disabled={!can("services.deploy")} title={cannot("services.deploy")}>
-              <Rocket /> {live.status === "idle" || live.status === "stopped" ? "Deploy" : "Redeploy"}
-            </Button>
-          </div>
+                  )}
+                  {!service.isPreview && can("services.manage") && (
+                    <>
+                      <MenuSeparator />
+                      <MenuItem onClick={() => setMoving(true)}>
+                        <FolderInput /> Move to project…
+                      </MenuItem>
+                    </>
+                  )}
+                  {maintenance && (
+                    <>
+                      <MenuSeparator />
+                      <MenuItem onClick={() => (maintenance.enabled ? toggleMaintenance.run(false) : turnOnMaintenance())} disabled={toggleMaintenance.pending}>
+                        <Construction /> {maintenance.enabled ? "Turn off maintenance mode" : "Maintenance mode…"}
+                      </MenuItem>
+                    </>
+                  )}
+                  {!stopped && !notDeployed && (
+                    <>
+                      <MenuSeparator />
+                      <MenuItem
+                        danger
+                        disabled={busy}
+                        onClick={async () => {
+                          if (
+                            await confirm({
+                              title: `Stop ${service.name}?`,
+                              description: "Containers are stopped and traffic gets an unavailable page until you start it again.",
+                              confirmLabel: "Stop service",
+                              danger: true,
+                            })
+                          )
+                            control.run("stop");
+                        }}
+                      >
+                        <Square /> Stop
+                      </MenuItem>
+                    </>
+                  )}
+                </MenuContent>
+              </Menu>
+              <MoveServicesDialog serviceIds={[service.id]} environmentId={service.environmentId} open={moving} onOpenChange={setMoving} />
+              <Button variant="primary" size="sm" onClick={() => deploy.run()} loading={deploy.pending} disabled={!can("services.deploy")} title={cannot("services.deploy")}>
+                <Rocket /> {live.status === "idle" || live.status === "stopped" ? "Deploy" : "Redeploy"}
+              </Button>
+            </div>
+          )}
         </div>
         {issues.length > 0 && (
           <div

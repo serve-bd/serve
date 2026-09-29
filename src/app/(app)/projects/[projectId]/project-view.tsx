@@ -209,9 +209,11 @@ export function ProjectView({ project, environments, environment, initialService
                 <SquareCheck /> {selecting ? "Done" : "Select"}
               </Button>
             )}
-            <Link href={`/projects/${project.id}/settings?env=${environment.name}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
-              <Settings /> Settings
-            </Link>
+            {can("projects.manage") && (
+              <Link href={`/projects/${project.id}/settings?env=${environment.name}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
+                <Settings /> Settings
+              </Link>
+            )}
             {can("services.manage") && (
               <Link href={newHref} className={buttonVariants({ variant: "primary", size: "sm" })}>
                 <Plus /> New service

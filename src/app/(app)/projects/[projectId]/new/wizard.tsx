@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, ChevronRight, Container, Database, GitBranch, Layers, Lock, Search, Server, ShieldAlert, Sparkles, Star, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ChevronRight, Container, Database, GitBranch, Layers, Lock, Search, Server, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup, Textarea } from "@/components/ui/input";
@@ -612,19 +612,6 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {props.engines.map((e) => (
-            <button
-              key={e.engine}
-              type="button"
-              onClick={() => onStart("database", e.engine)}
-              className="inline-flex h-8 items-center gap-2 rounded-full border border-line bg-surface pr-3 pl-1 text-[13px] text-fg-2 shadow-sm transition-colors hover:border-line-strong hover:text-fg"
-            >
-              <ServiceIcon type="database" engine={e.engine} size="sm" className="size-6 rounded-full [&_svg]:size-3" />
-              {e.label}
-            </button>
-          ))}
-        </div>
       </section>
 
       <section className="flex flex-col gap-4">
@@ -634,6 +621,13 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
             <p className="text-[13px] text-muted">Ready-made apps. Review the settings after creating, then deploy.</p>
           </div>
           <div className="flex items-center gap-2">
+            <Select
+              size="sm"
+              value={category}
+              onValueChange={setCategory}
+              options={chips.map((c) => ({ value: c, label: c === "All" ? "All categories" : c }))}
+              className="w-40 flex-none"
+            />
             <div className="relative w-full sm:w-64">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint" />
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${props.templates.length} services`} className="pl-8" aria-label="Search services" />
@@ -645,24 +639,6 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
             )}
           </div>
         </div>
-        {!q && (
-          <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 scrollbar-none sm:mx-0 sm:flex-wrap sm:px-0">
-            {chips.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setCategory(c)}
-                className={cn(
-                  "inline-flex h-7 flex-none items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors",
-                  category === c ? "bg-fg text-bg" : "bg-surface text-muted ring-1 ring-line hover:text-fg",
-                )}
-              >
-                {c === POPULAR && <Star className="size-3" />}
-                {c}
-              </button>
-            ))}
-          </div>
-        )}
         {list.length ? (
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {list.map((t) => (

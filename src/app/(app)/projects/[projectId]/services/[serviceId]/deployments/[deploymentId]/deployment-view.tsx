@@ -3,7 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { ArrowLeft, Ban, Clock, GitBranch, GitCommitHorizontal, RefreshCw, RotateCcw, User } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Ban, Clock, Container, GitBranch, GitCommitHorizontal, RefreshCw, RotateCcw, Server, User } from "lucide-react";
+import type { DeploymentTarget } from "@/server/services/types";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, TimeAgo } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
@@ -27,7 +28,23 @@ type Dep = {
   userName: string | null;
 };
 
-type LogState = { status: string; error: string | null; startedAt: string | null; finishedAt: string | null };
+type LogState = {
+  status: string;
+  error: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  targets?: DeploymentTarget[] | null;
+  registryImage?: string | null;
+};
+
+const targetTone: Record<DeploymentTarget["status"], "ok" | "bad" | "warn" | "neutral" | "info"> = {
+  success: "ok",
+  failed: "bad",
+  skipped: "warn",
+  deploying: "info",
+  pending: "neutral",
+};
+const targetLabel: Record<DeploymentTarget["status"], string> = { success: "Deployed", failed: "Failed", skipped: "Skipped", deploying: "Deploying", pending: "Waiting" };
 
 const ACTIVE = ["queued", "building", "deploying"];
 
@@ -77,7 +94,14 @@ export function DeploymentView({
             setLines((prev) => [...prev, ...parts.map((p) => ({ text: p }))]);
           }
           offset.current = data.offset;
-          setState({ status: data.status, error: data.error, startedAt: data.startedAt, finishedAt: data.finishedAt });
+          setState({
+            status: data.status,
+            error: data.error,
+            startedAt: data.startedAt,
+            finishedAt: data.finishedAt,
+            targets: data.targets,
+            registryImage: data.registryImage,
+          });
           if (!ACTIVE.includes(data.status)) {
             if (partial.current) setLines((prev) => [...prev, { text: partial.current }]);
             partial.current = "";
@@ -190,6 +214,38 @@ export function DeploymentView({
         </div>
         {state.status === "failed" && state.error && (
           <pre className="mt-4 max-h-48 overflow-auto rounded-xl bg-bad-soft px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-bad">{state.error}</pre>
+        )}
+        {/* Several servers: the deployment succeeded on the service's server, some others may have failed. */}
+        {state.status === "success" && state.error && (
+          <p className="mt-4 rounded-xl bg-warn-soft px-4 py-3 text-[13px] leading-relaxed text-fg-2">
+            <AlertTriangle className="mr-1.5 inline size-4 -translate-y-px text-warn" />
+            {state.error}. Those servers keep the previous version.
+          </p>
+        )}
+        {(state.targets?.length || state.registryImage) && (
+          <div className="mt-4 flex flex-col gap-2 border-t border-line pt-4">
+            {state.targets && state.targets.length > 1 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-faint">Servers</span>
+                {state.targets.map((t) => (
+                  <span key={t.serverId} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-[12px] text-fg-2" title={t.error ?? undefined}>
+                    <Server className="size-3.5 text-faint" />
+                    {t.name}
+                    {t.primary && <span className="text-faint">· main</span>}
+                    <Badge tone={targetTone[t.status]}>{targetLabel[t.status]}</Badge>
+                  </span>
+                ))}
+              </div>
+            )}
+            {state.registryImage && (
+              <p className="flex min-w-0 items-center gap-2 text-xs text-muted">
+                <Container className="size-3.5 flex-none text-faint" />
+                <span className="truncate font-mono" title={state.registryImage}>
+                  {state.registryImage}
+                </span>
+              </p>
+            )}
+          </div>
         )}
       </Card>
 

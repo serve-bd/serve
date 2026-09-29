@@ -3,6 +3,8 @@ import { db, schema } from "@/server/db";
 
 const MAX_LOG_BYTES = 4_000_000;
 
+export type StepLog = { line: (text: string) => void; step: (title: string) => void };
+
 /** Buffers log lines and appends them to the deployment row in batches. */
 export class DeployLogger {
   private buffer: string[] = [];
@@ -28,6 +30,20 @@ export class DeployLogger {
   };
 
   step = (title: string) => this.line(`==> ${title}`);
+
+  /** The same log with every line prefixed, for work on one of several servers. */
+  scoped(prefix: string): StepLog {
+    return {
+      line: (text) =>
+        this.line(
+          text
+            .split("\n")
+            .map((l) => `[${prefix}] ${l}`)
+            .join("\n"),
+        ),
+      step: (title) => this.line(`==> [${prefix}] ${title}`),
+    };
+  }
 
   flush(): Promise<void> {
     if (this.timer) {

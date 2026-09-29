@@ -134,6 +134,13 @@
       "when": 1790699512534,
       "tag": "0018_monitoring",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790701494033,
+      "tag": "0019_registries_distribution",
+      "breakpoints": true
     }
   ]
 }

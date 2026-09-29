@@ -28,6 +28,34 @@ export type ImageSource = {
 
 export type SourceConfig = GitSource | ImageSource;
 
+/**
+ * Where an app is built and where it runs. Null (or all defaults) keeps the
+ * classic behaviour: build and run on the service's own server.
+ */
+export type DistributionConfig = {
+  /** Server that builds the image; null builds on the service's server. */
+  buildServerId?: string | null;
+  /** Registry the built image is pushed to; required to run a built image on another server. */
+  registryId?: string | null;
+  /** Repository inside the registry, e.g. "acme/web" (the registry host is added). */
+  repository?: string | null;
+  /** Tag pattern: {commit}, {short}, {deployment}, {branch}, {service}, {date}. */
+  tag?: string | null;
+  /** Also move the "latest" tag to each new image. */
+  tagLatest?: boolean;
+  /** More servers that run the same image, next to the service's server. */
+  extraServerIds?: string[];
+};
+
+/** Per-server result of a deployment that runs on several servers. */
+export type DeploymentTarget = {
+  serverId: string;
+  name: string;
+  primary: boolean;
+  status: "pending" | "deploying" | "success" | "failed" | "skipped";
+  error?: string | null;
+};
+
 export type Builder = "auto" | "dockerfile" | "nixpacks" | "static";
 
 export type BuildConfig = {

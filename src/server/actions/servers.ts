@@ -1,6 +1,7 @@
 "use server";
 
-import { count, eq } from "drizzle-orm";
+import { count, eq, or, sql } from "drizzle-orm";
+import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requireInstanceAdmin } from "@/server/auth";
@@ -220,6 +221,15 @@ export async function deleteServer(id: string) {
     if (row.isLocal) throw new UserError("The server Serve runs on cannot be removed.");
     const [{ n }] = await db.select({ n: count() }).from(schema.service).where(eq(schema.service.serverId, id));
     if (n > 0) throw new UserError(`${n} service${n === 1 ? " runs" : "s run"} on this server. Move or delete ${n === 1 ? "it" : "them"} first.`);
+    const extraOf = await db
+      .select({ name: schema.service.name })
+      .from(schema.service)
+      .where(or(runsAsExtraOn(id), sql`${schema.service.distribution}->>'buildServerId' = ${id}`));
+    if (extraOf.length) {
+      throw new UserError(
+        `${extraOf.map((s) => s.name).join(", ")} ${extraOf.length === 1 ? "uses" : "use"} this server to build or run. Remove it in their Servers & registry settings first.`,
+      );
+    }
     await db.delete(schema.server).where(eq(schema.server.id, id));
     forgetServer(id);
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.delete", message: `Removed server ${row.name}` });

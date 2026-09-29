@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LABEL, listServiceContainers, removeContainer } from "@/server/docker/client";
-import { getServer, serverOf } from "@/server/servers/context";
+import { getServer, serversOfService, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
 import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { composeDownByProject } from "@/server/deploy/compose";
@@ -14,27 +14,47 @@ async function getService(id: string) {
   return service;
 }
 
+type Service = Awaited<ReturnType<typeof getService>>;
+
+/** Containers of the service's current version on one server (apps), or all of them (compose, databases). */
+async function relevantOn(service: Service, server: ServerCtx) {
+  const containers = await listServiceContainers(service.id, true, server.docker);
+  if (service.type !== "app") return containers;
+  const current = containers.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId);
+  // An extra server whose last deploy failed still runs its previous version.
+  if (!current.length && server.id !== service.serverId) return containers.filter((c) => c.Labels[LABEL.kind] !== "predeploy");
+  return current;
+}
+
+/** Extra servers are best effort: one that is offline must not block the others. */
+async function onExtras(service: Service, fn: (server: ServerCtx) => Promise<void>) {
+  const [, ...extras] = await serversOfService(service);
+  await Promise.allSettled(extras.map(fn));
+}
+
 export async function stopService(serviceId: string) {
   const service = await getService(serviceId);
-  const { docker } = await serverOf(service);
-  const containers = await listServiceContainers(service.id, true, docker);
-  await Promise.all(
-    containers.map((c) =>
-      docker
-        .getContainer(c.Id)
-        .stop({ t: 15 })
-        .catch(() => {}),
-    ),
-  );
+  const stop = async (server: ServerCtx) => {
+    const containers = await listServiceContainers(service.id, true, server.docker);
+    await Promise.all(
+      containers.map((c) =>
+        server.docker
+          .getContainer(c.Id)
+          .stop({ t: 15 })
+          .catch(() => {}),
+      ),
+    );
+  };
+  await stop(await getServer(service.serverId));
+  await onExtras(service, stop);
   await setServiceStatus(service.id, "stopped");
   await syncServiceProxy(service.id).catch(() => {});
 }
 
 export async function startService(serviceId: string): Promise<"started" | "needs-deploy"> {
   const service = await getService(serviceId);
-  const { docker } = await serverOf(service);
-  const containers = await listServiceContainers(service.id, true, docker);
-  const relevant = service.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : containers;
+  const server = await getServer(service.serverId);
+  const relevant = await relevantOn(service, server);
   if (!relevant.length) {
     if (service.type === "database") {
       await setServiceStatus(service.id, "deploying");
@@ -43,14 +63,19 @@ export async function startService(serviceId: string): Promise<"started" | "need
     }
     return "needs-deploy";
   }
-  await Promise.all(
-    relevant.map((c) =>
-      docker
-        .getContainer(c.Id)
-        .start()
-        .catch(() => {}),
-    ),
-  );
+  const start = async (target: ServerCtx) => {
+    const containers = target.id === server.id ? relevant : await relevantOn(service, target);
+    await Promise.all(
+      containers.map((c) =>
+        target.docker
+          .getContainer(c.Id)
+          .start()
+          .catch(() => {}),
+      ),
+    );
+  };
+  await start(server);
+  await onExtras(service, start);
   await setServiceStatus(service.id, "running");
   await syncServiceProxy(service.id).catch(() => {});
   return "started";
@@ -58,9 +83,8 @@ export async function startService(serviceId: string): Promise<"started" | "need
 
 export async function restartService(serviceId: string) {
   const service = await getService(serviceId);
-  const { docker } = await serverOf(service);
-  const containers = await listServiceContainers(service.id, true, docker);
-  const relevant = service.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : containers;
+  const server = await getServer(service.serverId);
+  const relevant = await relevantOn(service, server);
   // Containers removed outside Serve: recreate what can be recreated.
   if (!relevant.length) {
     if (service.type === "database") {
@@ -72,14 +96,19 @@ export async function restartService(serviceId: string) {
     throw new Error("No containers exist for this service. Deploy it again.");
   }
   await setServiceStatus(service.id, "restarting");
-  await Promise.all(
-    relevant.map((c) =>
-      docker
-        .getContainer(c.Id)
-        .restart({ t: 10 })
-        .catch(() => {}),
-    ),
-  );
+  const restart = async (target: ServerCtx) => {
+    const containers = target.id === server.id ? relevant : await relevantOn(service, target);
+    await Promise.all(
+      containers.map((c) =>
+        target.docker
+          .getContainer(c.Id)
+          .restart({ t: 10 })
+          .catch(() => {}),
+      ),
+    );
+  };
+  await restart(server);
+  await onExtras(service, restart);
   await setServiceStatus(service.id, "running");
   await syncServiceProxy(service.id).catch(() => {});
 }

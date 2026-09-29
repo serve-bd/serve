@@ -30,6 +30,7 @@ export function settingsNav(s: SettingsNavInput): SettingsNavItem[] {
   return [
     { id: "general", label: "General" },
     { id: "server", label: "Server" },
+    ...(s.type === "app" ? [{ id: "servers", label: "Servers & registry" }] : []),
     ...(s.hasSource ? [{ id: "source", label: "Source" }] : []),
     ...(s.hasBuild && s.gitSource ? [{ id: "build", label: "Build" }] : []),
     ...(s.hasCompose

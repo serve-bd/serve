@@ -26,6 +26,7 @@ import { SectionPicker } from "@/components/shell/section-picker";
 import { addPendingApply, clearPendingApply, usePendingApply } from "./pending-apply";
 import { StorageSection } from "./storage-section";
 import { MonitoringSection } from "./monitoring-section";
+import { DistributionSection } from "./distribution-section";
 import type { MonitorSummary } from "@/server/monitoring/queries";
 import { updateDatabaseSettings } from "@/server/actions/databases";
 
@@ -72,6 +73,8 @@ type Props = {
   nav: SettingsNavItem[];
   /** Uptime check (only loaded for the Monitoring page). */
   monitoring?: { monitor: MonitorSummary["monitor"]; defaultUrl: string | null };
+  /** Build server, registry and extra servers (only loaded for the Servers & registry page). */
+  distribution?: Omit<React.ComponentProps<typeof DistributionSection>, "serviceId" | "projectId" | "slug" | "primary">;
 };
 
 function ServerCard({ service, server, servers }: { service: Props["service"]; server: Props["server"]; servers: Props["servers"] }) {
@@ -489,6 +492,16 @@ export function ServiceSettings(props: Props) {
               </Field>
             </CardBody>
           </Card>
+        )}
+
+        {show("servers") && props.distribution && (
+          <DistributionSection
+            serviceId={service.id}
+            projectId={props.projectId}
+            slug={service.slug}
+            primary={{ id: props.server.id, name: props.server.name }}
+            {...props.distribution}
+          />
         )}
 
         {show("monitoring") && props.monitoring && (

@@ -725,7 +725,15 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
     );
     // Stop routing on the old server right away; the delete job also cleans it up.
     await removeServiceProxy(serviceId, service.serverId).catch(() => {});
-    await db.update(schema.service).set({ serverId: target.id, status: "deploying" }).where(eq(schema.service.id, serviceId));
+    // The new server can no longer be an extra or the separate build server of this service.
+    const distribution = service.distribution
+      ? {
+          ...service.distribution,
+          buildServerId: service.distribution.buildServerId === target.id ? null : (service.distribution.buildServerId ?? null),
+          extraServerIds: (service.distribution.extraServerIds ?? []).filter((id) => id !== target.id),
+        }
+      : null;
+    await db.update(schema.service).set({ serverId: target.id, status: "deploying", distribution }).where(eq(schema.service.id, serviceId));
 
     // Generated domains carry the server's address (sslip.io / wildcard); give them the new one.
     const domains = await db

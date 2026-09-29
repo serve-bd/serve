@@ -113,6 +113,17 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
       if (first.ports[0]) setExposePort(String(first.ports[0]));
     }
   };
+  /** While typing: pick the domain service as soon as the file names one (nothing else changes). */
+  const onComposeChange = (content: string) => {
+    setCompose(content);
+    if (exposeService) return;
+    const services = analyze(content).services;
+    const first = services.find((s) => s.ports.length);
+    if (first) {
+      setExposeService(first.name);
+      setExposePort(String(first.ports[0]));
+    }
+  };
   const loadCompose = (content: string) => {
     setCompose(content);
     refresh(content);
@@ -157,7 +168,7 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
               </div>
               <CodeEditor
                 value={compose}
-                onChange={setCompose}
+                onChange={onComposeChange}
                 onBlur={() => refresh(compose)}
                 minRows={22}
                 maxHeight="44rem"
@@ -236,9 +247,10 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
           <Card>
             <CardHeader title="Domain" description="The compose service and port that get the generated domain. Leave empty for stacks without a web UI." />
             <CardBody className="grid grid-cols-1 gap-4 py-5">
-              <Field label="Service">
+              <Field label="Service" description={parsed.services.length ? undefined : "Add a compose file first. Its services show up here."}>
                 <Select
                   value={exposeService || "none"}
+                  disabled={!parsed.services.length}
                   onValueChange={(v) => {
                     const svc = v === "none" ? "" : v;
                     setExposeService(svc);

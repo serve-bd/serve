@@ -45,11 +45,7 @@ export type Job<T extends JobType = JobType> = Omit<typeof schema.job.$inferSele
 export const JOB_CHANNEL = "serve_jobs";
 export const CANCEL_CHANNEL = "serve_cancel";
 
-export async function enqueue<T extends JobType>(
-  type: T,
-  payload: JobPayloads[T],
-  opts: { concurrencyKey?: string; runAt?: Date; maxAttempts?: number } = {},
-) {
+export async function enqueue<T extends JobType>(type: T, payload: JobPayloads[T], opts: { concurrencyKey?: string; runAt?: Date; maxAttempts?: number } = {}) {
   const id = newId();
   await db.insert(schema.job).values({
     id,
@@ -64,10 +60,7 @@ export async function enqueue<T extends JobType>(
 }
 
 /** Claim the next runnable job, respecting per-key concurrency. */
-export async function claimJob(
-  excludeKeys: string[] = [],
-  filter: { excludeTypes?: string[]; onlyTypes?: string[] } = {},
-): Promise<Job | null> {
+export async function claimJob(excludeKeys: string[] = [], filter: { excludeTypes?: string[]; onlyTypes?: string[] } = {}): Promise<Job | null> {
   const exclude = JSON.stringify(filter.excludeTypes ?? []);
   const only = filter.onlyTypes ? JSON.stringify(filter.onlyTypes) : null;
   const rows = await db.execute<typeof schema.job.$inferSelect & Record<string, unknown>>(dsql`

@@ -12,7 +12,11 @@ const id = process.argv[2] ?? "e2eremote";
 const ctx = await getServer(id);
 const t = Date.now();
 const info = await hostInfo(ctx);
-console.log("hostInfo:", JSON.stringify({ name: info.name, os: info.os, arch: info.arch, cpus: info.cpus, docker: info.docker, compose: info.compose, buildx: info.buildx, upSince: info.upSince }), `${Date.now() - t}ms`);
+console.log(
+  "hostInfo:",
+  JSON.stringify({ name: info.name, os: info.os, arch: info.arch, cpus: info.cpus, docker: info.docker, compose: info.compose, buildx: info.buildx, upSince: info.upSince }),
+  `${Date.now() - t}ms`,
+);
 const health = await serverHealth(ctx, await getSettings());
 console.log("health:", JSON.stringify(health));
 const local = await serverHealth(await getSettings());

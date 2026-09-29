@@ -190,7 +190,14 @@ export function KeysView({ keys }: { keys: Key[] }) {
                       danger
                       disabled={k.servers.length > 0}
                       onClick={async () => {
-                        if (await confirm({ title: `Delete ${k.name}?`, description: "Serve can no longer use this key. Servers that trust it keep the public key until you remove it there.", confirmLabel: "Delete key", danger: true }))
+                        if (
+                          await confirm({
+                            title: `Delete ${k.name}?`,
+                            description: "Serve can no longer use this key. Servers that trust it keep the public key until you remove it there.",
+                            confirmLabel: "Delete key",
+                            danger: true,
+                          })
+                        )
                           remove.run(k.id);
                       }}
                     >

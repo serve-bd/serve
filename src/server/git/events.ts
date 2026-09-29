@@ -102,15 +102,20 @@ export function parsePullRequest(headers: Headers, body: Record<string, unknown>
       target_project_id?: number;
     };
     if (!mr) return null;
-    const info: PullRequest = { number: mr.iid, branch: mr.source_branch, repository: mr.source?.git_http_url ?? "", title: mr.title, sha: mr.last_commit?.id ?? null, author: null };
+    const info: PullRequest = {
+      number: mr.iid,
+      branch: mr.source_branch,
+      repository: mr.source?.git_http_url ?? "",
+      title: mr.title,
+      sha: mr.last_commit?.id ?? null,
+      author: null,
+    };
     if (["close", "merge"].includes(mr.action ?? "")) return { action: "close", pr: info };
     if (mr.source_project_id && mr.target_project_id && mr.source_project_id !== mr.target_project_id) return { action: "fork", pr: info };
     if (["open", "reopen", "update"].includes(mr.action ?? "")) return { action: "deploy", pr: info };
   }
   return null;
 }
-
-
 
 export function parsePush(headers: Headers, body: Record<string, unknown>): PushInfo | "ping" | null {
   const ghEvent = headers.get("x-github-event") ?? headers.get("x-gitea-event") ?? headers.get("x-gogs-event");
@@ -122,20 +127,32 @@ export function parsePush(headers: Headers, body: Record<string, unknown>): Push
   if (bbEvent) {
     if (bbEvent === "diagnostics:ping") return "ping";
     if (bbEvent !== "repo:push") return null;
-    const change = ((body.push as { changes?: unknown[] })?.changes?.[0] ?? {}) as { new?: { name?: string; target?: { hash?: string; message?: string; author?: { raw?: string } } } };
-    return { branch: change.new?.name ?? null, sha: change.new?.target?.hash ?? null, message: change.new?.target?.message?.trim() ?? null, author: change.new?.target?.author?.raw ?? null };
+    const change = ((body.push as { changes?: unknown[] })?.changes?.[0] ?? {}) as {
+      new?: { name?: string; target?: { hash?: string; message?: string; author?: { raw?: string } } };
+    };
+    return {
+      branch: change.new?.name ?? null,
+      sha: change.new?.target?.hash ?? null,
+      message: change.new?.target?.message?.trim() ?? null,
+      author: change.new?.target?.author?.raw ?? null,
+    };
   }
   const ref = typeof body.ref === "string" ? body.ref : "";
   const branch = ref.startsWith("refs/heads/") ? ref.slice(11) : null;
   if (glEvent) {
     const commits = (body.commits as { id: string; message: string; author?: { name?: string } }[]) ?? [];
     const last = commits.at(-1);
-    return { branch, sha: (body.checkout_sha as string) ?? last?.id ?? null, message: last?.message?.trim() ?? null, author: last?.author?.name ?? (body.user_name as string) ?? null, files: changedFiles(body) };
+    return {
+      branch,
+      sha: (body.checkout_sha as string) ?? last?.id ?? null,
+      message: last?.message?.trim() ?? null,
+      author: last?.author?.name ?? (body.user_name as string) ?? null,
+      files: changedFiles(body),
+    };
   }
   const head = body.head_commit as { id?: string; message?: string; author?: { name?: string } } | undefined;
   return { branch, sha: head?.id ?? (body.after as string) ?? null, message: head?.message?.split("\n")[0] ?? null, author: head?.author?.name ?? null, files: changedFiles(body) };
 }
-
 
 export type EventResult = Record<string, unknown>;
 

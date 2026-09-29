@@ -115,9 +115,7 @@ function ServerCard({ server: s }: { server: Row }) {
         )}
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-xs text-muted">
-        <span>
-          {s.services === 0 ? "No services" : `${s.running}/${s.services} service${s.services === 1 ? "" : "s"} running`}
-        </span>
+        <span>{s.services === 0 ? "No services" : `${s.running}/${s.services} service${s.services === 1 ? "" : "s"} running`}</span>
         {s.info.docker && <span className="font-mono text-[11px] text-faint">Docker {s.info.docker}</span>}
       </div>
     </Link>

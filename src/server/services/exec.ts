@@ -64,11 +64,14 @@ export async function execCommand(
       clearTimeout(timer);
       resolve();
     };
-    const timer = setTimeout(() => {
-      timedOut = true;
-      (stream as unknown as { destroy: () => void }).destroy();
-      finish();
-    }, (opts.timeoutSeconds ?? 600) * 1000);
+    const timer = setTimeout(
+      () => {
+        timedOut = true;
+        (stream as unknown as { destroy: () => void }).destroy();
+        finish();
+      },
+      (opts.timeoutSeconds ?? 600) * 1000,
+    );
     stream.on("end", finish);
     stream.on("close", finish);
     stream.on("error", finish);

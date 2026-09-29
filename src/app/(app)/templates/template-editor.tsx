@@ -115,9 +115,7 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
     const found = composeVariables(content);
     setRows((current) => [
       ...current.filter((r) => found.some((f) => f.name === r.key)),
-      ...found
-        .filter((f) => !current.some((r) => r.key === f.name))
-        .map((f) => ({ key: f.name, kind: guessVarKind(f.name) as VarKind, value: "", label: "" })),
+      ...found.filter((f) => !current.some((r) => r.key === f.name)).map((f) => ({ key: f.name, kind: guessVarKind(f.name) as VarKind, value: "", label: "" })),
     ]);
   }, []);
 
@@ -172,14 +170,19 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
         });
       }}
     >
-
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex min-w-0 flex-col gap-5">
           <Card>
             <CardHeader title="Compose file" description="Use ${VARIABLE} for values that differ per service. Serve fills them when a service is created." />
             <CardBody className="flex flex-col gap-4 py-5">
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Input value={importUrl} onChange={(e) => setImportUrl(e.target.value)} placeholder="Import from a URL, e.g. a GitHub link to docker-compose.yml" className="font-mono text-[12.5px]" aria-label="Compose file URL" />
+                <Input
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  placeholder="Import from a URL, e.g. a GitHub link to docker-compose.yml"
+                  className="font-mono text-[12.5px]"
+                  aria-label="Compose file URL"
+                />
                 <Button type="button" size="md" loading={fetchUrl.pending} disabled={!importUrl.trim()} onClick={() => fetchUrl.run(importUrl)} className="flex-none">
                   <Download /> Import
                 </Button>
@@ -218,14 +221,29 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
                   const set = (patch: Partial<VarRow>) => setRows((all) => all.map((x, j) => (j === i ? { ...x, ...patch } : x)));
                   return (
                     <div key={r.key} className="grid grid-cols-1 gap-2 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_11rem_minmax(0,1fr)] sm:items-center">
-                      <span className={cn("truncate font-mono text-[12.5px]", unused.includes(r) ? "text-faint line-through" : "text-fg")} title={unused.includes(r) ? "Not used in the compose file" : undefined}>
+                      <span
+                        className={cn("truncate font-mono text-[12.5px]", unused.includes(r) ? "text-faint line-through" : "text-fg")}
+                        title={unused.includes(r) ? "Not used in the compose file" : undefined}
+                      >
                         {r.key}
                       </span>
                       <Select size="sm" value={r.kind} onValueChange={(v) => set({ kind: v as VarKind })} options={kindOptions} />
                       {r.kind === "value" ? (
-                        <Input value={r.value} onChange={(e) => set({ value: e.target.value })} placeholder="Default value" className="h-8 font-mono text-[12.5px]" aria-label={`${r.key} default`} />
+                        <Input
+                          value={r.value}
+                          onChange={(e) => set({ value: e.target.value })}
+                          placeholder="Default value"
+                          className="h-8 font-mono text-[12.5px]"
+                          aria-label={`${r.key} default`}
+                        />
                       ) : (
-                        <Input value={r.label} onChange={(e) => set({ label: e.target.value })} placeholder="Label (optional)" className="h-8 text-[12.5px]" aria-label={`${r.key} label`} />
+                        <Input
+                          value={r.label}
+                          onChange={(e) => set({ label: e.target.value })}
+                          placeholder="Label (optional)"
+                          className="h-8 text-[12.5px]"
+                          aria-label={`${r.key} label`}
+                        />
                       )}
                     </div>
                   );
@@ -235,9 +253,7 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
               <CardBody className="py-5 text-[13px] text-muted">No ${"{VARIABLES}"} in the compose file.</CardBody>
             )}
             {missing.length > 0 && (
-              <CardBody className="border-t border-line py-3 text-xs text-warn">
-                Not listed yet: {missing.map((m) => m.name).join(", ")}. Click Detect.
-              </CardBody>
+              <CardBody className="border-t border-line py-3 text-xs text-warn">Not listed yet: {missing.map((m) => m.name).join(", ")}. Click Detect.</CardBody>
             )}
           </Card>
         </div>
@@ -275,7 +291,10 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
                     const ports = parsed.services.find((s) => s.name === svc)?.ports ?? [];
                     if (ports[0]) setExposePort(String(ports[0]));
                   }}
-                  options={[{ value: "none", label: "No domain" }, ...parsed.services.map((s) => ({ value: s.name, label: s.name, description: s.ports.length ? `Ports ${s.ports.join(", ")}` : undefined }))]}
+                  options={[
+                    { value: "none", label: "No domain" },
+                    ...parsed.services.map((s) => ({ value: s.name, label: s.name, description: s.ports.length ? `Ports ${s.ports.join(", ")}` : undefined })),
+                  ]}
                 />
               </Field>
               <Field label="Port" description={exposed?.ports.length ? `Found in the file: ${exposed.ports.join(", ")}` : "The port the app listens on inside the container."}>
@@ -284,16 +303,15 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
             </CardBody>
           </Card>
           <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/templates")}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary" size="sm" loading={save.pending} disabled={!name.trim() || !!parsed.error}>
-                {initial.id ? "Save template" : "Create template"}
-              </Button>
-            </div>
+            <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/templates")}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" size="sm" loading={save.pending} disabled={!name.trim() || !!parsed.error}>
+              {initial.id ? "Save template" : "Create template"}
+            </Button>
+          </div>
         </aside>
       </div>
-
     </form>
   );
 }

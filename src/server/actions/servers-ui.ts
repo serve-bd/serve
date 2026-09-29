@@ -10,7 +10,13 @@ export async function getServerProgress(serverId: string) {
   return act(async () => {
     await requireInstanceAdmin();
     const [row] = await db
-      .select({ status: schema.server.status, statusMessage: schema.server.statusMessage, setupLog: schema.server.setupLog, info: schema.server.info, hostKey: schema.server.hostKey })
+      .select({
+        status: schema.server.status,
+        statusMessage: schema.server.statusMessage,
+        setupLog: schema.server.setupLog,
+        info: schema.server.info,
+        hostKey: schema.server.hostKey,
+      })
       .from(schema.server)
       .where(eq(schema.server.id, serverId));
     if (!row) throw new UserError("Server not found.");

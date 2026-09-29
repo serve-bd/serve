@@ -139,20 +139,39 @@
   --animate-shimmer: shimmer 1.4s linear infinite;
 
   @keyframes led {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.35; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
   }
   @keyframes fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
   @keyframes rise {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: none; }
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
   @keyframes shimmer {
-    from { background-position: -200% 0; }
-    to { background-position: 200% 0; }
+    from {
+      background-position: -200% 0;
+    }
+    to {
+      background-position: 200% 0;
+    }
   }
 }
 
@@ -190,11 +209,16 @@
   [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
   }
-  h1, h2, h3 {
+  h1,
+  h2,
+  h3 {
     font-family: var(--font-display);
     letter-spacing: -0.022em;
   }
-  code, kbd, pre, samp {
+  code,
+  kbd,
+  pre,
+  samp {
     font-family: var(--font-mono);
   }
   input[type="number"]::-webkit-inner-spin-button {
@@ -262,11 +286,13 @@
     width: 100%;
     z-index: calc(1000 - var(--toast-index));
     transform-origin: bottom center;
-    transform: translateX(var(--toast-swipe-movement-x))
-      translateY(calc(var(--toast-swipe-movement-y) - (var(--toast-index) * var(--peek)) - (var(--shrink) * var(--height))))
+    transform: translateX(var(--toast-swipe-movement-x)) translateY(calc(var(--toast-swipe-movement-y) - (var(--toast-index) * var(--peek)) - (var(--shrink) * var(--height))))
       scale(var(--scale));
     height: var(--height);
-    transition: transform 0.45s var(--ease-out-quint), opacity 0.35s, height 0.15s;
+    transition:
+      transform 0.45s var(--ease-out-quint),
+      opacity 0.35s,
+      height 0.15s;
     user-select: none;
   }
   .toast::after {
@@ -313,7 +339,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

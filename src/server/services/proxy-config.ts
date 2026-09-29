@@ -111,30 +111,27 @@ export const proxyInputSchema = z.object({
   basicAuth: z
     .object({
       enabled: z.boolean(),
-      username: z.string().trim().regex(/^[A-Za-z0-9._@-]{1,64}$/, "Use letters, digits, . _ @ or - in the user name").optional(),
+      username: z
+        .string()
+        .trim()
+        .regex(/^[A-Za-z0-9._@-]{1,64}$/, "Use letters, digits, . _ @ or - in the user name")
+        .optional(),
       password: z.string().min(6, "Use at least 6 characters").max(128).optional(),
     })
     .optional(),
   allow: z.array(cidr).max(100).optional(),
   deny: z.array(cidr).max(100).optional(),
-  headers: z.array(z.object({ name: headerName, value: headerValue })).max(30).optional(),
+  headers: z
+    .array(z.object({ name: headerName, value: headerValue }))
+    .max(30)
+    .optional(),
   securityHeaders: z.boolean().optional(),
   corsOrigins: z.array(origin).max(30).optional(),
   wwwRedirect: z.enum(["none", "to-apex", "to-www"]).optional(),
   gzip: z.boolean().optional(),
   cacheStatic: z.boolean().optional(),
-  customDirectives: z
-    .string()
-    .max(10_000)
-    .refine(balanced, "Braces { } must be balanced")
-    .nullable()
-    .optional(),
-  caddyDirectives: z
-    .string()
-    .max(10_000)
-    .refine(balanced, "Braces { } must be balanced")
-    .nullable()
-    .optional(),
+  customDirectives: z.string().max(10_000).refine(balanced, "Braces { } must be balanced").nullable().optional(),
+  caddyDirectives: z.string().max(10_000).refine(balanced, "Braces { } must be balanced").nullable().optional(),
   traefikMiddlewares: z.string().max(20_000).refine(isMiddlewareYaml, "Use a YAML map of middleware names to Traefik middleware definitions").nullable().optional(),
 });
 
@@ -164,9 +161,7 @@ export function buildProxyConfig(input: z.output<typeof proxyInputSchema>, previ
     if (!username) throw new Error("Enter a user name for basic auth.");
     const keep = previous?.basicAuth && previous.basicAuth.username === username && !input.basicAuth.password;
     if (!input.basicAuth.password && !keep) throw new Error("Enter a password for basic auth.");
-    basicAuth = keep
-      ? { ...previous!.basicAuth! }
-      : { username, passwordHash: apr1(input.basicAuth.password!), bcryptHash: bcrypt.hashSync(input.basicAuth.password!, 10) };
+    basicAuth = keep ? { ...previous!.basicAuth! } : { username, passwordHash: apr1(input.basicAuth.password!), bcryptHash: bcrypt.hashSync(input.basicAuth.password!, 10) };
   }
   const headers = (input.headers ?? []).filter((h) => h.name);
   const names = new Set<string>();
@@ -212,7 +207,14 @@ function to64(value: number, length: number) {
 }
 
 /** htpasswd -m compatible hash; nginx verifies "$apr1$" itself on every platform. */
-export function apr1(password: string, salt = crypto.randomBytes(6).toString("base64").replace(/[^A-Za-z0-9./]/g, ".").slice(0, 8)) {
+export function apr1(
+  password: string,
+  salt = crypto
+    .randomBytes(6)
+    .toString("base64")
+    .replace(/[^A-Za-z0-9./]/g, ".")
+    .slice(0, 8),
+) {
   const magic = "$apr1$";
   const pw = Buffer.from(password, "utf8");
   const s = Buffer.from(salt, "utf8");

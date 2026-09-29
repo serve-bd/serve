@@ -212,7 +212,10 @@ export async function getProxyContainer(ctx?: ServerCtx) {
 }
 
 async function removeContainer(ctx: ServerCtx, name: string) {
-  await ctx.docker.getContainer(name).remove({ force: true }).catch(() => {});
+  await ctx.docker
+    .getContainer(name)
+    .remove({ force: true })
+    .catch(() => {});
 }
 
 /** The Cloudflare token Traefik needs for DNS challenges, when configured. */
@@ -311,7 +314,8 @@ export async function proxyDefinition(ctx: ServerCtx) {
   lines.push("    ports:");
   for (const [key, bindings] of Object.entries(spec.ports)) {
     const [port, proto] = key.split("/");
-    for (const b of bindings) lines.push(`      - ${q(`${(b as { HostIp?: string }).HostIp ? `${(b as { HostIp?: string }).HostIp}:` : ""}${b.HostPort}:${port}${proto === "udp" ? "/udp" : ""}`)}`);
+    for (const b of bindings)
+      lines.push(`      - ${q(`${(b as { HostIp?: string }).HostIp ? `${(b as { HostIp?: string }).HostIp}:` : ""}${b.HostPort}:${port}${proto === "udp" ? "/udp" : ""}`)}`);
   }
   lines.push("    volumes:", ...spec.Binds.map((b) => `      - ${q(b)}`), "    networks:", `      - ${ctx.network}`, "    restart: unless-stopped");
   return lines.join("\n");
@@ -326,11 +330,25 @@ async function ensureImage(ctx: ServerCtx, image: string, log?: Log) {
 /** Traefik cannot serve files: a tiny nginx serves Serve's 404 and 503 pages for it. */
 async function ensurePagesServer(ctx: ServerCtx, log?: Log) {
   const name = pagesContainer(ctx);
-  const info = await ctx.docker.getContainer(name).inspect().catch(() => null);
+  const info = await ctx.docker
+    .getContainer(name)
+    .inspect()
+    .catch(() => null);
   if (info?.State.Running) return;
   if (info) {
-    await ctx.docker.getContainer(name).start().catch(() => removeContainer(ctx, name));
-    if ((await ctx.docker.getContainer(name).inspect().catch(() => null))?.State.Running) return;
+    await ctx.docker
+      .getContainer(name)
+      .start()
+      .catch(() => removeContainer(ctx, name));
+    if (
+      (
+        await ctx.docker
+          .getContainer(name)
+          .inspect()
+          .catch(() => null)
+      )?.State.Running
+    )
+      return;
   }
   await ensureImage(ctx, PROXY_IMAGE, log);
   const c = await ctx.docker.createContainer({
@@ -389,15 +407,25 @@ async function replaceProxy(ctx: ServerCtx, create: () => Promise<void>, log?: L
   const parked = `${ctx.proxyContainer}-previous-${Date.now()}`;
   if (old) {
     await ctx.docker.getContainer(ctx.proxyContainer).rename({ name: parked });
-    await ctx.docker.getContainer(parked).stop({ t: 5 }).catch(() => {});
+    await ctx.docker
+      .getContainer(parked)
+      .stop({ t: 5 })
+      .catch(() => {});
   }
   try {
     await create();
   } catch (error) {
     await removeContainer(ctx, ctx.proxyContainer);
     if (old) {
-      await ctx.docker.getContainer(parked).rename({ name: ctx.proxyContainer }).catch(() => {});
-      if (old.State.Running) await ctx.docker.getContainer(ctx.proxyContainer).start().catch(() => {});
+      await ctx.docker
+        .getContainer(parked)
+        .rename({ name: ctx.proxyContainer })
+        .catch(() => {});
+      if (old.State.Running)
+        await ctx.docker
+          .getContainer(ctx.proxyContainer)
+          .start()
+          .catch(() => {});
       log?.("Kept the previous proxy");
     }
     const message = (error as Error).message;
@@ -429,8 +457,15 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
     // Stopped by an admin: keep it that way (and drop a proxy of the wrong kind).
     if (mismatch) await removeProxyContainers(ctx);
     else {
-      if (info?.State.Running) await ctx.docker.getContainer(ctx.proxyContainer).stop({ t: 5 }).catch(() => {});
-      await ctx.docker.getContainer(pagesContainer(ctx)).stop({ t: 2 }).catch(() => {});
+      if (info?.State.Running)
+        await ctx.docker
+          .getContainer(ctx.proxyContainer)
+          .stop({ t: 5 })
+          .catch(() => {});
+      await ctx.docker
+        .getContainer(pagesContainer(ctx))
+        .stop({ t: 2 })
+        .catch(() => {});
     }
     return getProxyContainer(ctx);
   }
@@ -463,7 +498,13 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
     log?.(`Proxy container started (${kind})`);
   };
 
-  const hostPorts = [...new Set(Object.entries(spec.ports).filter(([k]) => k.endsWith("/tcp")).flatMap(([, v]) => v.map((b) => Number(b.HostPort))))];
+  const hostPorts = [
+    ...new Set(
+      Object.entries(spec.ports)
+        .filter(([k]) => k.endsWith("/tcp"))
+        .flatMap(([, v]) => v.map((b) => Number(b.HostPort))),
+    ),
+  ];
   if (!info) {
     const busy = await busyProxyPorts(ctx, hostPorts);
     if (busy.size) throw portError(ctx, busy);
@@ -472,7 +513,8 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
   }
 
   const bound = info.HostConfig.PortBindings as Record<string, { HostPort?: string }[] | undefined> | undefined;
-  const portsDiffer = Object.keys(spec.ports).length !== Object.keys(bound ?? {}).length || Object.entries(spec.ports).some(([k, v]) => bound?.[k]?.[0]?.HostPort !== v[0].HostPort);
+  const portsDiffer =
+    Object.keys(spec.ports).length !== Object.keys(bound ?? {}).length || Object.entries(spec.ports).some(([k, v]) => bound?.[k]?.[0]?.HostPort !== v[0].HostPort);
   // Containers created since the spec label exists are compared as a whole (image, command, environment, mounts, ports).
   const knownHash = info.Config.Labels?.[SPEC_LABEL];
   const staticDiffers = knownHash ? knownHash !== specHash : kind === "traefik" || !!config[kind]?.container;
@@ -625,20 +667,13 @@ async function traefikFileErrors(ctx: ServerCtx, mark: LogMark) {
 
 type CertRow = typeof schema.certificate.$inferSelect;
 
-function tlsFor(
-  hostname: string,
-  explicitId: string | null,
-  certs: CertRow[],
-): SiteServer["tls"] {
+function tlsFor(hostname: string, explicitId: string | null, certs: CertRow[]): SiteServer["tls"] {
   const usable = certs.filter((c) => c.status === "active" && c.certPath && c.keyPath);
-  const cert =
-    (explicitId && usable.find((c) => c.id === explicitId)) ||
-    usable.find((c) => certificateCovers(c.domains, hostname));
+  const cert = (explicitId && usable.find((c) => c.id === explicitId)) || usable.find((c) => certificateCovers(c.domains, hostname));
   return cert ? { cert: cert.certPath!, key: cert.keyPath! } : null;
 }
 
-const upstreamName = (slug: string, suffix: string) =>
-  `svc_${slug}_${suffix}`.replace(/[^a-zA-Z0-9_]/g, "_");
+const upstreamName = (slug: string, suffix: string) => `svc_${slug}_${suffix}`.replace(/[^a-zA-Z0-9_]/g, "_");
 
 /** Container names currently serving traffic for an app service. */
 async function appTargets(ctx: ServerCtx, service: typeof schema.service.$inferSelect): Promise<string[]> {
@@ -677,9 +712,7 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
   const containers = service.type === "app" && !stopped ? await appTargets(server, service) : [];
   const errorPages = defaultsOf((await proxyStateOf(service.serverId)).config.nginx?.defaults).unavailablePage;
   const cfg = service.proxy;
-  const options: SiteOptions | null = cfg
-    ? { ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null } as SiteOptions
-    : null;
+  const options: SiteOptions | null = cfg ? ({ ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null } as SiteOptions) : null;
   // www ↔ apex redirect, only between hostnames that are both on this service.
   const hostnames = new Set(service.domains.map((d) => d.hostname));
   const wwwTarget = (hostname: string) => {
@@ -722,11 +755,7 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
     });
   }
 
-  return [
-    `# Managed by Serve — service "${service.name}" (${service.id}).`,
-    ...[...upstreams.values()].map(upstreamBlock),
-    ...servers.map(serverBlocks),
-  ].join("\n");
+  return [`# Managed by Serve — service "${service.name}" (${service.id}).`, ...[...upstreams.values()].map(upstreamBlock), ...servers.map(serverBlocks)].join("\n");
 }
 
 export { composeAlias };
@@ -810,10 +839,7 @@ async function applySites(ctx: ServerCtx, changes: Map<string, string | null>) {
 
 /** Render the site of one service on the server it runs on. */
 export async function syncServiceProxy(serviceId: string) {
-  const [svc] = await db
-    .select({ environmentId: schema.service.environmentId, serverId: schema.service.serverId })
-    .from(schema.service)
-    .where(eq(schema.service.id, serviceId));
+  const [svc] = await db.select({ environmentId: schema.service.environmentId, serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, serviceId));
   const ctx = await getServer(svc?.serverId ?? LOCAL_SERVER_ID);
   return serialized(ctx.id, async () => {
     const { kind } = await proxyStateOf(ctx.id);
@@ -955,13 +981,7 @@ export async function servicesUsingCertificate(cert: CertRow): Promise<string[]>
       .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
       .where(and(eq(schema.project.organizationId, cert.organizationId), eq(schema.service.serverId, cert.serverId)))
   ).map((r) => r.domain);
-  return [
-    ...new Set(
-      domains
-        .filter((d) => d.certificateId === cert.id || certificateCovers(cert.domains, d.hostname))
-        .map((d) => d.serviceId),
-    ),
-  ];
+  return [...new Set(domains.filter((d) => d.certificateId === cert.id || certificateCovers(cert.domains, d.hostname)).map((d) => d.serviceId))];
 }
 
 export async function proxyStatus(ctx?: ServerCtx) {
@@ -999,7 +1019,8 @@ export async function testProxyConfig(ctx?: ServerCtx): Promise<ProxyTest> {
   const { kind, stopped } = await proxyStateOf(c.id);
   if (kind === "none") return { ok: true, output: "This server runs no Serve proxy.", state: "unavailable" };
   const info = await getProxyContainer(c);
-  if (!info?.State.Running) return { ok: false, output: stopped ? "The proxy is stopped." : info?.State.Restarting ? "The proxy is restarting." : "The proxy is not running.", state: "unavailable" };
+  if (!info?.State.Running)
+    return { ok: false, output: stopped ? "The proxy is stopped." : info?.State.Restarting ? "The proxy is restarting." : "The proxy is not running.", state: "unavailable" };
   if ((info.Config.Labels?.[KIND_LABEL] ?? "nginx") !== kind) return { ok: false, output: "The proxy is being replaced.", state: "unavailable" };
   if (kind === "traefik") {
     try {
@@ -1021,7 +1042,9 @@ export async function testProxyConfig(ctx?: ServerCtx): Promise<ProxyTest> {
     if (res.exitCode !== 0 && transient.test(res.output)) return { ok: false, output: "The proxy is restarting.", state: "unavailable" };
     return { ok: res.exitCode === 0, output: res.output.trim(), state: res.exitCode === 0 ? "ok" : "failed" };
   } catch (error) {
-    return transient.test((error as Error).message) ? { ok: false, output: "The proxy is restarting.", state: "unavailable" } : { ok: false, output: (error as Error).message, state: "failed" };
+    return transient.test((error as Error).message)
+      ? { ok: false, output: "The proxy is restarting.", state: "unavailable" }
+      : { ok: false, output: (error as Error).message, state: "failed" };
   }
 }
 
@@ -1081,7 +1104,9 @@ export async function applyServerProxyConfig(ctx: ServerCtx, next: ServerProxyCo
       if (!running || !changed) return;
       const files =
         kind === "traefik"
-          ? [TRAEFIK_BASE, ...(await ctx.fs.readdir(ctx.paths.proxySites)).filter((f) => f.startsWith(USER_PREFIX) && /\.ya?ml$/.test(f))].map((f) => path.posix.join(ctx.paths.proxySites, f))
+          ? [TRAEFIK_BASE, ...(await ctx.fs.readdir(ctx.paths.proxySites)).filter((f) => f.startsWith(USER_PREFIX) && /\.ya?ml$/.test(f))].map((f) =>
+              path.posix.join(ctx.paths.proxySites, f),
+            )
           : [];
       await reloadProxy(ctx, files, since);
     });
@@ -1189,8 +1214,14 @@ export async function removeProxyContainers(ctx: ServerCtx) {
 /** Stop a server's proxy and keep it stopped until an admin starts it again. Every site goes offline. */
 export async function stopProxy(ctx: ServerCtx) {
   await db.update(schema.server).set({ proxyStopped: true }).where(eq(schema.server.id, ctx.id));
-  await ctx.docker.getContainer(ctx.proxyContainer).stop({ t: 5 }).catch(() => {});
-  await ctx.docker.getContainer(pagesContainer(ctx)).stop({ t: 2 }).catch(() => {});
+  await ctx.docker
+    .getContainer(ctx.proxyContainer)
+    .stop({ t: 5 })
+    .catch(() => {});
+  await ctx.docker
+    .getContainer(pagesContainer(ctx))
+    .stop({ t: 2 })
+    .catch(() => {});
 }
 
 /** Start a stopped proxy again and bring its configuration up to date. */

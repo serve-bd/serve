@@ -13,7 +13,10 @@ export default async function CertificatesPage() {
   const ctx = await requireOrg();
   const [rows, accounts, settings, servers] = await Promise.all([
     certificatesWithServers(ctx.org.id).then((r) => r.reverse()),
-    db.select({ id: schema.cloudflareAccount.id, name: schema.cloudflareAccount.name }).from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, ctx.org.id)),
+    db
+      .select({ id: schema.cloudflareAccount.id, name: schema.cloudflareAccount.name })
+      .from(schema.cloudflareAccount)
+      .where(eq(schema.cloudflareAccount.organizationId, ctx.org.id)),
     getSettings(),
     db.select({ id: schema.server.id, publicIp: schema.server.publicIp, name: schema.server.name, proxyKind: schema.server.proxyKind }).from(schema.server),
   ]);

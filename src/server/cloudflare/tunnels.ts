@@ -45,13 +45,19 @@ function tunnelError(error: unknown) {
 export async function ensureTunnelContainer(tunnel: Tunnel) {
   const ctx = await getServer(tunnel.serverId);
   const name = tunnelContainerName(tunnel);
-  const existing = await ctx.docker.getContainer(name).inspect().catch(() => null);
+  const existing = await ctx.docker
+    .getContainer(name)
+    .inspect()
+    .catch(() => null);
   if (existing?.State.Running) return;
   if (existing) {
-    await ctx.docker.getContainer(name).start().catch(async () => {
-      await ctx.docker.getContainer(name).remove({ force: true });
-      await ensureTunnelContainer(tunnel);
-    });
+    await ctx.docker
+      .getContainer(name)
+      .start()
+      .catch(async () => {
+        await ctx.docker.getContainer(name).remove({ force: true });
+        await ensureTunnelContainer(tunnel);
+      });
     return;
   }
   if (!(await imageExists(TUNNEL_IMAGE, ctx.docker))) await pullImage(TUNNEL_IMAGE, undefined, null, ctx.docker);
@@ -74,7 +80,10 @@ export async function ensureTunnelContainer(tunnel: Tunnel) {
 async function removeTunnelContainer(tunnel: Tunnel) {
   const ctx = await getServer(tunnel.serverId).catch(() => null);
   if (!ctx) return;
-  await ctx.docker.getContainer(tunnelContainerName(tunnel)).remove({ force: true }).catch(() => {});
+  await ctx.docker
+    .getContainer(tunnelContainerName(tunnel))
+    .remove({ force: true })
+    .catch(() => {});
 }
 
 /** Push the tunnel's routes: every domain on it goes to the server's proxy. */
@@ -109,7 +118,10 @@ export async function createTunnel(opts: { organizationId: string; cloudflareAcc
   const accountId = await cfAccountIdOf(opts.cloudflareAccountId);
   const cf = await Cloudflare.forAccount(opts.cloudflareAccountId);
   const id = newId();
-  const name = `serve-${ctx.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30)}-${id.slice(0, 6)}`;
+  const name = `serve-${ctx.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .slice(0, 30)}-${id.slice(0, 6)}`;
   let cfTunnel;
   let token: string;
   try {
@@ -120,13 +132,24 @@ export async function createTunnel(opts: { organizationId: string; cloudflareAcc
   }
   const [tunnel] = await db
     .insert(schema.cloudflareTunnel)
-    .values({ id, organizationId: opts.organizationId, cloudflareAccountId: opts.cloudflareAccountId, serverId: opts.serverId, cfTunnelId: cfTunnel.id, name, token: encrypt(token) })
+    .values({
+      id,
+      organizationId: opts.organizationId,
+      cloudflareAccountId: opts.cloudflareAccountId,
+      serverId: opts.serverId,
+      cfTunnelId: cfTunnel.id,
+      name,
+      token: encrypt(token),
+    })
     .returning();
   try {
     await syncTunnelIngress(tunnel.id);
     await ensureTunnelContainer(tunnel);
   } catch (error) {
-    await db.update(schema.cloudflareTunnel).set({ status: "error", statusMessage: (error as Error).message }).where(eq(schema.cloudflareTunnel.id, id));
+    await db
+      .update(schema.cloudflareTunnel)
+      .set({ status: "error", statusMessage: (error as Error).message })
+      .where(eq(schema.cloudflareTunnel.id, id));
     throw error;
   }
   return tunnel;
@@ -157,7 +180,10 @@ export async function refreshTunnelStatus(tunnel: Tunnel) {
     await db.update(schema.cloudflareTunnel).set({ status, statusMessage }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
     return status;
   } catch (error) {
-    await db.update(schema.cloudflareTunnel).set({ status: "error", statusMessage: (error as Error).message.slice(0, 300) }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
+    await db
+      .update(schema.cloudflareTunnel)
+      .set({ status: "error", statusMessage: (error as Error).message.slice(0, 300) })
+      .where(eq(schema.cloudflareTunnel.id, tunnel.id));
     return "error" as const;
   }
 }
@@ -169,7 +195,10 @@ export async function checkTunnels() {
     try {
       await ensureTunnelContainer(tunnel);
     } catch (error) {
-      await db.update(schema.cloudflareTunnel).set({ status: "error", statusMessage: (error as Error).message.slice(0, 300) }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
+      await db
+        .update(schema.cloudflareTunnel)
+        .set({ status: "error", statusMessage: (error as Error).message.slice(0, 300) })
+        .where(eq(schema.cloudflareTunnel.id, tunnel.id));
       continue;
     }
     await refreshTunnelStatus(tunnel);
@@ -191,7 +220,10 @@ async function removeOrphanTunnelContainers(known: Set<string>) {
     for (const c of containers) {
       const tunnelId = c.Labels["serve.tunnel"];
       if (!tunnelId || known.has(tunnelId) || c.HostConfig?.NetworkMode !== ctx.network) continue;
-      await ctx.docker.getContainer(c.Id).remove({ force: true }).catch(() => {});
+      await ctx.docker
+        .getContainer(c.Id)
+        .remove({ force: true })
+        .catch(() => {});
     }
   }
 }

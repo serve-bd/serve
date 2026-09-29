@@ -228,7 +228,12 @@ export function OAuthSetupDialog({ provider, base, onClose }: { provider: OAuthP
                   optional={provider === "gitlab"}
                   description={provider === "gitlab" ? "Leave empty for gitlab.com." : "The address of your Gitea or Forgejo server."}
                 >
-                  <Input value={form.baseUrl} onChange={set("baseUrl")} required={provider === "gitea"} placeholder={provider === "gitlab" ? "https://gitlab.com" : "https://git.example.com"} />
+                  <Input
+                    value={form.baseUrl}
+                    onChange={set("baseUrl")}
+                    required={provider === "gitea"}
+                    placeholder={provider === "gitlab" ? "https://gitlab.com" : "https://git.example.com"}
+                  />
                 </Field>
               )}
               <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[13px] leading-relaxed text-fg-2">
@@ -248,7 +253,8 @@ export function OAuthSetupDialog({ provider, base, onClose }: { provider: OAuthP
               </ol>
               <CopyField value={redirect} />
               <p className="text-[13px] text-fg-2">
-                {provider === "bitbucket" ? "Permissions:" : "Scopes:"} <span className="text-muted">({provider === "bitbucket" ? "Account read, Repositories read, Webhooks read and write, Pull requests read" : "select these"})</span>
+                {provider === "bitbucket" ? "Permissions:" : "Scopes:"}{" "}
+                <span className="text-muted">({provider === "bitbucket" ? "Account read, Repositories read, Webhooks read and write, Pull requests read" : "select these"})</span>
               </p>
               <CopyField value={scopes[provider]} />
             </Step>

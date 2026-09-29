@@ -132,9 +132,7 @@ export function DeploymentView({
               {isCurrent && <Badge tone="ok">Current</Badge>}
               <span className="font-mono text-xs text-faint">{deployment.id}</span>
             </div>
-            <h2 className="text-[17px] font-semibold text-fg">
-              {deployment.commitMessage || (deployment.trigger === "rollback" ? "Rollback" : "Deployment")}
-            </h2>
+            <h2 className="text-[17px] font-semibold text-fg">{deployment.commitMessage || (deployment.trigger === "rollback" ? "Rollback" : "Deployment")}</h2>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
               {deployment.commitSha && (
                 <a
@@ -175,7 +173,8 @@ export function DeploymentView({
                   <Button
                     size="sm"
                     onClick={async () => {
-                      if (await confirm({ title: "Roll back to this deployment?", description: "Its image starts again without rebuilding.", confirmLabel: "Roll back" })) rollback.run();
+                      if (await confirm({ title: "Roll back to this deployment?", description: "Its image starts again without rebuilding.", confirmLabel: "Roll back" }))
+                        rollback.run();
                     }}
                     loading={rollback.pending}
                   >
@@ -190,9 +189,7 @@ export function DeploymentView({
           </div>
         </div>
         {state.status === "failed" && state.error && (
-          <pre className="mt-4 max-h-48 overflow-auto rounded-xl bg-bad-soft px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-bad">
-            {state.error}
-          </pre>
+          <pre className="mt-4 max-h-48 overflow-auto rounded-xl bg-bad-soft px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-bad">{state.error}</pre>
         )}
       </Card>
 

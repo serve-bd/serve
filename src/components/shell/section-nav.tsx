@@ -2,19 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Activity,
-  Boxes,
-  Brush,
-  Globe,
-  KeyRound,
-  LockKeyhole,
-  Network,
-  Settings2,
-  ShieldCheck,
-  SlidersHorizontal,
-  SquareTerminal,
-} from "lucide-react";
+import { Activity, Boxes, Brush, Globe, KeyRound, LockKeyhole, Network, Settings2, ShieldCheck, SlidersHorizontal, SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** Icons by name, so server layouts can describe navigation without passing components. */
@@ -31,23 +19,25 @@ export function SectionNav({ groups }: { groups: SectionNavGroup[] }) {
   return (
     <>
       <nav className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto border-b border-line px-4 pb-3 lg:hidden">
-        {groups.flatMap((g) => g.items).map((item) => {
-          const active = isActive(item);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
-              className={cn(
-                "relative flex h-8 flex-none items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
-                active ? "bg-fg/[0.07] text-fg" : "text-muted hover:bg-fg/[0.04] hover:text-fg",
-              )}
-            >
-              {item.label}
-              {item.warn && <span className="size-1.5 rounded-full bg-warn" />}
-            </Link>
-          );
-        })}
+        {groups
+          .flatMap((g) => g.items)
+          .map((item) => {
+            const active = isActive(item);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
+                className={cn(
+                  "relative flex h-8 flex-none items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
+                  active ? "bg-fg/[0.07] text-fg" : "text-muted hover:bg-fg/[0.04] hover:text-fg",
+                )}
+              >
+                {item.label}
+                {item.warn && <span className="size-1.5 rounded-full bg-warn" />}
+              </Link>
+            );
+          })}
       </nav>
 
       <nav className="sticky top-6 hidden w-[208px] flex-none flex-col gap-5 self-start lg:flex">

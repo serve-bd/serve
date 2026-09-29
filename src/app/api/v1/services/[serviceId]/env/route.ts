@@ -21,7 +21,13 @@ export async function GET(request: Request, ctx: Ctx) {
 
 const bodySchema = z.object({
   /** Keys to set; null removes the variable. Other variables are kept. */
-  variables: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/, "Invalid variable name"), z.string().max(64 * 1024).nullable()),
+  variables: z.record(
+    z.string().regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/, "Invalid variable name"),
+    z
+      .string()
+      .max(64 * 1024)
+      .nullable(),
+  ),
   redeploy: z.boolean().optional(),
 });
 
@@ -38,7 +44,10 @@ export async function PATCH(request: Request, ctx: Ctx) {
   if (entries.length) {
     await db.transaction(async (tx) => {
       const keys = entries.map(([k]) => k);
-      const existing = await tx.select().from(schema.envVar).where(and(eq(schema.envVar.serviceId, serviceId), inArray(schema.envVar.key, keys)));
+      const existing = await tx
+        .select()
+        .from(schema.envVar)
+        .where(and(eq(schema.envVar.serviceId, serviceId), inArray(schema.envVar.key, keys)));
       await tx.delete(schema.envVar).where(and(eq(schema.envVar.serviceId, serviceId), inArray(schema.envVar.key, keys)));
       const values = entries
         .filter(([, v]) => v !== null)
@@ -48,7 +57,14 @@ export async function PATCH(request: Request, ctx: Ctx) {
         });
       if (values.length) await tx.insert(schema.envVar).values(values);
     });
-    await logActivity({ userId: auth.userId, projectId: row.service.projectId, action: "service.variables", targetType: "service", targetId: serviceId, message: `Updated variables of ${row.service.name} via the API` });
+    await logActivity({
+      userId: auth.userId,
+      projectId: row.service.projectId,
+      action: "service.variables",
+      targetType: "service",
+      targetId: serviceId,
+      message: `Updated variables of ${row.service.name} via the API`,
+    });
   }
   let deploymentId: string | null = null;
   if (parsed.data.redeploy && row.service.status !== "idle") deploymentId = await queueDeployment(serviceId, "redeploy", { userId: auth.userId });

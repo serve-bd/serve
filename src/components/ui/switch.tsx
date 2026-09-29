@@ -40,13 +40,7 @@ export function SwitchRow({
         <span className="text-sm font-medium text-fg">{title}</span>
         {description && <span className="text-xs leading-relaxed text-muted">{description}</span>}
       </span>
-      <Switch
-        name={name}
-        checked={checked}
-        onCheckedChange={(v) => onCheckedChange?.(v)}
-        disabled={disabled}
-        className="mt-0.5"
-      />
+      <Switch name={name} checked={checked} onCheckedChange={(v) => onCheckedChange?.(v)} disabled={disabled} className="mt-0.5" />
     </label>
   );
 }

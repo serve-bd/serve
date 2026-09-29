@@ -54,16 +54,7 @@ async function docker(ctx: ServerCtx, args: string[], opts: { onLine?: (l: strin
 
 /** Read a file produced by certbot (root-owned) through a throwaway container. */
 async function readFromLetsencrypt(ctx: ServerCtx, relative: string) {
-  return docker(ctx, [
-    "run",
-    "--rm",
-    "-v",
-    `${ctx.paths.letsencrypt}:/etc/letsencrypt:ro`,
-    "--entrypoint",
-    "cat",
-    CERTBOT_IMAGE,
-    `/etc/letsencrypt/${relative}`,
-  ]);
+  return docker(ctx, ["run", "--rm", "-v", `${ctx.paths.letsencrypt}:/etc/letsencrypt:ro`, "--entrypoint", "cat", CERTBOT_IMAGE, `/etc/letsencrypt/${relative}`]);
 }
 
 /** The server a certificate is stored on and served from. */
@@ -124,20 +115,11 @@ async function certbot(cert: Cert, log: (l: string) => void) {
   if (settings.acmeStaging) args.push("--staging");
   if (isDns) {
     if (!cert.cloudflareAccountId) throw new Error("Pick a Cloudflare account for DNS validation.");
-    const [account] = await db
-      .select()
-      .from(schema.cloudflareAccount)
-      .where(eq(schema.cloudflareAccount.id, cert.cloudflareAccountId));
+    const [account] = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, cert.cloudflareAccountId));
     if (!account) throw new Error("The Cloudflare account for this certificate was removed.");
     const credsFile = path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${account.id}.ini`);
     await ctx.fs.writeFile(credsFile, `dns_cloudflare_api_token = ${decrypt(account.apiToken)}\n`, 0o600);
-    args.push(
-      "--dns-cloudflare",
-      "--dns-cloudflare-credentials",
-      `/etc/letsencrypt/serve-cloudflare/${account.id}.ini`,
-      "--dns-cloudflare-propagation-seconds",
-      "30",
-    );
+    args.push("--dns-cloudflare", "--dns-cloudflare-credentials", `/etc/letsencrypt/serve-cloudflare/${account.id}.ini`, "--dns-cloudflare-propagation-seconds", "30");
   } else {
     await ensureServerProxy(ctx, log);
     args.push("--webroot", "-w", "/var/www/acme");
@@ -164,10 +146,7 @@ async function cloudflareOrigin(cert: Cert, log: (l: string) => void) {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "serve-csr-"));
   try {
     log("Generating private key and CSR");
-    await openssl(
-      ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", "key.pem", "-out", "csr.pem", "-subj", `/CN=${cert.domains[0]}`],
-      tmp,
-    );
+    await openssl(["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", "key.pem", "-out", "csr.pem", "-subj", `/CN=${cert.domains[0]}`], tmp);
     const csr = await fs.readFile(path.join(tmp, "csr.pem"), "utf8");
     log("Requesting Cloudflare Origin CA certificate");
     const result = await cf.createOriginCertificate(cert.domains, csr);
@@ -291,7 +270,11 @@ export async function issueCertificate(certificateId: string) {
       url: "/certificates",
     });
     // Report the reason, not "docker run exited with code 1", in the job and worker log.
-    throw new Error(`${cert.domains.join(", ")}: ${hint(output ?? message).split("\n")[0].slice(0, 500)}`);
+    throw new Error(
+      `${cert.domains.join(", ")}: ${hint(output ?? message)
+        .split("\n")[0]
+        .slice(0, 500)}`,
+    );
   }
 }
 
@@ -338,9 +321,7 @@ export async function ensureCertificateFor(domain: typeof schema.domain.$inferSe
     .select()
     .from(schema.certificate)
     .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, serverId)));
-  const existing = certs.find(
-    (c) => c.id === domain.certificateId || certificateCovers(c.domains, domain.hostname),
-  );
+  const existing = certs.find((c) => c.id === domain.certificateId || certificateCovers(c.domains, domain.hostname));
   if (existing) {
     if (existing.status === "failed" && existing.provider !== "custom") {
       await enqueue("certificate.issue", { certificateId: existing.id }, { concurrencyKey: `cert:${existing.id}` });
@@ -388,16 +369,6 @@ export async function deleteCertificateFiles(cert: Cert) {
   }
   await ctx.fs.rm(path.posix.join(ctx.paths.certs, cert.id)).catch(() => {});
   if (cert.provider.startsWith("letsencrypt")) {
-    await docker(ctx, [
-      "run",
-      "--rm",
-      "-v",
-      `${ctx.paths.letsencrypt}:/etc/letsencrypt`,
-      CERTBOT_IMAGE,
-      "delete",
-      "--non-interactive",
-      "--cert-name",
-      cert.id,
-    ]).catch(() => {});
+    await docker(ctx, ["run", "--rm", "-v", `${ctx.paths.letsencrypt}:/etc/letsencrypt`, CERTBOT_IMAGE, "delete", "--non-interactive", "--cert-name", cert.id]).catch(() => {});
   }
 }

@@ -40,7 +40,11 @@ describe("database plan", () => {
   });
 
   it("sets initdb options and mounts init scripts", () => {
-    const plan = databasePlan(pg({ initdbArgs: "--data-checksums", hostAuthMethod: "scram-sha-256", initScripts: [{ name: "01-schema.sql", content: "create table t();" }] }), "x", "/d/s");
+    const plan = databasePlan(
+      pg({ initdbArgs: "--data-checksums", hostAuthMethod: "scram-sha-256", initScripts: [{ name: "01-schema.sql", content: "create table t();" }] }),
+      "x",
+      "/d/s",
+    );
     expect(plan.env.POSTGRES_INITDB_ARGS).toBe("--data-checksums");
     expect(plan.env.POSTGRES_HOST_AUTH_METHOD).toBe("scram-sha-256");
     expect(plan.binds).toContain("/d/s/initdb:/docker-entrypoint-initdb.d:ro");
@@ -54,7 +58,18 @@ describe("database plan", () => {
     expect(plan.binds).toContain("/d/s/tls:/etc/serve-tls:ro");
     expect(plan.cmd?.slice(0, 2)).toEqual(["sh", "-c"]);
     expect(plan.cmd?.[2]).toContain("chown -R postgres");
-    expect(plan.cmd?.slice(3)).toEqual(["sh", "postgres", "-c", "ssl=on", "-c", `ssl_cert_file=${TLS_DIR}/server.crt`, "-c", `ssl_key_file=${TLS_DIR}/server.key`, "-c", `ssl_ca_file=${TLS_DIR}/ca.crt`]);
+    expect(plan.cmd?.slice(3)).toEqual([
+      "sh",
+      "postgres",
+      "-c",
+      "ssl=on",
+      "-c",
+      `ssl_cert_file=${TLS_DIR}/server.crt`,
+      "-c",
+      `ssl_key_file=${TLS_DIR}/server.key`,
+      "-c",
+      `ssl_ca_file=${TLS_DIR}/ca.crt`,
+    ]);
     expect(databaseUrl(pg({ tls: { enabled: true, mode: "require" } }), plan.creds, "db", 5432)).toMatch(/\?sslmode=require$/);
   });
 
@@ -77,7 +92,19 @@ describe("database plan", () => {
   it("applies health check timing", () => {
     const plan = databasePlan(pg({ healthcheck: { interval: 2, retries: 30 } }), "x", "/d");
     expect(plan.health).toEqual({ interval: 2, timeout: 5, retries: 30, startPeriod: 10 });
-    const spec = createSpec({ name: "n", image: "i", slug: "s", serviceId: "id", kind: "database", env: {}, runtime: defaultRuntime(), aliases: [], network: "net", healthcheck: plan.healthcheck, healthTiming: plan.health });
+    const spec = createSpec({
+      name: "n",
+      image: "i",
+      slug: "s",
+      serviceId: "id",
+      kind: "database",
+      env: {},
+      runtime: defaultRuntime(),
+      aliases: [],
+      network: "net",
+      healthcheck: plan.healthcheck,
+      healthTiming: plan.health,
+    });
     expect(spec.Healthcheck).toMatchObject({ Interval: 2e9, Retries: 30, Timeout: 5e9 });
   });
 

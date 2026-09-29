@@ -14,7 +14,10 @@ import { composeSecurityIssues } from "@/server/security";
 import { composeVariables } from "@/lib/compose-vars";
 
 const varSchema = z.object({
-  key: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Variable names use letters, numbers and underscores"),
+  key: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Variable names use letters, numbers and underscores"),
   generate: z.enum(["password", "secret", "hex32", "base64key"]).optional(),
   value: z.string().max(4000).optional(),
   publicUrl: z.boolean().optional(),
@@ -113,7 +116,9 @@ function isPrivateAddress(address: string) {
   const ip = address.startsWith("::ffff:") ? address.slice(7) : address;
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split(".").map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || a >= 224;
+    return (
+      a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || a >= 224
+    );
   }
   const v6 = ip.toLowerCase();
   return v6 === "::" || v6 === "::1" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe80");

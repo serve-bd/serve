@@ -184,9 +184,12 @@ async function collectFor(ctx: ServerCtx) {
   const ids = [...byService.keys()];
   const owned = ids.length
     ? new Set(
-        (await db.select({ id: schema.service.id }).from(schema.service).where(and(inArray(schema.service.id, ids), eq(schema.service.serverId, ctx.id)))).map(
-          (r) => r.id,
-        ),
+        (
+          await db
+            .select({ id: schema.service.id })
+            .from(schema.service)
+            .where(and(inArray(schema.service.id, ids), eq(schema.service.serverId, ctx.id)))
+        ).map((r) => r.id),
       )
     : new Set<string>();
   const server = await serverSnapshot(ctx);
@@ -214,14 +217,8 @@ async function collectFor(ctx: ServerCtx) {
 
 /** Collect per-service and server samples on every reachable server. */
 export async function collectMetrics() {
-  const servers = await db
-    .select({ id: schema.server.id, isLocal: schema.server.isLocal, status: schema.server.status })
-    .from(schema.server);
-  const results = await Promise.allSettled(
-    servers
-      .filter((s) => s.isLocal || s.status === "ready")
-      .map(async (s) => collectFor(await getServer(s.id))),
-  );
+  const servers = await db.select({ id: schema.server.id, isLocal: schema.server.isLocal, status: schema.server.status }).from(schema.server);
+  const results = await Promise.allSettled(servers.filter((s) => s.isLocal || s.status === "ready").map(async (s) => collectFor(await getServer(s.id))));
   const rows = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
   if (rows.length) await db.insert(schema.metric).values(rows);
   const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;

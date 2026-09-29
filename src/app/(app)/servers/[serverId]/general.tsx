@@ -62,9 +62,7 @@ export function ServerOverview({
         </span>
         <div className="min-w-0">
           <p className="truncate text-[15px] font-semibold text-fg">{host.name}</p>
-          <p className="text-[13px] text-muted">
-            {ready ? "Reachable and ready to run your services." : `Needs attention: ${health.issues.join(", ").toLowerCase()}.`}
-          </p>
+          <p className="text-[13px] text-muted">{ready ? "Reachable and ready to run your services." : `Needs attention: ${health.issues.join(", ").toLowerCase()}.`}</p>
         </div>
       </div>
       <dl className="grid grid-cols-2 gap-x-6 gap-y-5 px-5 py-5 sm:grid-cols-3">

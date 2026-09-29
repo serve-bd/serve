@@ -107,7 +107,10 @@ function DetailsSection(props: DatabaseSettingsProps) {
                 <Select value={v.version} onValueChange={(x) => set({ version: x })} options={engine.versions.map((x) => ({ value: x, label: `${engine.image}:${x}` }))} />
               </Field>
             ) : (
-              <Field label="Image reference" description={`Must be a ${engine.label} image, like ${engine.image === "postgres" ? "pgvector/pgvector:pg17 or timescale/timescaledb:latest-pg17" : `${engine.image}:latest`}.`}>
+              <Field
+                label="Image reference"
+                description={`Must be a ${engine.label} image, like ${engine.image === "postgres" ? "pgvector/pgvector:pg17 or timescale/timescaledb:latest-pg17" : `${engine.image}:latest`}.`}
+              >
                 <Input value={v.image} onChange={(e) => set({ image: e.target.value })} placeholder={`${engine.image}:${config.version}`} className="font-mono text-[13px]" />
               </Field>
             )}
@@ -165,7 +168,8 @@ function CredentialsSection(props: DatabaseSettingsProps) {
         {dependents && dependents.length > 0 && (
           <div className="flex flex-col gap-2 rounded-xl bg-warn-soft px-3.5 py-3 text-[13px] text-fg-2 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              {dependents.map((d) => d.name).join(", ")} {dependents.length === 1 ? "uses" : "use"} this password. Redeploy so {dependents.length === 1 ? "it picks" : "they pick"} up the new one.
+              {dependents.map((d) => d.name).join(", ")} {dependents.length === 1 ? "uses" : "use"} this password. Redeploy so {dependents.length === 1 ? "it picks" : "they pick"}{" "}
+              up the new one.
             </span>
             <Button size="sm" variant="primary" loading={redeploy.pending} onClick={() => redeploy.run(dependents.map((d) => d.id))}>
               <RefreshCw /> Redeploy {dependents.length}
@@ -196,7 +200,14 @@ function CredentialsSection(props: DatabaseSettingsProps) {
               size="sm"
               loading={change.pending}
               onClick={async () => {
-                if (await confirm({ title: "Change the database password?", description: "Connected apps keep working only after they are redeployed.", confirmLabel: "Change password" })) change.run(password);
+                if (
+                  await confirm({
+                    title: "Change the database password?",
+                    description: "Connected apps keep working only after they are redeployed.",
+                    confirmLabel: "Change password",
+                  })
+                )
+                  change.run(password);
               }}
             >
               Change password
@@ -236,7 +247,17 @@ function InitializationSection(props: DatabaseSettingsProps) {
       footerAction={
         engine.initScripts
           ? (v, set) => (
-              <Button size="sm" onClick={() => set({ initScripts: [...v.initScripts, { name: `${String(v.initScripts.length + 1).padStart(2, "0")}-init.${config.engine === "mongodb" ? "js" : "sql"}`, content: "" }] })}>
+              <Button
+                size="sm"
+                onClick={() =>
+                  set({
+                    initScripts: [
+                      ...v.initScripts,
+                      { name: `${String(v.initScripts.length + 1).padStart(2, "0")}-init.${config.engine === "mongodb" ? "js" : "sql"}`, content: "" },
+                    ],
+                  })
+                }
+              >
                 <Plus /> Add script
               </Button>
             )
@@ -283,7 +304,10 @@ function InitializationSection(props: DatabaseSettingsProps) {
             <div className="flex flex-col gap-2">
               <div className="flex flex-col gap-0.5">
                 <span className="text-[13px] font-medium text-fg-2">Initialization scripts</span>
-                <span className="text-xs text-muted">Run in name order from /docker-entrypoint-initdb.d, only when the data directory is empty. .sql, .sh{config.engine === "mongodb" ? " and .js" : " and .sql.gz"} files.</span>
+                <span className="text-xs text-muted">
+                  Run in name order from /docker-entrypoint-initdb.d, only when the data directory is empty. .sql, .sh{config.engine === "mongodb" ? " and .js" : " and .sql.gz"}{" "}
+                  files.
+                </span>
               </div>
               {v.initScripts.map((s, i) => {
                 const update = (patch: Partial<typeof s>) => set({ initScripts: v.initScripts.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
@@ -323,7 +347,11 @@ function ConfigurationSection(props: DatabaseSettingsProps) {
     <Section
       id="configuration"
       title="Configuration"
-      description={pg ? "postgresql.conf settings, one per line. Serve passes them as -c options, so they win over the file in the data directory." : `Written to ${engine.config.path} and loaded on start.`}
+      description={
+        pg
+          ? "postgresql.conf settings, one per line. Serve passes them as -c options, so they win over the file in the data directory."
+          : `Written to ${engine.config.path} and loaded on start.`
+      }
       initial={{ customConfig: config.customConfig ?? "", extraArgs: config.extraArgs ?? "" }}
       onSave={(v) => saveDb({ customConfig: v.customConfig, extraArgs: v.extraArgs })}
     >
@@ -340,7 +368,12 @@ function ConfigurationSection(props: DatabaseSettingsProps) {
             />
           </Field>
           <Field label="Extra server arguments" optional description={`Appended to the ${engine.label} command. Quotes work like in a shell.`}>
-            <Input value={v.extraArgs} onChange={(e) => set({ extraArgs: e.target.value })} placeholder={pg ? "-c log_statement=ddl" : config.engine.startsWith("m") ? "--max-connections=500" : ""} className="font-mono text-[13px]" />
+            <Input
+              value={v.extraArgs}
+              onChange={(e) => set({ extraArgs: e.target.value })}
+              placeholder={pg ? "-c log_statement=ddl" : config.engine.startsWith("m") ? "--max-connections=500" : ""}
+              className="font-mono text-[13px]"
+            />
           </Field>
         </>
       )}
@@ -456,9 +489,21 @@ function TlsSection(props: DatabaseSettingsProps) {
     >
       {(v, set) => (
         <>
-          <SwitchRow title="Enable TLS" description={redis ? "The database then only accepts TLS connections (rediss://)." : "Clients can then connect with TLS."} checked={v.enabled} onCheckedChange={(c) => set({ enabled: c })} />
+          <SwitchRow
+            title="Enable TLS"
+            description={redis ? "The database then only accepts TLS connections (rediss://)." : "Clients can then connect with TLS."}
+            checked={v.enabled}
+            onCheckedChange={(c) => set({ enabled: c })}
+          />
           {v.enabled && !redis && (
-            <Field label="Mode" description={config.engine === "postgres" ? "Postgres always offers TLS; Require sets sslmode=require in the connection URLs Serve generates." : "Require rejects connections without TLS."}>
+            <Field
+              label="Mode"
+              description={
+                config.engine === "postgres"
+                  ? "Postgres always offers TLS; Require sets sslmode=require in the connection URLs Serve generates."
+                  : "Require rejects connections without TLS."
+              }
+            >
               <Select
                 value={v.mode}
                 onValueChange={(m) => set({ mode: m as "prefer" | "require" })}
@@ -472,7 +517,8 @@ function TlsSection(props: DatabaseSettingsProps) {
           {v.enabled && (
             <p className="flex items-start gap-1.5 rounded-xl bg-surface-2 px-3 py-2.5 text-xs leading-relaxed text-muted">
               <ShieldCheck className="mt-px size-3.5 flex-none text-ok" />
-              Clients that verify certificates need the CA certificate (download it after the first restart). The certificate is valid for the private hostname and the server address.
+              Clients that verify certificates need the CA certificate (download it after the first restart). The certificate is valid for the private hostname and the server
+              address.
             </p>
           )}
         </>
@@ -516,7 +562,6 @@ function HealthSection(props: DatabaseSettingsProps) {
     </Section>
   );
 }
-
 
 /** One database settings sub-page (storage is rendered by the shared storage section). */
 export function DatabaseSections({ section, ...props }: DatabaseSettingsProps & { section: string }) {

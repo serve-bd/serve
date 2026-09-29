@@ -64,18 +64,33 @@ export function Console({ serviceId, suggestions }: { serviceId: string; suggest
       <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-log-bg shadow-sm">
         <div className="flex h-10 items-center gap-3 border-b border-white/[0.06] pr-2 pl-4 text-[11.5px] text-white/45">
           <span className="flex min-w-0 items-center gap-2">
-            <span className={cn("size-1.5 flex-none rounded-full", status === "connecting" && selected && "animate-led")} style={{ background: selected ? STATUS[status].color : "#8e8e93" }} />
+            <span
+              className={cn("size-1.5 flex-none rounded-full", status === "connecting" && selected && "animate-led")}
+              style={{ background: selected ? STATUS[status].color : "#8e8e93" }}
+            />
             <span className="truncate font-mono">{selectedName ?? "no running container"}</span>
             {selected && <span className="hidden flex-none text-white/30 sm:inline">· {STATUS[status].label}</span>}
           </span>
           <span className="ml-auto flex flex-none items-center gap-0.5">
             <Tooltip content="Clear screen">
-              <button type="button" onClick={() => terminal.current?.clear()} disabled={!selected} className="rounded-md p-1.5 hover:bg-white/[0.08] hover:text-white/80 disabled:opacity-40" aria-label="Clear screen">
+              <button
+                type="button"
+                onClick={() => terminal.current?.clear()}
+                disabled={!selected}
+                className="rounded-md p-1.5 hover:bg-white/[0.08] hover:text-white/80 disabled:opacity-40"
+                aria-label="Clear screen"
+              >
                 <Eraser className="size-3.5" />
               </button>
             </Tooltip>
             <Tooltip content="New session">
-              <button type="button" onClick={restart} disabled={!selected} className="rounded-md p-1.5 hover:bg-white/[0.08] hover:text-white/80 disabled:opacity-40" aria-label="New session">
+              <button
+                type="button"
+                onClick={restart}
+                disabled={!selected}
+                className="rounded-md p-1.5 hover:bg-white/[0.08] hover:text-white/80 disabled:opacity-40"
+                aria-label="New session"
+              >
                 <RotateCw className="size-3.5" />
               </button>
             </Tooltip>

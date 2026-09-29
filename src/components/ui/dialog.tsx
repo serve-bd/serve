@@ -59,9 +59,5 @@ export function DialogBody({ className, children }: { className?: string; childr
 }
 
 export function DialogFooter({ className, children }: { className?: string; children: React.ReactNode }) {
-  return (
-    <div className={cn("flex flex-col-reverse gap-2 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3 sm:flex-row sm:justify-end", className)}>
-      {children}
-    </div>
-  );
+  return <div className={cn("flex flex-col-reverse gap-2 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3 sm:flex-row sm:justify-end", className)}>{children}</div>;
 }

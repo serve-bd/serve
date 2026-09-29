@@ -70,6 +70,13 @@ export async function POST(request: Request, ctx: RouteContext<"/api/services/[s
   const id = newId();
   await db.insert(schema.backup).values({ id, serviceId, trigger: "import", status: "running", filename, size, log: `Uploaded ${filename} (${size} bytes)\n` });
   await enqueue("backup.import", { backupId: id, backupFirst: url.searchParams.get("backupFirst") === "1" }, { concurrencyKey: `backup:${serviceId}` });
-  await logActivity({ userId: org.user.id, projectId: service.projectId, action: "backup.import", targetType: "service", targetId: service.id, message: `Importing a backup into ${service.name}` });
+  await logActivity({
+    userId: org.user.id,
+    projectId: service.projectId,
+    action: "backup.import",
+    targetType: "service",
+    targetId: service.id,
+    message: `Importing a backup into ${service.name}`,
+  });
   return NextResponse.json({ id });
 }

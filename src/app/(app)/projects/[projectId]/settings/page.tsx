@@ -17,7 +17,15 @@ export default async function ProjectSettingsPage(props: PageProps<"/projects/[p
   const { envs, current } = await resolveEnvironment(projectId, typeof env === "string" ? env : undefined);
   const [shared, counts] = await Promise.all([
     db.select().from(schema.sharedVar).where(eq(schema.sharedVar.environmentId, current.id)).orderBy(asc(schema.sharedVar.key)),
-    db.select({ environmentId: schema.service.environmentId }).from(schema.service).where(inArray(schema.service.environmentId, envs.map((e) => e.id))),
+    db
+      .select({ environmentId: schema.service.environmentId })
+      .from(schema.service)
+      .where(
+        inArray(
+          schema.service.environmentId,
+          envs.map((e) => e.id),
+        ),
+      ),
   ]);
   return (
     <>

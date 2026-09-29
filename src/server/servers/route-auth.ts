@@ -12,6 +12,8 @@ export async function serverRoute(serverId: string): Promise<{ admin: Admin; ser
     return { admin, server: await getServer(serverId) };
   } catch (e) {
     const message = (e as Error).message;
-    return { error: NextResponse.json({ error: message === "Server not found." ? message : `Server unavailable: ${message}` }, { status: message === "Server not found." ? 404 : 503 }) };
+    return {
+      error: NextResponse.json({ error: message === "Server not found." ? message : `Server unavailable: ${message}` }, { status: message === "Server not found." ? 404 : 503 }),
+    };
   }
 }

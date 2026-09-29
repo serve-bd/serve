@@ -15,10 +15,15 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
   }
   const hours = Math.min(Math.max(Number(request.nextUrl.searchParams.get("hours") ?? 24), 1), 24 * 30);
   const domains = await db.select({ hostname: schema.domain.hostname }).from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
-  const series = await requestSeries(domains.map((d) => d.hostname), hours);
-  const totals = series.reduce(
-    (acc, p) => ({ requests: acc.requests + p.requests, errors: acc.errors + p.s5xx, bytes: acc.bytes + p.bytes, ms: acc.ms + p.avgMs * p.requests }),
-    { requests: 0, errors: 0, bytes: 0, ms: 0 },
+  const series = await requestSeries(
+    domains.map((d) => d.hostname),
+    hours,
   );
+  const totals = series.reduce((acc, p) => ({ requests: acc.requests + p.requests, errors: acc.errors + p.s5xx, bytes: acc.bytes + p.bytes, ms: acc.ms + p.avgMs * p.requests }), {
+    requests: 0,
+    errors: 0,
+    bytes: 0,
+    ms: 0,
+  });
   return NextResponse.json({ series, totals: { ...totals, avgMs: totals.requests ? totals.ms / totals.requests : 0 } });
 }

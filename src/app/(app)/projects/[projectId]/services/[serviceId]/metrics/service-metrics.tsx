@@ -39,7 +39,10 @@ function Panel({ title, value, children }: { title: string; value: string; child
   );
 }
 
-type Req = { series: { t: number; requests: number; s2xx: number; s3xx: number; s4xx: number; s5xx: number; bytes: number; avgMs: number }[]; totals: { requests: number; errors: number; bytes: number; avgMs: number } };
+type Req = {
+  series: { t: number; requests: number; s2xx: number; s3xx: number; s4xx: number; s5xx: number; bytes: number; avgMs: number }[];
+  totals: { requests: number; errors: number; bytes: number; avgMs: number };
+};
 
 function compact(n: number) {
   return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
@@ -95,8 +98,16 @@ export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { service
           <Panel title="Requests" value={req ? compact(req.totals.requests) : "—"}>
             <StatusBars series={req?.series ?? []} />
             <div className="flex flex-wrap gap-4 text-xs text-muted">
-              {[["2xx", "bg-ok"], ["3xx", "bg-info"], ["4xx", "bg-warn"], ["5xx", "bg-bad"]].map(([l, c]) => (
-                <span key={l} className="flex items-center gap-1.5"><span className={cn("size-2 rounded-sm", c)} />{l}</span>
+              {[
+                ["2xx", "bg-ok"],
+                ["3xx", "bg-info"],
+                ["4xx", "bg-warn"],
+                ["5xx", "bg-bad"],
+              ].map(([l, c]) => (
+                <span key={l} className="flex items-center gap-1.5">
+                  <span className={cn("size-2 rounded-sm", c)} />
+                  {l}
+                </span>
               ))}
             </div>
           </Panel>
@@ -105,7 +116,11 @@ export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { service
               <AreaChart data={(req?.series ?? []).map((p) => ({ t: p.t, v: p.avgMs }))} color="var(--accent)" format={(v) => `${Math.round(v)} ms`} height={56} />
             </Panel>
             <Panel title="Server errors" value={req ? compact(req.totals.errors) : "—"}>
-              <p className="text-xs text-muted">{req?.totals.requests ? `${((req.totals.errors / req.totals.requests) * 100).toFixed(2)}% of requests · ${formatBytes(req.totals.bytes)} sent` : "5xx responses from this service."}</p>
+              <p className="text-xs text-muted">
+                {req?.totals.requests
+                  ? `${((req.totals.errors / req.totals.requests) * 100).toFixed(2)}% of requests · ${formatBytes(req.totals.bytes)} sent`
+                  : "5xx responses from this service."}
+              </p>
             </Panel>
           </div>
         </div>

@@ -97,9 +97,10 @@ export async function listRepositories(provider: GitProviderType, token: string,
   if (provider === "github") {
     const out: RemoteRepo[] = [];
     for (let page = 1; page <= 5; page++) {
-      const repos = await getJson<
-        { full_name: string; clone_url: string; default_branch: string; private: boolean; pushed_at: string | null; description: string | null }[]
-      >(`${base}/user/repos?per_page=100&sort=pushed&page=${page}&affiliation=owner,collaborator,organization_member`, headers);
+      const repos = await getJson<{ full_name: string; clone_url: string; default_branch: string; private: boolean; pushed_at: string | null; description: string | null }[]>(
+        `${base}/user/repos?per_page=100&sort=pushed&page=${page}&affiliation=owner,collaborator,organization_member`,
+        headers,
+      );
       out.push(
         ...repos.map((r) => ({
           fullName: r.full_name,
@@ -133,9 +134,10 @@ export async function listRepositories(provider: GitProviderType, token: string,
     }));
   }
   if (provider === "gitea") {
-    const repos = await getJson<
-      { full_name: string; clone_url: string; default_branch: string; private: boolean; updated_at: string; description: string }[]
-    >(`${base}/user/repos?limit=100`, headers);
+    const repos = await getJson<{ full_name: string; clone_url: string; default_branch: string; private: boolean; updated_at: string; description: string }[]>(
+      `${base}/user/repos?limit=100`,
+      headers,
+    );
     return repos.map((r) => ({
       fullName: r.full_name,
       cloneUrl: r.clone_url,
@@ -147,7 +149,14 @@ export async function listRepositories(provider: GitProviderType, token: string,
   }
   if (provider === "bitbucket") {
     const res = await getJson<{
-      values: { full_name: string; links: { clone: { name: string; href: string }[] }; mainbranch?: { name: string }; is_private: boolean; updated_on: string; description: string }[];
+      values: {
+        full_name: string;
+        links: { clone: { name: string; href: string }[] };
+        mainbranch?: { name: string };
+        is_private: boolean;
+        updated_on: string;
+        description: string;
+      }[];
     }>(`${base}/repositories?role=member&pagelen=100&sort=-updated_on`, headers);
     return res.values.map((r) => ({
       fullName: r.full_name,

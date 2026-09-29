@@ -89,7 +89,8 @@ export function DomainSettings({
         )}
       </SettingsCard>
 
-      {        <SettingsCard
+      {
+        <SettingsCard
           title="Proxy ports"
           description={`Host ports the proxy listens on. Saving recreates the proxy on the new ports; if a port is taken, nothing changes.${isLocal ? " This overrides SERVE_PROXY_HTTP_PORT and SERVE_PROXY_HTTPS_PORT." : ""}`}
           initial={{ http: String(ports.proxyHttpPort), https: String(ports.proxyHttpsPort) }}

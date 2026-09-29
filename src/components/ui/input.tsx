@@ -42,10 +42,7 @@ const ACCOUNT_AUTOCOMPLETE = new Set(["username", "email", "current-password", "
  * credentials. Secret fields (type="password") are masked with CSS instead,
  * so they are not detected as passwords at all.
  */
-export const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<typeof BaseInput>>(function Input(
-  { className, type, autoComplete, ...props },
-  ref,
-) {
+export const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<typeof BaseInput>>(function Input({ className, type, autoComplete, ...props }, ref) {
   const masking = useTextSecurity();
   const automated = useAutomatedBrowser();
   const [touched, setArmed] = React.useState(false);
@@ -84,30 +81,12 @@ export const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<typ
   );
 });
 
-export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
-  function Textarea({ className, ...props }, ref) {
-    return (
-      <textarea
-        ref={ref}
-        className={cn(inputClass, "h-auto min-h-24 py-2 leading-relaxed", className)}
-        {...props}
-      />
-    );
-  },
-);
+export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...props }, ref) {
+  return <textarea ref={ref} className={cn(inputClass, "h-auto min-h-24 py-2 leading-relaxed", className)} {...props} />;
+});
 
 /** Input with a fixed prefix/suffix, e.g. https:// or .example.com */
-export function InputGroup({
-  prefix,
-  suffix,
-  className,
-  children,
-}: {
-  prefix?: React.ReactNode;
-  suffix?: React.ReactNode;
-  className?: string;
-  children: React.ReactNode;
-}) {
+export function InputGroup({ prefix, suffix, className, children }: { prefix?: React.ReactNode; suffix?: React.ReactNode; className?: string; children: React.ReactNode }) {
   return (
     <div
       className={cn(
@@ -115,13 +94,9 @@ export function InputGroup({
         className,
       )}
     >
-      {prefix && (
-        <span className="flex items-center border-r border-line bg-surface-2 px-2.5 text-[13px] text-muted">{prefix}</span>
-      )}
+      {prefix && <span className="flex items-center border-r border-line bg-surface-2 px-2.5 text-[13px] text-muted">{prefix}</span>}
       {children}
-      {suffix && (
-        <span className="flex items-center border-l border-line bg-surface-2 px-2.5 text-[13px] text-muted">{suffix}</span>
-      )}
+      {suffix && <span className="flex items-center border-l border-line bg-surface-2 px-2.5 text-[13px] text-muted">{suffix}</span>}
     </div>
   );
 }

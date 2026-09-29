@@ -60,14 +60,7 @@ function assertSafeCompose(ctx: OrgContext, content: string) {
   }
 }
 
-async function addGeneratedDomain(
-  serviceId: string,
-  slug: string,
-  organizationId: string,
-  port?: number | null,
-  composeService?: string | null,
-  serverId?: string,
-) {
+async function addGeneratedDomain(serviceId: string, slug: string, organizationId: string, port?: number | null, composeService?: string | null, serverId?: string) {
   const generated = await generatedHostname(slug, serverId);
   if (!generated) return;
   const [domain] = await db
@@ -166,7 +159,10 @@ export async function createAppService(input: z.input<typeof appSchema>) {
       runtime: defaultRuntime(data.port ?? null),
       webhookSecret: newWebhookSecret(),
     });
-    await writeEnvVars(id, (data.envVars ?? []).filter((v) => v.key.trim()).map((v) => ({ ...v, buildTime: false, runtime: true })));
+    await writeEnvVars(
+      id,
+      (data.envVars ?? []).filter((v) => v.key.trim()).map((v) => ({ ...v, buildTime: false, runtime: true })),
+    );
     await addGeneratedDomain(id, slug, ctx.org.id, null, null, server.id);
     // Deploy on push: add the repository webhook when the credential can (failures are recorded, not thrown).
     if (source.type === "git") await registerRepoWebhook(id);
@@ -183,8 +179,16 @@ const dbSchema = z.object({
   name: z.string().trim().min(1).max(60),
   engine: z.enum(["postgres", "mysql", "mariadb", "mongodb", "redis", "valkey", "clickhouse"]),
   version: z.string().optional(),
-  username: z.string().trim().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Use letters, numbers and underscores").optional(),
-  database: z.string().trim().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Use letters, numbers and underscores").optional(),
+  username: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Use letters, numbers and underscores")
+    .optional(),
+  database: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Use letters, numbers and underscores")
+    .optional(),
   password: z.string().min(8).optional(),
   serverId: z.string().nullable().optional(),
 });
@@ -222,7 +226,14 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
       webhookSecret: newWebhookSecret(),
     });
     if (data.deploy) await queueDeployment(id, "create", { userId: ctx.user.id });
-    await logActivity({ userId: ctx.user.id, projectId: data.projectId, action: "service.created", targetType: "service", targetId: id, message: `Created ${engine.label} database ${data.name}` });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: data.projectId,
+      action: "service.created",
+      targetType: "service",
+      targetId: id,
+      message: `Created ${engine.label} database ${data.name}`,
+    });
     return { id };
   });
 }
@@ -235,9 +246,7 @@ const composeSchema = z.object({
   mode: z.enum(["inline", "git"]),
   content: z.string().optional(),
   path: z.string().optional(),
-  source: z
-    .object({ repository: z.string().trim().min(3), branch: z.string().trim().default("main"), credentialId: z.string().nullable().optional() })
-    .optional(),
+  source: z.object({ repository: z.string().trim().min(3), branch: z.string().trim().default("main"), credentialId: z.string().nullable().optional() }).optional(),
   template: z.string().optional(),
   /** Values chosen on the configure step; anything missing is generated from the template. */
   vars: z.record(z.string(), z.string().max(4000)).optional(),
@@ -317,7 +326,14 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
       await writeEnvVars(id, vars);
     }
     if (data.deploy) await queueDeployment(id, "create", { userId: ctx.user.id });
-    await logActivity({ userId: ctx.user.id, projectId: data.projectId, action: "service.created", targetType: "service", targetId: id, message: !template ? `Created compose stack ${data.name}` : data.name === template.name ? `Created ${data.name}` : `Created ${data.name} from the ${template.name} template` });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: data.projectId,
+      action: "service.created",
+      targetType: "service",
+      targetId: id,
+      message: !template ? `Created compose stack ${data.name}` : data.name === template.name ? `Created ${data.name}` : `Created ${data.name} from the ${template.name} template`,
+    });
     return { id };
   });
 }
@@ -370,7 +386,12 @@ const updateSchema = z.object({
       healthcheckTimeout: z.number().int().min(10).max(1800).nullable(),
       restartPolicy: z.enum(["always", "unless-stopped", "on-failure", "no"]),
       cpuLimit: z.number().min(0.05).max(256).nullable(),
-      memoryLimit: z.number().int().min(16).max(1024 * 1024).nullable(),
+      memoryLimit: z
+        .number()
+        .int()
+        .min(16)
+        .max(1024 * 1024)
+        .nullable(),
       volumes: z.array(volumeSchema).max(50),
       ports: z.array(
         z.object({
@@ -393,16 +414,31 @@ const updateSchema = z.object({
         .nullable(),
       healthcheckSuccesses: z.number().int().min(1).max(20).nullable(),
       workingDir: z.string().regex(/^\//, "Use an absolute path").max(500).nullable(),
-      user: z.string().regex(/^[a-zA-Z0-9_.-]+(:[a-zA-Z0-9_.-]+)?$/, "Use a user like node or 1000:1000").nullable(),
+      user: z
+        .string()
+        .regex(/^[a-zA-Z0-9_.-]+(:[a-zA-Z0-9_.-]+)?$/, "Use a user like node or 1000:1000")
+        .nullable(),
       stopTimeout: z.number().int().min(0).max(3600).nullable(),
       stopSignal: z.enum(["SIGTERM", "SIGINT", "SIGQUIT", "SIGHUP", "SIGUSR1", "SIGUSR2"]).nullable(),
       init: z.boolean(),
       shmSize: z.number().int().min(1).max(65536).nullable(),
-      extraHosts: z.array(z.string().trim().regex(/^[a-z0-9.-]+:([0-9a-f.:]+|host-gateway)$/i, "Use hostname:ip lines")).max(50),
+      extraHosts: z
+        .array(
+          z
+            .string()
+            .trim()
+            .regex(/^[a-z0-9.-]+:([0-9a-f.:]+|host-gateway)$/i, "Use hostname:ip lines"),
+        )
+        .max(50),
       labels: z.array(z.object({ key: z.string().trim().max(200), value: z.string().max(4000) })).max(100),
       logMaxSizeMb: z.number().int().min(1).max(1024).nullable(),
       logMaxFiles: z.number().int().min(1).max(50).nullable(),
-      memoryReservation: z.number().int().min(16).max(1024 * 1024).nullable(),
+      memoryReservation: z
+        .number()
+        .int()
+        .min(16)
+        .max(1024 * 1024)
+        .nullable(),
       privileged: z.boolean(),
       capAdd: z.array(z.enum(CAPABILITIES)).max(20),
     })
@@ -476,11 +512,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
           image: data.source.image,
           registryUsername: data.source.registryUsername || null,
           registryPassword:
-            data.source.registryPassword === undefined
-              ? (prev?.registryPassword ?? null)
-              : data.source.registryPassword
-                ? encrypt(data.source.registryPassword)
-                : null,
+            data.source.registryPassword === undefined ? (prev?.registryPassword ?? null) : data.source.registryPassword ? encrypt(data.source.registryPassword) : null,
         };
       }
     }
@@ -495,9 +527,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         throw new UserError("Ports below 1024 are reserved for the proxy and system services.");
       }
       if (runtime.replicas > 1 && runtime.ports.length) throw new UserError("Published host ports only work with a single replica.");
-      const grantsHost =
-        (data.runtime.privileged === true && !service.runtime.privileged) ||
-        (data.runtime.capAdd?.some((c) => !(service.runtime.capAdd ?? []).includes(c)));
+      const grantsHost = (data.runtime.privileged === true && !service.runtime.privileged) || data.runtime.capAdd?.some((c) => !(service.runtime.capAdd ?? []).includes(c));
       if (grantsHost) assertHostAccess(ctx, "Privileged mode and extra capabilities");
       if (data.runtime.labels?.some((l) => l.key.startsWith("serve."))) throw new UserError("Labels starting with serve. are reserved.");
       if (data.runtime.restartSchedule) {
@@ -591,7 +621,10 @@ export async function deployWithoutCache(serviceId: string) {
     const ctx = await requireOrg();
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "app" || service.source?.type !== "git" || !service.build) throw new UserError("Only services built from a repository have a build cache.");
-    await db.update(schema.service).set({ build: { ...service.build, noCacheOnce: true } }).where(eq(schema.service.id, serviceId));
+    await db
+      .update(schema.service)
+      .set({ build: { ...service.build, noCacheOnce: true } })
+      .where(eq(schema.service.id, serviceId));
     const id = await queueDeployment(serviceId, "manual", { userId: ctx.user.id });
     return { id };
   });
@@ -617,7 +650,14 @@ export async function rollbackTo(deploymentId: string) {
     if (service.type !== "app") throw new UserError("Rollbacks are available for apps.");
     if (dep.status !== "success" || !dep.image) throw new UserError("Only successful deployments can be restored.");
     const id = await queueDeployment(dep.serviceId, "rollback", { userId: ctx.user.id, rollbackOf: dep.id });
-    await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: "deploy.rollback", targetType: "service", targetId: service.id, message: `Rolled back ${service.name}` });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "deploy.rollback",
+      targetType: "service",
+      targetId: service.id,
+      message: `Rolled back ${service.name}`,
+    });
     return { id };
   });
 }
@@ -629,10 +669,7 @@ export async function cancelDeployment(deploymentId: string) {
     if (!dep) throw new UserError("Deployment not found.");
     await serviceInOrg(dep.serviceId, ctx.org.id);
     if (dep.status === "queued") {
-      await db
-        .update(schema.deployment)
-        .set({ status: "cancelled", finishedAt: new Date(), logs: "Cancelled before it started.\n" })
-        .where(eq(schema.deployment.id, deploymentId));
+      await db.update(schema.deployment).set({ status: "cancelled", finishedAt: new Date(), logs: "Cancelled before it started.\n" }).where(eq(schema.deployment.id, deploymentId));
     } else if (dep.status === "building" || dep.status === "deploying") {
       await sql.notify(CANCEL_CHANNEL, deploymentId);
     } else {
@@ -664,7 +701,9 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
     const target = await resolveServerForOrg(serverId, ctx.org.id);
     const [source] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, service.serverId));
     if (service.type === "database" && !opts.force) {
-      throw new UserError(`Moving a database starts it empty on ${target.name}. Its data stays in a volume on ${source?.name ?? "the old server"}. Back it up and restore it after the move.`);
+      throw new UserError(
+        `Moving a database starts it empty on ${target.name}. Its data stays in a volume on ${source?.name ?? "the old server"}. Back it up and restore it after the move.`,
+      );
     }
     const [busy] = await db
       .select({ id: schema.deployment.id })
@@ -684,7 +723,10 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
     await db.update(schema.service).set({ serverId: target.id, status: "deploying" }).where(eq(schema.service.id, serviceId));
 
     // Generated domains carry the server's address (sslip.io / wildcard); give them the new one.
-    const domains = await db.select().from(schema.domain).where(and(eq(schema.domain.serviceId, serviceId), eq(schema.domain.generated, true)));
+    const domains = await db
+      .select()
+      .from(schema.domain)
+      .where(and(eq(schema.domain.serviceId, serviceId), eq(schema.domain.generated, true)));
     for (const d of domains) {
       const next = await generatedHostname(service.slug, target.id);
       if (!next || next.hostname === d.hostname) continue;
@@ -693,7 +735,10 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
     }
 
     // Tunnel domains follow the service when the new server has a tunnel to the same Cloudflare account.
-    const tunneled = await db.select().from(schema.domain).where(and(eq(schema.domain.serviceId, serviceId), isNotNull(schema.domain.tunnelId)));
+    const tunneled = await db
+      .select()
+      .from(schema.domain)
+      .where(and(eq(schema.domain.serviceId, serviceId), isNotNull(schema.domain.tunnelId)));
     if (tunneled.length) {
       const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
       const touched = new Set<string>();
@@ -766,9 +811,7 @@ async function writeEnvVars(serviceId: string, vars: VarInput[]) {
   await db.transaction(async (tx) => {
     await tx.delete(schema.envVar).where(eq(schema.envVar.serviceId, serviceId));
     if (vars.length) {
-      await tx.insert(schema.envVar).values(
-        vars.map((v) => ({ id: newId(), serviceId, key: v.key, value: encrypt(v.value), buildTime: v.buildTime, runtime: v.runtime })),
-      );
+      await tx.insert(schema.envVar).values(vars.map((v) => ({ id: newId(), serviceId, key: v.key, value: encrypt(v.value), buildTime: v.buildTime, runtime: v.runtime })));
     }
   });
 }
@@ -777,7 +820,10 @@ export async function saveEnvVars(serviceId: string, vars: VarInput[], redeploy:
   return act(async () => {
     const ctx = await requireOrg();
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
-    await writeEnvVars(serviceId, vars.map((v) => ({ ...v, key: v.key.trim() })).filter((v) => v.key));
+    await writeEnvVars(
+      serviceId,
+      vars.map((v) => ({ ...v, key: v.key.trim() })).filter((v) => v.key),
+    );
     let deploymentId: string | null = null;
     if (redeploy && service.status !== "idle") deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
     return { deploymentId };
@@ -803,10 +849,7 @@ const domainSchema = z.object({
   forceHttps: z.boolean().default(true),
   redirectTo: z.string().trim().nullable().optional(),
   certificateId: z.string().nullable().optional(),
-  cloudflare: z
-    .object({ accountId: z.string(), zoneId: z.string(), proxied: z.boolean(), createRecord: z.boolean() })
-    .nullable()
-    .optional(),
+  cloudflare: z.object({ accountId: z.string(), zoneId: z.string(), proxied: z.boolean(), createRecord: z.boolean() }).nullable().optional(),
   /** Route through this Cloudflare Tunnel instead of the server's public IP. */
   tunnelId: z.string().nullable().optional(),
 });
@@ -909,7 +952,14 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
     await syncServiceProxy(serviceId).catch((e) => {
       warning = `Proxy not updated: ${(e as Error).message}`;
     });
-    await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: "domain.added", targetType: "service", targetId: serviceId, message: `Added ${data.hostname} to ${service.name}` });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "domain.added",
+      targetType: "service",
+      targetId: serviceId,
+      message: `Added ${data.hostname} to ${service.name}`,
+    });
     return { id: domain.id, warning };
   });
 }
@@ -1094,7 +1144,14 @@ export async function restoreFromBackup(backupId: string, opts: { backupFirst?: 
     // With a safety backup, the import job takes the backup and restores only if it succeeded.
     if (opts.backupFirst) await enqueue("backup.import", { backupId, backupFirst: true }, { concurrencyKey: `backup:${b.serviceId}` });
     else await enqueue("backup.restore", { backupId }, { concurrencyKey: `backup:${b.serviceId}` });
-    await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: "backup.restore", targetType: "service", targetId: service.id, message: `Restoring ${service.name} from a backup` });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "backup.restore",
+      targetType: "service",
+      targetId: service.id,
+      message: `Restoring ${service.name} from a backup`,
+    });
     return null;
   });
 }

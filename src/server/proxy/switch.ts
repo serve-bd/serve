@@ -17,7 +17,12 @@ export async function switchProxy(serverId: string, to: ProxyKind) {
   const state: ProxySwitchState = { state: "running", from, to, startedAt: new Date().toISOString(), log: "" };
   let pending: Promise<unknown> = Promise.resolve();
   const save = () => {
-    pending = pending.then(() => db.update(schema.server).set({ proxySwitch: { ...state, log: state.log.slice(-20_000) } }).where(eq(schema.server.id, serverId)));
+    pending = pending.then(() =>
+      db
+        .update(schema.server)
+        .set({ proxySwitch: { ...state, log: state.log.slice(-20_000) } })
+        .where(eq(schema.server.id, serverId)),
+    );
     return pending;
   };
   const log = (line: string) => {

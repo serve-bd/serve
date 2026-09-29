@@ -26,26 +26,22 @@ export default async function TokensPage() {
       .innerJoin(schema.user, eq(schema.apiToken.userId, schema.user.id))
       .where(eq(schema.apiToken.organizationId, ctx.org.id))
       .orderBy(desc(schema.apiToken.createdAt)),
-    db
-      .select({ id: schema.project.id, name: schema.project.name })
-      .from(schema.project)
-      .where(eq(schema.project.organizationId, ctx.org.id))
-      .orderBy(asc(schema.project.name)),
+    db.select({ id: schema.project.id, name: schema.project.name }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id)).orderBy(asc(schema.project.name)),
     publicBaseUrl(),
   ]);
   return (
     <div className="max-w-4xl">
-        <TokensView
-          isAdmin={ctx.isAdmin}
-          baseUrl={baseUrl}
-          projects={projects}
-          tokens={tokens.map((t) => ({
-            ...t,
-            expiresAt: t.expiresAt?.toISOString() ?? null,
-            lastUsedAt: t.lastUsedAt?.toISOString() ?? null,
-            createdAt: t.createdAt.toISOString(),
-          }))}
-        />
+      <TokensView
+        isAdmin={ctx.isAdmin}
+        baseUrl={baseUrl}
+        projects={projects}
+        tokens={tokens.map((t) => ({
+          ...t,
+          expiresAt: t.expiresAt?.toISOString() ?? null,
+          lastUsedAt: t.lastUsedAt?.toISOString() ?? null,
+          createdAt: t.createdAt.toISOString(),
+        }))}
+      />
     </div>
   );
 }

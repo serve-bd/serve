@@ -40,7 +40,13 @@ async function collect(server: ServerCtx): Promise<Record<string, Sample>> {
   const worker = async () => {
     while (next < queue.length) {
       const id = queue[next++];
-      const stats = await withTimeout(docker.getContainer(id).stats({ stream: false }).catch(() => null), 3500);
+      const stats = await withTimeout(
+        docker
+          .getContainer(id)
+          .stats({ stream: false })
+          .catch(() => null),
+        3500,
+      );
       if (stats) {
         const s = statsToSample(stats as unknown as Parameters<typeof statsToSample>[0]);
         out[id] = { cpu: s.cpu, memory: s.memory, memoryLimit: s.memoryLimit || null };

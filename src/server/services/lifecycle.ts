@@ -18,7 +18,14 @@ export async function stopService(serviceId: string) {
   const service = await getService(serviceId);
   const { docker } = await serverOf(service);
   const containers = await listServiceContainers(service.id, true, docker);
-  await Promise.all(containers.map((c) => docker.getContainer(c.Id).stop({ t: 15 }).catch(() => {})));
+  await Promise.all(
+    containers.map((c) =>
+      docker
+        .getContainer(c.Id)
+        .stop({ t: 15 })
+        .catch(() => {}),
+    ),
+  );
   await setServiceStatus(service.id, "stopped");
   await syncServiceProxy(service.id).catch(() => {});
 }
@@ -27,10 +34,7 @@ export async function startService(serviceId: string): Promise<"started" | "need
   const service = await getService(serviceId);
   const { docker } = await serverOf(service);
   const containers = await listServiceContainers(service.id, true, docker);
-  const relevant =
-    service.type === "app"
-      ? containers.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId)
-      : containers;
+  const relevant = service.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : containers;
   if (!relevant.length) {
     if (service.type === "database") {
       await setServiceStatus(service.id, "deploying");
@@ -39,7 +43,14 @@ export async function startService(serviceId: string): Promise<"started" | "need
     }
     return "needs-deploy";
   }
-  await Promise.all(relevant.map((c) => docker.getContainer(c.Id).start().catch(() => {})));
+  await Promise.all(
+    relevant.map((c) =>
+      docker
+        .getContainer(c.Id)
+        .start()
+        .catch(() => {}),
+    ),
+  );
   await setServiceStatus(service.id, "running");
   await syncServiceProxy(service.id).catch(() => {});
   return "started";
@@ -49,8 +60,7 @@ export async function restartService(serviceId: string) {
   const service = await getService(serviceId);
   const { docker } = await serverOf(service);
   const containers = await listServiceContainers(service.id, true, docker);
-  const relevant =
-    service.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : containers;
+  const relevant = service.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : containers;
   // Containers removed outside Serve: recreate what can be recreated.
   if (!relevant.length) {
     if (service.type === "database") {
@@ -62,7 +72,14 @@ export async function restartService(serviceId: string) {
     throw new Error("No containers exist for this service. Deploy it again.");
   }
   await setServiceStatus(service.id, "restarting");
-  await Promise.all(relevant.map((c) => docker.getContainer(c.Id).restart({ t: 10 }).catch(() => {})));
+  await Promise.all(
+    relevant.map((c) =>
+      docker
+        .getContainer(c.Id)
+        .restart({ t: 10 })
+        .catch(() => {}),
+    ),
+  );
   await setServiceStatus(service.id, "running");
   await syncServiceProxy(service.id).catch(() => {});
 }
@@ -91,12 +108,20 @@ export async function destroyService(opts: {
   if (opts.removeVolumes) {
     const volumes = await docker.listVolumes();
     for (const v of volumes.Volumes ?? []) {
-      if (v.Name.startsWith(`serve-${opts.slug}-`)) await docker.getVolume(v.Name).remove().catch(() => {});
+      if (v.Name.startsWith(`serve-${opts.slug}-`))
+        await docker
+          .getVolume(v.Name)
+          .remove()
+          .catch(() => {});
     }
   }
   const images = await docker.listImages({ filters: { reference: [`serve/${opts.slug}:*`] } });
   for (const img of images) {
-    for (const tag of img.RepoTags ?? []) await docker.getImage(tag).remove({ force: true }).catch(() => {});
+    for (const tag of img.RepoTags ?? [])
+      await docker
+        .getImage(tag)
+        .remove({ force: true })
+        .catch(() => {});
   }
   if (!opts.keepFiles) await fs.rm(paths.service(opts.serviceId), { recursive: true, force: true }).catch(() => {});
   if (!server.local) await server.fs.rm(server.paths.service(opts.serviceId)).catch(() => {});

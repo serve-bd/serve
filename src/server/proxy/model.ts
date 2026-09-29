@@ -92,7 +92,11 @@ export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<S
       const port = d.port ?? service.runtime.port ?? 80;
       if (service.type === "app") {
         upstream = `app-${port}`;
-        if (!upstreams.has(upstream)) upstreams.set(upstream, containers.map((c) => `${c}:${port}`));
+        if (!upstreams.has(upstream))
+          upstreams.set(
+            upstream,
+            containers.map((c) => `${c}:${port}`),
+          );
       } else if (service.type === "compose" && d.composeService) {
         upstream = `${d.composeService}-${port}`.replace(/[^a-zA-Z0-9-]/g, "-");
         if (!upstreams.has(upstream)) upstreams.set(upstream, [`${composeAlias(service.slug, d.composeService)}:${port}`]);

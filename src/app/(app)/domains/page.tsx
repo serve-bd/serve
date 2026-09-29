@@ -14,7 +14,11 @@ export default async function DomainsPage() {
   const ctx = await requireOrg();
   const [rows, certs] = await Promise.all([
     db
-      .select({ domain: schema.domain, service: { id: schema.service.id, name: schema.service.name, status: schema.service.status }, project: { id: schema.project.id, name: schema.project.name } })
+      .select({
+        domain: schema.domain,
+        service: { id: schema.service.id, name: schema.service.name, status: schema.service.status },
+        project: { id: schema.project.id, name: schema.project.name },
+      })
       .from(schema.domain)
       .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
       .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
@@ -43,17 +47,26 @@ export default async function DomainsPage() {
                 </thead>
                 <tbody className="divide-y divide-line">
                   {rows.map(({ domain: d, service, project }) => {
-                    const cert = d.https ? certs.find((c) => c.id === d.certificateId) ?? certs.find((c) => certificateCovers(c.domains, d.hostname)) : null;
+                    const cert = d.https ? (certs.find((c) => c.id === d.certificateId) ?? certs.find((c) => certificateCovers(c.domains, d.hostname))) : null;
                     return (
                       <tr key={d.id} className="transition-colors hover:bg-hover/40">
                         <td className="px-5 py-3">
-                          <a href={`${d.https ? "https" : "http"}://${d.hostname}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-fg hover:text-accent">
+                          <a
+                            href={`${d.https ? "https" : "http"}://${d.hostname}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 font-medium text-fg hover:text-accent"
+                          >
                             {d.hostname}
                             <ArrowUpRight className="size-3 text-faint" />
                           </a>
                           <div className="mt-0.5 flex gap-1.5">
                             {d.generated && <Badge>Generated</Badge>}
-                            {d.cloudflareZoneId && <Badge tone="warn"><Cloud /> Cloudflare</Badge>}
+                            {d.cloudflareZoneId && (
+                              <Badge tone="warn">
+                                <Cloud /> Cloudflare
+                              </Badge>
+                            )}
                             {d.redirectTo && <Badge tone="info">Redirect</Badge>}
                           </div>
                         </td>
@@ -66,9 +79,13 @@ export default async function DomainsPage() {
                         </td>
                         <td className="px-5 py-3">
                           {!d.https ? (
-                            <span className="inline-flex items-center gap-1.5 text-muted"><LockOpen className="size-3.5" /> HTTP</span>
+                            <span className="inline-flex items-center gap-1.5 text-muted">
+                              <LockOpen className="size-3.5" /> HTTP
+                            </span>
                           ) : cert?.status === "active" ? (
-                            <span className="inline-flex items-center gap-1.5 text-ok"><Lock className="size-3.5" /> Secured</span>
+                            <span className="inline-flex items-center gap-1.5 text-ok">
+                              <Lock className="size-3.5" /> Secured
+                            </span>
                           ) : cert?.status === "failed" ? (
                             <span className="text-bad">Certificate failed</span>
                           ) : (

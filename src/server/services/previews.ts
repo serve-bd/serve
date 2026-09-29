@@ -84,7 +84,13 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
         .returning();
       if (domain?.https) await ensureCertificateFor(domain, await orgId(parent.projectId));
     }
-    await logActivity({ action: "preview.created", projectId: parent.projectId, targetType: "service", targetId: id, message: `Preview created for PR #${pr.number}${pr.title ? ` (${pr.title})` : ""}` });
+    await logActivity({
+      action: "preview.created",
+      projectId: parent.projectId,
+      targetType: "service",
+      targetId: id,
+      message: `Preview created for PR #${pr.number}${pr.title ? ` (${pr.title})` : ""}`,
+    });
   } else {
     await db.update(schema.service).set({ source }).where(eq(schema.service.id, preview.id));
   }
@@ -97,7 +103,11 @@ export async function removePreview(parent: Service, prNumber: number) {
   const preview = await previewFor(parent.id, prNumber);
   if (!preview) return false;
   await db.delete(schema.service).where(eq(schema.service.id, preview.id));
-  await enqueue("service.delete", { serviceId: preview.id, slug: preview.slug, type: preview.type, removeVolumes: true, environmentId: preview.environmentId, serverId: preview.serverId }, { concurrencyKey: `service:${preview.id}` });
+  await enqueue(
+    "service.delete",
+    { serviceId: preview.id, slug: preview.slug, type: preview.type, removeVolumes: true, environmentId: preview.environmentId, serverId: preview.serverId },
+    { concurrencyKey: `service:${preview.id}` },
+  );
   await logActivity({ action: "preview.removed", projectId: parent.projectId, message: `Preview for PR #${prNumber} removed` });
   return true;
 }
@@ -109,7 +119,8 @@ export async function commentOnGithub(parent: Service, pr: PullRequest, url: str
   if (!cred || (cred.provider !== "github" && cred.provider !== "github-app")) return;
   let token: string;
   try {
-    token = cred.provider === "github-app" ? await (await import("@/server/git/github-app")).installationToken(cred) : await (await import("@/server/git/oauth")).credentialToken(cred);
+    token =
+      cred.provider === "github-app" ? await (await import("@/server/git/github-app")).installationToken(cred) : await (await import("@/server/git/oauth")).credentialToken(cred);
   } catch {
     return;
   }

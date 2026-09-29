@@ -8,8 +8,7 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary:
-          "bg-accent text-accent-fg shadow-sm hover:bg-accent-strong shadow-[inset_0_1px_0_rgb(255_255_255/0.25)]",
+        primary: "bg-accent text-accent-fg shadow-sm hover:bg-accent-strong shadow-[inset_0_1px_0_rgb(255_255_255/0.25)]",
         secondary: "border border-line-strong bg-surface text-fg shadow-sm hover:bg-hover",
         ghost: "text-fg-2 hover:bg-hover hover:text-fg",
         danger: "bg-bad text-white shadow-sm hover:brightness-110",
@@ -29,22 +28,11 @@ export const buttonVariants = cva(
   },
 );
 
-export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> &
-  VariantProps<typeof buttonVariants> & { loading?: boolean };
+export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & VariantProps<typeof buttonVariants> & { loading?: boolean };
 
-export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { className, variant, size, loading, disabled, children, type = "button", ...props },
-  ref,
-) {
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant, size, loading, disabled, children, type = "button", ...props }, ref) {
   return (
-    <button
-      ref={ref}
-      type={type}
-      className={cn(buttonVariants({ variant, size }), className)}
-      disabled={disabled || loading}
-      aria-busy={loading || undefined}
-      {...props}
-    >
+    <button ref={ref} type={type} className={cn(buttonVariants({ variant, size }), className)} disabled={disabled || loading} aria-busy={loading || undefined} {...props}>
       {loading && <Loader2 className="animate-spin" />}
       {children}
     </button>

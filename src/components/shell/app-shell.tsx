@@ -217,12 +217,7 @@ export function AppShell(props: ShellProps) {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line bg-bg/85 px-4 backdrop-blur lg:hidden">
-            <button
-              type="button"
-              onClick={() => setMobileOpen(true)}
-              className="rounded-md p-1.5 text-muted hover:bg-hover hover:text-fg"
-              aria-label="Open navigation"
-            >
+            <button type="button" onClick={() => setMobileOpen(true)} className="rounded-md p-1.5 text-muted hover:bg-hover hover:text-fg" aria-label="Open navigation">
               <MenuIcon className="size-5" />
             </button>
             <Logo />

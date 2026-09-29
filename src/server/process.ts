@@ -54,14 +54,7 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise
     child.on("close", (code) => {
       if (pending.trim()) opts.onLine?.(redact(pending));
       if (code === 0) resolve(redact(output));
-      else
-        reject(
-          new CommandError(
-            `${cmd} ${args[0] ?? ""} exited with code ${code}`,
-            code,
-            redact(output),
-          ),
-        );
+      else reject(new CommandError(`${cmd} ${args[0] ?? ""} exited with code ${code}`, code, redact(output)));
     });
   });
 }

@@ -209,7 +209,11 @@ export function execChannel(t: SshTarget, command: string, opts: { pty?: { cols:
     t,
     (client) =>
       new Promise((resolve, reject) => {
-        client.exec(command, { pty: opts.pty ? { term: "xterm-256color", cols: opts.pty.cols, rows: opts.pty.rows } : false, env: opts.env as NodeJS.ProcessEnv | undefined }, (err, ch) => (err ? reject(err) : resolve(ch)));
+        client.exec(
+          command,
+          { pty: opts.pty ? { term: "xterm-256color", cols: opts.pty.cols, rows: opts.pty.rows } : false, env: opts.env as NodeJS.ProcessEnv | undefined },
+          (err, ch) => (err ? reject(err) : resolve(ch)),
+        );
       }),
   );
 }

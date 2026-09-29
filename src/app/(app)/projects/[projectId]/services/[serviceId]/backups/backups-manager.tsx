@@ -65,9 +65,7 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
       <div className="flex items-center gap-3 px-5 py-3">
         <Led color={b.status === "success" ? "var(--ok)" : b.status === "failed" ? "var(--bad)" : "var(--info)"} pulse={busy} />
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-mono text-[12.5px] text-fg-2">
-            {b.filename ?? (b.status === "running" ? "Backing up…" : "Failed backup")}
-          </span>
+          <span className="truncate font-mono text-[12.5px] text-fg-2">{b.filename ?? (b.status === "running" ? "Backing up…" : "Failed backup")}</span>
           <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
             <TimeAgo date={b.createdAt} />
             {b.size !== null && <span>· {formatBytes(b.size)}</span>}
@@ -131,7 +129,9 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
           </Menu>
         )}
       </div>
-      {open && b.log && <pre className="mx-5 mb-3 max-h-64 overflow-auto rounded-lg bg-sunken px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-fg-2">{b.log.trim()}</pre>}
+      {open && b.log && (
+        <pre className="mx-5 mb-3 max-h-64 overflow-auto rounded-lg bg-sunken px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-fg-2">{b.log.trim()}</pre>
+      )}
     </div>
   );
 }
@@ -195,7 +195,14 @@ export function BackupsManager(props: {
                     if (ok) await restore.run(x.id, safety.current);
                   }}
                   onDelete={async (x) => {
-                    if (await confirm({ title: "Delete this backup?", description: `${x.filename ?? "The backup"} is removed from this server${x.destination !== "local" ? " and S3" : ""}.`, confirmLabel: "Delete", danger: true }))
+                    if (
+                      await confirm({
+                        title: "Delete this backup?",
+                        description: `${x.filename ?? "The backup"} is removed from this server${x.destination !== "local" ? " and S3" : ""}.`,
+                        confirmLabel: "Delete",
+                        danger: true,
+                      })
+                    )
                       remove.run(x.id);
                   }}
                 />

@@ -9,7 +9,16 @@ export default async function StoragePage() {
   const ctx = await requireOrg();
   const [rows, databases] = await Promise.all([
     db
-      .select({ id: schema.s3Destination.id, name: schema.s3Destination.name, endpoint: schema.s3Destination.endpoint, bucket: schema.s3Destination.bucket, region: schema.s3Destination.region, pathPrefix: schema.s3Destination.pathPrefix, accessKeyId: schema.s3Destination.accessKeyId, createdAt: schema.s3Destination.createdAt })
+      .select({
+        id: schema.s3Destination.id,
+        name: schema.s3Destination.name,
+        endpoint: schema.s3Destination.endpoint,
+        bucket: schema.s3Destination.bucket,
+        region: schema.s3Destination.region,
+        pathPrefix: schema.s3Destination.pathPrefix,
+        accessKeyId: schema.s3Destination.accessKeyId,
+        createdAt: schema.s3Destination.createdAt,
+      })
       .from(schema.s3Destination)
       .where(eq(schema.s3Destination.organizationId, ctx.org.id))
       .orderBy(desc(schema.s3Destination.createdAt)),
@@ -22,9 +31,22 @@ export default async function StoragePage() {
   ]);
   const uploads = databases.length
     ? await db
-        .select({ serviceId: schema.backup.serviceId, last: sql<Date | null>`max(${schema.backup.finishedAt})`, count: sql<number>`count(*)::int`, bytes: sql<number>`coalesce(sum(${schema.backup.size}), 0)::float` })
+        .select({
+          serviceId: schema.backup.serviceId,
+          last: sql<Date | null>`max(${schema.backup.finishedAt})`,
+          count: sql<number>`count(*)::int`,
+          bytes: sql<number>`coalesce(sum(${schema.backup.size}), 0)::float`,
+        })
         .from(schema.backup)
-        .where(and(inArray(schema.backup.serviceId, databases.map((d) => d.id)), eq(schema.backup.s3Status, "uploaded")))
+        .where(
+          and(
+            inArray(
+              schema.backup.serviceId,
+              databases.map((d) => d.id),
+            ),
+            eq(schema.backup.s3Status, "uploaded"),
+          ),
+        )
         .groupBy(schema.backup.serviceId)
     : [];
   const destinations: Dest[] = rows.map((r) => {

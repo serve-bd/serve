@@ -1,30 +1,11 @@
-import {
-  type AnyPgColumn,
-  bigint,
-  boolean,
-  check,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  text,
-  timestamp,
-  uniqueIndex,
-} from "drizzle-orm/pg-core";
+import { type AnyPgColumn, bigint, boolean, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
-import type {
-  BuildConfig,
-  ComposeConfig,
-  DatabaseConfig,
-  RuntimeConfig,
-  SourceConfig,
-} from "@/server/services/types";
+import type { BuildConfig, ComposeConfig, DatabaseConfig, RuntimeConfig, SourceConfig } from "@/server/services/types";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import type { ProxyKind, RunningKind, ProxySwitchState, ServerProxyConfig } from "@/server/proxy/config";
 
 const id = () => text("id").primaryKey();
-const createdAt = () =>
-  timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () =>
   timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -144,10 +125,7 @@ export const member = pgTable(
     role: text("role").$type<MemberRole>().notNull(),
     createdAt: createdAt(),
   },
-  (t) => [
-    uniqueIndex("member_org_user_idx").on(t.organizationId, t.userId),
-    index("member_user_idx").on(t.userId),
-  ],
+  (t) => [uniqueIndex("member_org_user_idx").on(t.organizationId, t.userId), index("member_user_idx").on(t.userId)],
 );
 
 export const invitation = pgTable(
@@ -291,15 +269,7 @@ export const environment = pgTable(
 );
 
 export type ServiceType = "app" | "database" | "compose";
-export type ServiceStatus =
-  | "idle"
-  | "building"
-  | "deploying"
-  | "running"
-  | "stopped"
-  | "failed"
-  | "crashed"
-  | "restarting";
+export type ServiceStatus = "idle" | "building" | "deploying" | "running" | "stopped" | "failed" | "crashed" | "restarting";
 
 export const service = pgTable(
   "service",
@@ -344,11 +314,7 @@ export const service = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [
-    index("service_project_idx").on(t.projectId),
-    index("service_env_idx").on(t.environmentId),
-    index("service_server_idx").on(t.serverId),
-  ],
+  (t) => [index("service_project_idx").on(t.projectId), index("service_env_idx").on(t.environmentId), index("service_server_idx").on(t.serverId)],
 );
 
 export const envVar = pgTable(
@@ -423,23 +389,9 @@ export const customTemplate = pgTable(
   (t) => [index("custom_template_org_idx").on(t.organizationId)],
 );
 
-export type DeploymentStatus =
-  | "queued"
-  | "building"
-  | "deploying"
-  | "success"
-  | "failed"
-  | "cancelled"
-  | "superseded";
+export type DeploymentStatus = "queued" | "building" | "deploying" | "success" | "failed" | "cancelled" | "superseded";
 
-export type DeploymentTrigger =
-  | "manual"
-  | "webhook"
-  | "rollback"
-  | "redeploy"
-  | "create"
-  | "deploy-hook"
-  | "api";
+export type DeploymentTrigger = "manual" | "webhook" | "rollback" | "redeploy" | "create" | "deploy-hook" | "api";
 
 export const deployment = pgTable(
   "deployment",
@@ -467,10 +419,7 @@ export const deployment = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [
-    index("deployment_service_idx").on(t.serviceId, t.createdAt),
-    index("deployment_status_idx").on(t.status),
-  ],
+  (t) => [index("deployment_service_idx").on(t.serviceId, t.createdAt), index("deployment_status_idx").on(t.status)],
 );
 
 /* -------------------------------------------------------------------------- */
@@ -497,10 +446,7 @@ export const domain = pgTable(
     certificateId: text("certificate_id").references(() => certificate.id, {
       onDelete: "set null",
     }),
-    cloudflareAccountId: text("cloudflare_account_id").references(
-      () => cloudflareAccount.id,
-      { onDelete: "set null" },
-    ),
+    cloudflareAccountId: text("cloudflare_account_id").references(() => cloudflareAccount.id, { onDelete: "set null" }),
     cloudflareZoneId: text("cloudflare_zone_id"),
     cloudflareRecordId: text("cloudflare_record_id"),
     /** Routed through a Cloudflare Tunnel instead of the server's public IP. HTTPS terminates at Cloudflare. */
@@ -515,11 +461,7 @@ export const domain = pgTable(
   (t) => [index("domain_service_idx").on(t.serviceId)],
 );
 
-export type CertificateProvider =
-  | "letsencrypt-http"
-  | "letsencrypt-cloudflare"
-  | "cloudflare-origin"
-  | "custom";
+export type CertificateProvider = "letsencrypt-http" | "letsencrypt-cloudflare" | "cloudflare-origin" | "custom";
 
 export type CertificateStatus = "pending" | "issuing" | "active" | "failed" | "expired";
 
@@ -541,10 +483,7 @@ export const certificate = pgTable("certificate", {
   issuer: text("issuer"),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   autoRenew: boolean("auto_renew").notNull().default(true),
-  cloudflareAccountId: text("cloudflare_account_id").references(
-    () => cloudflareAccount.id,
-    { onDelete: "set null" },
-  ),
+  cloudflareAccountId: text("cloudflare_account_id").references(() => cloudflareAccount.id, { onDelete: "set null" }),
   lastError: text("last_error"),
   logs: text("logs").notNull().default(""),
   createdAt: createdAt(),

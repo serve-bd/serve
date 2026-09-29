@@ -12,7 +12,10 @@ import { projectInOrg } from "@/server/services/access";
 
 const varsSchema = z.array(
   z.object({
-    key: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/, "Variable names use letters, numbers and underscores"),
+    key: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/, "Variable names use letters, numbers and underscores"),
     value: z.string(),
   }),
 );
@@ -79,7 +82,12 @@ export async function redeployReferencing(scope: "org" | { projectId: string }) 
     const vars = await db
       .select({ serviceId: schema.envVar.serviceId, value: schema.envVar.value })
       .from(schema.envVar)
-      .where(inArray(schema.envVar.serviceId, services.map((s) => s.id)));
+      .where(
+        inArray(
+          schema.envVar.serviceId,
+          services.map((s) => s.id),
+        ),
+      );
     const ref = scope === "org" ? /\$\{\{\s*(org|team)\./i : /\$\{\{\s*project\./i;
     const affected = new Set(vars.filter((v) => ref.test(decryptOrNull(v.value) ?? "")).map((v) => v.serviceId));
     // Environment shared variables reach every service of their environment.

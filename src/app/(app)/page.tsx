@@ -73,7 +73,10 @@ export default async function OverviewPage() {
           </Card>
         </Section>
 
-        <Section title="Projects" description="Apps, databases and services grouped by project." href={projects.length ? "/projects" : undefined}
+        <Section
+          title="Projects"
+          description="Apps, databases and services grouped by project."
+          href={projects.length ? "/projects" : undefined}
           action={
             projects.length > 0 && (
               <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })}>

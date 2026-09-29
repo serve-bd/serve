@@ -99,14 +99,31 @@ describe("repository webhooks", () => {
 
 describe("oauth", () => {
   afterEach(() => vi.unstubAllGlobals());
-  const app = { id: "a1", organizationId: "o1", provider: "gitlab" as const, name: "GitLab", baseUrl: null, clientId: "cid", clientSecret: encrypt("csecret"), groupPath: null, createdAt: new Date(), updatedAt: new Date() };
+  const app = {
+    id: "a1",
+    organizationId: "o1",
+    provider: "gitlab" as const,
+    name: "GitLab",
+    baseUrl: null,
+    clientId: "cid",
+    clientSecret: encrypt("csecret"),
+    groupPath: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 
   it("builds authorize URLs", () => {
     const redirect = redirectUri("https://serve.example.com/", "gitlab");
     expect(redirect).toBe("https://serve.example.com/api/git/oauth/gitlab/callback");
     const gl = new URL(authorizeUrl(app, redirect, "st"));
     expect(gl.origin + gl.pathname).toBe("https://gitlab.com/oauth/authorize");
-    expect(Object.fromEntries(gl.searchParams)).toMatchObject({ client_id: "cid", redirect_uri: redirect, response_type: "code", state: "st", scope: "api read_user read_repository" });
+    expect(Object.fromEntries(gl.searchParams)).toMatchObject({
+      client_id: "cid",
+      redirect_uri: redirect,
+      response_type: "code",
+      state: "st",
+      scope: "api read_user read_repository",
+    });
     const gt = new URL(authorizeUrl({ ...app, provider: "gitea", baseUrl: "https://git.x/" }, redirect, "st"));
     expect(gt.origin + gt.pathname).toBe("https://git.x/login/oauth/authorize");
     const bb = new URL(authorizeUrl({ ...app, provider: "bitbucket" }, redirect, "st"));

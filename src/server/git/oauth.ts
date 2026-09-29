@@ -115,7 +115,10 @@ export async function credentialToken(cred: Credential, opts: { force?: boolean 
   }
   // Some providers keep the refresh token unchanged and omit it.
   next.refreshToken ??= tokens.refreshToken;
-  await db.update(schema.gitCredential).set({ secret: encrypt(JSON.stringify(next)) }).where(eq(schema.gitCredential.id, cred.id));
+  await db
+    .update(schema.gitCredential)
+    .set({ secret: encrypt(JSON.stringify(next)) })
+    .where(eq(schema.gitCredential.id, cred.id));
   cred.secret = encrypt(JSON.stringify(next));
   return next.accessToken;
 }

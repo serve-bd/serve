@@ -61,12 +61,12 @@ export function composeSecurityIssues(content: string): string[] {
     if (context && !/^[a-z]+:\/\//i.test(context) && outside(context)) issues.push(`${name}: build context "${context}" is not allowed`);
     const envFiles = typeof svc.env_file === "string" ? [svc.env_file] : Array.isArray(svc.env_file) ? svc.env_file : [];
     for (const f of envFiles) {
-      const file = typeof f === "string" ? f : (f as { path?: string })?.path ?? "";
+      const file = typeof f === "string" ? f : ((f as { path?: string })?.path ?? "");
       if (file && outside(file)) issues.push(`${name}: env_file "${file}" is not allowed`);
     }
     const volumes = Array.isArray(svc.volumes) ? svc.volumes : [];
     for (const v of volumes) {
-      const source = typeof v === "string" ? v.split(":")[0] : (v as { source?: string; type?: string })?.type === "bind" ? (v as { source?: string }).source ?? "" : "";
+      const source = typeof v === "string" ? v.split(":")[0] : (v as { source?: string; type?: string })?.type === "bind" ? ((v as { source?: string }).source ?? "") : "";
       if (!source) continue;
       if (source.startsWith("/") || source.startsWith("~") || source.includes("..") || source.includes("docker.sock")) {
         issues.push(`${name}: bind mount "${source}" is not allowed`);

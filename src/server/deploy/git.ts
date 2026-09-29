@@ -15,8 +15,7 @@ export type CloneResult = {
 /** Clone URL carrying a token: GitHub x-access-token, Bitbucket x-token-auth, GitLab/Gitea oauth2 (token as password). */
 export function withToken(url: string, provider: string, token: string) {
   const u = new URL(url);
-  const user =
-    provider === "github" ? "x-access-token" : provider === "bitbucket" ? "x-token-auth" : "oauth2";
+  const user = provider === "github" ? "x-access-token" : provider === "bitbucket" ? "x-token-auth" : "oauth2";
   u.username = user;
   u.password = token;
   return u.toString();

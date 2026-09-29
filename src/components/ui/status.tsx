@@ -42,15 +42,7 @@ const serverTones: Record<string, Tone> = {
 const maps = { service: serviceTones, deployment: deploymentTones, certificate: certTones, server: serverTones };
 
 export function Led({ color, pulse, off, className }: { color: string; pulse?: boolean; off?: boolean; className?: string }) {
-  return (
-    <span
-      className={cn("led", className)}
-      style={{ ["--led" as string]: color }}
-      data-pulse={pulse ? "" : undefined}
-      data-state={off ? "off" : "on"}
-      aria-hidden
-    />
-  );
+  return <span className={cn("led", className)} style={{ ["--led" as string]: color }} data-pulse={pulse ? "" : undefined} data-state={off ? "off" : "on"} aria-hidden />;
 }
 
 export function StatusDot({ status, kind = "service", className }: { status: string; kind?: keyof typeof maps; className?: string }) {
@@ -58,15 +50,7 @@ export function StatusDot({ status, kind = "service", className }: { status: str
   return <Led color={tone.led} pulse={tone.pulse} off={tone.off} className={className} />;
 }
 
-export function StatusLabel({
-  status,
-  kind = "service",
-  className,
-}: {
-  status: string;
-  kind?: keyof typeof maps;
-  className?: string;
-}) {
+export function StatusLabel({ status, kind = "service", className }: { status: string; kind?: keyof typeof maps; className?: string }) {
   const tone = maps[kind][status] ?? { led: "var(--idle)", label: status };
   return (
     <span className={cn("inline-flex items-center gap-2 text-[13px] font-medium text-fg-2", className)}>

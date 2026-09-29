@@ -66,7 +66,10 @@ export async function connectProxy(network: string, target: NetworkTarget = loca
 
 export async function disconnectProxy(network: string, target: NetworkTarget = localTarget()) {
   const d = target.docker;
-  const info = await d.getContainer(target.proxyContainer).inspect().catch(() => null);
+  const info = await d
+    .getContainer(target.proxyContainer)
+    .inspect()
+    .catch(() => null);
   if (info?.NetworkSettings.Networks?.[network]) await d.getNetwork(network).disconnect({ Container: target.proxyContainer, Force: true });
 }
 
@@ -87,7 +90,11 @@ export async function removeEnvNetworkIfUnused(environmentId: string, target: Ne
     const info = await d.getNetwork(name).inspect();
     const members = Object.values(info.Containers ?? {}) as { Name: string }[];
     if (members.some((c) => c.Name !== target.proxyContainer)) return;
-    if (members.length) await d.getNetwork(name).disconnect({ Container: target.proxyContainer, Force: true }).catch(() => {});
+    if (members.length)
+      await d
+        .getNetwork(name)
+        .disconnect({ Container: target.proxyContainer, Force: true })
+        .catch(() => {});
     await d.getNetwork(name).remove();
   } catch {
     // already gone

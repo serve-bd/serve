@@ -36,7 +36,12 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
     serverAddressing(service.serverId),
     getServerRow(service.serverId),
     db
-      .select({ id: schema.cloudflareTunnel.id, accountId: schema.cloudflareTunnel.cloudflareAccountId, accountName: schema.cloudflareAccount.name, status: schema.cloudflareTunnel.status })
+      .select({
+        id: schema.cloudflareTunnel.id,
+        accountId: schema.cloudflareTunnel.cloudflareAccountId,
+        accountName: schema.cloudflareAccount.name,
+        status: schema.cloudflareTunnel.status,
+      })
       .from(schema.cloudflareTunnel)
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
       .where(and(eq(schema.cloudflareTunnel.organizationId, ctx.org.id), eq(schema.cloudflareTunnel.serverId, service.serverId))),
@@ -84,30 +89,30 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
         tunnels={tunnels}
         canGenerate={!!addressing.wildcardDomain || (addressing.sslipFallback && !!addressing.publicIp)}
         certificates={certs.map((c) => ({ id: c.id, name: c.name, domains: c.domains, status: c.status, provider: c.provider }))}
-        domains={[...domains].sort((a, b) => Number(b === primaryDomain) - Number(a === primaryDomain)).map((d) => {
-          const cert = d.https
-            ? certs.find((c) => c.id === d.certificateId) ?? certs.find((c) => certificateCovers(c.domains, d.hostname))
-            : undefined;
-          return {
-            id: d.id,
-            hostname: d.hostname,
-            port: d.port,
-            composeService: d.composeService,
-            https: d.https,
-            forceHttps: d.forceHttps,
-            redirectTo: d.redirectTo,
-            generated: d.generated,
-            primary: d === primaryDomain,
-            cloudflare: !!d.cloudflareZoneId,
-            managedRecord: !!d.cloudflareRecordId,
-            tunnel: !!d.tunnelId,
-            certificate: cert ? { id: cert.id, status: cert.status, provider: cert.provider, error: cert.lastError, expiresAt: cert.expiresAt?.toISOString() ?? null } : null,
-          };
-        })}
+        domains={[...domains]
+          .sort((a, b) => Number(b === primaryDomain) - Number(a === primaryDomain))
+          .map((d) => {
+            const cert = d.https ? (certs.find((c) => c.id === d.certificateId) ?? certs.find((c) => certificateCovers(c.domains, d.hostname))) : undefined;
+            return {
+              id: d.id,
+              hostname: d.hostname,
+              port: d.port,
+              composeService: d.composeService,
+              https: d.https,
+              forceHttps: d.forceHttps,
+              redirectTo: d.redirectTo,
+              generated: d.generated,
+              primary: d === primaryDomain,
+              cloudflare: !!d.cloudflareZoneId,
+              managedRecord: !!d.cloudflareRecordId,
+              tunnel: !!d.tunnelId,
+              certificate: cert ? { id: cert.id, status: cert.status, provider: cert.provider, error: cert.lastError, expiresAt: cert.expiresAt?.toISOString() ?? null } : null,
+            };
+          })}
       />
       {(service.type === "app" || (service.type === "compose" && composeServices.length > 0)) && (
         <PortsCard
-          key={JSON.stringify(service.type === "app" ? service.runtime.ports : service.compose?.ports ?? [])}
+          key={JSON.stringify(service.type === "app" ? service.runtime.ports : (service.compose?.ports ?? []))}
           serviceId={service.id}
           kind={service.type === "app" ? "app" : "compose"}
           composeServices={composeServices}

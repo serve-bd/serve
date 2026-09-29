@@ -69,7 +69,13 @@ function cleanError(message: string) {
     ...new Set(
       message
         .split("\n")
-        .map((l) => l.replace(/^nginx: /, "").replace(/^\d{4}\/\d\d\/\d\d [\d:]+ /, "").replace(/^\[(\w+)\] \d+#\d+: /, "[$1] ").trim())
+        .map((l) =>
+          l
+            .replace(/^nginx: /, "")
+            .replace(/^\d{4}\/\d\d\/\d\d [\d:]+ /, "")
+            .replace(/^\[(\w+)\] \d+#\d+: /, "[$1] ")
+            .trim(),
+        )
         // Caddy prints JSON info/warn logs around the actual error.
         .filter((l) => l && !/test failed|syntax is ok/.test(l) && !/^\{"level":"(info|warn|debug)"/.test(l)),
     ),
@@ -208,7 +214,7 @@ export async function saveProxyContainer(serverId: string, kindInput: string, in
     const kind = runningKind(kindInput);
     await serverRow(serverId);
     const { config } = await proxyStateOf(serverId);
-    let container ;
+    let container;
     if (input !== null) {
       const parsed = containerOverridesSchema.safeParse(input);
       if (!parsed.success) throw new UserError(parsed.error.issues[0]?.message ?? "Invalid container settings.");
@@ -225,13 +231,19 @@ export async function saveProxyContainer(serverId: string, kindInput: string, in
       const reserved = new Set([80, 443]);
       for (const p of parsed.data.ports ?? []) {
         const container = Number(p.split(":").at(-1)!.split("/")[0]);
-        if (reserved.has(container) && !p.endsWith("/udp")) throw new UserError(`Container port ${container} is already published. Change the proxy ports on the Domains page instead.`);
+        if (reserved.has(container) && !p.endsWith("/udp"))
+          throw new UserError(`Container port ${container} is already published. Change the proxy ports on the Domains page instead.`);
       }
       container = { image: parsed.data.image || null, args: parsed.data.args?.filter(Boolean) ?? [], env, volumes: parsed.data.volumes ?? [], ports: parsed.data.ports ?? [] };
     }
     const next = { ...config, [kind]: { ...config[kind], container } };
     await apply(serverId, kind, next, "the container settings");
-    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.proxy.config", message: input === null ? `Reset the ${proxyLabels[kind]} container` : `Updated the ${proxyLabels[kind]} container` });
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      action: "server.proxy.config",
+      message: input === null ? `Reset the ${proxyLabels[kind]} container` : `Updated the ${proxyLabels[kind]} container`,
+    });
     return null;
   });
 }

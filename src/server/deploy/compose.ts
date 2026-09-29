@@ -217,11 +217,7 @@ async function remoteCompose(
   return clean(res.stdout);
 }
 
-export async function composeCommand(
-  opts: Pick<ComposeRun, "projectName" | "dir" | "file" | "server">,
-  args: string[],
-  log?: (line: string) => void,
-) {
+export async function composeCommand(opts: Pick<ComposeRun, "projectName" | "dir" | "file" | "server">, args: string[], log?: (line: string) => void) {
   if (opts.server && !opts.server.local) return remoteCompose(opts.server, opts, args, log);
   return run("docker", [...composeArgs(opts), ...args], { cwd: opts.dir, onLine: log });
 }

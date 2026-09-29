@@ -71,7 +71,12 @@ function TokenRow({ token: t, projects, isAdmin, onRevoke }: { token: Token; pro
   return (
     <div className={cn("flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:gap-4", expired && "bg-bad-soft/30")}>
       <div className="flex min-w-0 flex-1 items-start gap-3.5">
-        <span className={cn("mt-0.5 flex size-9 flex-none items-center justify-center rounded-[10px] border", expired ? "border-bad/20 bg-bad-soft text-bad" : "border-line bg-surface-2 text-fg-2")}>
+        <span
+          className={cn(
+            "mt-0.5 flex size-9 flex-none items-center justify-center rounded-[10px] border",
+            expired ? "border-bad/20 bg-bad-soft text-bad" : "border-line bg-surface-2 text-fg-2",
+          )}
+        >
           <KeyRound className="size-4" />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -178,7 +183,10 @@ function CreateTokenDialog({ open, onOpenChange, projects, baseUrl }: { open: bo
                       const locked = implied.has(s);
                       const checked = locked || scopes.includes(s);
                       return (
-                        <label key={s} className={cn("flex cursor-pointer items-start gap-3 px-3.5 py-3 transition-colors hover:bg-hover", locked && "cursor-default hover:bg-transparent")}>
+                        <label
+                          key={s}
+                          className={cn("flex cursor-pointer items-start gap-3 px-3.5 py-3 transition-colors hover:bg-hover", locked && "cursor-default hover:bg-transparent")}
+                        >
                           <Checkbox checked={checked} disabled={locked} onCheckedChange={(on) => toggleScope(s, on)} className="mt-0.5" />
                           <span className="flex min-w-0 flex-col gap-0.5">
                             <span className="flex items-center gap-2 text-[13px] font-medium text-fg">
@@ -224,10 +232,7 @@ function CreateTokenDialog({ open, onOpenChange, projects, baseUrl }: { open: bo
                       {projects.length === 0 && <p className="px-2.5 py-2 text-[13px] text-muted">No projects yet.</p>}
                       {projects.map((p) => (
                         <label key={p.id} className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-fg-2 hover:bg-hover">
-                          <Checkbox
-                            checked={projectIds.includes(p.id)}
-                            onCheckedChange={(on) => setProjectIds((all) => (on ? [...all, p.id] : all.filter((x) => x !== p.id)))}
-                          />
+                          <Checkbox checked={projectIds.includes(p.id)} onCheckedChange={(on) => setProjectIds((all) => (on ? [...all, p.id] : all.filter((x) => x !== p.id)))} />
                           <span className="truncate">{p.name}</span>
                         </label>
                       ))}
@@ -287,7 +292,8 @@ export function TokensView({ tokens, projects, isAdmin, baseUrl }: { tokens: Tok
                 projects={projects}
                 isAdmin={isAdmin}
                 onRevoke={async () => {
-                  if (await confirm({ title: `Revoke ${t.name}?`, description: "Anything using this token stops working right away.", confirmLabel: "Revoke token", danger: true })) revoke.run(t.id);
+                  if (await confirm({ title: `Revoke ${t.name}?`, description: "Anything using this token stops working right away.", confirmLabel: "Revoke token", danger: true }))
+                    revoke.run(t.id);
                 }}
               />
             ))}

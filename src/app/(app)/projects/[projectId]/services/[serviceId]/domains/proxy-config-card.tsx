@@ -75,7 +75,13 @@ export function ProxyConfigCard({
               variant="ghost"
               loading={pending && mode === "managed"}
               onClick={async () => {
-                if (await confirm({ title: "Reset to defaults?", description: "The custom configuration is removed and Serve's generated configuration applies again.", confirmLabel: "Reset" })) {
+                if (
+                  await confirm({
+                    title: "Reset to defaults?",
+                    description: "The custom configuration is removed and Serve's generated configuration applies again.",
+                    confirmLabel: "Reset",
+                  })
+                ) {
                   setMode("managed");
                   await save(null);
                 }
@@ -104,7 +110,10 @@ export function ProxyConfigCard({
                 setError(null);
                 if (key === "custom" && !value) setValue(generated ?? "");
               }}
-              className={cn("flex flex-col gap-0.5 rounded-xl border px-4 py-3 text-left transition-colors", mode === key ? "border-accent bg-accent-soft/30" : "border-line hover:bg-surface-2")}
+              className={cn(
+                "flex flex-col gap-0.5 rounded-xl border px-4 py-3 text-left transition-colors",
+                mode === key ? "border-accent bg-accent-soft/30" : "border-line hover:bg-surface-2",
+              )}
             >
               <span className="text-[13px] font-medium text-fg">{title}</span>
               <span className="text-xs text-muted">{description}</span>
@@ -113,14 +122,15 @@ export function ProxyConfigCard({
         </div>
         {otherCustom.length > 0 && !custom && (
           <p className="text-xs text-muted">
-            A custom {otherCustom.map((k) => LABEL[k]).join(" and ")} configuration is saved for this service. This server runs {LABEL[kind]}, so Serve&apos;s generated configuration applies. The saved one comes back if you switch
-            the proxy back.
+            A custom {otherCustom.map((k) => LABEL[k]).join(" and ")} configuration is saved for this service. This server runs {LABEL[kind]}, so Serve&apos;s generated
+            configuration applies. The saved one comes back if you switch the proxy back.
           </p>
         )}
         {mode === "custom" && (
           <div className="flex items-start gap-2.5 rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-3 text-[13px] text-fg-2">
             <TriangleAlert className="mt-0.5 size-4 flex-none text-warn" />
-            <span>Changes to domains and HTTP options on this page do not apply while the configuration is custom. Container names change on every deploy
+            <span>
+              Changes to domains and HTTP options on this page do not apply while the configuration is custom. Container names change on every deploy
               {alias ? (
                 <>
                   ; point the upstream at <code className="font-mono text-[12px]">{alias}</code> instead
@@ -137,7 +147,14 @@ export function ProxyConfigCard({
             <p className="text-[13px] text-muted">Serve writes no configuration for this service yet.</p>
           )
         ) : (
-          <Textarea value={value} onChange={(e) => setValue(e.target.value)} rows={20} spellCheck={false} aria-label={`Custom ${LABEL[kind]} configuration`} className="font-mono text-[12.5px] leading-relaxed" />
+          <Textarea
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            rows={20}
+            spellCheck={false}
+            aria-label={`Custom ${LABEL[kind]} configuration`}
+            className="font-mono text-[12.5px] leading-relaxed"
+          />
         )}
         {error && (
           <div className="flex items-start gap-2.5 rounded-xl border border-bad/15 bg-bad-soft/60 px-3.5 py-3">

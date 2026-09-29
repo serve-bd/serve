@@ -75,8 +75,7 @@ export const auth = betterAuth({
   },
   plugins: [
     organization({
-      allowUserToCreateOrganization: async (user) =>
-        (await getSetting("allowOrganizationCreation")) || (await isInstanceAdmin(user.id)),
+      allowUserToCreateOrganization: async (user) => (await getSetting("allowOrganizationCreation")) || (await isInstanceAdmin(user.id)),
       creatorRole: "owner",
       // Deletion goes through Serve's own action, which checks projects and the Root organization.
       disableOrganizationDeletion: true,
@@ -139,10 +138,7 @@ export const requireOrg = cache(async (): Promise<OrgContext> => {
         .from(schema.member)
         .where(and(eq(schema.member.organizationId, orgId), eq(schema.member.userId, user.id)))
     )[0];
-    await db
-      .update(schema.session)
-      .set({ activeOrganizationId: orgId })
-      .where(eq(schema.session.id, session.session.id));
+    await db.update(schema.session).set({ activeOrganizationId: orgId }).where(eq(schema.session.id, session.session.id));
   }
   const [org] = await db.select().from(schema.organization).where(eq(schema.organization.id, orgId!));
   const rootId = await getSetting("rootOrganizationId");

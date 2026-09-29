@@ -52,7 +52,21 @@ export function MembersView({ baseUrl, me, myRole, members, invitations }: { bas
       <Card className="overflow-hidden">
         <CardHeader
           title={`${members.length} member${members.length === 1 ? "" : "s"}`}
-          actions={isAdmin && <Button size="sm" variant="primary" onClick={() => { setLink(null); setEmail(""); setOpen(true); }}><UserPlus /> Invite</Button>}
+          actions={
+            isAdmin && (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  setLink(null);
+                  setEmail("");
+                  setOpen(true);
+                }}
+              >
+                <UserPlus /> Invite
+              </Button>
+            )
+          }
         />
         <div className="divide-y divide-line">
           {members.map((m) => (
@@ -62,12 +76,22 @@ export function MembersView({ baseUrl, me, myRole, members, invitations }: { bas
                 <span className="truncate text-[14px] font-medium text-fg">
                   {m.name} {m.userId === me && <span className="text-xs font-normal text-muted">(you)</span>}
                 </span>
-                <span className="truncate text-xs text-muted">{m.email} · joined <TimeAgo date={m.createdAt} /></span>
+                <span className="truncate text-xs text-muted">
+                  {m.email} · joined <TimeAgo date={m.createdAt} />
+                </span>
               </div>
               {isAdmin && m.userId !== me ? (
-                <Select size="sm" value={m.role} onValueChange={(r) => changeRole.run(m.id, r as MemberRole)} options={roleOptions.filter((o) => myRole === "owner" || o.value !== "owner")} className="w-32" />
+                <Select
+                  size="sm"
+                  value={m.role}
+                  onValueChange={(r) => changeRole.run(m.id, r as MemberRole)}
+                  options={roleOptions.filter((o) => myRole === "owner" || o.value !== "owner")}
+                  className="w-32"
+                />
               ) : (
-                <Badge tone={m.role === "owner" ? "accent" : "neutral"} className="capitalize">{m.role}</Badge>
+                <Badge tone={m.role === "owner" ? "accent" : "neutral"} className="capitalize">
+                  {m.role}
+                </Badge>
               )}
               {(isAdmin || m.userId === me) && (
                 <Menu>
@@ -79,11 +103,26 @@ export function MembersView({ baseUrl, me, myRole, members, invitations }: { bas
                       danger
                       onClick={async () => {
                         const self = m.userId === me;
-                        if (await confirm({ title: self ? "Leave this organization?" : `Remove ${m.name}?`, description: self ? "You lose access to its projects." : "They lose access to all projects in this organization.", confirmLabel: self ? "Leave" : "Remove", danger: true }))
+                        if (
+                          await confirm({
+                            title: self ? "Leave this organization?" : `Remove ${m.name}?`,
+                            description: self ? "You lose access to its projects." : "They lose access to all projects in this organization.",
+                            confirmLabel: self ? "Leave" : "Remove",
+                            danger: true,
+                          })
+                        )
                           remove.run(m.id);
                       }}
                     >
-                      {m.userId === me ? <><LogOut /> Leave organization</> : <><Trash2 /> Remove member</>}
+                      {m.userId === me ? (
+                        <>
+                          <LogOut /> Leave organization
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 /> Remove member
+                        </>
+                      )}
                     </MenuItem>
                   </MenuContent>
                 </Menu>
@@ -99,15 +138,30 @@ export function MembersView({ baseUrl, me, myRole, members, invitations }: { bas
           <div className="divide-y divide-line">
             {invitations.map((i) => (
               <div key={i.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-                <span className="flex size-8 items-center justify-center rounded-full border border-dashed border-line-strong text-faint"><Mail className="size-3.5" /></span>
+                <span className="flex size-8 items-center justify-center rounded-full border border-dashed border-line-strong text-faint">
+                  <Mail className="size-3.5" />
+                </span>
                 <div className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-[14px] text-fg">{i.email}</span>
-                  <span className="text-xs text-muted capitalize">{i.role} · expires <TimeAgo date={i.expiresAt} /></span>
+                  <span className="text-xs text-muted capitalize">
+                    {i.role} · expires <TimeAgo date={i.expiresAt} />
+                  </span>
                 </div>
-                <Button size="sm" variant="ghost" onClick={async () => { await navigator.clipboard.writeText(inviteLink(i.id)); toast.success("Invite link copied"); }}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(inviteLink(i.id));
+                    toast.success("Invite link copied");
+                  }}
+                >
                   <Link2 /> Copy link
                 </Button>
-                {isAdmin && <Button size="sm" variant="danger-ghost" onClick={() => revoke.run(i.id)}>Revoke</Button>}
+                {isAdmin && (
+                  <Button size="sm" variant="danger-ghost" onClick={() => revoke.run(i.id)}>
+                    Revoke
+                  </Button>
+                )}
               </div>
             ))}
           </div>
@@ -116,7 +170,13 @@ export function MembersView({ baseUrl, me, myRole, members, invitations }: { bas
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <form onSubmit={(e) => { e.preventDefault(); if (link) setOpen(false); else void invite.run(); }}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (link) setOpen(false);
+              else void invite.run();
+            }}
+          >
             <DialogHeader title="Invite someone" description="They get a link to create an account or sign in and join." />
             <DialogBody>
               {link ? (
@@ -125,14 +185,20 @@ export function MembersView({ baseUrl, me, myRole, members, invitations }: { bas
                 </Field>
               ) : (
                 <>
-                  <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus placeholder="teammate@company.com" /></Field>
-                  <Field label="Role"><Select value={role} onValueChange={(r) => setRole(r as MemberRole)} options={roleOptions.filter((o) => myRole === "owner" || o.value !== "owner")} /></Field>
+                  <Field label="Email">
+                    <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus placeholder="teammate@company.com" />
+                  </Field>
+                  <Field label="Role">
+                    <Select value={role} onValueChange={(r) => setRole(r as MemberRole)} options={roleOptions.filter((o) => myRole === "owner" || o.value !== "owner")} />
+                  </Field>
                 </>
               )}
             </DialogBody>
             <DialogFooter>
               {!link && <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>}
-              <Button type="submit" variant="primary" size="sm" loading={invite.pending}>{link ? "Done" : "Create invite link"}</Button>
+              <Button type="submit" variant="primary" size="sm" loading={invite.pending}>
+                {link ? "Done" : "Create invite link"}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

@@ -116,7 +116,10 @@ http {
     proxy_next_upstream error timeout http_502 http_503;
     proxy_next_upstream_tries 3;
 
-${opts.catchAll === false ? "    # Unknown hosts: handled by custom files (Serve's 404 page is off).\n\n" : `    # Fallback for unknown hosts.
+${
+  opts.catchAll === false
+    ? "    # Unknown hosts: handled by custom files (Serve's 404 page is off).\n\n"
+    : `    # Fallback for unknown hosts.
     server {
         listen 80 default_server;
         server_name _;
@@ -149,11 +152,14 @@ ${opts.catchAll === false ? "    # Unknown hosts: handled by custom files (Serve
         ssl_reject_handshake on;
     }
 
-`}    # Custom directives from Server → Proxy (not globbed by the sites include).
+`
+}    # Custom directives from Server → Proxy (not globbed by the sites include).
     include ${proxyPaths.sites}/custom/*.conf;
 
     include ${proxyPaths.sites}/*.conf;
-${opts.catchAll === false ? `
+${
+  opts.catchAll === false
+    ? `
     # Health check and ACME challenges for Serve (not the default server).
     server {
         listen 80;
@@ -169,7 +175,9 @@ ${opts.catchAll === false ? `
             return 200 "ok";
         }
     }
-` : ""}}
+`
+    : ""
+}}
 `;
 }
 

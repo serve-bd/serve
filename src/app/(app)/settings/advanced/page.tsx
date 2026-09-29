@@ -22,21 +22,21 @@ export default async function AdvancedSettingsPage() {
   ]);
   return (
     <>
-    <AdvancedSettings
-      limits={{ buildConcurrency: s.buildConcurrency, imageRetention: s.imageRetention, metricsRetentionHours: s.metricsRetentionHours, proxyMaxBodySize: s.proxyMaxBodySize }}
-      orgSettings={{ allowOrganizationCreation: s.allowOrganizationCreation }}
-      organizations={orgs.map((o) => ({ ...o, createdAt: o.createdAt.toISOString(), isRoot: o.id === s.rootOrganizationId }))}
-    />
-    <CleanupPolicy
-      latest={s.lastCleanup}
-      settings={{
-        cleanupEnabled: s.cleanupEnabled,
-        cleanupIntervalHours: s.cleanupIntervalHours,
-        cleanupDiskThreshold: s.cleanupDiskThreshold,
-        cleanupBuildCacheDays: s.cleanupBuildCacheDays,
-        cleanupUnusedImages: s.cleanupUnusedImages,
-      }}
-    />
+      <AdvancedSettings
+        limits={{ buildConcurrency: s.buildConcurrency, imageRetention: s.imageRetention, metricsRetentionHours: s.metricsRetentionHours, proxyMaxBodySize: s.proxyMaxBodySize }}
+        orgSettings={{ allowOrganizationCreation: s.allowOrganizationCreation }}
+        organizations={orgs.map((o) => ({ ...o, createdAt: o.createdAt.toISOString(), isRoot: o.id === s.rootOrganizationId }))}
+      />
+      <CleanupPolicy
+        latest={s.lastCleanup}
+        settings={{
+          cleanupEnabled: s.cleanupEnabled,
+          cleanupIntervalHours: s.cleanupIntervalHours,
+          cleanupDiskThreshold: s.cleanupDiskThreshold,
+          cleanupBuildCacheDays: s.cleanupBuildCacheDays,
+          cleanupUnusedImages: s.cleanupUnusedImages,
+        }}
+      />
     </>
   );
 }

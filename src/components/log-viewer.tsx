@@ -87,7 +87,11 @@ export function LogViewer({
         </div>
         {toolbar}
         <Tooltip content={wrap ? "Disable wrapping" : "Wrap lines"}>
-          <button type="button" onClick={() => setWrap((w) => !w)} className={cn("rounded-md p-1.5 text-white/40 hover:bg-white/[0.08] hover:text-white/80", wrap && "text-white/80")}>
+          <button
+            type="button"
+            onClick={() => setWrap((w) => !w)}
+            className={cn("rounded-md p-1.5 text-white/40 hover:bg-white/[0.08] hover:text-white/80", wrap && "text-white/80")}
+          >
             <WrapText className="size-3.5" />
           </button>
         </Tooltip>
@@ -97,12 +101,7 @@ export function LogViewer({
           </button>
         </Tooltip>
       </div>
-      <div
-        ref={ref}
-        onScroll={onScroll}
-        className="scrollbar-thin overflow-auto py-2 font-mono text-[12px] leading-[1.65] text-log-fg"
-        style={{ height }}
-      >
+      <div ref={ref} onScroll={onScroll} className="scrollbar-thin overflow-auto py-2 font-mono text-[12px] leading-[1.65] text-log-fg" style={{ height }}>
         {visible.length === 0 ? (
           <div className="px-4 py-3 text-white/35">{query ? "No lines match the filter." : emptyText}</div>
         ) : (
@@ -118,9 +117,7 @@ export function LogViewer({
                         {l.time ? new Date(l.time).toLocaleTimeString([], { hour12: false }) : ""}
                       </td>
                     )}
-                    {l.source !== undefined && l.source !== null && (
-                      <td className="w-px pr-3 whitespace-nowrap text-[#64d2ff]/70 select-none">{l.source}</td>
-                    )}
+                    {l.source !== undefined && l.source !== null && <td className="w-px pr-3 whitespace-nowrap text-[#64d2ff]/70 select-none">{l.source}</td>}
                     <td
                       className={cn(
                         "pr-4",

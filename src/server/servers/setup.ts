@@ -8,7 +8,10 @@ import { connect, HostKeyMismatchError, sh, sshExec, type SshTarget } from "./ss
 type Log = (line: string) => void;
 
 async function setStatus(id: string, status: ServerStatus, message: string | null, extra: Partial<typeof schema.server.$inferInsert> = {}) {
-  await db.update(schema.server).set({ status, statusMessage: message, ...extra }).where(eq(schema.server.id, id));
+  await db
+    .update(schema.server)
+    .set({ status, statusMessage: message, ...extra })
+    .where(eq(schema.server.id, id));
 }
 
 /** Buffers log lines and appends them to server.setup_log about once a second. */
@@ -94,9 +97,11 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
     // (e.g. adding 127.0.0.1 over SSH on the machine Serve runs on).
     const dockerId = (await run(target, "docker info --format '{{.ID}}'", log, { quiet: true })).stdout.trim();
     if (dockerId) {
-      const local = await getServer(LOCAL_SERVER_ID).then((c) => c.docker.info() as Promise<{ ID?: string }>).catch(() => null);
+      const local = await getServer(LOCAL_SERVER_ID)
+        .then((c) => c.docker.info() as Promise<{ ID?: string }>)
+        .catch(() => null);
       if (local?.ID && local.ID === dockerId) {
-        throw new Error("This is the Docker engine Serve itself runs on. Use the built-in \"This server\" entry instead of adding it again.");
+        throw new Error('This is the Docker engine Serve itself runs on. Use the built-in "This server" entry instead of adding it again.');
       }
       const twin = (await db.select({ id: schema.server.id, name: schema.server.name, info: schema.server.info }).from(schema.server)).find(
         (r) => r.id !== serverId && (r.info as ServerInfo & { dockerId?: string }).dockerId === dockerId,
@@ -108,18 +113,26 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
     else log(`Compose ${compose.stdout.trim()}`);
 
     log("==> Preparing the data directory");
-    const mk = await run(target, `mkdir -p ${sh(row.dataDir)} && chmod 700 ${sh(row.dataDir)}${whoami !== "0" ? ` && chown ${sh(target.username)} ${sh(row.dataDir)}` : ""}`, log, { sudo: true });
+    const mk = await run(target, `mkdir -p ${sh(row.dataDir)} && chmod 700 ${sh(row.dataDir)}${whoami !== "0" ? ` && chown ${sh(target.username)} ${sh(row.dataDir)}` : ""}`, log, {
+      sudo: true,
+    });
     if (mk.code !== 0) throw new Error(`Could not create ${row.dataDir}.`);
 
     log("==> Reading system information");
-    const facts = await run(
-      target,
-      `. /etc/os-release 2>/dev/null; echo "$PRETTY_NAME"; uname -r; uname -m; nproc; awk '/MemTotal/ {print $2*1024}' /proc/meminfo`,
-      log,
-      { quiet: true },
-    );
+    const facts = await run(target, `. /etc/os-release 2>/dev/null; echo "$PRETTY_NAME"; uname -r; uname -m; nproc; awk '/MemTotal/ {print $2*1024}' /proc/meminfo`, log, {
+      quiet: true,
+    });
     const [os, kernel, arch, cpus, memory] = facts.stdout.trim().split("\n");
-    const info: ServerInfo = { os, kernel, arch, cpus: Number(cpus) || undefined, memory: Number(memory) || undefined, docker: docker.stdout.trim(), compose: compose.code === 0 ? compose.stdout.trim() : null, dockerId } as ServerInfo;
+    const info: ServerInfo = {
+      os,
+      kernel,
+      arch,
+      cpus: Number(cpus) || undefined,
+      memory: Number(memory) || undefined,
+      docker: docker.stdout.trim(),
+      compose: compose.code === 0 ? compose.stdout.trim() : null,
+      dockerId,
+    } as ServerInfo;
     await db.update(schema.server).set({ info }).where(eq(schema.server.id, serverId));
     log(`${os} · ${arch} · ${cpus} CPU`);
 
@@ -149,7 +162,10 @@ export async function probeServer(serverId: string) {
   try {
     const ctx = await getServer(serverId);
     await ctx.docker.ping();
-    await db.update(schema.server).set({ lastSeenAt: new Date(), ...(row.status === "unreachable" ? { status: "ready" as const, statusMessage: null } : {}) }).where(eq(schema.server.id, serverId));
+    await db
+      .update(schema.server)
+      .set({ lastSeenAt: new Date(), ...(row.status === "unreachable" ? { status: "ready" as const, statusMessage: null } : {}) })
+      .where(eq(schema.server.id, serverId));
     return true;
   } catch (error) {
     if (row.status === "ready") await setStatus(serverId, "unreachable", (error as Error).message);

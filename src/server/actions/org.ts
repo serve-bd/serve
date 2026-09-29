@@ -43,7 +43,10 @@ export async function updateOrg(input: { name: string; logo?: string | null }) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
     const name = z.string().trim().min(2).max(60).parse(input.name);
-    await db.update(schema.organization).set({ name, logo: input.logo ?? null }).where(eq(schema.organization.id, ctx.org.id));
+    await db
+      .update(schema.organization)
+      .set({ name, logo: input.logo ?? null })
+      .where(eq(schema.organization.id, ctx.org.id));
     return null;
   });
 }
@@ -53,10 +56,7 @@ export async function deleteOrg() {
     const ctx = await requireOrg();
     if (ctx.role !== "owner") throw new UserError("Only the owner can delete an organization.");
     if (ctx.isRoot) throw new UserError("The Root organization manages this server and cannot be deleted.");
-    const [{ n }] = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(schema.project)
-      .where(eq(schema.project.organizationId, ctx.org.id));
+    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id));
     if (n > 0) throw new UserError("Delete all projects in this organization first.");
     await db.delete(schema.organization).where(eq(schema.organization.id, ctx.org.id));
     return null;
@@ -157,7 +157,10 @@ export async function removeMember(memberId: string) {
 
 const tokenSchema = z.object({
   name: z.string().trim().min(1, "Enter a name").max(60),
-  scopes: z.array(z.string()).transform(normalizeScopes).refine((s) => s.length > 0, "Choose at least one permission"),
+  scopes: z
+    .array(z.string())
+    .transform(normalizeScopes)
+    .refine((s) => s.length > 0, "Choose at least one permission"),
   expiresInDays: z.number().int().min(1).max(3650).nullable(),
   projectIds: z.array(z.string()).max(200).nullable(),
 });

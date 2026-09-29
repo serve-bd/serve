@@ -19,12 +19,7 @@ export async function GET(request: Request) {
     })
     .from(schema.service)
     .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
-    .where(
-      and(
-        eq(schema.project.organizationId, auth.organizationId),
-        auth.projectIds ? inArray(schema.project.id, auth.projectIds) : undefined,
-      ),
-    )
+    .where(and(eq(schema.project.organizationId, auth.organizationId), auth.projectIds ? inArray(schema.project.id, auth.projectIds) : undefined))
     .orderBy(asc(schema.project.name), asc(schema.service.name));
   return Response.json({ services: rows });
 }

@@ -64,7 +64,7 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                         {d.branch && <span className="font-mono">{d.branch}</span>}
                         <span className="inline-flex items-center gap-1">
                           <User className="size-3" />
-                          {d.userName ?? (d.trigger === "webhook" ? d.commitAuthor ?? "Git push" : "System")}
+                          {d.userName ?? (d.trigger === "webhook" ? (d.commitAuthor ?? "Git push") : "System")}
                         </span>
                         {duration && <span className="tabular-nums">{duration}</span>}
                       </span>
@@ -89,7 +89,13 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                             {type === "app" && d.status === "success" && !current && d.image && (
                               <MenuItem
                                 onClick={async () => {
-                                  if (await confirm({ title: "Roll back to this deployment?", description: "The image from this deployment is started again without rebuilding. Current variables are used.", confirmLabel: "Roll back" }))
+                                  if (
+                                    await confirm({
+                                      title: "Roll back to this deployment?",
+                                      description: "The image from this deployment is started again without rebuilding. Current variables are used.",
+                                      confirmLabel: "Roll back",
+                                    })
+                                  )
                                     rollback.run(d.id);
                                 }}
                               >

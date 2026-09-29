@@ -115,7 +115,9 @@ export function databaseConfigIssues(cfg: DatabaseConfig): string[] {
 function mysqlConfig(content: string, engine: EngineInfo) {
   const trimmed = content.trim();
   if (!trimmed) return "";
-  return /^\s*\[/m.test(trimmed.split("\n").find((l) => l.trim() && !l.trim().startsWith("#")) ?? "") ? `${trimmed}\n` : `[${engine.engine === "mariadb" ? "mariadbd" : "mysqld"}]\n${trimmed}\n`;
+  return /^\s*\[/m.test(trimmed.split("\n").find((l) => l.trim() && !l.trim().startsWith("#")) ?? "")
+    ? `${trimmed}\n`
+    : `[${engine.engine === "mariadb" ? "mariadbd" : "mysqld"}]\n${trimmed}\n`;
 }
 
 /**

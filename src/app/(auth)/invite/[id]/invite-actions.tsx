@@ -11,17 +11,7 @@ import { PasswordInput } from "../../_components/password-input";
 import { acceptInvite, acceptInviteWithSignup } from "@/server/actions/auth";
 import { authClient } from "@/lib/auth-client";
 
-export function InviteActions({
-  invitationId,
-  email,
-  signedInAs,
-  hasAccount,
-}: {
-  invitationId: string;
-  email: string;
-  signedInAs: string | null;
-  hasAccount: boolean;
-}) {
+export function InviteActions({ invitationId, email, signedInAs, hasAccount }: { invitationId: string; email: string; signedInAs: string | null; hasAccount: boolean }) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -57,8 +47,7 @@ export function InviteActions({
     return (
       <div className="flex flex-col gap-3 text-[13px] text-muted">
         <p>
-          You are signed in as <span className="text-fg-2">{signedInAs}</span>. This invite is for{" "}
-          <span className="text-fg-2">{email}</span>.
+          You are signed in as <span className="text-fg-2">{signedInAs}</span>. This invite is for <span className="text-fg-2">{email}</span>.
         </p>
         <Button
           size="lg"

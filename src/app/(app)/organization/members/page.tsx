@@ -11,7 +11,15 @@ export default async function MembersPage() {
   const ctx = await requireOrg();
   const [members, invitations] = await Promise.all([
     db
-      .select({ id: schema.member.id, role: schema.member.role, createdAt: schema.member.createdAt, userId: schema.user.id, name: schema.user.name, email: schema.user.email, image: schema.user.image })
+      .select({
+        id: schema.member.id,
+        role: schema.member.role,
+        createdAt: schema.member.createdAt,
+        userId: schema.user.id,
+        name: schema.user.name,
+        email: schema.user.email,
+        image: schema.user.image,
+      })
       .from(schema.member)
       .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
       .where(eq(schema.member.organizationId, ctx.org.id))

@@ -31,7 +31,11 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
         actions={
           <Tooltip content={ready ? "Docker, the proxy and the worker are running." : issues.join(" · ")}>
             <span className="inline-flex h-7 items-center gap-2 rounded-full bg-surface px-3 text-xs font-medium text-fg ring-1 ring-line">
-              <span className={ready ? "size-1.5 rounded-full bg-ok" : row.status === "validating" ? "size-1.5 animate-led rounded-full bg-info" : "size-1.5 animate-led rounded-full bg-warn"} />
+              <span
+                className={
+                  ready ? "size-1.5 rounded-full bg-ok" : row.status === "validating" ? "size-1.5 animate-led rounded-full bg-info" : "size-1.5 animate-led rounded-full bg-warn"
+                }
+              />
               {ready ? "Ready" : row.status === "validating" ? "Validating" : "Attention required"}
             </span>
           </Tooltip>

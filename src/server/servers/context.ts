@@ -36,7 +36,10 @@ export type ServerCtx = {
   proxyHttpPort: number;
   proxyHttpsPort: number;
   /** Run a shell command on the server (inside the Serve container for the local server). */
-  exec(command: string, opts?: { onLine?: (line: string) => void; signal?: AbortSignal; timeoutMs?: number; stdin?: NodeJS.ReadableStream | string | (() => NodeJS.ReadableStream) }): Promise<SshExecResult>;
+  exec(
+    command: string,
+    opts?: { onLine?: (line: string) => void; signal?: AbortSignal; timeoutMs?: number; stdin?: NodeJS.ReadableStream | string | (() => NodeJS.ReadableStream) },
+  ): Promise<SshExecResult>;
   /** Env vars that point the `docker` CLI at this server. Empty for the local server. */
   cliEnv(): Promise<Record<string, string>>;
   /** SSH details, null for the local server. */
@@ -140,7 +143,19 @@ const cache = (store.__serveServers ??= new Map());
 
 function stamp(row: ServerRow) {
   // Only fields that change how we connect. Status/lastSeenAt updates must not rebuild clients.
-  return JSON.stringify([row.host, row.port, row.username, row.privateKeyId, row.hostKey, row.dataDir, row.proxyHttpPort, row.proxyHttpsPort, row.proxyPortsCustomized, row.name, row.isLocal]);
+  return JSON.stringify([
+    row.host,
+    row.port,
+    row.username,
+    row.privateKeyId,
+    row.hostKey,
+    row.dataDir,
+    row.proxyHttpPort,
+    row.proxyHttpsPort,
+    row.proxyPortsCustomized,
+    row.name,
+    row.isLocal,
+  ]);
 }
 
 export async function getServerRow(id: string) {

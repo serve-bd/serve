@@ -10,11 +10,7 @@ export const metadata = { title: "Git providers" };
 
 export default async function GitPage() {
   const ctx = await requireOrg();
-  const rows = await db
-    .select()
-    .from(schema.gitCredential)
-    .where(eq(schema.gitCredential.organizationId, ctx.org.id))
-    .orderBy(desc(schema.gitCredential.createdAt));
+  const rows = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.organizationId, ctx.org.id)).orderBy(desc(schema.gitCredential.createdAt));
   const base = await publicBaseUrl();
   const [oauthRows, oauthBase] = await Promise.all([
     db.select().from(schema.gitOAuthApp).where(eq(schema.gitOAuthApp.organizationId, ctx.org.id)).orderBy(desc(schema.gitOAuthApp.createdAt)),
@@ -34,17 +30,19 @@ export default async function GitPage() {
   });
 
   // OAuth connections are shown with their app.
-  const credentials = rows.filter((c) => !c.oauthAppId).map((c) => {
-    const app = c.provider === "github-app" ? readAppSecret(c) : null;
-    return {
-      id: c.id,
-      name: c.name,
-      provider: c.provider,
-      publicInfo: c.provider === "ssh" ? c.publicInfo : c.provider === "github-app" ? null : c.publicInfo,
-      createdAt: c.createdAt.toISOString(),
-      app: app ? { slug: app.slug, account: app.account, installed: !!app.installationId, settingsUrl: `https://github.com/settings/apps/${app.slug}` } : null,
-    };
-  });
+  const credentials = rows
+    .filter((c) => !c.oauthAppId)
+    .map((c) => {
+      const app = c.provider === "github-app" ? readAppSecret(c) : null;
+      return {
+        id: c.id,
+        name: c.name,
+        provider: c.provider,
+        publicInfo: c.provider === "ssh" ? c.publicInfo : c.provider === "github-app" ? null : c.publicInfo,
+        createdAt: c.createdAt.toISOString(),
+        app: app ? { slug: app.slug, account: app.account, installed: !!app.installationId, settingsUrl: `https://github.com/settings/apps/${app.slug}` } : null,
+      };
+    });
 
   return (
     <GitProviders

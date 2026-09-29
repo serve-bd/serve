@@ -62,36 +62,76 @@ type Props = {
 };
 
 function HttpsState({ d, hasAcme, proxyKind = "nginx" }: { d: DomainRow; hasAcme: boolean; proxyKind?: string }) {
-  if (d.tunnel) return <span className="inline-flex items-center gap-1.5 text-xs text-ok"><Lock className="size-3.5" /> HTTPS by Cloudflare</span>;
-  if (!d.https) return <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LockOpen className="size-3.5" /> HTTP only</span>;
+  if (d.tunnel)
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-ok">
+        <Lock className="size-3.5" /> HTTPS by Cloudflare
+      </span>
+    );
+  if (!d.https)
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+        <LockOpen className="size-3.5" /> HTTP only
+      </span>
+    );
   const c = d.certificate;
-  if (proxyKind === "none") return <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LockOpen className="size-3.5" /> No proxy</span>;
+  if (proxyKind === "none")
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+        <LockOpen className="size-3.5" /> No proxy
+      </span>
+    );
   // Caddy and Traefik obtain certificates themselves.
   if (!c && proxyKind !== "nginx") {
-    return <span className="inline-flex items-center gap-1.5 text-xs text-ok"><Lock className="size-3.5" /> Certificate by {proxyKind === "caddy" ? "Caddy" : "Traefik"}</span>;
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-ok">
+        <Lock className="size-3.5" /> Certificate by {proxyKind === "caddy" ? "Caddy" : "Traefik"}
+      </span>
+    );
   }
   if (!c) {
     return (
       <Tooltip content={hasAcme ? "A certificate will be requested" : "Add a Let's Encrypt email in Server settings"}>
-        <span className="inline-flex items-center gap-1.5 text-xs text-warn"><Led color="var(--warn)" /> {hasAcme ? "Waiting for certificate" : "No certificate"}</span>
+        <span className="inline-flex items-center gap-1.5 text-xs text-warn">
+          <Led color="var(--warn)" /> {hasAcme ? "Waiting for certificate" : "No certificate"}
+        </span>
       </Tooltip>
     );
   }
-  if (c.status === "active") return <span className="inline-flex items-center gap-1.5 text-xs text-ok"><Lock className="size-3.5" /> Secured</span>;
+  if (c.status === "active")
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-ok">
+        <Lock className="size-3.5" /> Secured
+      </span>
+    );
   if (c.status === "failed" || c.status === "expired")
     return (
       <Tooltip content={c.error ?? "Certificate request failed"}>
-        <span className="inline-flex items-center gap-1.5 text-xs text-bad"><Led color="var(--bad)" /> Certificate {c.status}</span>
+        <span className="inline-flex items-center gap-1.5 text-xs text-bad">
+          <Led color="var(--bad)" /> Certificate {c.status}
+        </span>
       </Tooltip>
     );
-  return <span className="inline-flex items-center gap-1.5 text-xs text-info"><Led color="var(--info)" pulse /> Issuing certificate</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-info">
+      <Led color="var(--info)" pulse /> Issuing certificate
+    </span>
+  );
 }
 
 function DnsBadge({ domainId }: { domainId: string }) {
-  const { data: state, isValidating: loading, mutate } = useSWR(["dns", domainId], async () => {
-    const res = await checkDomainDns(domainId);
-    return res.ok ? res.data : null;
-  }, { revalidateOnFocus: false });
+  const {
+    data: state,
+    isValidating: loading,
+    mutate,
+  } = useSWR(
+    ["dns", domainId],
+    async () => {
+      const res = await checkDomainDns(domainId);
+      return res.ok ? res.data : null;
+    },
+    { revalidateOnFocus: false },
+  );
   const check = () => void mutate();
   const map: Record<string, { tone: "ok" | "info" | "bad" | "warn" | "neutral"; label: string }> = {
     ok: { tone: "ok", label: "DNS OK" },
@@ -162,7 +202,9 @@ function DnsRecordTable({ hostname, ip }: { hostname: string; ip: string }) {
         <div className="grid grid-cols-[4rem_minmax(0,1fr)_minmax(0,1.2fr)_4rem] border-t border-line font-mono text-[12.5px]">
           <span className={cell}>A</span>
           <span className={cell}>
-            <span className="truncate" title={hostname}>{relative}</span>
+            <span className="truncate" title={hostname}>
+              {relative}
+            </span>
             <CopyButton value={relative} />
           </span>
           <span className={cell}>
@@ -279,24 +321,44 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
         >
           <DialogHeader
             title={step === 1 ? "Add domain" : hostname}
-            description={step === 1 ? props.proxyKind === "none"
-                ? "Point a domain at this service. This server runs no proxy, so the domain is saved but not served."
-                : props.proxyKind === "caddy"
-                  ? "Point a domain at this service. Caddy obtains and renews the certificate automatically."
-                  : props.proxyKind === "traefik"
-                    ? "Point a domain at this service. Traefik issues and renews the certificate."
-                    : "Point a domain at this service. HTTPS certificates are issued automatically." : mode === "redirect" ? `Redirects to ${redirect}` : "Choose how visitors reach this domain."}
+            description={
+              step === 1
+                ? props.proxyKind === "none"
+                  ? "Point a domain at this service. This server runs no proxy, so the domain is saved but not served."
+                  : props.proxyKind === "caddy"
+                    ? "Point a domain at this service. Caddy obtains and renews the certificate automatically."
+                    : props.proxyKind === "traefik"
+                      ? "Point a domain at this service. Traefik issues and renews the certificate."
+                      : "Point a domain at this service. HTTPS certificates are issued automatically."
+                : mode === "redirect"
+                  ? `Redirects to ${redirect}`
+                  : "Choose how visitors reach this domain."
+            }
           />
           <DialogBody>
-            <p className="-mt-1 text-[11px] font-medium tracking-wide text-faint uppercase">Step {step} of 2 · {step === 1 ? "Domain" : "Connection"}</p>
+            <p className="-mt-1 text-[11px] font-medium tracking-wide text-faint uppercase">
+              Step {step} of 2 · {step === 1 ? "Domain" : "Connection"}
+            </p>
             {step === 1 ? (
               <>
-            <Field label="Domain">
-                  <Input value={hostname} onChange={(e) => setHostname(e.target.value.trim().toLowerCase())} placeholder="app.example.com" autoFocus required className="font-mono text-[13px]" />
+                <Field label="Domain">
+                  <Input
+                    value={hostname}
+                    onChange={(e) => setHostname(e.target.value.trim().toLowerCase())}
+                    placeholder="app.example.com"
+                    autoFocus
+                    required
+                    className="font-mono text-[13px]"
+                  />
                 </Field>
                 <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
                   {(["route", "redirect"] as const).map((m) => (
-                    <button key={m} type="button" onClick={() => setMode(m)} className={`h-8 rounded-lg text-[13px] font-medium transition-all ${mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"}`}>
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMode(m)}
+                      className={`h-8 rounded-lg text-[13px] font-medium transition-all ${mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"}`}
+                    >
                       {m === "route" ? "Route to this service" : "Redirect to a URL"}
                     </button>
                   ))}
@@ -309,11 +371,28 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     {props.type === "compose" && (
                       <Field label="Compose service">
-                        <Select value={composeService} onValueChange={(v) => { setComposeService(v); setPort(defaultPortFor(v)); }} options={props.composeServices.map((s) => ({ value: s, label: s }))} />
+                        <Select
+                          value={composeService}
+                          onValueChange={(v) => {
+                            setComposeService(v);
+                            setPort(defaultPortFor(v));
+                          }}
+                          options={props.composeServices.map((s) => ({ value: s, label: s }))}
+                        />
                       </Field>
                     )}
-                    <Field label="Container port" optional={props.type !== "compose"} description={props.type === "app" && props.defaultPort ? `Defaults to ${props.defaultPort}` : undefined}>
-                      <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder={String(props.defaultPort ?? 80)} inputMode="numeric" required={props.type === "compose"} />
+                    <Field
+                      label="Container port"
+                      optional={props.type !== "compose"}
+                      description={props.type === "app" && props.defaultPort ? `Defaults to ${props.defaultPort}` : undefined}
+                    >
+                      <Input
+                        value={port}
+                        onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
+                        placeholder={String(props.defaultPort ?? 80)}
+                        inputMode="numeric"
+                        required={props.type === "compose"}
+                      />
                     </Field>
                   </div>
                 )}
@@ -322,12 +401,12 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
               <>
                 {zoneLoading && !zoneData && <p className="text-xs text-muted">Looking for {hostname} in your Cloudflare accounts…</p>}
                 {tunnel && <div className="grid grid-cols-1 gap-2">{(["tunnel", "ip"] as const).map(routeCard)}</div>}
-            {viaTunnel ? (
+                {viaTunnel ? (
                   <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
                     <Waypoints className="mt-0.5 size-4 flex-none text-[#f38020]" />
                     <p>
-                      Serve points <span className="font-mono text-fg">{hostname}</span> at the tunnel in {tunnel!.accountName}. Cloudflare serves it over HTTPS, so no
-                      certificate or open port is needed.
+                      Serve points <span className="font-mono text-fg">{hostname}</span> at the tunnel in {tunnel!.accountName}. Cloudflare serves it over HTTPS, so no certificate
+                      or open port is needed.
                     </p>
                   </div>
                 ) : props.proxyKind === "none" ? (
@@ -341,7 +420,12 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                     {https && !!hostname && challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx") && (
                       <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
                         {challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx")} Route the domain through a Cloudflare Tunnel
-                        {props.proxyKind === "traefik" ? " or use the Cloudflare DNS challenge (Server → Proxy)" : props.proxyKind === "caddy" ? "" : " or add it from a Cloudflare zone for DNS validation"}.
+                        {props.proxyKind === "traefik"
+                          ? " or use the Cloudflare DNS challenge (Server → Proxy)"
+                          : props.proxyKind === "caddy"
+                            ? ""
+                            : " or add it from a Cloudflare zone for DNS validation"}
+                        .
                       </p>
                     )}
                   </>
@@ -351,9 +435,21 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                     <div className="flex items-center gap-2 text-[13px] font-medium text-fg">
                       <Cloud className="size-4 text-[#f38020]" /> Found {zone.zoneName} in Cloudflare ({zone.accountName})
                     </div>
-                    <SwitchRow title="Create the DNS record" description={props.serverIp ? `A record → ${props.serverIp}` : "Set the server IP in Server settings first."} checked={createRecord} onCheckedChange={setCreateRecord} />
-                    <SwitchRow title="Proxy through Cloudflare" description="Orange cloud. Hides your server IP and adds Cloudflare's CDN and DDoS protection." checked={proxied} onCheckedChange={setProxied} />
-                    {https && (props.proxyKind ?? "nginx") === "nginx" && <p className="text-xs text-muted">The certificate is validated through Cloudflare DNS, so it works even when proxied.</p>}
+                    <SwitchRow
+                      title="Create the DNS record"
+                      description={props.serverIp ? `A record → ${props.serverIp}` : "Set the server IP in Server settings first."}
+                      checked={createRecord}
+                      onCheckedChange={setCreateRecord}
+                    />
+                    <SwitchRow
+                      title="Proxy through Cloudflare"
+                      description="Orange cloud. Hides your server IP and adds Cloudflare's CDN and DDoS protection."
+                      checked={proxied}
+                      onCheckedChange={setProxied}
+                    />
+                    {https && (props.proxyKind ?? "nginx") === "nginx" && (
+                      <p className="text-xs text-muted">The certificate is validated through Cloudflare DNS, so it works even when proxied.</p>
+                    )}
                   </div>
                 )}
                 {!zone && hostname && props.tunnels.length > 0 && (
@@ -407,7 +503,7 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
     }
     await save.run();
   };
-  const detected = compose ? props.composePorts[composeService] ?? [] : [];
+  const detected = compose ? (props.composePorts[composeService] ?? []) : [];
   const [route, setRoute] = React.useState<"ip" | "tunnel">(domain.tunnel ? "tunnel" : "ip");
   const tunnel = props.tunnels[0];
   const reroute = useAction((to: string | null) => setDomainRoute(domain.id, to), { success: "Route updated. DNS points to the new target." });
@@ -458,16 +554,32 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
                     const first = props.composePorts[v]?.[0];
                     if (first) setPort(String(first));
                   }}
-                  options={props.composeServices.map((s) => ({ value: s, label: s, description: props.composePorts[s]?.length ? `Ports ${props.composePorts[s].join(", ")}` : undefined }))}
+                  options={props.composeServices.map((s) => ({
+                    value: s,
+                    label: s,
+                    description: props.composePorts[s]?.length ? `Ports ${props.composePorts[s].join(", ")}` : undefined,
+                  }))}
                 />
               </Field>
             )}
             <Field
               label="Container port"
               optional={!compose}
-              description={detected.length ? `Found in the compose file: ${detected.join(", ")}` : !compose && props.defaultPort ? `Empty uses the service port (${props.defaultPort}).` : "The port the app listens on inside the container."}
+              description={
+                detected.length
+                  ? `Found in the compose file: ${detected.join(", ")}`
+                  : !compose && props.defaultPort
+                    ? `Empty uses the service port (${props.defaultPort}).`
+                    : "The port the app listens on inside the container."
+              }
             >
-              <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder={String(props.defaultPort ?? 80)} inputMode="numeric" required={compose} />
+              <Input
+                value={port}
+                onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
+                placeholder={String(props.defaultPort ?? 80)}
+                inputMode="numeric"
+                required={compose}
+              />
             </Field>
           </DialogBody>
           <DialogFooter>
@@ -518,17 +630,38 @@ export function DomainsManager(props: Props) {
             <div key={d.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <div className="flex min-w-0 items-center gap-2">
-                  <a href={`${d.https || d.tunnel ? "https" : "http"}://${d.hostname}`} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1 text-[14px] font-medium text-fg hover:text-accent">
+                  <a
+                    href={`${d.https || d.tunnel ? "https" : "http"}://${d.hostname}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-w-0 items-center gap-1 text-[14px] font-medium text-fg hover:text-accent"
+                  >
                     <span className="truncate">{d.hostname}</span>
                     <ArrowUpRight className="size-3.5 shrink-0 text-faint" />
                   </a>
-                  {d.primary && <Badge tone="info"><Star /> Primary</Badge>}
+                  {d.primary && (
+                    <Badge tone="info">
+                      <Star /> Primary
+                    </Badge>
+                  )}
                   {d.generated && <Badge>Generated</Badge>}
-                  {d.tunnel ? <Badge tone="warn"><Waypoints /> Tunnel</Badge> : d.cloudflare && <Badge tone="warn"><Cloud /> Cloudflare</Badge>}
+                  {d.tunnel ? (
+                    <Badge tone="warn">
+                      <Waypoints /> Tunnel
+                    </Badge>
+                  ) : (
+                    d.cloudflare && (
+                      <Badge tone="warn">
+                        <Cloud /> Cloudflare
+                      </Badge>
+                    )
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                   {d.redirectTo ? (
-                    <span className="inline-flex items-center gap-1"><CornerDownRight className="size-3" /> Redirects to {d.redirectTo}</span>
+                    <span className="inline-flex items-center gap-1">
+                      <CornerDownRight className="size-3" /> Redirects to {d.redirectTo}
+                    </span>
                   ) : (
                     <span className="font-mono">
                       → {d.composeService ? `${d.composeService}:` : "port "}
@@ -574,7 +707,14 @@ export function DomainsManager(props: Props) {
                   <MenuItem
                     danger
                     onClick={async () => {
-                      if (await confirm({ title: `Remove ${d.hostname}?`, description: d.managedRecord ? "The DNS record Serve created in Cloudflare is deleted too." : "The domain stops routing to this service.", confirmLabel: "Remove domain", danger: true }))
+                      if (
+                        await confirm({
+                          title: `Remove ${d.hostname}?`,
+                          description: d.managedRecord ? "The DNS record Serve created in Cloudflare is deleted too." : "The domain stops routing to this service.",
+                          confirmLabel: "Remove domain",
+                          danger: true,
+                        })
+                      )
                         remove.run(d.id, true);
                     }}
                   >

@@ -66,7 +66,16 @@ describe("composeVariables", () => {
 describe("guessVarKind", () => {
   it("never generates credentials from other services", async () => {
     const { guessVarKind } = await import("@/lib/compose-vars");
-    for (const k of ["AWS_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY", "GITHUB_CLIENT_SECRET", "R2_ACCESS_KEY_ID", "OPENAI_API_KEY", "SMTP_PASSWORD", "STRIPE_SECRET_KEY", "GITHUB_CLIENT_ID"]) {
+    for (const k of [
+      "AWS_SECRET_ACCESS_KEY",
+      "R2_SECRET_ACCESS_KEY",
+      "GITHUB_CLIENT_SECRET",
+      "R2_ACCESS_KEY_ID",
+      "OPENAI_API_KEY",
+      "SMTP_PASSWORD",
+      "STRIPE_SECRET_KEY",
+      "GITHUB_CLIENT_ID",
+    ]) {
       expect(guessVarKind(k), k).toBe("value");
     }
   });

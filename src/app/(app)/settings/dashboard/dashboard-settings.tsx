@@ -27,7 +27,15 @@ export function DashboardSettings({
       <SettingsCard title="Dashboard domain" description="Serve this dashboard on its own domain, like any service." initial={dashboard}>
         {(v, set) => (
           <>
-            <Field label="Domain" optional={!v.dashboardTunnelId} description={v.dashboardTunnelId && !v.dashboardDomain ? "Enter a domain to route it through the tunnel. Without one, the tunnel choice is cleared on save." : "GitHub webhooks and invite links use this address."}>
+            <Field
+              label="Domain"
+              optional={!v.dashboardTunnelId}
+              description={
+                v.dashboardTunnelId && !v.dashboardDomain
+                  ? "Enter a domain to route it through the tunnel. Without one, the tunnel choice is cleared on save."
+                  : "GitHub webhooks and invite links use this address."
+              }
+            >
               <Input value={v.dashboardDomain} onChange={(e) => set("dashboardDomain")(e.target.value)} placeholder="serve.example.com" />
             </Field>
             {tunnels.length > 0 && (
@@ -66,7 +74,12 @@ export function DashboardSettings({
               <>
                 {/* The Connection card checks the saved domain; this covers a domain being typed. */}
                 {v.dashboardDomain !== dashboard.dashboardDomain && <DnsCheck host={v.dashboardDomain} serverIp={serverIp} />}
-                <SwitchRow title="HTTPS" description="Request a Let's Encrypt certificate for the dashboard domain." checked={v.dashboardHttps} onCheckedChange={set("dashboardHttps")} />
+                <SwitchRow
+                  title="HTTPS"
+                  description="Request a Let's Encrypt certificate for the dashboard domain."
+                  checked={v.dashboardHttps}
+                  onCheckedChange={set("dashboardHttps")}
+                />
                 {tunnels.length === 0 && (
                   <p className="text-xs text-muted">
                     No public IP? Create a Cloudflare Tunnel for this server in{" "}
@@ -90,7 +103,12 @@ export function DashboardSettings({
             <Field label="Account email" description="Let's Encrypt sends expiry warnings here. Required for automatic certificates.">
               <Input type="email" value={v.acmeEmail} onChange={(e) => set("acmeEmail")(e.target.value)} placeholder="ops@example.com" />
             </Field>
-            <SwitchRow title="Use staging" description="Untrusted test certificates with much higher rate limits. Turn off for production." checked={v.acmeStaging} onCheckedChange={set("acmeStaging")} />
+            <SwitchRow
+              title="Use staging"
+              description="Untrusted test certificates with much higher rate limits. Turn off for production."
+              checked={v.acmeStaging}
+              onCheckedChange={set("acmeStaging")}
+            />
           </>
         )}
       </SettingsCard>

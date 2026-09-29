@@ -20,10 +20,7 @@ export default async function ConsolePage(props: PageProps<"/projects/[projectId
   };
   return (
     <PageBody>
-      <Console
-        serviceId={service.id}
-        suggestions={service.database ? (hints[service.database.engine] ?? []) : ["ls -la", "env | sort", "df -h", "top"]}
-      />
+      <Console serviceId={service.id} suggestions={service.database ? (hints[service.database.engine] ?? []) : ["ls -la", "env | sort", "df -h", "top"]} />
     </PageBody>
   );
 }

@@ -3,11 +3,7 @@ import { db, schema } from "@/server/db";
 import type { ProjectSummary } from "@/app/(app)/_components/project-card";
 
 export async function projectSummaries(orgId: string): Promise<ProjectSummary[]> {
-  const projects = await db
-    .select()
-    .from(schema.project)
-    .where(eq(schema.project.organizationId, orgId))
-    .orderBy(desc(schema.project.updatedAt));
+  const projects = await db.select().from(schema.project).where(eq(schema.project.organizationId, orgId)).orderBy(desc(schema.project.updatedAt));
   if (!projects.length) return [];
   const services = await db
     .select({
@@ -19,7 +15,12 @@ export async function projectSummaries(orgId: string): Promise<ProjectSummary[]>
       updatedAt: schema.service.updatedAt,
     })
     .from(schema.service)
-    .where(inArray(schema.service.projectId, projects.map((p) => p.id)));
+    .where(
+      inArray(
+        schema.service.projectId,
+        projects.map((p) => p.id),
+      ),
+    );
   return projects.map((p) => {
     const own = services.filter((s) => s.projectId === p.id);
     const latest = own.reduce((acc, s) => (s.updatedAt > acc ? s.updatedAt : acc), p.updatedAt);

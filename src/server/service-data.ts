@@ -37,7 +37,15 @@ export async function serviceLive(serviceId: string) {
   return {
     status: service.status,
     currentDeploymentId: service.currentDeploymentId,
-    domains: domains.map((d) => ({ id: d.id, hostname: d.hostname, https: d.https || !!d.tunnelId, redirectTo: d.redirectTo, generated: d.generated, primary: d.primary, createdAt: d.createdAt.toISOString() })),
+    domains: domains.map((d) => ({
+      id: d.id,
+      hostname: d.hostname,
+      https: d.https || !!d.tunnelId,
+      redirectTo: d.redirectTo,
+      generated: d.generated,
+      primary: d.primary,
+      createdAt: d.createdAt.toISOString(),
+    })),
     deployments,
     containers: containers.map((c) => ({
       id: c.Id.slice(0, 12),

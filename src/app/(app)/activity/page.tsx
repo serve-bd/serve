@@ -20,7 +20,8 @@ export default async function ActivityPage() {
           ) : (
             <ol className="divide-y divide-line">
               {items.map((a) => {
-                const href = a.targetType === "service" && a.projectId && a.targetId ? `/projects/${a.projectId}/services/${a.targetId}` : a.projectId ? `/projects/${a.projectId}` : null;
+                const href =
+                  a.targetType === "service" && a.projectId && a.targetId ? `/projects/${a.projectId}/services/${a.targetId}` : a.projectId ? `/projects/${a.projectId}` : null;
                 const body = (
                   <div className="flex items-center gap-3 px-5 py-3">
                     <Avatar name={a.userName ?? "System"} />
@@ -31,7 +32,17 @@ export default async function ActivityPage() {
                     <TimeAgo date={a.createdAt} className="text-xs text-faint" />
                   </div>
                 );
-                return <li key={a.id}>{href ? <Link href={href} className="block transition-colors hover:bg-hover/40">{body}</Link> : body}</li>;
+                return (
+                  <li key={a.id}>
+                    {href ? (
+                      <Link href={href} className="block transition-colors hover:bg-hover/40">
+                        {body}
+                      </Link>
+                    ) : (
+                      body
+                    )}
+                  </li>
+                );
               })}
             </ol>
           )}

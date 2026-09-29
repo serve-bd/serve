@@ -37,10 +37,10 @@ export function ImportCard(props: {
   const [progress, setProgress] = React.useState<number | null>(null);
   const [drag, setDrag] = React.useState(false);
   const input = React.useRef<HTMLInputElement>(null);
-  const remote = useAction(
-    () => importBackupFromRemote(props.serviceId, source === "url" ? { kind: "url", url } : { kind: "s3", destinationId: dest, key }, backupFirst),
-    { success: "Import started", onSuccess: () => props.onStarted() },
-  );
+  const remote = useAction(() => importBackupFromRemote(props.serviceId, source === "url" ? { kind: "url", url } : { kind: "s3", destinationId: dest, key }, backupFirst), {
+    success: "Import started",
+    onSuccess: () => props.onStarted(),
+  });
 
   const extOk = (name: string) => props.extensions.some((e) => name.toLowerCase().endsWith(e));
   const ready = props.running && (source === "upload" ? !!file && extOk(file.name) : source === "url" ? /^https?:\/\/.+/i.test(url) : !!dest && !!key.trim());
@@ -76,7 +76,9 @@ export function ImportCard(props: {
   const start = async () => {
     const ok = await confirm({
       title: `Import into ${props.engineLabel}?`,
-      description: backupFirst ? "Serve backs up the current data, then replaces it with the imported dump." : "The current data is replaced with the imported dump. There is no safety backup.",
+      description: backupFirst
+        ? "Serve backs up the current data, then replaces it with the imported dump."
+        : "The current data is replaced with the imported dump. There is no safety backup.",
       confirmLabel: "Import and restore",
       danger: true,
     });

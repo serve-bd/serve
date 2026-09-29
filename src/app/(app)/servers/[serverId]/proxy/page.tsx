@@ -22,7 +22,10 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
   if (!data) {
     return (
       <Card>
-        <EmptyState title="The proxy is not reachable" description={row.isLocal ? "Docker did not answer." : "Validate the server connection on the General page, then come back."} />
+        <EmptyState
+          title="The proxy is not reachable"
+          description={row.isLocal ? "Docker did not answer." : "Validate the server connection on the General page, then come back."}
+        />
       </Card>
     );
   }
@@ -30,7 +33,10 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
   const kind = row.proxyKind as ProxyKind;
   const cfg = row.proxyConfig ?? {};
   const cloudflareAccounts = settings.rootOrganizationId
-    ? await db.select({ id: schema.cloudflareAccount.id, name: schema.cloudflareAccount.name }).from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, settings.rootOrganizationId))
+    ? await db
+        .select({ id: schema.cloudflareAccount.id, name: schema.cloudflareAccount.name })
+        .from(schema.cloudflareAccount)
+        .where(eq(schema.cloudflareAccount.organizationId, settings.rootOrganizationId))
     : [];
   const ids = data.files.flatMap((f) => (f.serviceId ? [f.serviceId] : []));
   const services = ids.length
@@ -70,7 +76,9 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
         traefik: {
           ...(cfg.traefik ?? {}),
           // The password hash never reaches the browser.
-          dashboard: cfg.traefik?.dashboard ? { enabled: cfg.traefik.dashboard.enabled, hostname: cfg.traefik.dashboard.hostname, username: cfg.traefik.dashboard.username, hasPassword: true } : null,
+          dashboard: cfg.traefik?.dashboard
+            ? { enabled: cfg.traefik.dashboard.enabled, hostname: cfg.traefik.dashboard.hostname, username: cfg.traefik.dashboard.username, hasPassword: true }
+            : null,
         },
       }}
       customConfig={settings.proxyCustomConfig ?? ""}

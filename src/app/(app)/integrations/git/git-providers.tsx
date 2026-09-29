@@ -106,7 +106,14 @@ function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: bo
           <OwnerOption selected={ownerType === "organization"} onSelect={() => setOwnerType("organization")} title="GitHub organization" body="You must be an owner" />
         </div>
         {ownerType === "organization" && (
-          <Input value={organization} onChange={(e) => setOrganization(e.target.value)} placeholder="Organization name, e.g. acme" className="mt-1 sm:max-w-xs" autoFocus aria-label="GitHub organization name" />
+          <Input
+            value={organization}
+            onChange={(e) => setOrganization(e.target.value)}
+            placeholder="Organization name, e.g. acme"
+            className="mt-1 sm:max-w-xs"
+            autoFocus
+            aria-label="GitHub organization name"
+          />
         )}
       </div>
 
@@ -117,7 +124,8 @@ function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: bo
           <p className="flex items-start gap-2 text-xs leading-relaxed text-muted">
             <AlertTriangle className="mt-px size-3.5 flex-none text-warn" />
             <span>
-              GitHub can&apos;t reach <span className="font-mono text-fg-2">{new URL(baseUrl).host}</span>, so pushes won&apos;t deploy automatically until you set a public dashboard domain.
+              GitHub can&apos;t reach <span className="font-mono text-fg-2">{new URL(baseUrl).host}</span>, so pushes won&apos;t deploy automatically until you set a public
+              dashboard domain.
             </span>
           </p>
         )}
@@ -131,7 +139,14 @@ function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: bo
   return embedded ? body : <Card>{body}</Card>;
 }
 
-type DialogState = { tokenOpen: boolean; setTokenOpen: (o: boolean) => void; keyOpen: boolean; setKeyOpen: (o: boolean) => void; provider: GitProviderType; setProvider: (p: GitProviderType) => void };
+type DialogState = {
+  tokenOpen: boolean;
+  setTokenOpen: (o: boolean) => void;
+  keyOpen: boolean;
+  setKeyOpen: (o: boolean) => void;
+  provider: GitProviderType;
+  setProvider: (p: GitProviderType) => void;
+};
 
 /** Dialog state lives in GitProviders so the page's Add provider menu can open them too. */
 function useProviderDialogs(): DialogState {
@@ -193,15 +208,28 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
 
       <Dialog open={tokenOpen} onOpenChange={setTokenOpen}>
         <DialogContent>
-          <form onSubmit={(e) => { e.preventDefault(); void add.run(); }}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void add.run();
+            }}
+          >
             <DialogHeader title="Add access token" description="Serve verifies the token and lists the repositories it can read." />
             <DialogBody>
               <Field label="Provider">
-                <Select value={provider} onValueChange={(v) => setProvider(v as GitProviderType)} options={["gitlab", "gitea", "bitbucket", "github"].map((p) => ({ value: p, label: providerNames[p] }))} />
+                <Select
+                  value={provider}
+                  onValueChange={(v) => setProvider(v as GitProviderType)}
+                  options={["gitlab", "gitea", "bitbucket", "github"].map((p) => ({ value: p, label: providerNames[p] }))}
+                />
               </Field>
               {provider !== "bitbucket" && (
                 <Field label="Server URL" optional description={provider === "github" ? "Only for GitHub Enterprise Server." : "Leave empty for the hosted service."}>
-                  <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={provider === "gitea" ? "https://git.example.com" : "https://gitlab.example.com"} />
+                  <Input
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder={provider === "gitea" ? "https://git.example.com" : "https://gitlab.example.com"}
+                  />
                 </Field>
               )}
               <Field label="Token" description={tokenHelp[provider]}>
@@ -213,7 +241,9 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
             </DialogBody>
             <DialogFooter>
               <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
-              <Button type="submit" variant="primary" size="sm" loading={add.pending}>Connect</Button>
+              <Button type="submit" variant="primary" size="sm" loading={add.pending}>
+                Connect
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -221,7 +251,13 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
 
       <Dialog open={keyOpen} onOpenChange={setKeyOpen}>
         <DialogContent>
-          <form onSubmit={(e) => { e.preventDefault(); if (!publicKey) void key.run(); else setKeyOpen(false); }}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!publicKey) void key.run();
+              else setKeyOpen(false);
+            }}
+          >
             <DialogHeader title="Create SSH deploy key" description="A key pair is generated on the server. Add the public key to your repository with read access." />
             <DialogBody>
               {publicKey ? (
@@ -235,7 +271,9 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
               )}
             </DialogBody>
             <DialogFooter>
-              <Button type="submit" variant="primary" size="sm" loading={key.pending}>{publicKey ? "Done" : "Generate key"}</Button>
+              <Button type="submit" variant="primary" size="sm" loading={key.pending}>
+                {publicKey ? "Done" : "Generate key"}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -263,7 +301,12 @@ export function GitProviders({
   const router = useRouter();
   const params = useSearchParams();
   const remove = useAction(deleteGitCredential, { success: "Removed" });
-  const configure = useAction(githubAppInstallUrl, { refresh: false, onSuccess: (url) => { window.location.href = url; } });
+  const configure = useAction(githubAppInstallUrl, {
+    refresh: false,
+    onSuccess: (url) => {
+      window.location.href = url;
+    },
+  });
 
   const announced = React.useRef(false);
   React.useEffect(() => {
@@ -285,142 +328,171 @@ export function GitProviders({
 
   return (
     <>
-    <PageHeader
-      title="Git providers"
-      description="Connect GitHub, GitLab, Gitea or Bitbucket to deploy private repositories, with push-to-deploy and pull request previews set up automatically."
-      actions={
-        isAdmin && (
-          <Menu>
-            <MenuTrigger render={<Button size="sm" variant="primary" />}>
-              <Plus /> Add provider <ChevronDown className="size-3.5 opacity-80" />
-            </MenuTrigger>
-            <MenuContent align="end">
-              <MenuItem onClick={() => (apps.length ? setConnecting(true) : document.getElementById("connect-github")?.scrollIntoView({ behavior: "smooth" }))}>
-                <GithubMark /> GitHub
-              </MenuItem>
-              <MenuSeparator />
-              {(["gitlab", "gitea", "bitbucket"] as const).map((p) => (
-                <MenuItem key={p} onClick={() => setMethod(p)}>
-                  <FolderGit2 /> {providerNames[p]}
+      <PageHeader
+        title="Git providers"
+        description="Connect GitHub, GitLab, Gitea or Bitbucket to deploy private repositories, with push-to-deploy and pull request previews set up automatically."
+        actions={
+          isAdmin && (
+            <Menu>
+              <MenuTrigger render={<Button size="sm" variant="primary" />}>
+                <Plus /> Add provider <ChevronDown className="size-3.5 opacity-80" />
+              </MenuTrigger>
+              <MenuContent align="end">
+                <MenuItem onClick={() => (apps.length ? setConnecting(true) : document.getElementById("connect-github")?.scrollIntoView({ behavior: "smooth" }))}>
+                  <GithubMark /> GitHub
                 </MenuItem>
-              ))}
-              <MenuSeparator />
-              <MenuItem onClick={() => dialogs.setKeyOpen(true)}>
-                <KeyRound /> SSH deploy key
-              </MenuItem>
-            </MenuContent>
-          </Menu>
-        )
-      }
-    />
-    <PageBody>
-    <div className="flex flex-col gap-6">
-      {apps.length > 0 && (
-        <Card className="overflow-hidden">
-          <CardHeader title="GitHub" description="Repositories are read through the GitHub App. Push and pull request events arrive automatically." />
-          <div className="divide-y divide-line">
-            {apps.map((c) => (
-              <div key={c.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
-                <span className="flex size-9 items-center justify-center rounded-[10px] bg-fg text-bg">
-                  <GithubMark className="size-4" />
-                </span>
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="flex items-center gap-2 text-[14px] font-medium text-fg">
-                    {c.app?.account ?? c.name}
-                    {c.app?.installed ? <Badge tone="ok"><Check /> Installed</Badge> : <Badge tone="warn">Not installed</Badge>}
-                  </span>
-                  <span className="text-xs text-muted">
-                    App <span className="font-mono">{c.app?.slug}</span> · added <TimeAgo date={c.createdAt} />
-                  </span>
-                </div>
-                {isAdmin && (
-                  <>
-                    <Button size="sm" variant={c.app?.installed ? "secondary" : "primary"} onClick={() => configure.run(c.id)} loading={configure.pending}>
-                      <Settings2 /> {c.app?.installed ? "Repository access" : "Finish installation"}
-                    </Button>
-                    <a href={c.app?.settingsUrl} target="_blank" rel="noreferrer" className="rounded-lg p-2 text-muted hover:bg-hover hover:text-fg" aria-label="App settings on GitHub">
-                      <ArrowUpRight className="size-4" />
-                    </a>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label="Remove"
-                      onClick={async () => {
-                        if (
-                          await confirm({
-                            title: `Disconnect ${c.app?.account ?? c.name}?`,
-                            description: "Services using it can no longer pull their repository. Delete the app on GitHub as well to revoke its access completely.",
-                            confirmLabel: "Disconnect",
-                            danger: true,
-                          })
-                        )
-                          remove.run(c.id);
-                      }}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </>
-                )}
+                <MenuSeparator />
+                {(["gitlab", "gitea", "bitbucket"] as const).map((p) => (
+                  <MenuItem key={p} onClick={() => setMethod(p)}>
+                    <FolderGit2 /> {providerNames[p]}
+                  </MenuItem>
+                ))}
+                <MenuSeparator />
+                <MenuItem onClick={() => dialogs.setKeyOpen(true)}>
+                  <KeyRound /> SSH deploy key
+                </MenuItem>
+              </MenuContent>
+            </Menu>
+          )
+        }
+      />
+      <PageBody>
+        <div className="flex flex-col gap-6">
+          {apps.length > 0 && (
+            <Card className="overflow-hidden">
+              <CardHeader title="GitHub" description="Repositories are read through the GitHub App. Push and pull request events arrive automatically." />
+              <div className="divide-y divide-line">
+                {apps.map((c) => (
+                  <div key={c.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
+                    <span className="flex size-9 items-center justify-center rounded-[10px] bg-fg text-bg">
+                      <GithubMark className="size-4" />
+                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="flex items-center gap-2 text-[14px] font-medium text-fg">
+                        {c.app?.account ?? c.name}
+                        {c.app?.installed ? (
+                          <Badge tone="ok">
+                            <Check /> Installed
+                          </Badge>
+                        ) : (
+                          <Badge tone="warn">Not installed</Badge>
+                        )}
+                      </span>
+                      <span className="text-xs text-muted">
+                        App <span className="font-mono">{c.app?.slug}</span> · added <TimeAgo date={c.createdAt} />
+                      </span>
+                    </div>
+                    {isAdmin && (
+                      <>
+                        <Button size="sm" variant={c.app?.installed ? "secondary" : "primary"} onClick={() => configure.run(c.id)} loading={configure.pending}>
+                          <Settings2 /> {c.app?.installed ? "Repository access" : "Finish installation"}
+                        </Button>
+                        <a
+                          href={c.app?.settingsUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-lg p-2 text-muted hover:bg-hover hover:text-fg"
+                          aria-label="App settings on GitHub"
+                        >
+                          <ArrowUpRight className="size-4" />
+                        </a>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label="Remove"
+                          onClick={async () => {
+                            if (
+                              await confirm({
+                                title: `Disconnect ${c.app?.account ?? c.name}?`,
+                                description: "Services using it can no longer pull their repository. Delete the app on GitHub as well to revoke its access completely.",
+                                confirmLabel: "Disconnect",
+                                danger: true,
+                              })
+                            )
+                              remove.run(c.id);
+                          }}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Card>
-      )}
+            </Card>
+          )}
 
-      {isAdmin && apps.length === 0 && <ConnectGithub publicUrl={publicUrl} baseUrl={baseUrl} />}
+          {isAdmin && apps.length === 0 && <ConnectGithub publicUrl={publicUrl} baseUrl={baseUrl} />}
 
-      {others.length > 0 && (
-        <Card className="overflow-hidden">
-          <CardHeader title="Tokens and keys" />
-          <div className="divide-y divide-line">
-            {others.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 px-5 py-3.5">
-                <span className="flex size-9 items-center justify-center rounded-[10px] border border-line bg-surface-2">
-                  {c.provider === "ssh" ? <KeyRound className="size-4 text-fg-2" /> : <FolderGit2 className="size-4 text-fg-2" />}
-                </span>
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-[14px] font-medium text-fg">{c.name}</span>
-                  <span className="truncate text-xs text-muted">
-                    {providerNames[c.provider]}
-                    {c.provider !== "ssh" && c.publicInfo && ` · ${c.publicInfo}`} · added <TimeAgo date={c.createdAt} />
-                  </span>
-                </div>
-                {c.provider === "ssh" && c.publicInfo && <CopyField value={c.publicInfo} className="hidden max-w-60 md:flex" />}
-                {isAdmin && (
-                  <Button size="icon-sm" variant="ghost" aria-label="Remove" onClick={async () => { if (await confirm({ title: `Remove ${c.name}?`, description: "Services using it can no longer pull their repository.", confirmLabel: "Remove", danger: true })) remove.run(c.id); }}>
-                    <Trash2 />
-                  </Button>
-                )}
+          {others.length > 0 && (
+            <Card className="overflow-hidden">
+              <CardHeader title="Tokens and keys" />
+              <div className="divide-y divide-line">
+                {others.map((c) => (
+                  <div key={c.id} className="flex items-center gap-3 px-5 py-3.5">
+                    <span className="flex size-9 items-center justify-center rounded-[10px] border border-line bg-surface-2">
+                      {c.provider === "ssh" ? <KeyRound className="size-4 text-fg-2" /> : <FolderGit2 className="size-4 text-fg-2" />}
+                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-[14px] font-medium text-fg">{c.name}</span>
+                      <span className="truncate text-xs text-muted">
+                        {providerNames[c.provider]}
+                        {c.provider !== "ssh" && c.publicInfo && ` · ${c.publicInfo}`} · added <TimeAgo date={c.createdAt} />
+                      </span>
+                    </div>
+                    {c.provider === "ssh" && c.publicInfo && <CopyField value={c.publicInfo} className="hidden max-w-60 md:flex" />}
+                    {isAdmin && (
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label="Remove"
+                        onClick={async () => {
+                          if (
+                            await confirm({
+                              title: `Remove ${c.name}?`,
+                              description: "Services using it can no longer pull their repository.",
+                              confirmLabel: "Remove",
+                              danger: true,
+                            })
+                          )
+                            remove.run(c.id);
+                        }}
+                      >
+                        <Trash2 />
+                      </Button>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Card>
-      )}
+            </Card>
+          )}
 
-      <OAuthApps apps={oauthApps} isAdmin={isAdmin} />
-      <OtherProviders isAdmin={isAdmin} dialogs={dialogs} />
-      {!isAdmin && credentials.length === 0 && (
-        <Card><CardBody className="text-[13px] text-muted">Ask an organization admin to connect GitHub.</CardBody></Card>
-      )}
-    </div>
-    </PageBody>
-    <MethodDialog
-      provider={method}
-      onClose={() => setMethod(null)}
-      onOAuth={() => (setOauthSetup(method), setMethod(null))}
-      onToken={() => {
-        if (method) dialogs.setProvider(method);
-        setMethod(null);
-        dialogs.setTokenOpen(true);
-      }}
-    />
-    <OAuthSetupDialog provider={oauthSetup} base={oauthBase} onClose={() => setOauthSetup(null)} />
-    <Dialog open={connecting} onOpenChange={setConnecting}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader title="Connect another GitHub account" description="Each GitHub account or organization gets its own GitHub App." />
-        <ConnectGithub publicUrl={publicUrl} baseUrl={baseUrl} embedded />
-      </DialogContent>
-    </Dialog>
+          <OAuthApps apps={oauthApps} isAdmin={isAdmin} />
+          <OtherProviders isAdmin={isAdmin} dialogs={dialogs} />
+          {!isAdmin && credentials.length === 0 && (
+            <Card>
+              <CardBody className="text-[13px] text-muted">Ask an organization admin to connect GitHub.</CardBody>
+            </Card>
+          )}
+        </div>
+      </PageBody>
+      <MethodDialog
+        provider={method}
+        onClose={() => setMethod(null)}
+        onOAuth={() => (setOauthSetup(method), setMethod(null))}
+        onToken={() => {
+          if (method) dialogs.setProvider(method);
+          setMethod(null);
+          dialogs.setTokenOpen(true);
+        }}
+      />
+      <OAuthSetupDialog provider={oauthSetup} base={oauthBase} onClose={() => setOauthSetup(null)} />
+      <Dialog open={connecting} onOpenChange={setConnecting}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader title="Connect another GitHub account" description="Each GitHub account or organization gets its own GitHub App." />
+          <ConnectGithub publicUrl={publicUrl} baseUrl={baseUrl} embedded />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

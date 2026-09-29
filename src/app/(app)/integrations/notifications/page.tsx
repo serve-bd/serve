@@ -10,7 +10,11 @@ export const metadata = { title: "Notifications" };
 
 export default async function NotificationsPage() {
   const ctx = await requireOrg();
-  const rows = await db.select().from(schema.notificationChannel).where(eq(schema.notificationChannel.organizationId, ctx.org.id)).orderBy(desc(schema.notificationChannel.createdAt));
+  const rows = await db
+    .select()
+    .from(schema.notificationChannel)
+    .where(eq(schema.notificationChannel.organizationId, ctx.org.id))
+    .orderBy(desc(schema.notificationChannel.createdAt));
   return (
     <>
       <PageHeader title="Notifications" description="Get told when deployments fail, services crash, backups run or certificates renew." />

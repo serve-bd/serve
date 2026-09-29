@@ -135,14 +135,27 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
                 <Field label="IP address or hostname">
-                  <Input value={conn.host} onChange={(e) => setConn({ ...conn, host: e.target.value })} placeholder="203.0.113.10" className="font-mono" autoComplete="off" spellCheck={false} />
+                  <Input
+                    value={conn.host}
+                    onChange={(e) => setConn({ ...conn, host: e.target.value })}
+                    placeholder="203.0.113.10"
+                    className="font-mono"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
                 </Field>
                 <Field label="SSH port">
                   <Input value={conn.port} onChange={(e) => setConn({ ...conn, port: e.target.value.replace(/\D/g, "").slice(0, 5) })} inputMode="numeric" className="font-mono" />
                 </Field>
               </div>
               <Field label="User" description="root, or a user with passwordless sudo who can run Docker.">
-                <Input value={conn.username} onChange={(e) => setConn({ ...conn, username: e.target.value })} className="font-mono sm:max-w-56" autoComplete="off" spellCheck={false} />
+                <Input
+                  value={conn.username}
+                  onChange={(e) => setConn({ ...conn, username: e.target.value })}
+                  className="font-mono sm:max-w-56"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
               </Field>
             </CardBody>
             <CardFooter className="justify-end">
@@ -191,7 +204,10 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
               <>
                 <div className="flex flex-col divide-y divide-line overflow-hidden rounded-xl border border-line">
                   {keys.map((k) => (
-                    <label key={k.id} className={cn("flex cursor-pointer items-center gap-3 px-3.5 py-2.5 transition-colors", keyId === k.id ? "bg-accent-soft/40" : "hover:bg-surface-2")}>
+                    <label
+                      key={k.id}
+                      className={cn("flex cursor-pointer items-center gap-3 px-3.5 py-2.5 transition-colors", keyId === k.id ? "bg-accent-soft/40" : "hover:bg-surface-2")}
+                    >
                       <input type="radio" name="key" className="accent-[var(--accent)]" checked={keyId === k.id} onChange={() => setKeyId(k.id)} />
                       <span className="flex min-w-0 flex-col">
                         <span className="truncate text-[13px] font-medium text-fg">{k.name}</span>
@@ -246,15 +262,7 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
 type Progress = { status: ServerStatus; statusMessage: string | null; setupLog: string };
 
 /** Live log of the setup job, with the next action for every outcome. */
-export function ServerSetupProgress({
-  serverId,
-  onReady,
-  compact,
-}: {
-  serverId: string;
-  onReady?: () => void;
-  compact?: boolean;
-}) {
+export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: string; onReady?: () => void; compact?: boolean }) {
   const router = useRouter();
   const [progress, setProgress] = React.useState<Progress | null>(null);
   const [tick, setTick] = React.useState(0);

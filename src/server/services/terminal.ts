@@ -221,7 +221,10 @@ const hostStore = globalThis as unknown as { __serveHostShellTimer?: NodeJS.Time
  * enters every namespace of the host's init process, which gives a real host shell.
  */
 async function ensureHostContainer(): Promise<string> {
-  const info = await localDocker.getContainer(HOST_CONTAINER).inspect().catch(() => null);
+  const info = await localDocker
+    .getContainer(HOST_CONTAINER)
+    .inspect()
+    .catch(() => null);
   if (info?.State.Running) return info.Id;
   if (info) await removeContainer(HOST_CONTAINER, 1);
   if (!(await imageExists(HOST_IMAGE))) await pullImage(HOST_IMAGE);

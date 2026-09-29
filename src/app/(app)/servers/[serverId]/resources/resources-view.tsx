@@ -83,7 +83,17 @@ export function ResourcesView({ serverId, containers, summary }: { serverId: str
     <div className="flex flex-col gap-6">
       <Card className="overflow-hidden">
         <div className="grid grid-cols-2 gap-px bg-line sm:grid-cols-4">
-          <Tile icon={<Box />} label="Containers" value={<>{running}<span className="text-[14px] font-medium text-faint"> / {containers.length}</span></>} sub={data ? `${totals.cpu.toFixed(0)}% CPU · ${formatBytes(totals.memory)}` : "running"} />
+          <Tile
+            icon={<Box />}
+            label="Containers"
+            value={
+              <>
+                {running}
+                <span className="text-[14px] font-medium text-faint"> / {containers.length}</span>
+              </>
+            }
+            sub={data ? `${totals.cpu.toFixed(0)}% CPU · ${formatBytes(totals.memory)}` : "running"}
+          />
           <Tile icon={<Layers />} label="Images" value={summary.images} />
           <Tile icon={<HardDrive />} label="Volumes" value={summary.volumes} />
           <Tile icon={<Network />} label="Networks" value={summary.networks} />
@@ -98,7 +108,10 @@ export function ResourcesView({ serverId, containers, summary }: { serverId: str
                 key={f}
                 type="button"
                 onClick={() => setFilter(f)}
-                className={cn("flex h-7 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-all", filter === f ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
+                className={cn(
+                  "flex h-7 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-all",
+                  filter === f ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg",
+                )}
               >
                 {f === "all" ? "All" : f === "serve" ? "Serve" : "Unmanaged"}
                 <span className="text-faint tabular-nums">{counts[f]}</span>
@@ -126,13 +139,18 @@ export function ResourcesView({ serverId, containers, summary }: { serverId: str
               {visible.map((c) => {
                 const isRunning = c.state === "running";
                 return (
-                  <div key={c.id} className="grid grid-cols-[minmax(0,1fr)_32px] items-center gap-x-4 gap-y-1.5 px-4 py-3 sm:px-5 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_140px_100px_32px]">
+                  <div
+                    key={c.id}
+                    className="grid grid-cols-[minmax(0,1fr)_32px] items-center gap-x-4 gap-y-1.5 px-4 py-3 sm:px-5 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.3fr)_140px_100px_32px]"
+                  >
                     <div className="flex min-w-0 items-start gap-3">
                       <span className="mt-1.5 size-2 flex-none rounded-full" style={{ background: stateColor[c.state] ?? "var(--idle)" }} title={c.state} />
                       <div className="flex min-w-0 flex-col gap-0.5">
                         <div className="flex min-w-0 items-center gap-2">
                           <span className="truncate font-mono text-[12.5px] font-medium text-fg">{c.name}</span>
-                          <Badge tone={kindBadge[c.kind].tone} className="flex-none">{kindBadge[c.kind].label}</Badge>
+                          <Badge tone={kindBadge[c.kind].tone} className="flex-none">
+                            {kindBadge[c.kind].label}
+                          </Badge>
                         </div>
                         <span className="truncate text-xs text-muted">
                           {c.service ? (
@@ -163,7 +181,14 @@ export function ResourcesView({ serverId, containers, summary }: { serverId: str
                                 <MenuItem
                                   danger
                                   onClick={async () => {
-                                    if (await confirm({ title: `Stop ${c.name}?`, description: "Serve does not manage this container. It stays stopped until you or its restart policy start it again.", confirmLabel: "Stop container", danger: true }))
+                                    if (
+                                      await confirm({
+                                        title: `Stop ${c.name}?`,
+                                        description: "Serve does not manage this container. It stays stopped until you or its restart policy start it again.",
+                                        confirmLabel: "Stop container",
+                                        danger: true,
+                                      })
+                                    )
                                       control.run({ serverId, id: c.id, action: "stop" });
                                   }}
                                 >
@@ -180,15 +205,21 @@ export function ResourcesView({ serverId, containers, summary }: { serverId: str
                       )}
                     </div>
                     <div className="col-span-2 flex min-w-0 flex-col gap-0.5 pl-5 md:col-span-1 md:col-start-2 md:row-start-1 md:pl-0">
-                      <span className="truncate font-mono text-[11.5px] text-fg-2" title={c.image}>{c.image}</span>
+                      <span className="truncate font-mono text-[11.5px] text-fg-2" title={c.image}>
+                        {c.image}
+                      </span>
                       {c.ports.length > 0 && <span className="truncate font-mono text-[11px] text-faint">{c.ports.join("  ")}</span>}
                     </div>
                     <div className="col-span-2 flex items-center gap-3 pl-5 text-xs md:col-span-1 md:col-start-3 md:row-start-1 md:pl-0">
                       <Usage stats={stats[c.id]} running={isRunning} />
                       <span className="text-faint md:hidden">·</span>
-                      <span className="text-muted md:hidden"><TimeAgo date={c.created} /></span>
+                      <span className="text-muted md:hidden">
+                        <TimeAgo date={c.created} />
+                      </span>
                     </div>
-                    <span className="hidden text-xs text-muted md:col-start-4 md:row-start-1 md:block"><TimeAgo date={c.created} /></span>
+                    <span className="hidden text-xs text-muted md:col-start-4 md:row-start-1 md:block">
+                      <TimeAgo date={c.created} />
+                    </span>
                   </div>
                 );
               })}

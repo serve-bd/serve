@@ -5,7 +5,18 @@ import { act, UserError } from "@/server/action";
 import { requireInstanceAdmin } from "@/server/auth";
 import { logActivity } from "@/server/activity";
 import { updateSettings } from "@/server/settings";
-import { applyCustomConfig, ProxyConfigError, proxyLogs, readSiteFile, reloadProxy, restartProxy, startProxy, stopProxy, syncServerProxy, testProxyConfig } from "@/server/proxy/nginx";
+import {
+  applyCustomConfig,
+  ProxyConfigError,
+  proxyLogs,
+  readSiteFile,
+  reloadProxy,
+  restartProxy,
+  startProxy,
+  stopProxy,
+  syncServerProxy,
+  testProxyConfig,
+} from "@/server/proxy/nginx";
 import { getServer } from "@/server/servers/context";
 
 async function serverCtx(serverId: string) {

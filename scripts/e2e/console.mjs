@@ -7,7 +7,7 @@ const input = page.getByPlaceholder("Type a command and press Enter");
 await input.fill("echo hello-from-console && node -v && exit 3");
 await input.press("Enter");
 await page.waitForSelector("text=exit 3", { timeout: 20000 });
-console.log("console output ok:", await page.getByText("hello-from-console").count() > 0);
+console.log("console output ok:", (await page.getByText("hello-from-console").count()) > 0);
 await page.screenshot({ path: "/tmp/claude-1000/console.png" });
 
 await page.goto(base + svc + "/tasks", { waitUntil: "networkidle" });
@@ -19,6 +19,6 @@ await page.waitForTimeout(1500);
 await page.getByRole("button", { name: "Run now" }).first().click();
 await page.waitForSelector("text=exit 0", { timeout: 30000 });
 await page.waitForTimeout(1000);
-console.log("task output ok:", await page.getByText("task-ran").count() > 0);
+console.log("task output ok:", (await page.getByText("task-ran").count()) > 0);
 await page.screenshot({ path: "/tmp/claude-1000/tasks.png" });
 await browser.close();

@@ -41,7 +41,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
 
   return (
     <PageBody>
-      <ServiceOverview {...await loadOverview(service, projectId, ctx.org.id)} />
+      <ServiceOverview {...(await loadOverview(service, projectId, ctx.org.id))} />
     </PageBody>
   );
 }

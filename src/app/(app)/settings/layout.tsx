@@ -27,9 +27,7 @@ export default async function SettingsLayout({ children }: LayoutProps<"/setting
             },
             {
               title: "Security",
-              items: [
-                { href: "/settings/security", label: "Security", icon: "ShieldCheck", warn: security },
-              ],
+              items: [{ href: "/settings/security", label: "Security", icon: "ShieldCheck", warn: security }],
             },
           ]}
         />

@@ -13,14 +13,17 @@ import { logActivity } from "@/server/activity";
 
 const taskSchema = z.object({
   name: z.string().trim().min(1, "Enter a name").max(80),
-  schedule: z.string().trim().refine((v) => {
-    try {
-      CronExpressionParser.parse(v);
-      return v.split(/\s+/).length >= 5;
-    } catch {
-      return false;
-    }
-  }, "Enter a valid cron expression"),
+  schedule: z
+    .string()
+    .trim()
+    .refine((v) => {
+      try {
+        CronExpressionParser.parse(v);
+        return v.split(/\s+/).length >= 5;
+      } catch {
+        return false;
+      }
+    }, "Enter a valid cron expression"),
   command: z.string().trim().min(1, "Enter a command").max(4000),
   composeService: z.string().nullable().optional(),
   timeoutSeconds: z.number().int().min(10).max(86400).default(3600),
@@ -46,7 +49,14 @@ export async function saveTask(serviceId: string, taskId: string | null, input: 
     }
     const id = newId();
     await db.insert(schema.scheduledTask).values({ id, serviceId, ...data });
-    await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: "task.created", targetType: "service", targetId: serviceId, message: `Scheduled "${data.name}" on ${service.name}` });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "task.created",
+      targetType: "service",
+      targetId: serviceId,
+      message: `Scheduled "${data.name}" on ${service.name}`,
+    });
     return { id };
   });
 }

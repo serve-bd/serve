@@ -133,7 +133,13 @@ try {
 
     // Invalid raw config is rejected and the site keeps working.
     const bad = buildProxyConfig(
-      proxyInputSchema.parse(kind === "nginx" ? { customDirectives: "nonsense_directive on;" } : kind === "caddy" ? { caddyDirectives: "nonsense_directive on" } : { traefikMiddlewares: "broken:\n  notAMiddleware: {}" }),
+      proxyInputSchema.parse(
+        kind === "nginx"
+          ? { customDirectives: "nonsense_directive on;" }
+          : kind === "caddy"
+            ? { caddyDirectives: "nonsense_directive on" }
+            : { traefikMiddlewares: "broken:\n  notAMiddleware: {}" },
+      ),
       null,
     );
     await db.update(schema.service).set({ proxy: bad }).where(eq(schema.service.id, app));

@@ -49,7 +49,7 @@ type Props = {
     status: string;
   };
   /** Database services: everything the database sections need. */
-  db: Omit<DatabaseSettingsProps, "onNeedsRestart" | "serviceId" | "running" | "restartPolicy" | "stopTimeout"> & { dataPath: string; defaultDataPath: string } | null;
+  db: (Omit<DatabaseSettingsProps, "onNeedsRestart" | "serviceId" | "running" | "restartPolicy" | "stopTimeout"> & { dataPath: string; defaultDataPath: string }) | null;
   versions: string[];
   credentials: { id: string; name: string; provider: string }[];
   nixpacks: boolean;
@@ -179,7 +179,10 @@ export function ServiceSettings(props: Props) {
 
   return (
     <div className="flex flex-col gap-6 xl:flex-row xl:gap-10">
-      <nav aria-label="Settings sections" className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto px-4 xl:sticky xl:top-6 xl:mx-0 xl:w-44 xl:flex-none xl:flex-col xl:gap-0.5 xl:self-start xl:overflow-visible xl:px-0">
+      <nav
+        aria-label="Settings sections"
+        className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto px-4 xl:sticky xl:top-6 xl:mx-0 xl:w-44 xl:flex-none xl:flex-col xl:gap-0.5 xl:self-start xl:overflow-visible xl:px-0"
+      >
         {nav.map((item) => {
           const active = item.id === section;
           return (
@@ -199,302 +202,325 @@ export function ServiceSettings(props: Props) {
           );
         })}
       </nav>
-    <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
-      {isDb && <ApplyBar pending={pendingApply} running={running} applying={applyDb.pending} onApply={() => applyDb.run()} />}
-      {show("general") && (
-      <Section
-          id="general"
-          title="General"
-          initial={{ name: service.name, hostname: service.hostname ?? "" }}
-          onSave={(v) => save.run({ name: v.name, ...(service.type !== "compose" ? { hostname: v.hostname.trim() || null } : {}) })}
-          footerNote={service.type !== "compose" ? "A new hostname applies after redeploying this service and the services that reference it." : undefined}
-        >
-          {(v, set) => (
-            <>
-              <Field label="Service name">
-                <Input value={v.name} onChange={(e) => set({ name: e.target.value })} required />
-              </Field>
-              {service.type === "compose" ? (
-                <Field label="Private hostname" description="Other services in this environment reach this one at this hostname.">
-                  <CopyField value={service.slug} />
-                </Field>
-              ) : (
-                <Field
-                  label="Private hostname"
-                  optional
-                  description={`Other services in this environment reach this one at this name. ${service.slug} keeps working as well.`}
-                >
-                  <Input
-                    value={v.hostname}
-                    onChange={(e) => set({ hostname: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
-                    placeholder={service.slug}
-                    maxLength={63}
-                    className="font-mono text-[13px]"
-                  />
-                </Field>
-              )}
-            </>
-          )}
-        </Section>
-      )}
-
-      {show("server") && <ServerCard service={service} server={props.server} servers={props.servers} />}
-
-      {props.db && (
-        <DatabaseSections
-          section={section}
-          {...props.db}
-          serviceId={service.id}
-          running={running}
-          restartPolicy={service.runtime.restartPolicy}
-          stopTimeout={service.runtime.stopTimeout ?? null}
-          onNeedsRestart={needsRestart}
-        />
-      )}
-
-      {show("source") && service.source?.type === "git" && (
-        <Section
-          id="source"
-          title="Source"
-          description="The repository and branch Serve builds from."
-          initial={{ repository: service.source.repository, branch: service.source.branch, credentialId: service.source.credentialId ?? "public", autoDeploy: service.autoDeploy, previewsEnabled: service.previewsEnabled }}
-          onSave={(v) =>
-            save.run({
-              source: { type: "git", repository: v.repository, branch: v.branch, credentialId: v.credentialId === "public" ? null : v.credentialId },
-              autoDeploy: v.autoDeploy,
-              previewsEnabled: v.previewsEnabled,
-            })
-          }
-        >
-          {(v, set) => (
-            <>
-              <Field label="Repository">
-                <Input value={v.repository} onChange={(e) => set({ repository: e.target.value })} className="font-mono text-[13px]" />
-              </Field>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Branch">
-                  <Input value={v.branch} onChange={(e) => set({ branch: e.target.value })} className="font-mono text-[13px]" />
-                </Field>
-                <Field label="Access">
-                  <Select
-                    value={v.credentialId}
-                    onValueChange={(c) => set({ credentialId: c })}
-                    options={[{ value: "public", label: "Public repository" }, ...props.credentials.map((c) => ({ value: c.id, label: c.name }))]}
-                  />
-                </Field>
-              </div>
-              <SwitchRow title="Deploy on push" description="Pushes to this branch trigger a deployment through the webhook below." checked={v.autoDeploy} onCheckedChange={(c) => set({ autoDeploy: c })} />
-              {!service.isPreview && (
-                <SwitchRow
-                  title="Preview deployments"
-                  description="Deploy every pull request to its own temporary URL, and remove it when the pull request closes. Enable pull request events on the webhook."
-                  checked={v.previewsEnabled}
-                  onCheckedChange={(c) => set({ previewsEnabled: c })}
-                />
-              )}
-            </>
-          )}
-        </Section>
-      )}
-
-      {show("source") && service.source?.type === "image" && (
-        <Section
-          id="source"
-          title="Image"
-          initial={{ image: service.source.image, registryUsername: service.source.registryUsername ?? "", registryPassword: "" }}
-          onSave={(v) =>
-            save.run({
-              source: {
-                type: "image",
-                image: v.image,
-                registryUsername: v.registryUsername || null,
-                registryPassword: v.registryPassword ? v.registryPassword : v.registryUsername ? undefined : null,
-              },
-            })
-          }
-        >
-          {(v, set) => (
-            <>
-              <Field label="Image">
-                <Input value={v.image} onChange={(e) => set({ image: e.target.value })} className="font-mono text-[13px]" />
-              </Field>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Registry username" optional>
-                  <Input value={v.registryUsername} onChange={(e) => set({ registryUsername: e.target.value })} autoComplete="off" />
-                </Field>
-                <Field label="Registry password" optional description={service.source?.type === "image" && service.source.hasPassword ? "Leave empty to keep the saved password." : undefined}>
-                  <Input type="password" value={v.registryPassword} onChange={(e) => set({ registryPassword: e.target.value })} autoComplete="new-password" />
-                </Field>
-              </div>
-            </>
-          )}
-        </Section>
-      )}
-
-      {show("build") && service.build && service.source?.type === "git" && <BuildSection serviceId={service.id} build={service.build} nixpacks={props.nixpacks} save={save.run} />}
-
-      {show("networking") && service.compose && (
-        <Section
-          id="networking"
-          title="Network"
-          description="Who the services of this stack can reach on the private network."
-          initial={{ reach: !service.compose.isolated }}
-          onSave={(v) => save.run({ compose: { isolated: !v.reach } })}
-          footerNote="Applies on the next deploy."
-        >
-          {(v, set) => (
-            <>
-              <SwitchRow
-                title="Reach other services in this environment"
-                description={
-                  v.reach
-                    ? "The stack's services can connect to databases and apps of this environment, and they can connect to it."
-                    : "The stack keeps to itself: its services reach only each other. Domains still work; the proxy joins the stack's own network."
-                }
-                checked={v.reach}
-                onCheckedChange={(c) => set({ reach: c })}
-              />
-              {!v.reach && (
-                <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
-                  References like <span className="font-mono">{"${{postgres.DATABASE_URL}}"}</span> still resolve, but the address is not reachable from this stack. Add the database to the compose file instead.
-                </p>
-              )}
-            </>
-          )}
-        </Section>
-      )}
-
-      {show("compose") && service.compose && (
-        <Section
-          id="compose"
-          title="Compose file"
-          description={service.compose.mode === "git" ? "Read from the repository on every deploy." : "Edit the stack and deploy to apply."}
-          initial={{ content: service.compose.content, path: service.compose.path }}
-          onSave={(v) => save.run({ compose: service.compose?.mode === "git" ? { path: v.path } : { content: v.content } })}
-          footerAction={() =>
-            service.compose?.mode === "inline" && (
-              <Link href={`/templates/new?service=${service.id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
-                <LayoutTemplate /> Save as template
-              </Link>
-            )
-          }
-        >
-          {(v, set) =>
-            service.compose?.mode === "git" ? (
-              <Field label="Compose file path">
-                <Input value={v.path} onChange={(e) => set({ path: e.target.value })} className="font-mono text-[13px]" />
-              </Field>
-            ) : (
-              <CodeEditor value={v.content} onChange={(content) => set({ content })} minRows={14} maxHeight="40rem" aria-label="docker-compose.yml" />
-            )
-          }
-        </Section>
-      )}
-
-      {service.type === "app" && (
-        <>
-          {show("deploy") && <DeploySection runtime={service.runtime} save={save.run} />}
-          {show("health") && <HealthSection runtime={service.runtime} save={save.run} />}
-          {show("runtime") && <RuntimeSection runtime={service.runtime} save={save.run} />}
-        </>
-      )}
-
-      {show("storage") && props.db && (
-        <StorageSection
-          serviceId={service.id}
-          volumes={service.runtime.volumes}
-          running={running}
-          isRootAdmin={props.isRootAdmin}
-          onSave={saveStorage}
-          data={{ mountPath: props.db.dataPath, defaultPath: props.db.defaultDataPath }}
-        />
-      )}
-
-      {show("resources") && service.type !== "compose" && <ResourcesSection runtime={service.runtime} save={(p) => saveRuntime(p, "Resources")} />}
-
-      {show("storage") && service.type === "app" && (
-        <StorageSection serviceId={service.id} volumes={service.runtime.volumes} running={running} isRootAdmin={props.isRootAdmin} onSave={saveStorage} />
-      )}
-
-      {show("advanced") && service.type !== "compose" && <AdvancedSection runtime={service.runtime} save={(p) => saveRuntime(p, "Advanced")} isRootAdmin={props.isRootAdmin} />}
-
-      {show("webhooks") && service.type !== "database" && (
-        <Card id="webhooks" className="scroll-mt-6">
-          <CardHeader title="Webhooks" description="Trigger deployments from your Git provider or CI." />
-          <CardBody className="flex flex-col gap-4 py-5">
-            {props.viaGithubApp ? (
-              <p className="flex items-start gap-2 rounded-xl bg-ok-soft px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
-                <Check className="mt-0.5 size-4 shrink-0 text-ok" />
-                Push and pull request events arrive automatically through the GitHub App. No webhook setup is needed.
-              </p>
-            ) : (
+      <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
+        {isDb && <ApplyBar pending={pendingApply} running={running} applying={applyDb.pending} onApply={() => applyDb.run()} />}
+        {show("general") && (
+          <Section
+            id="general"
+            title="General"
+            initial={{ name: service.name, hostname: service.hostname ?? "" }}
+            onSave={(v) => save.run({ name: v.name, ...(service.type !== "compose" ? { hostname: v.hostname.trim() || null } : {}) })}
+            footerNote={service.type !== "compose" ? "A new hostname applies after redeploying this service and the services that reference it." : undefined}
+          >
+            {(v, set) => (
               <>
-                {props.managedWebhook && service.source?.type === "git" && <RepoWebhookStatus serviceId={service.id} webhook={service.source.webhook ?? null} />}
-                <Field
-                  label="Git webhook URL"
-                  description={
-                    props.managedWebhook
-                      ? "Serve adds this to the repository for you. Add it yourself only if automatic setup is not possible."
-                      : "Add to GitHub, GitLab, Gitea or Bitbucket as a push webhook. Use the secret below. Content type: application/json."
-                  }
-                >
-                  <CopyField value={props.webhookUrl} />
+                <Field label="Service name">
+                  <Input value={v.name} onChange={(e) => set({ name: e.target.value })} required />
                 </Field>
+                {service.type === "compose" ? (
+                  <Field label="Private hostname" description="Other services in this environment reach this one at this hostname.">
+                    <CopyField value={service.slug} />
+                  </Field>
+                ) : (
+                  <Field label="Private hostname" optional description={`Other services in this environment reach this one at this name. ${service.slug} keeps working as well.`}>
+                    <Input
+                      value={v.hostname}
+                      onChange={(e) => set({ hostname: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
+                      placeholder={service.slug}
+                      maxLength={63}
+                      className="font-mono text-[13px]"
+                    />
+                  </Field>
+                )}
               </>
             )}
-            <Field label="Webhook secret">
-              <div className="flex gap-2">
-                <CopyField value={props.webhookSecret} secret className="flex-1" />
-                <Button
-                  onClick={async () => {
-                    if (await confirm({ title: "Generate a new secret?", description: "Existing webhooks and deploy hooks stop working until you update them.", confirmLabel: "Generate" })) regen.run();
-                  }}
-                  loading={regen.pending}
-                >
-                  <RefreshCw /> Rotate
-                </Button>
-              </div>
-            </Field>
-            <Field label="Deploy hook" description="POST to this URL from CI to deploy the latest commit.">
-              <CopyField value={props.deployHookUrl} secret />
-            </Field>
-          </CardBody>
-        </Card>
-      )}
+          </Section>
+        )}
 
-      {show("danger") && (
-      <Card id="danger" className="scroll-mt-6 border-bad/30">
-          <CardHeader title="Delete service" description="Stops and removes all containers, images and domains for this service." />
-          <CardBody className="flex flex-col gap-3">
-            <label className="flex items-center gap-2 text-[13px] text-fg-2">
-              <Checkbox checked={removeVolumes} onCheckedChange={(c) => setRemoveVolumes(!!c)} />
-              Also delete volumes and stored data
-            </label>
-          </CardBody>
-          <CardFooter className="justify-end">
-            <Button
-              variant="danger"
-              size="sm"
-              loading={remove.pending}
-              onClick={async () => {
-                if (
-                  await confirm({
-                    title: `Delete ${service.name}?`,
-                    description: removeVolumes ? "All data stored in volumes is permanently deleted. This cannot be undone." : "Volumes are kept and can be reused by a new service with the same name.",
-                    confirmLabel: "Delete service",
-                    danger: true,
-                    typeToConfirm: service.name,
-                  })
-                )
-                  remove.run(removeVolumes);
-              }}
-            >
-              <Trash2 /> Delete service
-            </Button>
-          </CardFooter>
-        </Card>
-      )}
-    </div>
+        {show("server") && <ServerCard service={service} server={props.server} servers={props.servers} />}
+
+        {props.db && (
+          <DatabaseSections
+            section={section}
+            {...props.db}
+            serviceId={service.id}
+            running={running}
+            restartPolicy={service.runtime.restartPolicy}
+            stopTimeout={service.runtime.stopTimeout ?? null}
+            onNeedsRestart={needsRestart}
+          />
+        )}
+
+        {show("source") && service.source?.type === "git" && (
+          <Section
+            id="source"
+            title="Source"
+            description="The repository and branch Serve builds from."
+            initial={{
+              repository: service.source.repository,
+              branch: service.source.branch,
+              credentialId: service.source.credentialId ?? "public",
+              autoDeploy: service.autoDeploy,
+              previewsEnabled: service.previewsEnabled,
+            }}
+            onSave={(v) =>
+              save.run({
+                source: { type: "git", repository: v.repository, branch: v.branch, credentialId: v.credentialId === "public" ? null : v.credentialId },
+                autoDeploy: v.autoDeploy,
+                previewsEnabled: v.previewsEnabled,
+              })
+            }
+          >
+            {(v, set) => (
+              <>
+                <Field label="Repository">
+                  <Input value={v.repository} onChange={(e) => set({ repository: e.target.value })} className="font-mono text-[13px]" />
+                </Field>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="Branch">
+                    <Input value={v.branch} onChange={(e) => set({ branch: e.target.value })} className="font-mono text-[13px]" />
+                  </Field>
+                  <Field label="Access">
+                    <Select
+                      value={v.credentialId}
+                      onValueChange={(c) => set({ credentialId: c })}
+                      options={[{ value: "public", label: "Public repository" }, ...props.credentials.map((c) => ({ value: c.id, label: c.name }))]}
+                    />
+                  </Field>
+                </div>
+                <SwitchRow
+                  title="Deploy on push"
+                  description="Pushes to this branch trigger a deployment through the webhook below."
+                  checked={v.autoDeploy}
+                  onCheckedChange={(c) => set({ autoDeploy: c })}
+                />
+                {!service.isPreview && (
+                  <SwitchRow
+                    title="Preview deployments"
+                    description="Deploy every pull request to its own temporary URL, and remove it when the pull request closes. Enable pull request events on the webhook."
+                    checked={v.previewsEnabled}
+                    onCheckedChange={(c) => set({ previewsEnabled: c })}
+                  />
+                )}
+              </>
+            )}
+          </Section>
+        )}
+
+        {show("source") && service.source?.type === "image" && (
+          <Section
+            id="source"
+            title="Image"
+            initial={{ image: service.source.image, registryUsername: service.source.registryUsername ?? "", registryPassword: "" }}
+            onSave={(v) =>
+              save.run({
+                source: {
+                  type: "image",
+                  image: v.image,
+                  registryUsername: v.registryUsername || null,
+                  registryPassword: v.registryPassword ? v.registryPassword : v.registryUsername ? undefined : null,
+                },
+              })
+            }
+          >
+            {(v, set) => (
+              <>
+                <Field label="Image">
+                  <Input value={v.image} onChange={(e) => set({ image: e.target.value })} className="font-mono text-[13px]" />
+                </Field>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="Registry username" optional>
+                    <Input value={v.registryUsername} onChange={(e) => set({ registryUsername: e.target.value })} autoComplete="off" />
+                  </Field>
+                  <Field
+                    label="Registry password"
+                    optional
+                    description={service.source?.type === "image" && service.source.hasPassword ? "Leave empty to keep the saved password." : undefined}
+                  >
+                    <Input type="password" value={v.registryPassword} onChange={(e) => set({ registryPassword: e.target.value })} autoComplete="new-password" />
+                  </Field>
+                </div>
+              </>
+            )}
+          </Section>
+        )}
+
+        {show("build") && service.build && service.source?.type === "git" && (
+          <BuildSection serviceId={service.id} build={service.build} nixpacks={props.nixpacks} save={save.run} />
+        )}
+
+        {show("networking") && service.compose && (
+          <Section
+            id="networking"
+            title="Network"
+            description="Who the services of this stack can reach on the private network."
+            initial={{ reach: !service.compose.isolated }}
+            onSave={(v) => save.run({ compose: { isolated: !v.reach } })}
+            footerNote="Applies on the next deploy."
+          >
+            {(v, set) => (
+              <>
+                <SwitchRow
+                  title="Reach other services in this environment"
+                  description={
+                    v.reach
+                      ? "The stack's services can connect to databases and apps of this environment, and they can connect to it."
+                      : "The stack keeps to itself: its services reach only each other. Domains still work; the proxy joins the stack's own network."
+                  }
+                  checked={v.reach}
+                  onCheckedChange={(c) => set({ reach: c })}
+                />
+                {!v.reach && (
+                  <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
+                    References like <span className="font-mono">{"${{postgres.DATABASE_URL}}"}</span> still resolve, but the address is not reachable from this stack. Add the
+                    database to the compose file instead.
+                  </p>
+                )}
+              </>
+            )}
+          </Section>
+        )}
+
+        {show("compose") && service.compose && (
+          <Section
+            id="compose"
+            title="Compose file"
+            description={service.compose.mode === "git" ? "Read from the repository on every deploy." : "Edit the stack and deploy to apply."}
+            initial={{ content: service.compose.content, path: service.compose.path }}
+            onSave={(v) => save.run({ compose: service.compose?.mode === "git" ? { path: v.path } : { content: v.content } })}
+            footerAction={() =>
+              service.compose?.mode === "inline" && (
+                <Link href={`/templates/new?service=${service.id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                  <LayoutTemplate /> Save as template
+                </Link>
+              )
+            }
+          >
+            {(v, set) =>
+              service.compose?.mode === "git" ? (
+                <Field label="Compose file path">
+                  <Input value={v.path} onChange={(e) => set({ path: e.target.value })} className="font-mono text-[13px]" />
+                </Field>
+              ) : (
+                <CodeEditor value={v.content} onChange={(content) => set({ content })} minRows={14} maxHeight="40rem" aria-label="docker-compose.yml" />
+              )
+            }
+          </Section>
+        )}
+
+        {service.type === "app" && (
+          <>
+            {show("deploy") && <DeploySection runtime={service.runtime} save={save.run} />}
+            {show("health") && <HealthSection runtime={service.runtime} save={save.run} />}
+            {show("runtime") && <RuntimeSection runtime={service.runtime} save={save.run} />}
+          </>
+        )}
+
+        {show("storage") && props.db && (
+          <StorageSection
+            serviceId={service.id}
+            volumes={service.runtime.volumes}
+            running={running}
+            isRootAdmin={props.isRootAdmin}
+            onSave={saveStorage}
+            data={{ mountPath: props.db.dataPath, defaultPath: props.db.defaultDataPath }}
+          />
+        )}
+
+        {show("resources") && service.type !== "compose" && <ResourcesSection runtime={service.runtime} save={(p) => saveRuntime(p, "Resources")} />}
+
+        {show("storage") && service.type === "app" && (
+          <StorageSection serviceId={service.id} volumes={service.runtime.volumes} running={running} isRootAdmin={props.isRootAdmin} onSave={saveStorage} />
+        )}
+
+        {show("advanced") && service.type !== "compose" && <AdvancedSection runtime={service.runtime} save={(p) => saveRuntime(p, "Advanced")} isRootAdmin={props.isRootAdmin} />}
+
+        {show("webhooks") && service.type !== "database" && (
+          <Card id="webhooks" className="scroll-mt-6">
+            <CardHeader title="Webhooks" description="Trigger deployments from your Git provider or CI." />
+            <CardBody className="flex flex-col gap-4 py-5">
+              {props.viaGithubApp ? (
+                <p className="flex items-start gap-2 rounded-xl bg-ok-soft px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
+                  <Check className="mt-0.5 size-4 shrink-0 text-ok" />
+                  Push and pull request events arrive automatically through the GitHub App. No webhook setup is needed.
+                </p>
+              ) : (
+                <>
+                  {props.managedWebhook && service.source?.type === "git" && <RepoWebhookStatus serviceId={service.id} webhook={service.source.webhook ?? null} />}
+                  <Field
+                    label="Git webhook URL"
+                    description={
+                      props.managedWebhook
+                        ? "Serve adds this to the repository for you. Add it yourself only if automatic setup is not possible."
+                        : "Add to GitHub, GitLab, Gitea or Bitbucket as a push webhook. Use the secret below. Content type: application/json."
+                    }
+                  >
+                    <CopyField value={props.webhookUrl} />
+                  </Field>
+                </>
+              )}
+              <Field label="Webhook secret">
+                <div className="flex gap-2">
+                  <CopyField value={props.webhookSecret} secret className="flex-1" />
+                  <Button
+                    onClick={async () => {
+                      if (
+                        await confirm({
+                          title: "Generate a new secret?",
+                          description: "Existing webhooks and deploy hooks stop working until you update them.",
+                          confirmLabel: "Generate",
+                        })
+                      )
+                        regen.run();
+                    }}
+                    loading={regen.pending}
+                  >
+                    <RefreshCw /> Rotate
+                  </Button>
+                </div>
+              </Field>
+              <Field label="Deploy hook" description="POST to this URL from CI to deploy the latest commit.">
+                <CopyField value={props.deployHookUrl} secret />
+              </Field>
+            </CardBody>
+          </Card>
+        )}
+
+        {show("danger") && (
+          <Card id="danger" className="scroll-mt-6 border-bad/30">
+            <CardHeader title="Delete service" description="Stops and removes all containers, images and domains for this service." />
+            <CardBody className="flex flex-col gap-3">
+              <label className="flex items-center gap-2 text-[13px] text-fg-2">
+                <Checkbox checked={removeVolumes} onCheckedChange={(c) => setRemoveVolumes(!!c)} />
+                Also delete volumes and stored data
+              </label>
+            </CardBody>
+            <CardFooter className="justify-end">
+              <Button
+                variant="danger"
+                size="sm"
+                loading={remove.pending}
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: `Delete ${service.name}?`,
+                      description: removeVolumes
+                        ? "All data stored in volumes is permanently deleted. This cannot be undone."
+                        : "Volumes are kept and can be reused by a new service with the same name.",
+                      confirmLabel: "Delete service",
+                      danger: true,
+                      typeToConfirm: service.name,
+                    })
+                  )
+                    remove.run(removeVolumes);
+                }}
+              >
+                <Trash2 /> Delete service
+              </Button>
+            </CardFooter>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }
@@ -526,7 +552,13 @@ function RepoWebhookStatus({ serviceId, webhook }: { serviceId: string; webhook:
     <div className="flex flex-wrap items-center gap-3 rounded-xl bg-warn-soft px-3.5 py-3 text-[13px] text-fg-2">
       <TriangleAlert className="size-4 shrink-0 text-warn" />
       <span className="min-w-0 flex-1">
-        {webhook?.error ? <>Could not add the webhook on {name}: {webhook.error}</> : "Deploy on push is not set up on the repository yet."}
+        {webhook?.error ? (
+          <>
+            Could not add the webhook on {name}: {webhook.error}
+          </>
+        ) : (
+          "Deploy on push is not set up on the repository yet."
+        )}
       </span>
       <Button size="sm" onClick={() => register.run()} loading={register.pending}>
         <RefreshCw /> {webhook?.error ? "Retry" : "Register webhook"}

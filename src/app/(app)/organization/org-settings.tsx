@@ -17,12 +17,24 @@ export function OrgSettings({ org, role, isRoot }: { org: { id: string; name: st
   const [name, setName] = React.useState(org.name);
   const isAdmin = role === "owner" || role === "admin";
   const save = useAction(() => updateOrg({ name }), { success: "Organization updated" });
-  const remove = useAction(deleteOrg, { refresh: false, success: "Organization deleted", onSuccess: () => { router.replace("/"); router.refresh(); } });
+  const remove = useAction(deleteOrg, {
+    refresh: false,
+    success: "Organization deleted",
+    onSuccess: () => {
+      router.replace("/");
+      router.refresh();
+    },
+  });
 
   return (
     <div className="flex flex-col gap-6">
       <Card>
-        <form onSubmit={(e) => { e.preventDefault(); void save.run(); }}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save.run();
+          }}
+        >
           <CardHeader title="General" />
           <CardBody className="flex flex-col gap-4 py-5">
             <Field label="Name">
@@ -32,14 +44,14 @@ export function OrgSettings({ org, role, isRoot }: { org: { id: string; name: st
               <CopyField value={org.id} />
             </Field>
             {isRoot && (
-              <p className="rounded-xl bg-accent-soft px-3.5 py-2.5 text-[13px] text-fg-2">
-                This is the Root organization. Its owners and admins manage server-wide settings.
-              </p>
+              <p className="rounded-xl bg-accent-soft px-3.5 py-2.5 text-[13px] text-fg-2">This is the Root organization. Its owners and admins manage server-wide settings.</p>
             )}
           </CardBody>
           {isAdmin && (
             <CardFooter className="justify-end">
-              <Button type="submit" size="sm" variant="primary" disabled={name === org.name} loading={save.pending}>Save</Button>
+              <Button type="submit" size="sm" variant="primary" disabled={name === org.name} loading={save.pending}>
+                Save
+              </Button>
             </CardFooter>
           )}
         </form>
@@ -54,7 +66,10 @@ export function OrgSettings({ org, role, isRoot }: { org: { id: string; name: st
               variant="danger"
               loading={remove.pending}
               onClick={async () => {
-                if (await confirm({ title: `Delete ${org.name}?`, description: "This cannot be undone.", confirmLabel: "Delete organization", danger: true, typeToConfirm: org.name })) remove.run();
+                if (
+                  await confirm({ title: `Delete ${org.name}?`, description: "This cannot be undone.", confirmLabel: "Delete organization", danger: true, typeToConfirm: org.name })
+                )
+                  remove.run();
               }}
             >
               <Trash2 /> Delete organization
@@ -66,7 +81,9 @@ export function OrgSettings({ org, role, isRoot }: { org: { id: string; name: st
         <Card>
           <CardHeader title="Leave organization" description="Leave from the Members page." />
           <CardFooter className="justify-end">
-            <Button size="sm" onClick={() => router.push("/organization/members")}><LogOut /> Go to members</Button>
+            <Button size="sm" onClick={() => router.push("/organization/members")}>
+              <LogOut /> Go to members
+            </Button>
           </CardFooter>
         </Card>
       )}

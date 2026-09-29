@@ -61,11 +61,12 @@ export function ProxyPicker({
     const target = OPTIONS.find((o) => o.kind === to)!;
     const ok = await confirm({
       title: to === "none" ? "Remove the proxy?" : `Switch to ${target.name}?`,
-      description: to === "none"
-        ? "Serve removes the proxy container from this server. Every domain stops answering; services stay reachable only on their published ports. Certificates are no longer requested."
-        : stopped
-        ? `Serve writes the ${target.name} configuration for every site. The proxy stays stopped until you start it.`
-        : `Serve writes the ${target.name} configuration for every site, then replaces the proxy container. Every site on this server is unreachable for a few seconds. If ${target.name} does not start, the current proxy comes back.`,
+      description:
+        to === "none"
+          ? "Serve removes the proxy container from this server. Every domain stops answering; services stay reachable only on their published ports. Certificates are no longer requested."
+          : stopped
+            ? `Serve writes the ${target.name} configuration for every site. The proxy stays stopped until you start it.`
+            : `Serve writes the ${target.name} configuration for every site, then replaces the proxy container. Every site on this server is unreachable for a few seconds. If ${target.name} does not start, the current proxy comes back.`,
       confirmLabel: to === "none" ? "Remove the proxy" : `Switch to ${target.name}`,
       danger: to === "none",
     });
@@ -82,13 +83,7 @@ export function ProxyPicker({
           const active = o.kind === kind;
           const target = running && live?.to === o.kind;
           return (
-            <div
-              key={o.kind}
-              className={cn(
-                "flex flex-col gap-3 rounded-xl border p-4 transition-colors",
-                active ? "border-accent bg-accent-soft/30" : "border-line",
-              )}
-            >
+            <div key={o.kind} className={cn("flex flex-col gap-3 rounded-xl border p-4 transition-colors", active ? "border-accent bg-accent-soft/30" : "border-line")}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-[14px] font-semibold text-fg">{o.name}</p>
@@ -122,7 +117,14 @@ export function ProxyPicker({
           <p className={cn("mb-2 text-[13px] font-medium", live.state === "failed" ? "text-bad" : "text-fg")}>
             {live.state === "running" ? `Switching to ${proxyLabels[live.to]}…` : `Switch to ${proxyLabels[live.to]} failed${live.error ? `: ${live.error}` : ""}`}
           </p>
-          <LogViewer lines={live.log.trim().split("\n").map((text) => ({ text }))} height="220px" filename="proxy-switch.log" />
+          <LogViewer
+            lines={live.log
+              .trim()
+              .split("\n")
+              .map((text) => ({ text }))}
+            height="220px"
+            filename="proxy-switch.log"
+          />
         </div>
       )}
     </Card>

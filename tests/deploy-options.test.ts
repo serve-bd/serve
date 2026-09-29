@@ -33,8 +33,18 @@ describe("health check status", () => {
 
 describe("container options", () => {
   it("builds args and filters invalid entries", () => {
-    expect(buildArgFlags([{ key: "NODE_VERSION", value: "22" }, { key: "bad key", value: "x" }])).toEqual(["--build-arg", "NODE_VERSION=22"]);
+    expect(
+      buildArgFlags([
+        { key: "NODE_VERSION", value: "22" },
+        { key: "bad key", value: "x" },
+      ]),
+    ).toEqual(["--build-arg", "NODE_VERSION=22"]);
     expect(validExtraHosts(["db.internal:10.0.0.5", "nope", "gw:host-gateway"])).toEqual(["db.internal:10.0.0.5", "gw:host-gateway"]);
-    expect(userLabels([{ key: "team", value: "web" }, { key: "serve.service", value: "x" }])).toEqual({ team: "web" });
+    expect(
+      userLabels([
+        { key: "team", value: "web" },
+        { key: "serve.service", value: "x" },
+      ]),
+    ).toEqual({ team: "web" });
   });
 });

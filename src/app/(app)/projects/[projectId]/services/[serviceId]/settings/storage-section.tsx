@@ -57,7 +57,10 @@ export function StorageSection({
   data?: { mountPath: string; defaultPath: string };
 }) {
   const confirm = useConfirm();
-  const initial = React.useMemo(() => ({ volumes: volumes.filter((v) => !(data && v.kind === "volume" && v.source === "data")), dataPath: data?.mountPath ?? "" }), [volumes, data]);
+  const initial = React.useMemo(
+    () => ({ volumes: volumes.filter((v) => !(data && v.kind === "volume" && v.source === "data")), dataPath: data?.mountPath ?? "" }),
+    [volumes, data],
+  );
   const [value, setValue] = React.useState(initial);
   const [saved, setSaved] = React.useState(JSON.stringify(initial));
   const [pending, setPending] = React.useState(false);
@@ -146,7 +149,12 @@ export function StorageSection({
                     <Input value="data" readOnly className="h-8 font-mono text-[12.5px] text-muted" />
                   </Cell>
                   <Cell label="Mounted at">
-                    <Input value={value.dataPath} onChange={(e) => setValue((s) => ({ ...s, dataPath: e.target.value }))} placeholder={data.defaultPath} className="h-8 font-mono text-[12.5px]" />
+                    <Input
+                      value={value.dataPath}
+                      onChange={(e) => setValue((s) => ({ ...s, dataPath: e.target.value }))}
+                      placeholder={data.defaultPath}
+                      className="h-8 font-mono text-[12.5px]"
+                    />
                   </Cell>
                   <div className="flex w-16 justify-end gap-1">
                     {running ? (
@@ -163,13 +171,17 @@ export function StorageSection({
                 {value.dataPath.trim() && value.dataPath.trim() !== data.mountPath && (
                   <p className="flex items-start gap-1.5 text-xs text-warn">
                     <TriangleAlert className="mt-px size-3.5 flex-none" />
-                    The database looks for its files at {data.defaultPath}. Moving the volume only helps with images that use another data directory; otherwise the database starts empty.
+                    The database looks for its files at {data.defaultPath}. Moving the volume only helps with images that use another data directory; otherwise the database starts
+                    empty.
                   </p>
                 )}
               </div>
             )}
             {rows.map(({ v, i }) => (
-              <div key={i} className="grid grid-cols-1 gap-2 rounded-xl border border-line p-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-center sm:border-0 sm:p-0">
+              <div
+                key={i}
+                className="grid grid-cols-1 gap-2 rounded-xl border border-line p-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-center sm:border-0 sm:p-0"
+              >
                 <Cell label="Volume">
                   <Input value={v.source} onChange={(e) => update(i, { source: e.target.value })} placeholder="uploads" className="h-8 font-mono text-[12.5px]" />
                 </Cell>
@@ -211,7 +223,15 @@ export function StorageSection({
                       variant="danger"
                       loading={purge.pending}
                       onClick={async () => {
-                        if (await confirm({ title: `Delete the data of ${source}?`, description: "Redeploy first so no container uses it. The data cannot be recovered.", confirmLabel: "Delete data", danger: true })) purge.run(source);
+                        if (
+                          await confirm({
+                            title: `Delete the data of ${source}?`,
+                            description: "Redeploy first so no container uses it. The data cannot be recovered.",
+                            confirmLabel: "Delete data",
+                            danger: true,
+                          })
+                        )
+                          purge.run(source);
                       }}
                     >
                       Delete data
@@ -234,7 +254,13 @@ export function StorageSection({
                   ) : (
                     <Cell label="Path on the server">
                       <span className="hidden text-[11px] font-medium text-faint sm:block">Path on the server</span>
-                      <Input value={v.source} onChange={(e) => update(i, { source: e.target.value })} placeholder="/etc/ssl/certs/ca.pem" className="h-8 font-mono text-[12.5px]" disabled={!isRootAdmin} />
+                      <Input
+                        value={v.source}
+                        onChange={(e) => update(i, { source: e.target.value })}
+                        placeholder="/etc/ssl/certs/ca.pem"
+                        className="h-8 font-mono text-[12.5px]"
+                        disabled={!isRootAdmin}
+                      />
                     </Cell>
                   )}
                   <Cell label="Mounted at">
@@ -257,11 +283,15 @@ export function StorageSection({
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <Toggle label="Read-only" checked={!!v.readOnly} onChange={(c) => update(i, { readOnly: c })} />
-                  <span className="text-[11px] text-faint">{v.kind === "file" ? "Serve writes this file on the server before each start." : "An existing file on the server."}</span>
+                  <span className="text-[11px] text-faint">
+                    {v.kind === "file" ? "Serve writes this file on the server before each start." : "An existing file on the server."}
+                  </span>
                 </div>
               </div>
             ))}
-            {rows.length === 0 && <p className="text-[13px] text-muted">No files. Add a configuration file and edit its content here, or mount a file that already exists on the server.</p>}
+            {rows.length === 0 && (
+              <p className="text-[13px] text-muted">No files. Add a configuration file and edit its content here, or mount a file that already exists on the server.</p>
+            )}
           </TabsPanel>
 
           <TabsPanel value="directories" className="mt-4 flex flex-col gap-2">
@@ -271,7 +301,13 @@ export function StorageSection({
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
                   <Cell label="Directory on the server">
                     <span className="hidden text-[11px] font-medium text-faint sm:block">Directory on the server</span>
-                    <Input value={v.source} onChange={(e) => update(i, { source: e.target.value })} placeholder="/srv/media" className="h-8 font-mono text-[12.5px]" disabled={!isRootAdmin} />
+                    <Input
+                      value={v.source}
+                      onChange={(e) => update(i, { source: e.target.value })}
+                      placeholder="/srv/media"
+                      className="h-8 font-mono text-[12.5px]"
+                      disabled={!isRootAdmin}
+                    />
                   </Cell>
                   <Cell label="Mounted at">
                     <span className="hidden text-[11px] font-medium text-faint sm:block">Mounted at</span>

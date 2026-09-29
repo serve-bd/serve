@@ -9,7 +9,9 @@ const out = process.env.OUT ?? "/tmp/claude-1000";
 const width = Number(process.env.WIDTH ?? 1280);
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
 const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: "dark", storageState: `/tmp/claude-1000/e2e-state-${new URL(base).port}.json` });
-await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
+await ctx.addInitScript(() => {
+  window.__SERVE_E2E__ = true;
+});
 await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
 const page = await ctx.newPage();
 const errors = [];
@@ -31,11 +33,20 @@ execFileSync("docker", ["exec", "serve-e2e-remote", "sh", "-c", `echo "${pub.tri
 console.log("authorized", pub.slice(0, 40));
 
 await page.getByRole("button", { name: /I added the key, connect/ }).click();
-await page.getByText(/Connecting and preparing|Waiting for the worker/).first().waitFor({ timeout: 15000 });
+await page
+  .getByText(/Connecting and preparing|Waiting for the worker/)
+  .first()
+  .waitFor({ timeout: 15000 });
 await page.screenshot({ path: `${out}/add-server-progress-${width}.png`, fullPage: true });
 const done = await Promise.race([
-  page.getByText("Connected. The server is ready.").waitFor({ timeout: 180000 }).then(() => "ready"),
-  page.getByText(/Could not finish the setup|Docker is not installed/).waitFor({ timeout: 180000 }).then(() => "failed"),
+  page
+    .getByText("Connected. The server is ready.")
+    .waitFor({ timeout: 180000 })
+    .then(() => "ready"),
+  page
+    .getByText(/Could not finish the setup|Docker is not installed/)
+    .waitFor({ timeout: 180000 })
+    .then(() => "failed"),
 ]);
 await page.waitForTimeout(800);
 await page.screenshot({ path: `${out}/add-server-done-${width}.png`, fullPage: true });

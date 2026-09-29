@@ -132,7 +132,12 @@ function routeBody(site: SiteModel, h: HostModel, targets: string[] | null) {
   const headers = headerLines(o, h.https);
   if (headers.length) lines.push("header {", tab(headers), "}");
   if (o?.corsOrigins?.length) {
-    const cors = [`>Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"`, `>Access-Control-Allow-Headers "Authorization, Content-Type, Accept, Origin, X-Requested-With"`, `>Access-Control-Max-Age "86400"`, `>Vary "Origin"`];
+    const cors = [
+      `>Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"`,
+      `>Access-Control-Allow-Headers "Authorization, Content-Type, Accept, Origin, X-Requested-With"`,
+      `>Access-Control-Max-Age "86400"`,
+      `>Vary "Origin"`,
+    ];
     if (o.corsOrigins.includes("*")) lines.push("header {", tab([`>Access-Control-Allow-Origin "*"`, ...cors]), "}");
     else {
       const re = o.corsOrigins.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");

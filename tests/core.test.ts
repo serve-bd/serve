@@ -218,17 +218,19 @@ describe("upstreamBlock", () => {
 
 describe("explainCertError Cloudflare", () => {
   it("recognises validation against a Cloudflare edge address", () => {
-    const r = explainCertError(
-      "Validation failed: 2606:4700:3034::6815:55ac: Invalid response from https://testing.shahriyar.dev/.well-known/acme-challenge/x: 404",
-      { provider: "letsencrypt-http" },
-    );
+    const r = explainCertError("Validation failed: 2606:4700:3034::6815:55ac: Invalid response from https://testing.shahriyar.dev/.well-known/acme-challenge/x: 404", {
+      provider: "letsencrypt-http",
+    });
     expect(r.title).toContain("behind Cloudflare");
   });
 });
 
 describe("explainCertError preflight", () => {
   it("explains non-standard proxy ports and wrong A records", () => {
-    expect(explainCertError("testing.shahriyar.dev: The proxy on localhost listens on port 8081, but Let's Encrypt only checks port 80. Connect", { provider: "letsencrypt-http" }).title).toBe("Let's Encrypt cannot reach port 8081");
+    expect(
+      explainCertError("testing.shahriyar.dev: The proxy on localhost listens on port 8081, but Let's Encrypt only checks port 80. Connect", { provider: "letsencrypt-http" })
+        .title,
+    ).toBe("Let's Encrypt cannot reach port 8081");
     expect(explainCertError("a.example.com points to 1.1.1.1, not to web (2.2.2.2). Update", { provider: "letsencrypt-http" }).hint).toContain("2.2.2.2");
   });
 });

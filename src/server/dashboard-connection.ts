@@ -1,4 +1,3 @@
-
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
@@ -46,13 +45,20 @@ async function dnsStep(domain: string, route: "ip" | "tunnel", serverIp: string 
       const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
       const zone = await cf.zoneFor(domain);
       if (!zone) {
-        return { id: "dns", title, state: "fail", summary: `${domain} is not in a zone of the tunnel's Cloudflare account`, detail: "Move the domain's DNS to that Cloudflare account, or pick a domain it manages." };
+        return {
+          id: "dns",
+          title,
+          state: "fail",
+          summary: `${domain} is not in a zone of the tunnel's Cloudflare account`,
+          detail: "Move the domain's DNS to that Cloudflare account, or pick a domain it manages.",
+        };
       }
       const records = (await cf.dnsRecords(zone.id, { name: domain })).filter((r) => ["A", "AAAA", "CNAME"].includes(r.type));
       const cname = records.find((r) => r.type === "CNAME" && r.content === target);
       if (cname?.proxied) return { id: "dns", title, state: "ok", summary: `CNAME points at the tunnel (${zone.name})` };
       const fix = { action: "dns" as const, label: "Fix DNS" };
-      if (cname) return { id: "dns", title, state: "fail", summary: "The CNAME is not proxied (grey cloud)", detail: "Tunnel records only work when Cloudflare proxies them.", fix };
+      if (cname)
+        return { id: "dns", title, state: "fail", summary: "The CNAME is not proxied (grey cloud)", detail: "Tunnel records only work when Cloudflare proxies them.", fix };
       if (records.length) {
         return {
           id: "dns",
@@ -76,7 +82,14 @@ async function dnsStep(domain: string, route: "ip" | "tunnel", serverIp: string 
     case "ok":
       return { id: "dns", title, state: "ok", summary: records.length ? `Points to ${records.join(", ")}` : "Resolves" };
     case "missing":
-      return { id: "dns", title, state: "fail", summary: "No A record found", detail: "Add this record at your DNS provider. Changes can take a few minutes to show.", records: want };
+      return {
+        id: "dns",
+        title,
+        state: "fail",
+        summary: "No A record found",
+        detail: "Add this record at your DNS provider. Changes can take a few minutes to show.",
+        records: want,
+      };
     case "proxied":
       return {
         id: "dns",
@@ -142,12 +155,28 @@ async function proxyStep(ctx: ServerCtx): Promise<ConnectionStep & { running: bo
   const { proxyLabels } = await import("@/server/proxy/config");
   const state = await proxyStateOf(ctx.id);
   if (state.kind === "none") {
-    return { id: "proxy", title, state: "fail", running: false, summary: "This server has no proxy", detail: "A dashboard domain needs a proxy. Choose nginx, Caddy or Traefik on the Proxy page.", link };
+    return {
+      id: "proxy",
+      title,
+      state: "fail",
+      running: false,
+      summary: "This server has no proxy",
+      detail: "A dashboard domain needs a proxy. Choose nginx, Caddy or Traefik on the Proxy page.",
+      link,
+    };
   }
   const label = proxyLabels[state.kind];
   const status = await proxyStatus(ctx);
   if (state.stopped || !status.running) {
-    return { id: "proxy", title, state: "fail", running: false, summary: state.stopped ? `${label} is stopped` : `${label} is not running`, detail: "Start it on the Proxy page.", link };
+    return {
+      id: "proxy",
+      title,
+      state: "fail",
+      running: false,
+      summary: state.stopped ? `${label} is stopped` : `${label} is not running`,
+      detail: "Start it on the Proxy page.",
+      link,
+    };
   }
   const files = await listSiteFiles(ctx).catch(() => []);
   if (!files.some((f) => f.kind === "dashboard")) {
@@ -162,7 +191,10 @@ async function upstreamStep(ctx: ServerCtx): Promise<ConnectionStep> {
   const [host, port = "80"] = upstream.split(/:(?=\d+$)/);
   const { execInContainer } = await import("@/server/docker/client");
   const res = await Promise.race([
-    execInContainer(ctx.proxyContainer, ["wget", "-q", "-T", String(TIMEOUT_S), "-O", "/dev/null", `http://${upstream}/api/health`], {}, ctx.docker).catch((e: Error) => ({ exitCode: -1, output: e.message })),
+    execInContainer(ctx.proxyContainer, ["wget", "-q", "-T", String(TIMEOUT_S), "-O", "/dev/null", `http://${upstream}/api/health`], {}, ctx.docker).catch((e: Error) => ({
+      exitCode: -1,
+      output: e.message,
+    })),
     new Promise<{ exitCode: number; output: string }>((r) => setTimeout(() => r({ exitCode: -2, output: "timed out" }), (TIMEOUT_S + 3) * 1000)),
   ]);
   if (res.exitCode === 0) return { id: "upstream", title, state: "ok", summary: `The proxy reaches ${upstream}` };
@@ -193,7 +225,13 @@ async function upstreamStep(ctx: ServerCtx): Promise<ConnectionStep> {
     };
   }
   if (/refused/i.test(out)) {
-    return { id: "upstream", title, state: "fail", summary: `${upstream} refused the connection`, detail: `Nothing listens on port ${port}, or it listens only on 127.0.0.1. Serve must listen on all interfaces.` };
+    return {
+      id: "upstream",
+      title,
+      state: "fail",
+      summary: `${upstream} refused the connection`,
+      detail: `Nothing listens on port ${port}, or it listens only on 127.0.0.1. Serve must listen on all interfaces.`,
+    };
   }
   if (/not found|exec/i.test(out) && res.exitCode === -1) {
     return { id: "upstream", title, state: "skip", summary: "This proxy image cannot run the test" };
@@ -212,7 +250,8 @@ async function httpsStep(domain: string, route: "ip" | "tunnel", https: boolean,
     const link = { href: "/certificates", label: "Certificates" };
     if (!c) cert = { id: "https", title, state: "fail", summary: "No certificate yet", detail: "Save the domain with HTTPS on and set a Let's Encrypt email below.", link };
     else if (c.status === "failed") cert = { id: "https", title, state: "fail", summary: "Certificate request failed", detail: c.lastError ?? undefined, link };
-    else if (c.status !== "active") cert = { id: "https", title, state: "warn", summary: `Certificate is ${c.status}`, detail: "Let's Encrypt usually takes under a minute.", link };
+    else if (c.status !== "active")
+      cert = { id: "https", title, state: "warn", summary: `Certificate is ${c.status}`, detail: "Let's Encrypt usually takes under a minute.", link };
   }
   const started = Date.now();
   try {
@@ -265,7 +304,9 @@ export async function dashboardConnectionReport(): Promise<ConnectionReport> {
     proxyStep(ctx),
   ]);
   const { running, ...proxyRest } = proxy;
-  const upstream: ConnectionStep = running ? await upstreamStep(ctx) : { id: "upstream", title: "Dashboard reachable from the proxy", state: "skip", summary: "Waiting for the proxy" };
+  const upstream: ConnectionStep = running
+    ? await upstreamStep(ctx)
+    : { id: "upstream", title: "Dashboard reachable from the proxy", state: "skip", summary: "Waiting for the proxy" };
   const https = await httpsStep(domain, route, s.dashboardHttps, s.rootOrganizationId);
   report.steps = [dns, ...(tun ? [tun] : []), proxyRest, upstream, https];
   return report;

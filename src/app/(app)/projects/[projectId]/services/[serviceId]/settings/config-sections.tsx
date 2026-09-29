@@ -117,15 +117,22 @@ export function BuildSection({ serviceId, build, nixpacks, save }: { serviceId: 
           <Field label="Build arguments" optional description="Passed as --build-arg. Use variables marked Build time for secrets.">
             <KeyValueEditor value={v.buildArgs} onChange={(buildArgs) => set({ buildArgs })} keyPlaceholder="NODE_VERSION" valuePlaceholder="22" addLabel="Add argument" />
           </Field>
-          <Field
-            label="Watch paths"
-            optional
-            description="One glob per line, like src/** or !docs/**. Pushes that change none of them do not deploy. Applies to push webhooks."
-          >
-            <Textarea value={v.watchPaths} onChange={(e) => set({ watchPaths: e.target.value })} rows={3} placeholder={"apps/web/**\npackages/ui/**"} className="font-mono text-[12.5px]" />
+          <Field label="Watch paths" optional description="One glob per line, like src/** or !docs/**. Pushes that change none of them do not deploy. Applies to push webhooks.">
+            <Textarea
+              value={v.watchPaths}
+              onChange={(e) => set({ watchPaths: e.target.value })}
+              rows={3}
+              placeholder={"apps/web/**\npackages/ui/**"}
+              className="font-mono text-[12.5px]"
+            />
           </Field>
           <SwitchRow title="Git submodules" description="Clone submodules together with the repository." checked={v.submodules} onCheckedChange={(c) => set({ submodules: c })} />
-          <SwitchRow title="Always build without cache" description="Slower, but every build starts from fresh base images." checked={v.noCache} onCheckedChange={(c) => set({ noCache: c })} />
+          <SwitchRow
+            title="Always build without cache"
+            description="Slower, but every build starts from fresh base images."
+            checked={v.noCache}
+            onCheckedChange={(c) => set({ noCache: c })}
+          />
         </>
       )}
     </Section>
@@ -349,10 +356,13 @@ export function ResourcesSection({ runtime, save }: { runtime: RuntimeConfig; sa
       title="Resources"
       description="Per container. Leave empty for no limit."
       footerNote={REDEPLOY}
-      initial={{ cpu: String(runtime.cpuLimit ?? ""), memory: String(runtime.memoryLimit ?? ""), reservation: String(runtime.memoryReservation ?? ""), shm: String(runtime.shmSize ?? "") }}
-      onSave={(v) =>
-        save({ runtime: { cpuLimit: v.cpu ? Number(v.cpu) : null, memoryLimit: num(v.memory), memoryReservation: num(v.reservation), shmSize: num(v.shm) } })
-      }
+      initial={{
+        cpu: String(runtime.cpuLimit ?? ""),
+        memory: String(runtime.memoryLimit ?? ""),
+        reservation: String(runtime.memoryReservation ?? ""),
+        shm: String(runtime.shmSize ?? ""),
+      }}
+      onSave={(v) => save({ runtime: { cpuLimit: v.cpu ? Number(v.cpu) : null, memoryLimit: num(v.memory), memoryReservation: num(v.reservation), shmSize: num(v.shm) } })}
     >
       {(v, set) => (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -415,7 +425,12 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
     >
       {(v, set) => (
         <>
-          <SwitchRow title="Init process" description="Runs a tiny init as PID 1 that forwards signals and reaps zombie processes." checked={v.init} onCheckedChange={(c) => set({ init: c })} />
+          <SwitchRow
+            title="Init process"
+            description="Runs a tiny init as PID 1 that forwards signals and reaps zombie processes."
+            checked={v.init}
+            onCheckedChange={(c) => set({ init: c })}
+          />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Log file size" description="Per file, before rotating.">
               <InputGroup suffix="MB">
@@ -435,7 +450,12 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
           {isRootAdmin && (
             <div className="flex flex-col gap-3 rounded-xl border border-warn/25 bg-warn-soft/40 p-4">
               <p className="text-xs font-medium text-warn">Host access · Root organization only</p>
-              <SwitchRow title="Privileged" description="Full access to the host's devices. Only for tools that need it, like Docker-in-Docker." checked={v.privileged} onCheckedChange={(c) => set({ privileged: c })} />
+              <SwitchRow
+                title="Privileged"
+                description="Full access to the host's devices. Only for tools that need it, like Docker-in-Docker."
+                checked={v.privileged}
+                onCheckedChange={(c) => set({ privileged: c })}
+              />
               <Field label="Linux capabilities" optional description="Added on top of Docker's defaults.">
                 <div className="flex flex-wrap gap-1.5">
                   {CAPABILITIES.map((cap) => {

@@ -27,9 +27,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
   const projectKeys = scoped.filter((v) => v.projectId).map((v) => v.key);
   const orgKeys = scoped.filter((v) => !v.projectId).map((v) => v.key);
   const references = [
-    ...siblings
-      .filter((s) => s.id !== service.id)
-      .map((s) => ({ name: s.name, keys: Object.keys(providedVars(s)).filter((k) => !k.startsWith("SERVE_SERVICE")) })),
+    ...siblings.filter((s) => s.id !== service.id).map((s) => ({ name: s.name, keys: Object.keys(providedVars(s)).filter((k) => !k.startsWith("SERVE_SERVICE")) })),
     ...(projectKeys.length ? [{ name: "project", label: "Project variables", keys: projectKeys }] : []),
     ...(orgKeys.length ? [{ name: "org", label: "Organization variables", keys: orgKeys }] : []),
   ];
@@ -44,7 +42,13 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
         shared={shared.map((s) => s.key)}
         references={references}
         settingsHref={`/projects/${projectId}/settings`}
-        composeVars={service.compose ? composeVariables(service.compose.content).filter((v) => !v.hasDefault).map((v) => v.name) : []}
+        composeVars={
+          service.compose
+            ? composeVariables(service.compose.content)
+                .filter((v) => !v.hasDefault)
+                .map((v) => v.name)
+            : []
+        }
       />
     </PageBody>
   );

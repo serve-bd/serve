@@ -42,7 +42,11 @@ export function ServerCards({ servers }: { servers: ServerCardData[] }) {
         const last = s.series.at(-1);
         const status = s.isLocal ? "running" : s.status === "ready" ? "running" : s.status === "validating" ? "starting" : s.status === "pending" ? "idle" : "failed";
         return (
-          <Link key={s.id} href={`/servers/${s.id}`} className="group flex flex-col overflow-hidden rounded-2xl border border-line bg-surface transition-colors hover:border-line-strong">
+          <Link
+            key={s.id}
+            href={`/servers/${s.id}`}
+            className="group flex flex-col overflow-hidden rounded-2xl border border-line bg-surface transition-colors hover:border-line-strong"
+          >
             <div className="flex items-start gap-3 p-4 pb-3">
               <span className="flex size-9 flex-none items-center justify-center rounded-xl bg-surface-2 text-fg-2">
                 <ServerIcon className="size-4" />
@@ -63,7 +67,14 @@ export function ServerCards({ servers }: { servers: ServerCardData[] }) {
               <Stat label="Disk" value={pct(last?.disk, last?.diskTotal)} />
             </div>
             <div className="relative mt-auto h-14 border-t border-line">
-              <AreaChart data={s.series.map((p) => ({ t: p.t, v: pct(p.memory, p.memoryLimit) }))} color={MEMORY} max={100} height={56} format={(v) => `Memory ${v.toFixed(0)}%`} className="absolute inset-0" />
+              <AreaChart
+                data={s.series.map((p) => ({ t: p.t, v: pct(p.memory, p.memoryLimit) }))}
+                color={MEMORY}
+                max={100}
+                height={56}
+                format={(v) => `Memory ${v.toFixed(0)}%`}
+                className="absolute inset-0"
+              />
               <AreaChart data={s.series.map((p) => ({ t: p.t, v: p.cpu }))} max={100} height={56} format={(v) => `CPU ${v.toFixed(0)}%`} className="absolute inset-0" />
             </div>
           </Link>

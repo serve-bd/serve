@@ -91,8 +91,20 @@ export function ServerMetrics({ serverId, retentionHours }: { serverId: string; 
       <Card className="overflow-hidden">
         <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-2 lg:grid-cols-4">
           <Live icon={<Cpu />} label="CPU" value={now ? `${now.cpu.toFixed(0)}%` : "—"} sub={now ? `${now.cores} cores` : undefined} meter={[now?.cpu ?? 0, 100]} />
-          <Live icon={<MemoryStick />} label="Memory" value={now ? formatBytes(now.memory.used) : "—"} sub={now ? `of ${formatBytes(now.memory.total, 0)}` : undefined} meter={[now?.memory.used ?? 0, now?.memory.total || 1]} />
-          <Live icon={<HardDrive />} label="Disk" value={now ? formatBytes(now.disk.used) : "—"} sub={now ? `of ${formatBytes(now.disk.total, 0)}` : undefined} meter={[now?.disk.used ?? 0, now?.disk.total || 1]} />
+          <Live
+            icon={<MemoryStick />}
+            label="Memory"
+            value={now ? formatBytes(now.memory.used) : "—"}
+            sub={now ? `of ${formatBytes(now.memory.total, 0)}` : undefined}
+            meter={[now?.memory.used ?? 0, now?.memory.total || 1]}
+          />
+          <Live
+            icon={<HardDrive />}
+            label="Disk"
+            value={now ? formatBytes(now.disk.used) : "—"}
+            sub={now ? `of ${formatBytes(now.disk.total, 0)}` : undefined}
+            meter={[now?.disk.used ?? 0, now?.disk.total || 1]}
+          />
           <Live
             icon={<Gauge />}
             label="Load average"

@@ -31,8 +31,7 @@ async function s3For(id: string | null | undefined): Promise<(S3Config & { prefi
   };
 }
 
-const s3Key = (prefix: string, serviceSlug: string, filename: string) =>
-  [prefix, serviceSlug, filename].filter(Boolean).join("/");
+const s3Key = (prefix: string, serviceSlug: string, filename: string) => [prefix, serviceSlug, filename].filter(Boolean).join("/");
 
 export function backupFile(serviceId: string, filename: string) {
   return path.join(paths.backups, serviceId, filename);
@@ -108,7 +107,12 @@ export async function runBackup(backupId: string) {
       .where(eq(schema.backup.id, backup.id));
     await applyRetention(service.id, cfg.backupRetention, cfg.backupRetentionS3 ?? cfg.backupRetention, cfg.s3DestinationId);
     if (backup.trigger === "schedule") {
-      void notify(await orgOfService(service.id), "backup.success", { ok: true, title: `Backup of ${service.name} finished`, body: filename, url: `/projects/${service.projectId}/services/${service.id}/backups` });
+      void notify(await orgOfService(service.id), "backup.success", {
+        ok: true,
+        title: `Backup of ${service.name} finished`,
+        body: filename,
+        url: `/projects/${service.projectId}/services/${service.id}/backups`,
+      });
     }
   } catch (error) {
     await fs.promises.rm(file, { force: true });
@@ -117,7 +121,12 @@ export async function runBackup(backupId: string) {
       .update(schema.backup)
       .set({ status: "failed", error: message.slice(0, 2000), finishedAt: new Date() })
       .where(eq(schema.backup.id, backup.id));
-    void notify(await orgOfService(service.id), "backup.failed", { ok: false, title: `Backup of ${service.name} failed`, body: message.slice(0, 400), url: `/projects/${service.projectId}/services/${service.id}/backups` });
+    void notify(await orgOfService(service.id), "backup.failed", {
+      ok: false,
+      title: `Backup of ${service.name} failed`,
+      body: message.slice(0, 400),
+      url: `/projects/${service.projectId}/services/${service.id}/backups`,
+    });
     throw error;
   }
 }
@@ -280,7 +289,11 @@ export const IMPORT_EXTENSIONS: Record<DatabaseConfig["engine"], string[]> = {
 
 /** A safe, unique file name for an imported dump. Throws when the extension is not restorable. */
 export function importFilename(engine: DatabaseConfig["engine"], slug: string, original: string) {
-  const base = path.basename(original).toLowerCase().replace(/[^a-z0-9._-]/g, "-").slice(-80);
+  const base = path
+    .basename(original)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "-")
+    .slice(-80);
   const ext = IMPORT_EXTENSIONS[engine].find((e) => base.endsWith(e));
   if (!ext) throw new Error(`Upload a ${IMPORT_EXTENSIONS[engine].join(", ")} file.`);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -329,7 +342,10 @@ export async function importBackup(backupId: string, opts: { backupFirst?: boole
   } catch (error) {
     if (backup.status !== "success") {
       await fs.promises.rm(file, { force: true });
-      await db.update(schema.backup).set({ status: "failed", error: (error as Error).message.slice(0, 2000), finishedAt: new Date() }).where(eq(schema.backup.id, backupId));
+      await db
+        .update(schema.backup)
+        .set({ status: "failed", error: (error as Error).message.slice(0, 2000), finishedAt: new Date() })
+        .where(eq(schema.backup.id, backupId));
     }
     throw error;
   }

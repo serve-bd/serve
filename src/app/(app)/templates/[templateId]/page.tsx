@@ -14,7 +14,11 @@ export default async function EditTemplatePage(props: PageProps<"/templates/[tem
   if (!initial) notFound();
   return (
     <>
-      <PageHeader title={initial.name} description="Changes apply to services created from now on." breadcrumbs={[{ label: "Templates", href: "/templates" }, { label: initial.name }]} />
+      <PageHeader
+        title={initial.name}
+        description="Changes apply to services created from now on."
+        breadcrumbs={[{ label: "Templates", href: "/templates" }, { label: initial.name }]}
+      />
       <PageBody>
         <TemplateEditor initial={initial} categories={editorCategories} />
       </PageBody>

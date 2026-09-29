@@ -24,7 +24,9 @@ const ok = (cond: boolean, label: string, detail = "") => {
 };
 const sh = (cmd: string) => {
   try {
-    return execSync(cmd, { stdio: ["ignore", "pipe", "pipe"] }).toString().trim();
+    return execSync(cmd, { stdio: ["ignore", "pipe", "pipe"] })
+      .toString()
+      .trim();
   } catch (e) {
     return `${String((e as { stdout?: Buffer }).stdout ?? "")}${String((e as { stderr?: Buffer }).stderr ?? "")}`.trim();
   }
@@ -73,7 +75,10 @@ async function changePassword(id: string, next: string) {
   const cfg = s.database!;
   const cmd = changePasswordCommand(cfg, databaseCreds(cfg, decrypt(cfg.password)), next);
   const out = cmd ? exec(s.slug, `${cmd}; echo EXIT=$?`) : "EXIT=0";
-  await db.update(schema.service).set({ database: { ...cfg, password: encrypt(next) } }).where(eq(schema.service.id, id));
+  await db
+    .update(schema.service)
+    .set({ database: { ...cfg, password: encrypt(next) } })
+    .where(eq(schema.service.id, id));
   await deployDatabase(await load(id), null);
   return out;
 }
@@ -122,7 +127,10 @@ try {
     ok(info.HostConfig.ShmSize === 256 * 1024 * 1024, "postgres: shm size applied", String(info.HostConfig.ShmSize));
     ok(info.Config.Healthcheck?.Interval === 2e9 && info.Config.Healthcheck?.Retries === 20, "postgres: health check timing applied");
     ok(info.Config.Labels["com.example.team"] === "db", "postgres: container label applied");
-    ok(info.HostConfig.Binds.some((b: string) => b.endsWith(":/etc/serve-hello.txt:ro")) && info.HostConfig.Binds.some((b: string) => b.includes("-extra:/extra")), "postgres: file and extra volume mounted");
+    ok(
+      info.HostConfig.Binds.some((b: string) => b.endsWith(":/etc/serve-hello.txt:ro")) && info.HostConfig.Binds.some((b: string) => b.includes("-extra:/extra")),
+      "postgres: file and extra volume mounted",
+    );
     ok(exec(s.slug, "cat /etc/serve-hello.txt") === "hello from serve", "postgres: file mount content");
     // The container's own network address: loopback is "trust" in the postgres image, this uses the password.
     const ip = exec(s.slug, "hostname -i").split(/\s+/)[0];
@@ -132,7 +140,10 @@ try {
     ok(psql("SHOW data_checksums") === "on", "postgres: initdb args (data_checksums)");
     ok(psql("SELECT count(*) FROM serve_init") === "1", "postgres: init script ran on fresh volume");
     ok(psql("SHOW ssl") === "on", "postgres: ssl on");
-    const tls = exec(s.slug, `PGPASSWORD=initial-password-123 psql "host=${ip} user=postgres dbname=app sslmode=require" -Atc "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()"`);
+    const tls = exec(
+      s.slug,
+      `PGPASSWORD=initial-password-123 psql "host=${ip} user=postgres dbname=app sslmode=require" -Atc "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()"`,
+    );
     ok(tls === "t", "postgres: sslmode=require connection uses TLS", tls);
     ok(fs.existsSync(`${process.env.SERVE_DATA_DIR}/services/${s.id}/tls/ca.crt`), "postgres: CA stored in service dir");
 
@@ -149,7 +160,10 @@ try {
     ok(plain.restoreStatus === "success", "postgres: plain .sql import restored", plain.log?.split("\n").slice(-3).join(" | "));
     ok(psql("SELECT x FROM imported_plain", "new-password-456") === "7", "postgres: imported table present");
     const pre = await db.select().from(schema.backup).where(eq(schema.backup.serviceId, s.id));
-    ok(pre.some((r) => r.trigger === "pre-import" && r.status === "success"), "postgres: safety backup taken before import");
+    ok(
+      pre.some((r) => r.trigger === "pre-import" && r.status === "success"),
+      "postgres: safety backup taken before import",
+    );
     sh(`gzip -kf /tmp/claude-1000/dbopt-import.sql && mv /tmp/claude-1000/dbopt-import.sql.gz /tmp/claude-1000/dbopt-import2.sql.gz`);
     psql("DROP TABLE imported_plain", "new-password-456");
     const gz = await importFile(s.id, "/tmp/claude-1000/dbopt-import2.sql.gz", "plain.sql.gz", false);
@@ -175,7 +189,11 @@ try {
     cli("new-redis-pass-789", "DEL serve:key");
     const r = await importFile(s.id, backupFile(s.id, b.filename!), "dump.rdb", false);
     await new Promise((res) => setTimeout(res, 3000));
-    ok(r.restoreStatus === "success" && cli("new-redis-pass-789", "GET serve:key") === "restored-value", "redis: .rdb import restored", `${r.restoreStatus} ${cli("new-redis-pass-789", "GET serve:key")} ${r.log?.split("\n").slice(-4).join(" | ")} ${sh(`docker logs --tail 8 ${s.slug} 2>&1`).split("\n").join(" | ")}`);
+    ok(
+      r.restoreStatus === "success" && cli("new-redis-pass-789", "GET serve:key") === "restored-value",
+      "redis: .rdb import restored",
+      `${r.restoreStatus} ${cli("new-redis-pass-789", "GET serve:key")} ${r.log?.split("\n").slice(-4).join(" | ")} ${sh(`docker logs --tail 8 ${s.slug} 2>&1`).split("\n").join(" | ")}`,
+    );
   }
 
   if (which.includes("mysql")) {
@@ -195,10 +213,14 @@ try {
       initScripts: [{ name: "01-init.js", content: 'db.getSiblingDB("app").seeded.insertOne({ ok: 1 });' }],
     });
     await deployDatabase(s, null);
-    const mongo = (pw: string, js: string) => exec(s.slug, `mongosh --quiet --tls --tlsAllowInvalidCertificates -u root -p ${pw} --authenticationDatabase admin app --eval ${q(js)}`);
+    const mongo = (pw: string, js: string) =>
+      exec(s.slug, `mongosh --quiet --tls --tlsAllowInvalidCertificates -u root -p ${pw} --authenticationDatabase admin app --eval ${q(js)}`);
     ok(mongo("initial-password-123", "db.getProfilingStatus().slowms") === "321", "mongodb: custom config (slowms)");
     ok(mongo("initial-password-123", "db.seeded.countDocuments()") === "1", "mongodb: init script ran");
-    ok(!exec(s.slug, `mongosh --quiet -u root -p initial-password-123 --authenticationDatabase admin --eval 1`).trim().endsWith("1"), "mongodb: plain connection refused with TLS required");
+    ok(
+      !exec(s.slug, `mongosh --quiet -u root -p initial-password-123 --authenticationDatabase admin --eval 1`).trim().endsWith("1"),
+      "mongodb: plain connection refused with TLS required",
+    );
     const out = await changePassword(s.id, "new-mongo-pass-654");
     ok(out.includes("EXIT=0") && mongo("new-mongo-pass-654", "1") === "1", "mongodb: password change");
     const b = await backupNow(s.id);

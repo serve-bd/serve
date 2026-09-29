@@ -18,7 +18,9 @@ const results: string[] = [];
 const ok = (cond: boolean, label: string, detail = "") => results.push(`${cond ? "✓" : "✗"} ${label}${detail ? `: ${detail}` : ""}`);
 const sh = (cmd: string) => {
   try {
-    return execSync(cmd, { stdio: ["ignore", "pipe", "pipe"] }).toString().trim();
+    return execSync(cmd, { stdio: ["ignore", "pipe", "pipe"] })
+      .toString()
+      .trim();
   } catch (e) {
     return String((e as { stdout?: Buffer }).stdout ?? "");
   }
@@ -88,7 +90,18 @@ try {
         ? { nginx: { ...config.nginx, files: [{ name: "bad.conf", content: "nonsense_directive on;" }] } }
         : kind === "caddy"
           ? { caddy: { ...config.caddy, rawGlobal: "nonsense_option on" } }
-          : { traefik: { ...config.traefik, files: [{ name: "bad.yaml", content: "http:\n  middlewares:\n    x:\n      notAMiddleware: {}\n  routers:\n    extra:\n      rule: Host(`x.test`)\n      service: noop@internal\n      middlewares: [x]" }] } };
+          : {
+              traefik: {
+                ...config.traefik,
+                files: [
+                  {
+                    name: "bad.yaml",
+                    content:
+                      "http:\n  middlewares:\n    x:\n      notAMiddleware: {}\n  routers:\n    extra:\n      rule: Host(`x.test`)\n      service: noop@internal\n      middlewares: [x]",
+                  },
+                ],
+              },
+            };
     let rejected = false;
     try {
       await applyServerProxyConfig(ctx, { ...config, ...bad });
@@ -97,7 +110,12 @@ try {
     }
     const after = await proxyStateOf(REMOTE);
     ok(rejected && JSON.stringify(after.config) === JSON.stringify(config), `${kind}: invalid settings rejected and restored`);
-    const good = kind === "nginx" ? { nginx: { keepaliveTimeout: 30 } } : kind === "caddy" ? { caddy: { logLevel: "WARN" as const } } : { traefik: { logLevel: "WARN" as const, metrics: true } };
+    const good =
+      kind === "nginx"
+        ? { nginx: { keepaliveTimeout: 30 } }
+        : kind === "caddy"
+          ? { caddy: { logLevel: "WARN" as const } }
+          : { traefik: { logLevel: "WARN" as const, metrics: true } };
     let applied = true;
     try {
       await applyServerProxyConfig(ctx, { ...config, ...good });

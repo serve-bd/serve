@@ -133,8 +133,7 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
 export function ProjectView({ project, environments, environment, initialServices }: Props) {
   const { data } = useSWR<{ services: ServiceCardData[] }>(`/api/projects/${project.id}/services?env=${environment.id}`, {
     fallbackData: { services: initialServices },
-    refreshInterval: (d) =>
-      d?.services.some((s) => ["building", "deploying", "restarting"].includes(s.status)) ? 2000 : 8000,
+    refreshInterval: (d) => (d?.services.some((s) => ["building", "deploying", "restarting"].includes(s.status)) ? 2000 : 8000),
   });
   const services = data?.services ?? initialServices;
   const newHref = `/projects/${project.id}/new?env=${environment.name}`;

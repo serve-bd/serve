@@ -78,7 +78,19 @@ export function OnboardingWizard({
 }) {
   const router = useRouter();
   const [step, setStep] = React.useState<StepId>(initialStep ?? "server");
-  const [done, setDone] = React.useState<Set<StepId>>(() => new Set(initialStep ? steps.slice(0, steps.findIndex((s) => s.id === initialStep)).map((s) => s.id) : []));
+  const [done, setDone] = React.useState<Set<StepId>>(
+    () =>
+      new Set(
+        initialStep
+          ? steps
+              .slice(
+                0,
+                steps.findIndex((s) => s.id === initialStep),
+              )
+              .map((s) => s.id)
+          : [],
+      ),
+  );
   const [values, setValues] = React.useState(initial);
   const [pending, setPending] = React.useState(false);
   const [cf, setCf] = React.useState({ token: "", connected: counts.cloudflare > 0 });
@@ -173,8 +185,7 @@ export function OnboardingWizard({
         <p className="text-[13px] font-semibold text-accent">Setup guide</p>
         <h1 className="text-[32px] leading-tight font-semibold tracking-tight">Welcome, {userName.split(" ")[0]}.</h1>
         <p className="max-w-xl text-[14px] leading-relaxed text-muted">
-          A few settings and your server is ready to host apps, databases and services. You can change all of this later in Server
-          settings.
+          A few settings and your server is ready to host apps, databases and services. You can change all of this later in Server settings.
         </p>
       </div>
 
@@ -194,10 +205,7 @@ export function OnboardingWizard({
                 type="button"
                 aria-label={s.title}
                 onClick={() => (done.has(s.id) || i <= index ? setStep(s.id) : undefined)}
-                className={cn(
-                  "h-1.5 rounded-full transition-colors duration-300",
-                  i === index ? "bg-accent" : done.has(s.id) ? "bg-ok" : "bg-line",
-                )}
+                className={cn("h-1.5 rounded-full transition-colors duration-300", i === index ? "bg-accent" : done.has(s.id) ? "bg-ok" : "bg-line")}
               />
             ))}
           </div>
@@ -258,7 +266,7 @@ export function OnboardingWizard({
             {step === "server" && (
               <>
                 <div className="divide-y divide-line rounded-lg border border-line px-4">
-                  <CheckRow ok={!!status.docker} label="Docker engine" detail={status.docker ? `v${status.docker}` : status.dockerError ?? "Not reachable"} />
+                  <CheckRow ok={!!status.docker} label="Docker engine" detail={status.docker ? `v${status.docker}` : (status.dockerError ?? "Not reachable")} />
                   <CheckRow ok={status.proxyRunning} label="nginx proxy" detail={status.proxyRunning ? "Running" : "Starts with the worker"} />
                   <CheckRow ok label="Machine" detail={`${status.hostname} · ${status.cpus} CPU · ${formatBytes(status.memory, 0)}`} />
                   <CheckRow ok={status.nixpacks} label="Nixpacks builder" detail={status.nixpacks ? "Installed" : "Optional — built-in builder is used"} />
@@ -290,8 +298,8 @@ export function OnboardingWizard({
                   optional
                   description={
                     <>
-                      New apps get <code className="text-fg-2">app-name.{values.wildcardDomain || "apps.example.com"}</code> automatically.
-                      Point <code className="text-fg-2">*.{values.wildcardDomain || "apps.example.com"}</code> to this server.
+                      New apps get <code className="text-fg-2">app-name.{values.wildcardDomain || "apps.example.com"}</code> automatically. Point{" "}
+                      <code className="text-fg-2">*.{values.wildcardDomain || "apps.example.com"}</code> to this server.
                     </>
                   }
                 >
@@ -357,9 +365,8 @@ export function OnboardingWizard({
                     label="API token"
                     description={
                       <>
-                        Create a token at dash.cloudflare.com → My Profile → API Tokens with{" "}
-                        <span className="text-fg-2">Zone · Read</span>, <span className="text-fg-2">DNS · Edit</span> and{" "}
-                        <span className="text-fg-2">SSL and Certificates · Edit</span>.
+                        Create a token at dash.cloudflare.com → My Profile → API Tokens with <span className="text-fg-2">Zone · Read</span>,{" "}
+                        <span className="text-fg-2">DNS · Edit</span> and <span className="text-fg-2">SSL and Certificates · Edit</span>.
                       </>
                     }
                   >

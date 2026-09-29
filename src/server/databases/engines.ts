@@ -39,9 +39,7 @@ export type EngineInfo = {
   tlsArgs?: (dir: string, mode: "prefer" | "require") => string[];
 };
 
-export type EngineConfig =
-  | { kind: "pg-args"; placeholder: string }
-  | { kind: "file"; path: string; args?: (path: string) => string[]; placeholder: string; file: string };
+export type EngineConfig = { kind: "pg-args"; placeholder: string } | { kind: "file"; path: string; args?: (path: string) => string[]; placeholder: string; file: string };
 
 export type EngineCreds = {
   username: string;
@@ -70,8 +68,26 @@ const aofRestore = (cli: string, user: string) =>
     "rm -rf /data/appendonlydir /data/appendonly.aof && mv /data/appendonlydir.serve /data/appendonlydir",
     `chown -R ${user} /data 2>/dev/null; echo "Restored the dump. The database restarts to load it."`,
   ].join(" && ");
-const redisTls = (dir: string) => ["--port", "0", "--tls-port", "6379", "--tls-cert-file", `${dir}/server.crt`, "--tls-key-file", `${dir}/server.key`, "--tls-ca-cert-file", `${dir}/ca.crt`, "--tls-auth-clients", "no"];
-const mysqlTls = (dir: string, mode: "prefer" | "require") => [`--ssl-ca=${dir}/ca.crt`, `--ssl-cert=${dir}/server.crt`, `--ssl-key=${dir}/server.key`, ...(mode === "require" ? ["--require-secure-transport=ON"] : [])];
+const redisTls = (dir: string) => [
+  "--port",
+  "0",
+  "--tls-port",
+  "6379",
+  "--tls-cert-file",
+  `${dir}/server.crt`,
+  "--tls-key-file",
+  `${dir}/server.key`,
+  "--tls-ca-cert-file",
+  `${dir}/ca.crt`,
+  "--tls-auth-clients",
+  "no",
+];
+const mysqlTls = (dir: string, mode: "prefer" | "require") => [
+  `--ssl-ca=${dir}/ca.crt`,
+  `--ssl-cert=${dir}/server.crt`,
+  `--ssl-key=${dir}/server.key`,
+  ...(mode === "require" ? ["--require-secure-transport=ON"] : []),
+];
 
 export const engines: Record<DbEngine, EngineInfo> = {
   postgres: {
@@ -93,11 +109,9 @@ export const engines: Record<DbEngine, EngineInfo> = {
       PGDATA: "/var/lib/postgresql/data/pgdata",
     }),
     healthcheck: (c) => ["CMD-SHELL", `pg_isready -U ${c.username} -d ${c.database}`],
-    url: (c) =>
-      `postgresql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
+    url: (c) => `postgresql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
     backupCommand: (c) => `PGPASSWORD=${sh(c.password)} pg_dump -U ${sh(c.username)} -d ${sh(c.database)} -Fc`,
-    restoreCommand: (c) =>
-      `PGPASSWORD=${sh(c.password)} pg_restore -U ${sh(c.username)} -d ${sh(c.database)} --clean --if-exists --no-owner`,
+    restoreCommand: (c) => `PGPASSWORD=${sh(c.password)} pg_restore -U ${sh(c.username)} -d ${sh(c.database)} --clean --if-exists --no-owner`,
     backupExtension: "dump",
     server: ["postgres"],
     runAs: "postgres",
@@ -125,10 +139,8 @@ export const engines: Record<DbEngine, EngineInfo> = {
       ...(c.username !== "root" ? { MYSQL_USER: c.username, MYSQL_PASSWORD: c.password } : {}),
     }),
     healthcheck: (c) => ["CMD-SHELL", `mysqladmin ping -h 127.0.0.1 -uroot -p${c.password} --silent`],
-    url: (c) =>
-      `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
-    backupCommand: (c) =>
-      `mysqldump -uroot -p${sh(c.password)} --single-transaction --routines --triggers --databases ${sh(c.database)}`,
+    url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
+    backupCommand: (c) => `mysqldump -uroot -p${sh(c.password)} --single-transaction --routines --triggers --databases ${sh(c.database)}`,
     restoreCommand: (c) => `mysql -uroot -p${sh(c.password)}`,
     backupExtension: "sql",
     server: ["mysqld"],
@@ -136,7 +148,12 @@ export const engines: Record<DbEngine, EngineInfo> = {
     entrypoint: "docker-entrypoint.sh",
     imagePattern: /(^|\/)(mysql|mysql-server|percona|percona-server)(:|$)/i,
     initScripts: true,
-    config: { kind: "file", path: "/etc/mysql/conf.d/serve.cnf", file: "my.cnf", placeholder: "[mysqld]\nmax_connections = 300\ninnodb_buffer_pool_size = 512M\nslow_query_log = 1" },
+    config: {
+      kind: "file",
+      path: "/etc/mysql/conf.d/serve.cnf",
+      file: "my.cnf",
+      placeholder: "[mysqld]\nmax_connections = 300\ninnodb_buffer_pool_size = 512M\nslow_query_log = 1",
+    },
     tlsArgs: mysqlTls,
   },
   mariadb: {
@@ -157,10 +174,8 @@ export const engines: Record<DbEngine, EngineInfo> = {
       ...(c.username !== "root" ? { MARIADB_USER: c.username, MARIADB_PASSWORD: c.password } : {}),
     }),
     healthcheck: () => ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"],
-    url: (c) =>
-      `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
-    backupCommand: (c) =>
-      `mariadb-dump -uroot -p${sh(c.password)} --single-transaction --routines --triggers --databases ${sh(c.database)}`,
+    url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
+    backupCommand: (c) => `mariadb-dump -uroot -p${sh(c.password)} --single-transaction --routines --triggers --databases ${sh(c.database)}`,
     restoreCommand: (c) => `mariadb -uroot -p${sh(c.password)}`,
     backupExtension: "sql",
     server: ["mariadbd"],
@@ -189,20 +204,31 @@ export const engines: Record<DbEngine, EngineInfo> = {
       MONGO_INITDB_DATABASE: c.database,
     }),
     healthcheck: (c) => ["CMD-SHELL", `mongosh --quiet${mongoTls(c)} --eval "db.adminCommand('ping').ok" | grep -q 1`],
-    url: (c) =>
-      `mongodb://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}?authSource=admin`,
-    backupCommand: (c) =>
-      `mongodump --quiet${mongoToolsTls(c)} --archive --gzip -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
-    restoreCommand: (c) =>
-      `mongorestore --quiet${mongoToolsTls(c)} --archive --gzip --drop -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
+    url: (c) => `mongodb://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}?authSource=admin`,
+    backupCommand: (c) => `mongodump --quiet${mongoToolsTls(c)} --archive --gzip -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
+    restoreCommand: (c) => `mongorestore --quiet${mongoToolsTls(c)} --archive --gzip --drop -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
     backupExtension: "archive.gz",
     server: ["mongod"],
     runAs: "mongodb",
     entrypoint: "docker-entrypoint.sh",
     imagePattern: /(^|\/)(mongo|mongodb-community-server|percona-server-mongodb)(:|$)/i,
     initScripts: true,
-    config: { kind: "file", path: "/etc/serve/mongod.conf", file: "mongod.conf", args: (p) => ["--config", p], placeholder: "operationProfiling:\n  slowOpThresholdMs: 200\nstorage:\n  wiredTiger:\n    engineConfig:\n      cacheSizeGB: 1" },
-    tlsArgs: (dir, mode) => ["--tlsMode", mode === "require" ? "requireTLS" : "preferTLS", "--tlsCertificateKeyFile", `${dir}/server.pem`, "--tlsCAFile", `${dir}/ca.crt`, "--tlsAllowConnectionsWithoutCertificates"],
+    config: {
+      kind: "file",
+      path: "/etc/serve/mongod.conf",
+      file: "mongod.conf",
+      args: (p) => ["--config", p],
+      placeholder: "operationProfiling:\n  slowOpThresholdMs: 200\nstorage:\n  wiredTiger:\n    engineConfig:\n      cacheSizeGB: 1",
+    },
+    tlsArgs: (dir, mode) => [
+      "--tlsMode",
+      mode === "require" ? "requireTLS" : "preferTLS",
+      "--tlsCertificateKeyFile",
+      `${dir}/server.pem`,
+      "--tlsCAFile",
+      `${dir}/ca.crt`,
+      "--tlsAllowConnectionsWithoutCertificates",
+    ],
   },
   redis: {
     engine: "redis",
@@ -220,8 +246,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
     command: (c) => ["redis-server", "--requirepass", c.password, "--appendonly", "yes"],
     healthcheck: (c) => ["CMD-SHELL", `${rcli("redis-cli", c)} ping | grep -q PONG`],
     url: (c) => `redis://default:${encodeURIComponent(c.password)}@${c.host}:${c.port}`,
-    backupCommand: (c) =>
-      `${rcli("redis-cli", c)} --rdb /tmp/serve-backup.rdb >/dev/null && cat /tmp/serve-backup.rdb && rm -f /tmp/serve-backup.rdb`,
+    backupCommand: (c) => `${rcli("redis-cli", c)} --rdb /tmp/serve-backup.rdb >/dev/null && cat /tmp/serve-backup.rdb && rm -f /tmp/serve-backup.rdb`,
     // With appendonly on, startup loads the AOF only: install the dump as the AOF base file.
     restoreCommand: (c) => aofRestore(rcli("redis-cli", c), "redis"),
     backupExtension: "rdb",
@@ -248,8 +273,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
     command: (c) => ["valkey-server", "--requirepass", c.password, "--appendonly", "yes"],
     healthcheck: (c) => ["CMD-SHELL", `${rcli("valkey-cli", c)} ping | grep -q PONG`],
     url: (c) => `redis://default:${encodeURIComponent(c.password)}@${c.host}:${c.port}`,
-    backupCommand: (c) =>
-      `${rcli("valkey-cli", c)} --rdb /tmp/serve-backup.rdb >/dev/null && cat /tmp/serve-backup.rdb && rm -f /tmp/serve-backup.rdb`,
+    backupCommand: (c) => `${rcli("valkey-cli", c)} --rdb /tmp/serve-backup.rdb >/dev/null && cat /tmp/serve-backup.rdb && rm -f /tmp/serve-backup.rdb`,
     // With appendonly on, startup loads the AOF only: install the dump as the AOF base file.
     restoreCommand: (c) => aofRestore(rcli("valkey-cli", c), "valkey"),
     backupExtension: "rdb",
@@ -279,18 +303,21 @@ export const engines: Record<DbEngine, EngineInfo> = {
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1",
     }),
     healthcheck: () => ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"],
-    url: (c) =>
-      `clickhouse://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
+    url: (c) => `clickhouse://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
     backupCommand: (c) =>
       `for t in $(clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)} -q 'SHOW TABLES'); do echo "-- TABLE $t"; clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)} -q "SHOW CREATE TABLE $t FORMAT TSVRaw"; echo ";"; done`,
-    restoreCommand: (c) =>
-      `clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)} --multiquery`,
+    restoreCommand: (c) => `clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)} --multiquery`,
     backupExtension: "sql",
     runAs: "clickhouse",
     entrypoint: "/entrypoint.sh",
     imagePattern: /(^|\/)clickhouse-server(:|$)/i,
     initScripts: true,
-    config: { kind: "file", path: "/etc/clickhouse-server/config.d/serve.xml", file: "serve.xml", placeholder: "<clickhouse>\n  <max_concurrent_queries>200</max_concurrent_queries>\n</clickhouse>" },
+    config: {
+      kind: "file",
+      path: "/etc/clickhouse-server/config.d/serve.xml",
+      file: "serve.xml",
+      placeholder: "<clickhouse>\n  <max_concurrent_queries>200</max_concurrent_queries>\n</clickhouse>",
+    },
   },
 };
 

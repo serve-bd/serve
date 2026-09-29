@@ -14,10 +14,17 @@ const ctx = await browser.newContext({
   colorScheme: flags.includes("--light") ? "light" : "dark",
   storageState: fs.existsSync(state) ? state : undefined,
 });
-await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
-await ctx.addInitScript((theme) => {
-  try { localStorage.setItem("serve-theme", theme); } catch {}
-}, flags.includes("--light") ? "light" : "dark");
+await ctx.addInitScript(() => {
+  window.__SERVE_E2E__ = true;
+});
+await ctx.addInitScript(
+  (theme) => {
+    try {
+      localStorage.setItem("serve-theme", theme);
+    } catch {}
+  },
+  flags.includes("--light") ? "light" : "dark",
+);
 const page = await ctx.newPage();
 const errors = [];
 page.on("console", (m) => m.type() === "error" && errors.push(m.text()));

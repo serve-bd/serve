@@ -30,9 +30,7 @@ export function Field({
         </BaseField.Label>
       )}
       {children}
-      {description && !error && (
-        <BaseField.Description className="text-xs leading-relaxed text-muted">{description}</BaseField.Description>
-      )}
+      {description && !error && <BaseField.Description className="text-xs leading-relaxed text-muted">{description}</BaseField.Description>}
       {error && <p className="text-xs text-bad">{error}</p>}
     </BaseField.Root>
   );

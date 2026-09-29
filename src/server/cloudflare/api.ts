@@ -94,10 +94,7 @@ export class Cloudflare {
       // Account-owned tokens verify on a different endpoint.
       const accounts = await this.request<{ id: string }[]>("GET", "/accounts?per_page=5");
       if (accounts.result[0]) {
-        return this.request<{ id: string; status: string }>(
-          "GET",
-          `/accounts/${accounts.result[0].id}/tokens/verify`,
-        );
+        return this.request<{ id: string; status: string }>("GET", `/accounts/${accounts.result[0].id}/tokens/verify`);
       }
       throw e;
     });
@@ -126,11 +123,7 @@ export class Cloudflare {
   async zoneFor(hostname: string): Promise<CfZone | null> {
     const zones = await this.zones();
     const host = hostname.toLowerCase().replace(/^\*\./, "");
-    return (
-      zones
-        .filter((z) => host === z.name || host.endsWith(`.${z.name}`))
-        .sort((a, b) => b.name.length - a.name.length)[0] ?? null
-    );
+    return zones.filter((z) => host === z.name || host.endsWith(`.${z.name}`)).sort((a, b) => b.name.length - a.name.length)[0] ?? null;
   }
 
   async dnsRecords(zoneId: string, filter: { name?: string; type?: string } = {}): Promise<CfDnsRecord[]> {

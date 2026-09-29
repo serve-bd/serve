@@ -3,8 +3,7 @@ import { env } from "@/server/env";
 
 const globalForDocker = globalThis as unknown as { docker?: Docker };
 
-export const docker =
-  globalForDocker.docker ?? new Docker({ socketPath: env.dockerSocket });
+export const docker = globalForDocker.docker ?? new Docker({ socketPath: env.dockerSocket });
 globalForDocker.docker = docker;
 
 export const LABEL = {

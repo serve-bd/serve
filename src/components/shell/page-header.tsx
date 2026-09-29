@@ -56,14 +56,14 @@ export function PageHeader({
         </div>
       </header>
       {(title || description || actions || children) && (
-      <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-end justify-between gap-x-4 gap-y-3 px-4 pt-7 pb-2 sm:px-8">
-        <div className="flex min-w-0 flex-col gap-1">
-          {title && <h1 className="truncate text-[22px] leading-tight font-semibold text-fg">{title}</h1>}
-          {description && <p className="max-w-2xl text-[13px] leading-relaxed text-muted">{description}</p>}
+        <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-end justify-between gap-x-4 gap-y-3 px-4 pt-7 pb-2 sm:px-8">
+          <div className="flex min-w-0 flex-col gap-1">
+            {title && <h1 className="truncate text-[22px] leading-tight font-semibold text-fg">{title}</h1>}
+            {description && <p className="max-w-2xl text-[13px] leading-relaxed text-muted">{description}</p>}
+          </div>
+          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+          {children}
         </div>
-        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-        {children}
-      </div>
       )}
     </>
   );

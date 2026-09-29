@@ -68,7 +68,13 @@ export function ScheduleCard(props: {
   canEdit: boolean;
 }) {
   const initial = React.useMemo(
-    () => ({ enabled: !!props.schedule, plan: fromCron(props.schedule), retention: String(props.retention), retentionS3: String(props.retentionS3 ?? props.retention), dest: props.s3DestinationId ?? "local" }),
+    () => ({
+      enabled: !!props.schedule,
+      plan: fromCron(props.schedule),
+      retention: String(props.retention),
+      retentionS3: String(props.retentionS3 ?? props.retention),
+      dest: props.s3DestinationId ?? "local",
+    }),
     [props.schedule, props.retention, props.retentionS3, props.s3DestinationId],
   );
   const [enabled, setEnabled] = React.useState(initial.enabled);
@@ -119,7 +125,10 @@ export function ScheduleCard(props: {
                     key={m}
                     type="button"
                     onClick={() => set({ mode: m, cron: m === "custom" && plan.mode !== "custom" ? cron : plan.cron })}
-                    className={cn("h-8 rounded-lg text-[12.5px] font-medium capitalize transition-all", plan.mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
+                    className={cn(
+                      "h-8 rounded-lg text-[12.5px] font-medium capitalize transition-all",
+                      plan.mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg",
+                    )}
                   >
                     {m}
                   </button>
@@ -130,10 +139,20 @@ export function ScheduleCard(props: {
             {plan.mode === "hourly" && (
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Every">
-                  <Select size="sm" value={String(plan.everyHours)} onValueChange={(v) => set({ everyHours: Number(v) })} options={HOURS.map((h) => ({ value: String(h), label: h === 1 ? "hour" : `${h} hours` }))} />
+                  <Select
+                    size="sm"
+                    value={String(plan.everyHours)}
+                    onValueChange={(v) => set({ everyHours: Number(v) })}
+                    options={HOURS.map((h) => ({ value: String(h), label: h === 1 ? "hour" : `${h} hours` }))}
+                  />
                 </Field>
                 <Field label="At minute">
-                  <Select size="sm" value={String(plan.minute)} onValueChange={(v) => set({ minute: Number(v) })} options={[0, 15, 30, 45].map((m) => ({ value: String(m), label: `:${pad(m)}` }))} />
+                  <Select
+                    size="sm"
+                    value={String(plan.minute)}
+                    onValueChange={(v) => set({ minute: Number(v) })}
+                    options={[0, 15, 30, 45].map((m) => ({ value: String(m), label: `:${pad(m)}` }))}
+                  />
                 </Field>
               </div>
             )}
@@ -182,7 +201,13 @@ export function ScheduleCard(props: {
                 <CalendarClock className="mt-0.5 size-4 flex-none text-accent" />
                 <div className="min-w-0">
                   <p className="font-medium text-fg">Next backup {fmt.format(runs[0])}</p>
-                  <p className="text-muted">Then {runs.slice(1).map((d) => fmt.format(d)).join(", ")}</p>
+                  <p className="text-muted">
+                    Then{" "}
+                    {runs
+                      .slice(1)
+                      .map((d) => fmt.format(d))
+                      .join(", ")}
+                  </p>
                 </div>
               </div>
             )}

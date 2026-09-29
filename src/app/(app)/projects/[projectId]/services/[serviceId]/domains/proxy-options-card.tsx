@@ -176,7 +176,12 @@ export function ProxyOptionsCard({
           </Group>
 
           <Group title="Access control" description="Protect previews, admin panels or staging sites.">
-            <SwitchRow title="Password protection" description="Browsers ask for a user name and password (HTTP Basic Auth)." checked={form.authOn} onCheckedChange={(v) => set("authOn", v)} />
+            <SwitchRow
+              title="Password protection"
+              description="Browsers ask for a user name and password (HTTP Basic Auth)."
+              checked={form.authOn}
+              onCheckedChange={(v) => set("authOn", v)}
+            />
             {form.authOn && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="User name">
@@ -184,21 +189,40 @@ export function ProxyOptionsCard({
                 </Field>
                 <Field
                   label="Password"
-                  error={proxyKind === "caddy" && initial?.basicAuthUser && !initial.basicAuthHasBcrypt && !form.authPassword ? "Enter the password again: Caddy needs a new hash. Until then the site answers 503." : undefined}
+                  error={
+                    proxyKind === "caddy" && initial?.basicAuthUser && !initial.basicAuthHasBcrypt && !form.authPassword
+                      ? "Enter the password again: Caddy needs a new hash. Until then the site answers 503."
+                      : undefined
+                  }
                   description={initial?.basicAuthUser ? "Leave empty to keep the current password." : undefined}
                 >
-                  <Input type="password" value={form.authPassword} onChange={(e) => set("authPassword", e.target.value)} placeholder={initial?.basicAuthUser ? "••••••••" : "At least 6 characters"} />
+                  <Input
+                    type="password"
+                    value={form.authPassword}
+                    onChange={(e) => set("authPassword", e.target.value)}
+                    placeholder={initial?.basicAuthUser ? "••••••••" : "At least 6 characters"}
+                  />
                 </Field>
               </div>
             )}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Allow only" optional description="One IP or CIDR per line. Everyone else gets 403.">
-                <Textarea value={form.allow} onChange={(e) => set("allow", e.target.value)} placeholder={"203.0.113.10\n10.0.0.0/8"} rows={3} className="min-h-20 font-mono text-[12.5px]" />
+                <Textarea
+                  value={form.allow}
+                  onChange={(e) => set("allow", e.target.value)}
+                  placeholder={"203.0.113.10\n10.0.0.0/8"}
+                  rows={3}
+                  className="min-h-20 font-mono text-[12.5px]"
+                />
               </Field>
               <Field
                 label="Block"
                 optional
-                description={proxyKind === "traefik" ? "One IP or CIDR per line. Traefik has no block list: blocked visitors get the 404 page, and visitors through a Cloudflare Tunnel cannot be blocked here." : "One IP or CIDR per line."}
+                description={
+                  proxyKind === "traefik"
+                    ? "One IP or CIDR per line. Traefik has no block list: blocked visitors get the 404 page, and visitors through a Cloudflare Tunnel cannot be blocked here."
+                    : "One IP or CIDR per line."
+                }
               >
                 <Textarea value={form.deny} onChange={(e) => set("deny", e.target.value)} placeholder="198.51.100.0/24" rows={3} className="min-h-20 font-mono text-[12.5px]" />
               </Field>
@@ -213,7 +237,13 @@ export function ProxyOptionsCard({
               onCheckedChange={(v) => set("securityHeaders", v)}
             />
             <Field label="CORS allowed origins" optional description="* or one origin per line, like https://app.example.com. Preflight requests are answered by the proxy.">
-              <Textarea value={form.cors} onChange={(e) => set("cors", e.target.value)} placeholder="https://app.example.com" rows={2} className="min-h-16 font-mono text-[12.5px]" />
+              <Textarea
+                value={form.cors}
+                onChange={(e) => set("cors", e.target.value)}
+                placeholder="https://app.example.com"
+                rows={2}
+                className="min-h-16 font-mono text-[12.5px]"
+              />
             </Field>
             <div className="flex flex-col gap-2">
               <span className="text-[13px] font-medium text-fg-2">Custom headers</span>
@@ -221,17 +251,38 @@ export function ProxyOptionsCard({
                 <div key={i} className="grid grid-cols-[minmax(0,1fr)_32px] gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_32px]">
                   <Input
                     value={h.name}
-                    onChange={(e) => set("headers", form.headers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                    onChange={(e) =>
+                      set(
+                        "headers",
+                        form.headers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
+                      )
+                    }
                     placeholder="X-Robots-Tag"
                     aria-label="Header name"
                     className="h-8 font-mono text-[12.5px]"
                   />
-                  <Button variant="ghost" size="icon" className="sm:order-3" onClick={() => set("headers", form.headers.filter((_, j) => j !== i))} aria-label="Remove header">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="sm:order-3"
+                    onClick={() =>
+                      set(
+                        "headers",
+                        form.headers.filter((_, j) => j !== i),
+                      )
+                    }
+                    aria-label="Remove header"
+                  >
                     <Trash2 />
                   </Button>
                   <Input
                     value={h.value}
-                    onChange={(e) => set("headers", form.headers.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+                    onChange={(e) =>
+                      set(
+                        "headers",
+                        form.headers.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
+                      )
+                    }
                     placeholder="noindex"
                     aria-label="Header value"
                     className="col-span-2 h-8 font-mono text-[12.5px] sm:order-2 sm:col-span-1"
@@ -246,7 +297,12 @@ export function ProxyOptionsCard({
 
           <Group title="Performance and routing">
             <SwitchRow title="Compression" description="Gzip text responses." checked={form.gzip} onCheckedChange={(v) => set("gzip", v)} />
-            <SwitchRow title="Cache static files" description="Browsers keep CSS, JS, images and fonts for 7 days." checked={form.cacheStatic} onCheckedChange={(v) => set("cacheStatic", v)} />
+            <SwitchRow
+              title="Cache static files"
+              description="Browsers keep CSS, JS, images and fonts for 7 days."
+              checked={form.cacheStatic}
+              onCheckedChange={(v) => set("cacheStatic", v)}
+            />
             <Field label="www redirect" description="Works when both example.com and www.example.com are added as domains here.">
               <Select
                 value={form.wwwRedirect}

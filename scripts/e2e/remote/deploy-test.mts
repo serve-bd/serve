@@ -79,7 +79,13 @@ let whoami: string | null = null;
 
 try {
   if (steps.includes("image") || steps.includes("control") || steps.includes("move")) {
-    whoami = await make({ name: "rt whoami", type: "app", serverId: REMOTE, source: { type: "image", image: "traefik/whoami", registryUsername: null, registryPassword: null }, runtime: defaultRuntime(80) });
+    whoami = await make({
+      name: "rt whoami",
+      type: "app",
+      serverId: REMOTE,
+      source: { type: "image", image: "traefik/whoami", registryUsername: null, registryPassword: null },
+      runtime: defaultRuntime(80),
+    });
     if (await deploy(whoami, "image on remote")) {
       const ps = remoteDocker(`ps --filter label=serve.service=${whoami} --format '{{.Names}} {{.Status}}'`);
       results.push(`${ps ? "✓" : "✗"} remote container: ${ps || "none"}`);
@@ -108,7 +114,17 @@ try {
       type: "database",
       serverId: REMOTE,
       runtime: { ...defaultRuntime(5432), restartPolicy: "unless-stopped" },
-      database: { engine: "postgres", version: "17", username: "app", password: encrypt(randomPassword()), database: "app", publicPort: null, backupSchedule: null, backupRetention: 7, s3DestinationId: null },
+      database: {
+        engine: "postgres",
+        version: "17",
+        username: "app",
+        password: encrypt(randomPassword()),
+        database: "app",
+        publicPort: null,
+        backupSchedule: null,
+        backupRetention: 7,
+        s3DestinationId: null,
+      },
     });
     if (await deploy(id, "postgres on remote", 300_000)) {
       const [svc] = await db.select().from(schema.service).where(eq(schema.service.id, id));
@@ -127,7 +143,13 @@ try {
 
   if (steps.includes("compose")) {
     const t = getTemplate("uptime-kuma")!;
-    const id = await make({ name: "rt kuma", type: "compose", serverId: REMOTE, icon: t.id, compose: { mode: "inline", content: t.compose, path: "docker-compose.yml", template: t.id } });
+    const id = await make({
+      name: "rt kuma",
+      type: "compose",
+      serverId: REMOTE,
+      icon: t.id,
+      compose: { mode: "inline", content: t.compose, path: "docker-compose.yml", template: t.id },
+    });
     if (await deploy(id, "compose template on remote", 600_000)) {
       const ps = remoteDocker(`ps --filter label=serve.service=${id} --format '{{.Names}} {{.Status}}'`);
       results.push(`${ps.includes("Up") ? "✓" : "✗"} compose containers on remote: ${ps.replace(/\n/g, ", ")}`);
@@ -148,7 +170,11 @@ try {
     // Same jobs moveService() queues: remove on the old server, switch, deploy.
     const move = async (to: string, from: string) => {
       const [s] = await db.select().from(schema.service).where(eq(schema.service.id, whoami!));
-      await enqueue("service.delete", { serviceId: s.id, slug: s.slug, type: s.type, removeVolumes: false, environmentId: s.environmentId, serverId: from, keepFiles: true }, { concurrencyKey: `service:${s.id}` });
+      await enqueue(
+        "service.delete",
+        { serviceId: s.id, slug: s.slug, type: s.type, removeVolumes: false, environmentId: s.environmentId, serverId: from, keepFiles: true },
+        { concurrencyKey: `service:${s.id}` },
+      );
       await db.update(schema.service).set({ serverId: to }).where(eq(schema.service.id, s.id));
       return deploy(s.id, `move ${from} → ${to}`);
     };
@@ -183,13 +209,21 @@ try {
   }
 
   if (steps.includes("local")) {
-    const id = await make({ name: "rt local", type: "app", source: { type: "image", image: "traefik/whoami", registryUsername: null, registryPassword: null }, runtime: defaultRuntime(80) });
+    const id = await make({
+      name: "rt local",
+      type: "app",
+      source: { type: "image", image: "traefik/whoami", registryUsername: null, registryPassword: null },
+      runtime: defaultRuntime(80),
+    });
     await deploy(id, "local image deploy (regression)");
   }
 } finally {
   if (!process.env.KEEP) {
     const rows = await db.select().from(schema.service);
-    await teardownServices(rows.filter((r) => created.includes(r.id)), true);
+    await teardownServices(
+      rows.filter((r) => created.includes(r.id)),
+      true,
+    );
     for (const id of created) await waitJobIdle(id, 120_000);
     const leftRemote = created.map((id) => remoteDocker(`ps -aq --filter label=serve.service=${id}`)).join("");
     results.push(`${leftRemote ? "✗" : "✓"} cleanup removed remote containers`);

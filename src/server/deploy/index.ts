@@ -97,10 +97,7 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
   if (source.type === "image") {
     log.step(`Pulling ${source.image}`);
     const password = decryptOrNull(source.registryPassword);
-    const auth =
-      source.registryUsername && password
-        ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) }
-        : null;
+    const auth = source.registryUsername && password ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) } : null;
     await pullImage(source.image, log.line, auth, d);
     checkCancelled(signal);
     const ref = source.image.includes(":") || source.image.includes("@") ? source.image : `${source.image}:latest`;
@@ -115,7 +112,10 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
   const build: BuildConfig = { ...service.build!, noCache: service.build?.noCache || service.build?.noCacheOnce };
   if (service.build?.noCacheOnce) {
     // One-shot "build without cache": consume the flag so later deploys use the cache again.
-    await db.update(schema.service).set({ build: { ...service.build, noCacheOnce: false } }).where(eq(schema.service.id, service.id));
+    await db
+      .update(schema.service)
+      .set({ build: { ...service.build, noCacheOnce: false } })
+      .where(eq(schema.service.id, service.id));
   }
   // A build timeout aborts clone + build like a cancellation.
   const timeoutMinutes = build.buildTimeoutMinutes;
@@ -221,7 +221,11 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   if (needsStopFirst && old.length) {
     log.line(recreate ? "Stopping the previous version first (recreate strategy)" : "Stopping the previous version first because host ports are published");
     const stopWait = runtime.stopTimeout ?? 10;
-    for (const c of old) await d.getContainer(c.Id).stop({ t: stopWait }).catch(() => {});
+    for (const c of old)
+      await d
+        .getContainer(c.Id)
+        .stop({ t: stopWait })
+        .catch(() => {});
   }
   log.step(`Starting ${replicas} container${replicas > 1 ? "s" : ""}`);
   const started: string[] = [];
@@ -229,19 +233,22 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     for (let i = 0; i < replicas; i++) {
       const name = `${service.slug}-${dep.id.slice(0, 6)}-${i + 1}`;
       await removeContainer(name, 0, d);
-      const container = await startContainer({
-        name,
-        image,
-        slug: service.slug,
-        serviceId: service.id,
-        deploymentId: dep.id,
-        kind: "app",
-        env: env.runtime,
-        runtime,
-        aliases: networkAliases(service),
-        network,
-        serviceDir: server.paths.service(service.id),
-      }, server);
+      const container = await startContainer(
+        {
+          name,
+          image,
+          slug: service.slug,
+          serviceId: service.id,
+          deploymentId: dep.id,
+          kind: "app",
+          env: env.runtime,
+          runtime,
+          aliases: networkAliases(service),
+          network,
+          serviceDir: server.paths.service(service.id),
+        },
+        server,
+      );
       started.push(container.id);
       log.line(`Started ${name}`);
     }
@@ -254,16 +261,17 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     if (needsStopFirst && old.length) {
       // Bring the previous version back so a failed deploy does not take the app down.
       log.line("Restarting the previous version");
-      for (const c of old) await d.getContainer(c.Id).start().catch(() => {});
+      for (const c of old)
+        await d
+          .getContainer(c.Id)
+          .start()
+          .catch(() => {});
     }
     throw error;
   }
 
   // Switch traffic.
-  await db
-    .update(schema.service)
-    .set({ currentDeploymentId: dep.id, status: "running" })
-    .where(eq(schema.service.id, service.id));
+  await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
   log.step("Routing traffic");
   try {
     await syncServiceProxy(service.id);
@@ -352,10 +360,7 @@ async function assertPortsFree(d: Docker, serverName: string, ports: PortMapping
   for (const p of ports) {
     const holder = others.find((c) =>
       c.Ports.some(
-        (x) =>
-          x.PublicPort === p.host &&
-          x.Type === p.protocol &&
-          (x.IP === "0.0.0.0" || x.IP === "::" || !p.bindAddress || p.bindAddress === "0.0.0.0" || x.IP === p.bindAddress),
+        (x) => x.PublicPort === p.host && x.Type === p.protocol && (x.IP === "0.0.0.0" || x.IP === "::" || !p.bindAddress || p.bindAddress === "0.0.0.0" || x.IP === p.bindAddress),
       ),
     );
     if (holder) {
@@ -379,7 +384,11 @@ async function pruneImages(service: Service, d: Docker) {
   for (const img of images) {
     const tags = img.RepoTags ?? [];
     if (tags.some((t) => keepSet.has(t))) continue;
-    for (const tag of tags) await d.getImage(tag).remove().catch(() => {});
+    for (const tag of tags)
+      await d
+        .getImage(tag)
+        .remove()
+        .catch(() => {});
   }
 }
 
@@ -419,34 +428,44 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   await ensureNetwork(d, server.network);
   const network = await ensureEnvNetwork(service.environmentId, server);
   await removeContainer(service.slug, 30, d);
-  const container = await startContainer({
-    name: service.slug,
-    image,
-    slug: service.slug,
-    serviceId: service.id,
-    kind: "database",
-    env: plan.env,
-    cmd: plan.cmd,
-    healthcheck: plan.healthcheck,
-    healthTiming: plan.health,
-    extraBinds: plan.binds,
-    serviceDir,
-    runtime: {
-      ...service.runtime,
-      port: engine.port,
-      command: null,
-      // The data volume first, then any mounts added in Persistent storage.
-      volumes: [{ kind: "volume", source: "data", mountPath: plan.dataMountPath }, ...extra.filter((v) => !(v.kind === "volume" && v.source === "data"))],
-      ports: cfg.publicPort ? [{ host: cfg.publicPort, container: engine.port, protocol: "tcp", bindAddress: cfg.publicBind }] : [],
-      healthcheckPath: null,
-      healthcheckTimeout: 180,
+  const container = await startContainer(
+    {
+      name: service.slug,
+      image,
+      slug: service.slug,
+      serviceId: service.id,
+      kind: "database",
+      env: plan.env,
+      cmd: plan.cmd,
+      healthcheck: plan.healthcheck,
+      healthTiming: plan.health,
+      extraBinds: plan.binds,
+      serviceDir,
+      runtime: {
+        ...service.runtime,
+        port: engine.port,
+        command: null,
+        // The data volume first, then any mounts added in Persistent storage.
+        volumes: [{ kind: "volume", source: "data", mountPath: plan.dataMountPath }, ...extra.filter((v) => !(v.kind === "volume" && v.source === "data"))],
+        ports: cfg.publicPort ? [{ host: cfg.publicPort, container: engine.port, protocol: "tcp", bindAddress: cfg.publicBind }] : [],
+        healthcheckPath: null,
+        healthcheckTimeout: 180,
+      },
+      aliases: networkAliases(service),
+      network,
     },
-    aliases: networkAliases(service),
-    network,
-  }, server);
+    server,
+  );
   line(`Volume ${volumeName(service.slug, "data")} mounted at ${plan.dataMountPath}`);
   log?.step("Waiting for the database to accept connections");
-  await waitHealthy(container.id, { ...service.runtime, port: null, healthcheckTimeout: Math.max(180, plan.health.startPeriod + plan.health.interval * plan.health.retries + 30) }, line, signal, network, server);
+  await waitHealthy(
+    container.id,
+    { ...service.runtime, port: null, healthcheckTimeout: Math.max(180, plan.health.startPeriod + plan.health.interval * plan.health.retries + 30) },
+    line,
+    signal,
+    network,
+    server,
+  );
   line(`${engine.label} is ready`);
   await setServiceStatus(service.id, "running");
 }
@@ -503,7 +522,9 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   const unset = composeVariables(content).filter((v) => !v.hasDefault && !(v.name in env.runtime));
   if (unset.length) {
     const names = unset.map((v) => v.name).join(", ");
-    throw new Error(`The compose file uses ${unset.length === 1 ? "a variable that is" : "variables that are"} not set: ${names}. Add ${unset.length === 1 ? "it" : "them"} in Variables (an empty value is fine if that is intended), then deploy again.`);
+    throw new Error(
+      `The compose file uses ${unset.length === 1 ? "a variable that is" : "variables that are"} not set: ${names}. Add ${unset.length === 1 ? "it" : "them"} in Variables (an empty value is fine if that is intended), then deploy again.`,
+    );
   }
   // postgres:18+ keeps its data in /var/lib/postgresql and refuses to start with the old mount.
   for (const [name, svc] of Object.entries(parseCompose(content).services ?? {})) {
@@ -511,7 +532,9 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     const major = Number(/^(?:docker\.io\/)?(?:library\/)?postgres:(\d+)/.exec(image)?.[1] ?? (/^(?:docker\.io\/)?(?:library\/)?postgres(:latest|:alpine)?$/.test(image) ? 99 : 0));
     const mounts = ((svc as { volumes?: unknown[] }).volumes ?? []).map((v) => (typeof v === "string" ? v.split(":")[1] : (v as { target?: string })?.target));
     if (major >= 18 && mounts.includes("/var/lib/postgresql/data")) {
-      throw new Error(`Service ${name} runs ${image}, which stores its data in /var/lib/postgresql. Change the volume target from /var/lib/postgresql/data to /var/lib/postgresql, then deploy again.`);
+      throw new Error(
+        `Service ${name} runs ${image}, which stores its data in /var/lib/postgresql. Change the volume target from /var/lib/postgresql/data to /var/lib/postgresql, then deploy again.`,
+      );
     }
   }
 
@@ -529,7 +552,10 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     const others = await db.select({ compose: schema.service.compose }).from(schema.service).where(eq(schema.service.type, "compose"));
     subnet = await allocateSubnet(others.map((o) => o.compose?.subnet).filter(Boolean) as string[], server);
     const [fresh] = await db.select({ compose: schema.service.compose }).from(schema.service).where(eq(schema.service.id, service.id));
-    await db.update(schema.service).set({ compose: { ...(fresh?.compose ?? cfg), subnet } }).where(eq(schema.service.id, service.id));
+    await db
+      .update(schema.service)
+      .set({ compose: { ...(fresh?.compose ?? cfg), subnet } })
+      .where(eq(schema.service.id, service.id));
   }
   const network = await ensureEnvNetwork(service.environmentId, server);
   await assertPortsFree(server.docker, server.name, service.compose?.ports ?? [], service.id);
@@ -557,10 +583,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   await composeUp(target);
   // Isolated stacks are not on the environment network; the proxy joins the stack's own one.
   if (isolated) await connectProxy(stackNetworkName(service.slug), server);
-  await db
-    .update(schema.service)
-    .set({ currentDeploymentId: dep.id, status: "running" })
-    .where(eq(schema.service.id, service.id));
+  await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
   log.step("Routing traffic");
   try {
     await syncServiceProxy(service.id);
@@ -610,12 +633,7 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     .select({ id: schema.deployment.id })
     .from(schema.deployment)
     .where(
-      and(
-        eq(schema.deployment.serviceId, service.id),
-        eq(schema.deployment.status, "queued"),
-        gt(schema.deployment.createdAt, dep.createdAt),
-        ne(schema.deployment.id, dep.id),
-      ),
+      and(eq(schema.deployment.serviceId, service.id), eq(schema.deployment.status, "queued"), gt(schema.deployment.createdAt, dep.createdAt), ne(schema.deployment.id, dep.id)),
     )
     .limit(1);
   if (newer.length) {
@@ -682,10 +700,7 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     // Keep the old version running if there is one.
     const server = await serverOf(service).catch(() => null);
     const running = server ? (await listServiceContainers(service.id, false, server.docker).catch(() => [])).length > 0 : false;
-    await setServiceStatus(
-      service.id,
-      running ? "running" : cancelled ? (previousStatus === "building" ? "idle" : previousStatus) : "failed",
-    );
+    await setServiceStatus(service.id, running ? "running" : cancelled ? (previousStatus === "building" ? "idle" : previousStatus) : "failed");
     if (!cancelled) {
       await logActivity({
         userId: dep.createdBy,

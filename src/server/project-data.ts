@@ -16,11 +16,7 @@ export type ServiceCardData = {
 };
 
 export async function environmentServices(environmentId: string): Promise<ServiceCardData[]> {
-  const services = await db
-    .select()
-    .from(schema.service)
-    .where(eq(schema.service.environmentId, environmentId))
-    .orderBy(asc(schema.service.createdAt));
+  const services = await db.select().from(schema.service).where(eq(schema.service.environmentId, environmentId)).orderBy(asc(schema.service.createdAt));
   if (!services.length) return [];
   const ids = services.map((s) => s.id);
   const [domains, deployments] = await Promise.all([

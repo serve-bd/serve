@@ -238,7 +238,9 @@ export function DangerZone({ server }: { server: ServerDetails }) {
       <CardHeader title="Remove server" description="Serve forgets this server. Containers already running there keep running until you stop them on the server." />
       <CardBody className="flex flex-wrap items-center justify-between gap-3 py-4">
         <p className="text-[13px] text-muted">
-          {server.services > 0 ? `${server.services} service${server.services === 1 ? " runs" : "s run"} here. Move or delete ${server.services === 1 ? "it" : "them"} first.` : "No services run on this server."}
+          {server.services > 0
+            ? `${server.services} service${server.services === 1 ? " runs" : "s run"} here. Move or delete ${server.services === 1 ? "it" : "them"} first.`
+            : "No services run on this server."}
         </p>
         <Button
           variant="danger"
@@ -246,7 +248,15 @@ export function DangerZone({ server }: { server: ServerDetails }) {
           disabled={server.services > 0}
           loading={remove.pending}
           onClick={async () => {
-            if (await confirm({ title: `Remove ${server.name}?`, description: "This cannot be undone. You can add the server again later.", confirmLabel: "Remove server", danger: true })) void remove.run();
+            if (
+              await confirm({
+                title: `Remove ${server.name}?`,
+                description: "This cannot be undone. You can add the server again later.",
+                confirmLabel: "Remove server",
+                danger: true,
+              })
+            )
+              void remove.run();
           }}
         >
           <Trash2 /> Remove server

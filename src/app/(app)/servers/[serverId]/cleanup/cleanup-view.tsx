@@ -112,7 +112,9 @@ export function CleanupView({
                         <span>• Dangling images and stopped containers from old Serve deployments</span>
                         <span>
                           • Build cache
-                          {settings.cleanupBuildCacheDays > 0 ? ` older than ${settings.cleanupBuildCacheDays} day${settings.cleanupBuildCacheDays === 1 ? "" : "s"}` : " (skipped: set to keep)"}
+                          {settings.cleanupBuildCacheDays > 0
+                            ? ` older than ${settings.cleanupBuildCacheDays} day${settings.cleanupBuildCacheDays === 1 ? "" : "s"}`
+                            : " (skipped: set to keep)"}
                         </span>
                         <span>• Dangling images on the whole host</span>
                         {settings.cleanupUnusedImages && <span>• Images no container uses (except Serve&apos;s rollback images)</span>}
@@ -172,7 +174,6 @@ export function CleanupView({
           <p className="px-5 py-4 text-[13px] text-muted">Docker is not reachable.</p>
         )}
       </Card>
-
 
       <Card>
         <CardHeader

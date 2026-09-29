@@ -32,11 +32,7 @@ export function TemplateLogo({
       style={{ background: `linear-gradient(160deg, color-mix(in oklab, ${brand.color} 86%, white), ${brand.color})` }}
       aria-hidden
     >
-      {brand.logo && !custom ? (
-        <img src={brand.logo} alt="" className="size-[54%]" draggable={false} />
-      ) : (
-        name.trim().charAt(0).toUpperCase() || "?"
-      )}
+      {brand.logo && !custom ? <img src={brand.logo} alt="" className="size-[54%]" draggable={false} /> : name.trim().charAt(0).toUpperCase() || "?"}
     </span>
   );
 }

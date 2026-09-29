@@ -173,7 +173,12 @@ export function Terminal({
         resizeTimer = setTimeout(() => {
           if (disposed) return;
           fit.fit();
-          if (sessionUrl) void fetch(sessionUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "resize", cols: xterm.cols, rows: xterm.rows }) });
+          if (sessionUrl)
+            void fetch(sessionUrl, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ type: "resize", cols: xterm.cols, rows: xterm.rows }),
+            });
         }, 80);
       });
       observer.observe(host.current);

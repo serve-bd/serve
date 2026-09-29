@@ -87,7 +87,15 @@ export function TemplatesView({ canManage, custom, builtIn }: { canManage: boole
                         variant="ghost"
                         aria-label={`Delete ${t.name}`}
                         onClick={async () => {
-                          if (await confirm({ title: `Delete ${t.name}?`, description: "Services already created from it keep running. It disappears from the catalog.", confirmLabel: "Delete template", danger: true })) remove.run(t.id);
+                          if (
+                            await confirm({
+                              title: `Delete ${t.name}?`,
+                              description: "Services already created from it keep running. It disappears from the catalog.",
+                              confirmLabel: "Delete template",
+                              danger: true,
+                            })
+                          )
+                            remove.run(t.id);
                         }}
                       >
                         <Trash2 />

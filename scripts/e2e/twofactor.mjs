@@ -2,7 +2,8 @@
 import { chromium } from "playwright-core";
 import crypto from "node:crypto";
 const base = process.env.BASE ?? "http://localhost:3001";
-const email = "owner@serve.test", password = "owner-pass-123";
+const email = "owner@serve.test",
+  password = "owner-pass-123";
 function totp(secret) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = "";
@@ -12,11 +13,13 @@ function totp(secret) {
   counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));
   const h = crypto.createHmac("sha1", key).update(counter).digest();
   const o = h[h.length - 1] & 15;
-  return String(((h.readUInt32BE(o) & 0x7fffffff) % 1e6)).padStart(6, "0");
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1e6).padStart(6, "0");
 }
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
 const ctx = await browser.newContext({ storageState: `/tmp/claude-1000/e2e-state-${new URL(base).port}.json` });
-await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
+await ctx.addInitScript(() => {
+  window.__SERVE_E2E__ = true;
+});
 const page = await ctx.newPage();
 await page.goto(base + "/account", { waitUntil: "networkidle" });
 const enableRes = page.waitForResponse((r) => r.url().includes("/two-factor/enable"));
@@ -28,10 +31,12 @@ const secret = new URL(totpURI).searchParams.get("secret");
 await page.locator('[role="dialog"] input[inputmode="numeric"]').fill(totp(secret));
 await page.getByRole("button", { name: "Verify and enable" }).click();
 await page.waitForTimeout(1500);
-console.log("enabled:", await page.getByText("Enabled", { exact: true }).count() > 0);
+console.log("enabled:", (await page.getByText("Enabled", { exact: true }).count()) > 0);
 // Fresh login requires the code.
 const ctx2 = await browser.newContext();
-await ctx2.addInitScript(() => { window.__SERVE_E2E__ = true; });
+await ctx2.addInitScript(() => {
+  window.__SERVE_E2E__ = true;
+});
 const p2 = await ctx2.newPage();
 await p2.goto(base + "/login", { waitUntil: "networkidle" });
 await p2.fill('input[name="email"]', email);
@@ -48,5 +53,5 @@ await page.getByRole("button", { name: "Disable" }).click();
 await page.locator('[role="dialog"] input[type="password"]').fill(password);
 await page.locator('[role="dialog"]').getByRole("button", { name: "Disable" }).click();
 await page.waitForTimeout(1500);
-console.log("disabled:", await page.getByText("Not enabled").count() > 0);
+console.log("disabled:", (await page.getByText("Not enabled").count()) > 0);
 await browser.close();

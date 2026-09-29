@@ -28,10 +28,7 @@ export default async function InvitePage(props: PageProps<"/invite/[id]">) {
   }
 
   const session = await getSession();
-  const [existing] = await db
-    .select({ id: schema.user.id })
-    .from(schema.user)
-    .where(eq(schema.user.email, row.invitation.email.toLowerCase()));
+  const [existing] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, row.invitation.email.toLowerCase()));
 
   return (
     <AuthCard
@@ -39,8 +36,7 @@ export default async function InvitePage(props: PageProps<"/invite/[id]">) {
       title={`Join ${row.org.name}`}
       description={
         <>
-          {row.inviter.name} invited <span className="text-fg-2">{row.invitation.email}</span> as{" "}
-          <span className="text-fg-2">{row.invitation.role ?? "member"}</span>.
+          {row.inviter.name} invited <span className="text-fg-2">{row.invitation.email}</span> as <span className="text-fg-2">{row.invitation.role ?? "member"}</span>.
         </>
       }
     >

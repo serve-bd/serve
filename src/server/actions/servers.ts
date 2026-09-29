@@ -75,12 +75,30 @@ const serverSchema = z.object({
   description: z.string().trim().max(200).nullable().optional(),
   host,
   port: z.number().int().min(1).max(65535),
-  username: z.string().trim().min(1).max(32).regex(/^[a-z_][a-z0-9_-]*$/i, "Enter a valid user name"),
+  username: z
+    .string()
+    .trim()
+    .min(1)
+    .max(32)
+    .regex(/^[a-z_][a-z0-9_-]*$/i, "Enter a valid user name"),
   privateKeyId: z.string().min(1, "Choose an SSH key"),
-  dataDir: z.string().trim().regex(/^\/[\w./-]+$/, "Use an absolute path like /data/serve"),
-  publicIp: z.union([z.ipv4("Enter a valid IPv4 address"), z.literal("")]).nullable().optional(),
+  dataDir: z
+    .string()
+    .trim()
+    .regex(/^\/[\w./-]+$/, "Use an absolute path like /data/serve"),
+  publicIp: z
+    .union([z.ipv4("Enter a valid IPv4 address"), z.literal("")])
+    .nullable()
+    .optional(),
   wildcardDomain: z
-    .union([z.string().trim().toLowerCase().regex(/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "Enter a valid domain"), z.literal("")])
+    .union([
+      z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "Enter a valid domain"),
+      z.literal(""),
+    ])
     .nullable()
     .optional(),
   sslipFallback: z.boolean(),

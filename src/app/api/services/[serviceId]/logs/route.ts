@@ -26,10 +26,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
   } catch (e) {
     return new Response(`The server of this service is unreachable: ${(e as Error).message}`, { status: 503 });
   }
-  const containers =
-    service.type === "app" && service.currentDeploymentId
-      ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId)
-      : all;
+  const containers = service.type === "app" && service.currentDeploymentId ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : all;
 
   const encoder = new TextEncoder();
   const streams: NodeJS.ReadableStream[] = [];
@@ -71,12 +68,10 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
               buf += chunk.toString("utf8");
               const lines = buf.split("\n");
               buf = lines.pop() ?? "";
-              const batch = lines
-                .filter(Boolean)
-                .map((l) => {
-                  const sp = l.indexOf(" ");
-                  return { t: l.slice(0, sp), m: l.slice(sp + 1), s: label, e: isErr };
-                });
+              const batch = lines.filter(Boolean).map((l) => {
+                const sp = l.indexOf(" ");
+                return { t: l.slice(0, sp), m: l.slice(sp + 1), s: label, e: isErr };
+              });
               if (batch.length) send("logs", batch);
             });
           };

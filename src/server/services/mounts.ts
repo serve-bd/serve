@@ -4,7 +4,12 @@ import type { VolumeMount } from "./types";
 
 /** File name used on the server for a file mount's content. */
 export function fileMountName(source: string) {
-  return source.replace(/[^\w.-]/g, "_").replace(/^\.+/, "_").slice(0, 120) || "file";
+  return (
+    source
+      .replace(/[^\w.-]/g, "_")
+      .replace(/^\.+/, "_")
+      .slice(0, 120) || "file"
+  );
 }
 
 /** Host path of a file mount's content on the server. */

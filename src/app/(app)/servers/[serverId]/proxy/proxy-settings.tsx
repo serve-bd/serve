@@ -38,7 +38,17 @@ function useSettingsForm<T>(serverId: string, kind: ProxyKind, initial: T, toInp
   return { value, set, dirty: JSON.stringify(value) !== saved, error, pending, submit, reset: () => (setValue(JSON.parse(saved)), setError(null)) };
 }
 
-function FormCard({ title, description, form, children }: { title: string; description: React.ReactNode; form: ReturnType<typeof useSettingsForm<unknown>>; children: React.ReactNode }) {
+function FormCard({
+  title,
+  description,
+  form,
+  children,
+}: {
+  title: string;
+  description: React.ReactNode;
+  form: ReturnType<typeof useSettingsForm<unknown>>;
+  children: React.ReactNode;
+}) {
   return (
     <Card>
       <form
@@ -116,10 +126,19 @@ export function NginxSettingsCard({ serverId, initial, defaultBodySize }: { serv
         {seconds("Read / send timeout", v.proxyReadTimeout, (x) => form.set({ proxyReadTimeout: x }), "300")}
         {seconds("Keep-alive timeout", v.keepaliveTimeout, (x) => form.set({ keepaliveTimeout: x }), "65")}
         <Field label="Gzip level" description="1 is fastest, 9 compresses most.">
-          <Select value={v.gzipLevel || "5"} onValueChange={(x) => form.set({ gzipLevel: x })} options={["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((x) => ({ value: x, label: x }))} />
+          <Select
+            value={v.gzipLevel || "5"}
+            onValueChange={(x) => form.set({ gzipLevel: x })}
+            options={["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((x) => ({ value: x, label: x }))}
+          />
         </Field>
       </div>
-      <SwitchRow title="Show the nginx version" description="Adds the version to error pages and the Server header." checked={v.serverTokens} onCheckedChange={(x) => form.set({ serverTokens: x })} />
+      <SwitchRow
+        title="Show the nginx version"
+        description="Adds the version to error pages and the Server header."
+        checked={v.serverTokens}
+        onCheckedChange={(x) => form.set({ serverTokens: x })}
+      />
     </FormCard>
   );
 }
@@ -151,21 +170,45 @@ export function CaddySettingsCard({ serverId, initial, acmeEmail }: { serverId: 
           <Input type="email" value={v.email} onChange={(e) => form.set({ email: e.target.value })} placeholder={acmeEmail ?? "ops@example.com"} />
         </Field>
         <Field label="Log level">
-          <Select value={v.logLevel} onValueChange={(x) => form.set({ logLevel: x as typeof v.logLevel })} options={["DEBUG", "INFO", "WARN", "ERROR"].map((x) => ({ value: x, label: x }))} />
+          <Select
+            value={v.logLevel}
+            onValueChange={(x) => form.set({ logLevel: x as typeof v.logLevel })}
+            options={["DEBUG", "INFO", "WARN", "ERROR"].map((x) => ({ value: x, label: x }))}
+          />
         </Field>
         {seconds("Read body timeout", v.readTimeout, (x) => form.set({ readTimeout: x }), "none")}
         {seconds("Write timeout", v.writeTimeout, (x) => form.set({ writeTimeout: x }), "none")}
         {seconds("Idle timeout", v.idleTimeout, (x) => form.set({ idleTimeout: x }), "300")}
       </div>
-      <SwitchRow title="HTTP/3" description="Also listen on UDP 443 for HTTP/3 (QUIC). Open UDP 443 in the firewall." checked={v.http3} onCheckedChange={(x) => form.set({ http3: x })} />
+      <SwitchRow
+        title="HTTP/3"
+        description="Also listen on UDP 443 for HTTP/3 (QUIC). Open UDP 443 in the firewall."
+        checked={v.http3}
+        onCheckedChange={(x) => form.set({ http3: x })}
+      />
       <Field label="Extra global options" description="Lines inside Caddy's global options block.">
-        <Textarea value={v.rawGlobal} onChange={(e) => form.set({ rawGlobal: e.target.value })} rows={4} spellCheck={false} placeholder={"# Example\nocsp_stapling off"} className="font-mono text-[12.5px]" />
+        <Textarea
+          value={v.rawGlobal}
+          onChange={(e) => form.set({ rawGlobal: e.target.value })}
+          rows={4}
+          spellCheck={false}
+          placeholder={"# Example\nocsp_stapling off"}
+          className="font-mono text-[12.5px]"
+        />
       </Field>
     </FormCard>
   );
 }
 
-export function TraefikSettingsCard({ serverId, initial, cloudflareAccounts }: { serverId: string; initial: TraefikSettingsView; cloudflareAccounts: { id: string; name: string }[] }) {
+export function TraefikSettingsCard({
+  serverId,
+  initial,
+  cloudflareAccounts,
+}: {
+  serverId: string;
+  initial: TraefikSettingsView;
+  cloudflareAccounts: { id: string; name: string }[];
+}) {
   const start = {
     logLevel: initial.logLevel ?? "INFO",
     accessLog: initial.accessLog !== false,
@@ -202,16 +245,40 @@ export function TraefikSettingsCard({ serverId, initial, cloudflareAccounts }: {
         </Field>
         {v.acmeChallenge === "dns-cloudflare" && (
           <Field label="Cloudflare account">
-            <Select value={v.cloudflareAccountId || null} onValueChange={(x) => form.set({ cloudflareAccountId: x })} options={cloudflareAccounts.map((a) => ({ value: a.id, label: a.name }))} placeholder="Choose an account" />
+            <Select
+              value={v.cloudflareAccountId || null}
+              onValueChange={(x) => form.set({ cloudflareAccountId: x })}
+              options={cloudflareAccounts.map((a) => ({ value: a.id, label: a.name }))}
+              placeholder="Choose an account"
+            />
           </Field>
         )}
         <Field label="Log level">
-          <Select value={v.logLevel} onValueChange={(x) => form.set({ logLevel: x as typeof v.logLevel })} options={["DEBUG", "INFO", "WARN", "ERROR"].map((x) => ({ value: x, label: x }))} />
+          <Select
+            value={v.logLevel}
+            onValueChange={(x) => form.set({ logLevel: x as typeof v.logLevel })}
+            options={["DEBUG", "INFO", "WARN", "ERROR"].map((x) => ({ value: x, label: x }))}
+          />
         </Field>
       </div>
-      <SwitchRow title="Access log" description="Feeds request analytics. Turning it off stops traffic charts for this server." checked={v.accessLog} onCheckedChange={(x) => form.set({ accessLog: x })} />
-      <SwitchRow title="Prometheus metrics" description="Exposes /metrics inside the container (loopback only)." checked={v.metrics} onCheckedChange={(x) => form.set({ metrics: x })} />
-      <SwitchRow title="Traefik dashboard" description="Served on its own hostname with a password." checked={v.dashboardEnabled} onCheckedChange={(x) => form.set({ dashboardEnabled: x })} />
+      <SwitchRow
+        title="Access log"
+        description="Feeds request analytics. Turning it off stops traffic charts for this server."
+        checked={v.accessLog}
+        onCheckedChange={(x) => form.set({ accessLog: x })}
+      />
+      <SwitchRow
+        title="Prometheus metrics"
+        description="Exposes /metrics inside the container (loopback only)."
+        checked={v.metrics}
+        onCheckedChange={(x) => form.set({ metrics: x })}
+      />
+      <SwitchRow
+        title="Traefik dashboard"
+        description="Served on its own hostname with a password."
+        checked={v.dashboardEnabled}
+        onCheckedChange={(x) => form.set({ dashboardEnabled: x })}
+      />
       {v.dashboardEnabled && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Field label="Hostname">

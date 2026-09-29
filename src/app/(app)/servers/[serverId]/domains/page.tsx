@@ -15,7 +15,13 @@ export default async function ServerDomainsPage(props: PageProps<"/servers/[serv
       isLocal={row.isLocal}
       host={row.host}
       addressing={{ publicIp: row.publicIp ?? "", wildcardDomain: row.wildcardDomain ?? "", sslipFallback: row.sslipFallback }}
-      ports={ctx ? { proxyHttpPort: ctx.proxyHttpPort, proxyHttpsPort: ctx.proxyHttpsPort } : row.isLocal && !row.proxyPortsCustomized ? { proxyHttpPort: env.proxyHttpPort, proxyHttpsPort: env.proxyHttpsPort } : { proxyHttpPort: row.proxyHttpPort, proxyHttpsPort: row.proxyHttpsPort }}
+      ports={
+        ctx
+          ? { proxyHttpPort: ctx.proxyHttpPort, proxyHttpsPort: ctx.proxyHttpsPort }
+          : row.isLocal && !row.proxyPortsCustomized
+            ? { proxyHttpPort: env.proxyHttpPort, proxyHttpsPort: env.proxyHttpsPort }
+            : { proxyHttpPort: row.proxyHttpPort, proxyHttpsPort: row.proxyHttpsPort }
+      }
     />
   );
 }

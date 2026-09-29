@@ -39,7 +39,14 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/service
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 409 });
   }
-  await logActivity({ userId: org.user.id, projectId: service.projectId, action: "service.exec", targetType: "service", targetId: service.id, message: `Ran \`${parsed.data.command.slice(0, 80)}\` in ${service.name}` });
+  await logActivity({
+    userId: org.user.id,
+    projectId: service.projectId,
+    action: "service.exec",
+    targetType: "service",
+    targetId: service.id,
+    message: `Ran \`${parsed.data.command.slice(0, 80)}\` in ${service.name}`,
+  });
 
   const encoder = new TextEncoder();
   const abort = new AbortController();

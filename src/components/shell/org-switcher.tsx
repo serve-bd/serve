@@ -47,7 +47,10 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
           <OrgAvatar name={current.name} />
           <span className="flex min-w-0 flex-1 flex-col leading-tight">
             <span className="truncate text-[13px] font-semibold text-fg">{current.name}</span>
-            <span className="truncate text-[11px] text-muted capitalize">{current.isRoot ? "Root · " : ""}{current.role}</span>
+            <span className="truncate text-[11px] text-muted capitalize">
+              {current.isRoot ? "Root · " : ""}
+              {current.role}
+            </span>
           </span>
           <ChevronsUpDown className="size-3.5 text-faint group-hover:text-muted" />
         </MenuTrigger>
@@ -92,10 +95,7 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
               router.refresh();
             }}
           >
-            <DialogHeader
-              title="Create organization"
-              description="Organizations keep projects, integrations and members separate. You will be the owner."
-            />
+            <DialogHeader title="Create organization" description="Organizations keep projects, integrations and members separate. You will be the owner." />
             <DialogBody>
               <Field label="Name">
                 <Input name="name" required minLength={2} autoFocus placeholder="Acme Inc." />

@@ -5,24 +5,7 @@ import { useRouter } from "@/hooks/use-router";
 import { Command } from "cmdk";
 import useSWR from "swr";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
-import {
-  Activity,
-  Blocks,
-  Box,
-  Cloud,
-  Database,
-  FolderGit2,
-  Globe,
-  Layers,
-  LayoutGrid,
-  Plus,
-  Search,
-  Server,
-  Settings,
-  ShieldCheck,
-  Users,
-  KeyRound,
-} from "lucide-react";
+import { Activity, Blocks, Box, Cloud, Database, FolderGit2, Globe, Layers, LayoutGrid, Plus, Search, Server, Settings, ShieldCheck, Users, KeyRound } from "lucide-react";
 import { StatusDot } from "@/components/ui/status";
 import { projectColor } from "./project-color";
 
@@ -90,7 +73,10 @@ export function CommandPalette({
                   <Command.Empty className="px-3 py-8 text-center text-[13px] text-muted">No results.</Command.Empty>
 
                   {!!data?.services.length && (
-                    <Command.Group heading="Services" className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint [&_[cmdk-group-heading]]:uppercase">
+                    <Command.Group
+                      heading="Services"
+                      className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint [&_[cmdk-group-heading]]:uppercase"
+                    >
                       {data.services.map((s) => (
                         <Command.Item
                           key={s.id}
@@ -108,7 +94,10 @@ export function CommandPalette({
                   )}
 
                   {projects.length > 0 && (
-                    <Command.Group heading="Projects" className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint [&_[cmdk-group-heading]]:uppercase">
+                    <Command.Group
+                      heading="Projects"
+                      className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint [&_[cmdk-group-heading]]:uppercase"
+                    >
                       {projects.map((p) => (
                         <Command.Item key={p.id} value={`project ${p.name} ${p.id}`} onSelect={() => go(`/projects/${p.id}`)} className={itemClass}>
                           <span className="size-2.5 rounded-[3px]" style={{ background: projectColor(p.color) }} />
@@ -118,7 +107,10 @@ export function CommandPalette({
                     </Command.Group>
                   )}
 
-                  <Command.Group heading="Go to" className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint [&_[cmdk-group-heading]]:uppercase">
+                  <Command.Group
+                    heading="Go to"
+                    className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint [&_[cmdk-group-heading]]:uppercase"
+                  >
                     <Command.Item onSelect={() => go("/projects/new")} className={itemClass}>
                       <Plus /> New project
                     </Command.Item>

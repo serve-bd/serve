@@ -116,7 +116,8 @@ export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; tr
   const custom: Record<string, string> = {};
   for (const h of o?.headers ?? []) custom[h.name] = h.value;
   if (Object.keys(custom).length) headers.customResponseHeaders = custom;
-  if (o?.securityHeaders) Object.assign(headers, { contentTypeNosniff: true, referrerPolicy: "strict-origin-when-cross-origin", customFrameOptionsValue: "SAMEORIGIN", stsIncludeSubdomains: true });
+  if (o?.securityHeaders)
+    Object.assign(headers, { contentTypeNosniff: true, referrerPolicy: "strict-origin-when-cross-origin", customFrameOptionsValue: "SAMEORIGIN", stsIncludeSubdomains: true });
   if (o?.corsOrigins?.length) {
     Object.assign(headers, {
       accessControlAllowOriginList: o.corsOrigins,

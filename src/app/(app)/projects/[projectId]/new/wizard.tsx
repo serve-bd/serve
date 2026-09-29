@@ -156,8 +156,19 @@ function FormShell({
 function EnvTextarea({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const count = parseEnv(value).length;
   return (
-    <Field label="Environment variables" optional description={count ? `${count} variable${count === 1 ? "" : "s"} detected. Paste a .env file here.` : "Paste the contents of a .env file. You can edit variables later."}>
-      <Textarea value={value} onChange={(e) => onChange(e.target.value)} rows={4} placeholder={"DATABASE_URL=${{postgres.DATABASE_URL}}\nNODE_ENV=production"} className="font-mono text-[12.5px]" spellCheck={false} />
+    <Field
+      label="Environment variables"
+      optional
+      description={count ? `${count} variable${count === 1 ? "" : "s"} detected. Paste a .env file here.` : "Paste the contents of a .env file. You can edit variables later."}
+    >
+      <Textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={4}
+        placeholder={"DATABASE_URL=${{postgres.DATABASE_URL}}\nNODE_ENV=production"}
+        className="font-mono text-[12.5px]"
+        spellCheck={false}
+      />
     </Field>
   );
 }
@@ -254,7 +265,10 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
         />
       </Field>
       {!props.credentials.some((c) => c.provider === "github-app") && (
-        <a href="/integrations/git" className="-mt-2 flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-[13px] transition-colors hover:border-line-strong">
+        <a
+          href="/integrations/git"
+          className="-mt-2 flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-[13px] transition-colors hover:border-line-strong"
+        >
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-fg text-bg">
             <GithubMark className="size-4" />
           </span>
@@ -271,7 +285,12 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
           <div className="overflow-hidden rounded-xl border border-line">
             <div className="flex items-center gap-2 border-b border-line bg-surface-2 px-3">
               <Search className="size-3.5 text-faint" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search repositories" className="h-9 flex-1 bg-transparent text-sm outline-none placeholder:text-faint" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search repositories"
+                className="h-9 flex-1 bg-transparent text-sm outline-none placeholder:text-faint"
+              />
             </div>
             <div className="max-h-64 divide-y divide-line overflow-y-auto scrollbar-thin">
               {repos === null && <div className="px-3 py-3 text-[13px] text-muted">Loading repositories…</div>}
@@ -673,7 +692,13 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
             </div>
             <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${props.templates.length} services`} className="pl-8" aria-label="Search services" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Search ${props.templates.length} services`}
+                className="pl-8"
+                aria-label="Search services"
+              />
             </div>
           </div>
         </div>
@@ -700,11 +725,17 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] text-muted">
-            No service matches “{query}”. Paste its compose file with <button type="button" className="font-medium text-accent" onClick={() => onStart("compose")}>Docker Compose</button>
+            No service matches “{query}”. Paste its compose file with{" "}
+            <button type="button" className="font-medium text-accent" onClick={() => onStart("compose")}>
+              Docker Compose
+            </button>
             {props.canManageTemplates && (
               <>
                 {" "}
-                or <Link href="/templates/new" className="font-medium text-accent">add a template</Link>
+                or{" "}
+                <Link href="/templates/new" className="font-medium text-accent">
+                  add a template
+                </Link>
               </>
             )}
             .
@@ -726,7 +757,9 @@ function varHint(v: CatalogTemplate["vars"][number]) {
 function TemplateConfigure({ props, template, onBack }: { props: Props; template: CatalogTemplate; onBack: () => void }) {
   const router = useRouter();
   const [name, setName] = React.useState(template.name);
-  const [values, setValues] = React.useState<Record<string, string>>(() => Object.fromEntries(template.vars.filter((v) => !v.generate && !v.publicUrl && !v.publicHost).map((v) => [v.key, v.value ?? ""])));
+  const [values, setValues] = React.useState<Record<string, string>>(() =>
+    Object.fromEntries(template.vars.filter((v) => !v.generate && !v.publicUrl && !v.publicHost).map((v) => [v.key, v.value ?? ""])),
+  );
   const [custom, setCustom] = React.useState<Record<string, string>>({});
   const [showGenerated, setShowGenerated] = React.useState(false);
   const editable = template.vars.filter((v) => !v.generate && !v.publicUrl && !v.publicHost);
@@ -742,84 +775,98 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        void run({ projectId: props.projectId, environmentId: props.environmentId, serverId: props.serverId, name: name.trim() || template.name, mode: "inline", template: template.id, vars: overrides });
+        void run({
+          projectId: props.projectId,
+          environmentId: props.environmentId,
+          serverId: props.serverId,
+          name: name.trim() || template.name,
+          mode: "inline",
+          template: template.id,
+          vars: overrides,
+        });
       }}
     >
       <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg">
         <ArrowLeft className="size-3.5" /> All services
       </button>
       <div className={stepGrid}>
-      <Card>
-        <div className="flex items-start gap-4 border-b border-line px-5 py-5">
-          <TemplateLogo id={template.id} name={template.name} iconUrl={template.iconUrl} custom={template.custom} size="lg" />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-[17px] font-semibold text-fg">{template.name}</h2>
-              <Badge>{template.custom ? "Custom template" : template.category}</Badge>
-            </div>
-            <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{template.description}</p>
-            {template.website && (
-              <a href={template.website} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted hover:text-accent">
-                {template.website.replace(/^https?:\/\//, "").replace(/\/$/, "")} <ArrowUpRight className="size-3" />
-              </a>
-            )}
-          </div>
-        </div>
-        <CardBody className="flex flex-col gap-5 py-5">
-          {template.hostAccess && (
-            <div className="flex gap-2.5 rounded-xl border border-warn/30 bg-warn-soft px-3.5 py-3 text-[13px] text-fg-2">
-              <ShieldAlert className="mt-0.5 size-4 flex-none text-warn" />
-              <span>This service gets access to the server (Docker socket). Only admins of the Root organization can create it.</span>
-            </div>
-          )}
-          {template.note && (
-            <div className="flex gap-2.5 rounded-xl bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
-              <TriangleAlert className="mt-0.5 size-4 flex-none text-muted" />
-              <span>{template.note}</span>
-            </div>
-          )}
-          <Field label="Service name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={template.name} autoFocus />
-          </Field>
-          {editable.map((v) => (
-            <Field key={v.key} label={v.label ?? v.key} description={v.label ? v.key : undefined}>
-              <Input value={values[v.key] ?? ""} onChange={(e) => setValues((s) => ({ ...s, [v.key]: e.target.value }))} className="font-mono text-[13px]" />
-            </Field>
-          ))}
-          {automatic.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <button type="button" onClick={() => setShowGenerated((s) => !s)} className="flex w-fit items-center gap-1 text-[13px] font-medium text-accent">
-                <ChevronRight className={cn("size-3.5 transition-transform", showGenerated && "rotate-90")} />
-                {automatic.length} value{automatic.length === 1 ? "" : "s"} set automatically
-              </button>
-              {showGenerated && (
-                <div className="flex animate-rise flex-col divide-y divide-line overflow-hidden rounded-xl border border-line">
-                  {automatic.map((v) => (
-                    <div key={v.key} className="grid grid-cols-1 gap-2 px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
-                      <span className="flex min-w-0 flex-col">
-                        <span className="truncate font-mono text-[12.5px] text-fg">{v.key}</span>
-                        <span className="text-xs text-muted">{varHint(v)}</span>
-                      </span>
-                      {v.generate ? (
-                        <Input value={custom[v.key] ?? ""} onChange={(e) => setCustom((s) => ({ ...s, [v.key]: e.target.value }))} placeholder="Generate" className="font-mono text-[12.5px]" aria-label={`${v.key} value`} />
-                      ) : (
-                        <span className="truncate font-mono text-[12px] text-faint">{v.publicUrl ? "${{SERVE_PUBLIC_URL}}" : "${{SERVE_PUBLIC_DOMAIN}}"}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
+        <Card>
+          <div className="flex items-start gap-4 border-b border-line px-5 py-5">
+            <TemplateLogo id={template.id} name={template.name} iconUrl={template.iconUrl} custom={template.custom} size="lg" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-[17px] font-semibold text-fg">{template.name}</h2>
+                <Badge>{template.custom ? "Custom template" : template.category}</Badge>
+              </div>
+              <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{template.description}</p>
+              {template.website && (
+                <a href={template.website} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted hover:text-accent">
+                  {template.website.replace(/^https?:\/\//, "").replace(/\/$/, "")} <ArrowUpRight className="size-3" />
+                </a>
               )}
             </div>
-          )}
-        </CardBody>
-        <CardFooter className="justify-between gap-3">
-          <span className="hidden text-xs text-muted sm:inline">Nothing runs until you deploy.</span>
-          <Button type="submit" variant="primary" size="sm" loading={pending}>
-            <Sparkles /> Create service
-          </Button>
-        </CardFooter>
-      </Card>
-      <NextSteps />
+          </div>
+          <CardBody className="flex flex-col gap-5 py-5">
+            {template.hostAccess && (
+              <div className="flex gap-2.5 rounded-xl border border-warn/30 bg-warn-soft px-3.5 py-3 text-[13px] text-fg-2">
+                <ShieldAlert className="mt-0.5 size-4 flex-none text-warn" />
+                <span>This service gets access to the server (Docker socket). Only admins of the Root organization can create it.</span>
+              </div>
+            )}
+            {template.note && (
+              <div className="flex gap-2.5 rounded-xl bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
+                <TriangleAlert className="mt-0.5 size-4 flex-none text-muted" />
+                <span>{template.note}</span>
+              </div>
+            )}
+            <Field label="Service name">
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={template.name} autoFocus />
+            </Field>
+            {editable.map((v) => (
+              <Field key={v.key} label={v.label ?? v.key} description={v.label ? v.key : undefined}>
+                <Input value={values[v.key] ?? ""} onChange={(e) => setValues((s) => ({ ...s, [v.key]: e.target.value }))} className="font-mono text-[13px]" />
+              </Field>
+            ))}
+            {automatic.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <button type="button" onClick={() => setShowGenerated((s) => !s)} className="flex w-fit items-center gap-1 text-[13px] font-medium text-accent">
+                  <ChevronRight className={cn("size-3.5 transition-transform", showGenerated && "rotate-90")} />
+                  {automatic.length} value{automatic.length === 1 ? "" : "s"} set automatically
+                </button>
+                {showGenerated && (
+                  <div className="flex animate-rise flex-col divide-y divide-line overflow-hidden rounded-xl border border-line">
+                    {automatic.map((v) => (
+                      <div key={v.key} className="grid grid-cols-1 gap-2 px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate font-mono text-[12.5px] text-fg">{v.key}</span>
+                          <span className="text-xs text-muted">{varHint(v)}</span>
+                        </span>
+                        {v.generate ? (
+                          <Input
+                            value={custom[v.key] ?? ""}
+                            onChange={(e) => setCustom((s) => ({ ...s, [v.key]: e.target.value }))}
+                            placeholder="Generate"
+                            className="font-mono text-[12.5px]"
+                            aria-label={`${v.key} value`}
+                          />
+                        ) : (
+                          <span className="truncate font-mono text-[12px] text-faint">{v.publicUrl ? "${{SERVE_PUBLIC_URL}}" : "${{SERVE_PUBLIC_DOMAIN}}"}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardBody>
+          <CardFooter className="justify-between gap-3">
+            <span className="hidden text-xs text-muted sm:inline">Nothing runs until you deploy.</span>
+            <Button type="submit" variant="primary" size="sm" loading={pending}>
+              <Sparkles /> Create service
+            </Button>
+          </CardFooter>
+        </Card>
+        <NextSteps />
       </div>
     </form>
   );

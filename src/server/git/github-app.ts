@@ -29,7 +29,10 @@ export function readAppSecret(cred: Credential): GithubAppSecret {
 }
 
 export async function writeAppSecret(credentialId: string, secret: GithubAppSecret) {
-  await db.update(schema.gitCredential).set({ secret: encrypt(JSON.stringify(secret)) }).where(eq(schema.gitCredential.id, credentialId));
+  await db
+    .update(schema.gitCredential)
+    .set({ secret: encrypt(JSON.stringify(secret)) })
+    .where(eq(schema.gitCredential.id, credentialId));
 }
 
 /** Public base URL GitHub redirects and delivers webhooks to. */
@@ -154,11 +157,9 @@ export async function installationToken(cred: Credential): Promise<string> {
   if (!secret.installationId) throw new Error("The GitHub App is not installed yet. Finish the installation from the Git providers page.");
   let res: { token: string; expires_at: string };
   try {
-    res = await githubJson<{ token: string; expires_at: string }>(
-      `${API}/app/installations/${secret.installationId}/access_tokens`,
-      appJwt(secret.appId, secret.pem),
-      { method: "POST" },
-    );
+    res = await githubJson<{ token: string; expires_at: string }>(`${API}/app/installations/${secret.installationId}/access_tokens`, appJwt(secret.appId, secret.pem), {
+      method: "POST",
+    });
   } catch (error) {
     const message = (error as Error).message;
     if (/Integration not found|Bad credentials|A JSON web token/i.test(message)) {

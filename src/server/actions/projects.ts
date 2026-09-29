@@ -14,7 +14,10 @@ import { projectColors } from "@/components/shell/project-color";
 const projectSchema = z.object({
   name: z.string().trim().min(1, "Enter a project name").max(60),
   description: z.string().trim().max(300).optional().nullable(),
-  color: z.string().refine((c) => c in projectColors).optional(),
+  color: z
+    .string()
+    .refine((c) => c in projectColors)
+    .optional(),
 });
 
 export async function createProject(input: z.input<typeof projectSchema>) {
@@ -101,7 +104,10 @@ export async function deleteEnvironment(environmentId: string) {
 
 const varsSchema = z.array(
   z.object({
-    key: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/, "Variable names use letters, numbers and underscores"),
+    key: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/, "Variable names use letters, numbers and underscores"),
     value: z.string(),
   }),
 );
@@ -121,9 +127,7 @@ export async function saveSharedVars(environmentId: string, vars: z.input<typeof
     await db.transaction(async (tx) => {
       await tx.delete(schema.sharedVar).where(eq(schema.sharedVar.environmentId, environmentId));
       if (data.length) {
-        await tx
-          .insert(schema.sharedVar)
-          .values(data.map((v) => ({ id: newId(), environmentId, key: v.key, value: encrypt(v.value) })));
+        await tx.insert(schema.sharedVar).values(data.map((v) => ({ id: newId(), environmentId, key: v.key, value: encrypt(v.value) })));
       }
     });
     return null;

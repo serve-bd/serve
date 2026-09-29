@@ -35,12 +35,60 @@ export type Dest = {
 type Provider = { id: string; label: string; color: string; endpoint: string; region: string; hint: string; match: RegExp };
 
 const providers: Provider[] = [
-  { id: "r2", label: "Cloudflare R2", color: "#f38020", endpoint: "https://<account-id>.r2.cloudflarestorage.com", region: "auto", hint: "R2 → Manage API tokens. Use the S3 endpoint of your account.", match: /r2\.cloudflarestorage\.com/ },
-  { id: "aws", label: "Amazon S3", color: "#ff9900", endpoint: "https://s3.<region>.amazonaws.com", region: "us-east-1", hint: "IAM user with s3:PutObject, GetObject, ListBucket and DeleteObject.", match: /amazonaws\.com/ },
-  { id: "b2", label: "Backblaze B2", color: "#e21e29", endpoint: "https://s3.<region>.backblazeb2.com", region: "us-west-002", hint: "App keys → Add a new application key with access to the bucket.", match: /backblazeb2\.com/ },
-  { id: "spaces", label: "DigitalOcean Spaces", color: "#0080ff", endpoint: "https://<region>.digitaloceanspaces.com", region: "nyc3", hint: "API → Spaces keys.", match: /digitaloceanspaces\.com/ },
-  { id: "wasabi", label: "Wasabi", color: "#01cd3e", endpoint: "https://s3.<region>.wasabisys.com", region: "us-east-1", hint: "Access keys → Create new access key.", match: /wasabisys\.com/ },
-  { id: "minio", label: "MinIO", color: "#c72c48", endpoint: "https://minio.example.com", region: "us-east-1", hint: "Any MinIO server reachable from this server.", match: /minio/i },
+  {
+    id: "r2",
+    label: "Cloudflare R2",
+    color: "#f38020",
+    endpoint: "https://<account-id>.r2.cloudflarestorage.com",
+    region: "auto",
+    hint: "R2 → Manage API tokens. Use the S3 endpoint of your account.",
+    match: /r2\.cloudflarestorage\.com/,
+  },
+  {
+    id: "aws",
+    label: "Amazon S3",
+    color: "#ff9900",
+    endpoint: "https://s3.<region>.amazonaws.com",
+    region: "us-east-1",
+    hint: "IAM user with s3:PutObject, GetObject, ListBucket and DeleteObject.",
+    match: /amazonaws\.com/,
+  },
+  {
+    id: "b2",
+    label: "Backblaze B2",
+    color: "#e21e29",
+    endpoint: "https://s3.<region>.backblazeb2.com",
+    region: "us-west-002",
+    hint: "App keys → Add a new application key with access to the bucket.",
+    match: /backblazeb2\.com/,
+  },
+  {
+    id: "spaces",
+    label: "DigitalOcean Spaces",
+    color: "#0080ff",
+    endpoint: "https://<region>.digitaloceanspaces.com",
+    region: "nyc3",
+    hint: "API → Spaces keys.",
+    match: /digitaloceanspaces\.com/,
+  },
+  {
+    id: "wasabi",
+    label: "Wasabi",
+    color: "#01cd3e",
+    endpoint: "https://s3.<region>.wasabisys.com",
+    region: "us-east-1",
+    hint: "Access keys → Create new access key.",
+    match: /wasabisys\.com/,
+  },
+  {
+    id: "minio",
+    label: "MinIO",
+    color: "#c72c48",
+    endpoint: "https://minio.example.com",
+    region: "us-east-1",
+    hint: "Any MinIO server reachable from this server.",
+    match: /minio/i,
+  },
   { id: "other", label: "Other S3-compatible", color: "#8e8e93", endpoint: "https://s3.example.com", region: "auto", hint: "Any service that speaks the S3 API.", match: /$^/ },
 ];
 
@@ -50,7 +98,9 @@ const host = (endpoint: string) => endpoint.replace(/^https?:\/\//, "").replace(
 function ProviderMark({ provider, size = "md" }: { provider: Provider; size?: "md" | "sm" }) {
   return (
     <span
-      className={size === "md" ? "flex size-10 flex-none items-center justify-center rounded-xl text-white" : "flex size-5 flex-none items-center justify-center rounded-md text-white"}
+      className={
+        size === "md" ? "flex size-10 flex-none items-center justify-center rounded-xl text-white" : "flex size-5 flex-none items-center justify-center rounded-md text-white"
+      }
       style={{ background: provider.color }}
       aria-hidden
     >
@@ -116,11 +166,16 @@ export function StorageDestinations({ destinations, isAdmin }: { destinations: D
                       </p>
                     </div>
                     <div className="flex flex-none items-center gap-1">
-                      <Button size="sm" variant="ghost" onClick={async () => {
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
                           setTesting(d.id);
                           await test.run(d.id);
                           setTesting(null);
-                        }} loading={testing === d.id}>
+                        }}
+                        loading={testing === d.id}
+                      >
                         <Zap /> Test
                       </Button>
                       {isAdmin && (
@@ -172,9 +227,7 @@ export function StorageDestinations({ destinations, isAdmin }: { destinations: D
                     </div>
                     <div className="min-w-0">
                       <dt className="text-xs text-faint">Uploaded</dt>
-                      <dd className="truncate text-fg-2 tabular-nums">
-                        {d.backups ? `${d.backups} · ${formatBytes(d.bytes)}` : "Nothing yet"}
-                      </dd>
+                      <dd className="truncate text-fg-2 tabular-nums">{d.backups ? `${d.backups} · ${formatBytes(d.bytes)}` : "Nothing yet"}</dd>
                     </div>
                     <div className="min-w-0">
                       <dt className="text-xs text-faint">Last upload</dt>
@@ -216,7 +269,15 @@ function DestinationDialog({ destination, onClose }: { destination: Dest | null;
   const [provider, setProvider] = React.useState(destination ? providerFor(destination.endpoint) : providers[0]);
   const [form, setForm] = React.useState(
     destination
-      ? { name: destination.name, endpoint: destination.endpoint, region: destination.region, bucket: destination.bucket, accessKeyId: "", secretAccessKey: "", pathPrefix: destination.pathPrefix }
+      ? {
+          name: destination.name,
+          endpoint: destination.endpoint,
+          region: destination.region,
+          bucket: destination.bucket,
+          accessKeyId: "",
+          secretAccessKey: "",
+          pathPrefix: destination.pathPrefix,
+        }
       : { ...empty, region: providers[0].region },
   );
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -237,10 +298,7 @@ function DestinationDialog({ destination, onClose }: { destination: Dest | null;
             void save.run();
           }}
         >
-          <DialogHeader
-            title={destination ? `Edit ${destination.name}` : "Add S3-compatible storage"}
-            description="Serve checks it can write to the bucket before saving."
-          />
+          <DialogHeader title={destination ? `Edit ${destination.name}` : "Add S3-compatible storage"} description="Serve checks it can write to the bucket before saving." />
           <DialogBody>
             <Field label="Provider" description={provider.hint}>
               <Select

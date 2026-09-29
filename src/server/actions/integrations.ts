@@ -95,7 +95,15 @@ export async function disconnectCloudflare(accountId: string) {
     }
     for (const t of tunnels) await deleteTunnel(t.id);
     if (routed.length) {
-      await db.update(schema.domain).set({ cloudflareRecordId: null }).where(inArray(schema.domain.id, routed.map((d) => d.id)));
+      await db
+        .update(schema.domain)
+        .set({ cloudflareRecordId: null })
+        .where(
+          inArray(
+            schema.domain.id,
+            routed.map((d) => d.id),
+          ),
+        );
     }
     const settings = await getSettings();
     if (settings.dashboardTunnelId && tunnelIds.includes(settings.dashboardTunnelId)) {
@@ -108,7 +116,9 @@ export async function disconnectCloudflare(accountId: string) {
       userId: ctx.user.id,
       organizationId: ctx.org.id,
       action: "cloudflare.disconnect",
-      message: tunnels.length ? `Disconnected Cloudflare ${account.name} and removed ${tunnels.length} tunnel${tunnels.length === 1 ? "" : "s"}` : `Disconnected Cloudflare ${account.name}`,
+      message: tunnels.length
+        ? `Disconnected Cloudflare ${account.name} and removed ${tunnels.length} tunnel${tunnels.length === 1 ? "" : "s"}`
+        : `Disconnected Cloudflare ${account.name}`,
     });
     return null;
   });
@@ -294,7 +304,10 @@ export async function removeServiceWebhook(serviceId: string) {
     const { removeRepoWebhook } = await import("@/server/git/repo-webhooks");
     const error = await removeRepoWebhook(service.source);
     if (error) throw new UserError(`Could not remove the webhook: ${error}`);
-    await db.update(schema.service).set({ source: { ...service.source, webhook: null } }).where(eq(schema.service.id, serviceId));
+    await db
+      .update(schema.service)
+      .set({ source: { ...service.source, webhook: null } })
+      .where(eq(schema.service.id, serviceId));
     return null;
   });
 }
@@ -319,9 +332,7 @@ export async function createDeployKey(name: string) {
 export async function deleteGitCredential(id: string) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
-    await db
-      .delete(schema.gitCredential)
-      .where(and(eq(schema.gitCredential.id, id), eq(schema.gitCredential.organizationId, ctx.org.id)));
+    await db.delete(schema.gitCredential).where(and(eq(schema.gitCredential.id, id), eq(schema.gitCredential.organizationId, ctx.org.id)));
     return null;
   });
 }
@@ -412,9 +423,7 @@ export async function toggleNotificationChannel(id: string, enabled: boolean) {
 export async function deleteNotificationChannel(id: string) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
-    await db
-      .delete(schema.notificationChannel)
-      .where(and(eq(schema.notificationChannel.id, id), eq(schema.notificationChannel.organizationId, ctx.org.id)));
+    await db.delete(schema.notificationChannel).where(and(eq(schema.notificationChannel.id, id), eq(schema.notificationChannel.organizationId, ctx.org.id)));
     return null;
   });
 }
@@ -469,7 +478,10 @@ export async function addS3Destination(input: z.input<typeof s3Schema>) {
 }
 
 /** Edit a destination. Access is checked before saving. */
-export async function updateS3Destination(id: string, input: Omit<z.input<typeof s3Schema>, "secretAccessKey" | "accessKeyId"> & { accessKeyId?: string; secretAccessKey?: string }) {
+export async function updateS3Destination(
+  id: string,
+  input: Omit<z.input<typeof s3Schema>, "secretAccessKey" | "accessKeyId"> & { accessKeyId?: string; secretAccessKey?: string },
+) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
     const [row] = await db
@@ -496,9 +508,7 @@ export async function updateS3Destination(id: string, input: Omit<z.input<typeof
 export async function deleteS3Destination(id: string) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
-    await db
-      .delete(schema.s3Destination)
-      .where(and(eq(schema.s3Destination.id, id), eq(schema.s3Destination.organizationId, ctx.org.id)));
+    await db.delete(schema.s3Destination).where(and(eq(schema.s3Destination.id, id), eq(schema.s3Destination.organizationId, ctx.org.id)));
     return null;
   });
 }
@@ -524,10 +534,7 @@ export async function testS3Destination(id: string) {
 export async function findCloudflareZone(hostname: string) {
   return act(async () => {
     const ctx = await requireOrg();
-    const accounts = await db
-      .select()
-      .from(schema.cloudflareAccount)
-      .where(eq(schema.cloudflareAccount.organizationId, ctx.org.id));
+    const accounts = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, ctx.org.id));
     for (const account of accounts) {
       try {
         const cf = new Cloudflare(decrypt(account.apiToken));
@@ -591,7 +598,12 @@ export async function enableTunnel(cloudflareAccountId: string, serverId: string
     const { createTunnel } = await import("@/server/cloudflare/tunnels");
     try {
       const tunnel = await createTunnel({ organizationId: ctx.org.id, cloudflareAccountId, serverId });
-      await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "tunnel.create", message: `Created a Cloudflare Tunnel from ${server.name} to ${account.name}` });
+      await logActivity({
+        userId: ctx.user.id,
+        organizationId: ctx.org.id,
+        action: "tunnel.create",
+        message: `Created a Cloudflare Tunnel from ${server.name} to ${account.name}`,
+      });
       return { id: tunnel.id };
     } catch (e) {
       throw new UserError((e as Error).message);
@@ -610,7 +622,9 @@ export async function disableTunnel(tunnelId: string) {
     const { deleteTunnel, tunnelDomains } = await import("@/server/cloudflare/tunnels");
     const domains = await tunnelDomains(tunnelId);
     if (domains.length) {
-      throw new UserError(`${domains.map((d) => d.hostname).join(", ")} ${domains.length === 1 ? "uses" : "use"} this tunnel. Remove ${domains.length === 1 ? "it" : "them"} first.`);
+      throw new UserError(
+        `${domains.map((d) => d.hostname).join(", ")} ${domains.length === 1 ? "uses" : "use"} this tunnel. Remove ${domains.length === 1 ? "it" : "them"} first.`,
+      );
     }
     await deleteTunnel(tunnelId);
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "tunnel.delete", message: `Removed the Cloudflare Tunnel ${tunnel.name}` });

@@ -93,8 +93,12 @@ export async function hostInfo(ctx?: ServerCtx) {
   let uptime: number;
   if (c.local) {
     [compose, buildx] = await Promise.all([
-      run("docker", ["compose", "version", "--short"]).then((r) => r.trim() || null).catch(() => null),
-      run("docker", ["buildx", "version"]).then((r) => r.trim().split(" ")[1] ?? null).catch(() => null),
+      run("docker", ["compose", "version", "--short"])
+        .then((r) => r.trim() || null)
+        .catch(() => null),
+      run("docker", ["buildx", "version"])
+        .then((r) => r.trim().split(" ")[1] ?? null)
+        .catch(() => null),
     ]);
     // /proc/uptime is the host's, even inside a container.
     uptime = os.uptime();
@@ -132,7 +136,10 @@ type HealthSettings = { workerHeartbeat: string | null; cleanupDiskThreshold: nu
 async function proxyRunning(ctx: ServerCtx) {
   // "None": Serve runs no proxy on this server, so there is nothing to be missing.
   if ((await proxyStateOf(ctx.id)).kind === "none") return true;
-  const info = await ctx.docker.getContainer(ctx.proxyContainer).inspect().catch(() => null);
+  const info = await ctx.docker
+    .getContainer(ctx.proxyContainer)
+    .inspect()
+    .catch(() => null);
   return !!info?.State.Running;
 }
 
@@ -151,11 +158,17 @@ export async function serverHealth(a: ServerCtx | HealthSettings | null | undefi
   const [dockerOk, proxy, snap] = reachable
     ? await Promise.all([
         withTimeout(
-          ctx.docker.ping().then(() => true).catch(() => false),
+          ctx.docker
+            .ping()
+            .then(() => true)
+            .catch(() => false),
           false,
         ),
         withTimeout(proxyRunning(ctx), false),
-        withTimeout(serverSnapshot(ctx).catch(() => null), null),
+        withTimeout(
+          serverSnapshot(ctx).catch(() => null),
+          null,
+        ),
       ])
     : [false, false, null];
   const diskPercent = snap?.disk.total ? (snap.disk.used / snap.disk.total) * 100 : 0;

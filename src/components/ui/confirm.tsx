@@ -110,9 +110,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               >
                 <div className="flex flex-col gap-2 px-5 pt-5 pb-4">
                   <AlertDialog.Title className="font-display text-[17px] font-semibold">{pending?.title}</AlertDialog.Title>
-                  {pending?.description && (
-                    <AlertDialog.Description className="text-[13px] leading-relaxed text-muted">{pending.description}</AlertDialog.Description>
-                  )}
+                  {pending?.description && <AlertDialog.Description className="text-[13px] leading-relaxed text-muted">{pending.description}</AlertDialog.Description>}
                   {pending?.children}
                   {pending?.typeToConfirm && (
                     <label className="mt-2 flex flex-col gap-1.5 text-[13px] text-fg-2">

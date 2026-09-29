@@ -129,7 +129,12 @@ export function PortsCard({
           )}
 
           {ports.length > 0 && (
-            <div className={cn("hidden gap-2 px-0.5 text-[11px] font-medium tracking-wide text-faint uppercase sm:grid", pickService ? "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]" : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]")}>
+            <div
+              className={cn(
+                "hidden gap-2 px-0.5 text-[11px] font-medium tracking-wide text-faint uppercase sm:grid",
+                pickService ? "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]" : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]",
+              )}
+            >
               {pickService && <span>Service</span>}
               <span>{isLocalServer ? "Local port" : "Server port"}</span>
               <span>Container port</span>
@@ -156,13 +161,36 @@ export function PortsCard({
                   />
                 </div>
               )}
-              <Input value={String(p.host || "")} onChange={(e) => update(i, { host: digits(e.target.value) })} placeholder="8080" aria-label="Server port" aria-invalid={busySet.has(p.host) || undefined} className="h-8 font-mono" inputMode="numeric" />
-              <Input value={String(p.container || "")} onChange={(e) => update(i, { container: digits(e.target.value) })} placeholder={String(defaultPort(p.service))} aria-label="Container port" className="h-8 font-mono" inputMode="numeric" />
+              <Input
+                value={String(p.host || "")}
+                onChange={(e) => update(i, { host: digits(e.target.value) })}
+                placeholder="8080"
+                aria-label="Server port"
+                aria-invalid={busySet.has(p.host) || undefined}
+                className="h-8 font-mono"
+                inputMode="numeric"
+              />
+              <Input
+                value={String(p.container || "")}
+                onChange={(e) => update(i, { container: digits(e.target.value) })}
+                placeholder={String(defaultPort(p.service))}
+                aria-label="Container port"
+                className="h-8 font-mono"
+                inputMode="numeric"
+              />
               <Button variant="ghost" size="icon" className="order-3 sm:order-5" onClick={() => setPorts((all) => all.filter((_, j) => j !== i))} aria-label="Remove port">
                 <Trash2 />
               </Button>
               <div className="order-4 sm:order-3">
-                <Select size="sm" value={p.protocol} onValueChange={(v) => update(i, { protocol: v as PortMapping["protocol"] })} options={[{ value: "tcp", label: "TCP" }, { value: "udp", label: "UDP" }]} />
+                <Select
+                  size="sm"
+                  value={p.protocol}
+                  onValueChange={(v) => update(i, { protocol: v as PortMapping["protocol"] })}
+                  options={[
+                    { value: "tcp", label: "TCP" },
+                    { value: "udp", label: "UDP" },
+                  ]}
+                />
               </div>
               <div className="order-5 col-span-2 sm:order-4 sm:col-span-1">
                 <Select

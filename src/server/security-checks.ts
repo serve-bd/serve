@@ -87,7 +87,12 @@ export async function securityChecks(settings?: Settings): Promise<SecurityCheck
 
   checks.push(
     s.dashboardAllowlist.length
-      ? { id: "allowlist", title: "Dashboard access is limited by IP", status: "ok", detail: `${s.dashboardAllowlist.length} allowed address${s.dashboardAllowlist.length === 1 ? "" : "es"} or range${s.dashboardAllowlist.length === 1 ? "" : "s"}.` }
+      ? {
+          id: "allowlist",
+          title: "Dashboard access is limited by IP",
+          status: "ok",
+          detail: `${s.dashboardAllowlist.length} allowed address${s.dashboardAllowlist.length === 1 ? "" : "es"} or range${s.dashboardAllowlist.length === 1 ? "" : "s"}.`,
+        }
       : {
           id: "allowlist",
           title: "Anyone can open the dashboard sign-in",

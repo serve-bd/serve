@@ -150,14 +150,7 @@ export type RuntimeConfig = {
   capAdd?: string[];
 };
 
-export type DbEngine =
-  | "postgres"
-  | "mysql"
-  | "mariadb"
-  | "mongodb"
-  | "redis"
-  | "valkey"
-  | "clickhouse";
+export type DbEngine = "postgres" | "mysql" | "mariadb" | "mongodb" | "redis" | "valkey" | "clickhouse";
 
 export type DatabaseConfig = {
   engine: DbEngine;

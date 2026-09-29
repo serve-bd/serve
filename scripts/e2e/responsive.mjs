@@ -6,20 +6,46 @@ import fs from "node:fs";
 const base = process.env.BASE ?? "http://localhost:3001";
 const outDir = process.env.OUT ?? "/tmp/claude-1000/resp";
 const widths = (process.env.WIDTHS ?? "390,768,1024").split(",").map(Number);
-const P = process.env.P, S = process.env.S, DB = process.env.DB, C = process.env.C, DEP = process.env.DEP;
+const P = process.env.P,
+  S = process.env.S,
+  DB = process.env.DB,
+  C = process.env.C,
+  DEP = process.env.DEP;
 const routes = process.argv.slice(2).length
   ? process.argv.slice(2)
   : [
-      "/", "/projects", "/projects/new", "/domains", "/certificates", "/activity", "/server", "/account",
-      "/organization", "/organization/members", "/organization/tokens",
-      "/integrations/git", "/integrations/cloudflare", "/integrations/storage", "/integrations/notifications",
-      `/projects/${P}`, `/projects/${P}/new`, `/projects/${P}/settings`,
-      `/projects/${P}/services/${S}`, `/projects/${P}/services/${S}/logs`, `/projects/${P}/services/${S}/console`,
-      `/projects/${P}/services/${S}/metrics`, `/projects/${P}/services/${S}/variables`, `/projects/${P}/services/${S}/domains`,
-      `/projects/${P}/services/${S}/tasks`, `/projects/${P}/services/${S}/settings`,
+      "/",
+      "/projects",
+      "/projects/new",
+      "/domains",
+      "/certificates",
+      "/activity",
+      "/server",
+      "/account",
+      "/organization",
+      "/organization/members",
+      "/organization/tokens",
+      "/integrations/git",
+      "/integrations/cloudflare",
+      "/integrations/storage",
+      "/integrations/notifications",
+      `/projects/${P}`,
+      `/projects/${P}/new`,
+      `/projects/${P}/settings`,
+      `/projects/${P}/services/${S}`,
+      `/projects/${P}/services/${S}/logs`,
+      `/projects/${P}/services/${S}/console`,
+      `/projects/${P}/services/${S}/metrics`,
+      `/projects/${P}/services/${S}/variables`,
+      `/projects/${P}/services/${S}/domains`,
+      `/projects/${P}/services/${S}/tasks`,
+      `/projects/${P}/services/${S}/settings`,
       `/projects/${P}/services/${S}/deployments/${DEP}`,
-      `/projects/${P}/services/${DB}`, `/projects/${P}/services/${DB}/backups`, `/projects/${P}/services/${DB}/settings`,
-      `/projects/${P}/services/${C}`, `/projects/${P}/services/${C}/settings`,
+      `/projects/${P}/services/${DB}`,
+      `/projects/${P}/services/${DB}/backups`,
+      `/projects/${P}/services/${DB}/settings`,
+      `/projects/${P}/services/${C}`,
+      `/projects/${P}/services/${C}/settings`,
     ];
 fs.mkdirSync(outDir, { recursive: true });
 const state = `/tmp/claude-1000/e2e-state-${new URL(base).port}.json`;
@@ -27,8 +53,14 @@ const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", arg
 
 for (const width of widths) {
   const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: "dark", storageState: fs.existsSync(state) ? state : undefined });
-await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
-  await ctx.addInitScript(() => { try { localStorage.setItem("serve-theme", "dark"); } catch {} });
+  await ctx.addInitScript(() => {
+    window.__SERVE_E2E__ = true;
+  });
+  await ctx.addInitScript(() => {
+    try {
+      localStorage.setItem("serve-theme", "dark");
+    } catch {}
+  });
   const page = await ctx.newPage();
   await page.goto(base + "/login", { waitUntil: "networkidle" });
   if (page.url().includes("/login")) {

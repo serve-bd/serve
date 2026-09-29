@@ -12,5 +12,12 @@ await page.getByRole("button", { name: "Roll back" }).click();
 await page.waitForURL(/deployments\//, { timeout: 15000 });
 await page.waitForTimeout(12000);
 await page.screenshot({ path: "/tmp/claude-1000/rollback.png" });
-console.log(await page.locator("h2").first().textContent(), "|", await page.getByText(/^(Ready|Failed|Deploying|Building|Queued)$/).first().textContent());
+console.log(
+  await page.locator("h2").first().textContent(),
+  "|",
+  await page
+    .getByText(/^(Ready|Failed|Deploying|Building|Queued)$/)
+    .first()
+    .textContent(),
+);
 await browser.close();

@@ -37,7 +37,9 @@ export function SecurityView({
       <Card>
         <CardHeader
           title="Security review"
-          description={warnings ? `${warnings} thing${warnings === 1 ? "" : "s"} to fix. Checked each time you open this page.` : "Nothing to fix. Checked each time you open this page."}
+          description={
+            warnings ? `${warnings} thing${warnings === 1 ? "" : "s"} to fix. Checked each time you open this page.` : "Nothing to fix. Checked each time you open this page."
+          }
         />
         <ul className="divide-y divide-line">
           {sorted.map((c) => (

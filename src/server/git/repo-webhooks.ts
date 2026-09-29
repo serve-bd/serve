@@ -94,7 +94,8 @@ async function send(req: HookRequest, headers: Record<string, string>) {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     const detail = text.match(/"(?:message|error_description|error)"\s*:\s*"([^"]+)"/)?.[1];
-    if (res.status === 403 || res.status === 404) throw new Error(`The token cannot manage webhooks on this repository (HTTP ${res.status}). ${detail ?? "Give it webhook or admin access."}`);
+    if (res.status === 403 || res.status === 404)
+      throw new Error(`The token cannot manage webhooks on this repository (HTTP ${res.status}). ${detail ?? "Give it webhook or admin access."}`);
     throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
   }
   return res.status === 204 ? null : ((await res.json().catch(() => null)) as Record<string, unknown> | null);
@@ -115,7 +116,10 @@ async function credentialFor(source: GitSource) {
 async function saveWebhook(serviceId: string, webhook: RepoWebhook | null) {
   const [row] = await db.select({ source: schema.service.source }).from(schema.service).where(eq(schema.service.id, serviceId));
   if (row?.source?.type !== "git") return;
-  await db.update(schema.service).set({ source: { ...row.source, webhook } }).where(eq(schema.service.id, serviceId));
+  await db
+    .update(schema.service)
+    .set({ source: { ...row.source, webhook } })
+    .where(eq(schema.service.id, serviceId));
 }
 
 /** Delete the remote hook recorded on a source. Never throws. */
@@ -176,8 +180,7 @@ export async function registerRepoWebhook(serviceId: string): Promise<RepoWebhoo
 export async function syncRepoWebhook(before: Service["source"], serviceId: string) {
   const [service] = await db.select({ source: schema.service.source }).from(schema.service).where(eq(schema.service.id, serviceId));
   const after = service?.source;
-  const same =
-    before?.type === "git" && after?.type === "git" && before.repository === after.repository && (before.credentialId ?? null) === (after.credentialId ?? null);
+  const same = before?.type === "git" && after?.type === "git" && before.repository === after.repository && (before.credentialId ?? null) === (after.credentialId ?? null);
   if (same) {
     // Keep the existing hook on the unchanged repository.
     if (before.webhook && !after.webhook) await saveWebhook(serviceId, before.webhook);

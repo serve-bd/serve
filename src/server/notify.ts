@@ -94,10 +94,6 @@ export async function notify(organizationId: string | null, event: NotifyEvent, 
   const channels = await db
     .select()
     .from(schema.notificationChannel)
-    .where(
-      and(eq(schema.notificationChannel.enabled, true), eq(schema.notificationChannel.organizationId, organizationId)),
-    );
-  await Promise.allSettled(
-    channels.filter((c) => c.events.includes(event)).map((c) => sendToChannel(c, msg)),
-  );
+    .where(and(eq(schema.notificationChannel.enabled, true), eq(schema.notificationChannel.organizationId, organizationId)));
+  await Promise.allSettled(channels.filter((c) => c.events.includes(event)).map((c) => sendToChannel(c, msg)));
 }

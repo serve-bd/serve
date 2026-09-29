@@ -32,7 +32,10 @@ export async function requireToken(request: Request, scope: ApiScope): Promise<{
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token.startsWith("srv_")) return { error: json(401, "Invalid or missing API token") };
-  const [row] = await db.select().from(schema.apiToken).where(eq(schema.apiToken.tokenHash, sha256(token)));
+  const [row] = await db
+    .select()
+    .from(schema.apiToken)
+    .where(eq(schema.apiToken.tokenHash, sha256(token)));
   if (!row) return { error: json(401, "Invalid or missing API token") };
   if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return { error: json(401, "Token expired") };
 

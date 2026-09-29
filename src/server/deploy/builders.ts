@@ -132,14 +132,9 @@ ${staticStage("source", build.publishDir || ".")}`,
     const buildCmd = build.buildCommand || (scripts.build ? `${runFor[pm]} build` : "");
     const base = pm === "bun" ? "oven/bun:1" : `node:${nodeMajor(pkg)}-slim`;
 
-    const staticFramework =
-      !scripts.start &&
-      !build.startCommand &&
-      (deps.vite || deps["react-scripts"] || deps.astro || deps["@angular/core"] || deps.parcel);
+    const staticFramework = !scripts.start && !build.startCommand && (deps.vite || deps["react-scripts"] || deps.astro || deps["@angular/core"] || deps.parcel);
     if (build.builder === "static" || staticFramework) {
-      const publishDir =
-        build.publishDir ||
-        (deps["react-scripts"] ? "build" : deps["@angular/core"] ? "dist/browser" : "dist");
+      const publishDir = build.publishDir || (deps["react-scripts"] ? "build" : deps["@angular/core"] ? "dist/browser" : "dist");
       return {
         kind: "static",
         port: 80,
@@ -153,9 +148,7 @@ ${staticStage("build", publishDir)}`,
       };
     }
 
-    const start =
-      build.startCommand ||
-      (scripts.start ? `${runFor[pm]} start` : pm === "bun" ? "bun run index.ts" : "node index.js");
+    const start = build.startCommand || (scripts.start ? `${runFor[pm]} start` : pm === "bun" ? "bun run index.ts" : "node index.js");
     const isNext = !!deps.next;
     return {
       kind: isNext ? "nextjs" : pm === "bun" ? "bun" : "node",
@@ -172,10 +165,7 @@ CMD ${JSON.stringify(["sh", "-c", start])}
     };
   }
 
-  const hasPython =
-    (await exists(path.join(dir, "requirements.txt"))) ||
-    (await exists(path.join(dir, "pyproject.toml"))) ||
-    (await exists(path.join(dir, "Pipfile")));
+  const hasPython = (await exists(path.join(dir, "requirements.txt"))) || (await exists(path.join(dir, "pyproject.toml"))) || (await exists(path.join(dir, "Pipfile")));
   if (hasPython) {
     let start = build.startCommand || "";
     if (!start && (await exists(path.join(dir, "Procfile")))) {
@@ -271,9 +261,7 @@ ${staticStage("source", build.publishDir || ".")}`,
     };
   }
 
-  throw new Error(
-    "Could not detect the language of this repository. Add a Dockerfile, or pick a builder in the build settings.",
-  );
+  throw new Error("Could not detect the language of this repository. Add a Dockerfile, or pick a builder in the build settings.");
 }
 
 async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileContent?: string) {
@@ -291,7 +279,13 @@ async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileCont
   }
   for (const [k, v] of Object.entries(ctx.buildEnv)) args.push("--build-arg", `${k}=${v}`);
   const extra = buildArgFlags(ctx.build.buildArgs);
-  if (extra.length) ctx.log(`Build arguments: ${extra.filter((_, i) => i % 2).map((a) => a.split("=")[0]).join(", ")}`);
+  if (extra.length)
+    ctx.log(
+      `Build arguments: ${extra
+        .filter((_, i) => i % 2)
+        .map((a) => a.split("=")[0])
+        .join(", ")}`,
+    );
   args.push(...extra);
   for (const [k, v] of Object.entries(ctx.labels)) args.push("--label", `${k}=${v}`);
   if (ctx.build.target) args.push("--target", ctx.build.target);

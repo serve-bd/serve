@@ -19,7 +19,6 @@ export const viewport: Viewport = {
   ],
 };
 
-
 export default function RootLayout({ children }: LayoutProps<"/">) {
   // next-themes (in Providers) sets data-theme before paint.
   return (

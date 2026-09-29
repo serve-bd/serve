@@ -42,7 +42,14 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/service
       rows: parsed.data.rows,
       docker: container.docker,
     });
-    await logActivity({ userId: org.user.id, projectId: service.projectId, action: "service.terminal", targetType: "service", targetId: service.id, message: `Opened a terminal in ${service.name}` });
+    await logActivity({
+      userId: org.user.id,
+      projectId: service.projectId,
+      action: "service.terminal",
+      targetType: "service",
+      targetId: service.id,
+      message: `Opened a terminal in ${service.name}`,
+    });
     return NextResponse.json({ id: session.id, container: container.name });
   } catch (e) {
     return NextResponse.json({ error: `Could not start a shell: ${(e as Error).message}` }, { status: 500 });

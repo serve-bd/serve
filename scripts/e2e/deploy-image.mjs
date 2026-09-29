@@ -5,7 +5,9 @@ const state = `/tmp/claude-1000/e2e-state-${new URL(base).port}.json`;
 const image = process.argv[2] ?? "traefik/whoami:latest";
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: state, colorScheme: "dark" });
-await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
+await ctx.addInitScript(() => {
+  window.__SERVE_E2E__ = true;
+});
 const page = await ctx.newPage();
 page.on("pageerror", (e) => console.log("pageerror", e.message));
 await page.goto(base + "/projects", { waitUntil: "networkidle" });
@@ -22,7 +24,12 @@ await page.getByRole("button", { name: "Deploy", exact: true }).first().click();
 await page.waitForURL(/\/services\/[a-z0-9]+$/, { timeout: 30000 });
 const started = Date.now();
 while (Date.now() - started < 180000) {
-  const status = await page.locator("header").getByText(/Running|Failed|Deploying|Building|Not deployed/).first().textContent().catch(() => "");
+  const status = await page
+    .locator("header")
+    .getByText(/Running|Failed|Deploying|Building|Not deployed/)
+    .first()
+    .textContent()
+    .catch(() => "");
   if (/Running|Failed/.test(status ?? "")) {
     console.log("status:", status);
     break;

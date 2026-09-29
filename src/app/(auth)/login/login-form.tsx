@@ -21,9 +21,7 @@ export function LoginForm({ next }: { next: string }) {
     const code = String(new FormData(e.currentTarget).get("code")).trim();
     setPending(true);
     setError(null);
-    const { error } = useBackup
-      ? await authClient.twoFactor.verifyBackupCode({ code, trustDevice: true })
-      : await authClient.twoFactor.verifyTotp({ code, trustDevice: true });
+    const { error } = useBackup ? await authClient.twoFactor.verifyBackupCode({ code, trustDevice: true }) : await authClient.twoFactor.verifyTotp({ code, trustDevice: true });
     if (error) {
       setPending(false);
       setError(error.message ?? "That code is not valid.");
@@ -50,7 +48,7 @@ export function LoginForm({ next }: { next: string }) {
     }
     if (error) {
       setPending(false);
-      setError(error.status === 401 || error.code === "INVALID_EMAIL_OR_PASSWORD" ? "Wrong email or password." : error.message ?? "Could not sign in.");
+      setError(error.status === 401 || error.code === "INVALID_EMAIL_OR_PASSWORD" ? "Wrong email or password." : (error.message ?? "Could not sign in."));
       return;
     }
     router.replace(next);
@@ -59,10 +57,7 @@ export function LoginForm({ next }: { next: string }) {
 
   if (needsCode) {
     return (
-      <AuthCard
-        title="Two-factor authentication"
-        description={useBackup ? "Enter one of your backup codes." : "Enter the 6-digit code from your authenticator app."}
-      >
+      <AuthCard title="Two-factor authentication" description={useBackup ? "Enter one of your backup codes." : "Enter the 6-digit code from your authenticator app."}>
         <form onSubmit={verify} className="flex flex-col gap-4">
           <Field label={useBackup ? "Backup code" : "Code"}>
             <Input

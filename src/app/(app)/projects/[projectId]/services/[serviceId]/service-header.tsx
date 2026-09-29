@@ -38,9 +38,7 @@ export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
   return useSWR<ServiceLive>(`/api/services/${serviceId}/live`, {
     fallbackData: fallback,
     refreshInterval: (d) =>
-      d && (["building", "deploying", "restarting"].includes(d.status) || d.deployments.some((x) => ["queued", "building", "deploying"].includes(x.status)))
-        ? 1500
-        : 6000,
+      d && (["building", "deploying", "restarting"].includes(d.status) || d.deployments.some((x) => ["queued", "building", "deploying"].includes(x.status))) ? 1500 : 6000,
   });
 }
 
@@ -84,13 +82,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
       {/* Thin header: breadcrumbs only. Title, actions and tabs belong to the page. */}
       <header className="border-b border-line bg-bg">
         <div className="mx-auto w-full max-w-[1200px] px-4 py-3 sm:px-8">
-          <Breadcrumbs
-            items={[
-              { label: "Projects", href: "/projects" },
-              { label: project.name, href: `/projects/${project.id}?env=${environment}` },
-              { label: service.name },
-            ]}
-          />
+          <Breadcrumbs items={[{ label: "Projects", href: "/projects" }, { label: project.name, href: `/projects/${project.id}?env=${environment}` }, { label: service.name }]} />
         </div>
       </header>
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 px-4 pt-7 sm:px-8">
@@ -167,7 +159,14 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                       danger
                       disabled={busy}
                       onClick={async () => {
-                        if (await confirm({ title: `Stop ${service.name}?`, description: "Containers are stopped and traffic gets an unavailable page until you start it again.", confirmLabel: "Stop service", danger: true }))
+                        if (
+                          await confirm({
+                            title: `Stop ${service.name}?`,
+                            description: "Containers are stopped and traffic gets an unavailable page until you start it again.",
+                            confirmLabel: "Stop service",
+                            danger: true,
+                          })
+                        )
                           control.run("stop");
                       }}
                     >
@@ -190,10 +189,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 key={t.href}
                 href={t.href}
                 ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
-                className={cn(
-                  "relative px-3 pt-1 pb-3 text-[13px] font-medium whitespace-nowrap transition-colors",
-                  active ? "text-fg" : "text-muted hover:text-fg",
-                )}
+                className={cn("relative px-3 pt-1 pb-3 text-[13px] font-medium whitespace-nowrap transition-colors", active ? "text-fg" : "text-muted hover:text-fg")}
               >
                 {t.label}
                 {active && <span className="absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-fg" />}

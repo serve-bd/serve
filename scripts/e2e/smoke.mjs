@@ -9,8 +9,14 @@ const theme = process.env.THEME ?? "light";
 const mobile = process.env.MOBILE === "1";
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
 const ctx = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 }, storageState: state });
-await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
-await ctx.addInitScript((t) => { try { localStorage.setItem("serve-theme", t); } catch {} }, theme);
+await ctx.addInitScript(() => {
+  window.__SERVE_E2E__ = true;
+});
+await ctx.addInitScript((t) => {
+  try {
+    localStorage.setItem("serve-theme", t);
+  } catch {}
+}, theme);
 const page = await ctx.newPage();
 const routes = process.argv.slice(2);
 let failures = 0;

@@ -93,8 +93,7 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
     HostConfig: {
       Binds: binds,
       PortBindings: bindings,
-      RestartPolicy:
-        restart === "no" ? { Name: "no" } : restart === "on-failure" ? { Name: "on-failure", MaximumRetryCount: 5 } : { Name: restart },
+      RestartPolicy: restart === "no" ? { Name: "no" } : restart === "on-failure" ? { Name: "on-failure", MaximumRetryCount: 5 } : { Name: restart },
       NanoCpus: runtime.cpuLimit ? Math.round(runtime.cpuLimit * 1e9) : undefined,
       Memory: runtime.memoryLimit ? runtime.memoryLimit * 1024 * 1024 : undefined,
       MemoryReservation: runtime.memoryReservation ? runtime.memoryReservation * 1024 * 1024 : undefined,
@@ -165,9 +164,7 @@ async function proxyProbe(
   accept: (status: number) => boolean = (s) => s > 0 && s < 500,
 ): Promise<boolean | null> {
   const { execInContainer } = await import("@/server/docker/client");
-  const cmd = pathName
-    ? `wget -S -q -T 4 -O /dev/null "http://${host}:${port}${pathName}" 2>&1 | awk '/HTTP//{print $2}' | tail -1`
-    : `nc -z -w 2 ${host} ${port} && echo open`;
+  const cmd = pathName ? `wget -S -q -T 4 -O /dev/null "http://${host}:${port}${pathName}" 2>&1 | awk '/HTTP//{print $2}' | tail -1` : `nc -z -w 2 ${host} ${port} && echo open`;
   let res: { exitCode: number; output: string };
   try {
     res = await execInContainer(target.proxyContainer, ["sh", "-c", cmd], {}, target.docker);
@@ -238,9 +235,7 @@ export async function waitHealthy(
     if (!state.Running || state.Restarting) {
       if (state.Status === "exited" || state.Restarting || info.RestartCount > 0) {
         const tail = await containerLogsTail(d, containerId);
-        throw new Error(
-          `Container exited with code ${state.ExitCode}.${tail ? `\n--- last logs ---\n${tail}` : ""}`,
-        );
+        throw new Error(`Container exited with code ${state.ExitCode}.${tail ? `\n--- last logs ---\n${tail}` : ""}`);
       }
       await sleep(500, signal);
       continue;

@@ -36,7 +36,17 @@ export default async function ZonePage(props: PageProps<"/integrations/cloudflar
         <ZoneManager
           accountId={accountId}
           zone={{ id: zone.id, name: zone.name, nameServers: zone.name_servers }}
-          records={records.map((r) => ({ id: r.id, type: r.type, name: r.name, content: r.content, proxied: r.proxied, proxiable: r.proxiable, ttl: r.ttl, comment: r.comment ?? null, priority: r.priority ?? null }))}
+          records={records.map((r) => ({
+            id: r.id,
+            type: r.type,
+            name: r.name,
+            content: r.content,
+            proxied: r.proxied,
+            proxiable: r.proxiable,
+            ttl: r.ttl,
+            comment: r.comment ?? null,
+            priority: r.priority ?? null,
+          }))}
           sslMode={sslMode}
           alwaysHttps={alwaysHttps}
           serverIp={settings.serverIp}

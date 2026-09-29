@@ -68,13 +68,7 @@ export async function listHostContainers(ctx: ServerCtx): Promise<ContainerRow[]
       const serviceId = c.Labels[LABEL.service];
       const kind: ContainerKind = serviceId ? "service" : isSystemContainer(c.Labels, name) ? "system" : "unmanaged";
       const service = serviceId ? (byId.get(serviceId) ?? null) : null;
-      const ports = [
-        ...new Set(
-          (c.Ports ?? [])
-            .filter((p) => p.PublicPort)
-            .map((p) => `${p.PublicPort}→${p.PrivatePort}${p.Type === "udp" ? "/udp" : ""}`),
-        ),
-      ];
+      const ports = [...new Set((c.Ports ?? []).filter((p) => p.PublicPort).map((p) => `${p.PublicPort}→${p.PrivatePort}${p.Type === "udp" ? "/udp" : ""}`))];
       return {
         id: c.Id,
         name,

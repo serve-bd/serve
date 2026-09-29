@@ -113,7 +113,12 @@ function balanced(text: string) {
 
 export const nginxSettingsSchema = z.object({
   workerConnections: z.number().int().min(256).max(262_144).nullable().optional(),
-  maxBodySize: z.string().trim().regex(/^\d{1,6}[kmg]?$/i, "Use a size like 100m").nullable().optional(),
+  maxBodySize: z
+    .string()
+    .trim()
+    .regex(/^\d{1,6}[kmg]?$/i, "Use a size like 100m")
+    .nullable()
+    .optional(),
   keepaliveTimeout: seconds(3600),
   proxyConnectTimeout: seconds(3600),
   proxyReadTimeout: seconds(86_400),
@@ -123,7 +128,10 @@ export const nginxSettingsSchema = z.object({
 });
 
 export const caddySettingsSchema = z.object({
-  email: z.union([z.email("Enter a valid email"), z.literal("")]).nullable().optional(),
+  email: z
+    .union([z.email("Enter a valid email"), z.literal("")])
+    .nullable()
+    .optional(),
   logLevel: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]).optional(),
   http3: z.boolean().optional(),
   readTimeout: seconds(86_400),
@@ -140,8 +148,17 @@ export const traefikSettingsSchema = z.object({
   dashboard: z
     .object({
       enabled: z.boolean(),
-      hostname: z.string().trim().toLowerCase().regex(/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "Enter a hostname like traefik.example.com").optional(),
-      username: z.string().trim().regex(/^[A-Za-z0-9._@-]{1,64}$/, "Use letters, digits, . _ @ or -").optional(),
+      hostname: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "Enter a hostname like traefik.example.com")
+        .optional(),
+      username: z
+        .string()
+        .trim()
+        .regex(/^[A-Za-z0-9._@-]{1,64}$/, "Use letters, digits, . _ @ or -")
+        .optional(),
       password: z.string().min(8, "Use at least 8 characters").max(128).optional(),
     })
     .optional(),
@@ -163,15 +180,36 @@ export const containerOverridesSchema = z.object({
     .regex(/^[a-z0-9][a-z0-9._/:@-]{0,200}$/i, "Use an image like caddy:2.10-alpine")
     .nullable()
     .optional(),
-  args: z.array(z.string().max(500).refine((a) => !/[\n\r\0]/.test(a), "One argument per line")).max(50).optional(),
+  args: z
+    .array(
+      z
+        .string()
+        .max(500)
+        .refine((a) => !/[\n\r\0]/.test(a), "One argument per line"),
+    )
+    .max(50)
+    .optional(),
   /** `value` empty keeps the stored (encrypted) value of a variable with the same name. */
-  env: z.array(z.object({ name: z.string().trim().regex(envName, "Variable names use letters, digits and _"), value: z.string().max(10_000) })).max(50).optional(),
+  env: z
+    .array(z.object({ name: z.string().trim().regex(envName, "Variable names use letters, digits and _"), value: z.string().max(10_000) }))
+    .max(50)
+    .optional(),
   volumes: z
-    .array(z.string().trim().regex(/^[^:\s]+:\/[^:\s]*(:(ro|rw))?$/, "Use host-or-volume:/container/path[:ro]"))
+    .array(
+      z
+        .string()
+        .trim()
+        .regex(/^[^:\s]+:\/[^:\s]*(:(ro|rw))?$/, "Use host-or-volume:/container/path[:ro]"),
+    )
     .max(20)
     .optional(),
   ports: z
-    .array(z.string().trim().regex(/^(\d{1,3}(\.\d{1,3}){3}:)?\d{1,5}:\d{1,5}(\/(tcp|udp))?$/, "Use host:container[/udp], like 8404:8404"))
+    .array(
+      z
+        .string()
+        .trim()
+        .regex(/^(\d{1,3}(\.\d{1,3}){3}:)?\d{1,5}:\d{1,5}(\/(tcp|udp))?$/, "Use host:container[/udp], like 8404:8404"),
+    )
     .max(20)
     .optional(),
 });

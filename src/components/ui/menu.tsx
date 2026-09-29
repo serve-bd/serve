@@ -39,16 +39,9 @@ export function MenuContent({
 const itemClass =
   "flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-fg-2 outline-none select-none data-[disabled]:opacity-40 data-[highlighted]:bg-hover data-[highlighted]:text-fg [&_svg]:size-4 [&_svg]:text-muted";
 
-export function MenuItem({
-  className,
-  danger,
-  ...props
-}: React.ComponentProps<typeof BaseMenu.Item> & { danger?: boolean }) {
+export function MenuItem({ className, danger, ...props }: React.ComponentProps<typeof BaseMenu.Item> & { danger?: boolean }) {
   return (
-    <BaseMenu.Item
-      className={cn(itemClass, danger && "text-bad data-[highlighted]:bg-bad-soft data-[highlighted]:text-bad [&_svg]:text-bad", className as string)}
-      {...props}
-    />
+    <BaseMenu.Item className={cn(itemClass, danger && "text-bad data-[highlighted]:bg-bad-soft data-[highlighted]:text-bad [&_svg]:text-bad", className as string)} {...props} />
   );
 }
 

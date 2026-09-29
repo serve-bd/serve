@@ -139,7 +139,11 @@ export function ServiceOverview(data: OverviewData) {
                   <div className="flex min-w-0 items-center gap-2.5">
                     <p className="truncate text-[15px] font-medium text-fg">
                       {current.commitMessage ||
-                        (service.source?.kind === "image" ? service.source.image : service.source?.kind === "compose" ? (service.source.template ?? "Compose stack") : triggerLabel[current.trigger] ?? "Deployment")}
+                        (service.source?.kind === "image"
+                          ? service.source.image
+                          : service.source?.kind === "compose"
+                            ? (service.source.template ?? "Compose stack")
+                            : (triggerLabel[current.trigger] ?? "Deployment"))}
                     </p>
                     <StatusLabel status={current.status} kind="deployment" className="flex-none rounded-full bg-surface-2 px-2 py-0.5 text-xs" />
                   </div>
@@ -223,7 +227,12 @@ export function ServiceOverview(data: OverviewData) {
             <Stat icon={<MemoryStick />} label="Memory" value={last ? formatBytes(last.memory) : "—"} sub={memLimit ? `of ${formatBytes(memLimit)}` : "No limit"}>
               <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" max={memLimit ?? undefined} format={(v) => formatBytes(v)} height={44} />
             </Stat>
-            <Stat icon={<Network />} label="Network in" value={last?.netRx != null ? `${formatBytes(last.netRx)}/s` : "—"} sub={last?.netTx != null ? `Out ${formatBytes(last.netTx)}/s` : undefined}>
+            <Stat
+              icon={<Network />}
+              label="Network in"
+              value={last?.netRx != null ? `${formatBytes(last.netRx)}/s` : "—"}
+              sub={last?.netTx != null ? `Out ${formatBytes(last.netTx)}/s` : undefined}
+            >
               <AreaChart data={rx} color="var(--ok)" format={(v) => `${formatBytes(v)}/s`} height={44} />
             </Stat>
           </div>
@@ -267,9 +276,7 @@ export function ServiceOverview(data: OverviewData) {
         <Card>
           <CardHeader
             title="Recent deployments"
-            description={
-              data.successRate !== null ? `${data.deploymentCount} in total · ${Math.round(data.successRate * 100)}% succeeded` : `${data.deploymentCount} in total`
-            }
+            description={data.successRate !== null ? `${data.deploymentCount} in total · ${Math.round(data.successRate * 100)}% succeeded` : `${data.deploymentCount} in total`}
             actions={
               <Link href={`${base}/deployments`} className={buttonVariants({ size: "sm", variant: "ghost" })}>
                 View all <ChevronRight />
@@ -308,18 +315,16 @@ export function ServiceOverview(data: OverviewData) {
             }
           />
           <div className="flex flex-col gap-3 px-5 py-4">
-            {data.domains.length === 0 && data.published.length === 0 && (
-              <p className="text-[13px] text-muted">No public address yet. Add a domain or a localhost port.</p>
-            )}
+            {data.domains.length === 0 && data.published.length === 0 && <p className="text-[13px] text-muted">No public address yet. Add a domain or a localhost port.</p>}
             {data.domains.map((d) => (
-              <a
-                key={d.id}
-                href={`${d.secure ? "https" : "http"}://${d.hostname}`}
-                target="_blank"
-                rel="noreferrer"
-                className="group flex min-w-0 items-center gap-2 text-[13px]"
-              >
-                {d.tunnel ? <Waypoints className="size-3.5 flex-none text-[#f38020]" /> : d.secure ? <Lock className="size-3.5 flex-none text-ok" /> : <LockOpen className="size-3.5 flex-none text-muted" />}
+              <a key={d.id} href={`${d.secure ? "https" : "http"}://${d.hostname}`} target="_blank" rel="noreferrer" className="group flex min-w-0 items-center gap-2 text-[13px]">
+                {d.tunnel ? (
+                  <Waypoints className="size-3.5 flex-none text-[#f38020]" />
+                ) : d.secure ? (
+                  <Lock className="size-3.5 flex-none text-ok" />
+                ) : (
+                  <LockOpen className="size-3.5 flex-none text-muted" />
+                )}
                 <span className={cn("min-w-0 truncate group-hover:text-accent", d === primary ? "font-medium text-fg" : "text-fg-2")}>{d.hostname}</span>
                 <ArrowUpRight className="size-3.5 flex-none text-faint" />
               </a>
@@ -328,10 +333,16 @@ export function ServiceOverview(data: OverviewData) {
               <a key={`${p.host}/${p.protocol}`} href={p.url ?? undefined} target="_blank" rel="noreferrer" className="group flex items-center gap-2 text-[13px]">
                 <Laptop className="size-3.5 flex-none text-muted" />
                 <span className="font-mono text-[12.5px] text-fg-2 group-hover:text-accent">{p.label}</span>
-                <span className="text-xs text-faint">→ {p.container}/{p.protocol}</span>
+                <span className="text-xs text-faint">
+                  → {p.container}/{p.protocol}
+                </span>
               </a>
             ))}
-            {data.redirects > 0 && <p className="text-xs text-muted">{data.redirects} redirect{data.redirects === 1 ? "" : "s"} to other URLs</p>}
+            {data.redirects > 0 && (
+              <p className="text-xs text-muted">
+                {data.redirects} redirect{data.redirects === 1 ? "" : "s"} to other URLs
+              </p>
+            )}
             <div className="border-t border-line pt-3">
               <p className="mb-1.5 text-xs text-muted">Private address · for services in {data.environment}</p>
               <CopyField value={service.port ? `${service.slug}:${service.port}` : service.slug} />
@@ -364,7 +375,15 @@ export function ServiceOverview(data: OverviewData) {
                   {service.source.branch}
                 </Row>
                 <Row label="Builder">
-                  {service.builder === "auto" ? "Auto detect" : service.builder === "dockerfile" ? "Dockerfile" : service.builder === "nixpacks" ? "Nixpacks" : service.builder === "static" ? "Static site" : "—"}
+                  {service.builder === "auto"
+                    ? "Auto detect"
+                    : service.builder === "dockerfile"
+                      ? "Dockerfile"
+                      : service.builder === "nixpacks"
+                        ? "Nixpacks"
+                        : service.builder === "static"
+                          ? "Static site"
+                          : "—"}
                   {service.rootDir && service.rootDir !== "." && service.rootDir !== "/" ? ` · ${service.rootDir}` : ""}
                 </Row>
                 <Row label="Deploy on push">{service.autoDeploy ? "On" : "Off"}</Row>
@@ -393,7 +412,9 @@ export function ServiceOverview(data: OverviewData) {
                 </Row>
                 <Row label="Restart">{service.restartPolicy}</Row>
                 <Row label="Limits">
-                  {service.cpuLimit || service.memoryLimit ? `${service.cpuLimit ? `${service.cpuLimit} CPU` : ""}${service.cpuLimit && service.memoryLimit ? " · " : ""}${service.memoryLimit ? `${service.memoryLimit} MB` : ""}` : "None"}
+                  {service.cpuLimit || service.memoryLimit
+                    ? `${service.cpuLimit ? `${service.cpuLimit} CPU` : ""}${service.cpuLimit && service.memoryLimit ? " · " : ""}${service.memoryLimit ? `${service.memoryLimit} MB` : ""}`
+                    : "None"}
                 </Row>
               </>
             )}
@@ -409,7 +430,12 @@ export function ServiceOverview(data: OverviewData) {
           <div className="grid grid-cols-2 gap-px border-t-0 bg-line">
             {[
               { label: "Variables", value: data.counts.variables, sub: data.counts.shared ? `+ ${data.counts.shared} shared` : "Encrypted", href: `${base}/variables` },
-              { label: "Domains", value: data.domains.length, sub: data.published.length ? `+ ${data.published.length} port${data.published.length === 1 ? "" : "s"}` : "Routed by the proxy", href: `${base}/domains` },
+              {
+                label: "Domains",
+                value: data.domains.length,
+                sub: data.published.length ? `+ ${data.published.length} port${data.published.length === 1 ? "" : "s"}` : "Routed by the proxy",
+                href: `${base}/domains`,
+              },
               { label: "Volumes", value: service.volumes, sub: service.volumes ? "Kept across deploys" : "No persistent data", href: `${base}/settings/storage` },
               { label: "Tasks", value: data.counts.tasks, sub: "Scheduled commands", href: `${base}/tasks` },
             ].map((c) => (

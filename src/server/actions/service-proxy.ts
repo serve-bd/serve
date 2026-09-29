@@ -108,7 +108,8 @@ export async function saveServiceProxyCustom(serviceId: string, content: string 
   return act(async () => {
     const { ctx, service, kind } = await customTarget(serviceId);
     if (kind === "none") throw new UserError("This server runs no proxy.");
-    if (content !== null && (!content.trim() || content.length > 100_000 || content.includes("\u0000"))) throw new UserError("Enter the configuration (at most 100,000 characters).");
+    if (content !== null && (!content.trim() || content.length > 100_000 || content.includes("\u0000")))
+      throw new UserError("Enter the configuration (at most 100,000 characters).");
     const previous = service.proxyCustom ?? null;
     const next: Partial<Record<RunningKind, string>> = { ...previous };
     if (content === null) delete next[kind];

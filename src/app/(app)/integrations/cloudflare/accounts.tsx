@@ -71,7 +71,11 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
                   <span className="size-1.5 flex-none rounded-full" style={{ background: tone.color }} />
                   <span className="text-fg-2">{tone.label}</span>
                   {tunnel.statusMessage && <span className="hidden truncate sm:inline">· {tunnel.statusMessage}</span>}
-                  {tunnel.domains > 0 && <span>· {tunnel.domains} domain{tunnel.domains === 1 ? "" : "s"}</span>}
+                  {tunnel.domains > 0 && (
+                    <span>
+                      · {tunnel.domains} domain{tunnel.domains === 1 ? "" : "s"}
+                    </span>
+                  )}
                 </span>
               )}
               {isAdmin &&
@@ -81,7 +85,15 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
                     variant="ghost"
                     loading={busy === server.id && disable.pending}
                     onClick={async () => {
-                      if (!(await confirm({ title: `Remove the tunnel from ${server.name}?`, description: "The connector stops and the tunnel is deleted in Cloudflare.", confirmLabel: "Remove tunnel", danger: true }))) return;
+                      if (
+                        !(await confirm({
+                          title: `Remove the tunnel from ${server.name}?`,
+                          description: "The connector stops and the tunnel is deleted in Cloudflare.",
+                          confirmLabel: "Remove tunnel",
+                          danger: true,
+                        }))
+                      )
+                        return;
                       setBusy(server.id);
                       await disable.run(tunnel.id);
                     }}
@@ -138,7 +150,8 @@ export function ConnectCloudflareDialog({ open, onOpenChange }: { open: boolean;
               label="API token"
               description={
                 <>
-                  Create one at <span className="text-fg-2">dash.cloudflare.com → My Profile → API Tokens</span> with Zone · Read, DNS · Edit, Zone Settings · Edit and SSL and Certificates · Edit. Add Account · Cloudflare Tunnel · Edit to use tunnels.
+                  Create one at <span className="text-fg-2">dash.cloudflare.com → My Profile → API Tokens</span> with Zone · Read, DNS · Edit, Zone Settings · Edit and SSL and
+                  Certificates · Edit. Add Account · Cloudflare Tunnel · Edit to use tunnels.
                 </>
               }
             >
@@ -194,17 +207,23 @@ export function CloudflareAccounts({
         }
       />
       <PageBody className="flex flex-col gap-6">
-      {accounts.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={<Cloud />}
-            title="Connect your Cloudflare account"
-            description="Create DNS records automatically when you add domains, issue wildcard and origin certificates, and change SSL settings from here."
-            action={isAdmin && <Button variant="primary" size="sm" onClick={() => setOpen(true)}><Plus /> Connect Cloudflare</Button>}
-          />
-        </Card>
-      ) : (
-        accounts.map((a) => (
+        {accounts.length === 0 ? (
+          <Card>
+            <EmptyState
+              icon={<Cloud />}
+              title="Connect your Cloudflare account"
+              description="Create DNS records automatically when you add domains, issue wildcard and origin certificates, and change SSL settings from here."
+              action={
+                isAdmin && (
+                  <Button variant="primary" size="sm" onClick={() => setOpen(true)}>
+                    <Plus /> Connect Cloudflare
+                  </Button>
+                )
+              }
+            />
+          </Card>
+        ) : (
+          accounts.map((a) => (
             <Card key={a.id} className="overflow-hidden">
               <CardHeader
                 title={
@@ -243,9 +262,7 @@ export function CloudflareAccounts({
                                     ))}
                                   </ul>
                                 )}
-                                <p className="text-xs text-muted">
-                                  {tunnels.map((t) => `${t.name} on ${t.serverName}`).join(", ")}
-                                </p>
+                                <p className="text-xs text-muted">{tunnels.map((t) => `${t.name} on ${t.serverName}`).join(", ")}</p>
                               </div>
                             ) : undefined,
                         });
@@ -270,8 +287,8 @@ export function CloudflareAccounts({
               {!a.error && <TunnelsSection account={a} servers={servers} tunnels={tunnels} isAdmin={isAdmin} />}
             </Card>
           ))
-      )}
-      <ConnectCloudflareDialog open={open} onOpenChange={setOpen} />
+        )}
+        <ConnectCloudflareDialog open={open} onOpenChange={setOpen} />
       </PageBody>
     </>
   );

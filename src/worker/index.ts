@@ -176,8 +176,7 @@ async function monitorServices() {
     } catch {
       continue;
     }
-    const relevant =
-      s.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === s.currentDeploymentId) : containers;
+    const relevant = s.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === s.currentDeploymentId) : containers;
     // Every container is gone (removed by hand or by a Docker reset).
     if (!relevant.length) {
       if (s.status === "crashed") continue;
@@ -213,7 +212,10 @@ async function checkProxies() {
   for (const id of reachable) {
     try {
       const server = await getServer(id);
-      const info = await server.docker.getContainer(server.proxyContainer).inspect().catch(() => null);
+      const info = await server.docker
+        .getContainer(server.proxyContainer)
+        .inspect()
+        .catch(() => null);
       if (!info?.State.Running) await ensureServerProxy(server, (l) => log(`[${server.name}] ${l}`));
     } catch (error) {
       log(`proxy check on ${id} failed:`, (error as Error).message);
@@ -267,16 +269,15 @@ async function recover() {
     await setServiceStatus(serviceId, up ? "running" : "failed");
   }
   // Certificates interrupted mid-issue get another attempt.
-  const certs = await db
-    .update(schema.certificate)
-    .set({ status: "pending" })
-    .where(eq(schema.certificate.status, "issuing"))
-    .returning({ id: schema.certificate.id });
+  const certs = await db.update(schema.certificate).set({ status: "pending" }).where(eq(schema.certificate.status, "issuing")).returning({ id: schema.certificate.id });
   for (const c of certs) await enqueue("certificate.issue", { certificateId: c.id }, { concurrencyKey: `cert:${c.id}` });
 
   // Re-queue deployments that never got a job (e.g. created while the worker was down).
   const queued = await db.select().from(schema.deployment).where(eq(schema.deployment.status, "queued"));
-  const pending = await db.select().from(schema.job).where(and(eq(schema.job.type, "deploy"), eq(schema.job.status, "pending")));
+  const pending = await db
+    .select()
+    .from(schema.job)
+    .where(and(eq(schema.job.type, "deploy"), eq(schema.job.status, "pending")));
   const pendingIds = new Set(pending.map((j) => (j.payload as { deploymentId: string }).deploymentId));
   for (const d of queued) {
     if (!pendingIds.has(d.id)) await enqueue("deploy", { deploymentId: d.id }, { concurrencyKey: `service:${d.serviceId}` });

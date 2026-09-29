@@ -13,7 +13,10 @@ export default async function CleanupPage(props: PageProps<"/servers/[serverId]/
   const { server } = await loadServer(serverId);
   const [settings, data] = await Promise.all([
     getSettings(),
-    withTimeout(server().then((ctx) => Promise.all([dockerDiskUsage(ctx), serverSnapshot(ctx).catch(() => null)])), 12_000),
+    withTimeout(
+      server().then((ctx) => Promise.all([dockerDiskUsage(ctx), serverSnapshot(ctx).catch(() => null)])),
+      12_000,
+    ),
   ]);
   // History entries without a server id are from before multi-server: they ran on the local server.
   const history = settings.cleanupHistory.filter((r) => (r.serverId ?? "local") === serverId);

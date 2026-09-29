@@ -32,7 +32,11 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
             proxyStatus(ctx).catch(() => null),
             ctx.local ? commandExists("nixpacks") : Promise.resolve(null),
           ]);
-          return { host, health: { ...health, proxyStartedAt: proxy?.startedAt ?? null }, extra: { nixpacks, dataDir: ctx.paths.root, proxyPorts: `${ctx.proxyHttpPort} / ${ctx.proxyHttpsPort}` } };
+          return {
+            host,
+            health: { ...health, proxyStartedAt: proxy?.startedAt ?? null },
+            extra: { nixpacks, dataDir: ctx.paths.root, proxyPorts: `${ctx.proxyHttpPort} / ${ctx.proxyHttpsPort}` },
+          };
         }),
       )
     : null;

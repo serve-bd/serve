@@ -3,7 +3,21 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { AlertTriangle, ChevronRight, Cloud, FileKey2, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldAlert, ShieldCheck, Server as ServerIcon, Trash2, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronRight,
+  Cloud,
+  FileKey2,
+  MoreHorizontal,
+  Plus,
+  RefreshCw,
+  ScrollText,
+  ShieldAlert,
+  ShieldCheck,
+  Server as ServerIcon,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
@@ -65,7 +79,9 @@ function RequestDialog({
 }) {
   const [serverId, setServerId] = React.useState(servers[0]?.id ?? "local");
   const [tab, setTab] = React.useState<"request" | "upload">("request");
-  const [provider, setProvider] = React.useState<"letsencrypt-http" | "letsencrypt-cloudflare" | "cloudflare-origin">(accounts.length ? "letsencrypt-cloudflare" : "letsencrypt-http");
+  const [provider, setProvider] = React.useState<"letsencrypt-http" | "letsencrypt-cloudflare" | "cloudflare-origin">(
+    accounts.length ? "letsencrypt-cloudflare" : "letsencrypt-http",
+  );
   const [domains, setDomains] = React.useState("");
   const [account, setAccount] = React.useState(accounts[0]?.id ?? "");
   const [name, setName] = React.useState("");
@@ -98,7 +114,12 @@ function RequestDialog({
           <DialogBody>
             <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
               {(["request", "upload"] as const).map((t) => (
-                <button key={t} type="button" onClick={() => setTab(t)} className={cn("h-8 rounded-lg text-[13px] font-medium transition-all", tab === t ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}>
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTab(t)}
+                  className={cn("h-8 rounded-lg text-[13px] font-medium transition-all", tab === t ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
+                >
                   {t === "request" ? "Request certificate" : "Upload certificate"}
                 </button>
               ))}
@@ -138,11 +159,21 @@ function RequestDialog({
                 </div>
                 {!accounts.length && (
                   <p className="text-xs text-muted">
-                    <Link href="/integrations/cloudflare" className="text-accent hover:underline">Connect Cloudflare</Link> to use DNS validation and origin certificates.
+                    <Link href="/integrations/cloudflare" className="text-accent hover:underline">
+                      Connect Cloudflare
+                    </Link>{" "}
+                    to use DNS validation and origin certificates.
                   </p>
                 )}
                 <Field label="Domains" description={provider === "letsencrypt-http" ? "One per line or comma separated." : "Wildcards like *.example.com are supported."}>
-                  <Textarea value={domains} onChange={(e) => setDomains(e.target.value)} rows={3} placeholder={"example.com\nwww.example.com"} className="font-mono text-[13px]" required />
+                  <Textarea
+                    value={domains}
+                    onChange={(e) => setDomains(e.target.value)}
+                    rows={3}
+                    placeholder={"example.com\nwww.example.com"}
+                    className="font-mono text-[13px]"
+                    required
+                  />
                 </Field>
                 {needsCf && (
                   <Field label="Cloudflare account">
@@ -284,9 +315,7 @@ function CertificateRow({
             {days !== null && !failed && (
               <>
                 <span className="text-faint">·</span>
-                <span className={cn(days < 0 ? "text-bad" : days < 14 ? "text-warn" : undefined)}>
-                  {days < 0 ? "Expired" : `Expires in ${days} day${days === 1 ? "" : "s"}`}
-                </span>
+                <span className={cn(days < 0 ? "text-bad" : days < 14 ? "text-warn" : undefined)}>{days < 0 ? "Expired" : `Expires in ${days} day${days === 1 ? "" : "s"}`}</span>
               </>
             )}
           </div>
@@ -358,7 +387,11 @@ function CertificateRow({
             <ChevronRight className={cn("size-3 transition-transform", details && "rotate-90")} />
             {details ? "Hide details" : "Show details"}
           </button>
-          {details && <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-sunken p-2.5 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-muted">{c.lastError}</pre>}
+          {details && (
+            <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-sunken p-2.5 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-muted">
+              {c.lastError}
+            </pre>
+          )}
         </div>
       )}
     </div>
@@ -405,7 +438,8 @@ export function CertificatesView({
         <p className="flex items-start gap-2 rounded-xl bg-info-soft px-4 py-2.5 text-[13px] text-fg-2">
           <ShieldCheck className="mt-0.5 size-4 flex-none text-info" />
           <span>
-            {proxyManaged.map((s) => `${s.name} (${s.proxy})`).join(", ")} {proxyManaged.length === 1 ? "gets" : "get"} HTTPS certificates from the proxy itself. They are managed by the proxy, renew automatically and are not listed here.
+            {proxyManaged.map((s) => `${s.name} (${s.proxy})`).join(", ")} {proxyManaged.length === 1 ? "gets" : "get"} HTTPS certificates from the proxy itself. They are managed
+            by the proxy, renew automatically and are not listed here.
           </span>
         </p>
       )}
@@ -416,7 +450,9 @@ export function CertificatesView({
       )}
       <Card className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <p className="text-[13px] text-muted">{certificates.length} certificate{certificates.length === 1 ? "" : "s"}</p>
+          <p className="text-[13px] text-muted">
+            {certificates.length} certificate{certificates.length === 1 ? "" : "s"}
+          </p>
           {isAdmin && (
             <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
               <Plus /> Add certificate
@@ -424,24 +460,35 @@ export function CertificatesView({
           )}
         </div>
         {certificates.length === 0 ? (
-          <EmptyState icon={<ShieldCheck />} title="No certificates yet" description="Certificates are requested automatically when you add an HTTPS domain. You can also request wildcard or origin certificates here." />
+          <EmptyState
+            icon={<ShieldCheck />}
+            title="No certificates yet"
+            description="Certificates are requested automatically when you add an HTTPS domain. You can also request wildcard or origin certificates here."
+          />
         ) : (
           <div className="divide-y divide-line">
             {certificates.map((c) => (
-                <CertificateRow
-                  key={c.id}
-                  cert={c}
-                  isAdmin={isAdmin}
-                  serverIp={serverIp}
-                  onRenew={() => renew.run(c.id)}
-                  onLogs={() => setLogsFor(c.id)}
-                  onUpload={() => setOpen(true)}
-                  onAutoRenew={(on) => auto.run(c.id, on)}
-                  onDelete={async () => {
-                    if (await confirm({ title: `Delete ${c.name}?`, description: "Domains using it fall back to HTTP until another certificate covers them.", confirmLabel: "Delete certificate", danger: true }))
-                      remove.run(c.id);
-                  }}
-                />
+              <CertificateRow
+                key={c.id}
+                cert={c}
+                isAdmin={isAdmin}
+                serverIp={serverIp}
+                onRenew={() => renew.run(c.id)}
+                onLogs={() => setLogsFor(c.id)}
+                onUpload={() => setOpen(true)}
+                onAutoRenew={(on) => auto.run(c.id, on)}
+                onDelete={async () => {
+                  if (
+                    await confirm({
+                      title: `Delete ${c.name}?`,
+                      description: "Domains using it fall back to HTTP until another certificate covers them.",
+                      confirmLabel: "Delete certificate",
+                      danger: true,
+                    })
+                  )
+                    remove.run(c.id);
+                }}
+              />
             ))}
           </div>
         )}

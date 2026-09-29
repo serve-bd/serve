@@ -10,17 +10,7 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
   return <div className={cn("overflow-hidden rounded-2xl border border-line bg-surface shadow-sm", className)} {...props} />;
 }
 
-export function CardHeader({
-  title,
-  description,
-  actions,
-  className,
-}: {
-  title: React.ReactNode;
-  description?: React.ReactNode;
-  actions?: React.ReactNode;
-  className?: string;
-}) {
+export function CardHeader({ title, description, actions, className }: { title: React.ReactNode; description?: React.ReactNode; actions?: React.ReactNode; className?: string }) {
   return (
     <div className={cn("flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4", className)}>
       <div className="flex min-w-0 flex-col gap-0.5">
@@ -37,12 +27,7 @@ export function CardBody({ className, ...props }: React.HTMLAttributes<HTMLDivEl
 }
 
 export function CardFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn("flex items-center justify-between gap-3 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3", className)}
-      {...props}
-    />
-  );
+  return <div className={cn("flex items-center justify-between gap-3 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3", className)} {...props} />;
 }
 
 const badgeTones = {
@@ -54,18 +39,10 @@ const badgeTones = {
   bad: "border-transparent bg-bad-soft text-bad",
 };
 
-export function Badge({
-  tone = "neutral",
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLSpanElement> & { tone?: keyof typeof badgeTones }) {
+export function Badge({ tone = "neutral", className, ...props }: React.HTMLAttributes<HTMLSpanElement> & { tone?: keyof typeof badgeTones }) {
   return (
     <span
-      className={cn(
-        "inline-flex h-5 items-center gap-1 rounded-full border px-2 text-[11px] font-medium whitespace-nowrap [&_svg]:size-3",
-        badgeTones[tone],
-        className,
-      )}
+      className={cn("inline-flex h-5 items-center gap-1 rounded-full border px-2 text-[11px] font-medium whitespace-nowrap [&_svg]:size-3", badgeTones[tone], className)}
       {...props}
     />
   );
@@ -74,10 +51,7 @@ export function Badge({
 export function Kbd({ className, ...props }: React.HTMLAttributes<HTMLElement>) {
   return (
     <kbd
-      className={cn(
-        "inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-surface-2 px-1 font-mono text-[10px] text-muted",
-        className,
-      )}
+      className={cn("inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-surface-2 px-1 font-mono text-[10px] text-muted", className)}
       {...props}
     />
   );
@@ -102,11 +76,7 @@ export function EmptyState({
 }) {
   return (
     <div className={cn("flex flex-col items-center justify-center gap-3 px-6 py-14 text-center", className)}>
-      {icon && (
-        <div className="flex size-11 items-center justify-center rounded-xl border border-line bg-surface-2 text-muted [&_svg]:size-5">
-          {icon}
-        </div>
-      )}
+      {icon && <div className="flex size-11 items-center justify-center rounded-xl border border-line bg-surface-2 text-muted [&_svg]:size-5">{icon}</div>}
       <div className="flex max-w-sm flex-col gap-1">
         <p className="font-display text-[15px] font-semibold text-fg">{title}</p>
         {description && <p className="text-[13px] leading-relaxed text-muted">{description}</p>}
@@ -143,15 +113,9 @@ export function CopyField({ value, secret, className }: { value: string; secret?
   const [shown, setShown] = React.useState(!secret);
   return (
     <div className={cn("flex h-9 min-w-0 items-center gap-1 rounded-md border border-line bg-surface-2 pr-1 pl-3", className)}>
-      <code className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg-2">
-        {shown ? value : "•".repeat(Math.min(32, value.length))}
-      </code>
+      <code className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg-2">{shown ? value : "•".repeat(Math.min(32, value.length))}</code>
       {secret && (
-        <button
-          type="button"
-          onClick={() => setShown((s) => !s)}
-          className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted hover:bg-hover hover:text-fg"
-        >
+        <button type="button" onClick={() => setShown((s) => !s)} className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted hover:bg-hover hover:text-fg">
           {shown ? "Hide" : "Show"}
         </button>
       )}

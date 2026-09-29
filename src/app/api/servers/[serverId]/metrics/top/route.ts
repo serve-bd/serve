@@ -25,10 +25,16 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/servers
     .from(schema.service)
     .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
     .innerJoin(schema.organization, eq(schema.project.organizationId, schema.organization.id))
-    .where(and(inArray(schema.service.id, samples.map((s) => s.serviceId)), eq(schema.service.serverId, serverId)));
+    .where(
+      and(
+        inArray(
+          schema.service.id,
+          samples.map((s) => s.serviceId),
+        ),
+        eq(schema.service.serverId, serverId),
+      ),
+    );
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const services = samples
-    .filter((s) => byId.has(s.serviceId))
-    .map((s) => ({ ...byId.get(s.serviceId)!, cpu: s.cpu, memory: s.memory, memoryLimit: s.memoryLimit }));
+  const services = samples.filter((s) => byId.has(s.serviceId)).map((s) => ({ ...byId.get(s.serviceId)!, cpu: s.cpu, memory: s.memory, memoryLimit: s.memoryLimit }));
   return NextResponse.json({ services });
 }

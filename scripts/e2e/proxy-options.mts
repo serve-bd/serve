@@ -29,7 +29,10 @@ const check = (label: string, ok: boolean, detail = "") => results.push(`${ok ? 
 await apply({ basicAuth: { enabled: true, username: "admin", password: "secret123" } });
 check("basic auth without credentials → 401", status(curl("")) === "401");
 check("basic auth with credentials → 200", status(curl("-u admin:secret123")) === "200");
-check("ACME path stays open", status(execSync(`curl -s -o /dev/null -w "%{http_code}" -H "Host: ${host}" http://127.0.0.1:${PORT}/.well-known/acme-challenge/x || true`).toString()) === "404");
+check(
+  "ACME path stays open",
+  status(execSync(`curl -s -o /dev/null -w "%{http_code}" -H "Host: ${host}" http://127.0.0.1:${PORT}/.well-known/acme-challenge/x || true`).toString()) === "404",
+);
 
 await apply({ deny: ["0.0.0.0/0", "::/0"] });
 check("IP deny → 403", status(curl("")) === "403");
@@ -54,10 +57,14 @@ check("auth + CORS: preflight passes without credentials", status(curl(`-X OPTIO
 check("auth + CORS: GET still needs credentials", status(curl("")) === "401");
 
 await apply({ gzip: true });
-const gz = execSync(`curl -s -o /dev/null -D - -H "Host: ${host}" -H "Accept-Encoding: gzip" "http://127.0.0.1:${PORT}/?pad=$(head -c 3000 /dev/zero | tr '\\0' a)" || true`).toString();
+const gz = execSync(
+  `curl -s -o /dev/null -D - -H "Host: ${host}" -H "Accept-Encoding: gzip" "http://127.0.0.1:${PORT}/?pad=$(head -c 3000 /dev/zero | tr '\\0' a)" || true`,
+).toString();
 check("gzip on (whoami echoes the long URL)", /content-encoding: gzip/i.test(gz), gz.match(/content-length: \d+/i)?.[0] ?? "");
 await apply({ gzip: false });
-const nogz = execSync(`curl -s -o /dev/null -D - -H "Host: ${host}" -H "Accept-Encoding: gzip" "http://127.0.0.1:${PORT}/?pad=$(head -c 3000 /dev/zero | tr '\\0' a)" || true`).toString();
+const nogz = execSync(
+  `curl -s -o /dev/null -D - -H "Host: ${host}" -H "Accept-Encoding: gzip" "http://127.0.0.1:${PORT}/?pad=$(head -c 3000 /dev/zero | tr '\\0' a)" || true`,
+).toString();
 check("gzip off", !/content-encoding: gzip/i.test(nogz));
 
 await apply({ cacheStatic: true, websockets: false, buffering: false, connectTimeout: 5, readTimeout: 600 });

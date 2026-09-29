@@ -13,10 +13,7 @@ export async function logActivity(entry: {
 }) {
   let organizationId = entry.organizationId ?? null;
   if (!organizationId && entry.projectId) {
-    const [p] = await db
-      .select({ organizationId: schema.project.organizationId })
-      .from(schema.project)
-      .where(eq(schema.project.id, entry.projectId));
+    const [p] = await db.select({ organizationId: schema.project.organizationId }).from(schema.project).where(eq(schema.project.id, entry.projectId));
     organizationId = p?.organizationId ?? null;
   }
   await db

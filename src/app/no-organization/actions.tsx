@@ -27,9 +27,19 @@ export function NoOrgActions() {
         }}
       >
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Organization name" required />
-        <Button type="submit" variant="primary" loading={pending}>Create</Button>
+        <Button type="submit" variant="primary" loading={pending}>
+          Create
+        </Button>
       </form>
-      <Button variant="ghost" onClick={async () => { await authClient.signOut(); router.replace("/login"); }}>Sign out</Button>
+      <Button
+        variant="ghost"
+        onClick={async () => {
+          await authClient.signOut();
+          router.replace("/login");
+        }}
+      >
+        Sign out
+      </Button>
     </div>
   );
 }

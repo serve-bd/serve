@@ -10,7 +10,17 @@ import { encrypt } from "@/server/crypto";
 import { defaultRuntime } from "@/server/services/types";
 import { newWebhookSecret, queueDeployment, uniqueServiceSlug } from "@/server/services/create";
 import { switchProxy } from "@/server/proxy/switch";
-import { applyServerProxyConfig, generatedSite, getProxyContainer, proxyDefinition, proxyStateOf, stopProxy, startProxy, syncServiceProxy, testProxyConfig } from "@/server/proxy/nginx";
+import {
+  applyServerProxyConfig,
+  generatedSite,
+  getProxyContainer,
+  proxyDefinition,
+  proxyStateOf,
+  stopProxy,
+  startProxy,
+  syncServiceProxy,
+  testProxyConfig,
+} from "@/server/proxy/nginx";
 import type { RunningKind, ServerProxyConfig } from "@/server/proxy/config";
 import { forgetServer, getServer } from "@/server/servers/context";
 
@@ -21,12 +31,15 @@ const results: string[] = [];
 const ok = (cond: boolean, label: string, detail = "") => results.push(`${cond ? "✓" : "✗"} ${label}${detail ? `: ${detail}` : ""}`);
 const sh = (cmd: string) => {
   try {
-    return execSync(cmd, { stdio: ["ignore", "pipe", "pipe"] }).toString().trim();
+    return execSync(cmd, { stdio: ["ignore", "pipe", "pipe"] })
+      .toString()
+      .trim();
   } catch (e) {
     return String((e as { stdout?: Buffer }).stdout ?? "").trim();
   }
 };
-const get = (host: string, path = "/") => sh(`curl -s -m 6 -o /tmp/claude-1000/pf-body -w "%{http_code}" -D /tmp/claude-1000/pf-head -H "Host: ${host}" http://127.0.0.1:${PORT}${path}`) || "000";
+const get = (host: string, path = "/") =>
+  sh(`curl -s -m 6 -o /tmp/claude-1000/pf-body -w "%{http_code}" -D /tmp/claude-1000/pf-head -H "Host: ${host}" http://127.0.0.1:${PORT}${path}`) || "000";
 const body = () => sh("cat /tmp/claude-1000/pf-body");
 const head = () => sh("cat /tmp/claude-1000/pf-head").toLowerCase();
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -89,7 +102,11 @@ const customFile: Record<RunningKind, (host: string) => { name: string; content:
 const badFile: Record<RunningKind, { name: string; content: string }> = {
   nginx: { name: "bad.conf", content: "nonsense_directive on;" },
   caddy: { name: "bad.caddy", content: "http://bad.test {\n\tnonsense_directive\n}" },
-  traefik: { name: "bad.yaml", content: "http:\n  routers:\n    pf-bad:\n      rule: Host(`bad.test`)\n      service: noop@internal\n      middlewares: [pf-x]\n  middlewares:\n    pf-x:\n      notAMiddleware: {}\n" },
+  traefik: {
+    name: "bad.yaml",
+    content:
+      "http:\n  routers:\n    pf-bad:\n      rule: Host(`bad.test`)\n      service: noop@internal\n      middlewares: [pf-x]\n  middlewares:\n    pf-x:\n      notAMiddleware: {}\n",
+  },
 };
 
 try {
@@ -123,7 +140,11 @@ try {
     err = await apply({ ...withFile, [kind]: { ...withFile[kind], files: [...(withFile[kind]?.files ?? []), badFile[kind]] } });
     const after = (await proxyStateOf(REMOTE)).config;
     code = get(H.custom);
-    ok(!!err && JSON.stringify(after) === JSON.stringify(withFile) && code === "200" && get(H.app) === "200", `${kind}: broken custom file rejected, rolled back`, (err ?? "accepted").split("\n").slice(0, 2).join(" | "));
+    ok(
+      !!err && JSON.stringify(after) === JSON.stringify(withFile) && code === "200" && get(H.app) === "200",
+      `${kind}: broken custom file rejected, rolled back`,
+      (err ?? "accepted").split("\n").slice(0, 2).join(" | "),
+    );
     const renamed = { ...customFile[kind](H.custom), name: customFile[kind](H.custom).name.replace("status", "renamed") };
     err = await apply({ ...after, [kind]: { ...after[kind], files: [renamed] } });
     const listing = sh(`docker exec serve-e2e-remote sh -c 'ls ${ctx.paths.proxySites} ${ctx.paths.proxyCustom} 2>/dev/null'`);
@@ -141,7 +162,11 @@ try {
     const unknownBody = body();
     const stoppedOff = get(H.stopped);
     const stoppedBody = body();
-    ok(!err && !unknownBody.includes("Nothing is deployed") && !stoppedBody.includes("not running"), `${kind}: defaults off drop Serve's pages`, err ?? `${unknownOff} ${stoppedOff} ${unknownBody.slice(0, 60)} | ${stoppedBody.slice(0, 60)}`);
+    ok(
+      !err && !unknownBody.includes("Nothing is deployed") && !stoppedBody.includes("not running"),
+      `${kind}: defaults off drop Serve's pages`,
+      err ?? `${unknownOff} ${stoppedOff} ${unknownBody.slice(0, 60)} | ${stoppedBody.slice(0, 60)}`,
+    );
     ok((await until(H.app)) === "200", `${kind}: app still answers with defaults off`);
     err = await apply({ ...cur, [kind]: { ...cur[kind], defaults: undefined } });
     await wait(1200);
@@ -151,7 +176,11 @@ try {
     const c2 = (await proxyStateOf(REMOTE)).config;
     err = await apply({ ...c2, [kind]: { ...c2[kind], container: { env: [{ name: "PF_TEST", value: encrypt("hello") }], ports: ["18404:18404"], args: [], volumes: [] } } });
     let info = await getProxyContainer(ctx);
-    ok(!err && !!info?.Config.Env?.includes("PF_TEST=hello") && !!(info?.HostConfig.PortBindings as Record<string, unknown>)?.["18404/tcp"] && get(H.app) === "200", `${kind}: container overrides applied`, err ?? "");
+    ok(
+      !err && !!info?.Config.Env?.includes("PF_TEST=hello") && !!(info?.HostConfig.PortBindings as Record<string, unknown>)?.["18404/tcp"] && get(H.app) === "200",
+      `${kind}: container overrides applied`,
+      err ?? "",
+    );
     const def = (await proxyDefinition(ctx)) ?? "";
     ok(def.includes("PF_TEST=********") && !def.includes("hello") && def.includes("18404:18404"), `${kind}: effective definition masks secrets`);
     sh("docker exec serve-e2e-remote docker rm -f pf-busy");
@@ -159,7 +188,11 @@ try {
     const c3 = (await proxyStateOf(REMOTE)).config;
     err = await apply({ ...c3, [kind]: { ...c3[kind], container: { ...c3[kind]!.container, ports: ["18405:18405"] } } });
     info = await getProxyContainer(ctx);
-    ok(/Port 18405 is already used/.test(err ?? "") && !!info?.State.Running && get(H.app) === "200", `${kind}: busy extra port refused, proxy kept`, (err ?? "accepted").split("\n")[0]);
+    ok(
+      /Port 18405 is already used/.test(err ?? "") && !!info?.State.Running && get(H.app) === "200",
+      `${kind}: busy extra port refused, proxy kept`,
+      (err ?? "accepted").split("\n")[0],
+    );
     sh("docker exec serve-e2e-remote docker rm -f pf-busy");
     err = await apply({ ...c3, [kind]: { ...c3[kind], container: undefined } });
     info = await getProxyContainer(ctx);
@@ -167,24 +200,43 @@ try {
 
     // Per-service custom configuration.
     const generated = (await generatedSite(kind, app, ctx)) ?? "";
-    const marker = kind === "nginx" ? generated.replace("location / {", 'location / {\n        add_header X-PF-Custom "yes" always;') : kind === "caddy" ? generated.replace("route {", 'route {\n\t\theader X-PF-Custom "yes"') : null;
+    const marker =
+      kind === "nginx"
+        ? generated.replace("location / {", 'location / {\n        add_header X-PF-Custom "yes" always;')
+        : kind === "caddy"
+          ? generated.replace("route {", 'route {\n\t\theader X-PF-Custom "yes"')
+          : null;
     if (marker && marker !== generated) {
-      await db.update(schema.service).set({ proxyCustom: { [kind]: marker } }).where(eq(schema.service.id, app));
+      await db
+        .update(schema.service)
+        .set({ proxyCustom: { [kind]: marker } })
+        .where(eq(schema.service.id, app));
       let e2: string | null = null;
       await syncServiceProxy(app).catch((e) => (e2 = (e as Error).message));
       await wait(800);
       ok(!e2 && get(H.app) === "200" && head().includes("x-pf-custom: yes"), `${kind}: custom service config applied`, e2 ?? "");
     } else if (kind === "traefik") {
       const custom = generated.replace(/rule: Host\(`([^`]+)`\)/, "rule: Host(`$1`) || Host(`pf-alias-" + suffix + ".test`)");
-      await db.update(schema.service).set({ proxyCustom: { traefik: custom } }).where(eq(schema.service.id, app));
+      await db
+        .update(schema.service)
+        .set({ proxyCustom: { traefik: custom } })
+        .where(eq(schema.service.id, app));
       let e2: string | null = null;
       await syncServiceProxy(app).catch((e) => (e2 = (e as Error).message));
       await wait(1200);
       ok(!e2 && get(`pf-alias-${suffix}.test`) === "200", `${kind}: custom service config applied`, e2 ?? "");
     }
-    const broken = kind === "traefik" ? "http:\n  routers:\n    x:\n      rule: Host(`x.test`)\n      service: nope\n      middlewares: [missing]\n" : kind === "caddy" ? `http://${H.app} {\n\tnot_a_directive\n}` : "server { nonsense on; }";
+    const broken =
+      kind === "traefik"
+        ? "http:\n  routers:\n    x:\n      rule: Host(`x.test`)\n      service: nope\n      middlewares: [missing]\n"
+        : kind === "caddy"
+          ? `http://${H.app} {\n\tnot_a_directive\n}`
+          : "server { nonsense on; }";
     const [row] = await db.select({ c: schema.service.proxyCustom }).from(schema.service).where(eq(schema.service.id, app));
-    await db.update(schema.service).set({ proxyCustom: { [kind]: broken } }).where(eq(schema.service.id, app));
+    await db
+      .update(schema.service)
+      .set({ proxyCustom: { [kind]: broken } })
+      .where(eq(schema.service.id, app));
     let rejected = "";
     await syncServiceProxy(app).catch((e) => (rejected = (e as Error).message));
     await db.update(schema.service).set({ proxyCustom: row.c }).where(eq(schema.service.id, app));

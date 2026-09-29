@@ -28,7 +28,10 @@ export async function runTask(runId: string) {
         // Persist progress every couple of seconds so the UI can follow long runs.
         if (Date.now() - last > 2000) {
           last = Date.now();
-          void db.update(schema.taskRun).set({ output: buffer.slice(-256_000) }).where(eq(schema.taskRun.id, runId));
+          void db
+            .update(schema.taskRun)
+            .set({ output: buffer.slice(-256_000) })
+            .where(eq(schema.taskRun.id, runId));
         }
       },
     });
@@ -57,16 +60,17 @@ export async function runTask(runId: string) {
 }
 
 async function pruneRuns(taskId: string) {
-  const keep = await db
-    .select({ id: schema.taskRun.id })
-    .from(schema.taskRun)
-    .where(eq(schema.taskRun.taskId, taskId))
-    .orderBy(desc(schema.taskRun.startedAt))
-    .limit(50);
+  const keep = await db.select({ id: schema.taskRun.id }).from(schema.taskRun).where(eq(schema.taskRun.taskId, taskId)).orderBy(desc(schema.taskRun.startedAt)).limit(50);
   if (keep.length < 50) return;
-  await db
-    .delete(schema.taskRun)
-    .where(and(eq(schema.taskRun.taskId, taskId), notInArray(schema.taskRun.id, keep.map((k) => k.id))));
+  await db.delete(schema.taskRun).where(
+    and(
+      eq(schema.taskRun.taskId, taskId),
+      notInArray(
+        schema.taskRun.id,
+        keep.map((k) => k.id),
+      ),
+    ),
+  );
 }
 
 export async function startTaskRun(opts: { serviceId: string; taskId?: string | null; command: string; trigger: string; userId?: string | null }) {

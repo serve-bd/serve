@@ -100,7 +100,13 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
           : service.source?.type === "image"
             ? { kind: "image" as const, image: service.source.image }
             : service.compose
-              ? { kind: "compose" as const, template: template?.name ?? null, mode: service.compose.mode, path: service.compose.path, services: composeServiceNames(service.compose.content) }
+              ? {
+                  kind: "compose" as const,
+                  template: template?.name ?? null,
+                  mode: service.compose.mode,
+                  path: service.compose.path,
+                  services: composeServiceNames(service.compose.content),
+                }
               : null,
     },
     server: { id: server.id, name: server.name, isLocal: server.isLocal },
@@ -112,7 +118,16 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
     deploymentCount: stats.reduce((a, s) => a + s.n, 0),
     domains: domains
       .filter((d) => !d.redirectTo)
-      .map((d) => ({ id: d.id, hostname: d.hostname, secure: d.https || !!d.tunnelId, tunnel: !!d.tunnelId, generated: d.generated, primary: d === primaryDomain, port: d.port, composeService: d.composeService }))
+      .map((d) => ({
+        id: d.id,
+        hostname: d.hostname,
+        secure: d.https || !!d.tunnelId,
+        tunnel: !!d.tunnelId,
+        generated: d.generated,
+        primary: d === primaryDomain,
+        port: d.port,
+        composeService: d.composeService,
+      }))
       .sort((a, b) => Number(b.primary) - Number(a.primary)),
     redirects: domains.filter((d) => d.redirectTo).length,
     published,

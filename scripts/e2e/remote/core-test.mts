@@ -17,10 +17,16 @@ if (process.env.RESET || !running || !existingKey) {
   const key = generateKeyPair("serve-e2e");
   execFileSync("scripts/e2e/remote/run.sh", [key.publicKey], { stdio: "inherit" });
   const keyRow = { publicKey: key.publicKey, privateKey: encrypt(key.privateKey), fingerprint: key.fingerprint };
-  await db.insert(schema.privateKey).values({ id, name: "e2e", ...keyRow }).onConflictDoUpdate({ target: schema.privateKey.id, set: keyRow });
+  await db
+    .insert(schema.privateKey)
+    .values({ id, name: "e2e", ...keyRow })
+    .onConflictDoUpdate({ target: schema.privateKey.id, set: keyRow });
   // Inside the fake server the proxy listens on 80/443; the host maps them to 8090/8453.
   const serverRow = { name: "e2e-remote", host: "127.0.0.1", port: 2222, privateKeyId: id, hostKey: null, proxyHttpPort: 80, proxyHttpsPort: 443 };
-  await db.insert(schema.server).values({ id, ...serverRow }).onConflictDoUpdate({ target: schema.server.id, set: serverRow });
+  await db
+    .insert(schema.server)
+    .values({ id, ...serverRow })
+    .onConflictDoUpdate({ target: schema.server.id, set: serverRow });
 }
 forgetServer(id);
 
@@ -63,10 +69,21 @@ await c.start();
 const exec = await c.exec({ Cmd: ["sh", "-c", "echo from-exec $((2+3))"], AttachStdout: true, AttachStderr: true });
 const stream = await exec.start({ hijack: true, stdin: false });
 let text = "";
-await new Promise<void>((resolve) => { stream.on("data", (d: Buffer) => (text += d.toString())); stream.on("end", resolve); });
+await new Promise<void>((resolve) => {
+  stream.on("data", (d: Buffer) => (text += d.toString()));
+  stream.on("end", resolve);
+});
 console.log("exec output:", JSON.stringify(text.replace(/[\x00-\x08]/g, "").trim()));
 const logs = await c.logs({ stdout: true, stderr: true });
-console.log("logs:", JSON.stringify(logs.toString().replace(/[\x00-\x08]/g, "").trim()));
+console.log(
+  "logs:",
+  JSON.stringify(
+    logs
+      .toString()
+      .replace(/[\x00-\x08]/g, "")
+      .trim(),
+  ),
+);
 await c.remove({ force: true });
 
 await sql.end();

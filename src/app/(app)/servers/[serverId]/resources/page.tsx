@@ -8,7 +8,10 @@ export const metadata = { title: "Resources" };
 export default async function ResourcesPage(props: PageProps<"/servers/[serverId]/resources">) {
   const { serverId } = await props.params;
   const { server } = await loadServer(serverId);
-  const data = await withTimeout(server().then((ctx) => Promise.all([listHostContainers(ctx), hostSummary(ctx)])), 12_000);
+  const data = await withTimeout(
+    server().then((ctx) => Promise.all([listHostContainers(ctx), hostSummary(ctx)])),
+    12_000,
+  );
   if (!data) {
     return (
       <Card>

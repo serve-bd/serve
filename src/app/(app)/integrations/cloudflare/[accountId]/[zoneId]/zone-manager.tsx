@@ -44,7 +44,7 @@ function RecordDialog({
 }) {
   const [type, setType] = React.useState(record?.type ?? "A");
   const [name, setName] = React.useState(record ? (record.name === zoneName ? "@" : record.name.replace(`.${zoneName}`, "")) : "");
-  const [content, setContent] = React.useState(record?.content ?? (serverIp ?? ""));
+  const [content, setContent] = React.useState(record?.content ?? serverIp ?? "");
   const [proxied, setProxied] = React.useState(record?.proxied ?? false);
   const [ttl, setTtl] = React.useState(String(record?.ttl ?? 1));
   const [priority, setPriority] = React.useState(String(record?.priority ?? 10));
@@ -84,7 +84,17 @@ function RecordDialog({
             </Field>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="TTL">
-                <Select value={ttl} onValueChange={setTtl} options={[{ value: "1", label: "Auto" }, { value: "60", label: "1 minute" }, { value: "300", label: "5 minutes" }, { value: "3600", label: "1 hour" }, { value: "86400", label: "1 day" }]} />
+                <Select
+                  value={ttl}
+                  onValueChange={setTtl}
+                  options={[
+                    { value: "1", label: "Auto" },
+                    { value: "60", label: "1 minute" },
+                    { value: "300", label: "5 minutes" },
+                    { value: "3600", label: "1 hour" },
+                    { value: "86400", label: "1 day" },
+                  ]}
+                />
               </Field>
               {type === "MX" && (
                 <Field label="Priority">
@@ -140,7 +150,9 @@ export function ZoneManager({
     { success: editing ? "Record updated" : "Record added", onSuccess: () => setOpen(false) },
   );
   const remove = useAction((id: string) => deleteDnsRecord(accountId, zone.id, id), { success: "Record deleted" });
-  const toggleProxy = useAction((r: Rec) => upsertDnsRecord(accountId, zone.id, r.id, { type: r.type as "A", name: r.name, content: r.content, proxied: !r.proxied, ttl: r.ttl }), { success: "Proxy updated" });
+  const toggleProxy = useAction((r: Rec) => upsertDnsRecord(accountId, zone.id, r.id, { type: r.type as "A", name: r.name, content: r.content, proxied: !r.proxied, ttl: r.ttl }), {
+    success: "Proxy updated",
+  });
   const ssl = useAction((m: string) => setZoneSsl(accountId, zone.id, m as "full"), { success: "SSL mode updated" });
   const https = useAction((on: boolean) => setZoneAlwaysHttps(accountId, zone.id, on), { success: "Setting updated" });
   const purge = useAction(() => purgeZoneCache(accountId, zone.id), { success: "Cache purged", refresh: false });
@@ -156,7 +168,13 @@ export function ZoneManager({
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-faint" />
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search records" className="h-8 w-56 pl-8 text-[13px]" />
           </div>
-          <Select size="sm" value={typeFilter} onValueChange={setTypeFilter} options={[{ value: "all", label: "All types" }, ...types.map((t) => ({ value: t, label: t }))]} className="w-32" />
+          <Select
+            size="sm"
+            value={typeFilter}
+            onValueChange={setTypeFilter}
+            options={[{ value: "all", label: "All types" }, ...types.map((t) => ({ value: t, label: t }))]}
+            className="w-32"
+          />
           <div className="flex-1" />
           {isAdmin && (
             <Button size="sm" variant="primary" onClick={() => openDialog(null)}>
@@ -188,12 +206,19 @@ export function ZoneManager({
                     <td className="max-w-72 truncate px-3 py-2.5 font-mono text-[12.5px] text-muted" title={r.content}>
                       {r.priority !== null && r.type === "MX" && <span className="mr-1 text-faint">{r.priority}</span>}
                       {r.content}
-                      {serverIp && r.content === serverIp && <span className="ml-2 rounded bg-accent-soft px-1.5 py-px font-sans text-[10px] font-semibold text-accent">THIS SERVER</span>}
+                      {serverIp && r.content === serverIp && (
+                        <span className="ml-2 rounded bg-accent-soft px-1.5 py-px font-sans text-[10px] font-semibold text-accent">THIS SERVER</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5">
                       {r.proxiable ? (
                         <Tooltip content={r.proxied ? "Proxied through Cloudflare" : "DNS only"}>
-                          <button type="button" disabled={!isAdmin} onClick={() => toggleProxy.run(r)} className={cn("inline-flex rounded-md p-1 transition-colors", r.proxied ? "text-[#f38020] hover:bg-[#f38020]/10" : "text-faint hover:bg-hover")}>
+                          <button
+                            type="button"
+                            disabled={!isAdmin}
+                            onClick={() => toggleProxy.run(r)}
+                            className={cn("inline-flex rounded-md p-1 transition-colors", r.proxied ? "text-[#f38020] hover:bg-[#f38020]/10" : "text-faint hover:bg-hover")}
+                          >
                             {r.proxied ? <Cloud className="size-4 fill-current" /> : <CloudOff className="size-4" />}
                           </button>
                         </Tooltip>
@@ -212,7 +237,15 @@ export function ZoneManager({
                             size="icon-sm"
                             aria-label="Delete record"
                             onClick={async () => {
-                              if (await confirm({ title: `Delete ${r.type} record for ${short(r.name)}?`, description: "This takes effect in Cloudflare immediately.", confirmLabel: "Delete record", danger: true })) remove.run(r.id);
+                              if (
+                                await confirm({
+                                  title: `Delete ${r.type} record for ${short(r.name)}?`,
+                                  description: "This takes effect in Cloudflare immediately.",
+                                  confirmLabel: "Delete record",
+                                  danger: true,
+                                })
+                              )
+                                remove.run(r.id);
                             }}
                           >
                             <Trash2 />
@@ -238,7 +271,10 @@ export function ZoneManager({
                 type="button"
                 disabled={!isAdmin || ssl.pending}
                 onClick={() => ssl.run(m.value)}
-                className={cn("flex flex-col rounded-xl border px-3 py-2 text-left transition-all", sslMode === m.value ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong")}
+                className={cn(
+                  "flex flex-col rounded-xl border px-3 py-2 text-left transition-all",
+                  sslMode === m.value ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong",
+                )}
               >
                 <span className="text-[13px] font-medium text-fg">{m.label}</span>
                 <span className="text-xs text-muted">{m.body}</span>
@@ -262,7 +298,14 @@ export function ZoneManager({
                 <span className="text-[13px] font-medium text-fg">Purge cache</span>
                 <span className="text-xs text-muted">Clear everything cached at Cloudflare.</span>
               </span>
-              <Button size="sm" disabled={!isAdmin} loading={purge.pending} onClick={async () => { if (await confirm({ title: "Purge all cached files?", confirmLabel: "Purge cache" })) purge.run(); }}>
+              <Button
+                size="sm"
+                disabled={!isAdmin}
+                loading={purge.pending}
+                onClick={async () => {
+                  if (await confirm({ title: "Purge all cached files?", confirmLabel: "Purge cache" })) purge.run();
+                }}
+              >
                 <Zap /> Purge
               </Button>
             </div>
@@ -272,13 +315,24 @@ export function ZoneManager({
           <p className="text-[13px] font-medium text-fg">Name servers</p>
           <div className="mt-2 flex flex-col gap-1">
             {zone.nameServers.map((n) => (
-              <code key={n} className="font-mono text-xs text-muted">{n}</code>
+              <code key={n} className="font-mono text-xs text-muted">
+                {n}
+              </code>
             ))}
           </div>
         </Card>
       </div>
 
-      <RecordDialog key={dialogKey} zoneName={zone.name} record={editing} serverIp={serverIp} open={open} onOpenChange={setOpen} onSave={(r) => save.run(r)} pending={save.pending} />
+      <RecordDialog
+        key={dialogKey}
+        zoneName={zone.name}
+        record={editing}
+        serverIp={serverIp}
+        open={open}
+        onOpenChange={setOpen}
+        onSave={(r) => save.run(r)}
+        pending={save.pending}
+      />
     </div>
   );
 }

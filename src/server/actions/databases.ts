@@ -46,7 +46,19 @@ const settingsSchema = z
   .partial();
 
 /** Fields that only take effect when the container is recreated. */
-const RESTART_FIELDS: (keyof DatabaseConfig)[] = ["image", "initdbArgs", "hostAuthMethod", "charset", "collation", "initScripts", "customConfig", "extraArgs", "dataMountPath", "tls", "healthcheck"];
+const RESTART_FIELDS: (keyof DatabaseConfig)[] = [
+  "image",
+  "initdbArgs",
+  "hostAuthMethod",
+  "charset",
+  "collation",
+  "initScripts",
+  "customConfig",
+  "extraArgs",
+  "dataMountPath",
+  "tls",
+  "healthcheck",
+];
 
 /** Saves database settings. Returns whether the running container must restart to apply them. */
 export async function updateDatabaseSettings(serviceId: string, input: z.input<typeof settingsSchema>) {
@@ -79,7 +91,12 @@ async function dependentsOf(service: typeof schema.service.$inferSelect) {
   const vars = await db
     .select({ serviceId: schema.envVar.serviceId, value: schema.envVar.value })
     .from(schema.envVar)
-    .where(inArray(schema.envVar.serviceId, siblings.map((s) => s.id)));
+    .where(
+      inArray(
+        schema.envVar.serviceId,
+        siblings.map((s) => s.id),
+      ),
+    );
   const names = [service.slug, service.name, referenceName(service.name)].map((n) => n.toLowerCase());
   const uses = new Set<string>();
   for (const v of vars) {
@@ -126,9 +143,19 @@ export async function changeDatabasePassword(serviceId: string, password?: strin
         throw new UserError(`The database refused the change${detail ? `: ${detail}` : "."}`);
       }
     }
-    await db.update(schema.service).set({ database: { ...cfg, password: encrypt(next) } }).where(eq(schema.service.id, serviceId));
+    await db
+      .update(schema.service)
+      .set({ database: { ...cfg, password: encrypt(next) } })
+      .where(eq(schema.service.id, serviceId));
     await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
-    await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: "database.password", targetType: "service", targetId: service.id, message: `Changed the password of ${service.name}` });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "database.password",
+      targetType: "service",
+      targetId: service.id,
+      message: `Changed the password of ${service.name}`,
+    });
     return { dependents: await dependentsOf(service) };
   });
 }
@@ -165,7 +192,14 @@ export async function deleteVolumeData(serviceId: string, source: string) {
       if (/no such volume|404/i.test(message)) throw new UserError(`${name} does not exist.`);
       throw new UserError(message);
     }
-    await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: "volume.delete", targetType: "service", targetId: service.id, message: `Deleted volume ${name}` });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "volume.delete",
+      targetType: "service",
+      targetId: service.id,
+      message: `Deleted volume ${name}`,
+    });
     return null;
   });
 }
@@ -175,8 +209,10 @@ async function resolvesToPrivate(host: string) {
   const { lookup } = await import("node:dns/promises");
   const addrs = await lookup(host.replace(/^\[|\]$/g, ""), { all: true }).catch(() => []);
   if (!addrs.length) return true;
-  return addrs.some(({ address: a }) =>
-    /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(a) || /^(::1$|::$|f[cd]|fe[89ab]|::ffff:(127|10|192\.168)\.)/i.test(a),
+  return addrs.some(
+    ({ address: a }) =>
+      /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(a) ||
+      /^(::1$|::$|f[cd]|fe[89ab]|::ffff:(127|10|192\.168)\.)/i.test(a),
   );
 }
 
@@ -218,7 +254,14 @@ export async function importBackupFromRemote(serviceId: string, input: z.input<t
       { backupId: id, backupFirst, ...(source.kind === "url" ? { url: source.url } : { s3: { destinationId: source.destinationId, key: source.key } }) },
       { concurrencyKey: `backup:${serviceId}` },
     );
-    await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: "backup.import", targetType: "service", targetId: service.id, message: `Importing a backup into ${service.name}` });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "backup.import",
+      targetType: "service",
+      targetId: service.id,
+      message: `Importing a backup into ${service.name}`,
+    });
     return { id };
   });
 }

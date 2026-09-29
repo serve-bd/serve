@@ -62,3 +62,21 @@ describe("composeVariables", () => {
     ]);
   });
 });
+
+describe("guessVarKind", () => {
+  it("never generates credentials from other services", async () => {
+    const { guessVarKind } = await import("@/lib/compose-vars");
+    for (const k of ["AWS_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY", "GITHUB_CLIENT_SECRET", "R2_ACCESS_KEY_ID", "OPENAI_API_KEY", "SMTP_PASSWORD", "STRIPE_SECRET_KEY", "GITHUB_CLIENT_ID"]) {
+      expect(guessVarKind(k), k).toBe("value");
+    }
+  });
+  it("generates values the stack owns", async () => {
+    const { guessVarKind } = await import("@/lib/compose-vars");
+    expect(guessVarKind("POSTGRES_PASSWORD")).toBe("password");
+    expect(guessVarKind("BETTER_AUTH_SECRET")).toBe("secret");
+    expect(guessVarKind("N8N_ENCRYPTION_KEY")).toBe("secret");
+    expect(guessVarKind("INBOUND_WEBHOOK_SECRET")).toBe("secret");
+    expect(guessVarKind("APP_URL")).toBe("publicUrl");
+    expect(guessVarKind("SOME_TOKEN")).toBe("value");
+  });
+});

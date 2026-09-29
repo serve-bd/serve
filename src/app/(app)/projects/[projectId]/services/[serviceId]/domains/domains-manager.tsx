@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ArrowUpRight, Cloud, Globe, Lock, LockOpen, MoreHorizontal, Pencil, Plus, RefreshCw, Sparkles, Star, Trash2, CornerDownRight, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, CardHeader, EmptyState } from "@/components/ui/misc";
+import { Badge, Card, CardHeader, CopyButton, EmptyState } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -141,6 +141,42 @@ function challengeProblem(props: Props, viaDns: boolean) {
   if (!props.serverIp) return "This server has no public IP, so Let's Encrypt cannot reach it to validate the domain.";
   if (actual && actual !== port) return `The proxy listens on port ${actual} instead of ${port}, so Let's Encrypt cannot validate the domain.`;
   return null;
+}
+
+/** The record to add at the DNS provider, with copy buttons. */
+function DnsRecordTable({ hostname, ip }: { hostname: string; ip: string }) {
+  const labels = hostname.split(".");
+  // Most providers want the name relative to the zone: "app" for app.example.com, "@" for the apex.
+  const relative = labels.length > 2 ? labels.slice(0, -2).join(".") : "@";
+  const cell = "flex min-w-0 items-center gap-1.5 px-3 py-2.5";
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[13px] font-medium text-fg">Add this record at your DNS provider</p>
+      <div className="overflow-hidden rounded-xl border border-line text-[13px]">
+        <div className="grid grid-cols-[4rem_minmax(0,1fr)_minmax(0,1.2fr)_4rem] bg-surface-2 text-[11px] font-medium tracking-wide text-muted uppercase">
+          <span className="px-3 py-2">Type</span>
+          <span className="px-3 py-2">Name</span>
+          <span className="px-3 py-2">Value</span>
+          <span className="px-3 py-2">TTL</span>
+        </div>
+        <div className="grid grid-cols-[4rem_minmax(0,1fr)_minmax(0,1.2fr)_4rem] border-t border-line font-mono text-[12.5px]">
+          <span className={cell}>A</span>
+          <span className={cell}>
+            <span className="truncate" title={hostname}>{relative}</span>
+            <CopyButton value={relative} />
+          </span>
+          <span className={cell}>
+            <span className="truncate">{ip}</span>
+            <CopyButton value={ip} />
+          </span>
+          <span className={cn(cell, "font-sans text-muted")}>Auto</span>
+        </div>
+      </div>
+      <p className="text-xs leading-relaxed text-muted">
+        Name is relative to your domain{relative !== "@" ? ` (${hostname})` : ""}; some providers want the full name instead. Changes can take a few minutes.
+      </p>
+    </div>
+  );
 }
 
 function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: boolean; onOpenChange: (o: boolean) => void }) {
@@ -325,12 +361,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                     Domains in {props.tunnels.map((t) => t.accountName).join(" or ")} can use the Cloudflare Tunnel of this server.
                   </p>
                 )}
-                {!zone && hostname && props.serverIp && (
-                  <p className="text-xs leading-relaxed text-muted">
-                    Create an <span className="font-mono text-fg-2">A</span> record for <span className="font-mono text-fg-2">{hostname}</span> pointing to{" "}
-                    <span className="font-mono text-fg-2">{props.serverIp}</span>.
-                  </p>
-                )}
+                {!zone && hostname && props.serverIp && !viaTunnel && <DnsRecordTable hostname={hostname} ip={props.serverIp} />}
               </>
             )}
           </DialogBody>

@@ -1,4 +1,5 @@
 import { proxyPaths } from "@/server/paths";
+import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 
 export const PROXY_IMAGE = process.env.SERVE_PROXY_IMAGE ?? "nginx:stable-alpine";
 
@@ -171,7 +172,25 @@ export type SiteServer = {
   directTarget?: string | null;
   /** Only these IPs or CIDR ranges may connect. Empty or missing allows everyone. */
   allow?: string[];
+  /** Per-service HTTP options. */
+  options?: SiteOptions | null;
 };
+
+/** Service HTTP options as the templates need them (auth as a file path, not a hash). */
+export type SiteOptions = Omit<ServiceProxyConfig, "basicAuth"> & {
+  /** htpasswd file path inside the proxy container when basic auth is on. */
+  authFile?: string | null;
+};
+
+/** Params without WebSocket upgrade headers, for services that turn WebSockets off. */
+export const proxyParamsPlain = proxyParams
+  .split("\n")
+  .filter((l) => !/Upgrade|Connection/.test(l))
+  .join("\n");
+
+export const PLAIN_PARAMS_PATH = `${proxyPaths.sites}/params/plain.conf`;
+
+const STATIC_FILES = "css|js|mjs|map|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|eot|mp4|webm|mp3|wasm";
 
 /**
  * Whether nginx should re-resolve a server through Docker DNS. Container names
@@ -198,10 +217,78 @@ ${servers}
 `;
 }
 
-function proxyLocation(target: string) {
+/** Escape a literal for a regex inside an nginx `if`. */
+const regexLiteral = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Response headers set inside a location (add_header there replaces inherited ones, so HSTS is repeated). */
+function responseHeaders(o: SiteOptions | null | undefined, tls: boolean, extra: string[] = []) {
+  const lines: string[] = [];
+  // Without options the server block sets HSTS and nothing here overrides it.
+  if (tls && o) lines.push(`add_header Strict-Transport-Security "max-age=31536000${o?.securityHeaders ? "; includeSubDomains" : ""}" always;`);
+  if (o?.securityHeaders) {
+    lines.push(`add_header X-Content-Type-Options "nosniff" always;`);
+    lines.push(`add_header Referrer-Policy "strict-origin-when-cross-origin" always;`);
+    lines.push(`add_header X-Frame-Options "SAMEORIGIN" always;`);
+  }
+  if (o?.corsOrigins?.length) {
+    lines.push(`add_header Access-Control-Allow-Origin $serve_cors always;`);
+    lines.push(`add_header Vary "Origin" always;`);
+    lines.push(`add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;`);
+    lines.push(`add_header Access-Control-Allow-Headers "Authorization, Content-Type, Accept, Origin, X-Requested-With" always;`);
+    lines.push(`add_header Access-Control-Max-Age "86400" always;`);
+  }
+  for (const h of o?.headers ?? []) lines.push(`add_header ${h.name} "${h.value}" always;`);
+  lines.push(...extra);
+  return lines;
+}
+
+/** The proxied request itself: params, timeouts, buffering. */
+function proxyDirectives(target: string, o: SiteOptions | null | undefined) {
+  const lines = [`proxy_pass http://${target};`, `include ${o?.websockets === false ? PLAIN_PARAMS_PATH : "/etc/nginx/serve/proxy_params.conf"};`];
+  if (o?.connectTimeout) lines.push(`proxy_connect_timeout ${o.connectTimeout}s;`);
+  if (o?.readTimeout) lines.push(`proxy_read_timeout ${o.readTimeout}s;`, `proxy_send_timeout ${o.readTimeout}s;`);
+  if (o?.buffering === false) lines.push("proxy_buffering off;", "proxy_request_buffering off;", "proxy_cache off;");
+  return lines;
+}
+
+function indent(lines: string[], depth: number) {
+  const pad = " ".repeat(depth * 4);
+  return lines
+    .join("\n")
+    .split("\n")
+    .map((l) => (l ? pad + l : l))
+    .join("\n");
+}
+
+function proxyLocation(target: string, o: SiteOptions | null | undefined, tls: boolean) {
+  const inner: string[] = [];
+  // Basic auth lives in the location so the ACME challenge and error pages stay open.
+  if (o?.authFile) {
+    const auth = [`auth_basic "Restricted";`, `auth_basic_user_file ${o.authFile};`];
+    // CORS preflights carry no credentials; let OPTIONS through.
+    if (o.corsOrigins?.length) inner.push("limit_except OPTIONS {", ...auth.map((l) => `    ${l}`), "}");
+    else inner.push(...auth);
+  }
+  if (o?.corsOrigins?.length) {
+    if (o.corsOrigins.includes("*")) inner.push(`set $serve_cors "*";`);
+    else {
+      inner.push(`set $serve_cors "";`);
+      inner.push(`if ($http_origin ~* "^(${o.corsOrigins.map(regexLiteral).join("|")})$") {`, "    set $serve_cors $http_origin;", "}");
+    }
+    inner.push("if ($request_method = OPTIONS) {", "    return 204;", "}");
+  }
+  const headers = responseHeaders(o, tls);
+  inner.push(...proxyDirectives(target, o), ...headers);
+  if (o?.cacheStatic) {
+    inner.push(
+      `location ~* \\.(${STATIC_FILES})$ {`,
+      indent([...proxyDirectives(target, o), "proxy_hide_header Cache-Control;", ...responseHeaders(o, tls, [`add_header Cache-Control "public, max-age=604800" always;`])], 1),
+      "}",
+    );
+  }
+  if (o?.customDirectives) inner.push("# Custom directives", o.customDirectives);
   return `    location / {
-        proxy_pass http://${target};
-        include /etc/nginx/serve/proxy_params.conf;
+${indent(inner, 2)}
     }
 
     error_page 502 503 504 /__serve_unavailable.html;
@@ -231,7 +318,7 @@ function body(s: SiteServer) {
         try_files /unavailable.html =503;
     }`;
   }
-  return proxyLocation(target);
+  return proxyLocation(target, s.options, !!s.tls);
 }
 
 function acmeLocation(restricted: boolean) {
@@ -245,27 +332,41 @@ ${restricted ? "        allow all;\n" : ""}        root ${proxyPaths.acme};
 /** Only allow valid IPs / CIDR ranges into the config. */
 const safeCidr = (v: string) => /^[0-9a-f:.]+(\/\d{1,3})?$/i.test(v);
 
-function accessRules(allow: string[] | undefined) {
-  const list = (allow ?? []).filter(safeCidr);
-  if (!list.length) return "";
-  return `${list.map((a) => `    allow ${a};`).join("\n")}\n    deny all;\n\n`;
+function accessRules(allow: string[] | undefined, deny: string[] | undefined = []) {
+  const denied = deny.filter(safeCidr);
+  const allowed = (allow ?? []).filter(safeCidr);
+  if (!denied.length && !allowed.length) return "";
+  const lines = [...denied.map((d) => `    deny ${d};`), ...allowed.map((a) => `    allow ${a};`)];
+  if (allowed.length) lines.push("    deny all;");
+  return `${lines.join("\n")}\n\n`;
+}
+
+/** Server-level settings from the service options. */
+function serverSettings(o: SiteOptions | null | undefined) {
+  const lines: string[] = [];
+  if (o?.maxBodySize) lines.push(`    client_max_body_size ${o.maxBodySize};`);
+  if (o?.gzip === false) lines.push("    gzip off;");
+  return lines.length ? `${lines.join("\n")}\n\n` : "";
 }
 
 export function serverBlocks(s: SiteServer) {
   const blocks: string[] = [];
   const redirectHttp = s.tls && s.forceHttps;
-  const rules = accessRules(s.allow);
+  const rules = accessRules([...(s.allow ?? []), ...(s.options?.allow ?? [])], s.options?.deny);
   const acme = acmeLocation(!!rules);
+  const settings = serverSettings(s.options);
   blocks.push(`server {
     listen 80;
     server_name ${s.hostname};
 
-${rules}${acme}
+${settings}${rules}${acme}
 
 ${redirectHttp ? `    location / {\n        return 301 https://$host$request_uri;\n    }` : body(s)}
 }
 `);
   if (s.tls) {
+    // With per-location headers, HSTS is emitted inside the location; keep it here otherwise.
+    const hsts = s.options && !s.redirectTo && (s.upstream ?? s.directTarget) ? "" : `    add_header Strict-Transport-Security "max-age=31536000" always;\n`;
     blocks.push(`server {
     listen 443 ssl;
     http2 on;
@@ -273,9 +374,8 @@ ${redirectHttp ? `    location / {\n        return 301 https://$host$request_uri
 
     ssl_certificate ${s.tls.cert};
     ssl_certificate_key ${s.tls.key};
-    add_header Strict-Transport-Security "max-age=31536000" always;
-
-${rules}${acme}
+${hsts}
+${settings}${rules}${acme}
 
 ${body(s)}
 }

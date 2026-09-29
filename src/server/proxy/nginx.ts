@@ -12,8 +12,10 @@ import {
   pages,
   PROXY_IMAGE,
   proxyParams,
+  proxyParamsPlain,
   serverBlocks,
   upstreamBlock,
+  type SiteOptions,
   type SiteServer,
   type SiteUpstream,
 } from "./templates";
@@ -59,6 +61,10 @@ export async function activeServers(): Promise<ServerCtx[]> {
 }
 
 const customFile = (ctx: ServerCtx) => path.posix.join(ctx.paths.proxyCustom, "custom.conf");
+const plainParamsFile = (ctx: ServerCtx) => path.posix.join(ctx.paths.proxySites, "params", "plain.conf");
+/** htpasswd of a service with basic auth, on the server and as nginx sees it. */
+const authFile = (ctx: ServerCtx, serviceId: string) => path.posix.join(ctx.paths.proxySites, "auth", `${serviceId}.htpasswd`);
+const authFileInProxy = (serviceId: string) => `${proxyPaths.sites}/auth/${serviceId}.htpasswd`;
 
 function customContent(config: string | null) {
   return config?.trim() ? `# Managed by Serve — custom directives from Server → Proxy.\n${config.trim()}\n` : null;
@@ -92,6 +98,8 @@ async function writeStaticFiles(ctx: ServerCtx) {
     changed = (await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "pages", name), html)) || changed;
   }
   for (const dir of [p.proxySites, p.proxyLogs, p.acme, p.letsencrypt, p.certs]) await ctx.fs.mkdir(dir);
+  // Lives in the mounted sites dir (not globbed as a site), so existing proxies see it without a new mount.
+  changed = (await ctx.fs.writeIfChanged(plainParamsFile(ctx), proxyParamsPlain)) || changed;
   changed = (await writeCustomConfig(ctx, settings.proxyCustomConfig)) || changed;
   return changed;
 }
@@ -240,6 +248,19 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
   const stopped = service.status === "stopped";
 
   const containers = service.type === "app" && !stopped ? await appTargets(server, service) : [];
+  const cfg = service.proxy;
+  const options: SiteOptions | null = cfg
+    ? { ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null } as SiteOptions
+    : null;
+  // www ↔ apex redirect, only between hostnames that are both on this service.
+  const hostnames = new Set(service.domains.map((d) => d.hostname));
+  const wwwTarget = (hostname: string) => {
+    if (!cfg?.wwwRedirect || cfg.wwwRedirect === "none") return null;
+    const other = cfg.wwwRedirect === "to-apex" ? (hostname.startsWith("www.") ? hostname.slice(4) : null) : hostname.startsWith("www.") ? null : `www.${hostname}`;
+    if (!other || !hostnames.has(other)) return null;
+    const target = service.domains.find((d) => d.hostname === other)!;
+    return `${target.https || target.tunnelId ? "https" : "http"}://${other}`;
+  };
 
   for (const d of service.domains) {
     let upstream: string | null = null;
@@ -265,9 +286,10 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
     servers.push({
       hostname: d.hostname,
       upstream,
-      redirectTo: d.redirectTo,
+      redirectTo: d.redirectTo ?? wwwTarget(d.hostname),
       forceHttps: d.forceHttps,
       tls: d.https ? tlsFor(d.hostname, d.certificateId, certs) : null,
+      options,
     });
   }
 
@@ -339,7 +361,17 @@ export async function syncServiceProxy(serviceId: string) {
     await ctx.fs.mkdir(ctx.paths.proxySites);
     if (svc) await connectProxy(envNetworkName(svc.environmentId), ctx).catch(() => {});
     const content = await renderServiceSite(serviceId, ctx);
-    await applySites(ctx, new Map([[siteFile(ctx, `svc-${serviceId}`), content]]));
+    const [row] = await db.select({ proxy: schema.service.proxy }).from(schema.service).where(eq(schema.service.id, serviceId));
+    const auth = content && row?.proxy?.basicAuth ? `${row.proxy.basicAuth.username}:${row.proxy.basicAuth.passwordHash}\n` : null;
+    if (row?.proxy?.websockets === false) await ctx.fs.writeIfChanged(plainParamsFile(ctx), proxyParamsPlain);
+    // The htpasswd file goes in the same change set, so a failed nginx test rolls both back.
+    await applySites(
+      ctx,
+      new Map([
+        [authFile(ctx, serviceId), auth],
+        [siteFile(ctx, `svc-${serviceId}`), content],
+      ]),
+    );
   });
 }
 
@@ -356,7 +388,15 @@ export async function removeServiceProxy(serviceId: string, serverId?: string) {
     targets = svc ? [await getServer(svc.serverId)] : await activeServers();
   }
   for (const ctx of targets) {
-    await serialized(ctx.id, () => applySites(ctx, new Map([[siteFile(ctx, `svc-${serviceId}`), null]]))).catch((error) => {
+    await serialized(ctx.id, () =>
+      applySites(
+        ctx,
+        new Map([
+          [siteFile(ctx, `svc-${serviceId}`), null],
+          [authFile(ctx, serviceId), null],
+        ]),
+      ),
+    ).catch((error) => {
       if (serverId || targets.length === 1) throw error;
     });
   }

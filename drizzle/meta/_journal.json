@@ -64,6 +64,13 @@
       "when": 1790670490905,
       "tag": "0008_cloudflare_tunnels",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790671508477,
+      "tag": "0009_service_proxy_options",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import { getServerRow } from "@/server/servers/context";
 import { busyHostPorts, publishedPorts } from "@/server/services/ports";
 import { DomainsManager } from "./domains-manager";
 import { PortsCard } from "./ports-card";
+import { ProxyOptionsCard } from "./proxy-options-card";
 import { getTemplate } from "@/server/services/templates";
 
 export const metadata = { title: "Domains & ports" };
@@ -34,6 +35,10 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
       .where(and(eq(schema.cloudflareTunnel.organizationId, ctx.org.id), eq(schema.cloudflareTunnel.serverId, service.serverId))),
   ]);
+  // Never send the password hash to the browser.
+  const proxyInitial = service.proxy
+    ? (({ basicAuth, ...rest }) => ({ ...rest, basicAuthUser: basicAuth?.username ?? null }))(service.proxy)
+    : null;
   const hasPorts = service.type === "app" || service.type === "compose";
   const [published, busy] = hasPorts ? await Promise.all([publishedPorts(service, server), busyHostPorts(service)]) : [[], []];
   const content = service.compose?.content ?? "";
@@ -93,6 +98,14 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           busy={busy}
         />
       )}
+      <ProxyOptionsCard
+        key={JSON.stringify(service.proxy ?? null)}
+        serviceId={service.id}
+        initial={proxyInitial}
+        isAdmin={ctx.isAdmin}
+        isInstanceAdmin={ctx.isInstanceAdmin}
+        hasTls={domains.some((d) => d.https)}
+      />
     </PageBody>
   );
 }

@@ -18,6 +18,7 @@ import type {
   RuntimeConfig,
   SourceConfig,
 } from "@/server/services/types";
+import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 
 const id = () => text("id").primaryKey();
 const createdAt = () =>
@@ -314,6 +315,8 @@ export const service = pgTable(
     runtime: jsonb("runtime").$type<RuntimeConfig>().notNull(),
     database: jsonb("database").$type<DatabaseConfig>(),
     compose: jsonb("compose").$type<ComposeConfig>(),
+    /** Per-service HTTP options for the nginx site (limits, auth, headers…). */
+    proxy: jsonb("proxy").$type<ServiceProxyConfig>(),
     autoDeploy: boolean("auto_deploy").notNull().default(true),
     /** Deploy pull requests as temporary preview services. */
     previewsEnabled: boolean("previews_enabled").notNull().default(false),

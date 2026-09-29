@@ -1,3 +1,4 @@
+import { defaultSignIn, type SignInSettings } from "@/server/sso/config";
 import { eq, inArray, notLike, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { EmailSettings } from "@/server/email/config";
@@ -63,6 +64,8 @@ export type Settings = {
   cleanupHistory: CleanupRun[];
   /** Outgoing email (password resets, invites, notifications). Null when not set up. */
   email: EmailSettings | null;
+  /** Dashboard sign-in: password and single sign-on providers. */
+  signIn: SignInSettings;
   /** Cron expression for backups of Serve itself; null turns them off. */
   instanceBackupSchedule: string | null;
   /** Instance backups kept (locally and in S3). */
@@ -158,6 +161,7 @@ export const defaultSettings: Settings = {
   lastCleanup: null,
   cleanupHistory: [],
   email: null,
+  signIn: defaultSignIn,
   instanceBackupSchedule: null,
   instanceBackupRetention: 7,
   instanceBackupS3DestinationId: null,

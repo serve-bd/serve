@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/toast";
 import useSWR from "swr";
 import { authClient } from "@/lib/auth-client";
 import { useProductName } from "@/components/brand";
+import { SignInMethods } from "./sign-in-methods";
 
 type SessionRow = { id: string; token: string; userAgent?: string | null; ipAddress?: string | null; createdAt: Date; updatedAt: Date };
 
@@ -23,7 +24,16 @@ function device(ua?: string | null) {
   return `${browser}${os ? ` on ${os}` : ""}`;
 }
 
-export function AccountView({ user }: { user: { name: string; email: string; twoFactorEnabled: boolean } }) {
+export function AccountView({
+  user,
+  providers = [],
+  linkError = null,
+}: {
+  user: { name: string; email: string; twoFactorEnabled: boolean };
+  /** Sign-in providers that are on, which the user may link. */
+  providers?: { id: string; label: string }[];
+  linkError?: string | null;
+}) {
   const router = useRouter();
   const [name, setName] = React.useState(user.name);
   const [saving, setSaving] = React.useState(false);
@@ -99,6 +109,8 @@ export function AccountView({ user }: { user: { name: string; email: string; two
           </CardFooter>
         </form>
       </Card>
+
+      <SignInMethods providers={providers} error={linkError} />
 
       <TwoFactorCard enabled={user.twoFactorEnabled} />
 

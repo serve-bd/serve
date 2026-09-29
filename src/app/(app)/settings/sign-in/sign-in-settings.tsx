@@ -126,7 +126,8 @@ function ProviderItem({ row, organizations }: { row: ProviderRow; organizations:
   const [open, setOpen] = React.useState(false);
   const c = row.config;
   const on = !!c?.enabled && !!c.hasSecret;
-  const sub = !c ? blurb[row.id] : on ? (c.allowSignUp ? "On · new accounts allowed" : "On · existing accounts only") : "Off";
+  const domains = c?.allowedDomains.length ? ` · ${c.allowedDomains.map((d) => `@${d}`).join(", ")} only` : "";
+  const sub = !c ? blurb[row.id] : on ? `${c.allowSignUp ? "On · new accounts allowed" : "On · existing accounts only"}${domains}` : "Off";
   return (
     <div className="flex items-center gap-3.5 px-5 py-4">
       <span className="flex size-10 flex-none items-center justify-center rounded-xl border border-line bg-surface-2">
@@ -273,6 +274,13 @@ function ProviderDialog({
 
             <div className="flex flex-col gap-4 border-t border-line pt-5">
               <SwitchRow title="Show on the sign-in page" description="People with a linked account can sign in with it." checked={v.enabled} onCheckedChange={set("enabled")} />
+              <Field
+                label="Only allow emails from"
+                optional
+                description="Comma separated, like example.com or *@example.com; subdomains count. Applies to every sign-in and link with this provider. Empty allows any email."
+              >
+                <Input value={v.allowedDomains} onChange={(e) => set("allowedDomains")(e.target.value)} placeholder="example.com" className="font-mono text-[13px]" />
+              </Field>
               <SwitchRow
                 title="Allow new accounts"
                 description="Off: only people who already have an account, or were invited, can sign in."
@@ -281,9 +289,6 @@ function ProviderDialog({
               />
               {v.allowSignUp && (
                 <div className="flex flex-col gap-4 rounded-xl border border-line bg-surface-2 p-4">
-                  <Field label="Allowed email domains" optional description="Comma separated, like example.com. Empty allows any email.">
-                    <Input value={v.allowedDomains} onChange={(e) => set("allowedDomains")(e.target.value)} placeholder="example.com" className="font-mono text-[13px]" />
-                  </Field>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
                     <Field label="New accounts join">
                       <Select

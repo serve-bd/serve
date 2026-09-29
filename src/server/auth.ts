@@ -13,6 +13,7 @@ import { env } from "@/server/env";
 import type { MemberRole } from "@/server/db/schema";
 import { newId } from "@/server/id";
 import { getSetting } from "@/server/settings";
+import { domainBlocked, guardProfileEmail } from "@/server/sso/domain-guard";
 import { activeProviders, callbackUrl, configHash, discoveryUrl, providerIdOf, providerNames, type SignInSettings, signUpAllowed } from "@/server/sso/config";
 import { cannotMessage, type Permission } from "@/lib/permissions";
 import { accessFrom, organizationRoles } from "@/server/permissions";
@@ -43,7 +44,14 @@ export async function passwordLoginAllowed() {
   return (await getSetting("signIn")).passwordEnabled !== false;
 }
 
-type SocialConfig = { clientId: string; clientSecret: string; redirectURI: string; disableImplicitSignUp: boolean; scope?: string[] };
+type SocialConfig = {
+  clientId: string;
+  clientSecret: string;
+  redirectURI: string;
+  disableImplicitSignUp: boolean;
+  scope?: string[];
+  mapProfileToUser?: (profile: { email?: string | null }) => Record<string, unknown>;
+};
 type SsoRuntime = { social: Record<string, SocialConfig>; oidc: GenericOAuthConfig[] };
 
 const noSso: SsoRuntime = { social: {}, oidc: [] };
@@ -55,7 +63,14 @@ function ssoRuntime(settings: SignInSettings, base: string): SsoRuntime {
     const p = settings.providers[id];
     const clientSecret = p ? decryptOrNull(p.clientSecret) : null;
     if (!p || !clientSecret) continue;
-    const common = { clientId: p.clientId, clientSecret, redirectURI: callbackUrl(base, id), disableImplicitSignUp: !p.allowSignUp };
+    const common = {
+      clientId: p.clientId,
+      clientSecret,
+      redirectURI: callbackUrl(base, id),
+      disableImplicitSignUp: !p.allowSignUp,
+      // Allowed domains apply to every sign-in and link through the provider, not only new accounts.
+      mapProfileToUser: guardProfileEmail(p.allowedDomains),
+    };
     if (id === "oidc") {
       out.oidc.push({
         ...common,
@@ -171,6 +186,14 @@ function createAuth(sso: SsoRuntime) {
             const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, provider.defaultOrganizationId));
             if (!org) return;
             await db.insert(schema.member).values({ id: newId(), organizationId: org.id, userId: user.id, role: provider.defaultRole }).onConflictDoNothing();
+          },
+        },
+      },
+      account: {
+        create: {
+          // Linking from the Account page skips the email check, so refuse the new link here.
+          before: async () => {
+            if (domainBlocked()) return false;
           },
         },
       },

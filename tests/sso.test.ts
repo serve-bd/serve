@@ -94,3 +94,34 @@ describe("sso config", () => {
     expect(ssoErrorMessage("whatever")).toMatch(/try again/);
   });
 });
+
+describe("allowed email domains", () => {
+  it("accepts *@, @ and *. forms and counts subdomains", async () => {
+    const { providerInput, emailDomainAllowed } = await import("@/server/sso/config");
+    const parsed = providerInput.safeParse({ enabled: true, clientId: "id", allowSignUp: false, allowedDomains: ["*@Acme.com", "@corp.io", "*.team.dev"] });
+    expect(parsed.success && parsed.data.allowedDomains).toEqual(["acme.com", "corp.io", "team.dev"]);
+    expect(emailDomainAllowed(["acme.com"], "a@eu.acme.com")).toBe(true);
+    expect(emailDomainAllowed(["acme.com"], "a@notacme.com")).toBe(false);
+    expect(emailDomainAllowed([], "a@x.com")).toBe(true);
+  });
+
+  it("blanks a disallowed email and reports it with its own error code", async () => {
+    const { guardProfileEmail, withDomainGuard, domainBlocked } = await import("@/server/sso/domain-guard");
+    const guard = guardProfileEmail(["acme.com"]);
+    let seen = false;
+    const res = await withDomainGuard(async () => {
+      expect(guard({ email: "me@acme.com" })).toEqual({});
+      expect(guard({ email: "me@gmail.com" })).toEqual({ email: "" });
+      seen = domainBlocked();
+      return new Response(null, { status: 302, headers: { location: "/login?error=email_not_found" } });
+    });
+    expect(seen).toBe(true);
+    expect(res.headers.get("location")).toBe("/login?error=email_domain_not_allowed");
+  });
+
+  it("leaves other requests alone", async () => {
+    const { withDomainGuard } = await import("@/server/sso/domain-guard");
+    const res = await withDomainGuard(async () => new Response(null, { status: 302, headers: { location: "/login?error=state_mismatch" } }));
+    expect(res.headers.get("location")).toBe("/login?error=state_mismatch");
+  });
+});

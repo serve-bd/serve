@@ -57,12 +57,16 @@ export function emailDomain(email: string) {
   return email.trim().toLowerCase().split("@").pop() ?? "";
 }
 
+/** Whether an email may sign in through a provider with this domain list (empty allows any; subdomains count). */
+export function emailDomainAllowed(allowedDomains: string[], email: string) {
+  if (!allowedDomains.length) return true;
+  const domain = emailDomain(email);
+  return allowedDomains.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
+
 /** Whether a new account with this email may be created through the provider. */
 export function signUpAllowed(provider: Pick<SsoProvider, "allowSignUp" | "allowedDomains">, email: string) {
-  if (!provider.allowSignUp) return false;
-  if (!provider.allowedDomains.length) return true;
-  const domain = emailDomain(email);
-  return provider.allowedDomains.some((d) => domain === d || domain.endsWith(`.${d}`));
+  return provider.allowSignUp && emailDomainAllowed(provider.allowedDomains, email);
 }
 
 /** Providers the login page offers: enabled and complete. */
@@ -99,7 +103,9 @@ const domain = z
   .string()
   .trim()
   .toLowerCase()
-  .regex(/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "Enter domains like example.com");
+  // Accept the ways people write it: *@example.com, @example.com, *.example.com.
+  .transform((d) => d.replace(/^\*?@/, "").replace(/^\*\./, ""))
+  .pipe(z.string().regex(/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "Enter domains like example.com"));
 
 export const providerInput = z
   .object({

@@ -6,6 +6,8 @@ export function ssoErrorMessage(code: string) {
       return "There is no account for this email here, and this sign-in method does not create new ones. Ask an admin to invite you.";
     case "account_not_linked":
       return "An account with this email exists but is not linked to this sign-in method yet. Sign in with your password, then link it on your Account page.";
+    case "email_domain_not_allowed":
+      return "This sign-in method only accepts email addresses from the organization's allowed domains. Use an account with one of them.";
     case "email_not_found":
       return "The provider did not share an email address. Make one visible (or primary and verified) in your account there and try again.";
     case "email_not_verified":

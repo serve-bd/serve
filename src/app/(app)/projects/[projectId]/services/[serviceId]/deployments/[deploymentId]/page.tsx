@@ -30,6 +30,7 @@ export default async function DeploymentPage(props: PageProps<"/projects/[projec
   return (
     <PageBody>
       <DeploymentView
+        key={dep.id}
         deployment={JSON.parse(JSON.stringify(dep))}
         backHref={`/projects/${projectId}/services/${serviceId}`}
         serviceType={service.type}

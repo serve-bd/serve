@@ -34,6 +34,8 @@ export type Settings = {
   allowOrganizationCreation: boolean;
   /** Last time the worker reported in (ISO timestamp). */
   workerHeartbeat: string | null;
+  /** Latest migration the running worker was built with. */
+  workerSchemaVersion: string | null;
   /** IANA timezone used for backup and task schedules. */
   timezone: string;
   /** Extra nginx directives included in the proxy's http block. */
@@ -81,6 +83,7 @@ export const defaultSettings: Settings = {
   rootOrganizationId: null,
   allowOrganizationCreation: false,
   workerHeartbeat: null,
+  workerSchemaVersion: null,
   timezone: "UTC",
   proxyCustomConfig: null,
   dashboardAllowlist: [],

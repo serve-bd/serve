@@ -45,6 +45,8 @@ type ShellProps = {
   canCreateOrg: boolean;
   instanceName: string;
   workerOnline: boolean;
+  /** The worker runs older code than the dashboard (restart or rebuild it). */
+  workerOutdated?: boolean;
   children: React.ReactNode;
 };
 
@@ -244,13 +246,19 @@ export function AppShell(props: ShellProps) {
             </button>
             <Logo />
           </div>
-          {!props.workerOnline && (
+          {(!props.workerOnline || props.workerOutdated) && (
             <div role="status" className="border-b border-warn/20 bg-warn-soft">
               <div className="mx-auto flex w-full max-w-[1200px] items-start gap-2.5 px-4 py-2.5 text-[13px] sm:items-center sm:px-8">
                 <AlertTriangle className="mt-0.5 size-4 flex-none text-warn sm:mt-0" />
-                <p className="min-w-0 text-fg-2">
-                  <span className="font-medium text-fg">The worker is not running.</span> Deployments, backups and other jobs wait until it starts.
-                </p>
+                {props.workerOnline ? (
+                  <p className="min-w-0 text-fg-2">
+                    <span className="font-medium text-fg">The worker is running older code.</span> Restart it so deployments use the latest version.
+                  </p>
+                ) : (
+                  <p className="min-w-0 text-fg-2">
+                    <span className="font-medium text-fg">The worker is not running.</span> Deployments, backups and other jobs wait until it starts.
+                  </p>
+                )}
               </div>
             </div>
           )}

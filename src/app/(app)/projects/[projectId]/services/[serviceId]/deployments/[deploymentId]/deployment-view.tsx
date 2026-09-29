@@ -55,11 +55,17 @@ export function DeploymentView({
   React.useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
+    // React may run this effect twice in development; the first run is discarded below.
+    offset.current = 0;
+    partial.current = "";
     const tick = async () => {
       try {
         const res = await fetch(`/api/deployments/${deployment.id}/logs?offset=${offset.current}`);
+        if (stopped) return;
         if (res.ok) {
           const data = (await res.json()) as LogState & { chunk: string; offset: number; reset: boolean };
+          // A cancelled run must not append what it fetched.
+          if (stopped) return;
           if (data.reset) {
             partial.current = "";
             setLines([]);

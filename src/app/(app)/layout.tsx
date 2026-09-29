@@ -4,6 +4,7 @@ import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { AppShell } from "@/components/shell/app-shell";
+import { SCHEMA_VERSION } from "@/server/version";
 
 function workerOnline(heartbeat: string | null) {
   return !!heartbeat && Date.now() - new Date(heartbeat).getTime() < 60_000;
@@ -38,6 +39,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       canCreateOrg={ctx.isInstanceAdmin || settings.allowOrganizationCreation}
       instanceName={settings.instanceName}
       workerOnline={workerOnline(settings.workerHeartbeat)}
+      workerOutdated={workerOnline(settings.workerHeartbeat) && settings.workerSchemaVersion !== SCHEMA_VERSION}
     >
       {children}
     </AppShell>

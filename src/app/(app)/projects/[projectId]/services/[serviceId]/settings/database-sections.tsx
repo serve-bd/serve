@@ -517,29 +517,27 @@ function HealthSection(props: DatabaseSettingsProps) {
   );
 }
 
-export const databaseNav = (props: Pick<DatabaseSettingsProps, "engine" | "config">) => [
-  { id: "details", label: "Details" },
-  { id: "credentials", label: "Credentials" },
-  ...(props.engine.initScripts || ["postgres", "mysql", "mariadb"].includes(props.config.engine) ? [{ id: "initialization", label: "Initialization" }] : []),
-  { id: "configuration", label: "Configuration" },
-  { id: "network", label: "Runtime and network" },
-  ...(props.engine.tls ? [{ id: "tls", label: "TLS" }] : []),
-  { id: "health", label: "Health check" },
-  { id: "storage", label: "Persistent storage" },
-];
 
-export function DatabaseSections(props: DatabaseSettingsProps) {
-  return (
-    <>
-      <DetailsSection {...props} />
-      <CredentialsSection {...props} />
-      <InitializationSection {...props} />
-      <ConfigurationSection {...props} />
-      <NetworkSection {...props} />
-      <TlsSection {...props} />
-      <HealthSection {...props} />
-    </>
-  );
+/** One database settings sub-page (storage is rendered by the shared storage section). */
+export function DatabaseSections({ section, ...props }: DatabaseSettingsProps & { section: string }) {
+  switch (section) {
+    case "details":
+      return <DetailsSection {...props} />;
+    case "credentials":
+      return <CredentialsSection {...props} />;
+    case "initialization":
+      return <InitializationSection {...props} />;
+    case "configuration":
+      return <ConfigurationSection {...props} />;
+    case "network":
+      return <NetworkSection {...props} />;
+    case "tls":
+      return <TlsSection {...props} />;
+    case "health":
+      return <HealthSection {...props} />;
+    default:
+      return null;
+  }
 }
 
 /** Sticky bar shown after saving settings that need the database container recreated. */

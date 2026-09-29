@@ -410,7 +410,7 @@ export function ServiceOverview(data: OverviewData) {
             {[
               { label: "Variables", value: data.counts.variables, sub: data.counts.shared ? `+ ${data.counts.shared} shared` : "Encrypted", href: `${base}/variables` },
               { label: "Domains", value: data.domains.length, sub: data.published.length ? `+ ${data.published.length} port${data.published.length === 1 ? "" : "s"}` : "Routed by the proxy", href: `${base}/domains` },
-              { label: "Volumes", value: service.volumes, sub: service.volumes ? "Kept across deploys" : "No persistent data", href: `${base}/settings` },
+              { label: "Volumes", value: service.volumes, sub: service.volumes ? "Kept across deploys" : "No persistent data", href: `${base}/settings/storage` },
               { label: "Tasks", value: data.counts.tasks, sub: "Scheduled commands", href: `${base}/tasks` },
             ].map((c) => (
               <Tooltip key={c.label} content={`Open ${c.label.toLowerCase()}`}>

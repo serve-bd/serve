@@ -20,7 +20,9 @@ import type { BuildConfig, RepoWebhook, RuntimeConfig, VolumeMount } from "@/ser
 import { registerServiceWebhook, removeServiceWebhook } from "@/server/actions/integrations";
 import { Section } from "./section";
 import { AdvancedSection, BuildSection, DeploySection, HealthSection, ResourcesSection, RuntimeSection } from "./config-sections";
-import { ApplyBar, DatabaseSections, databaseNav, type DatabaseSettingsProps } from "./database-sections";
+import { ApplyBar, DatabaseSections, type DatabaseSettingsProps } from "./database-sections";
+import type { SettingsNavItem } from "./settings-nav";
+import { addPendingApply, clearPendingApply, usePendingApply } from "./pending-apply";
 import { StorageSection } from "./storage-section";
 import { updateDatabaseSettings } from "@/server/actions/databases";
 
@@ -62,6 +64,9 @@ type Props = {
   servers: { id: string; name: string; host: string; status: string; isLocal: boolean }[];
   /** Admin of the Root organization: may grant host access (privileged, capabilities). */
   isRootAdmin: boolean;
+  /** The settings sub-page shown, and all of them for the nav. */
+  section: string;
+  nav: SettingsNavItem[];
 };
 
 function ServerCard({ service, server, servers }: { service: Props["service"]; server: Props["server"]; servers: Props["servers"] }) {
@@ -138,9 +143,10 @@ export function ServiceSettings(props: Props) {
   const save = useAction((patch: Parameters<typeof updateService>[1]) => updateService(service.id, patch), {
     success: "Settings saved. Deploy to apply runtime changes.",
   });
-  const [pendingApply, setPendingApply] = React.useState<string[]>([]);
-  const needsRestart = React.useCallback((what: string) => setPendingApply((p) => (p.includes(what) ? p : [...p, what])), []);
-  const applyDb = useAction(() => applyDatabaseChanges(service.id), { success: "Restarting the database with the new settings", onSuccess: () => setPendingApply([]) });
+  // Kept outside the page so it survives moving between settings sub-pages.
+  const pendingApply = usePendingApply(service.id);
+  const needsRestart = React.useCallback((what: string) => addPendingApply(service.id, what), [service.id]);
+  const applyDb = useAction(() => applyDatabaseChanges(service.id), { success: "Restarting the database with the new settings", onSuccess: () => clearPendingApply(service.id) });
   const isDb = service.type === "database";
   const running = service.status === "running" || service.status === "deploying" || service.status === "restarting";
   /** Runtime saves on a database also need a restart. */
@@ -167,84 +173,76 @@ export function ServiceSettings(props: Props) {
   });
   const [removeVolumes, setRemoveVolumes] = React.useState(true);
 
-  const nav = [
-    { id: "general", label: "General" },
-    { id: "server", label: "Server" },
-    ...(service.source ? [{ id: "source", label: "Source" }] : []),
-    ...(service.build && service.source?.type === "git" ? [{ id: "build", label: "Build" }] : []),
-    ...(service.compose ? [{ id: "compose", label: "Compose file" }] : []),
-    ...(service.type === "app"
-      ? [
-          { id: "deploy", label: "Deploy" },
-          { id: "health", label: "Health check" },
-          { id: "runtime", label: "Runtime" },
-        ]
-      : []),
-    ...(props.db ? databaseNav(props.db) : []),
-    ...(service.type === "app" ? [{ id: "storage", label: "Persistent storage" }] : []),
-    ...(service.type !== "compose" ? [{ id: "resources", label: "Resources" }] : []),
-    ...(service.type !== "compose" ? [{ id: "advanced", label: "Advanced" }] : []),
-    ...(service.type !== "database" ? [{ id: "webhooks", label: "Webhooks" }] : []),
-    { id: "danger", label: "Danger zone" },
-  ];
+  const { section, nav } = props;
+  const show = (id: string) => section === id;
+  const base = `/projects/${props.projectId}/services/${service.id}/settings`;
 
   return (
-    <div className="flex gap-10">
-      <nav aria-label="Settings sections" className="sticky top-6 hidden w-40 flex-none flex-col gap-0.5 self-start xl:flex">
-        {nav.map((item) => (
-          <a
-            key={item.id}
-            href={`#${item.id}`}
-            className={cn(
-              "rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-fg-2/80 transition-colors hover:bg-fg/[0.04] hover:text-fg",
-              item.id === "danger" && "text-bad/80 hover:text-bad",
-            )}
-          >
-            {item.label}
-          </a>
-        ))}
+    <div className="flex flex-col gap-6 xl:flex-row xl:gap-10">
+      <nav aria-label="Settings sections" className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto px-4 xl:sticky xl:top-6 xl:mx-0 xl:w-44 xl:flex-none xl:flex-col xl:gap-0.5 xl:self-start xl:overflow-visible xl:px-0">
+        {nav.map((item) => {
+          const active = item.id === section;
+          return (
+            <Link
+              key={item.id}
+              href={`${base}/${item.id}`}
+              aria-current={active ? "page" : undefined}
+              ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
+              className={cn(
+                "flex-none rounded-lg px-2.5 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors",
+                active ? "bg-fg/[0.06] text-fg" : "text-fg-2/80 hover:bg-fg/[0.04] hover:text-fg",
+                item.id === "danger" && (active ? "text-bad" : "text-bad/80 hover:text-bad"),
+              )}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
       </nav>
     <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
       {isDb && <ApplyBar pending={pendingApply} running={running} applying={applyDb.pending} onApply={() => applyDb.run()} />}
+      {show("general") && (
       <Section
-        id="general"
-        title="General"
-        initial={{ name: service.name, hostname: service.hostname ?? "" }}
-        onSave={(v) => save.run({ name: v.name, ...(service.type !== "compose" ? { hostname: v.hostname.trim() || null } : {}) })}
-        footerNote={service.type !== "compose" ? "A new hostname applies after redeploying this service and the services that reference it." : undefined}
-      >
-        {(v, set) => (
-          <>
-            <Field label="Service name">
-              <Input value={v.name} onChange={(e) => set({ name: e.target.value })} required />
-            </Field>
-            {service.type === "compose" ? (
-              <Field label="Private hostname" description="Other services in this environment reach this one at this hostname.">
-                <CopyField value={service.slug} />
+          id="general"
+          title="General"
+          initial={{ name: service.name, hostname: service.hostname ?? "" }}
+          onSave={(v) => save.run({ name: v.name, ...(service.type !== "compose" ? { hostname: v.hostname.trim() || null } : {}) })}
+          footerNote={service.type !== "compose" ? "A new hostname applies after redeploying this service and the services that reference it." : undefined}
+        >
+          {(v, set) => (
+            <>
+              <Field label="Service name">
+                <Input value={v.name} onChange={(e) => set({ name: e.target.value })} required />
               </Field>
-            ) : (
-              <Field
-                label="Private hostname"
-                optional
-                description={`Other services in this environment reach this one at this name. ${service.slug} keeps working as well.`}
-              >
-                <Input
-                  value={v.hostname}
-                  onChange={(e) => set({ hostname: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
-                  placeholder={service.slug}
-                  maxLength={63}
-                  className="font-mono text-[13px]"
-                />
-              </Field>
-            )}
-          </>
-        )}
-      </Section>
+              {service.type === "compose" ? (
+                <Field label="Private hostname" description="Other services in this environment reach this one at this hostname.">
+                  <CopyField value={service.slug} />
+                </Field>
+              ) : (
+                <Field
+                  label="Private hostname"
+                  optional
+                  description={`Other services in this environment reach this one at this name. ${service.slug} keeps working as well.`}
+                >
+                  <Input
+                    value={v.hostname}
+                    onChange={(e) => set({ hostname: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
+                    placeholder={service.slug}
+                    maxLength={63}
+                    className="font-mono text-[13px]"
+                  />
+                </Field>
+              )}
+            </>
+          )}
+        </Section>
+      )}
 
-      <ServerCard service={service} server={props.server} servers={props.servers} />
+      {show("server") && <ServerCard service={service} server={props.server} servers={props.servers} />}
 
       {props.db && (
         <DatabaseSections
+          section={section}
           {...props.db}
           serviceId={service.id}
           running={running}
@@ -254,7 +252,7 @@ export function ServiceSettings(props: Props) {
         />
       )}
 
-      {service.source?.type === "git" && (
+      {show("source") && service.source?.type === "git" && (
         <Section
           id="source"
           title="Source"
@@ -299,7 +297,7 @@ export function ServiceSettings(props: Props) {
         </Section>
       )}
 
-      {service.source?.type === "image" && (
+      {show("source") && service.source?.type === "image" && (
         <Section
           id="source"
           title="Image"
@@ -333,9 +331,9 @@ export function ServiceSettings(props: Props) {
         </Section>
       )}
 
-      {service.build && service.source?.type === "git" && <BuildSection serviceId={service.id} build={service.build} nixpacks={props.nixpacks} save={save.run} />}
+      {show("build") && service.build && service.source?.type === "git" && <BuildSection serviceId={service.id} build={service.build} nixpacks={props.nixpacks} save={save.run} />}
 
-      {service.compose && (
+      {show("compose") && service.compose && (
         <Section
           id="compose"
           title="Compose file"
@@ -364,13 +362,13 @@ export function ServiceSettings(props: Props) {
 
       {service.type === "app" && (
         <>
-          <DeploySection runtime={service.runtime} save={save.run} />
-          <HealthSection runtime={service.runtime} save={save.run} />
-          <RuntimeSection runtime={service.runtime} save={save.run} />
+          {show("deploy") && <DeploySection runtime={service.runtime} save={save.run} />}
+          {show("health") && <HealthSection runtime={service.runtime} save={save.run} />}
+          {show("runtime") && <RuntimeSection runtime={service.runtime} save={save.run} />}
         </>
       )}
 
-      {props.db && (
+      {show("storage") && props.db && (
         <StorageSection
           serviceId={service.id}
           volumes={service.runtime.volumes}
@@ -381,15 +379,15 @@ export function ServiceSettings(props: Props) {
         />
       )}
 
-      {service.type !== "compose" && <ResourcesSection runtime={service.runtime} save={(p) => saveRuntime(p, "Resources")} />}
+      {show("resources") && service.type !== "compose" && <ResourcesSection runtime={service.runtime} save={(p) => saveRuntime(p, "Resources")} />}
 
-      {service.type === "app" && (
+      {show("storage") && service.type === "app" && (
         <StorageSection serviceId={service.id} volumes={service.runtime.volumes} running={running} isRootAdmin={props.isRootAdmin} onSave={saveStorage} />
       )}
 
-      {service.type !== "compose" && <AdvancedSection runtime={service.runtime} save={(p) => saveRuntime(p, "Advanced")} isRootAdmin={props.isRootAdmin} />}
+      {show("advanced") && service.type !== "compose" && <AdvancedSection runtime={service.runtime} save={(p) => saveRuntime(p, "Advanced")} isRootAdmin={props.isRootAdmin} />}
 
-      {service.type !== "database" && (
+      {show("webhooks") && service.type !== "database" && (
         <Card id="webhooks" className="scroll-mt-6">
           <CardHeader title="Webhooks" description="Trigger deployments from your Git provider or CI." />
           <CardBody className="flex flex-col gap-4 py-5">
@@ -433,36 +431,38 @@ export function ServiceSettings(props: Props) {
         </Card>
       )}
 
+      {show("danger") && (
       <Card id="danger" className="scroll-mt-6 border-bad/30">
-        <CardHeader title="Delete service" description="Stops and removes all containers, images and domains for this service." />
-        <CardBody className="flex flex-col gap-3">
-          <label className="flex items-center gap-2 text-[13px] text-fg-2">
-            <Checkbox checked={removeVolumes} onCheckedChange={(c) => setRemoveVolumes(!!c)} />
-            Also delete volumes and stored data
-          </label>
-        </CardBody>
-        <CardFooter className="justify-end">
-          <Button
-            variant="danger"
-            size="sm"
-            loading={remove.pending}
-            onClick={async () => {
-              if (
-                await confirm({
-                  title: `Delete ${service.name}?`,
-                  description: removeVolumes ? "All data stored in volumes is permanently deleted. This cannot be undone." : "Volumes are kept and can be reused by a new service with the same name.",
-                  confirmLabel: "Delete service",
-                  danger: true,
-                  typeToConfirm: service.name,
-                })
-              )
-                remove.run(removeVolumes);
-            }}
-          >
-            <Trash2 /> Delete service
-          </Button>
-        </CardFooter>
-      </Card>
+          <CardHeader title="Delete service" description="Stops and removes all containers, images and domains for this service." />
+          <CardBody className="flex flex-col gap-3">
+            <label className="flex items-center gap-2 text-[13px] text-fg-2">
+              <Checkbox checked={removeVolumes} onCheckedChange={(c) => setRemoveVolumes(!!c)} />
+              Also delete volumes and stored data
+            </label>
+          </CardBody>
+          <CardFooter className="justify-end">
+            <Button
+              variant="danger"
+              size="sm"
+              loading={remove.pending}
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: `Delete ${service.name}?`,
+                    description: removeVolumes ? "All data stored in volumes is permanently deleted. This cannot be undone." : "Volumes are kept and can be reused by a new service with the same name.",
+                    confirmLabel: "Delete service",
+                    danger: true,
+                    typeToConfirm: service.name,
+                  })
+                )
+                  remove.run(removeVolumes);
+              }}
+            >
+              <Trash2 /> Delete service
+            </Button>
+          </CardFooter>
+        </Card>
+      )}
     </div>
     </div>
   );

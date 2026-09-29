@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import useSWR from "swr";
 import { RefreshCw } from "lucide-react";
 import { Combobox } from "@/components/ui/combobox";

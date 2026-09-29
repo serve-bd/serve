@@ -122,7 +122,8 @@ const appSchema = z.object({
     .optional(),
   port: z.number().int().min(1).max(65535).nullable().optional(),
   envVars: envVarInput,
-  deploy: z.boolean().default(true),
+  /** Services are never deployed on creation unless the caller asks (e.g. the API). */
+  deploy: z.boolean().default(false),
   /** Server to run on; defaults to the server Serve runs on. */
   serverId: z.string().nullable().optional(),
 });
@@ -171,6 +172,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
 }
 
 const dbSchema = z.object({
+  deploy: z.boolean().default(false),
   projectId: z.string(),
   environmentId: z.string(),
   name: z.string().trim().min(1).max(60),
@@ -214,13 +216,14 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
       },
       webhookSecret: newWebhookSecret(),
     });
-    await queueDeployment(id, "create", { userId: ctx.user.id });
+    if (data.deploy) await queueDeployment(id, "create", { userId: ctx.user.id });
     await logActivity({ userId: ctx.user.id, projectId: data.projectId, action: "service.created", targetType: "service", targetId: id, message: `Created ${engine.label} database ${data.name}` });
     return { id };
   });
 }
 
 const composeSchema = z.object({
+  deploy: z.boolean().default(false),
   projectId: z.string(),
   environmentId: z.string(),
   name: z.string().trim().min(1).max(60),
@@ -314,7 +317,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
       }));
       await writeEnvVars(id, vars);
     }
-    await queueDeployment(id, "create", { userId: ctx.user.id });
+    if (data.deploy) await queueDeployment(id, "create", { userId: ctx.user.id });
     await logActivity({ userId: ctx.user.id, projectId: data.projectId, action: "service.created", targetType: "service", targetId: id, message: `Created ${template ? template.name : "compose stack"} ${data.name}` });
     return { id };
   });

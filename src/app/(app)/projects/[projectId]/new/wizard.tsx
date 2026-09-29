@@ -177,7 +177,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
 
   const { run, pending } = useAction(createAppService, {
     refresh: false,
-    success: "Service created. Deploying…",
+    success: "Service created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
 
@@ -185,7 +185,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
 
   return (
     <FormShell
-      title="Deploy a Git repository"
+      title="Add a Git repository"
       description="Serve clones the repository, builds an image and deploys it with zero downtime."
       onBack={onBack}
       onSubmit={() =>
@@ -198,12 +198,11 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
           build: { builder: builder as "auto", rootDir, buildCommand: buildCommand || null, startCommand: startCommand || null },
           port: port ? Number(port) : null,
           envVars: parseEnv(env),
-          deploy: true,
         })
       }
       footer={
         <Button type="submit" variant="primary" size="sm" loading={pending} disabled={!repository.trim()}>
-          Deploy
+          Create service
         </Button>
       }
     >
@@ -352,13 +351,13 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const [pass, setPass] = React.useState("");
   const { run, pending } = useAction(createAppService, {
     refresh: false,
-    success: "Service created. Deploying…",
+    success: "Service created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
   const guessName = image.split("/").pop()?.split(":")[0] ?? "";
   return (
     <FormShell
-      title="Deploy a Docker image"
+      title="Add a Docker image"
       description="Serve pulls the image and runs it. Redeploy to pull the newest version of a tag."
       onBack={onBack}
       onSubmit={() =>
@@ -374,7 +373,7 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
       }
       footer={
         <Button type="submit" variant="primary" size="sm" loading={pending} disabled={!image.trim()}>
-          Deploy
+          Create service
         </Button>
       }
     >
@@ -422,7 +421,7 @@ function DatabaseForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const [database, setDatabase] = React.useState("");
   const { run, pending } = useAction(createDatabaseService, {
     refresh: false,
-    success: "Database created. Starting…",
+    success: "Database created. Start it when you are ready.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
   return (
@@ -506,12 +505,12 @@ function ComposeForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const [credentialId, setCredentialId] = React.useState("public");
   const { run, pending } = useAction(createComposeService, {
     refresh: false,
-    success: "Stack created. Deploying…",
+    success: "Stack created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
   return (
     <FormShell
-      title="Deploy a Compose stack"
+      title="Add a Compose stack"
       description="Every compose service joins the private network. Add domains after the first deploy."
       onBack={onBack}
       onSubmit={() =>
@@ -528,7 +527,7 @@ function ComposeForm({ props, onBack }: { props: Props; onBack: () => void }) {
       }
       footer={
         <Button type="submit" variant="primary" size="sm" loading={pending}>
-          Deploy stack
+          Create stack
         </Button>
       }
     >
@@ -588,7 +587,7 @@ function TemplatePicker({ props, onBack }: { props: Props; onBack: () => void })
   );
   const { run } = useAction(createComposeService, {
     refresh: false,
-    success: "Service created. Deploying…",
+    success: "Service created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
 

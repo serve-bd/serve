@@ -15,7 +15,10 @@ await page.getByRole("link", { name: "New service" }).first().click();
 await page.getByRole("button", { name: /Docker image/ }).click();
 await page.getByPlaceholder("traefik/whoami:latest").fill(image);
 await page.screenshot({ path: "/tmp/claude-1000/new-image.png" });
-await page.getByRole("button", { name: "Deploy" }).click();
+await page.getByRole("button", { name: "Create service" }).click();
+// Creating never deploys; start the first deployment from the service page.
+await page.waitForURL(/\/services\/[^/]+$/, { timeout: 30000 });
+await page.getByRole("button", { name: "Deploy", exact: true }).first().click();
 await page.waitForURL(/\/services\/[a-z0-9]+$/, { timeout: 30000 });
 const started = Date.now();
 while (Date.now() - started < 180000) {

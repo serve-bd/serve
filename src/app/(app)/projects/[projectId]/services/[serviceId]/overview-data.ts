@@ -5,6 +5,7 @@ import { getServerRow } from "@/server/servers/context";
 import { publishedPorts } from "@/server/services/ports";
 import { composeServiceNames } from "@/server/deploy/compose";
 import { getTemplate } from "@/server/services/templates";
+import { pickPrimaryDomain } from "@/lib/domains";
 
 type Service = typeof schema.service.$inferSelect;
 
@@ -54,6 +55,7 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
       .groupBy(schema.deployment.status),
   ]);
 
+  const primaryDomain = pickPrimaryDomain(domains);
   const current = deployments.find((d) => d.id === service.currentDeploymentId) ?? null;
   const latest = deployments[0] ?? null;
   const repository = service.source?.type === "git" ? service.source.repository : null;
@@ -109,7 +111,8 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
     deploymentCount: stats.reduce((a, s) => a + s.n, 0),
     domains: domains
       .filter((d) => !d.redirectTo)
-      .map((d) => ({ id: d.id, hostname: d.hostname, secure: d.https || !!d.tunnelId, tunnel: !!d.tunnelId, generated: d.generated, port: d.port, composeService: d.composeService })),
+      .map((d) => ({ id: d.id, hostname: d.hostname, secure: d.https || !!d.tunnelId, tunnel: !!d.tunnelId, generated: d.generated, primary: d === primaryDomain, port: d.port, composeService: d.composeService }))
+      .sort((a, b) => Number(b.primary) - Number(a.primary)),
     redirects: domains.filter((d) => d.redirectTo).length,
     published,
     counts: { variables: counts[0][0].n, tasks: counts[1][0].n, shared: counts[2][0].n },

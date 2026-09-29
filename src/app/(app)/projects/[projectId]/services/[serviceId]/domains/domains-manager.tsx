@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUpRight, Cloud, Globe, Lock, LockOpen, MoreHorizontal, Plus, RefreshCw, Sparkles, Trash2, CornerDownRight, Waypoints } from "lucide-react";
+import { ArrowUpRight, Cloud, Globe, Lock, LockOpen, MoreHorizontal, Plus, RefreshCw, Sparkles, Star, Trash2, CornerDownRight, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -15,7 +15,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
-import { addDomain, checkDomainDns, generateDomain, removeDomain, retryCertificate, updateDomain } from "@/server/actions/services";
+import { addDomain, checkDomainDns, generateDomain, removeDomain, retryCertificate, setPrimaryDomain, updateDomain } from "@/server/actions/services";
 import { findCloudflareZone } from "@/server/actions/integrations";
 import useSWR from "swr";
 import { useDebounced } from "@/hooks/use-client";
@@ -29,6 +29,8 @@ type DomainRow = {
   forceHttps: boolean;
   redirectTo: string | null;
   generated: boolean;
+  /** The service's main domain: SERVE_PUBLIC_URL and links use it. */
+  primary: boolean;
   cloudflare: boolean;
   managedRecord: boolean;
   /** Routed through a Cloudflare Tunnel; HTTPS is handled by Cloudflare. */
@@ -312,6 +314,7 @@ export function DomainsManager(props: Props) {
   const remove = useAction((id: string, dns: boolean) => removeDomain(id, dns), { success: "Domain removed" });
   const toggleHttps = useAction((id: string, https: boolean) => updateDomain(id, { https, forceHttps: https }), { success: "Domain updated" });
   const retry = useAction(retryCertificate, { success: "Requesting a new certificate" });
+  const makePrimary = useAction(setPrimaryDomain, { success: "Primary domain set. Redeploy so SERVE_PUBLIC_URL uses it." });
 
   return (
     <Card className="overflow-hidden">
@@ -343,6 +346,7 @@ export function DomainsManager(props: Props) {
                     <span className="truncate">{d.hostname}</span>
                     <ArrowUpRight className="size-3.5 shrink-0 text-faint" />
                   </a>
+                  {d.primary && <Badge tone="info"><Star /> Primary</Badge>}
                   {d.generated && <Badge>Generated</Badge>}
                   {d.tunnel ? <Badge tone="warn"><Waypoints /> Tunnel</Badge> : d.cloudflare && <Badge tone="warn"><Cloud /> Cloudflare</Badge>}
                 </div>
@@ -364,6 +368,14 @@ export function DomainsManager(props: Props) {
                   <MoreHorizontal className="size-4" />
                 </MenuTrigger>
                 <MenuContent>
+                  {!d.primary && !d.redirectTo && (
+                    <>
+                      <MenuItem onClick={() => makePrimary.run(d.id)}>
+                        <Star /> Make primary
+                      </MenuItem>
+                      <MenuSeparator />
+                    </>
+                  )}
                   {/* Tunnel domains get HTTPS from Cloudflare; there is nothing to toggle. */}
                   {!d.tunnel && (
                     <>

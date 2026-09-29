@@ -505,6 +505,8 @@ export const domain = pgTable(
     tunnelId: text("tunnel_id").references((): AnyPgColumn => cloudflareTunnel.id, { onDelete: "set null" }),
     /** Auto-generated domain (sslip.io or wildcard). */
     generated: boolean("generated").notNull().default(false),
+    /** Chosen as the service's main domain (SERVE_PUBLIC_URL). At most one per service. */
+    primary: boolean("is_primary").notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

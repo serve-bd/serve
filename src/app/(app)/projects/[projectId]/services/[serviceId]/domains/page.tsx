@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import { pickPrimaryDomain } from "@/lib/domains";
 import { redirect } from "next/navigation";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -58,6 +59,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
   const serverCtx = await getServer(service.serverId).catch(() => null);
   const generated = ctx.isInstanceAdmin && kind !== "none" && domains.length > 0 && serverCtx ? await generatedSite(kind, service.id, serverCtx).catch(() => null) : null;
   const appPort = service.type === "app" ? service.runtime.port : null;
+  const primaryDomain = pickPrimaryDomain(domains);
   return (
     <PageBody className="flex flex-col gap-6">
       <DomainsManager
@@ -75,7 +77,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
         tunnels={tunnels}
         canGenerate={!!addressing.wildcardDomain || (addressing.sslipFallback && !!addressing.publicIp)}
         certificates={certs.map((c) => ({ id: c.id, name: c.name, domains: c.domains, status: c.status, provider: c.provider }))}
-        domains={domains.map((d) => {
+        domains={[...domains].sort((a, b) => Number(b === primaryDomain) - Number(a === primaryDomain)).map((d) => {
           const cert = d.https
             ? certs.find((c) => c.id === d.certificateId) ?? certs.find((c) => certificateCovers(c.domains, d.hostname))
             : undefined;
@@ -88,6 +90,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
             forceHttps: d.forceHttps,
             redirectTo: d.redirectTo,
             generated: d.generated,
+            primary: d === primaryDomain,
             cloudflare: !!d.cloudflareZoneId,
             managedRecord: !!d.cloudflareRecordId,
             tunnel: !!d.tunnelId,

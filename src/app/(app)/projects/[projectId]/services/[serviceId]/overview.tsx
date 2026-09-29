@@ -98,7 +98,7 @@ export function ServiceOverview(data: OverviewData) {
   const expected = service.type === "compose" ? Math.max(1, service.source?.kind === "compose" ? service.source.services.length : 1) : service.replicas;
   const memLimit = service.memoryLimit ? service.memoryLimit * 1024 * 1024 : last?.memoryLimit || null;
   const rx = series.map((p) => ({ t: p.t, v: p.netRx ?? 0 }));
-  const primary = data.domains.find((d) => !d.generated) ?? data.domains[0];
+  const primary = data.domains.find((d) => d.primary) ?? data.domains[0];
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">

@@ -7,6 +7,7 @@ import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
 import { ArrowUpRight, ChevronDown, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
+import { pickPrimaryDomain } from "@/lib/domains";
 import { Button } from "@/components/ui/button";
 import { StatusLabel } from "@/components/ui/status";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
@@ -75,7 +76,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     { href: `${base}/settings`, label: "Settings" },
   ];
 
-  const primary = live.domains.find((d) => !d.redirectTo && !d.generated) ?? live.domains.find((d) => !d.redirectTo);
+  const primary = pickPrimaryDomain(live.domains);
   const stopped = live.status === "stopped";
   const busy = ["building", "deploying", "restarting"].includes(live.status);
 

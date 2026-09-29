@@ -904,6 +904,22 @@ const domainUpdateSchema = z.object({
   certificateId: z.string().nullable().optional(),
 });
 
+/** Makes a domain the service's main one (SERVE_PUBLIC_URL). Applies on the next deploy. */
+export async function setPrimaryDomain(domainId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
+    if (!domain) throw new UserError("Domain not found.");
+    await serviceInOrg(domain.serviceId, ctx.org.id);
+    if (domain.redirectTo) throw new UserError("A redirect domain cannot be the primary domain.");
+    await db.transaction(async (tx) => {
+      await tx.update(schema.domain).set({ primary: false }).where(eq(schema.domain.serviceId, domain.serviceId));
+      await tx.update(schema.domain).set({ primary: true }).where(eq(schema.domain.id, domainId));
+    });
+    return null;
+  });
+}
+
 export async function updateDomain(domainId: string, input: z.input<typeof domainUpdateSchema>) {
   return act(async () => {
     const ctx = await requireOrg();

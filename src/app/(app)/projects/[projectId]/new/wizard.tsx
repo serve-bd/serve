@@ -222,6 +222,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
   });
 
   const filtered = (repos ?? []).filter((r) => r.fullName.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
+  const selectedRepo = repos?.find((r) => r.cloneUrl === repository) ?? null;
 
   return (
     <FormShell
@@ -287,42 +288,72 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
 
       {canList && (
         <Field label="Repository">
-          <div className="overflow-hidden rounded-xl border border-line">
-            <div className="flex items-center gap-2 border-b border-line bg-surface-2 px-3">
-              <Search className="size-3.5 text-faint" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search repositories"
-                className="h-9 flex-1 bg-transparent text-sm outline-none placeholder:text-faint"
-              />
+          {selectedRepo ? (
+            <div className="flex items-center gap-3 rounded-xl border border-accent/40 bg-accent-soft/30 px-3.5 py-3">
+              <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-surface ring-1 ring-line">
+                <GitBranch className="size-4 text-muted" />
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="flex items-center gap-1.5 text-[14px] font-medium text-fg">
+                  <span className="truncate">{selectedRepo.fullName}</span>
+                  {selectedRepo.private && <Lock className="size-3 flex-none text-faint" />}
+                </span>
+                <span className="text-xs text-muted">Default branch {selectedRepo.defaultBranch}</span>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  // Forget the choice, and the fields filled from it.
+                  setName((n) => (n === repoName(selectedRepo.fullName) ? "" : n));
+                  setRepository("");
+                  setBranch("main");
+                  setBranches([]);
+                  setQuery("");
+                }}
+              >
+                Change
+              </Button>
             </div>
-            <div className="max-h-64 divide-y divide-line overflow-y-auto scrollbar-thin">
-              {repos === null && <div className="px-3 py-3 text-[13px] text-muted">Loading repositories…</div>}
-              {repos?.length === 0 && <div className="px-3 py-3 text-[13px] text-muted">No repositories found.</div>}
-              {filtered.map((r) => (
-                <button
-                  key={r.fullName}
-                  type="button"
-                  onClick={() => {
-                    setRepository(r.cloneUrl);
-                    setBranch(r.defaultBranch);
-                    setName((n) => n || repoName(r.fullName));
-                    void loadBranches(r.cloneUrl);
-                  }}
-                  className={cn(
-                    "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-hover",
-                    repository === r.cloneUrl && "bg-accent-soft",
-                  )}
-                >
-                  <GitBranch className="size-3.5 text-faint" />
-                  <span className="flex-1 truncate text-fg-2">{r.fullName}</span>
-                  {r.private && <Lock className="size-3 text-faint" />}
-                  {repository === r.cloneUrl && <Badge tone="info">Selected</Badge>}
-                </button>
-              ))}
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-line">
+              <div className="flex items-center gap-2 border-b border-line bg-surface-2 px-3">
+                <Search className="size-3.5 text-faint" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search repositories"
+                  className="h-9 flex-1 bg-transparent text-sm outline-none placeholder:text-faint"
+                />
+              </div>
+              <div className="max-h-64 divide-y divide-line overflow-y-auto scrollbar-thin">
+                {repos === null && <div className="px-3 py-3 text-[13px] text-muted">Loading repositories…</div>}
+                {repos?.length === 0 && <div className="px-3 py-3 text-[13px] text-muted">No repositories found.</div>}
+                {filtered.map((r) => (
+                  <button
+                    key={r.fullName}
+                    type="button"
+                    onClick={() => {
+                      setRepository(r.cloneUrl);
+                      setBranch(r.defaultBranch);
+                      setName((n) => n || repoName(r.fullName));
+                      void loadBranches(r.cloneUrl);
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-hover",
+                      repository === r.cloneUrl && "bg-accent-soft",
+                    )}
+                  >
+                    <GitBranch className="size-3.5 text-faint" />
+                    <span className="flex-1 truncate text-fg-2">{r.fullName}</span>
+                    {r.private && <Lock className="size-3 text-faint" />}
+                    {repository === r.cloneUrl && <Badge tone="info">Selected</Badge>}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </Field>
       )}
 

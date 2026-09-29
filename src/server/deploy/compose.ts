@@ -186,6 +186,7 @@ export async function composeUp(opts: ComposeRun) {
     return;
   }
   await run("docker", [...composeArgs(opts), ...UP_ARGS], {
+    isolatedEnv: true,
     cwd: opts.dir,
     onLine: opts.log,
     signal: opts.signal,
@@ -219,7 +220,7 @@ async function remoteCompose(
 
 export async function composeCommand(opts: Pick<ComposeRun, "projectName" | "dir" | "file" | "server">, args: string[], log?: (line: string) => void) {
   if (opts.server && !opts.server.local) return remoteCompose(opts.server, opts, args, log);
-  return run("docker", [...composeArgs(opts), ...args], { cwd: opts.dir, onLine: log });
+  return run("docker", [...composeArgs(opts), ...args], { isolatedEnv: true, cwd: opts.dir, onLine: log });
 }
 
 /** Label on an isolated stack's own network; the proxy joins every network carrying it. */
@@ -237,5 +238,5 @@ export async function composeDownByProject(projectName: string, removeVolumes: b
   // The proxy joins isolated stacks' networks; a network with a member cannot be removed.
   const { disconnectProxy } = await import("@/server/docker/networks");
   await disconnectProxy(stackNetworkName(projectName), server).catch(() => {});
-  await run("docker", args, { env }).catch(() => {});
+  await run("docker", args, { env, isolatedEnv: true }).catch(() => {});
 }

@@ -8,7 +8,21 @@ export type RunOptions = {
   input?: string;
   /** Values that must never be printed in logs. */
   redact?: string[];
+  /**
+   * Start from a minimal environment instead of Serve's own. Needed for tools that read
+   * variables from their environment (docker compose interpolates ${VAR} from it), so
+   * user files can never pull in Serve's secrets.
+   */
+  isolatedEnv?: boolean;
 };
+
+/** Variables tools need to run and reach Docker; nothing of Serve's configuration. */
+const SAFE_ENV = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "XDG_RUNTIME_DIR", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", "DOCKER_CONTEXT", "SSH_AUTH_SOCK"];
+
+function baseEnv(isolated?: boolean): Record<string, string | undefined> {
+  if (!isolated) return process.env;
+  return Object.fromEntries(SAFE_ENV.filter((k) => process.env[k] !== undefined).map((k) => [k, process.env[k]]));
+}
 
 export class CommandError extends Error {
   constructor(
@@ -31,7 +45,7 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
-      env: { ...process.env, ...opts.env } as NodeJS.ProcessEnv,
+      env: { ...baseEnv(opts.isolatedEnv), ...opts.env } as NodeJS.ProcessEnv,
       stdio: ["pipe", "pipe", "pipe"],
       signal: opts.signal,
     });

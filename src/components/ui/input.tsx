@@ -7,11 +7,52 @@ import { cn } from "@/lib/utils";
 export const inputClass =
   "h-9 w-full min-w-0 rounded-lg border border-line-strong bg-surface px-3 text-sm text-fg shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-faint focus:border-accent focus:ring-3 focus:ring-[var(--ring)]/40 disabled:cursor-not-allowed disabled:opacity-60 aria-invalid:border-bad data-[invalid]:border-bad";
 
+const noop = () => () => {};
+/** Whether the browser can mask a text field (-webkit-text-security). Assumed on the server. */
+function useTextSecurity() {
+  return React.useSyncExternalStore(
+    noop,
+    () => typeof CSS !== "undefined" && CSS.supports("-webkit-text-security", "disc"),
+    () => true,
+  );
+}
+
+/** Values that mark a real sign-in field, where the browser's password manager should help. */
+const ACCOUNT_AUTOCOMPLETE = new Set(["username", "email", "current-password", "new-password", "one-time-code", "name"]);
+
+/**
+ * Text input. Browsers and password managers stay out of it unless it is a
+ * real account field (autoComplete="email", "current-password"…): otherwise
+ * Chrome treats any text + password pair as a login form and fills in saved
+ * credentials. Secret fields (type="password") are masked with CSS instead,
+ * so they are not detected as passwords at all.
+ */
 export const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<typeof BaseInput>>(function Input(
-  { className, ...props },
+  { className, type, autoComplete, ...props },
   ref,
 ) {
-  return <BaseInput ref={ref} className={cn(inputClass, className as string)} {...props} />;
+  const masking = useTextSecurity();
+  const account = typeof autoComplete === "string" && ACCOUNT_AUTOCOMPLETE.has(autoComplete);
+  if (account) return <BaseInput ref={ref} type={type} autoComplete={autoComplete} className={cn(inputClass, className as string)} {...props} />;
+  const secret = type === "password";
+  // Without CSS masking support, fall back to a password field that managers never fill.
+  const masked = secret && masking;
+  return (
+    <BaseInput
+      ref={ref}
+      type={masked ? "text" : type}
+      autoComplete={autoComplete ?? (secret && !masked ? "new-password" : "off")}
+      autoCorrect="off"
+      autoCapitalize="off"
+      spellCheck={secret ? false : props.spellCheck}
+      data-1p-ignore=""
+      data-lpignore="true"
+      data-bwignore=""
+      data-form-type="other"
+      className={cn(inputClass, masked && "[-webkit-text-security:disc]", className as string)}
+      {...props}
+    />
+  );
 });
 
 export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(

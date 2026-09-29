@@ -16,6 +16,8 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/deployme
       error: schema.deployment.error,
       startedAt: schema.deployment.startedAt,
       finishedAt: schema.deployment.finishedAt,
+      targets: schema.deployment.targets,
+      registryImage: schema.deployment.registryImage,
       length: sql<number>`length(${schema.deployment.logs})`,
       chunk: sql<string>`substring(${schema.deployment.logs} from ${offset + 1}::int)`,
     })
@@ -34,6 +36,8 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/deployme
     error: row.error,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
+    targets: row.targets,
+    registryImage: row.registryImage,
     chunk: reset ? "" : row.chunk,
     offset: reset ? 0 : row.length,
     reset,

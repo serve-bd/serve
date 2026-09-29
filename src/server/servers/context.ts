@@ -9,6 +9,8 @@ import { docker as localDocker } from "@/server/docker/client";
 import { env } from "@/server/env";
 import { pathsFor, type ServerPaths } from "@/server/paths";
 import { dockerCliEnv } from "./cli";
+import { runServerIds } from "@/server/deploy/distribution";
+import type { DistributionConfig } from "@/server/services/types";
 import { localFs, remoteFs, type ServerFs } from "./fs";
 import { closeConnection, dockerStream, sshExec, type SshExecResult, type SshTarget } from "./ssh";
 
@@ -178,6 +180,20 @@ export async function getServer(id: string | null | undefined = LOCAL_SERVER_ID)
 /** Context for the server a service runs on. */
 export function serverOf(service: { serverId: string }) {
   return getServer(service.serverId);
+}
+
+/**
+ * Every server a service runs on: its own server first, then extra servers
+ * (build once, run on many). Extra servers that were deleted are skipped.
+ */
+export async function serversOfService(service: { serverId: string; distribution?: DistributionConfig | null }): Promise<ServerCtx[]> {
+  const ids = runServerIds(service.serverId, service.distribution);
+  const out: ServerCtx[] = [await getServer(service.serverId)];
+  for (const id of ids.slice(1)) {
+    const ctx = await getServer(id).catch(() => null);
+    if (ctx) out.push(ctx);
+  }
+  return out;
 }
 
 export async function listServers() {

@@ -1,6 +1,16 @@
 import { type AnyPgColumn, bigint, boolean, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
-import type { BuildConfig, ComposeConfig, DatabaseConfig, MaintenanceConfig, PreviewDatabaseConfig, RuntimeConfig, SourceConfig } from "@/server/services/types";
+import type {
+  BuildConfig,
+  ComposeConfig,
+  DatabaseConfig,
+  DeploymentTarget,
+  DistributionConfig,
+  MaintenanceConfig,
+  PreviewDatabaseConfig,
+  RuntimeConfig,
+  SourceConfig,
+} from "@/server/services/types";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import type { ProxyKind, RunningKind, ProxySwitchState, ServerProxyConfig } from "@/server/proxy/config";
 import type { ChannelScope, MessageTemplate, NotificationKind, QuietHours, Severity } from "@/lib/notifications";
@@ -300,6 +310,8 @@ export const service = pgTable(
     runtime: jsonb("runtime").$type<RuntimeConfig>().notNull(),
     database: jsonb("database").$type<DatabaseConfig>(),
     compose: jsonb("compose").$type<ComposeConfig>(),
+    /** Build server, registry and extra servers of an app (build once, run on many servers). */
+    distribution: jsonb("distribution").$type<DistributionConfig>(),
     /** Per-service HTTP options for the nginx site (limits, auth, headers…). */
     proxy: jsonb("proxy").$type<ServiceProxyConfig>(),
     /** Full site configuration written instead of the generated one, per proxy kind. Root admins only. */
@@ -415,6 +427,10 @@ export const deployment = pgTable(
     branch: text("branch"),
     /** When rolling back, deploy the image of this deployment without building. */
     rollbackOf: text("rollback_of"),
+    /** Registry reference (pinned by digest when known) of the pushed image; other servers pull this. */
+    registryImage: text("registry_image"),
+    /** Per-server status when the service runs on more than one server. */
+    targets: jsonb("targets").$type<DeploymentTarget[]>(),
     logs: text("logs").notNull().default(""),
     error: text("error"),
     createdBy: text("created_by").references(() => user.id, {
@@ -712,6 +728,25 @@ export const s3Destination = pgTable("s3_destination", {
   secretAccessKey: text("secret_access_key").notNull(),
   pathPrefix: text("path_prefix").notNull().default(""),
   createdAt: createdAt(),
+});
+
+export type RegistryKind = "dockerhub" | "ghcr" | "gitlab" | "generic";
+
+/** Container registry an organization pushes built images to (and servers pull from). */
+export const containerRegistry = pgTable("container_registry", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  kind: text("kind").$type<RegistryKind>().notNull(),
+  /** Registry host, e.g. docker.io, ghcr.io or registry.example.com:5000. */
+  host: text("host").notNull(),
+  username: text("username").notNull(),
+  /** Encrypted password or access token. */
+  password: text("password").notNull(),
+  /** Default namespace for new repositories (user or organization). */
+  namespace: text("namespace"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
 });
 
 /* -------------------------------------------------------------------------- */

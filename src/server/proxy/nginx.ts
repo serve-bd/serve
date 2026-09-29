@@ -1,6 +1,6 @@
 import path from "node:path";
 import { maintenanceHtml, maintenanceOf, maintenancePageName } from "@/server/services/maintenance";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { decrypt } from "@/server/crypto";
@@ -30,7 +30,9 @@ import { composeAlias } from "./names";
 import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker/networks";
 import crypto from "node:crypto";
 import { customFilePattern, defaultsOf, proxyImages, type ProxyFile, type ProxyKind, type RunningKind, type ServerProxyConfig } from "./config";
-import { dashboardModel, serviceModel, trustedSubnets, type SiteModel } from "./model";
+import { appTargets, dashboardModel, serviceModel, trustedSubnets, type SiteModel } from "./model";
+import { runServerIds } from "@/server/deploy/distribution";
+import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { caddyMainConfig, renderCaddySite } from "./caddy";
 import { renderTraefikSite, TRAEFIK_API, traefikBaseDynamic, traefikRouters, traefikStaticArgs, type ExpectedRouter } from "./traefik";
 
@@ -686,18 +688,6 @@ function tlsFor(hostname: string, explicitId: string | null, certs: CertRow[]): 
 
 const upstreamName = (slug: string, suffix: string) => `svc_${slug}_${suffix}`.replace(/[^a-zA-Z0-9_]/g, "_");
 
-/** Container names currently serving traffic for an app service. */
-async function appTargets(ctx: ServerCtx, service: typeof schema.service.$inferSelect): Promise<string[]> {
-  if (!service.currentDeploymentId) return [];
-  const containers = await ctx.docker.listContainers({
-    all: false,
-    filters: {
-      label: [`${LABEL.service}=${service.id}`, `${LABEL.deployment}=${service.currentDeploymentId}`],
-    },
-  });
-  return containers.map((c) => c.Names[0].replace(/^\//, "")).sort();
-}
-
 /** Certificates a site on a server may use: same organization, stored on that server. */
 function usableCertificates(organizationId: string, serverId: string) {
   return db
@@ -715,13 +705,14 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
   if (!service || service.type === "database" || service.domains.length === 0) return null;
   const server = ctx ?? (await getServer(service.serverId));
 
-  const certs = await usableCertificates(service.project.organizationId, service.serverId);
+  // Certificates stored on the server this site is written to (extra servers have their own).
+  const certs = await usableCertificates(service.project.organizationId, server.id);
   const upstreams = new Map<string, SiteUpstream>();
   const servers: SiteServer[] = [];
   const stopped = service.status === "stopped";
 
   const containers = service.type === "app" && !stopped ? await appTargets(server, service) : [];
-  const errorPages = defaultsOf((await proxyStateOf(service.serverId)).config.nginx?.defaults).unavailablePage;
+  const errorPages = defaultsOf((await proxyStateOf(server.id)).config.nginx?.defaults).unavailablePage;
   const maintenance = maintenanceOf(service.id, service.maintenance);
   const cfg = service.proxy;
   const options: SiteOptions | null = cfg ? ({ ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null } as SiteOptions) : null;
@@ -859,10 +850,29 @@ async function maintenancePageContent(serviceId: string) {
   return row?.maintenance?.enabled ? maintenanceHtml(row.maintenance) : null;
 }
 
-/** Render the site of one service on the server it runs on. */
-export async function syncServiceProxy(serviceId: string) {
-  const [svc] = await db.select({ environmentId: schema.service.environmentId, serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, serviceId));
-  const ctx = await getServer(svc?.serverId ?? LOCAL_SERVER_ID);
+/**
+ * Render the site of one service on the servers it runs on: its own server and
+ * any extra servers. Pass `serverId` to update only that one.
+ */
+export async function syncServiceProxy(serviceId: string, serverId?: string) {
+  const [svc] = await db
+    .select({ environmentId: schema.service.environmentId, serverId: schema.service.serverId, distribution: schema.service.distribution })
+    .from(schema.service)
+    .where(eq(schema.service.id, serviceId));
+  const ids = serverId ? [serverId] : svc ? runServerIds(svc.serverId, svc.distribution) : [LOCAL_SERVER_ID];
+  let firstError: unknown = null;
+  for (const [i, id] of ids.entries()) {
+    try {
+      await syncServiceProxyOn(serviceId, svc, await getServer(id));
+    } catch (error) {
+      // The service's own server decides; an extra server that fails is reported by its deploys.
+      if (i === 0) firstError = error;
+    }
+  }
+  if (firstError) throw firstError;
+}
+
+function syncServiceProxyOn(serviceId: string, svc: { environmentId: string } | undefined, ctx: ServerCtx) {
   return serialized(ctx.id, async () => {
     const { kind } = await proxyStateOf(ctx.id);
     if (kind === "none") return;
@@ -892,8 +902,8 @@ export async function removeServiceProxy(serviceId: string, serverId?: string) {
   let targets: ServerCtx[];
   if (serverId) targets = [await getServer(serverId)];
   else {
-    const [svc] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, serviceId));
-    targets = svc ? [await getServer(svc.serverId)] : await activeServers();
+    const [svc] = await db.select({ serverId: schema.service.serverId, distribution: schema.service.distribution }).from(schema.service).where(eq(schema.service.id, serviceId));
+    targets = svc ? await Promise.all(runServerIds(svc.serverId, svc.distribution).map((id) => getServer(id))) : await activeServers();
   }
   for (const ctx of targets) {
     await serialized(ctx.id, () =>
@@ -924,7 +934,7 @@ async function siteChanges(ctx: ServerCtx, kind: RunningKind) {
   const services = await db
     .select({ id: schema.service.id })
     .from(schema.service)
-    .where(and(inArray(schema.service.type, ["app", "compose"]), eq(schema.service.serverId, ctx.id)));
+    .where(and(inArray(schema.service.type, ["app", "compose"]), or(eq(schema.service.serverId, ctx.id), runsAsExtraOn(ctx.id))));
   for (const s of services) {
     changes.set(siteFile(ctx, `svc-${s.id}`, kind), await renderSite(kind, s.id, ctx));
     const page = await maintenancePageContent(s.id);

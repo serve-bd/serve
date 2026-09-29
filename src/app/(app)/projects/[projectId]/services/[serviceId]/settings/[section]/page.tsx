@@ -14,6 +14,7 @@ import { ServiceSettings } from "../service-settings";
 import { settingsNav } from "../settings-nav";
 import { monitorSummary } from "@/server/monitoring/queries";
 import { monitorUrl } from "@/server/monitoring/checks";
+import { normalizeDistribution } from "@/server/deploy/distribution";
 
 export async function generateMetadata(props: PageProps<"/projects/[projectId]/services/[serviceId]/settings/[section]">) {
   const { section } = await props.params;
@@ -65,6 +66,35 @@ function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean) 
     internalUrl: databaseUrl(cfg, creds, privateHost(service), engine.port),
     dataPath: cfg.dataMountPath || engine.dataPath,
     defaultDataPath: engine.dataPath,
+  };
+}
+
+async function distributionProps(service: typeof schema.service.$inferSelect, servers: Awaited<ReturnType<typeof serversForOrg>>, orgId: string, isAdmin: boolean) {
+  const [registries, [last]] = await Promise.all([
+    db
+      .select({
+        id: schema.containerRegistry.id,
+        name: schema.containerRegistry.name,
+        host: schema.containerRegistry.host,
+        namespace: schema.containerRegistry.namespace,
+        username: schema.containerRegistry.username,
+      })
+      .from(schema.containerRegistry)
+      .where(eq(schema.containerRegistry.organizationId, orgId)),
+    service.currentDeploymentId
+      ? db
+          .select({ deploymentId: schema.deployment.id, targets: schema.deployment.targets, registryImage: schema.deployment.registryImage })
+          .from(schema.deployment)
+          .where(eq(schema.deployment.id, service.currentDeploymentId))
+      : Promise.resolve([]),
+  ]);
+  return {
+    gitSource: service.source?.type === "git",
+    servers: servers.map((s) => ({ id: s.id, name: s.name, status: s.status, isLocal: s.isLocal })),
+    registries,
+    initial: normalizeDistribution(service.serverId, service.distribution),
+    last: last ?? null,
+    canEdit: isAdmin && !service.parentServiceId,
   };
 }
 
@@ -162,6 +192,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
         monitoring={
           section === "monitoring" ? { monitor: (await monitorSummary(service.id)).monitor, defaultUrl: await monitorUrl({ url: null, path: "/" }, service.id) } : undefined
         }
+        distribution={section === "servers" ? await distributionProps(service, servers, ctx.org.id, ctx.isAdmin) : undefined}
       />
     </PageBody>
   );

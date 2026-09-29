@@ -148,6 +148,13 @@
       "when": 1790701519943,
       "tag": "0020_service_maintenance_preview_db",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790701560832,
+      "tag": "0021_registries_distribution",
+      "breakpoints": true
     }
   ]
 }

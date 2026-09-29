@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema, sql } from "@/server/db";
 import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
+import { runServerIds } from "@/server/deploy/distribution";
 
 /** Cancel work, delete rows and queue container cleanup for services, their previews and preview databases. */
 export async function teardownServices(services: (typeof schema.service.$inferSelect)[], removeVolumes: boolean) {
@@ -40,5 +41,13 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
       { serviceId: s.id, slug: s.slug, type: s.type, removeVolumes, environmentId: s.environmentId, serverId: s.serverId },
       { concurrencyKey: `service:${s.id}` },
     );
+    // Extra servers (build once, run on many) have their own containers, sites and volumes.
+    for (const serverId of runServerIds(s.serverId, s.distribution).slice(1)) {
+      await enqueue(
+        "service.delete",
+        { serviceId: s.id, slug: s.slug, type: s.type, removeVolumes, environmentId: s.environmentId, serverId, keepFiles: true },
+        { concurrencyKey: `service:${s.id}` },
+      );
+    }
   }
 }

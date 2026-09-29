@@ -29,6 +29,7 @@ import { MonitoringSection } from "./monitoring-section";
 import { MaintenanceSection } from "./maintenance-section";
 import { PreviewDatabaseSection } from "./preview-database-section";
 import type { MaintenanceConfig, PreviewDatabaseConfig } from "@/server/services/types";
+import { DistributionSection } from "./distribution-section";
 import type { MonitorSummary } from "@/server/monitoring/queries";
 import { updateDatabaseSettings } from "@/server/actions/databases";
 
@@ -79,6 +80,8 @@ type Props = {
   maintenance?: { config: MaintenanceConfig | null; domains: string[] };
   /** Database copies for previews (only loaded for the Source page of Git apps). */
   previewDatabase?: { config: PreviewDatabaseConfig | null; databases: { id: string; name: string; engine: string; label: string }[] };
+  /** Build server, registry and extra servers (only loaded for the Servers & registry page). */
+  distribution?: Omit<React.ComponentProps<typeof DistributionSection>, "serviceId" | "projectId" | "slug" | "primary">;
 };
 
 function ServerCard({ service, server, servers }: { service: Props["service"]; server: Props["server"]; servers: Props["servers"] }) {
@@ -508,6 +511,16 @@ export function ServiceSettings(props: Props) {
         )}
 
         {show("maintenance") && props.maintenance && <MaintenanceSection serviceId={service.id} config={props.maintenance.config} domains={props.maintenance.domains} />}
+        {show("servers") && props.distribution && (
+          <DistributionSection
+            serviceId={service.id}
+            projectId={props.projectId}
+            slug={service.slug}
+            primary={{ id: props.server.id, name: props.server.name }}
+            {...props.distribution}
+          />
+        )}
+
         {show("monitoring") && props.monitoring && (
           <MonitoringSection serviceId={service.id} type={service.type} monitor={props.monitoring.monitor} defaultUrl={props.monitoring.defaultUrl} />
         )}

@@ -6,7 +6,7 @@ import { decryptOrNull } from "@/server/crypto";
 import type Docker from "dockerode";
 import type { BuildConfig, PortMapping } from "@/server/services/types";
 import { ensureNetwork, imageExists, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
-import { serverOf, type ServerCtx } from "@/server/servers/context";
+import { getServer, serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
 import { syncServiceProxy } from "@/server/proxy/nginx";
 import { getSettings } from "@/server/settings";
@@ -19,7 +19,11 @@ import { logActivity } from "@/server/activity";
 import { notify, orgOfService } from "@/server/notify";
 import { buildImage } from "./builders";
 import { cloneRepository } from "./git";
-import { DeployLogger } from "./logger";
+import { DeployLogger, type StepLog } from "./logger";
+import { distributionProblem, normalizeDistribution, type Distribution } from "./distribution";
+import { getRegistry, pushImage, registryAuth, type RegistryRow } from "@/server/registries";
+import { defaultRepository, imageRef, normalizeRepository, renderTag } from "@/server/registries/refs";
+import type { DeploymentTarget } from "@/server/services/types";
 import { createSpec, startContainer, volumeName, waitHealthy } from "./containers";
 import { prepareMounts } from "@/server/services/mounts";
 import { databasePlan } from "@/server/databases/options";
@@ -67,28 +71,36 @@ async function imagePort(image: string, d: Docker): Promise<number | null> {
 /*                                    Apps                                    */
 /* -------------------------------------------------------------------------- */
 
-async function prepareAppImage(service: Service, dep: Deployment, log: DeployLogger, server: ServerCtx, signal?: AbortSignal) {
+type PreparedImage = {
+  /** Local tag (serve/<slug>:<deployment>) every server runs. */
+  image: string;
+  detectedPort: number | null;
+  /** Pushed reference other servers pull; null when the image never left its server. */
+  registryImage: string | null;
+  rollback: boolean;
+};
+
+/**
+ * Produce the image of a deployment: build it (on the build server), pull it
+ * (image sources), or reuse an earlier one (rollbacks). Servers other than
+ * `server` get it later through `ensureImageOn`.
+ */
+async function prepareAppImage(service: Service, dep: Deployment, log: DeployLogger, server: ServerCtx, signal?: AbortSignal): Promise<PreparedImage> {
   const target = `${imageRepo(service.slug)}:${dep.id}`;
   const d = server.docker;
 
   if (dep.rollbackOf) {
     const [original] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, dep.rollbackOf));
     if (!original?.image) throw new Error("The image for that deployment was cleaned up and can no longer be restored.");
-    if (!(await imageExists(original.image, d))) {
-      throw new Error(
-        server.local
-          ? "The image for that deployment was cleaned up and can no longer be restored."
-          : `The image for that deployment is not on ${server.name}. It was built on another server or cleaned up. Redeploy instead.`,
-      );
-    }
-    log.step(`Rolling back to deployment ${original.id.slice(0, 8)}`);
+    log.step(`Rolling back to deployment ${original.id.slice(0, 8)}${original.registryImage ? ` (${original.registryImage})` : ""}`);
     await setDeployment(dep.id, {
       commitSha: original.commitSha,
       commitMessage: original.commitMessage,
       commitAuthor: original.commitAuthor,
       branch: original.branch,
+      registryImage: original.registryImage,
     });
-    return { image: original.image, detectedPort: null as number | null };
+    return { image: original.image, detectedPort: null, registryImage: original.registryImage, rollback: true };
   }
 
   const source = service.source;
@@ -102,7 +114,7 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
     checkCancelled(signal);
     const ref = source.image.includes(":") || source.image.includes("@") ? source.image : `${source.image}:latest`;
     await d.getImage(ref).tag({ repo: imageRepo(service.slug), tag: dep.id });
-    return { image: target, detectedPort: await imagePort(target, d) };
+    return { image: target, detectedPort: await imagePort(target, d), registryImage: null, rollback: false };
   }
 
   // Git source: clone and build.
@@ -156,7 +168,7 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
       dockerEnv: await server.cliEnv(),
     });
     log.line(`Build finished in ${((Date.now() - started) / 1000).toFixed(1)}s`);
-    return { image: target, detectedPort: result.detectedPort ?? (await imagePort(target, d)) };
+    return { image: target, detectedPort: result.detectedPort ?? (await imagePort(target, d)), registryImage: null, rollback: false };
   } catch (error) {
     if (buildSignal.aborted && !signal?.aborted && buildSignal.reason instanceof Error) throw buildSignal.reason;
     throw error;
@@ -177,12 +189,125 @@ function registryOf(image: string) {
   return first.includes(".") || first.includes(":") ? first : "https://index.docker.io/v1/";
 }
 
+/** A server a deployment runs on, checked for reachability first. */
+async function connectTo(serverId: string, log: StepLog, role: string) {
+  const server = await getServer(serverId).catch(() => null);
+  if (!server) throw new Error(`The ${role} server no longer exists. Choose another one in Settings → Servers & registry.`);
+  if (!server.local) {
+    const status = server.row.status;
+    if (status === "pending" || status === "validating") throw new Error(`${server.name} is not set up yet. Validate it in Servers first.`);
+    try {
+      await server.docker.ping();
+    } catch (error) {
+      throw new Error(`Could not reach ${server.name}: ${(error as Error).message}`);
+    }
+  }
+  await ensureNetwork(server.docker, server.network);
+  log.line(`Connected to ${server.name}${server.local ? "" : ` (${server.row.host})`}`);
+  return server;
+}
+
+/** Make the deployment's image available on a server: already there, pulled from the registry, or pulled from its source. */
+async function ensureImageOn(target: ServerCtx, service: Service, prepared: PreparedImage, registry: RegistryRow | null, log: StepLog) {
+  const d = target.docker;
+  if (await imageExists(prepared.image, d)) return;
+  const [repo, tag] = [prepared.image.slice(0, prepared.image.lastIndexOf(":")), prepared.image.slice(prepared.image.lastIndexOf(":") + 1)];
+  if (prepared.registryImage) {
+    log.line(`Pulling ${prepared.registryImage}`);
+    await pullImage(prepared.registryImage, log.line, registry ? registryAuth(registry) : null, d);
+    await d.getImage(prepared.registryImage).tag({ repo, tag });
+    // Keep only Serve's own tag, so image retention can clean this image up later.
+    await d
+      .getImage(prepared.registryImage)
+      .remove({ noprune: true })
+      .catch(() => {});
+    return;
+  }
+  const source = service.source;
+  if (!prepared.rollback && source?.type === "image") {
+    log.line(`Pulling ${source.image}`);
+    const password = decryptOrNull(source.registryPassword);
+    const auth = source.registryUsername && password ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) } : null;
+    await pullImage(source.image, log.line, auth, d);
+    const ref = source.image.includes(":") || source.image.includes("@") ? source.image : `${source.image}:latest`;
+    await d.getImage(ref).tag({ repo, tag });
+    return;
+  }
+  throw new Error(
+    prepared.rollback
+      ? `The image for that deployment is not on ${target.name}. It was built on another server without a registry, or cleaned up. Redeploy instead.`
+      : `The image is not on ${target.name}. Choose a registry in Settings → Servers & registry so other servers can pull it.`,
+  );
+}
+
+/** Push a freshly built image to the service's registry. Returns the reference other servers pull. */
+async function pushToRegistry(
+  service: Service,
+  dep: Deployment,
+  dist: Distribution,
+  registry: RegistryRow,
+  image: string,
+  buildServer: ServerCtx,
+  log: StepLog,
+  signal?: AbortSignal,
+) {
+  const [row] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, dep.id));
+  const repository = normalizeRepository(dist.repository ?? defaultRepository(registry, service.slug));
+  const tag = renderTag(dist.tag, { commit: row?.commitSha, deployment: dep.id, branch: row?.branch, service: service.slug });
+  const repo = `${registry.host}/${repository}`;
+  log.step(`Pushing ${repo}:${tag} to ${registry.name}`);
+  const digest = await pushImage({
+    d: buildServer.docker,
+    localRef: image,
+    repo,
+    tags: dist.tagLatest && tag !== "latest" ? [tag, "latest"] : [tag],
+    auth: registryAuth(registry),
+    log: log.line,
+    signal,
+  });
+  const ref = digest ? imageRef(registry.host, repository, digest) : imageRef(registry.host, repository, tag);
+  log.line(digest ? `Pushed ${repo}:${tag} (${digest})` : `Pushed ${repo}:${tag}`);
+  return ref;
+}
+
 async function deployApp(service: Service, dep: Deployment, log: DeployLogger, server: ServerCtx, signal?: AbortSignal) {
-  const d = server.docker;
-  const { image, detectedPort } = await prepareAppImage(service, dep, log, server, signal);
+  const dist = normalizeDistribution(service.serverId, service.distribution);
+  const sourceType = service.source?.type;
+  const problem = distributionProblem(dist, sourceType);
+  if (problem) throw new Error(problem);
+  const registry = dist.registryId ? await getRegistry(dist.registryId) : null;
+  if (dist.registryId && !registry) throw new Error("The registry of this service was removed. Choose another one in Settings → Servers & registry.");
+
+  // Extra servers are best effort: one that is offline is skipped, not fatal.
+  const targets: DeploymentTarget[] = [{ serverId: server.id, name: server.name, primary: true, status: "pending" }];
+  const extras: ServerCtx[] = [];
+  for (const id of dist.extraServerIds) {
+    try {
+      const extra = await connectTo(id, log, "extra");
+      extras.push(extra);
+      targets.push({ serverId: extra.id, name: extra.name, primary: false, status: "pending" });
+    } catch (error) {
+      log.line(`Warning: skipping an extra server: ${(error as Error).message}`);
+      const [row] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, id));
+      if (row) targets.push({ serverId: id, name: row.name, primary: false, status: "skipped", error: (error as Error).message });
+    }
+  }
+  const multi = targets.length > 1;
+  const saveTargets = () => (multi ? setDeployment(dep.id, { targets: targets.map((t) => ({ ...t })) }) : Promise.resolve());
+  await saveTargets();
+
+  // Git builds may happen on a dedicated build server; image sources are pulled where they run.
+  const buildServer = sourceType === "git" && dist.buildServerId && !dep.rollbackOf ? await connectTo(dist.buildServerId, log, "build") : server;
+  const prepared = await prepareAppImage(service, dep, log, buildServer, signal);
+  checkCancelled(signal);
+  const { image, detectedPort } = prepared;
+  if (registry && sourceType === "git" && !prepared.rollback) {
+    prepared.registryImage = await pushToRegistry(service, dep, dist, registry, image, buildServer, log, signal);
+    await setDeployment(dep.id, { registryImage: prepared.registryImage });
+    checkCancelled(signal);
+  }
   await setDeployment(dep.id, { image, status: "deploying" });
   await setServiceStatus(service.id, "deploying");
-  checkCancelled(signal);
 
   // Fill in the port if it was never configured.
   let runtime = service.runtime;
@@ -196,6 +321,68 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   log.redact(env.secrets);
   if (env.missing.length) log.line(`Warning: unresolved variable references: ${env.missing.join(", ")}`);
 
+  // The service's own server first: its failure fails the deployment and keeps the old version everywhere.
+  const primaryTarget = targets[0];
+  primaryTarget.status = "deploying";
+  await saveTargets();
+  try {
+    if (multi) log.step(`Deploying to ${server.name}`);
+    await ensureImageOn(server, service, prepared, registry, log);
+    await runOnServer({ service, dep, log, server, image, runtime, env, signal, primary: true });
+    primaryTarget.status = "success";
+  } catch (error) {
+    primaryTarget.status = "failed";
+    primaryTarget.error = (error as Error).message.slice(0, 500);
+    await saveTargets();
+    throw error;
+  }
+  await saveTargets();
+
+  // Then every extra server in parallel, each rolling back on its own if it fails.
+  const results = await Promise.all(
+    extras.map(async (extra) => {
+      const t = targets.find((x) => x.serverId === extra.id)!;
+      const slog = log.scoped(extra.name);
+      t.status = "deploying";
+      await saveTargets();
+      try {
+        slog.step(`Deploying to ${extra.name}`);
+        await ensureImageOn(extra, service, prepared, registry, slog);
+        await runOnServer({ service, dep, log: slog, server: extra, image, runtime, env, signal, primary: false });
+        t.status = "success";
+      } catch (error) {
+        t.status = "failed";
+        t.error = (error as Error).message.slice(0, 500);
+        slog.line(`Failed: ${t.error}`);
+      }
+      await saveTargets();
+      return t;
+    }),
+  );
+  const failed = [...results, ...targets.filter((t) => t.status === "skipped")].filter((t) => t.status !== "success");
+  if (failed.length) {
+    log.line(`Warning: not running the new version on ${failed.map((t) => t.name).join(", ")}. Those servers keep the previous version.`);
+    await setDeployment(dep.id, { error: `Not deployed to ${failed.map((t) => `${t.name}: ${t.error ?? t.status}`).join("; ")}`.slice(0, 4000) });
+  }
+  // The build server keeps a copy for fast rebuilds; trim it like the others.
+  if (buildServer.id !== server.id && !extras.some((e) => e.id === buildServer.id)) await pruneImages(service, buildServer.docker).catch(() => {});
+}
+
+/** Start a deployment's containers on one server, wait for health, switch traffic and retire the old version there. */
+async function runOnServer(opts: {
+  service: Service;
+  dep: Deployment;
+  log: StepLog & Partial<Pick<DeployLogger, "redact">>;
+  server: ServerCtx;
+  image: string;
+  runtime: Service["runtime"];
+  env: Awaited<ReturnType<typeof resolveEnv>>;
+  signal?: AbortSignal;
+  /** The service's own server: runs the pre-deploy command and marks the deployment current. */
+  primary: boolean;
+}) {
+  const { service, dep, log, server, image, runtime, env, signal, primary } = opts;
+  const d = server.docker;
   const old = (await listServiceContainers(service.id, true, d)).filter((c) => c.Labels[LABEL.deployment] !== dep.id);
   const replicas = Math.max(1, Math.min(runtime.replicas || 1, 20));
   const recreate = runtime.deployStrategy === "recreate";
@@ -210,8 +397,9 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   const network = await ensureEnvNetwork(service.environmentId, server);
   if (runtime.volumes.some((v) => v.kind !== "volume")) await prepareMounts(server, service.id, runtime.volumes, log.line);
 
-  if (runtime.preDeployCommand && dep.rollbackOf) log.line("Skipping the pre-deploy command for a rollback");
-  if (runtime.preDeployCommand && !dep.rollbackOf) {
+  if (runtime.preDeployCommand && dep.rollbackOf && primary) log.line("Skipping the pre-deploy command for a rollback");
+  // Migrations and similar run once, on the service's own server.
+  if (runtime.preDeployCommand && !dep.rollbackOf && primary) {
     // Runs before the old version stops, so a failing migration never takes the app down.
     log.step("Running the pre-deploy command");
     await runPreDeploy({ service, dep, image, env: env.runtime, runtime, network, d, log, signal, serviceDir: server.paths.service(service.id) });
@@ -271,10 +459,10 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   }
 
   // Switch traffic.
-  await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
+  if (primary) await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
   log.step("Routing traffic");
   try {
-    await syncServiceProxy(service.id);
+    await syncServiceProxy(service.id, server.id);
     log.line("Proxy updated");
   } catch (error) {
     log.line(`Warning: proxy update failed: ${(error as Error).message}`);
@@ -303,7 +491,7 @@ async function runPreDeploy(opts: {
   runtime: Service["runtime"];
   network: string;
   d: Docker;
-  log: DeployLogger;
+  log: StepLog;
   signal?: AbortSignal;
   serviceDir: string;
 }) {
@@ -627,6 +815,8 @@ function failureHint(message: string) {
   if (/address pools/i.test(message)) return "Docker has no free network ranges. Remove unused networks with `docker network prune`.";
   if (/no space left on device/i.test(message)) return "The disk is full. Run Clean up in Server settings or free some space.";
   if (/port is already allocated|address already in use/i.test(message)) return "A published host port is already used by another container.";
+  if (/denied: requested access|unauthorized: authentication required|insufficient_scope/i.test(message))
+    return "The registry refused access. Check that the token can push and pull, and that the repository name is right.";
   if (/pull access denied|manifest unknown|not found: manifest/i.test(message)) return "The image does not exist or needs registry credentials.";
   if (/Authentication failed|could not read Username|Repository not found/i.test(message)) return "The repository is private or the URL is wrong. Add a git provider token.";
   return null;

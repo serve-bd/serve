@@ -8,6 +8,7 @@ import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import {
   Blocks,
   Cloud,
+  Container,
   FolderGit2,
   Globe,
   LayoutGrid,
@@ -68,6 +69,7 @@ const integrationNav: NavItem[] = [
   { href: "/integrations/cloudflare", label: "Cloudflare", icon: Cloud },
   { href: "/integrations/git", label: "Git providers", icon: FolderGit2 },
   { href: "/integrations/storage", label: "S3 storage", icon: HardDriveUpload },
+  { href: "/integrations/registries", label: "Registries", icon: Container },
   { href: "/integrations/notifications", label: "Notifications", icon: Bell },
 ];
 

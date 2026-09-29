@@ -59,13 +59,15 @@ export function orgCertificates(organizationId: string, serverId: string) {
     .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, serverId)));
 }
 
-async function appTargets(ctx: ServerCtx, service: typeof schema.service.$inferSelect) {
+/** Container names currently serving traffic for an app service on one server. */
+export async function appTargets(ctx: ServerCtx, service: typeof schema.service.$inferSelect) {
   if (!service.currentDeploymentId) return [];
-  const containers = await ctx.docker.listContainers({
-    all: false,
-    filters: { label: [`${LABEL.service}=${service.id}`, `${LABEL.deployment}=${service.currentDeploymentId}`] },
-  });
-  return containers.map((c) => c.Names[0].replace(/^\//, "")).sort();
+  const running = await ctx.docker.listContainers({ all: false, filters: { label: [`${LABEL.service}=${service.id}`] } });
+  const apps = running.filter((c) => c.Labels[LABEL.kind] !== "predeploy");
+  let serving = apps.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId);
+  // An extra server whose last deploy failed keeps its previous version; keep routing to it.
+  if (!serving.length && ctx.id !== service.serverId) serving = apps;
+  return serving.map((c) => c.Names[0].replace(/^\//, "")).sort();
 }
 
 export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<SiteModel | null> {
@@ -74,7 +76,8 @@ export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<S
     with: { domains: true, project: { columns: { organizationId: true } } },
   });
   if (!service || service.type === "database" || service.domains.length === 0) return null;
-  const certs = await orgCertificates(service.project.organizationId, service.serverId);
+  // Certificates live on the server that serves them; extra servers use their own (or plain HTTP / the proxy's ACME).
+  const certs = await orgCertificates(service.project.organizationId, ctx.id);
   const stopped = service.status === "stopped";
   const containers = service.type === "app" && !stopped ? await appTargets(ctx, service) : [];
   const cfg = service.proxy ?? null;

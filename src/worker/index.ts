@@ -140,7 +140,18 @@ async function monitorServices() {
     const containers = await listServiceContainers(s.id);
     const relevant =
       s.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === s.currentDeploymentId) : containers;
-    if (!relevant.length) continue;
+    // Every container is gone (removed by hand or by a Docker reset).
+    if (!relevant.length) {
+      if (s.status === "crashed") continue;
+      await setServiceStatus(s.id, "crashed");
+      void notify(await orgOfService(s.id), "service.crashed", {
+        ok: false,
+        title: `${s.name} has no containers`,
+        body: "Its containers were removed outside Serve. Deploy or restart it to recreate them.",
+        url: `/projects/${s.projectId}/services/${s.id}`,
+      });
+      continue;
+    }
     const up = relevant.filter((c) => c.State === "running");
     const restarting = relevant.some((c) => c.State === "restarting");
     const next = up.length === relevant.length ? "running" : restarting ? "restarting" : up.length ? "running" : "crashed";

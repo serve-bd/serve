@@ -10,18 +10,19 @@ export default async function ConsolePage(props: PageProps<"/projects/[projectId
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   const hints: Record<string, string[]> = {
-    postgres: ["psql -U $POSTGRES_USER -d $POSTGRES_DB -c '\\dt'", "pg_isready"],
-    mysql: ["mysql -uroot -p$MYSQL_ROOT_PASSWORD -e 'show databases'"],
-    mariadb: ["mariadb -uroot -p$MARIADB_ROOT_PASSWORD -e 'show databases'"],
-    redis: ["redis-cli --version", "du -sh /data"],
-    valkey: ["valkey-cli --version", "du -sh /data"],
-    mongodb: ["mongosh --quiet -u $MONGO_INITDB_ROOT_USERNAME -p $MONGO_INITDB_ROOT_PASSWORD --eval 'db.adminCommand({listDatabases:1})'"],
+    postgres: ["psql", "psql -c '\\dt'", "pg_isready"],
+    mysql: ["mysql -uroot", "mysql -uroot -e 'show databases'"],
+    mariadb: ["mariadb -uroot", "mariadb -uroot -e 'show databases'"],
+    redis: ["redis-cli", "redis-cli info memory"],
+    valkey: ["valkey-cli", "valkey-cli info memory"],
+    mongodb: ["mongosh -u $MONGO_INITDB_ROOT_USERNAME -p $MONGO_INITDB_ROOT_PASSWORD"],
+    clickhouse: ["clickhouse-client"],
   };
   return (
     <PageBody>
       <Console
         serviceId={service.id}
-        suggestions={service.database ? (hints[service.database.engine] ?? []) : ["ls -la", "env | sort", "df -h", "cat /etc/os-release"]}
+        suggestions={service.database ? (hints[service.database.engine] ?? []) : ["ls -la", "env | sort", "df -h", "top"]}
       />
     </PageBody>
   );

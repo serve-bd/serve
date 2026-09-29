@@ -45,10 +45,23 @@ export async function startService(serviceId: string): Promise<"started" | "need
 
 export async function restartService(serviceId: string) {
   const service = await getService(serviceId);
-  await setServiceStatus(service.id, "restarting");
   const containers = await listServiceContainers(service.id);
-  await Promise.all(containers.map((c) => docker.getContainer(c.Id).restart({ t: 10 }).catch(() => {})));
-  await setServiceStatus(service.id, containers.length ? "running" : service.status);
+  const relevant =
+    service.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : containers;
+  // Containers removed outside Serve: recreate what can be recreated.
+  if (!relevant.length) {
+    if (service.type === "database") {
+      await setServiceStatus(service.id, "deploying");
+      await deployDatabase(service, null);
+      return;
+    }
+    await setServiceStatus(service.id, "crashed");
+    throw new Error("No containers exist for this service. Deploy it again.");
+  }
+  await setServiceStatus(service.id, "restarting");
+  await Promise.all(relevant.map((c) => docker.getContainer(c.Id).restart({ t: 10 }).catch(() => {})));
+  await setServiceStatus(service.id, "running");
+  await syncServiceProxy(service.id).catch(() => {});
 }
 
 export async function destroyService(opts: { serviceId: string; slug: string; type: string; removeVolumes: boolean; environmentId?: string }) {

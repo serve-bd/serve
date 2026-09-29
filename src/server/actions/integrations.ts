@@ -570,8 +570,15 @@ export async function startGithubApp(input: { organization?: string }) {
     const { buildManifest, signState } = await import("@/server/git/github-app");
     const owner = input.organization?.trim();
     if (owner && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(owner)) throw new UserError("Enter a valid GitHub organization name.");
+    if (owner) {
+      const res = await fetch(`https://api.github.com/orgs/${owner}`, {
+        headers: { accept: "application/vnd.github+json", "user-agent": "serve" },
+        signal: AbortSignal.timeout(8000),
+      }).catch(() => null);
+      if (res?.status === 404) throw new UserError(`GitHub has no organization named ${owner}. Check the name, or pick Personal account.`);
+    }
     const credentialId = newId();
-    const state = signState({ credentialId, organizationId: ctx.org.id, userId: ctx.user.id });
+    const state = signState({ credentialId, organizationId: ctx.org.id, userId: ctx.user.id, ...(owner ? { owner } : {}) });
     const base = owner ? `https://github.com/organizations/${owner}/settings/apps/new` : "https://github.com/settings/apps/new";
     return { action: `${base}?state=${encodeURIComponent(state)}`, manifest: JSON.stringify(await buildManifest(credentialId)) };
   });

@@ -20,6 +20,13 @@ export async function GET(request: NextRequest) {
   } catch (e) {
     return redirectToGitPage(base, { error: (e as Error).message });
   }
+  // GitHub creates the app on the personal account when the user is not an owner of the organization.
+  const createdOn = app.owner?.login ?? null;
+  if (state.owner && createdOn && createdOn.toLowerCase() !== state.owner.toLowerCase()) {
+    return redirectToGitPage(base, {
+      error: `GitHub created the app on ${createdOn}, not ${state.owner}, because only owners of ${state.owner} can create apps for it. Delete it in GitHub (Settings → Developer settings → GitHub Apps → ${app.slug} → Advanced), then ask an owner of ${state.owner} to connect it, or ask to be made an owner.`,
+    });
+  }
   const secret: GithubAppSecret = {
     appId: app.id,
     slug: app.slug,

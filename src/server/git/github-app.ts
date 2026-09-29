@@ -46,7 +46,14 @@ export async function publicBaseUrl() {
 /*                                Signed state                                */
 /* -------------------------------------------------------------------------- */
 
-export type AppState = { credentialId: string; organizationId: string; userId: string; exp: number };
+export type AppState = {
+  credentialId: string;
+  organizationId: string;
+  userId: string;
+  /** GitHub organization the app should belong to; unset for a personal account. */
+  owner?: string;
+  exp: number;
+};
 
 function stateKey() {
   return crypto.createHash("sha256").update(`github-app:${env.authSecret}`).digest();

@@ -15,7 +15,16 @@ export async function generateMetadata(): Promise<Metadata> {
     title: { default: brand.name, template: `%s · ${brand.name}` },
     description: "Deploy apps, databases and services on your own servers.",
     // The URL carries the image hash, so a new icon shows without a hard reload.
-    icons: { icon: brand.faviconUrl ?? "/favicon.ico" },
+    // Without an uploaded favicon: the default mark (SVG follows the tab's light or dark look, ICO for older browsers).
+    icons: brand.faviconUrl
+      ? { icon: brand.faviconUrl, apple: brand.faviconUrl }
+      : {
+          icon: [
+            { url: "/icon.svg", type: "image/svg+xml" },
+            { url: "/favicon.ico", sizes: "16x16 32x32 48x48" },
+          ],
+          apple: "/apple-touch-icon.png",
+        },
   };
 }
 

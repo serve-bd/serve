@@ -1,21 +1,60 @@
 import Link from "next/link";
-import { Blocks, Plus, Rocket } from "lucide-react";
+import { asc, sql } from "drizzle-orm";
+import { ArrowRight, Blocks, Plus, Rocket } from "lucide-react";
 import { requireOrg } from "@/server/auth";
-import { projectSummaries, recentActivity, recentDeployments } from "@/server/queries";
+import { db, schema } from "@/server/db";
+import { metricSeries, serverScope } from "@/server/metrics";
+import { projectSummaries, recentDeployments } from "@/server/queries";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Card, EmptyState } from "@/components/ui/misc";
 import { ProjectCard } from "./_components/project-card";
-import { DeploymentRow } from "./_components/deployment-row";
+import { DeploymentsTable } from "./_components/deployments-table";
+import { ServerCards } from "./_components/server-cards";
+
+async function serverCards() {
+  const rows = await db
+    .select({
+      id: schema.server.id,
+      name: schema.server.name,
+      host: schema.server.host,
+      isLocal: schema.server.isLocal,
+      status: schema.server.status,
+      services: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id")`,
+      running: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id" and s.status = 'running')`,
+    })
+    .from(schema.server)
+    .orderBy(sql`${schema.server.isLocal} desc`, asc(schema.server.createdAt));
+  return Promise.all(rows.map(async (r) => ({ ...r, series: await metricSeries(serverScope(r.id), 6, 48).catch(() => []) })));
+}
+
+function Section({ title, description, href, children }: { title: string; description: string; href?: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-[15px] font-semibold text-fg">{title}</h2>
+          <p className="text-[13px] text-muted">{description}</p>
+        </div>
+        {href && (
+          <Link href={href} className={buttonVariants({ size: "sm" })}>
+            View all <ArrowRight />
+          </Link>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
 
 export const metadata = { title: "Overview" };
 
 export default async function OverviewPage() {
   const ctx = await requireOrg();
-  const [projects, deployments, activity] = await Promise.all([
+  const [projects, deployments, servers] = await Promise.all([
     projectSummaries(ctx.org.id),
     recentDeployments(ctx.org.id, 8),
-    recentActivity(ctx.org.id, 10),
+    ctx.isInstanceAdmin ? serverCards() : Promise.resolve(null),
   ]);
   const services = projects.flatMap((p) => p.services);
   const running = services.filter((s) => s.status === "running").length;
@@ -31,17 +70,18 @@ export default async function OverviewPage() {
           </Link>
         }
       />
-      <PageBody className="flex flex-col gap-8">
-
-        <section className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[13px] font-medium text-muted">Recent projects</h2>
-            {projects.length > 0 && (
-              <Link href="/projects" className="text-[13px] text-muted hover:text-fg">
-                View all
-              </Link>
+      <PageBody className="flex flex-col gap-10">
+        <Section title="Deployments" description="Latest deployments across your projects.">
+          <Card>
+            {deployments.length ? (
+              <DeploymentsTable rows={deployments} />
+            ) : (
+              <EmptyState icon={<Rocket />} title="No deployments yet" description="Deployments show up here as soon as you ship something." />
             )}
-          </div>
+          </Card>
+        </Section>
+
+        <Section title="Projects" description="Apps, databases and services grouped by project." href={projects.length ? "/projects" : undefined}>
           {projects.length ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {projects.slice(0, 6).map((p) => (
@@ -62,43 +102,13 @@ export default async function OverviewPage() {
               />
             </Card>
           )}
-        </section>
+        </Section>
 
-        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.6fr_1fr]">
-          <Card>
-            <CardHeader title="Recent deployments" />
-            {deployments.length ? (
-              <div className="divide-y divide-line">
-                {deployments.map((d) => (
-                  <DeploymentRow key={d.id} d={d} />
-                ))}
-              </div>
-            ) : (
-              <EmptyState icon={<Rocket />} title="No deployments yet" description="Deployments show up here as soon as you ship something." />
-            )}
-          </Card>
-          <Card>
-            <CardHeader title="Activity" />
-            {activity.length ? (
-              <ol className="relative flex flex-col px-5 py-3">
-                <span aria-hidden className="absolute top-5 bottom-5 left-[23px] w-px bg-line" />
-                {activity.map((a) => (
-                  <li key={a.id} className="relative flex gap-3 py-2">
-                    <span className="relative z-10 mt-1.5 size-[7px] shrink-0 rounded-full border border-line-strong bg-surface" />
-                    <div className="flex min-w-0 flex-col">
-                      <span className="text-[13px] text-fg-2">{a.message}</span>
-                      <span className="text-xs text-faint">
-                        {a.userName ?? "System"} · <TimeAgo date={a.createdAt} />
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <EmptyState title="Nothing yet" description="Changes made by your team appear here." />
-            )}
-          </Card>
-        </div>
+        {servers && (
+          <Section title="Servers" description="Machines Serve deploys to, with usage over the last 6 hours." href="/servers">
+            <ServerCards servers={servers} />
+          </Section>
+        )}
       </PageBody>
     </>
   );

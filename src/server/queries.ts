@@ -43,10 +43,15 @@ export async function recentDeployments(orgId: string, limit = 8, projectId?: st
       serviceName: schema.service.name,
       projectId: schema.project.id,
       projectName: schema.project.name,
+      environmentName: schema.environment.name,
+      serverId: schema.server.id,
+      serverName: schema.server.name,
     })
     .from(schema.deployment)
     .innerJoin(schema.service, eq(schema.deployment.serviceId, schema.service.id))
     .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .leftJoin(schema.environment, eq(schema.service.environmentId, schema.environment.id))
+    .leftJoin(schema.server, eq(schema.service.serverId, schema.server.id))
     .where(and(eq(schema.project.organizationId, orgId), projectId ? eq(schema.project.id, projectId) : undefined))
     .orderBy(desc(schema.deployment.createdAt))
     .limit(limit);

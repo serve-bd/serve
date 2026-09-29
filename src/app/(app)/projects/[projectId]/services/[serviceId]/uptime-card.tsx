@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useCan } from "@/components/permissions";
+import { duration } from "@/lib/duration";
 import { Activity, ChevronRight, CircleAlert, CircleCheck } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardHeader, TimeAgo } from "@/components/ui/misc";
@@ -12,6 +16,8 @@ const statusText = { up: "Up", down: "Down", pending: "Checking…", paused: "Pa
 /** Uptime of a service on its Overview: status, 90-day bars, response time and incidents. */
 export function UptimeCard({ summary, settingsHref }: { summary: MonitorSummary; settingsHref: string }) {
   const m = summary.monitor;
+  // Monitoring settings need "manage services"; others only see the numbers.
+  const canManage = useCan()("services.manage");
   if (!m) {
     // Small card for the side column: an invitation, not a big empty panel.
     return (
@@ -26,10 +32,14 @@ export function UptimeCard({ summary, settingsHref }: { summary: MonitorSummary;
               <p className="text-xs text-muted">Not monitored</p>
             </div>
           </div>
-          <p className="text-[13px] leading-5 text-fg-2">Get an alert when this service goes down, and when it comes back.</p>
-          <Link href={settingsHref} className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "w-full")}>
-            Set up monitoring
-          </Link>
+          <p className="text-[13px] leading-5 text-fg-2">
+            {canManage ? "Get an alert when this service goes down, and when it comes back." : "No uptime check is set up for this service."}
+          </p>
+          {canManage && (
+            <Link href={settingsHref} className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "w-full")}>
+              Set up monitoring
+            </Link>
+          )}
         </div>
       </Card>
     );
@@ -45,9 +55,11 @@ export function UptimeCard({ summary, settingsHref }: { summary: MonitorSummary;
             : `Container check every ${m.intervalSeconds < 60 ? `${m.intervalSeconds} s` : `${m.intervalSeconds / 60} min`}`
         }
         actions={
-          <Link href={settingsHref} className={buttonVariants({ size: "sm", variant: "ghost" })}>
-            Monitoring <ChevronRight />
-          </Link>
+          canManage && (
+            <Link href={settingsHref} className={buttonVariants({ size: "sm", variant: "ghost" })}>
+              Monitoring <ChevronRight />
+            </Link>
+          )
         }
       />
       <div className="flex flex-col gap-4 px-5 py-4">
@@ -108,11 +120,4 @@ function Figure({ label, value }: { label: string; value: string }) {
       <span className="text-[14px] font-medium text-fg tabular-nums">{value}</span>
     </span>
   );
-}
-
-export function duration(from: string, to: string) {
-  const minutes = Math.max(1, Math.round((new Date(to).getTime() - new Date(from).getTime()) / 60_000));
-  if (minutes < 60) return `${minutes} min`;
-  const hours = minutes / 60;
-  return hours < 48 ? `${hours.toFixed(1)} h` : `${Math.round(hours / 24)} days`;
 }

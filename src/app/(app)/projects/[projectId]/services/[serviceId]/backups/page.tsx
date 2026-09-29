@@ -5,6 +5,7 @@ import { db, schema } from "@/server/db";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
 import { BackupsManager } from "./backups-manager";
+import { NoAccess } from "@/components/no-access";
 import { getSettings } from "@/server/settings";
 import { engines } from "@/server/databases/engines";
 import { IMPORT_EXTENSIONS } from "@/server/backups";
@@ -16,6 +17,8 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   if (!service.database) redirect(`/projects/${projectId}/services/${serviceId}`);
+  // Backups hold the database's data: only roles that may manage them see the page.
+  if (!ctx.can("databases.backups")) return <NoAccess permission="databases.backups" />;
   const destinations = await db
     .select({ id: schema.s3Destination.id, name: schema.s3Destination.name, bucket: schema.s3Destination.bucket })
     .from(schema.s3Destination)

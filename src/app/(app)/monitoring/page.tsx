@@ -7,7 +7,7 @@ import { Badge, Card, CardHeader, EmptyState, TimeAgo } from "@/components/ui/mi
 import { formatUptime, UptimeBars } from "@/components/uptime-bars";
 import { uptimePercent } from "@/server/monitoring/state";
 import { cn } from "@/lib/utils";
-import { duration } from "../projects/[projectId]/services/[serviceId]/uptime-card";
+import { duration } from "@/lib/duration";
 
 export const metadata = { title: "Monitoring" };
 

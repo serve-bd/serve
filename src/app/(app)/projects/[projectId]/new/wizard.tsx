@@ -652,15 +652,18 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
             <h2 className="text-[15px] font-semibold text-fg">Services</h2>
             <p className="text-[13px] text-muted">Ready-made apps. Review the settings after creating, then deploy.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Select
-              size="sm"
-              value={category}
-              onValueChange={setCategory}
-              options={chips.map((c) => ({ value: c, label: c === "All" ? "All services" : c }))}
-              className="w-44 flex-none"
-            />
-            <div className="relative w-full sm:w-64">
+          <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto sm:flex-none">
+            {/* Fixed-width wrapper: the select must not shrink and cut its label. */}
+            <div className="w-40 flex-none sm:w-44">
+              <Select
+                size="sm"
+                value={category}
+                onValueChange={setCategory}
+                options={chips.map((c) => ({ value: c, label: c === "All" ? "All services" : c }))}
+                className="w-full"
+              />
+            </div>
+            <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint" />
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${props.templates.length} services`} className="pl-8" aria-label="Search services" />
             </div>

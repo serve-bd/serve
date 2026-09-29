@@ -190,7 +190,16 @@ function createAuth(sso: SsoRuntime) {
             if (!provider?.defaultOrganizationId) return;
             const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, provider.defaultOrganizationId));
             if (!org) return;
-            await db.insert(schema.member).values({ id: newId(), organizationId: org.id, userId: user.id, role: provider.defaultRole }).onConflictDoNothing();
+            await db
+              .insert(schema.member)
+              .values({
+                id: newId(),
+                organizationId: org.id,
+                userId: user.id,
+                role: provider.defaultRole,
+                roleId: provider.defaultRole === "member" ? (provider.defaultRoleId ?? null) : null,
+              })
+              .onConflictDoNothing();
           },
         },
       },

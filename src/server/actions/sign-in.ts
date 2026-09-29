@@ -89,9 +89,16 @@ export async function saveSsoProvider(id: string, input: ProviderInput) {
       if (!v.issuer) throw new UserError("Enter the issuer URL.");
       await checkIssuer(v.issuer);
     }
+    let defaultRoleId: string | null = null;
     if (v.defaultOrganizationId) {
       const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, v.defaultOrganizationId));
       if (!org) throw new UserError("That organization no longer exists.");
+      if (v.defaultRole === "member" && v.defaultRoleId) {
+        const { organizationRoles } = await import("@/server/permissions");
+        const roles = await organizationRoles(org.id);
+        if (!roles.some((r) => r.id === v.defaultRoleId && r.id !== "owner" && r.id !== "admin")) throw new UserError("That role does not exist in the organization.");
+        defaultRoleId = v.defaultRoleId;
+      }
     }
     const provider: SsoProvider = {
       enabled: v.enabled,
@@ -102,6 +109,7 @@ export async function saveSsoProvider(id: string, input: ProviderInput) {
       ...(id === "github" && v.allowedOrgs.length ? { allowedOrgs: [...new Set(v.allowedOrgs)] } : {}),
       defaultOrganizationId: v.defaultOrganizationId,
       defaultRole: v.defaultRole,
+      defaultRoleId,
       ...(id === "oidc" ? { issuer: v.issuer, scopes: v.scopes?.length ? v.scopes : undefined, label: v.label || undefined } : {}),
     };
     const next: SignInSettings = { ...settings, providers: { ...settings.providers, [id]: provider } };

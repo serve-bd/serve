@@ -17,6 +17,8 @@ import { useAction } from "@/hooks/use-action";
 import { removeSsoProvider, saveSsoProvider, setPasswordLogin, testOidcIssuer } from "@/server/actions/sign-in";
 import type { ProviderView, SsoProviderId } from "@/server/sso/config";
 
+type Org = { id: string; name: string; roles: { id: string; name: string }[] };
+
 type ProviderRow = { id: SsoProviderId; callbackUrl: string; config: ProviderView | null };
 
 const titles: Record<SsoProviderId, string> = { github: "GitHub", google: "Google", oidc: "OpenID Connect" };
@@ -57,7 +59,7 @@ export function SignInSettingsView({
   passwordEnabled: boolean;
   forcedPassword: boolean;
   providers: ProviderRow[];
-  organizations: { id: string; name: string }[];
+  organizations: Org[];
   httpsWarning: boolean;
 }) {
   const togglePassword = useAction((on: boolean) => setPasswordLogin(on), { success: "Password sign-in updated" });
@@ -122,7 +124,7 @@ const blurb: Record<SsoProviderId, string> = {
 };
 
 /** One provider in the list: logo, status and a button that opens its setup. */
-function ProviderItem({ row, organizations }: { row: ProviderRow; organizations: { id: string; name: string }[] }) {
+function ProviderItem({ row, organizations }: { row: ProviderRow; organizations: Org[] }) {
   const [open, setOpen] = React.useState(false);
   const c = row.config;
   const on = !!c?.enabled && !!c.hasSecret;
@@ -164,17 +166,7 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
   );
 }
 
-function ProviderDialog({
-  row,
-  organizations,
-  open,
-  onOpenChange,
-}: {
-  row: ProviderRow;
-  organizations: { id: string; name: string }[];
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+function ProviderDialog({ row, organizations, open, onOpenChange }: { row: ProviderRow; organizations: Org[]; open: boolean; onOpenChange: (open: boolean) => void }) {
   const confirm = useConfirm();
   const c = row.config;
   const [v, setV] = React.useState({
@@ -185,7 +177,8 @@ function ProviderDialog({
     allowedDomains: (c?.allowedDomains ?? []).join(", "),
     allowedOrgs: (c?.allowedOrgs ?? []).join(", "),
     defaultOrganizationId: c?.defaultOrganizationId ?? "",
-    defaultRole: (c?.defaultRole ?? "member") as string,
+    // One choice for the role: "admin", or a member role (developer, viewer, custom).
+    role: c?.defaultRole === "admin" ? "admin" : (c?.defaultRoleId ?? (c?.defaultOrganizationId ? "developer" : "viewer")),
     issuer: c?.issuer ?? "",
     scopes: (c?.scopes ?? []).join(" "),
     label: c?.label ?? "",
@@ -204,7 +197,8 @@ function ProviderDialog({
         allowedDomains: list(v.allowedDomains),
         allowedOrgs: row.id === "github" ? list(v.allowedOrgs) : [],
         defaultOrganizationId: v.defaultOrganizationId || null,
-        defaultRole: v.defaultRole as "member" | "admin",
+        defaultRole: v.role === "admin" ? "admin" : "member",
+        defaultRoleId: v.role === "admin" ? null : v.role,
         ...(row.id === "oidc" ? { issuer: v.issuer, scopes: list(v.scopes), label: v.label } : {}),
       }),
     { success: `${titles[row.id]} sign-in saved`, onSuccess: () => onOpenChange(false) },
@@ -312,19 +306,19 @@ function ProviderDialog({
                     <Field label="New accounts join">
                       <Select
                         value={v.defaultOrganizationId || "none"}
-                        onValueChange={(x) => set("defaultOrganizationId")(x === "none" ? "" : x)}
+                        onValueChange={(x) => setV((s) => ({ ...s, defaultOrganizationId: x === "none" ? "" : x, role: "viewer" }))}
                         options={[{ value: "none", label: "No organization" }, ...organizations.map((o) => ({ value: o.id, label: o.name }))]}
                       />
                     </Field>
                     <Field label="As">
                       <Select
-                        value={v.defaultRole}
-                        onValueChange={set("defaultRole")}
+                        value={v.role}
+                        onValueChange={set("role")}
                         disabled={!v.defaultOrganizationId}
-                        options={[
-                          { value: "member", label: "Member" },
-                          { value: "admin", label: "Admin" },
-                        ]}
+                        options={(organizations.find((o) => o.id === v.defaultOrganizationId)?.roles ?? [{ id: "developer", name: "Developer" }]).map((r) => ({
+                          value: r.id,
+                          label: r.name,
+                        }))}
                       />
                     </Field>
                   </div>

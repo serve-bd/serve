@@ -25,6 +25,8 @@ export type SsoProvider = {
   /** New accounts join this organization with `defaultRole`; null: no organization until invited. */
   defaultOrganizationId: string | null;
   defaultRole: SsoRole;
+  /** Role for new members when `defaultRole` is member: developer, viewer or a custom role id. */
+  defaultRoleId?: string | null;
   /** OpenID Connect only. */
   issuer?: string;
   scopes?: string[];
@@ -139,6 +141,7 @@ export const providerInput = z
       .default([]),
     defaultOrganizationId: z.string().trim().min(1).nullable().default(null),
     defaultRole: z.enum(["member", "admin"]).default("member"),
+    defaultRoleId: z.string().trim().min(1).max(64).nullable().default(null),
     issuer: z.string().trim().max(500).optional(),
     scopes: z
       .array(

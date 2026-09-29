@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import net from "node:net";
 import type Docker from "dockerode";
 import { docker, LABEL } from "@/server/docker/client";
@@ -113,6 +114,21 @@ function tcpCheck(host: string, port: number, timeout = 2000) {
   });
 }
 
+/** Workers inside a container cannot route to other bridge networks; probe through the proxy instead. */
+const inContainer = existsSync("/.dockerenv");
+
+async function proxyProbe(host: string, port: number, pathName: string | null) {
+  const { execInContainer } = await import("@/server/docker/client");
+  const cmd = pathName
+    ? `wget -S -q -T 4 -O /dev/null "http://${host}:${port}${pathName}" 2>&1 | awk '/HTTP\//{print $2}' | tail -1`
+    : `nc -z -w 2 ${host} ${port} && echo open`;
+  const res = await execInContainer(env.proxyContainer, ["sh", "-c", cmd]).catch(() => ({ exitCode: 1, output: "" }));
+  const out = res.output.trim();
+  if (!pathName) return out.includes("open");
+  const status = Number(out.split(/\s+/).pop());
+  return status > 0 && status < 500;
+}
+
 async function httpCheck(url: string) {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(4000), redirect: "manual" });
@@ -173,9 +189,12 @@ export async function waitHealthy(
 
     const ip = info.NetworkSettings.Networks?.[network]?.IPAddress;
     if (runtime.port && ip) {
-      const ok = runtime.healthcheckPath
-        ? await httpCheck(`http://${ip}:${runtime.port}${runtime.healthcheckPath.startsWith("/") ? "" : "/"}${runtime.healthcheckPath}`)
-        : await tcpCheck(ip, runtime.port);
+      const probePath = runtime.healthcheckPath ? `${runtime.healthcheckPath.startsWith("/") ? "" : "/"}${runtime.healthcheckPath}` : null;
+      const ok = inContainer
+        ? await proxyProbe(ip, runtime.port, probePath)
+        : probePath
+          ? await httpCheck(`http://${ip}:${runtime.port}${probePath}`)
+          : await tcpCheck(ip, runtime.port);
       if (!ok) {
         stableSince = 0;
         note(

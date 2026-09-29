@@ -236,14 +236,17 @@ function CertificateRow({
             <span className="truncate text-[14px] font-medium text-fg">{c.name}</span>
             <StatusLabel status={c.status} kind="certificate" className="text-xs" />
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-            {c.domains.slice(0, 4).map((d) => (
-              <span key={d} className="max-w-full truncate font-mono text-[11.5px] text-fg-2">
-                {d}
-              </span>
-            ))}
-            {c.domains.length > 4 && <span className="text-xs text-faint">+{c.domains.length - 4} more</span>}
-          </div>
+          {/* A certificate named after its only domain would show it twice. */}
+          {!(c.domains.length === 1 && c.domains[0] === c.name) && (
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+              {c.domains.slice(0, 4).map((d) => (
+                <span key={d} className="max-w-full truncate font-mono text-[11.5px] text-fg-2">
+                  {d}
+                </span>
+              ))}
+              {c.domains.length > 4 && <span className="text-xs text-faint">+{c.domains.length - 4} more</span>}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted">
             <span>{providerLabel[c.provider]}</span>
             {days !== null && !failed && (

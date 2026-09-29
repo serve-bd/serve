@@ -83,6 +83,35 @@ function repoName(url: string) {
   );
 }
 
+/** Right-hand guide shown next to every create form. */
+function NextSteps() {
+  const steps = [
+    ["Create", "Serve saves the service. Nothing runs yet."],
+    ["Configure", "Add variables, domains, ports and storage if you need them."],
+    ["Deploy", "Start it from the service page when you are ready."],
+  ];
+  return (
+    <aside className="flex flex-col gap-3 lg:sticky lg:top-6">
+      <Card>
+        <CardHeader title="What happens next" />
+        <ol className="flex flex-col gap-4 px-5 py-4">
+          {steps.map(([title, body], i) => (
+            <li key={title} className="flex gap-3">
+              <span className="flex size-6 flex-none items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent">{i + 1}</span>
+              <div className="flex flex-col">
+                <span className="text-[13px] font-medium text-fg">{title}</span>
+                <span className="text-xs leading-relaxed text-muted">{body}</span>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </Card>
+    </aside>
+  );
+}
+
+const stepGrid = "grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px] animate-rise";
+
 function FormShell({
   title,
   description,
@@ -100,7 +129,6 @@ function FormShell({
 }) {
   return (
     <form
-      className="mx-auto max-w-2xl animate-rise"
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit();
@@ -109,11 +137,14 @@ function FormShell({
       <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg">
         <ArrowLeft className="size-3.5" /> All services
       </button>
-      <Card>
-        <CardHeader title={title} description={description} />
-        <CardBody className="flex flex-col gap-5 py-5">{children}</CardBody>
-        <CardFooter className="justify-end">{footer}</CardFooter>
-      </Card>
+      <div className={stepGrid}>
+        <Card>
+          <CardHeader title={title} description={description} />
+          <CardBody className="flex flex-col gap-5 py-5">{children}</CardBody>
+          <CardFooter className="justify-end">{footer}</CardFooter>
+        </Card>
+        <NextSteps />
+      </div>
     </form>
   );
 }
@@ -702,7 +733,6 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
 
   return (
     <form
-      className="mx-auto max-w-2xl animate-rise"
       onSubmit={(e) => {
         e.preventDefault();
         void run({ projectId: props.projectId, environmentId: props.environmentId, serverId: props.serverId, name: name.trim() || template.name, mode: "inline", template: template.id, vars: overrides });
@@ -711,6 +741,7 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
       <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg">
         <ArrowLeft className="size-3.5" /> All services
       </button>
+      <div className={stepGrid}>
       <Card>
         <div className="flex items-start gap-4 border-b border-line px-5 py-5">
           <TemplateLogo id={template.id} name={template.name} iconUrl={template.iconUrl} custom={template.custom} size="lg" />
@@ -781,6 +812,8 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
           </Button>
         </CardFooter>
       </Card>
+      <NextSteps />
+      </div>
     </form>
   );
 }

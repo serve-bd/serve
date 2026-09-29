@@ -3,17 +3,10 @@ import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { publicBaseUrl, readAppSecret } from "@/server/git/github-app";
 import { GitProviders } from "./git-providers";
+import type { OAuthAppRow } from "./oauth-apps";
+import { isPublicUrl, oauthBaseUrl } from "@/server/git/public-url";
 
 export const metadata = { title: "Git providers" };
-
-function isPublicUrl(url: string) {
-  try {
-    const host = new URL(url).hostname;
-    return !(host === "localhost" || host.endsWith(".local") || /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host));
-  } catch {
-    return false;
-  }
-}
 
 export default async function GitPage() {
   const ctx = await requireOrg();
@@ -23,8 +16,25 @@ export default async function GitPage() {
     .where(eq(schema.gitCredential.organizationId, ctx.org.id))
     .orderBy(desc(schema.gitCredential.createdAt));
   const base = await publicBaseUrl();
+  const [oauthRows, oauthBase] = await Promise.all([
+    db.select().from(schema.gitOAuthApp).where(eq(schema.gitOAuthApp.organizationId, ctx.org.id)).orderBy(desc(schema.gitOAuthApp.createdAt)),
+    oauthBaseUrl(),
+  ]);
+  const oauthApps: OAuthAppRow[] = oauthRows.map((a) => {
+    const cred = rows.find((c) => c.oauthAppId === a.id);
+    return {
+      id: a.id,
+      provider: a.provider,
+      name: a.name,
+      baseUrl: a.baseUrl,
+      groupPath: a.groupPath,
+      createdAt: a.createdAt.toISOString(),
+      connection: cred ? { login: cred.publicInfo, connectedAt: cred.updatedAt.toISOString() } : null,
+    };
+  });
 
-  const credentials = rows.map((c) => {
+  // OAuth connections are shown with their app.
+  const credentials = rows.filter((c) => !c.oauthAppId).map((c) => {
     const app = c.provider === "github-app" ? readAppSecret(c) : null;
     return {
       id: c.id,
@@ -36,5 +46,14 @@ export default async function GitPage() {
     };
   });
 
-  return <GitProviders isAdmin={ctx.isAdmin} credentials={credentials} baseUrl={base} publicUrl={isPublicUrl(base)} />;
+  return (
+    <GitProviders
+      isAdmin={ctx.isAdmin}
+      credentials={credentials}
+      baseUrl={base}
+      publicUrl={isPublicUrl(base)}
+      oauthApps={oauthApps}
+      oauthBase={oauthBase.ok ? { url: oauthBase.url, ok: true } : { url: oauthBase.url, ok: false, error: oauthBase.error }}
+    />
+  );
 }

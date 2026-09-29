@@ -598,9 +598,28 @@ export const cloudflareTunnel = pgTable(
 
 export type GitProviderType = "github-app" | "github" | "gitlab" | "bitbucket" | "gitea" | "ssh";
 
+/** An OAuth application the org registered on GitLab, Gitea/Forgejo or Bitbucket. */
+export const gitOAuthApp = pgTable("git_oauth_app", {
+  id: id(),
+  organizationId: orgRef(),
+  provider: text("provider").$type<"gitlab" | "gitea" | "bitbucket">().notNull(),
+  name: text("name").notNull(),
+  /** Self-hosted server URL; null for gitlab.com / bitbucket.org. */
+  baseUrl: text("base_url"),
+  clientId: text("client_id").notNull(),
+  /** Encrypted. */
+  clientSecret: text("client_secret").notNull(),
+  /** GitLab only: limit repositories to this group (path). */
+  groupPath: text("group_path"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 export const gitCredential = pgTable("git_credential", {
   id: id(),
   organizationId: orgRef(),
+  /** Set for credentials connected through an OAuth app; secret then holds encrypted OAuth tokens (JSON). */
+  oauthAppId: text("oauth_app_id").references(() => gitOAuthApp.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   provider: text("provider").$type<GitProviderType>().notNull(),
   /** Encrypted token or private SSH key. */

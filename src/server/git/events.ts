@@ -64,6 +64,31 @@ export function parsePullRequest(headers: Headers, body: Record<string, unknown>
     if (["opened", "reopened", "synchronize", "synchronized", "ready_for_review"].includes(action)) return { action: "deploy", pr: info };
     return null;
   }
+  const bbEvent = headers.get("x-event-key");
+  if (bbEvent?.startsWith("pullrequest:")) {
+    const pr = body.pullrequest as {
+      id: number;
+      title: string;
+      author?: { display_name?: string; nickname?: string };
+      source: { branch: { name: string }; commit?: { hash?: string }; repository?: { full_name?: string } };
+      destination?: { repository?: { full_name?: string } };
+    };
+    if (!pr?.source?.branch) return null;
+    const sourceRepo = pr.source.repository?.full_name;
+    const info: PullRequest = {
+      number: pr.id,
+      branch: pr.source.branch.name,
+      repository: sourceRepo ? `https://bitbucket.org/${sourceRepo}.git` : "",
+      title: pr.title,
+      sha: pr.source.commit?.hash ?? null,
+      author: pr.author?.nickname ?? pr.author?.display_name ?? null,
+      fullName: pr.destination?.repository?.full_name ?? null,
+    };
+    if (bbEvent === "pullrequest:fulfilled" || bbEvent === "pullrequest:rejected") return { action: "close", pr: info };
+    if (sourceRepo && pr.destination?.repository?.full_name && sourceRepo !== pr.destination.repository.full_name) return { action: "fork", pr: info };
+    if (bbEvent === "pullrequest:created" || bbEvent === "pullrequest:updated") return { action: "deploy", pr: info };
+    return null;
+  }
   if (headers.get("x-gitlab-event") === "Merge Request Hook") {
     const mr = body.object_attributes as {
       iid: number;
@@ -95,6 +120,7 @@ export function parsePush(headers: Headers, body: Record<string, unknown>): Push
   if (ghEvent && ghEvent !== "push") return null;
   if (glEvent && glEvent !== "Push Hook") return null;
   if (bbEvent) {
+    if (bbEvent === "diagnostics:ping") return "ping";
     if (bbEvent !== "repo:push") return null;
     const change = ((body.push as { changes?: unknown[] })?.changes?.[0] ?? {}) as { new?: { name?: string; target?: { hash?: string; message?: string; author?: { raw?: string } } } };
     return { branch: change.new?.name ?? null, sha: change.new?.target?.hash ?? null, message: change.new?.target?.message?.trim() ?? null, author: change.new?.target?.author?.raw ?? null };

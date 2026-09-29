@@ -8,7 +8,7 @@ import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { Cloudflare, type CfDnsRecord, type CfSslMode } from "@/server/cloudflare/api";
-import { generateSshKey, listRepositories, verifyGitToken, type RemoteRepo } from "@/server/git/providers";
+import { generateSshKey, listRepositories, tokenScopeWarning, verifyGitToken, type RemoteRepo } from "@/server/git/providers";
 import { listRemoteBranches, normalizeRepoUrl } from "@/server/deploy/git";
 import { logActivity } from "@/server/activity";
 import { sendToChannel, type NotifyEvent } from "@/server/notify";
@@ -155,7 +155,98 @@ export async function addGitToken(input: { provider: GitProviderType; name: stri
       publicInfo: login,
       baseUrl,
     });
-    return { id, login };
+    return { id, login, warning: await tokenScopeWarning(input.provider, token, baseUrl) };
+  });
+}
+
+/* ------------------------------- OAuth apps ------------------------------- */
+
+const oauthAppSchema = z.object({
+  provider: z.enum(["gitlab", "gitea", "bitbucket"]),
+  name: z.string().trim().min(1, "Enter a name").max(60),
+  baseUrl: z.union([z.url("Enter a URL like https://git.example.com").trim(), z.literal("")]).optional(),
+  clientId: z.string().trim().min(4, "Paste the application ID"),
+  clientSecret: z.string().trim().min(4, "Paste the secret"),
+  groupPath: z.string().trim().max(200).optional(),
+});
+
+export async function createGitOAuthApp(input: z.input<typeof oauthAppSchema>) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const data = oauthAppSchema.parse(input);
+    if (data.provider === "gitea" && !data.baseUrl) throw new UserError("Enter the address of your Gitea or Forgejo server.");
+    const id = newId();
+    await db.insert(schema.gitOAuthApp).values({
+      id,
+      organizationId: ctx.org.id,
+      provider: data.provider,
+      name: data.name,
+      baseUrl: data.provider === "bitbucket" ? null : data.baseUrl?.replace(/\/$/, "") || null,
+      clientId: data.clientId,
+      clientSecret: encrypt(data.clientSecret),
+      groupPath: data.provider === "gitlab" ? data.groupPath?.replace(/^\/|\/$/g, "") || null : null,
+    });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "git.oauth.created", message: `Added OAuth app ${data.name}` });
+    return { id };
+  });
+}
+
+/** Deletes the app and its connection (services using it can no longer pull). */
+export async function deleteGitOAuthApp(id: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const [app] = await db
+      .delete(schema.gitOAuthApp)
+      .where(and(eq(schema.gitOAuthApp.id, id), eq(schema.gitOAuthApp.organizationId, ctx.org.id)))
+      .returning();
+    if (app) await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "git.oauth.deleted", message: `Removed OAuth app ${app.name}` });
+    return null;
+  });
+}
+
+/** URL of the provider's consent page for an OAuth app. */
+export async function startGitOAuth(id: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const [app] = await db
+      .select()
+      .from(schema.gitOAuthApp)
+      .where(and(eq(schema.gitOAuthApp.id, id), eq(schema.gitOAuthApp.organizationId, ctx.org.id)));
+    if (!app) throw new UserError("OAuth app not found.");
+    const { oauthBaseUrl } = await import("@/server/git/public-url");
+    const { authorizeUrl, redirectUri, signOAuthState } = await import("@/server/git/oauth");
+    const base = await oauthBaseUrl();
+    if (!base.ok) throw new UserError(base.error);
+    return authorizeUrl(app, redirectUri(base.url, app.provider), signOAuthState({ appId: app.id, organizationId: ctx.org.id, userId: ctx.user.id }));
+  });
+}
+
+/* ---------------------------- Service webhooks ---------------------------- */
+
+export async function registerServiceWebhook(serviceId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const { serviceInOrg } = await import("@/server/services/access");
+    await serviceInOrg(serviceId, ctx.org.id);
+    const { registerRepoWebhook } = await import("@/server/git/repo-webhooks");
+    const hook = await registerRepoWebhook(serviceId);
+    if (!hook) throw new UserError("This service's git credential cannot manage webhooks. Add the webhook URL on the repository yourself.");
+    if (hook.error) throw new UserError(hook.error);
+    return hook;
+  });
+}
+
+export async function removeServiceWebhook(serviceId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const { serviceInOrg } = await import("@/server/services/access");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (service.source?.type !== "git") return null;
+    const { removeRepoWebhook } = await import("@/server/git/repo-webhooks");
+    const error = await removeRepoWebhook(service.source);
+    if (error) throw new UserError(`Could not remove the webhook: ${error}`);
+    await db.update(schema.service).set({ source: { ...service.source, webhook: null } }).where(eq(schema.service.id, serviceId));
+    return null;
   });
 }
 
@@ -198,7 +289,9 @@ export async function fetchRepositories(credentialId: string): Promise<{ ok: tru
       const { listAppRepositories } = await import("@/server/git/github-app");
       return listAppRepositories(cred);
     }
-    return listRepositories(cred.provider, decrypt(cred.secret), cred.baseUrl);
+    const { withCredentialToken } = await import("@/server/git/oauth");
+    const [app] = cred.oauthAppId ? await db.select().from(schema.gitOAuthApp).where(eq(schema.gitOAuthApp.id, cred.oauthAppId)) : [];
+    return withCredentialToken(cred, (token) => listRepositories(cred.provider, token, cred.baseUrl, { oauth: !!cred.oauthAppId, group: app?.groupPath }));
   });
 }
 

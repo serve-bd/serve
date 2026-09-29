@@ -1,9 +1,20 @@
+/** A webhook Serve registered on the repository through the provider API. */
+export type RepoWebhook = {
+  provider: "github" | "gitlab" | "gitea" | "bitbucket";
+  /** Remote hook id (Bitbucket: uuid). Null when registration failed or was skipped. */
+  id: string | null;
+  url: string | null;
+  createdAt: string;
+  error?: string | null;
+};
+
 export type GitSource = {
   type: "git";
   /** https or ssh clone URL. */
   repository: string;
   branch: string;
   credentialId?: string | null;
+  webhook?: RepoWebhook | null;
 };
 
 export type ImageSource = {

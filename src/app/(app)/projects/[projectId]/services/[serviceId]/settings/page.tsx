@@ -78,7 +78,9 @@ export default async function SettingsPage(props: PageProps<"/projects/[projectI
   const { publicBaseUrl } = await import("@/server/git/github-app");
   const base = await publicBaseUrl();
   const source = service.source;
-  const viaApp = source?.type === "git" && credentials.find((c) => c.id === source.credentialId)?.provider === "github-app";
+  const credProvider = source?.type === "git" ? credentials.find((c) => c.id === source.credentialId)?.provider : undefined;
+  const viaApp = credProvider === "github-app";
+  const managedWebhook = credProvider === "github" || credProvider === "gitlab" || credProvider === "gitea" || credProvider === "bitbucket";
   return (
     <PageBody>
       <ServiceSettings
@@ -108,6 +110,7 @@ export default async function SettingsPage(props: PageProps<"/projects/[projectI
         nixpacks={nixpacks}
         webhookUrl={`${base}/api/webhooks/git/${service.id}`}
         viaGithubApp={!!viaApp}
+        managedWebhook={managedWebhook && !service.parentServiceId}
         webhookSecret={service.webhookSecret}
         deployHookUrl={`${base}/api/deploy-hooks/${service.id}?token=${service.webhookSecret}`}
         server={server ?? { id: service.serverId, name: "Unknown server", host: "", isLocal: false }}

@@ -18,6 +18,9 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
       else await sql.notify(CANCEL_CHANNEL, d.id);
     }
   }
+  // Remove repository webhooks Serve registered (best effort; the provider may be unreachable).
+  const { removeRepoWebhook } = await import("@/server/git/repo-webhooks");
+  for (const s of services) if (!s.parentServiceId && s.source?.type === "git" && s.source.webhook?.id) await removeRepoWebhook(s.source);
   await db.delete(schema.service).where(inArray(schema.service.id, all.map((s) => s.id)));
   // Same concurrency key as deployments, so cleanup runs after an in-flight deploy stops.
   for (const s of all) {

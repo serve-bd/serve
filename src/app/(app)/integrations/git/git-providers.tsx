@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { postManifest } from "@/lib/github";
 import { GithubMark } from "@/components/github-mark";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
+import { MethodDialog, OAuthApps, OAuthSetupDialog, type OAuthAppRow, type OAuthBase, type OAuthProvider } from "./oauth-apps";
 
 type Cred = {
   id: string;
@@ -40,10 +41,10 @@ const providerNames: Record<string, string> = {
 };
 
 const tokenHelp: Record<string, string> = {
-  github: "Fine-grained token with Contents: Read and Metadata: Read. Webhooks must then be added per repository.",
-  gitlab: "Preferences → Access tokens with the read_repository and read_api scopes.",
-  gitea: "Settings → Applications → Generate token with repository read access.",
-  bitbucket: "An access token or app password with repository read access.",
+  github: "Classic token with repo and admin:repo_hook, so Serve can add the deploy webhook.",
+  gitlab: "Preferences → Access tokens with the api scope, so Serve can read repositories and add the deploy webhook.",
+  gitea: "Settings → Applications → Generate token with read:user and write:repository.",
+  bitbucket: "Repository or workspace access token with Repositories: read and Webhooks: read and write.",
 };
 
 function OwnerOption({ selected, title, body, onSelect }: { selected: boolean; title: string; body: string; onSelect: () => void }) {
@@ -148,7 +149,7 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
   const [keyName, setKeyName] = React.useState("");
   const [publicKey, setPublicKey] = React.useState<string | null>(null);
   const add = useAction(() => addGitToken({ provider, name, token, baseUrl }), {
-    success: (d) => `Connected as ${d.login}`,
+    success: (d) => (d.warning ? `Connected as ${d.login}. ${d.warning}` : `Connected as ${d.login}`),
     onSuccess: () => {
       setTokenOpen(false);
       setToken("");
@@ -169,7 +170,7 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
   return (
     <>
       <Card>
-        <CardHeader title="Other providers" description="GitLab, Gitea and Bitbucket use access tokens. SSH deploy keys work with any Git host." />
+        <CardHeader title="Other providers" description="For OAuth, use Add provider. Access tokens and SSH deploy keys work with any Git host." />
         <div className="divide-y divide-line">
           <button type="button" onClick={() => setTokenOpen(true)} className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-hover/50">
             <FolderGit2 className="size-4 text-muted" />
@@ -243,7 +244,21 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
   );
 }
 
-export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { credentials: Cred[]; isAdmin: boolean; baseUrl: string; publicUrl: boolean }) {
+export function GitProviders({
+  credentials,
+  isAdmin,
+  baseUrl,
+  publicUrl,
+  oauthApps,
+  oauthBase,
+}: {
+  credentials: Cred[];
+  isAdmin: boolean;
+  baseUrl: string;
+  publicUrl: boolean;
+  oauthApps: OAuthAppRow[];
+  oauthBase: OAuthBase;
+}) {
   const confirm = useConfirm();
   const router = useRouter();
   const params = useSearchParams();
@@ -256,7 +271,7 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
     const error = params.get("error");
     if ((!connected && !error) || announced.current) return;
     announced.current = true;
-    if (connected) toast.success(`GitHub connected`, `Serve can now deploy repositories from ${connected}.`);
+    if (connected) toast.success("Connected", `Serve can now deploy repositories from ${connected}.`);
     if (error) toast.error("GitHub setup did not finish", error);
     router.replace("/integrations/git");
   }, [params, router]);
@@ -265,12 +280,14 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
   const others = credentials.filter((c) => c.provider !== "github-app");
   const [connecting, setConnecting] = React.useState(false);
   const dialogs = useProviderDialogs();
+  const [method, setMethod] = React.useState<OAuthProvider | null>(null);
+  const [oauthSetup, setOauthSetup] = React.useState<OAuthProvider | null>(null);
 
   return (
     <>
     <PageHeader
       title="Git providers"
-      description="Connect GitHub to deploy private repositories, with push-to-deploy and pull request previews set up automatically."
+      description="Connect GitHub, GitLab, Gitea or Bitbucket to deploy private repositories, with push-to-deploy and pull request previews set up automatically."
       actions={
         isAdmin && (
           <Menu>
@@ -283,7 +300,7 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
               </MenuItem>
               <MenuSeparator />
               {(["gitlab", "gitea", "bitbucket"] as const).map((p) => (
-                <MenuItem key={p} onClick={() => (dialogs.setProvider(p), dialogs.setTokenOpen(true))}>
+                <MenuItem key={p} onClick={() => setMethod(p)}>
                   <FolderGit2 /> {providerNames[p]}
                 </MenuItem>
               ))}
@@ -380,12 +397,24 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
         </Card>
       )}
 
+      <OAuthApps apps={oauthApps} isAdmin={isAdmin} />
       <OtherProviders isAdmin={isAdmin} dialogs={dialogs} />
       {!isAdmin && credentials.length === 0 && (
         <Card><CardBody className="text-[13px] text-muted">Ask an organization admin to connect GitHub.</CardBody></Card>
       )}
     </div>
     </PageBody>
+    <MethodDialog
+      provider={method}
+      onClose={() => setMethod(null)}
+      onOAuth={() => (setOauthSetup(method), setMethod(null))}
+      onToken={() => {
+        if (method) dialogs.setProvider(method);
+        setMethod(null);
+        dialogs.setTokenOpen(true);
+      }}
+    />
+    <OAuthSetupDialog provider={oauthSetup} base={oauthBase} onClose={() => setOauthSetup(null)} />
     <Dialog open={connecting} onOpenChange={setConnecting}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader title="Connect another GitHub account" description="Each GitHub account or organization gets its own GitHub App." />

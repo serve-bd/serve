@@ -15,6 +15,7 @@ import { defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, typ
 import { engines } from "@/server/databases/engines";
 import { resolveTemplate, templateVarValue } from "@/server/services/custom-templates";
 import { normalizeRepoUrl } from "@/server/deploy/git";
+import { registerRepoWebhook, syncRepoWebhook } from "@/server/git/repo-webhooks";
 import { composeServiceNames, parseCompose } from "@/server/deploy/compose";
 import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
@@ -166,6 +167,8 @@ export async function createAppService(input: z.input<typeof appSchema>) {
     });
     await writeEnvVars(id, (data.envVars ?? []).filter((v) => v.key.trim()).map((v) => ({ ...v, buildTime: false, runtime: true })));
     await addGeneratedDomain(id, slug, ctx.org.id, null, null, server.id);
+    // Deploy on push: add the repository webhook when the credential can (failures are recorded, not thrown).
+    if (source.type === "git") await registerRepoWebhook(id);
     if (data.deploy) await queueDeployment(id, "create", { userId: ctx.user.id });
     await logActivity({ userId: ctx.user.id, projectId: data.projectId, action: "service.created", targetType: "service", targetId: id, message: `Created ${data.name}` });
     return { id };
@@ -532,6 +535,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       patch.compose = { ...service.compose, ...data.compose };
     }
     await db.update(schema.service).set(patch).where(eq(schema.service.id, serviceId));
+    if (data.source) await syncRepoWebhook(service.source, serviceId);
     if (data.runtime?.port !== undefined) await syncServiceProxy(serviceId).catch(() => {});
     return null;
   });
@@ -540,8 +544,10 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
 export async function regenerateWebhookSecret(serviceId: string) {
   return act(async () => {
     const ctx = await requireOrg();
-    await serviceInOrg(serviceId, ctx.org.id);
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
     await db.update(schema.service).set({ webhookSecret: newWebhookSecret() }).where(eq(schema.service.id, serviceId));
+    // A hook Serve registered carries the old secret: register it again with the new one.
+    if (service.source?.type === "git" && service.source.webhook?.id) await registerRepoWebhook(serviceId);
     return null;
   });
 }

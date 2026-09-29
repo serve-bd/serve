@@ -1,6 +1,5 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { decrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
@@ -37,7 +36,8 @@ async function orgId(projectId: string) {
 export async function deployPreview(parent: Service, pr: PullRequest) {
   if (parent.source?.type !== "git") return null;
   let preview = await previewFor(parent.id, pr.number);
-  const source = { ...parent.source, branch: pr.branch, repository: pr.repository || parent.source.repository };
+  // Previews never own the parent's repository webhook.
+  const source = { ...parent.source, branch: pr.branch, repository: pr.repository || parent.source.repository, webhook: null };
 
   if (!preview) {
     const id = newId();
@@ -109,7 +109,7 @@ export async function commentOnGithub(parent: Service, pr: PullRequest, url: str
   if (!cred || (cred.provider !== "github" && cred.provider !== "github-app")) return;
   let token: string;
   try {
-    token = cred.provider === "github-app" ? await (await import("@/server/git/github-app")).installationToken(cred) : decrypt(cred.secret);
+    token = cred.provider === "github-app" ? await (await import("@/server/git/github-app")).installationToken(cred) : await (await import("@/server/git/oauth")).credentialToken(cred);
   } catch {
     return;
   }

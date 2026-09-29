@@ -13,7 +13,7 @@ export type RemoteRepo = {
   description: string | null;
 };
 
-function apiBase(provider: GitProviderType, baseUrl?: string | null) {
+export function apiBase(provider: GitProviderType, baseUrl?: string | null) {
   const base = baseUrl?.replace(/\/$/, "");
   switch (provider) {
     case "github":
@@ -36,26 +36,64 @@ async function getJson<T>(url: string, headers: Record<string, string>): Promise
   return (await res.json()) as T;
 }
 
-function authHeaders(provider: GitProviderType, token: string): Record<string, string> {
+export type TokenOptions = { oauth?: boolean; group?: string | null };
+
+/** OAuth access tokens always go in a Bearer header; personal tokens use each provider's own header. */
+export function authHeaders(provider: GitProviderType, token: string, opts: TokenOptions = {}): Record<string, string> {
+  if (opts.oauth) return { authorization: `Bearer ${token}` };
   if (provider === "gitlab") return { "PRIVATE-TOKEN": token };
   if (provider === "gitea") return { authorization: `token ${token}` };
   return { authorization: `Bearer ${token}` };
 }
 
 /** Validate a token and return the account login. */
-export async function verifyGitToken(provider: GitProviderType, token: string, baseUrl?: string | null): Promise<string> {
+export async function verifyGitToken(provider: GitProviderType, token: string, baseUrl?: string | null, opts: TokenOptions = {}): Promise<string> {
   const base = apiBase(provider, baseUrl);
-  const headers = authHeaders(provider, token);
+  const headers = authHeaders(provider, token, opts);
   if (provider === "github") return (await getJson<{ login: string }>(`${base}/user`, headers)).login;
   if (provider === "gitlab") return (await getJson<{ username: string }>(`${base}/user`, headers)).username;
   if (provider === "gitea") return (await getJson<{ login: string }>(`${base}/user`, headers)).login;
-  if (provider === "bitbucket") return (await getJson<{ username?: string; display_name: string }>(`${base}/user`, headers)).display_name;
+  if (provider === "bitbucket") {
+    const user = await getJson<{ username?: string; display_name: string }>(`${base}/user`, headers);
+    return user.username ?? user.display_name;
+  }
   throw new Error("Unsupported provider");
 }
 
-export async function listRepositories(provider: GitProviderType, token: string, baseUrl?: string | null): Promise<RemoteRepo[]> {
+/** Scopes a personal token needs so Serve can also manage repository webhooks. */
+export const webhookScopeHelp: Record<string, string> = {
+  gitlab: "Needs the api scope so Serve can add the deploy webhook.",
+  gitea: "Needs write:repository so Serve can add the deploy webhook.",
+  bitbucket: "Use an access token with Repositories: read and Webhooks: read and write.",
+  github: "Needs repo and admin:repo_hook so Serve can add the deploy webhook.",
+};
+
+/** A warning when a token visibly lacks the webhook scope (GitHub and GitLab report scopes). */
+export async function tokenScopeWarning(provider: GitProviderType, token: string, baseUrl?: string | null): Promise<string | null> {
   const base = apiBase(provider, baseUrl);
-  const headers = authHeaders(provider, token);
+  try {
+    if (provider === "github") {
+      const res = await fetch(`${base}/user`, { headers: authHeaders(provider, token), signal: AbortSignal.timeout(10000) });
+      const scopes = res.headers.get("x-oauth-scopes");
+      // Fine-grained tokens send no scope header; their permissions cannot be read here.
+      if (scopes !== null && !/admin:repo_hook|write:repo_hook/.test(scopes)) return webhookScopeHelp.github;
+    }
+    if (provider === "gitlab") {
+      const res = await fetch(`${base}/personal_access_tokens/self`, { headers: authHeaders(provider, token), signal: AbortSignal.timeout(10000) });
+      if (res.ok) {
+        const { scopes } = (await res.json()) as { scopes?: string[] };
+        if (scopes && !scopes.includes("api")) return webhookScopeHelp.gitlab;
+      }
+    }
+  } catch {
+    // Informational only.
+  }
+  return null;
+}
+
+export async function listRepositories(provider: GitProviderType, token: string, baseUrl?: string | null, opts: TokenOptions = {}): Promise<RemoteRepo[]> {
+  const base = apiBase(provider, baseUrl);
+  const headers = authHeaders(provider, token, opts);
   if (provider === "github") {
     const out: RemoteRepo[] = [];
     for (let page = 1; page <= 5; page++) {
@@ -79,7 +117,12 @@ export async function listRepositories(provider: GitProviderType, token: string,
   if (provider === "gitlab") {
     const repos = await getJson<
       { path_with_namespace: string; http_url_to_repo: string; default_branch: string; visibility: string; last_activity_at: string; description: string | null }[]
-    >(`${base}/projects?membership=true&per_page=100&order_by=last_activity_at`, headers);
+    >(
+      opts.group
+        ? `${base}/groups/${encodeURIComponent(opts.group)}/projects?include_subgroups=true&per_page=100&order_by=last_activity_at`
+        : `${base}/projects?membership=true&per_page=100&order_by=last_activity_at`,
+      headers,
+    );
     return repos.map((r) => ({
       fullName: r.path_with_namespace,
       cloneUrl: r.http_url_to_repo,

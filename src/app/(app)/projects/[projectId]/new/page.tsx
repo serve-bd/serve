@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { pageProject } from "@/server/services/access";
@@ -19,7 +19,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
   const { current } = await resolveEnvironment(projectId, typeof env === "string" ? env : undefined);
   const [credentials, nixpacks, servers, custom] = await Promise.all([
     db
-      .select({ id: schema.gitCredential.id, name: schema.gitCredential.name, provider: schema.gitCredential.provider })
+      .select({ id: schema.gitCredential.id, name: schema.gitCredential.name, provider: schema.gitCredential.provider, oauth: sql<boolean>`${schema.gitCredential.oauthAppId} is not null` })
       .from(schema.gitCredential)
       .where(eq(schema.gitCredential.organizationId, ctx.org.id)),
     commandExists("nixpacks"),

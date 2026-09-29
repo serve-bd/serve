@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { decrypt } from "@/server/crypto";
 import { run } from "@/server/process";
 import type { GitSource } from "@/server/services/types";
 
@@ -13,7 +12,8 @@ export type CloneResult = {
   commitAuthor: string;
 };
 
-function withToken(url: string, provider: string, token: string) {
+/** Clone URL carrying a token: GitHub x-access-token, Bitbucket x-token-auth, GitLab/Gitea oauth2 (token as password). */
+export function withToken(url: string, provider: string, token: string) {
   const u = new URL(url);
   const user =
     provider === "github" ? "x-access-token" : provider === "bitbucket" ? "x-token-auth" : "oauth2";
@@ -55,7 +55,9 @@ export async function gitAccess(source: GitSource, workDir: string, organization
       redact.push(token);
       return { url, cloneUrl: withToken(url, "github", token), gitEnv, redact };
     }
-    const secret = decrypt(cred.secret);
+    // OAuth credentials hold a token set and refresh the access token when needed.
+    const { credentialToken } = await import("@/server/git/oauth");
+    const secret = await credentialToken(cred);
     redact.push(secret);
     if (cred.provider === "ssh" || url.startsWith("git@") || url.startsWith("ssh://")) {
       const keyFile = path.join(workDir, ".serve-ssh-key");

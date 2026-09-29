@@ -291,7 +291,10 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
                 <Input value={v.allowedDomains} onChange={(e) => set("allowedDomains")(e.target.value)} placeholder="example.com" className="font-mono text-[13px]" />
               </Field>
               {row.id === "github" && list(v.allowedOrgs).length > 0 ? (
-                <p className="text-xs leading-relaxed text-muted">New accounts: members of {list(v.allowedOrgs).join(", ")} get one on their first sign-in.</p>
+                <p className="text-xs leading-relaxed text-muted">
+                  Members of {list(v.allowedOrgs).join(", ")} get an account on their first sign-in, and are added to the organization below on every sign-in (also people who
+                  signed in before).
+                </p>
               ) : (
                 <SwitchRow
                   title="Allow new accounts"
@@ -303,7 +306,7 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
               {(v.allowSignUp || (row.id === "github" && list(v.allowedOrgs).length > 0)) && (
                 <div className="flex flex-col gap-4 rounded-xl border border-line bg-surface-2 p-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
-                    <Field label="New accounts join">
+                    <Field label={row.id === "github" && list(v.allowedOrgs).length > 0 ? "Members join" : "New accounts join"}>
                       <Select
                         value={v.defaultOrganizationId || "none"}
                         onValueChange={(x) => setV((s) => ({ ...s, defaultOrganizationId: x === "none" ? "" : x, role: "viewer" }))}

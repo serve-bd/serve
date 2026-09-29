@@ -15,7 +15,7 @@ import { newId } from "@/server/id";
 import { getSetting } from "@/server/settings";
 import { guardProfileEmail, signInRefused } from "@/server/sso/domain-guard";
 import { githubMembersOnly } from "@/server/sso/github-orgs";
-import { activeProviders, callbackUrl, configHash, discoveryUrl, providerIdOf, providerNames, type SignInSettings, signUpAllowed } from "@/server/sso/config";
+import { activeProviders, callbackUrl, configHash, discoveryUrl, providerIdOf, providerNames, type SignInSettings, type SsoProvider, signUpAllowed } from "@/server/sso/config";
 import { cannotMessage, type Permission } from "@/lib/permissions";
 import { accessFrom, organizationRoles } from "@/server/permissions";
 
@@ -92,6 +92,25 @@ function ssoRuntime(settings: SignInSettings, base: string): SsoRuntime {
     }
   }
   return out;
+}
+
+/** Adds the user to the provider's default organization with its role, unless already a member. */
+async function joinDefaultOrganization(provider: SsoProvider, userId: string) {
+  if (!provider.defaultOrganizationId) return;
+  const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, provider.defaultOrganizationId));
+  if (!org) return;
+  const [existing] = await db
+    .select({ id: schema.member.id })
+    .from(schema.member)
+    .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, userId)));
+  if (existing) return;
+  await db.insert(schema.member).values({
+    id: newId(),
+    organizationId: org.id,
+    userId,
+    role: provider.defaultRole,
+    roleId: provider.defaultRole === "member" ? (provider.defaultRoleId ?? null) : null,
+  });
 }
 
 /** The provider an OAuth callback came from, with its settings. */
@@ -187,19 +206,7 @@ function createAuth(sso: SsoRuntime) {
           // New provider accounts can join a default organization.
           after: async (user, ctx) => {
             const provider = await callbackProvider(ctx);
-            if (!provider?.defaultOrganizationId) return;
-            const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, provider.defaultOrganizationId));
-            if (!org) return;
-            await db
-              .insert(schema.member)
-              .values({
-                id: newId(),
-                organizationId: org.id,
-                userId: user.id,
-                role: provider.defaultRole,
-                roleId: provider.defaultRole === "member" ? (provider.defaultRoleId ?? null) : null,
-              })
-              .onConflictDoNothing();
+            if (provider) await joinDefaultOrganization(provider, user.id);
           },
         },
       },
@@ -213,9 +220,15 @@ function createAuth(sso: SsoRuntime) {
       },
       session: {
         create: {
-          before: async (session) => ({
-            data: { ...session, activeOrganizationId: await firstOrganizationFor(session.userId) },
-          }),
+          before: async (session, ctx) => {
+            // With the GitHub organization rule, membership there is the source of truth:
+            // members join the chosen organization on every sign-in, not only the first.
+            const provider = await callbackProvider(ctx);
+            if (provider?.allowedOrgs?.length && !signInRefused()) await joinDefaultOrganization(provider, session.userId);
+            return {
+              data: { ...session, activeOrganizationId: await firstOrganizationFor(session.userId) },
+            };
+          },
         },
       },
     },

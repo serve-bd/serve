@@ -135,7 +135,9 @@ describe("GitHub organization rule", () => {
     vi.fn(async (url: string) => {
       if (url.endsWith("/user")) return Response.json({ id: 7, login: "sam", name: "Sam", email: null, avatar_url: "https://x/a.png" });
       if (url.endsWith("/user/emails")) return Response.json([{ email: "sam@gmail.com", primary: true, verified: true }]);
-      if (url.includes("/user/memberships/orgs/acme")) return member ? Response.json({ state: "active" }) : new Response("{}", { status: 404 });
+      if (url.includes("/public_members/")) return new Response(null, { status: member ? 204 : 404 });
+      if (url.includes("/user/memberships/orgs/acme"))
+        return member ? Response.json({ state: "active" }) : new Response("{}", { status: 404, headers: { "x-oauth-scopes": "read:org, read:user, user:email" } });
       return new Response("{}", { status: 404 });
     });
 

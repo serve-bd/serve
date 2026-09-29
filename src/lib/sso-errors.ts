@@ -7,7 +7,11 @@ export function ssoErrorMessage(code: string) {
     case "account_not_linked":
       return "An account with this email exists but is not linked to this sign-in method yet. Sign in with your password, then link it on your Account page.";
     case "github_org_not_allowed":
-      return "Only members of the allowed GitHub organizations can sign in here. If you are one, check that the organization approved this app (GitHub → Settings → Applications → Authorized OAuth Apps → Grant access).";
+      return "Only members of the allowed GitHub organizations can sign in here, and GitHub says you are not an active member of one.";
+    case "github_org_restricted":
+      return "The GitHub organization restricts third-party apps and has not approved this one yet. An owner can approve it in the organization's Settings → Third-party access (or on GitHub → Settings → Applications → Authorized OAuth Apps → Grant), then try again. Making your membership public also works.";
+    case "github_org_no_scope":
+      return "GitHub did not share your organizations. Try again and allow access to organization data when GitHub asks; if it does not ask, revoke this app under GitHub → Settings → Applications and sign in again.";
     case "email_domain_not_allowed":
       return "This sign-in method only accepts email addresses from the organization's allowed domains. Use an account with one of them.";
     case "email_not_found":

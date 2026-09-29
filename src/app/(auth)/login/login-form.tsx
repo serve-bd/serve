@@ -9,11 +9,40 @@ import { Input } from "@/components/ui/input";
 import { AuthCard, AuthError } from "../_components/auth-card";
 import { PasswordInput } from "../_components/password-input";
 import { authClient } from "@/lib/auth-client";
+import { ssoErrorMessage } from "@/lib/sso-errors";
+import { SsoMark } from "@/components/sso-mark";
 
-export function LoginForm({ next, canReset = false }: { next: string; canReset?: boolean }) {
+type Provider = { id: string; label: string };
+
+export function LoginForm({
+  next,
+  canReset = false,
+  password = true,
+  providers = [],
+  ssoError = null,
+}: {
+  next: string;
+  canReset?: boolean;
+  password?: boolean;
+  providers?: Provider[];
+  ssoError?: string | null;
+}) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(ssoError ? ssoErrorMessage(ssoError) : null);
+  const [redirecting, setRedirecting] = React.useState<string | null>(null);
+
+  async function withProvider(id: string) {
+    setRedirecting(id);
+    setError(null);
+    const opts = { callbackURL: next, errorCallbackURL: "/login", newUserCallbackURL: next };
+    // The company login (OpenID Connect) is registered as provider "oidc" next to GitHub and Google.
+    const { error } = await authClient.signIn.social({ provider: id as "github", ...opts });
+    if (error) {
+      setRedirecting(null);
+      setError(error.message ?? "Could not start the sign-in.");
+    }
+  }
   const [needsCode, setNeedsCode] = React.useState(false);
   const [useBackup, setUseBackup] = React.useState(false);
 
@@ -93,23 +122,51 @@ export function LoginForm({ next, canReset = false }: { next: string; canReset?:
 
   return (
     <AuthCard title="Welcome back" description="Sign in to manage your deployments.">
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <Field label="Email">
-          <Input name="email" type="email" required autoFocus autoComplete="email" placeholder="you@company.com" className="h-10" />
-        </Field>
-        <Field label="Password">
-          <PasswordInput name="password" required autoComplete="current-password" className="h-10" />
-        </Field>
-        {canReset && (
-          <Link href="/forgot-password" className="-mt-1 self-end text-[13px] text-muted transition-colors hover:text-accent">
-            Forgot password?
-          </Link>
-        )}
-        <AuthError>{error}</AuthError>
-        <Button type="submit" variant="primary" size="lg" loading={pending} className="mt-1 w-full">
-          Sign in
-        </Button>
-      </form>
+      {providers.length > 0 && (
+        <div className="flex flex-col gap-2.5">
+          {providers.map((p) => (
+            <Button
+              key={p.id}
+              type="button"
+              size="lg"
+              className="w-full"
+              loading={redirecting === p.id}
+              disabled={!!redirecting && redirecting !== p.id}
+              onClick={() => void withProvider(p.id)}
+            >
+              <SsoMark provider={p.id} /> {p.label}
+            </Button>
+          ))}
+          {!password && <AuthError>{error}</AuthError>}
+        </div>
+      )}
+      {providers.length > 0 && password && (
+        <div className="my-5 flex items-center gap-3 text-xs text-faint">
+          <span className="h-px flex-1 bg-line" /> or with your password <span className="h-px flex-1 bg-line" />
+        </div>
+      )}
+      {!password && providers.length === 0 && (
+        <p className="text-[13px] leading-relaxed text-muted">No sign-in method is available. An admin can allow password sign-in again with SERVE_ALLOW_PASSWORD_LOGIN=1.</p>
+      )}
+      {password && (
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <Field label="Email">
+            <Input name="email" type="email" required autoFocus autoComplete="email" placeholder="you@company.com" className="h-10" />
+          </Field>
+          <Field label="Password">
+            <PasswordInput name="password" required autoComplete="current-password" className="h-10" />
+          </Field>
+          {canReset && (
+            <Link href="/forgot-password" className="-mt-1 self-end text-[13px] text-muted transition-colors hover:text-accent">
+              Forgot password?
+            </Link>
+          )}
+          <AuthError>{error}</AuthError>
+          <Button type="submit" variant="primary" size="lg" loading={pending} className="mt-1 w-full">
+            Sign in
+          </Button>
+        </form>
+      )}
     </AuthCard>
   );
 }

@@ -661,6 +661,41 @@ export async function tunnelImpact(tunnelId: string) {
   });
 }
 
+async function orgTunnel(tunnelId: string, organizationId: string) {
+  const [tunnel] = await db
+    .select()
+    .from(schema.cloudflareTunnel)
+    .where(and(eq(schema.cloudflareTunnel.id, tunnelId), eq(schema.cloudflareTunnel.organizationId, organizationId)));
+  if (!tunnel) throw new UserError("Tunnel not found.");
+  return tunnel;
+}
+
+/** Live connections and connector state of one tunnel (shown when its row is opened). */
+export async function tunnelDetails(tunnelId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const tunnel = await orgTunnel(tunnelId, ctx.org.id);
+    const { tunnelDetails: details, refreshTunnelStatus } = await import("@/server/cloudflare/tunnels");
+    const [result] = await Promise.all([details(tunnel), refreshTunnelStatus(tunnel)]);
+    return result;
+  });
+}
+
+export async function restartTunnelConnector(tunnelId: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const tunnel = await orgTunnel(tunnelId, ctx.org.id);
+    const { restartTunnelConnector: restart } = await import("@/server/cloudflare/tunnels");
+    try {
+      await restart(tunnel);
+    } catch (e) {
+      throw new UserError(`Could not restart the connector: ${(e as Error).message}`);
+    }
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "tunnel.restart", message: `Restarted the connector of the Cloudflare Tunnel ${tunnel.name}` });
+    return null;
+  });
+}
+
 /** Refresh the status of this organization's tunnels that are still starting or down. */
 export async function refreshTunnels() {
   return act(async () => {

@@ -1,9 +1,10 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { serversForOrg } from "@/server/servers/access";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decrypt } from "@/server/crypto";
 import { Cloudflare, type CfZone } from "@/server/cloudflare/api";
+import { getSettings } from "@/server/settings";
 import { CloudflareAccounts } from "./accounts";
 
 export const metadata = { title: "Cloudflare" };
@@ -15,26 +16,67 @@ export default async function CloudflarePage() {
     accounts.map(async (a) => {
       try {
         const zones: CfZone[] = await new Cloudflare(decrypt(a.apiToken)).zones();
-        return { id: a.id, name: a.name, zones: zones.map((z) => ({ id: z.id, name: z.name, status: z.status, plan: z.plan?.name ?? null })), error: null as string | null };
+        return {
+          id: a.id,
+          name: a.name,
+          cfAccountId: a.cfAccountId,
+          zones: zones.map((z) => ({ id: z.id, name: z.name, status: z.status, plan: z.plan?.name ?? null })),
+          error: null as string | null,
+        };
       } catch (e) {
-        return { id: a.id, name: a.name, zones: [], error: (e as Error).message };
+        return { id: a.id, name: a.name, cfAccountId: a.cfAccountId, zones: [], error: (e as Error).message };
       }
     }),
   );
-  const [servers, tunnels] = await Promise.all([
+  const [servers, tunnelRows, settings] = await Promise.all([
     serversForOrg(ctx.org.id),
     db
       .select({
         id: schema.cloudflareTunnel.id,
         accountId: schema.cloudflareTunnel.cloudflareAccountId,
         serverId: schema.cloudflareTunnel.serverId,
+        name: schema.cloudflareTunnel.name,
+        cfTunnelId: schema.cloudflareTunnel.cfTunnelId,
         status: schema.cloudflareTunnel.status,
         statusMessage: schema.cloudflareTunnel.statusMessage,
-        domains: sql<number>`(select count(*)::int from domain d where d.tunnel_id = ${schema.cloudflareTunnel.id})`,
+        createdAt: schema.cloudflareTunnel.createdAt,
+        updatedAt: schema.cloudflareTunnel.updatedAt,
       })
       .from(schema.cloudflareTunnel)
       .where(eq(schema.cloudflareTunnel.organizationId, ctx.org.id)),
+    getSettings(),
   ]);
+  // Domains routed through each tunnel, with the service they belong to.
+  const routed = tunnelRows.length
+    ? await db
+        .select({
+          tunnelId: schema.domain.tunnelId,
+          hostname: schema.domain.hostname,
+          serviceId: schema.service.id,
+          serviceName: schema.service.name,
+          projectId: schema.service.projectId,
+        })
+        .from(schema.domain)
+        .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
+        .where(
+          inArray(
+            schema.domain.tunnelId,
+            tunnelRows.map((t) => t.id),
+          ),
+        )
+    : [];
+  const tunnels = tunnelRows.map((t) => ({
+    ...t,
+    createdAt: t.createdAt.toISOString(),
+    updatedAt: t.updatedAt.toISOString(),
+    domains: [
+      ...(settings.dashboardTunnelId === t.id && settings.dashboardDomain ? [{ hostname: settings.dashboardDomain, service: null }] : []),
+      ...routed
+        .filter((d) => d.tunnelId === t.id)
+        .sort((a, b) => a.hostname.localeCompare(b.hostname))
+        .map((d) => ({ hostname: d.hostname, service: { name: d.serviceName, href: `/projects/${d.projectId}/services/${d.serviceId}/domains` } })),
+    ],
+  }));
   return (
     <CloudflareAccounts
       servers={servers.map((s) => ({ id: s.id, name: s.name, isLocal: s.isLocal, status: s.status }))}

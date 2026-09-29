@@ -12,27 +12,20 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { cloudflareDisconnectImpact, connectCloudflare, disableTunnel, disconnectCloudflare, enableTunnel, refreshTunnels, tunnelImpact } from "@/server/actions/integrations";
+import { cloudflareDisconnectImpact, connectCloudflare, disconnectCloudflare, enableTunnel, refreshTunnels } from "@/server/actions/integrations";
+import { TunnelRow, type TunnelInfo } from "./tunnel-row";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 
-type Account = { id: string; name: string; zones: { id: string; name: string; status: string; plan: string | null }[]; error: string | null };
+type Account = { id: string; name: string; cfAccountId: string | null; zones: { id: string; name: string; status: string; plan: string | null }[]; error: string | null };
 type ServerOption = { id: string; name: string; isLocal: boolean; status: string };
-type Tunnel = { id: string; accountId: string; serverId: string; status: string; statusMessage: string | null; domains: number };
+type Tunnel = TunnelInfo;
 
-const tunnelTone: Record<string, { color: string; label: string }> = {
-  healthy: { color: "var(--ok)", label: "Connected" },
-  degraded: { color: "var(--warn)", label: "Degraded" },
-  down: { color: "var(--bad)", label: "Down" },
-  error: { color: "var(--bad)", label: "Error" },
-  pending: { color: "var(--warn)", label: "Connecting…" },
-};
-
-/** Tunnels from each server to this account: turn on, see status, remove. */
+/** Tunnels from each server to this account: turn on, see status and details, remove. */
 function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Account; servers: ServerOption[]; tunnels: Tunnel[]; isAdmin: boolean }) {
-  const confirm = useConfirm();
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
-  const starting = tunnels.some((t) => t.accountId === account.id && (t.status === "pending" || t.status === "down"));
+  const mine = tunnels.filter((t) => t.accountId === account.id);
+  const starting = mine.some((t) => t.status === "pending" || t.status === "down");
   // While a connector is coming up, ask Cloudflare every few seconds instead of waiting for the worker.
   React.useEffect(() => {
     if (!starting) return;
@@ -55,7 +48,6 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
       else toast.success(n ? `Tunnel created. ${n} domain${n === 1 ? "" : "s"} reconnected to the tunnel.` : "Tunnel created. It connects within a minute.");
     },
   });
-  const disable = useAction(disableTunnel, { success: "Tunnel removed" });
   return (
     <div className="border-t border-line">
       <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-4 pb-2">
@@ -68,73 +60,34 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
       </div>
       <div className="divide-y divide-line">
         {servers.map((server) => {
-          const tunnel = tunnels.find((t) => t.serverId === server.id && t.accountId === account.id);
-          const tone = tunnel ? (tunnelTone[tunnel.status] ?? tunnelTone.pending) : null;
+          const tunnel = mine.find((t) => t.serverId === server.id);
+          if (tunnel) {
+            return <TunnelRow key={server.id} tunnel={tunnel} server={server} cfAccountId={account.cfAccountId} isAdmin={isAdmin} defaultOpen={mine.length === 1} />;
+          }
+          const notReady = !server.isLocal && server.status !== "ready";
           return (
             <div key={server.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3">
-              <span className="flex min-w-0 flex-1 items-center gap-2 text-[13px]">
-                <ServerIcon className="size-3.5 flex-none text-muted" />
-                <span className="truncate font-medium text-fg">{server.name}</span>
-                {server.isLocal && <span className="text-xs text-faint">this server</span>}
-              </span>
-              {tunnel && tone && (
-                <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
-                  <span className="size-1.5 flex-none rounded-full" style={{ background: tone.color }} />
-                  <span className="text-fg-2">{tone.label}</span>
-                  {tunnel.statusMessage && <span className="hidden truncate sm:inline">· {tunnel.statusMessage}</span>}
-                  {tunnel.domains > 0 && (
-                    <span>
-                      · {tunnel.domains} domain{tunnel.domains === 1 ? "" : "s"}
-                    </span>
-                  )}
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="flex min-w-0 items-center gap-2 text-[13px]">
+                  <ServerIcon className="size-3.5 flex-none text-muted" />
+                  <span className="truncate font-medium text-fg">{server.name}</span>
+                  {server.isLocal && <span className="flex-none text-xs text-faint">this server</span>}
                 </span>
+                <span className="pl-5.5 text-xs text-muted">{notReady ? "Validate this server before creating a tunnel." : "No tunnel"}</span>
+              </span>
+              {isAdmin && (
+                <Button
+                  size="xs"
+                  disabled={notReady}
+                  loading={busy === server.id && enable.pending}
+                  onClick={async () => {
+                    setBusy(server.id);
+                    await enable.run(account.id, server.id);
+                  }}
+                >
+                  Create tunnel
+                </Button>
               )}
-              {isAdmin &&
-                (tunnel ? (
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    loading={busy === server.id && disable.pending}
-                    onClick={async () => {
-                      const impact = await tunnelImpact(tunnel.id);
-                      const offline = impact.ok ? impact.data : [];
-                      if (
-                        !(await confirm({
-                          title: `Remove the tunnel from ${server.name}?`,
-                          description: offline.length
-                            ? "The connector stops and the tunnel is deleted in Cloudflare. These domains stop working until a tunnel runs on this server again; Serve then reconnects them automatically."
-                            : "The connector stops and the tunnel is deleted in Cloudflare.",
-                          confirmLabel: offline.length ? "Remove tunnel anyway" : "Remove tunnel",
-                          danger: true,
-                          children: offline.length ? (
-                            <ul className="flex flex-col gap-0.5 rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-3 font-mono text-[12.5px] text-fg-2">
-                              {offline.map((h) => (
-                                <li key={h}>{h}</li>
-                              ))}
-                            </ul>
-                          ) : undefined,
-                        }))
-                      )
-                        return;
-                      setBusy(server.id);
-                      await disable.run(tunnel.id);
-                    }}
-                  >
-                    Remove
-                  </Button>
-                ) : (
-                  <Button
-                    size="xs"
-                    disabled={!server.isLocal && server.status !== "ready"}
-                    loading={busy === server.id && enable.pending}
-                    onClick={async () => {
-                      setBusy(server.id);
-                      await enable.run(account.id, server.id);
-                    }}
-                  >
-                    Create tunnel
-                  </Button>
-                ))}
             </div>
           );
         })}

@@ -390,6 +390,103 @@ async function removeOrphanTunnelContainers() {
   }
 }
 
+/* ------------------------------ Details ------------------------------ */
+
+export type TunnelDetails = {
+  cloudflare:
+    | {
+        ok: true;
+        status: string;
+        createdAt: string | null;
+        activeAt: string | null;
+        inactiveAt: string | null;
+        connections: { id: string; colo: string; originIp: string | null; openedAt: string | null; version: string | null; pending: boolean }[];
+      }
+    | { ok: false; error: string };
+  connector:
+    | { ok: true; exists: false }
+    | { ok: true; exists: true; state: string; running: boolean; startedAt: string | null; image: string; restarts: number; error: string | null }
+    | { ok: false; error: string };
+};
+
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string) {
+  return Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what} did not answer in time.`)), ms))]);
+}
+
+/** Live details of one tunnel: its connections as Cloudflare sees them, and its connector container. */
+export async function tunnelDetails(tunnel: Tunnel): Promise<TunnelDetails> {
+  const [cloudflare, connector] = await Promise.all([
+    withTimeout(
+      (async () => {
+        const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+        return cf.tunnel(await cfAccountIdOf(tunnel.cloudflareAccountId), tunnel.cfTunnelId);
+      })(),
+      8000,
+      "Cloudflare",
+    ).then(
+      (info): TunnelDetails["cloudflare"] => ({
+        ok: true,
+        status: info.status,
+        createdAt: info.created_at ?? null,
+        activeAt: info.conns_active_at ?? null,
+        inactiveAt: info.conns_inactive_at ?? null,
+        connections: (info.connections ?? []).map((c, i) => ({
+          id: c.id ?? `${c.colo_name}-${i}`,
+          colo: c.colo_name,
+          originIp: c.origin_ip ?? null,
+          openedAt: c.opened_at ?? null,
+          version: c.client_version ?? null,
+          pending: c.is_pending_reconnect,
+        })),
+      }),
+      (error): TunnelDetails["cloudflare"] => ({ ok: false, error: tunnelError(error).message }),
+    ),
+    withTimeout(
+      (async () => {
+        const ctx = await getServer(tunnel.serverId);
+        return ctx.docker
+          .getContainer(tunnelContainerName(tunnel))
+          .inspect()
+          .catch((e: { statusCode?: number }) => {
+            if (e?.statusCode === 404) return null;
+            throw e;
+          });
+      })(),
+      8000,
+      "The server",
+    ).then(
+      (info): TunnelDetails["connector"] =>
+        info
+          ? {
+              ok: true,
+              exists: true,
+              state: info.State.Status,
+              running: info.State.Running,
+              startedAt: info.State.Running && info.State.StartedAt ? info.State.StartedAt : null,
+              image: info.Config.Image,
+              restarts: info.RestartCount ?? 0,
+              error: info.State.Error || null,
+            }
+          : { ok: true, exists: false },
+      (error): TunnelDetails["connector"] => ({ ok: false, error: (error as Error).message }),
+    ),
+  ]);
+  return { cloudflare, connector };
+}
+
+/** Restart the connector container (or create it again when it is missing). */
+export async function restartTunnelConnector(tunnel: Tunnel) {
+  const ctx = await getServer(tunnel.serverId);
+  const container = ctx.docker.getContainer(tunnelContainerName(tunnel));
+  const exists = await container
+    .inspect()
+    .then(() => true)
+    .catch(() => false);
+  if (exists) await container.restart({ t: 5 });
+  else await ensureTunnelContainer(tunnel);
+  await db.update(schema.cloudflareTunnel).set({ status: "pending", statusMessage: "Connector restarted" }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
+}
+
 /** Domains currently routed through tunnels (for warnings when a tunnel is removed). */
 export async function tunnelDomains(tunnelId: string) {
   const settings = await getSettings();

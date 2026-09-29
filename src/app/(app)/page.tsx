@@ -28,7 +28,7 @@ async function serverCards() {
   return Promise.all(rows.map(async (r) => ({ ...r, series: await metricSeries(serverScope(r.id), 6, 48).catch(() => []) })));
 }
 
-function Section({ title, description, href, children }: { title: string; description: string; href?: string; children: React.ReactNode }) {
+function Section({ title, description, href, action, children }: { title: string; description: string; href?: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-end justify-between gap-4">
@@ -36,11 +36,14 @@ function Section({ title, description, href, children }: { title: string; descri
           <h2 className="text-[15px] font-semibold text-fg">{title}</h2>
           <p className="text-[13px] text-muted">{description}</p>
         </div>
-        {href && (
-          <Link href={href} className={buttonVariants({ size: "sm" })}>
-            View all <ArrowRight />
-          </Link>
-        )}
+        <div className="flex flex-none items-center gap-2">
+          {href && (
+            <Link href={href} className={buttonVariants({ size: "sm" })}>
+              View all <ArrowRight />
+            </Link>
+          )}
+          {action}
+        </div>
       </div>
       {children}
     </section>
@@ -56,21 +59,9 @@ export default async function OverviewPage() {
     recentDeployments(ctx.org.id, 8),
     ctx.isInstanceAdmin ? serverCards() : Promise.resolve(null),
   ]);
-  const services = projects.flatMap((p) => p.services);
-  const running = services.filter((s) => s.status === "running").length;
-
   return (
     <>
-      <PageHeader
-        title={ctx.org.name}
-        crumb="Overview"
-        description={`${projects.length} project${projects.length === 1 ? "" : "s"} · ${running} of ${services.length} services running`}
-        actions={
-          <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })}>
-            <Plus /> New project
-          </Link>
-        }
-      />
+      <PageHeader crumb="Overview" />
       <PageBody className="flex flex-col gap-10">
         <Section title="Deployments" description="Latest deployments across your projects.">
           <Card>
@@ -82,7 +73,15 @@ export default async function OverviewPage() {
           </Card>
         </Section>
 
-        <Section title="Projects" description="Apps, databases and services grouped by project." href={projects.length ? "/projects" : undefined}>
+        <Section title="Projects" description="Apps, databases and services grouped by project." href={projects.length ? "/projects" : undefined}
+          action={
+            projects.length > 0 && (
+              <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })}>
+                <Plus /> New project
+              </Link>
+            )
+          }
+        >
           {projects.length ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {projects.slice(0, 6).map((p) => (

@@ -71,8 +71,26 @@ function analyze(compose: string) {
     });
     return { error: null, services };
   } catch (e) {
-    return { error: (e as Error).message.split("\n")[0], services: [] as { name: string; ports: number[] }[] };
+    let error = (e as Error).message.split("\n")[0].replace(/:\s*$/, ".");
+    // The parser only notices an unclosed quote at the end of the file; point at where it opens.
+    if (/closing "?quote|Missing closing/i.test(error)) {
+      const line = unclosedQuoteLine(compose);
+      if (line) error = `A quote on line ${line} is never closed.`;
+    }
+    return { error, services: [] as { name: string; ports: number[] }[] };
   }
+}
+
+/** First line with an odd number of double (or single) quotes, ignoring comments. */
+function unclosedQuoteLine(text: string): number | null {
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const code = lines[i].replace(/\\./g, "").replace(/(^|\s)#.*$/, "");
+    const doubles = (code.match(/"/g) ?? []).length;
+    const singles = (code.replace(/"[^"]*"/g, "").match(/'/g) ?? []).length;
+    if (doubles % 2 === 1 || singles % 2 === 1) return i + 1;
+  }
+  return null;
 }
 
 export function TemplateEditor({ initial, categories }: { initial: EditorInitial; categories: string[] }) {

@@ -1,6 +1,9 @@
 "use server";
 
 import { headers } from "next/headers";
+import { isEmailConfigured } from "@/server/email/send";
+import { sendInviteEmail } from "@/server/email/messages";
+import { publicBaseUrl } from "@/server/git/github-app";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
@@ -92,7 +95,18 @@ export async function inviteMember(input: { email: string; role: MemberRole }) {
       expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000),
     });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "member.invited", message: `Invited ${email} as ${role}` });
-    return { id };
+    // With email set up, the invitation is sent too; the link is shown either way.
+    let emailed = false;
+    let emailError: string | null = null;
+    if (await isEmailConfigured()) {
+      try {
+        await sendInviteEmail({ to: email, organization: ctx.org.name, inviter: ctx.user.name || ctx.user.email, role, url: `${await publicBaseUrl()}/invite/${id}` });
+        emailed = true;
+      } catch (e) {
+        emailError = (e as Error).message;
+      }
+    }
+    return { id, emailed, emailError };
   });
 }
 

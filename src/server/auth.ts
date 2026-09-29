@@ -54,6 +54,24 @@ export const auth = betterAuth({
     minPasswordLength: 8,
     // Accounts are created through first-run setup or organization invites only.
     disableSignUp: true,
+    resetPasswordTokenExpiresIn: 3600,
+    // A reset signs out everywhere, in case the old password was known to someone else.
+    revokeSessionsOnPasswordReset: true,
+    sendResetPassword: async ({ user, url }) => {
+      const { sendPasswordResetEmail } = await import("@/server/email/messages");
+      // Errors are logged, never shown: the response must not reveal whether an account exists.
+      await sendPasswordResetEmail(user.email, user.name, url).catch((e) => console.error(`Password reset email failed: ${(e as Error).message}`));
+    },
+  },
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 100,
+    customRules: {
+      "/request-password-reset": { window: 15 * 60, max: 5 },
+      "/reset-password": { window: 15 * 60, max: 10 },
+      "/sign-in/email": { window: 60, max: 10 },
+    },
   },
   session: {
     expiresIn: 60 * 60 * 24 * 30,

@@ -31,6 +31,17 @@ type Message = { title: string; body: string; url?: string; ok: boolean };
 export async function sendToChannel(channel: typeof schema.notificationChannel.$inferSelect, msg: Message) {
   const config = JSON.parse(decrypt(channel.config)) as Record<string, string>;
   const link = msg.url ? `${env.appUrl.replace(/\/$/, "")}${msg.url}` : undefined;
+  if (channel.kind === "email") {
+    const { sendNotificationEmail } = await import("@/server/email/messages");
+    const to = config.to
+      .split(/[,;\s]+/)
+      .map((a) => a.trim())
+      .filter(Boolean);
+    const results = await Promise.allSettled(to.map((address) => sendNotificationEmail(address, { ...msg, url: link })));
+    const failed = results.find((r) => r.status === "rejected");
+    if (failed) throw new Error(`Notification email failed: ${(failed.reason as Error).message}`);
+    return;
+  }
   let res: Response;
   switch (channel.kind) {
     case "discord":

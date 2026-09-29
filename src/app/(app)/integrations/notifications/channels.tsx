@@ -27,6 +27,7 @@ const kinds = {
     ],
   },
   webhook: { label: "Webhook", fields: [["url", "URL", "https://example.com/hooks/serve"]] },
+  email: { label: "Email", fields: [["to", "Send to", "ops@example.com, oncall@example.com"]] },
 } as const;
 
 export function NotificationChannels({ channels, events, isAdmin }: { channels: Channel[]; events: { id: string; label: string }[]; isAdmin: boolean }) {

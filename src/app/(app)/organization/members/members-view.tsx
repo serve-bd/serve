@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "@/hooks/use-router";
-import { Link2, LogOut, Mail, MoreHorizontal, Trash2, UserPlus } from "lucide-react";
+import { KeyRound, Link2, LogOut, Mail, MoreHorizontal, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, Badge, Card, CardHeader, CopyField, TimeAgo } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -14,6 +14,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
 import { changeMemberRole, inviteMember, removeMember, revokeInvitation } from "@/server/actions/org";
+import { createPasswordResetLink } from "@/server/actions/email";
 import type { MemberRole } from "@/server/db/schema";
 
 type Member = { id: string; role: string; createdAt: string; userId: string; name: string; email: string; image: string | null };
@@ -25,7 +26,24 @@ const roleOptions = [
   { value: "owner", label: "Owner", description: "Full control, including deletion" },
 ];
 
-export function MembersView({ baseUrl, me, myRole, members, invitations }: { baseUrl: string; me: string; myRole: string; members: Member[]; invitations: Invite[] }) {
+export function MembersView({
+  baseUrl,
+  me,
+  myRole,
+  members,
+  invitations,
+  emailEnabled = false,
+  canResetPasswords = false,
+}: {
+  baseUrl: string;
+  me: string;
+  myRole: string;
+  members: Member[];
+  invitations: Invite[];
+  emailEnabled?: boolean;
+  /** Root admins can create reset links for instances without email. */
+  canResetPasswords?: boolean;
+}) {
   const router = useRouter();
   const confirm = useConfirm();
   const isAdmin = myRole === "owner" || myRole === "admin";
@@ -33,9 +51,17 @@ export function MembersView({ baseUrl, me, myRole, members, invitations }: { bas
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState<MemberRole>("member");
   const [link, setLink] = React.useState<string | null>(null);
+  const [sent, setSent] = React.useState<{ ok: boolean; error: string | null } | null>(null);
+  const [resetLink, setResetLink] = React.useState<{ name: string; url: string } | null>(null);
   const inviteLink = (id: string) => `${baseUrl}/invite/${id}`;
 
-  const invite = useAction(() => inviteMember({ email, role }), { onSuccess: (d) => setLink(inviteLink(d.id)) });
+  const invite = useAction(() => inviteMember({ email, role }), {
+    onSuccess: (d) => {
+      setLink(inviteLink(d.id));
+      setSent(d.emailed || d.emailError ? { ok: d.emailed, error: d.emailError } : null);
+    },
+  });
+  const makeResetLink = useAction((userId: string) => createPasswordResetLink(userId), { refresh: false });
   const changeRole = useAction((id: string, r: MemberRole) => changeMemberRole(id, r), { success: "Role updated" });
   const remove = useAction(removeMember, {
     onSuccess: (d) => {
@@ -99,6 +125,16 @@ export function MembersView({ baseUrl, me, myRole, members, invitations }: { bas
                     <MoreHorizontal className="size-4" />
                   </MenuTrigger>
                   <MenuContent>
+                    {canResetPasswords && m.userId !== me && (
+                      <MenuItem
+                        onClick={async () => {
+                          const res = await makeResetLink.run(m.userId);
+                          if (res) setResetLink({ name: m.name, url: res.url });
+                        }}
+                      >
+                        <KeyRound /> Create password reset link
+                      </MenuItem>
+                    )}
                     <MenuItem
                       danger
                       onClick={async () => {
@@ -177,12 +213,23 @@ export function MembersView({ baseUrl, me, myRole, members, invitations }: { bas
               else void invite.run();
             }}
           >
-            <DialogHeader title="Invite someone" description="They get a link to create an account or sign in and join." />
+            <DialogHeader
+              title="Invite someone"
+              description={emailEnabled ? "They get an email with a link to create an account or sign in and join." : "They get a link to create an account or sign in and join."}
+            />
             <DialogBody>
               {link ? (
-                <Field label="Invite link" description={`Send this link to ${email}. It works once and expires in 7 days.`}>
-                  <CopyField value={link} />
-                </Field>
+                <>
+                  {sent?.ok && <p className="rounded-xl border border-ok/25 bg-ok-soft px-3.5 py-2.5 text-[13px] text-fg-2">Invitation emailed to {email}.</p>}
+                  {sent && !sent.ok && (
+                    <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-[13px] text-fg-2">
+                      The email could not be sent ({sent.error}). Share the link instead.
+                    </p>
+                  )}
+                  <Field label="Invite link" description={`${sent?.ok ? "You can also share this link" : `Send this link to ${email}`}. It works once and expires in 7 days.`}>
+                    <CopyField value={link} />
+                  </Field>
+                </>
               ) : (
                 <>
                   <Field label="Email">
@@ -197,10 +244,22 @@ export function MembersView({ baseUrl, me, myRole, members, invitations }: { bas
             <DialogFooter>
               {!link && <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>}
               <Button type="submit" variant="primary" size="sm" loading={invite.pending}>
-                {link ? "Done" : "Create invite link"}
+                {link ? "Done" : emailEnabled ? "Send invitation" : "Create invite link"}
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!resetLink} onOpenChange={(o) => !o && setResetLink(null)}>
+        <DialogContent>
+          <DialogHeader
+            title={`Password reset link for ${resetLink?.name ?? ""}`}
+            description="Send it to them privately. It works once and expires in 1 hour. Using it signs them out everywhere."
+          />
+          <DialogBody>{resetLink && <CopyField value={resetLink.url} />}</DialogBody>
+          <DialogFooter>
+            <DialogClose render={<Button variant="primary" size="sm" />}>Done</DialogClose>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

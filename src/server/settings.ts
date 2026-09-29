@@ -1,5 +1,6 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
+import type { EmailSettings } from "@/server/email/config";
 
 export type Settings = {
   instanceName: string;
@@ -59,6 +60,8 @@ export type Settings = {
   lastCleanup: CleanupRun | null;
   /** Most recent cleanup runs, newest first (max 10). */
   cleanupHistory: CleanupRun[];
+  /** Outgoing email (password resets, invites, notifications). Null when not set up. */
+  email: EmailSettings | null;
 };
 
 export type CleanupRun = {
@@ -103,6 +106,7 @@ export const defaultSettings: Settings = {
   cleanupUnusedImages: false,
   lastCleanup: null,
   cleanupHistory: [],
+  email: null,
 };
 
 /** The local server row is the source of truth for the deprecated addressing keys. */

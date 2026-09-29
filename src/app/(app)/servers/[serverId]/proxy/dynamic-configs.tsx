@@ -359,11 +359,55 @@ export function BuiltInDefaultsCard({ serverId, kind, initial, disabled }: { ser
 
 export type ContainerView = { image: string; args: string[]; env: { name: string; hasValue: boolean }[]; volumes: string[]; ports: string[]; customized: boolean };
 
-const lines = (v: string) =>
-  v
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
+const clean = (items: string[]) => items.map((l) => l.trim()).filter(Boolean);
+
+/** A list of single-line values (arguments, ports, volumes) with add and remove. */
+function ListEditor({
+  title,
+  description,
+  placeholder,
+  items,
+  onChange,
+  disabled,
+}: {
+  title: string;
+  description: string;
+  placeholder: string;
+  items: string[];
+  onChange: (items: string[]) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2 px-5 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[13px] font-medium text-fg">{title}</p>
+          <p className="text-xs text-muted">{description}</p>
+        </div>
+        <Button size="xs" onClick={() => onChange([...items, ""])} disabled={disabled}>
+          <Plus /> Add
+        </Button>
+      </div>
+      {items.length === 0 && <p className="text-xs text-faint">None</p>}
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input
+            value={item}
+            onChange={(e) => onChange(items.map((x, j) => (j === i ? e.target.value : x)))}
+            placeholder={placeholder}
+            className="font-mono text-[12.5px]"
+            aria-label={`${title} ${i + 1}`}
+            autoFocus={item === "" && i === items.length - 1}
+            disabled={disabled}
+          />
+          <Button size="xs" variant="danger-ghost" aria-label={`Remove from ${title.toLowerCase()}`} onClick={() => onChange(items.filter((_, j) => j !== i))} disabled={disabled}>
+            <Trash2 />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** Image, arguments, environment, volumes and extra ports of the proxy container. */
 export function ProxyContainerCard({
@@ -386,10 +430,10 @@ export function ProxyContainerCard({
   const start = React.useMemo(
     () => ({
       image: initial.image,
-      args: initial.args.join("\n"),
+      args: initial.args,
       env: initial.env.map((e) => ({ name: e.name, value: "", stored: e.hasValue })),
-      volumes: initial.volumes.join("\n"),
-      ports: initial.ports.join("\n"),
+      volumes: initial.volumes,
+      ports: initial.ports,
     }),
     [initial],
   );
@@ -436,9 +480,9 @@ export function ProxyContainerCard({
           )
         }
       />
-      <CardBody className="flex flex-col gap-4 py-5">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Image" description={`Default ${defaultImage}.`}>
+      <CardBody className="flex flex-col divide-y divide-line p-0">
+        <div className="px-5 py-4">
+          <Field label="Image" description={`Default ${defaultImage}. Leave empty to follow Serve's default.`}>
             <Input
               value={value.image}
               onChange={(e) => setValue({ ...value, image: e.target.value.trim() })}
@@ -447,56 +491,42 @@ export function ProxyContainerCard({
               disabled={disabled}
             />
           </Field>
-          <Field label="Extra published ports" description="One per line, like 8404:8404 or 443:443/udp.">
-            <Textarea
-              value={value.ports}
-              onChange={(e) => setValue({ ...value, ports: e.target.value })}
-              rows={2}
-              spellCheck={false}
-              className="font-mono text-[12.5px]"
-              disabled={disabled}
-            />
-          </Field>
         </div>
-        <Field
-          label="Extra arguments"
-          description={
-            kind === "nginx"
-              ? "Added after nginx -g 'daemon off;', one per line."
-              : kind === "caddy"
-                ? "Added after caddy run, one per line."
-                : "Static Traefik options, one per line, like --entrypoints.web.transport.respondingTimeouts.readTimeout=60s."
-          }
-        >
-          <Textarea
-            value={value.args}
-            onChange={(e) => setValue({ ...value, args: e.target.value })}
-            rows={3}
-            spellCheck={false}
-            className="font-mono text-[12.5px]"
-            disabled={disabled}
-          />
-        </Field>
-        <Field label="Extra volumes" description="One per line, like /srv/geoip:/geoip:ro.">
-          <Textarea
-            value={value.volumes}
-            onChange={(e) => setValue({ ...value, volumes: e.target.value })}
-            rows={2}
-            spellCheck={false}
-            className="font-mono text-[12.5px]"
-            disabled={disabled}
-          />
-        </Field>
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-3">
+        <ListEditor
+          title="Arguments"
+          description={kind === "nginx" ? "Added after nginx -g 'daemon off;'." : kind === "caddy" ? "Added after caddy run." : "Static Traefik options."}
+          placeholder={kind === "traefik" ? "--entrypoints.web.transport.respondingTimeouts.readTimeout=60s" : "--flag"}
+          items={value.args}
+          onChange={(args) => setValue({ ...value, args })}
+          disabled={disabled}
+        />
+        <ListEditor
+          title="Published ports"
+          description="Extra host ports, besides HTTP and HTTPS."
+          placeholder="8404:8404 or 443:443/udp"
+          items={value.ports}
+          onChange={(ports) => setValue({ ...value, ports })}
+          disabled={disabled}
+        />
+        <ListEditor
+          title="Volumes"
+          description="Host paths or volumes mounted into the proxy."
+          placeholder="/srv/geoip:/geoip:ro"
+          items={value.volumes}
+          onChange={(volumes) => setValue({ ...value, volumes })}
+          disabled={disabled}
+        />
+        <div className="flex flex-col gap-2 px-5 py-4">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-medium text-fg">Environment variables</p>
+              <p className="text-[13px] font-medium text-fg">Environment variables</p>
               <p className="text-xs text-muted">Stored encrypted. Leave a value empty to keep the saved one.</p>
             </div>
             <Button size="xs" onClick={() => setValue({ ...value, env: [...value.env, { name: "", value: "", stored: false }] })} disabled={disabled}>
               <Plus /> Add
             </Button>
           </div>
+          {value.env.length === 0 && <p className="text-xs text-faint">None</p>}
           {value.env.map((e, i) => (
             <div key={i} className="flex items-center gap-2">
               <Input
@@ -530,7 +560,7 @@ export function ProxyContainerCard({
           ))}
         </div>
         {definition && (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 px-5 py-4">
             <button
               type="button"
               onClick={() => setShowDefinition(!showDefinition)}
@@ -542,7 +572,11 @@ export function ProxyContainerCard({
             {showDefinition && <CodeView code={definition} maxHeight="360px" />}
           </div>
         )}
-        {error && <ErrorBox message={error} />}
+        {error && (
+          <div className="px-5 py-4">
+            <ErrorBox message={error} />
+          </div>
+        )}
       </CardBody>
       <CardFooter>
         <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : initial.customized ? "Customized" : "Serve's default container"}</span>
@@ -560,10 +594,10 @@ export function ProxyContainerCard({
             onClick={() =>
               submit({
                 image: value.image || null,
-                args: lines(value.args),
+                args: clean(value.args),
                 env: value.env.filter((e) => e.name).map((e) => ({ name: e.name, value: e.value })),
-                volumes: lines(value.volumes),
-                ports: lines(value.ports),
+                volumes: clean(value.volumes),
+                ports: clean(value.ports),
               })
             }
           >

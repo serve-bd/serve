@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { Code2, Eye, EyeOff, Plus, Trash2, Link2, TriangleAlert } from "lucide-react";
+import { ChevronDown, Code2, Lock, Eye, EyeOff, Plus, Trash2, Link2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardFooter, CardHeader, CopyButton, EmptyState } from "@/components/ui/misc";
+import { Badge, Card, CardFooter, CardHeader, CopyButton, EmptyState } from "@/components/ui/misc";
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { Input, Textarea } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -33,9 +33,7 @@ export function VariablesEditor({
   type,
   status,
   initial,
-  shared,
   references,
-  settingsHref,
   composeVars = [],
   canEdit = true,
   canSeeSecrets = true,
@@ -44,9 +42,7 @@ export function VariablesEditor({
   type: string;
   status: string;
   initial: Omit<Var, "id">[];
-  shared: string[];
   references: { name: string; keys: string[]; label?: string }[];
-  settingsHref: string;
   /** ${VARIABLES} the compose file uses without a default. */
   composeVars?: string[];
   canEdit?: boolean;
@@ -81,10 +77,15 @@ export function VariablesEditor({
     },
   });
 
+  const addVar = (key: string, value: string) => {
+    if (raw !== null) setRaw(`${raw.replace(/\n*$/, "")}\n${key}=${value}\n`);
+    else setVars((prev) => [...prev.filter((v) => v.key || v.value), withId({ key, value, buildTime: false, runtime: true })]);
+  };
+  const taken = new Set(current.map((v) => v.key));
   const update = (id: number, patch: Partial<Var>) => setVars((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
   const hasBuild = type === "app";
   const canRedeploy = status !== "idle";
-  const missing = composeVars.filter((name) => !current.some((v) => v.key === name) && !shared.includes(name));
+  const missing = composeVars.filter((name) => !current.some((v) => v.key === name));
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -109,7 +110,7 @@ export function VariablesEditor({
         )}
         <Card className="overflow-hidden">
           <CardHeader
-            title="Environment variables"
+            title={<span className="flex items-center gap-2">Environment variables {!canEdit && <Badge>Read only</Badge>}</span>}
             description="Encrypted at rest. Changes apply on the next deploy."
             actions={
               canSeeSecrets &&
@@ -144,11 +145,16 @@ export function VariablesEditor({
           ) : vars.length === 0 ? (
             <EmptyState
               title="No variables yet"
-              description="Add variables, paste a .env file in the raw editor, or reference another service."
+              description={canEdit ? "Add variables, paste a .env file in the raw editor, or reference another service." : "This service has no variables."}
               action={
-                <Button size="sm" onClick={() => setVars([withId({ key: "", value: "", buildTime: false, runtime: true })])}>
-                  <Plus /> Add variable
-                </Button>
+                canEdit && (
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <Button size="sm" onClick={() => setVars([withId({ key: "", value: "", buildTime: false, runtime: true })])}>
+                      <Plus /> Add variable
+                    </Button>
+                    <AddReferenceMenu references={references} taken={taken} onAdd={addVar} />
+                  </div>
+                )
               }
             />
           ) : (
@@ -225,97 +231,61 @@ export function VariablesEditor({
                         </Tooltip>
                       </div>
                     )}
-                    <Button variant="ghost" size="icon-sm" onClick={() => setVars((prev) => prev.filter((x) => x.id !== v.id))} aria-label="Remove variable" disabled={!canEdit}>
-                      <Trash2 />
-                    </Button>
+                    {canEdit ? (
+                      <Button variant="ghost" size="icon-sm" onClick={() => setVars((prev) => prev.filter((x) => x.id !== v.id))} aria-label="Remove variable">
+                        <Trash2 />
+                      </Button>
+                    ) : (
+                      <span />
+                    )}
                   </div>
                 );
               })}
-              <div className="px-5 py-3">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setVars((prev) => [...prev, withId({ key: "", value: "", buildTime: false, runtime: true })])}
-                  disabled={!canEdit}
-                  title={canEdit ? undefined : "Your role cannot edit variables."}
-                >
-                  <Plus /> Add variable
-                </Button>
-              </div>
+              {canEdit && (
+                <div className="flex flex-wrap gap-2 px-5 py-3">
+                  <Button size="sm" variant="ghost" onClick={() => setVars((prev) => [...prev, withId({ key: "", value: "", buildTime: false, runtime: true })])}>
+                    <Plus /> Add variable
+                  </Button>
+                  <AddReferenceMenu references={references} taken={taken} onAdd={addVar} variant="ghost" />
+                </div>
+              )}
             </div>
           )}
-          <CardFooter className={cn("transition-opacity", !dirty && "opacity-60")}>
-            <span className="text-xs text-muted">
-              {!canEdit
-                ? "Your role cannot edit variables."
-                : dirty
-                  ? "You have unsaved changes."
-                  : `${current.filter((v) => v.key).length} variables${canSeeSecrets ? "" : " · values hidden for your role"}`}
-            </span>
-            <div className="flex gap-2">
-              {dirty && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setVars(initial.map(withId));
-                    setRaw(null);
-                  }}
-                >
-                  Discard
+          {canEdit ? (
+            <CardFooter className={cn("transition-opacity", !dirty && "opacity-60")}>
+              <span className="text-xs text-muted">
+                {dirty ? "You have unsaved changes." : `${current.filter((v) => v.key).length} variables${canSeeSecrets ? "" : " · values hidden for your role"}`}
+              </span>
+              <div className="flex gap-2">
+                {dirty && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setVars(initial.map(withId));
+                      setRaw(null);
+                    }}
+                  >
+                    Discard
+                  </Button>
+                )}
+                <Button size="sm" variant="primary" disabled={!dirty || !canEdit} loading={save.pending} onClick={() => (canRedeploy ? setConfirmOpen(true) : save.run(false))}>
+                  Save changes
                 </Button>
-              )}
-              <Button size="sm" variant="primary" disabled={!dirty || !canEdit} loading={save.pending} onClick={() => (canRedeploy ? setConfirmOpen(true) : save.run(false))}>
-                Save changes
-              </Button>
-            </div>
-          </CardFooter>
+              </div>
+            </CardFooter>
+          ) : (
+            <CardFooter>
+              <span className="flex items-center gap-1.5 text-xs text-muted">
+                <Lock className="size-3.5" /> Read only. Your role can see these variables but not change them.
+              </span>
+            </CardFooter>
+          )}
         </Card>
       </div>
 
       <div className="flex flex-col gap-4">
-        <Card>
-          <CardHeader title="References" description="Link values from other services. They update when those services change." />
-          <div className="flex max-h-80 flex-col gap-3 overflow-y-auto px-5 py-4 scrollbar-thin">
-            {references.length === 0 && (
-              <p className="text-[13px] text-muted">Add a database or another service to this environment, or add shared variables, to reference their values.</p>
-            )}
-            {references.map((r) => (
-              <div key={r.label ?? r.name} className="flex flex-col gap-1.5">
-                <span className="flex items-center gap-1.5 text-[12px] font-semibold text-fg-2">
-                  <Link2 className="size-3" /> {r.label ?? r.name}
-                </span>
-                <div className="flex flex-wrap gap-1">
-                  {r.keys.map((k) => {
-                    const ref = referenceOf(r.name, k);
-                    return (
-                      <span key={k} className="inline-flex items-center rounded-md bg-surface-2 pl-2 font-mono text-[11px] text-muted ring-1 ring-line">
-                        {k}
-                        <CopyButton value={ref} label={`Copy ${ref}`} className="size-6" />
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-        <Card className="p-5">
-          <p className="text-[13px] font-semibold text-fg">Shared variables</p>
-          <p className="mt-1 text-[13px] leading-relaxed text-muted">
-            {shared.length
-              ? `${shared.length} shared variable${shared.length === 1 ? "" : "s"} apply to every service in this environment: ${shared.slice(0, 6).join(", ")}${shared.length > 6 ? "…" : ""}.`
-              : "Define variables once for every service in this environment."}{" "}
-            <Link href={settingsHref} className="text-accent hover:underline">
-              Manage
-            </Link>{" "}
-            Project and organization variables are in{" "}
-            <Link href="/shared-variables" className="text-accent hover:underline">
-              Shared variables
-            </Link>
-            .
-          </p>
-        </Card>
+        <ReferencesCard references={references} canEdit={canEdit} taken={taken} onAdd={addVar} />
       </div>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -335,5 +305,134 @@ export function VariablesEditor({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Values of other services to reference: one folding group per service, each value with Add and Copy. */
+function ReferencesCard({
+  references,
+  canEdit,
+  taken,
+  onAdd,
+}: {
+  references: { name: string; keys: string[]; label?: string }[];
+  canEdit: boolean;
+  taken: Set<string>;
+  onAdd: (key: string, value: string) => void;
+}) {
+  const [query, setQuery] = React.useState("");
+  const [open, setOpen] = React.useState<Set<string>>(() => new Set(references[0] ? [references[0].name] : []));
+  const q = query.trim().toLowerCase();
+  const groups = references
+    .map((r) => ({ ...r, title: r.label ?? r.name, keys: q && !(r.label ?? r.name).toLowerCase().includes(q) ? r.keys.filter((k) => k.toLowerCase().includes(q)) : r.keys }))
+    .filter((r) => r.keys.length);
+  const toggle = (name: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
+  return (
+    <Card>
+      <CardHeader
+        title="References"
+        description="Nothing is added by itself. Add a value and it becomes KEY=${{source.KEY}}, always up to date. Remove the variable to stop using it."
+      />
+      {references.length === 0 ? (
+        <p className="px-5 py-4 text-[13px] text-muted">Add a database or another service to this environment, or add shared variables, to reference their values.</p>
+      ) : (
+        <>
+          {references.length > 3 && (
+            <div className="border-b border-line px-4 py-2.5">
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter services and values" className="h-8 text-[13px]" aria-label="Filter references" />
+            </div>
+          )}
+          <div className="max-h-[28rem] divide-y divide-line overflow-y-auto scrollbar-thin">
+            {groups.length === 0 && <p className="px-5 py-4 text-[13px] text-muted">Nothing matches.</p>}
+            {groups.map((r) => {
+              const expanded = !!q || open.has(r.name);
+              return (
+                <div key={r.name}>
+                  <button
+                    type="button"
+                    onClick={() => toggle(r.name)}
+                    aria-expanded={expanded}
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-hover"
+                  >
+                    <span className="flex size-6 flex-none items-center justify-center rounded-md bg-fg/[0.05] text-muted">
+                      <Link2 className="size-3.5" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">{r.title}</span>
+                    <span className="flex-none text-xs text-faint tabular-nums">{r.keys.length}</span>
+                    <ChevronDown className={cn("size-3.5 flex-none text-faint transition-transform", expanded && "rotate-180")} />
+                  </button>
+                  {expanded && (
+                    <ul className="pb-2">
+                      {r.keys.map((k) => {
+                        const ref = referenceOf(r.name, k);
+                        const added = taken.has(k);
+                        return (
+                          <li key={k} className="group flex items-center gap-1 py-0.5 pr-2 pl-12">
+                            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-2" title={ref}>
+                              {k}
+                            </span>
+                            {canEdit && (
+                              <Tooltip content={added ? `${k} is already a variable` : `Add ${k}=${ref}`}>
+                                <Button type="button" size="xs" variant="ghost" disabled={added} onClick={() => onAdd(k, ref)} className="opacity-70 group-hover:opacity-100">
+                                  <Plus /> {added ? "Added" : "Add"}
+                                </Button>
+                              </Tooltip>
+                            )}
+                            <CopyButton value={ref} label={`Copy ${ref}`} className="size-7" />
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** One click to add a reference: every value of other services and shared variables, grouped. */
+function AddReferenceMenu({
+  references,
+  taken,
+  onAdd,
+  variant = "secondary",
+}: {
+  references: { name: string; keys: string[]; label?: string }[];
+  taken: Set<string>;
+  onAdd: (key: string, value: string) => void;
+  variant?: "secondary" | "ghost";
+}) {
+  if (!references.length) return null;
+  return (
+    <Menu>
+      <MenuTrigger render={<Button size="sm" variant={variant} />}>
+        <Link2 /> Add reference <ChevronDown className="text-muted" />
+      </MenuTrigger>
+      <MenuContent align="start" className="max-h-[min(60vh,26rem)] w-72 overflow-y-auto">
+        {references.map((r, i) => (
+          <React.Fragment key={r.name}>
+            {i > 0 && <MenuSeparator />}
+            <MenuLabel>{r.label ?? r.name}</MenuLabel>
+            {r.keys.map((k) => (
+              <MenuItem key={k} disabled={taken.has(k)} onClick={() => onAdd(k, referenceOf(r.name, k))}>
+                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{k}</span>
+                {taken.has(k) && <span className="text-[11px] text-faint">Added</span>}
+              </MenuItem>
+            ))}
+          </React.Fragment>
+        ))}
+      </MenuContent>
+    </Menu>
   );
 }

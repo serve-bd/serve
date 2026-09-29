@@ -27,7 +27,9 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
   ]);
   const projectKeys = scoped.filter((v) => v.projectId).map((v) => v.key);
   const orgKeys = scoped.filter((v) => !v.projectId).map((v) => v.key);
+  const envKeys = [...new Set(shared.map((s) => s.key))].sort();
   const references = [
+    ...(envKeys.length ? [{ name: "environment", label: "Environment variables", keys: envKeys }] : []),
     ...siblings.filter((s) => s.id !== service.id).map((s) => ({ name: s.name, keys: Object.keys(providedVars(s)).filter((k) => !k.startsWith("SERVE_SERVICE")) })),
     ...(projectKeys.length ? [{ name: "project", label: "Project variables", keys: projectKeys }] : []),
     ...(orgKeys.length ? [{ name: "org", label: "Organization variables", keys: orgKeys }] : []),
@@ -48,9 +50,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
         })}
         canEdit={ctx.can("variables.edit")}
         canSeeSecrets={canSeeSecrets}
-        shared={shared.map((s) => s.key)}
         references={references}
-        settingsHref={`/projects/${projectId}/settings`}
         composeVars={
           service.compose
             ? composeVariables(service.compose.content)

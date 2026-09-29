@@ -97,7 +97,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     domainsBy.set(domain.serviceId, [...(domainsBy.get(domain.serviceId) ?? []), domain]);
   }
 
-  // Environment variables apply to every service; organization and project ones only by reference.
+  // Shared variables of every scope are used by reference only.
   const sharedMap: Record<string, string> = {};
   const projectMap: Record<string, string> = {};
   const orgMap: Record<string, string> = {};
@@ -157,8 +157,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
 
   const runtime: Record<string, string> = {};
   const build: Record<string, string> = {};
-  // Shared variables apply to every service unless overridden.
-  for (const [k, v] of Object.entries(sharedMap)) runtime[k] = expand(v);
+  // Shared variables only reach a service through references like KEY=${{environment.KEY}}.
   if (service.type === "app" && service.runtime.port) runtime.PORT = String(service.runtime.port);
   for (const [k, v] of Object.entries(ownRaw)) {
     const value = expand(v.value);

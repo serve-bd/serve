@@ -50,7 +50,7 @@ const scopeText: Record<Scope, { title: string; description: string }> = {
   },
   environment: {
     title: "Environment variables",
-    description: "Added to every service in the environment automatically. Service variables with the same name win.",
+    description: "Used by services of the environment that reference them, like KEY=${{environment.KEY}}.",
   },
 };
 
@@ -283,8 +283,8 @@ export function SharedVariables({
             <code className="font-mono text-fg-2">{"${{project.KEY}}"}</code> reads a variable of the service&apos;s project.
           </li>
           <li>
-            <code className="font-mono text-fg-2">{"${{environment.KEY}}"}</code> reads a variable of the service&apos;s environment. These are also added to every service
-            automatically.
+            <code className="font-mono text-fg-2">{"${{environment.KEY}}"}</code> reads a variable of the service&apos;s environment. Nothing is added to a service by itself: add
+            the reference on its Variables page (Add reference).
           </li>
           <li>
             Use a reference as a whole value or inside one, like <code className="font-mono text-fg-2">{"https://${{project.API_HOST}}/v1"}</code>.

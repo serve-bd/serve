@@ -446,3 +446,15 @@ export async function disableTunnel(tunnelId: string) {
     return null;
   });
 }
+
+/** Refresh the status of this organization's tunnels that are still starting or down. */
+export async function refreshTunnels() {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const { refreshTunnelStatus } = await import("@/server/cloudflare/tunnels");
+    const tunnels = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.organizationId, ctx.org.id));
+    const waiting = tunnels.filter((t) => t.status !== "healthy");
+    await Promise.all(waiting.map((t) => refreshTunnelStatus(t)));
+    return null;
+  });
+}

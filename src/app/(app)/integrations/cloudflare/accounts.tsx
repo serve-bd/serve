@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronRight, Cloud, Plus, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState } from "@/components/ui/misc";
@@ -10,7 +11,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { connectCloudflare, disableTunnel, disconnectCloudflare, enableTunnel } from "@/server/actions/integrations";
+import { connectCloudflare, disableTunnel, disconnectCloudflare, enableTunnel, refreshTunnels } from "@/server/actions/integrations";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 
 type Account = { id: string; name: string; zones: { id: string; name: string; status: string; plan: string | null }[]; error: string | null };
@@ -22,13 +23,26 @@ const tunnelTone: Record<string, { color: string; label: string }> = {
   degraded: { color: "var(--warn)", label: "Degraded" },
   down: { color: "var(--bad)", label: "Down" },
   error: { color: "var(--bad)", label: "Error" },
-  pending: { color: "var(--warn)", label: "Starting" },
+  pending: { color: "var(--warn)", label: "Connecting…" },
 };
 
 /** Tunnels from each server to this account: turn on, see status, remove. */
 function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Account; servers: ServerOption[]; tunnels: Tunnel[]; isAdmin: boolean }) {
   const confirm = useConfirm();
+  const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
+  const starting = tunnels.some((t) => t.accountId === account.id && (t.status === "pending" || t.status === "down"));
+  // While a connector is coming up, ask Cloudflare every few seconds instead of waiting for the worker.
+  React.useEffect(() => {
+    if (!starting) return;
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      if (Date.now() - started > 3 * 60_000) return clearInterval(timer);
+      await refreshTunnels();
+      router.refresh();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [starting, router]);
   const enable = useAction(enableTunnel, { success: "Tunnel created. It connects within a minute." });
   const disable = useAction(disableTunnel, { success: "Tunnel removed" });
   return (

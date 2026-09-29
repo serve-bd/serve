@@ -142,23 +142,33 @@ export async function deleteTunnel(tunnelId: string) {
   await db.delete(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
 }
 
+/** Read one tunnel's status from Cloudflare and store it. */
+export async function refreshTunnelStatus(tunnel: Tunnel) {
+  try {
+    const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+    const info = await cf.tunnel(await cfAccountIdOf(tunnel.cloudflareAccountId), tunnel.cfTunnelId);
+    const status = (["healthy", "degraded", "down"].includes(info.status) ? info.status : "pending") as Tunnel["status"];
+    const colos = [...new Set((info.connections ?? []).map((c) => c.colo_name))];
+    const statusMessage = colos.length ? `Connected through ${colos.join(", ")}` : status === "down" ? "No connector is running" : null;
+    await db.update(schema.cloudflareTunnel).set({ status, statusMessage }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
+    return status;
+  } catch (error) {
+    await db.update(schema.cloudflareTunnel).set({ status: "error", statusMessage: (error as Error).message.slice(0, 300) }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
+    return "error" as const;
+  }
+}
+
 /** Refresh status from Cloudflare and keep connectors running. Called by the worker. */
 export async function checkTunnels() {
   const tunnels = await db.select().from(schema.cloudflareTunnel);
   for (const tunnel of tunnels) {
     try {
       await ensureTunnelContainer(tunnel);
-      const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
-      const info = await cf.tunnel(await cfAccountIdOf(tunnel.cloudflareAccountId), tunnel.cfTunnelId);
-      const status = (["healthy", "degraded", "down"].includes(info.status) ? info.status : "pending") as Tunnel["status"];
-      const colos = [...new Set((info.connections ?? []).map((c) => c.colo_name))];
-      await db
-        .update(schema.cloudflareTunnel)
-        .set({ status, statusMessage: colos.length ? `Connected through ${colos.join(", ")}` : status === "down" ? "No connector is running" : null })
-        .where(eq(schema.cloudflareTunnel.id, tunnel.id));
     } catch (error) {
       await db.update(schema.cloudflareTunnel).set({ status: "error", statusMessage: (error as Error).message.slice(0, 300) }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
+      continue;
     }
+    await refreshTunnelStatus(tunnel);
   }
 }
 

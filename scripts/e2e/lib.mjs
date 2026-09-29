@@ -5,6 +5,7 @@ const state = `/tmp/claude-1000/e2e-state-${new URL(base).port}.json`;
 export async function open() {
   const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: state });
+await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
   await ctx.addInitScript(() => { try { localStorage.setItem("serve-theme", "light"); } catch {} });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log("pageerror:", e.message));

@@ -3,6 +3,7 @@ const base = process.env.BASE ?? "http://localhost:3001";
 const theme = process.env.THEME ?? "dark";
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: `/tmp/claude-1000/e2e-state-${new URL(base).port}.json` });
+await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
 await ctx.addInitScript((t) => { try { localStorage.setItem("serve-theme", t); } catch {} }, theme);
 const page = await ctx.newPage();
 const P = "/projects/qo54wmtde6yvi0j5", S = `${P}/services/tde4j8emy0w92qi7`;

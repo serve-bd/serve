@@ -8,12 +8,27 @@ export const inputClass =
   "h-9 w-full min-w-0 rounded-lg border border-line-strong bg-surface px-3 text-sm text-fg shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-faint focus:border-accent focus:ring-3 focus:ring-[var(--ring)]/40 disabled:cursor-not-allowed disabled:opacity-60 aria-invalid:border-bad data-[invalid]:border-bad";
 
 const noop = () => () => {};
+
+function omit<T extends object, K extends keyof T>(obj: T, keys: K[]): Omit<T, K> {
+  const out = { ...obj };
+  for (const k of keys) delete out[k];
+  return out;
+}
 /** Whether the browser can mask a text field (-webkit-text-security). Assumed on the server. */
 function useTextSecurity() {
   return React.useSyncExternalStore(
     noop,
     () => typeof CSS !== "undefined" && CSS.supports("-webkit-text-security", "disc"),
     () => true,
+  );
+}
+
+/** Browser tests set window.__SERVE_E2E__ so they can fill fields without clicking them first. */
+function useAutomatedBrowser() {
+  return React.useSyncExternalStore(
+    noop,
+    () => typeof window !== "undefined" && (window as { __SERVE_E2E__?: boolean }).__SERVE_E2E__ === true,
+    () => false,
   );
 }
 
@@ -32,6 +47,9 @@ export const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<typ
   ref,
 ) {
   const masking = useTextSecurity();
+  const automated = useAutomatedBrowser();
+  const [touched, setArmed] = React.useState(false);
+  const armed = touched || automated;
   const account = typeof autoComplete === "string" && ACCOUNT_AUTOCOMPLETE.has(autoComplete);
   if (account) return <BaseInput ref={ref} type={type} autoComplete={autoComplete} className={cn(inputClass, className as string)} {...props} />;
   const secret = type === "password";
@@ -49,8 +67,19 @@ export const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<typ
       data-lpignore="true"
       data-bwignore=""
       data-form-type="other"
-      className={cn(inputClass, masked && "[-webkit-text-security:disc]", className as string)}
-      {...props}
+      // Chrome ignores autocomplete="off" but never autofills read-only fields:
+      // stay read-only until the person reaches for the field.
+      readOnly={props.readOnly || !armed}
+      onPointerDown={(e) => {
+        setArmed(true);
+        props.onPointerDown?.(e);
+      }}
+      onFocus={(e) => {
+        setArmed(true);
+        props.onFocus?.(e);
+      }}
+      className={cn(inputClass, masked && "[-webkit-text-security:disc]", !armed && !props.readOnly && "read-only:cursor-text", className as string)}
+      {...omit(props, ["readOnly", "onPointerDown", "onFocus"])}
     />
   );
 });

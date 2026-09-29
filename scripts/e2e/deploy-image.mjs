@@ -5,6 +5,7 @@ const state = `/tmp/claude-1000/e2e-state-${new URL(base).port}.json`;
 const image = process.argv[2] ?? "traefik/whoami:latest";
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: state, colorScheme: "dark" });
+await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => console.log("pageerror", e.message));
 await page.goto(base + "/projects", { waitUntil: "networkidle" });

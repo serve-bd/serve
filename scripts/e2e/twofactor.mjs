@@ -16,6 +16,7 @@ function totp(secret) {
 }
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
 const ctx = await browser.newContext({ storageState: `/tmp/claude-1000/e2e-state-${new URL(base).port}.json` });
+await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
 const page = await ctx.newPage();
 await page.goto(base + "/account", { waitUntil: "networkidle" });
 const enableRes = page.waitForResponse((r) => r.url().includes("/two-factor/enable"));
@@ -30,6 +31,7 @@ await page.waitForTimeout(1500);
 console.log("enabled:", await page.getByText("Enabled", { exact: true }).count() > 0);
 // Fresh login requires the code.
 const ctx2 = await browser.newContext();
+await ctx2.addInitScript(() => { window.__SERVE_E2E__ = true; });
 const p2 = await ctx2.newPage();
 await p2.goto(base + "/login", { waitUntil: "networkidle" });
 await p2.fill('input[name="email"]', email);

@@ -27,6 +27,7 @@ const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", arg
 
 for (const width of widths) {
   const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: "dark", storageState: fs.existsSync(state) ? state : undefined });
+await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
   await ctx.addInitScript(() => { try { localStorage.setItem("serve-theme", "dark"); } catch {} });
   const page = await ctx.newPage();
   await page.goto(base + "/login", { waitUntil: "networkidle" });

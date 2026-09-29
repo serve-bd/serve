@@ -7,6 +7,7 @@ const base = process.env.BASE ?? "http://localhost:3001";
 const state = `/tmp/claude-1000/e2e-state-${new URL(base).port}.json`;
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", storageState: fs.existsSync(state) ? state : undefined });
+await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
 const page = await ctx.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));

@@ -9,6 +9,7 @@ const out = process.env.OUT ?? "/tmp/claude-1000";
 const width = Number(process.env.WIDTH ?? 1280);
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--no-sandbox"] });
 const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: "dark", storageState: `/tmp/claude-1000/e2e-state-${new URL(base).port}.json` });
+await ctx.addInitScript(() => { window.__SERVE_E2E__ = true; });
 await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
 const page = await ctx.newPage();
 const errors = [];

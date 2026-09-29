@@ -59,6 +59,54 @@ export type Settings = {
   lastCleanup: CleanupRun | null;
   /** Most recent cleanup runs, newest first (max 10). */
   cleanupHistory: CleanupRun[];
+  /** Cron expression for backups of Serve itself; null turns them off. */
+  instanceBackupSchedule: string | null;
+  /** Instance backups kept (locally and in S3). */
+  instanceBackupRetention: number;
+  /** S3 destination (of the Root organization) that also receives instance backups. */
+  instanceBackupS3DestinationId: string | null;
+  /** Instance backups, newest first. */
+  instanceBackups: InstanceBackup[];
+  /** Look for new releases of Serve. */
+  updateCheckEnabled: boolean;
+  updateCheck: UpdateCheck | null;
+  /** The last self-update, while it runs and after. */
+  updateRun: UpdateRun | null;
+};
+
+export type InstanceBackup = {
+  id: string;
+  createdAt: string;
+  finishedAt: string | null;
+  status: "running" | "success" | "failed";
+  trigger: "manual" | "schedule" | "update";
+  filename: string | null;
+  size: number | null;
+  s3Key: string | null;
+  s3Status: "uploaded" | "failed" | null;
+  error: string | null;
+  version: string;
+};
+
+export type UpdateCheck = {
+  checkedAt: string;
+  latest: string | null;
+  url: string | null;
+  notes: string | null;
+  publishedAt: string | null;
+  error: string | null;
+};
+
+export type UpdateRun = {
+  id: string;
+  state: "backing-up" | "running" | "success" | "failed";
+  from: string;
+  to: string;
+  startedAt: string;
+  finishedAt: string | null;
+  /** Container that pulls the new image and restarts the stack. */
+  container: string | null;
+  log: string;
 };
 
 export type CleanupRun = {
@@ -103,6 +151,13 @@ export const defaultSettings: Settings = {
   cleanupUnusedImages: false,
   lastCleanup: null,
   cleanupHistory: [],
+  instanceBackupSchedule: null,
+  instanceBackupRetention: 7,
+  instanceBackupS3DestinationId: null,
+  instanceBackups: [],
+  updateCheckEnabled: true,
+  updateCheck: null,
+  updateRun: null,
 };
 
 /** The local server row is the source of truth for the deprecated addressing keys. */

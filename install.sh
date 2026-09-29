@@ -96,6 +96,7 @@ fi
 # 4. Compose file ------------------------------------------------------------------
 info "Downloading the stack definition"
 curl -fsSL "$REPO_RAW/docker/compose.yml" -o "$DATA_DIR/docker-compose.yml"
+curl -fsSL "$REPO_RAW/scripts/restore-instance.sh" -o "$DATA_DIR/restore-instance.sh" && chmod 700 "$DATA_DIR/restore-instance.sh"
 
 # 5. Ports ---------------------------------------------------------------------------
 for p in 80 443 "$PORT"; do

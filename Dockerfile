@@ -11,6 +11,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 FROM node:22-alpine AS runner
+# Shown in Settings → Updates; set by the image workflow.
+ARG SERVE_COMMIT=""
+ARG SERVE_VERSION=""
 RUN apk add --no-cache docker-cli docker-cli-compose docker-cli-buildx git openssh-client openssl ca-certificates tini curl bash \
   && (curl -sSL https://nixpacks.com/install.sh | bash || echo "nixpacks not installed")
 WORKDIR /app
@@ -19,7 +22,9 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
     SERVE_MIGRATIONS_DIR=/app/drizzle \
-    SERVE_DATA_DIR=/data/serve
+    SERVE_DATA_DIR=/data/serve \
+    SERVE_COMMIT=${SERVE_COMMIT} \
+    SERVE_BUILD_VERSION=${SERVE_VERSION}
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public

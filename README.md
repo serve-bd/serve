@@ -9,6 +9,7 @@ Everything runs in Docker. A reverse proxy of your choice (nginx, Caddy or Traef
 - [Features](#features)
 - [Install](#install)
 - [Updating](#updating)
+- [Backup and restore](#backup-and-restore)
 - [Configuration](#configuration)
 - [How it works](#how-it-works)
 - [Guides](#guides)
@@ -57,6 +58,7 @@ Everything runs in Docker. A reverse proxy of your choice (nginx, Caddy or Traef
 - Browser terminal into containers, scheduled tasks (cron) with run history, and CPU, memory, network and request metrics.
 - Notifications to Discord, Slack, Telegram or any webhook.
 - Organizations with owners, admins and members, invite links, an activity log, two-factor authentication and API tokens.
+- Backups of Serve itself on a schedule (locally and to S3), and one-click updates that back up first.
 
 ## Install
 
@@ -86,11 +88,54 @@ The data directory must stay `/data/serve`: the worker creates bind mounts with 
 
 ## Updating
 
+**Settings → Updates** shows the running version and commit and checks GitHub releases every few hours (turn it off on the same page; nothing about the instance is sent). When a newer release exists, **Update now**:
+
+1. takes a backup of the instance (see below),
+2. moves `SERVE_IMAGE` in `/data/serve/.env` to the new version if it is pinned to one (`:latest` is kept and pulled again),
+3. starts a short-lived `serve-updater` container that runs `docker compose pull` and `docker compose up -d` for `serve` and `serve-worker`.
+
+The dashboard is unavailable for about a minute; deployed services keep running. Progress and the updater's output stay on the page, and database migrations run when the new version starts.
+
+To update by hand instead:
+
 ```bash
 cd /data/serve && docker compose pull && docker compose up -d
 ```
 
-Database migrations run when the new version starts.
+A development checkout (not the Docker Compose install) is updated with `git pull && pnpm install && pnpm db:migrate && pnpm build && pnpm build:worker`, then restart the web and worker processes.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `SERVE_UPDATE_REPO` | `shahriyardx/serve` | GitHub repository whose releases announce updates |
+
+## Backup and restore
+
+**Settings → Backups** backs up Serve itself, on a schedule or on demand. Each backup is one `.tar.gz` file stored in `/data/serve/backups/instance` and, optionally, uploaded to an S3 destination of the Root organization. Older backups are removed by the retention setting, in both places.
+
+A backup contains:
+
+| Part | From |
+| --- | --- |
+| `database.dump` | Serve's PostgreSQL (`pg_dump` custom format) |
+| `certs`, `letsencrypt` | Uploaded and issued certificates |
+| `proxy` | Proxy configuration and dynamic configuration files (not its logs) |
+| `ssh` | SSH keys Serve generated |
+| `services` | Per-service files: compose files, file mounts, database TLS authorities (not git clones or build workspaces) |
+| `docker-compose.yml` | The stack definition |
+| `manifest.json` | Version, commit, schema version and contents of the backup |
+
+Service volumes (your apps' and databases' data) are not part of it: back databases up from their **Backups** tab.
+
+> **The encryption key is never in a backup.** Passwords, tokens and keys in the database are encrypted with `SERVE_ENCRYPTION_KEY` (or `BETTER_AUTH_SECRET` when it is unset). Without the same key, a restored instance cannot read them. Save it in a password manager; **Settings → Backups → Show encryption key** shows it to Root admins (the reveal is logged).
+
+To restore on a server with the Docker Compose install:
+
+```bash
+# /data/serve/.env must contain the original SERVE_ENCRYPTION_KEY
+sudo bash /data/serve/restore-instance.sh serve-2026-01-01T03-00-00-v0.2.0.tar.gz
+```
+
+The script (`scripts/restore-instance.sh`, installed next to the compose file) checks the manifest, stops the dashboard and worker, restores the database with `pg_restore --clean`, puts the instance files back and starts Serve again. A running Serve never restores its own database from the dashboard.
 
 ## Configuration
 

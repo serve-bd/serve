@@ -22,6 +22,8 @@ import { probeServer, setupServer } from "@/server/servers/setup";
 import { getServer, serverOf } from "@/server/servers/context";
 import { SCHEMA_VERSION } from "@/server/version";
 import { checkTunnels } from "@/server/cloudflare/tunnels";
+import { failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBackups } from "@/server/instance/backups";
+import { periodicUpdateCheck, reconcileUpdate, runUpdate } from "@/server/instance/updates";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -65,6 +67,10 @@ async function handle(job: Job, signal: AbortSignal) {
       return runTask(p.runId);
     case "server.setup":
       return setupServer(p.serverId, { installDocker: (job.payload as { installDocker?: boolean }).installDocker === true });
+    case "instance.backup":
+      return runInstanceBackup(p.backupId, (l) => log(`instance backup: ${l}`));
+    case "instance.update":
+      return runUpdate(p.to);
     case "proxy.switch": {
       const { switchProxy } = await import("@/server/proxy/switch");
       return switchProxy(p.serverId, p.to as ProxyKind);
@@ -255,6 +261,8 @@ async function scheduleBackups() {
 /* -------------------------------------------------------------------------- */
 
 async function recover() {
+  // A backup cut off by a restart left a partial file and a "running" record.
+  await failInterruptedInstanceBackups().catch(() => {});
   const stale = await recoverStaleJobs();
   if (stale.length) log(`Recovered ${stale.length} interrupted job(s)`);
   const stuck = await db
@@ -321,6 +329,9 @@ async function main() {
   every(60_000, "tunnels", checkTunnels, true);
   every(30_000, "metrics", collectMetrics, true);
   every(60_000, "backups", scheduleBackups);
+  every(60_000, "instance-backups", () => scheduleInstanceBackups((backupId) => enqueue("instance.backup", { backupId }, { concurrencyKey: "instance-backup" })));
+  every(15_000, "update-status", reconcileUpdate, true);
+  every(30 * 60_000, "update-check", periodicUpdateCheck, true);
   every(60_000, "tasks", scheduleTasks);
   every(20_000, "analytics", ingestAccessLog, true);
   every(6 * 3600_000, "certificates", renewDueCertificates, true);

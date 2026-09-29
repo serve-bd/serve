@@ -298,15 +298,20 @@ export function DomainsManager(props: Props) {
                   <MoreHorizontal className="size-4" />
                 </MenuTrigger>
                 <MenuContent>
-                  <MenuItem onClick={() => toggleHttps.run(d.id, !d.https)}>
-                    {d.https ? <LockOpen /> : <Lock />} {d.https ? "Use HTTP only" : "Enable HTTPS"}
-                  </MenuItem>
-                  {d.https && d.certificate?.status !== "active" && (
-                    <MenuItem onClick={() => retry.run(d.id)}>
-                      <RefreshCw /> Retry certificate
-                    </MenuItem>
+                  {/* Tunnel domains get HTTPS from Cloudflare; there is nothing to toggle. */}
+                  {!d.tunnel && (
+                    <>
+                      <MenuItem onClick={() => toggleHttps.run(d.id, !d.https)}>
+                        {d.https ? <LockOpen /> : <Lock />} {d.https ? "Use HTTP only" : "Enable HTTPS"}
+                      </MenuItem>
+                      {d.https && d.certificate?.status !== "active" && (
+                        <MenuItem onClick={() => retry.run(d.id)}>
+                          <RefreshCw /> Retry certificate
+                        </MenuItem>
+                      )}
+                      <MenuSeparator />
+                    </>
                   )}
-                  <MenuSeparator />
                   <MenuItem
                     danger
                     onClick={async () => {

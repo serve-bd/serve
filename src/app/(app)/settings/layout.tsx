@@ -30,6 +30,7 @@ export default async function SettingsLayout({ children }: LayoutProps<"/setting
               items: [
                 { href: "/settings", label: "General", icon: "Settings2", exact: true },
                 { href: "/settings/branding", label: "Branding", icon: "Palette" },
+                { href: "/settings/organizations", label: "Organizations", icon: "Building2" },
                 { href: "/settings/dashboard", label: "Dashboard & TLS", icon: "Globe" },
                 { href: "/settings/email", label: "Email", icon: "Mail" },
                 { href: "/settings/advanced", label: "Advanced", icon: "SlidersHorizontal" },

@@ -13,7 +13,7 @@ export const severityOptions: { value: Severity; label: string; description: str
   { value: "critical", label: "Critical only", description: "Outages, crashes and failed backups." },
 ];
 
-export type NotifyEventGroup = "Deployments" | "Uptime & incidents" | "Backups" | "Certificates" | "Servers" | "Tasks" | "Serve";
+export type NotifyEventGroup = "Deployments" | "Uptime & incidents" | "Backups" | "Certificates" | "Servers" | "Tasks" | "Organization" | "Serve";
 
 export const notifyEventCatalog = [
   { id: "deploy.success", label: "Deployment succeeded", group: "Deployments", severity: "info" },
@@ -29,6 +29,7 @@ export const notifyEventCatalog = [
   { id: "server.resource", label: "Server CPU, memory or disk high", group: "Servers", severity: "warning" },
   { id: "server.disk", label: "Disk full, cleanup ran", group: "Servers", severity: "warning" },
   { id: "task.failed", label: "Scheduled task failed", group: "Tasks", severity: "warning" },
+  { id: "org.limit", label: "Organization limit reached", group: "Organization", severity: "warning" },
   { id: "instance.backup.success", label: "Serve backup succeeded", group: "Serve", severity: "info" },
   { id: "instance.backup.failed", label: "Serve backup failed", group: "Serve", severity: "critical" },
   { id: "instance.update.available", label: "Serve update available", group: "Serve", severity: "info" },
@@ -38,7 +39,7 @@ export const notifyEventCatalog = [
 
 export type NotifyEvent = (typeof notifyEventCatalog)[number]["id"];
 
-export const notifyEventGroups: NotifyEventGroup[] = ["Deployments", "Uptime & incidents", "Backups", "Certificates", "Servers", "Tasks", "Serve"];
+export const notifyEventGroups: NotifyEventGroup[] = ["Deployments", "Uptime & incidents", "Backups", "Certificates", "Servers", "Tasks", "Organization", "Serve"];
 
 export function eventInfo(id: string) {
   return notifyEventCatalog.find((e) => e.id === id);

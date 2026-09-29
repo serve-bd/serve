@@ -22,6 +22,7 @@ import {
   Sun,
   User,
   Users,
+  Gauge,
   Bell,
   HardDriveUpload,
   KeyRound,
@@ -75,6 +76,7 @@ const integrationNav: NavItem[] = [
 
 const orgNav: NavItem[] = [
   { href: "/organization/members", label: "Members", icon: Users },
+  { href: "/organization/usage", label: "Usage", icon: Gauge },
   { href: "/shared-variables", label: "Shared variables", icon: Variable },
   { href: "/templates", label: "Templates", icon: LayoutTemplate },
   { href: "/keys", label: "Keys & tokens", icon: KeyRound },

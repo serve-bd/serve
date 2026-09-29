@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { UserError } from "@/server/action";
 import { db, schema } from "@/server/db";
 import { queueDeployment } from "@/server/services/create";
 import { commentOnGithub, deployPreview, removePreview, type PullRequest } from "@/server/services/previews";
@@ -161,7 +162,14 @@ export async function applyPullRequest(service: Service, event: PrEvent): Promis
   if (!service.previewsEnabled || service.parentServiceId) return { skipped: "Preview deployments are off" };
   if (event.action === "fork") return { skipped: "Pull requests from forks are not deployed" };
   if (event.action === "close") return { removed: await removePreview(service, event.pr.number) };
-  const result = await deployPreview(service, event.pr);
+  let result: Awaited<ReturnType<typeof deployPreview>>;
+  try {
+    result = await deployPreview(service, event.pr);
+  } catch (e) {
+    // A full organization limit skips the preview with its reason instead of failing the webhook.
+    if (e instanceof UserError) return { skipped: e.message };
+    throw e;
+  }
   if (result) {
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, result.preview.id));
     void commentOnGithub(service, event.pr, domain ? `${domain.https ? "https" : "http"}://${domain.hostname}` : null);

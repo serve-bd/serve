@@ -155,6 +155,13 @@
       "when": 1790701560832,
       "tag": "0021_registries_distribution",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790705730540,
+      "tag": "0022_organization_limits",
+      "breakpoints": true
     }
   ]
 }

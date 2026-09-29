@@ -25,6 +25,7 @@ import { teardownServices } from "@/server/services/teardown";
 import { composeSecurityIssues, safeRedirectUrl } from "@/server/security";
 import type { OrgContext } from "@/server/auth";
 import { requestServiceControl } from "@/server/services/control";
+import { hasRoom, requireNotOver, requireResourceChange, requireRoom, withReservation } from "@/server/limits";
 import { restartOwnContainer } from "@/server/services/container-info";
 import { resolveServerForOrg, serverPublicIp } from "@/server/servers/access";
 import { HOSTNAME_RE } from "@/lib/hostname";
@@ -64,6 +65,8 @@ function assertSafeCompose(ctx: OrgContext, content: string) {
 async function addGeneratedDomain(serviceId: string, slug: string, organizationId: string, port?: number | null, composeService?: string | null, serverId?: string) {
   const generated = await generatedHostname(slug, serverId);
   if (!generated) return;
+  // A full domain limit skips the generated domain instead of failing the service.
+  if (!(await hasRoom(organizationId, { domains: 1 }))) return;
   const [domain] = await db
     .insert(schema.domain)
     .values({
@@ -134,6 +137,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
 
     if (data.source.type === "git") await assertCredential(data.source.credentialId, ctx.org.id);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
+    const reserved = await requireRoom(ctx.org.id, { services: 1, type: "app", serverId: server.id });
 
     const source: SourceConfig =
       data.source.type === "git"
@@ -157,7 +161,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
       type: "app",
       source,
       build: data.source.type === "git" ? { ...defaultBuild(), ...(data.build as Partial<BuildConfig>) } : null,
-      runtime: defaultRuntime(data.port ?? null),
+      runtime: withReservation(defaultRuntime(data.port ?? null), reserved),
       webhookSecret: newWebhookSecret(),
     });
     await writeEnvVars(
@@ -201,6 +205,7 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
     await projectInOrg(data.projectId, ctx.org.id);
     await assertEnvironment(data.projectId, data.environmentId);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
+    const reserved = await requireRoom(ctx.org.id, { services: 1, type: "database", serverId: server.id });
     const engine = engines[data.engine];
     const version = data.version && engine.versions.includes(data.version) ? data.version : engine.defaultVersion;
     const id = newId();
@@ -212,7 +217,7 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
       name: data.name,
       slug: await uniqueServiceSlug(data.name),
       type: "database",
-      runtime: { ...defaultRuntime(engine.port), restartPolicy: "unless-stopped" },
+      runtime: withReservation({ ...defaultRuntime(engine.port), restartPolicy: "unless-stopped" as const }, reserved),
       database: {
         engine: data.engine,
         version,
@@ -275,6 +280,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
     } else if (!data.source) throw new UserError("Enter a repository.");
     await assertCredential(data.source?.credentialId, ctx.org.id);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
+    const reserved = await requireRoom(ctx.org.id, { services: 1, type: "compose", serverId: server.id });
     if (!server.isLocal && server.info && (server.info as { compose?: string | null }).compose === null) {
       throw new UserError(`${server.name} has no Docker Compose. Install the compose plugin there first.`);
     }
@@ -295,7 +301,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
         data.mode === "git" && data.source
           ? { type: "git", repository: normalizeRepoUrl(data.source.repository), branch: data.source.branch, credentialId: data.source.credentialId ?? null }
           : null,
-      runtime: defaultRuntime(null),
+      runtime: withReservation(defaultRuntime(null), reserved),
       compose: { mode: data.mode, content, path: data.path || "docker-compose.yml", template: template?.id ?? null },
       webhookSecret: newWebhookSecret(),
     });
@@ -525,6 +531,9 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     if (data.build) patch.build = { ...defaultBuild(), ...service.build, ...data.build } as BuildConfig;
     if (data.runtime) {
       const runtime = { ...service.runtime, ...data.runtime } as RuntimeConfig;
+      if (runtime.cpuLimit !== service.runtime.cpuLimit || runtime.memoryLimit !== service.runtime.memoryLimit) {
+        await requireResourceChange(ctx.org.id, service.runtime, { cpuLimit: runtime.cpuLimit ?? null, memoryLimit: runtime.memoryLimit ?? null });
+      }
       const addsBind = runtime.volumes.some((v) => v.kind === "bind") && JSON.stringify(runtime.volumes) !== JSON.stringify(service.runtime.volumes);
       const addsPorts = runtime.ports.length > 0 && JSON.stringify(runtime.ports) !== JSON.stringify(service.runtime.ports);
       if (addsBind) assertHostAccess(ctx, "Mounting host paths");
@@ -743,6 +752,7 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
     if (service.parentServiceId) throw new UserError("Preview deployments follow their parent service.");
     if (service.serverId === serverId) throw new UserError("The service already runs on that server.");
     const target = await resolveServerForOrg(serverId, ctx.org.id);
+    await requireRoom(ctx.org.id, { serverId: target.id });
     const [source] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, service.serverId));
     if (service.type === "database" && !opts.force) {
       throw new UserError(
@@ -919,6 +929,7 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
     if (service.type === "compose" && !data.composeService && !data.redirectTo) throw new UserError("Pick which compose service receives traffic.");
     const [taken] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, data.hostname));
     if (taken) throw new UserError("That domain is already connected to a service.");
+    await requireRoom(ctx.org.id, { domains: 1 });
     if (data.certificateId) {
       const [cert] = await db
         .select({ id: schema.certificate.id })
@@ -1220,6 +1231,7 @@ export async function createBackup(serviceId: string) {
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "database") throw new UserError("Backups are available for databases.");
     if (service.status !== "running") throw new UserError("Start the database before backing it up.");
+    await requireNotOver(ctx.org.id, "backupStorage");
     const id = newId();
     await db.insert(schema.backup).values({ id, serviceId, trigger: "manual" });
     await enqueue("backup.run", { backupId: id }, { concurrencyKey: `backup:${serviceId}` });

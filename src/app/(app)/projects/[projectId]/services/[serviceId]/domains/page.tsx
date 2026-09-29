@@ -50,10 +50,16 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
   // Main compose service first: the one a template exposes, else the file's first.
   const template = service.compose?.template ? getTemplate(service.compose.template) : null;
   const names = composeServiceNames(content);
-  const main = template?.expose.service && names.includes(template.expose.service) ? template.expose.service : names[0];
+  // Otherwise the service a domain already routes to (custom templates, pasted stacks).
+  const routed = domains.find((d) => d.composeService && names.includes(d.composeService))?.composeService;
+  const main = template?.expose.service && names.includes(template.expose.service) ? template.expose.service : (routed ?? names[0]);
   const composeServices = main ? [main, ...names.filter((n) => n !== main)] : names;
   const composePorts = composeServicePorts(content);
   if (template?.expose && main === template.expose.service && !composePorts[main]?.length) composePorts[main] = [template.expose.port];
+  // Ports the domains already route to are known to work; use them where the file lists none.
+  for (const d of domains) {
+    if (d.composeService && d.port && !composePorts[d.composeService]?.includes(d.port)) composePorts[d.composeService] = [d.port, ...(composePorts[d.composeService] ?? [])];
+  }
   const kind = server.proxyKind as RunningKind | "none";
   // The generated site is only shown to Root admins, who may replace it.
   const serverCtx = await getServer(service.serverId).catch(() => null);

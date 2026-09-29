@@ -43,6 +43,8 @@ export async function busyHostPorts(service: Service): Promise<number[]> {
   const { serverOf } = await import("@/server/servers/context");
   const server = await serverOf(service);
   const busy = new Set<number>([server.proxyHttpPort, server.proxyHttpsPort]);
+  // The dashboard itself, when it runs directly on this machine (development). Docker cannot see it.
+  if (server.local) for (const p of [3000, Number(process.env.PORT)]) if (p) busy.add(p);
   const containers = await server.docker.listContainers().catch(() => []);
   for (const c of containers) {
     if (c.Labels["serve.service"] === service.id) continue;

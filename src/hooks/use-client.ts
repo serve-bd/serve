@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useTheme as useNextTheme } from "next-themes";
 
 function subscribeNow(cb: () => void) {
   const t = setInterval(cb, 30_000);
@@ -16,25 +17,11 @@ export function useNow(): number | null {
   );
 }
 
-function subscribeTheme(cb: () => void) {
-  const observer = new MutationObserver(cb);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-  return () => observer.disconnect();
-}
-
+/** The theme on screen and a toggle between light and dark (next-themes underneath). */
 export function useTheme() {
-  const theme = React.useSyncExternalStore(
-    subscribeTheme,
-    () => (document.documentElement.dataset.theme === "light" ? "light" : "dark"),
-    () => "dark",
-  ) as "light" | "dark";
-  const toggle = React.useCallback(() => {
-    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    try {
-      localStorage.setItem("serve-theme", next);
-    } catch {}
-  }, []);
+  const { resolvedTheme, setTheme } = useNextTheme();
+  const theme = (resolvedTheme === "light" ? "light" : "dark") as "light" | "dark";
+  const toggle = React.useCallback(() => setTheme(theme === "dark" ? "light" : "dark"), [theme, setTheme]);
   return { theme, toggle };
 }
 

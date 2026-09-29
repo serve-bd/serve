@@ -34,6 +34,7 @@
     "motion": "^13.4.4",
     "nanoid": "^6.0.1",
     "next": "16.3.6",
+    "next-themes": "^0.4.6",
     "postgres": "^3.4.9",
     "qrcode": "^1.5.4",
     "react": "19.2.8",

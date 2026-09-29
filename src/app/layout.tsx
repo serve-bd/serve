@@ -19,15 +19,11 @@ export const viewport: Viewport = {
   ],
 };
 
-// Applies the saved theme before first paint (no flash).
-const themeScript = `(function(){try{var t=localStorage.getItem("serve-theme");if(t!=="light"&&t!=="dark"){t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme="light"}})()`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
+  // next-themes (in Providers) sets data-theme before paint.
   return (
-    <html lang="en" data-theme="light" suppressHydrationWarning className={`${body.variable} ${code.variable} h-full`}>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
+    <html lang="en" suppressHydrationWarning className={`${body.variable} ${code.variable} h-full`}>
       <body className="min-h-full">
         <div className="root min-h-full">
           <Providers>{children}</Providers>

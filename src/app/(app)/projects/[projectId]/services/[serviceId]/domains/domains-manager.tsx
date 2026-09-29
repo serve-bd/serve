@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUpRight, Cloud, Globe, Lock, LockOpen, MoreHorizontal, Plus, RefreshCw, Sparkles, Star, Trash2, CornerDownRight, Waypoints } from "lucide-react";
+import { ArrowUpRight, Cloud, Globe, Lock, LockOpen, MoreHorizontal, Pencil, Plus, RefreshCw, Sparkles, Star, Trash2, CornerDownRight, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -307,8 +307,63 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
   );
 }
 
+/** Change where a domain routes: the compose service and the container port. */
+function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: DomainRow; onClose: () => void }) {
+  const compose = props.type === "compose";
+  const [composeService, setComposeService] = React.useState(domain.composeService ?? props.composeServices[0] ?? "");
+  const [port, setPort] = React.useState(domain.port ? String(domain.port) : "");
+  const save = useAction(() => updateDomain(domain.id, { port: port ? Number(port) : null, ...(compose ? { composeService: composeService || null } : {}) }), {
+    success: "Domain updated",
+    onSuccess: onClose,
+  });
+  const detected = compose ? props.composePorts[composeService] ?? [] : [];
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save.run();
+          }}
+        >
+          <DialogHeader title={`Edit ${domain.hostname}`} description="Where traffic for this domain goes. Applies right away; no redeploy needed." />
+          <DialogBody>
+            {compose && (
+              <Field label="Compose service">
+                <Select
+                  value={composeService}
+                  onValueChange={(v) => {
+                    setComposeService(v);
+                    const first = props.composePorts[v]?.[0];
+                    if (first) setPort(String(first));
+                  }}
+                  options={props.composeServices.map((s) => ({ value: s, label: s, description: props.composePorts[s]?.length ? `Ports ${props.composePorts[s].join(", ")}` : undefined }))}
+                />
+              </Field>
+            )}
+            <Field
+              label="Container port"
+              optional={!compose}
+              description={detected.length ? `Found in the compose file: ${detected.join(", ")}` : !compose && props.defaultPort ? `Empty uses the service port (${props.defaultPort}).` : "The port the app listens on inside the container."}
+            >
+              <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder={String(props.defaultPort ?? 80)} inputMode="numeric" required={compose} />
+            </Field>
+          </DialogBody>
+          <DialogFooter>
+            <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
+            <Button type="submit" variant="primary" size="sm" loading={save.pending}>
+              Save
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function DomainsManager(props: Props) {
   const [open, setOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<DomainRow | null>(null);
   const confirm = useConfirm();
   const generate = useAction(() => generateDomain(props.serviceId), { success: "Domain generated" });
   const remove = useAction((id: string, dns: boolean) => removeDomain(id, dns), { success: "Domain removed" });
@@ -368,6 +423,11 @@ export function DomainsManager(props: Props) {
                   <MoreHorizontal className="size-4" />
                 </MenuTrigger>
                 <MenuContent>
+                  {!d.redirectTo && (
+                    <MenuItem onClick={() => setEditing(d)}>
+                      <Pencil /> Edit
+                    </MenuItem>
+                  )}
                   {!d.primary && !d.redirectTo && (
                     <>
                       <MenuItem onClick={() => makePrimary.run(d.id)}>
@@ -406,6 +466,7 @@ export function DomainsManager(props: Props) {
         </div>
       )}
       <AddDomainDialog props={props} open={open} onOpenChange={setOpen} />
+      {editing && <EditDomainDialog key={editing.id} props={props} domain={editing} onClose={() => setEditing(null)} />}
     </Card>
   );
 }

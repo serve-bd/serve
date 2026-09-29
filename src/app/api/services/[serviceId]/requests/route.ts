@@ -1,3 +1,4 @@
+import { cannotMessage } from "@/lib/permissions";
 import { NextResponse, type NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
@@ -8,6 +9,7 @@ import { requestSeries } from "@/server/analytics";
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/services/[serviceId]/requests">) {
   const { serviceId } = await ctx.params;
   const org = await requireOrg();
+  if (!org.can("logs.view")) return new Response(cannotMessage("logs.view"), { status: 403 });
   try {
     await serviceInOrg(serviceId, org.org.id);
   } catch {

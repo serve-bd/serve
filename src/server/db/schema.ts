@@ -134,6 +134,10 @@ export const member = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").$type<MemberRole>().notNull(),
+    /** Role that decides permissions: "developer", "viewer" or a custom org_role id. Null derives it from `role`. */
+    roleId: text("role_id"),
+    /** Projects the member can reach. Null means every project. */
+    projectIds: text("project_ids").array(),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("member_org_user_idx").on(t.organizationId, t.userId), index("member_user_idx").on(t.userId)],
@@ -148,6 +152,8 @@ export const invitation = pgTable(
       .references(() => organization.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
     role: text("role").$type<MemberRole>(),
+    /** Role given on acceptance ("developer", "viewer" or a custom role id). */
+    roleId: text("role_id"),
     teamId: text("team_id"),
     status: text("status").notNull().default("pending"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -163,6 +169,25 @@ const orgRef = () =>
   text("organization_id")
     .notNull()
     .references(() => organization.id, { onDelete: "cascade" });
+
+/**
+ * Roles of an organization. A row with `builtin` set overrides that built-in role's
+ * permissions (only Developer is adjustable); the others are custom roles.
+ */
+export const orgRole = pgTable(
+  "org_role",
+  {
+    id: id(),
+    organizationId: orgRef(),
+    builtin: text("builtin"),
+    name: text("name").notNull(),
+    description: text("description"),
+    permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("org_role_org_idx").on(t.organizationId), uniqueIndex("org_role_builtin_idx").on(t.organizationId, t.builtin)],
+);
 
 /* -------------------------------------------------------------------------- */
 /*                                  Settings                                  */

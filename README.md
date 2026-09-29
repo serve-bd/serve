@@ -57,7 +57,7 @@ Everything runs in Docker. A reverse proxy of your choice (nginx, Caddy or Traef
 - References between services, such as `${{postgres.DATABASE_URL}}` or `${{SERVE_PUBLIC_URL}}`, resolved at deploy time.
 - Browser terminal into containers, scheduled tasks (cron) with run history, and CPU, memory, network and request metrics.
 - Notifications to Discord, Slack, Telegram or any webhook.
-- Organizations with owners, admins and members, invite links, an activity log, two-factor authentication and API tokens.
+- Organizations with roles (Owner, Admin, Developer, Viewer and custom roles), per-member project access, invite links, an activity log, two-factor authentication and API tokens.
 - Backups of Serve itself on a schedule (locally and to S3), and one-click updates that back up first.
 
 ## Install
@@ -204,6 +204,21 @@ Disconnecting the account shows which sites go offline, then stops and deletes i
 
 Webhooks need the providers to reach the dashboard, so set a public dashboard domain in **Settings → Dashboard & TLS**.
 
+### Roles and permissions
+
+**Organization → Roles** lists what each role can do; **Organization → Members** assigns roles and, under a member's **⋯ → Project access**, limits them to chosen projects.
+
+| Role | Can |
+| --- | --- |
+| Owner | Everything, including managing owners and deleting the organization |
+| Admin | Everything except managing owners and deleting the organization |
+| Developer | Deploy, change services, domains and variables, backups, logs and the console. Seeing secret values is off by default and can be turned on under **Roles → Developer** |
+| Viewer | Read-only: projects, services, deployments and logs |
+
+Custom roles combine any of the permissions (view and manage projects, deploy, manage services and domains, edit variables, see secret values, backups, logs, console, manage members, manage integrations). Without "see secret values", variable values, database passwords, connection URLs and webhook secrets stay on the server: the dashboard shows them as locked, and saving variables keeps the stored values unless you type new ones. A member who manages members can only hand out roles within their own permissions, and only to projects they can reach.
+
+Organizations that existed before roles keep their behaviour: their members became Developers, and their Developer role includes "see secret values". New organizations start with the stricter default.
+
 ## REST API
 
 Create tokens in **Keys & tokens → API tokens** and send them as `Authorization: Bearer srv_…`. Each token has scopes, an optional expiry and an optional list of projects.
@@ -216,7 +231,7 @@ Create tokens in **Keys & tokens → API tokens** and send them as `Authorizatio
 | `write` | `PATCH /api/v1/services/:id/env` (includes `read` and `deploy`) |
 | `admin` | Everything |
 
-Missing scopes return `403`, expired tokens `401`, and services outside the token's projects `404`.
+Missing scopes return `403`, expired tokens `401`, and services outside the token's projects `404`. Any member can create tokens for themselves; a token never does more than its owner's role allows right now (a role change or removal applies to existing tokens at once), and it only reaches the projects both the token and its owner can reach.
 
 ## Development
 
@@ -273,7 +288,7 @@ tests/              Unit tests
 ## Security
 
 - Secrets (variables, tokens, SSH keys, registry and S3 credentials, OAuth tokens) are encrypted with AES-256-GCM before they are stored. API tokens are stored as SHA-256 hashes.
-- Every page, action and API route checks organization membership. Server-level settings, servers and host access (privileged containers, host mounts, the Docker socket) require admins of the Root organization.
+- Every page, action and API route checks organization membership and the member's role permissions and project access. Server-level settings, servers and host access (privileged containers, host mounts, the Docker socket) require admins of the Root organization.
 - Webhooks are verified with HMAC signatures or tokens.
 - The worker uses the Docker socket, which is equivalent to root on the host. Run Serve on a server dedicated to it.
 - `SERVE_DEV_ORIGINS` is for development only; production builds do not serve development assets.

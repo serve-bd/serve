@@ -4,6 +4,7 @@ import * as React from "react";
 import { Download, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
+import { SecretField } from "@/components/ui/secret-field";
 import { Field } from "@/components/ui/field";
 import { Input, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -41,6 +42,8 @@ export type DatabaseSettingsProps = {
     publicBind: "0.0.0.0" | "127.0.0.1";
   };
   password: string;
+  /** The role cannot see secret values: the password arrives masked. */
+  hideSecrets?: boolean;
   engine: {
     label: string;
     image: string;
@@ -158,7 +161,7 @@ function CredentialsSection(props: DatabaseSettingsProps) {
             </Field>
           )}
           <Field label="Password">
-            <CopyField value={props.password} secret />
+            <SecretField value={props.password} hidden={props.hideSecrets} />
           </Field>
           {engine.hasDatabase && (
             <Field label="Database" description="Created on the first start.">

@@ -3,6 +3,8 @@ import { db, schema } from "@/server/db";
 import { sha256 } from "@/server/crypto";
 import { serviceInOrg } from "@/server/services/access";
 import { expandScopes, SCOPE_INFO, type ApiScope } from "@/lib/api-scopes";
+import { allowedScopes } from "@/lib/permissions";
+import { memberAccess } from "@/server/permissions";
 
 export type ApiAuth = {
   tokenId: string;
@@ -39,8 +41,21 @@ export async function requireToken(request: Request, scope: ApiScope): Promise<{
   if (!row) return { error: json(401, "Invalid or missing API token") };
   if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return { error: json(401, "Token expired") };
 
-  const scopes = expandScopes(row.scopes);
-  if (!scopes.has(scope)) return { error: json(403, `This token is missing the "${scope}" scope (${SCOPE_INFO[scope].label}).`) };
+  // A token never does more than its owner may do now: role changes and removal apply at once.
+  const owner = await memberAccess(row.organizationId, row.userId);
+  if (!owner) return { error: json(401, "The owner of this token is no longer a member of the organization") };
+  const allowed = allowedScopes(owner.permissions, owner.roleId === "owner" || owner.roleId === "admin");
+  const scopes = new Set([...expandScopes(row.scopes)].filter((s) => allowed.has(s)));
+  if (!scopes.has(scope)) {
+    return {
+      error: json(
+        403,
+        expandScopes(row.scopes).has(scope)
+          ? `The role of this token's owner no longer allows the "${scope}" scope (${SCOPE_INFO[scope].label}).`
+          : `This token is missing the "${scope}" scope (${SCOPE_INFO[scope].label}).`,
+      ),
+    };
+  }
 
   if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > USAGE_INTERVAL) {
     void db
@@ -50,7 +65,9 @@ export async function requireToken(request: Request, scope: ApiScope): Promise<{
       .catch(() => {});
   }
 
-  const projectIds = row.projectIds?.length ? row.projectIds : null;
+  const tokenProjects = row.projectIds?.length ? row.projectIds : null;
+  // Both the token and its owner limit the projects; the stricter one wins.
+  const projectIds = !owner.projectIds ? tokenProjects : !tokenProjects ? owner.projectIds : tokenProjects.filter((id) => owner.projectIds!.includes(id));
   return {
     auth: {
       tokenId: row.id,

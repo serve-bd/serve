@@ -3,7 +3,7 @@
 import { and, isNotNull, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrg, requireOrgAdmin } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema, sql } from "@/server/db";
 import { encrypt, randomPassword } from "@/server/crypto";
 import { newId } from "@/server/id";
@@ -127,7 +127,7 @@ const appSchema = z.object({
 
 export async function createAppService(input: z.input<typeof appSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const data = appSchema.parse(input);
     await projectInOrg(data.projectId, ctx.org.id);
     await assertEnvironment(data.projectId, data.environmentId);
@@ -196,7 +196,7 @@ const dbSchema = z.object({
 
 export async function createDatabaseService(input: z.input<typeof dbSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const data = dbSchema.parse(input);
     await projectInOrg(data.projectId, ctx.org.id);
     await assertEnvironment(data.projectId, data.environmentId);
@@ -256,7 +256,7 @@ const composeSchema = z.object({
 
 export async function createComposeService(input: z.input<typeof composeSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const data = composeSchema.parse(input);
     await projectInOrg(data.projectId, ctx.org.id);
     await assertEnvironment(data.projectId, data.environmentId);
@@ -481,7 +481,7 @@ const updateSchema = z.object({
 
 export async function updateService(serviceId: string, input: z.input<typeof updateSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const data = updateSchema.parse(input);
     const patch: Partial<typeof schema.service.$inferInsert> = {};
@@ -598,7 +598,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
 
 export async function regenerateWebhookSecret(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     await db.update(schema.service).set({ webhookSecret: newWebhookSecret() }).where(eq(schema.service.id, serviceId));
     // A hook Serve registered carries the old secret: register it again with the new one.
@@ -613,7 +613,7 @@ export async function regenerateWebhookSecret(serviceId: string) {
 
 export async function deployService(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type === "app" && !service.source) throw new UserError("Connect a source before deploying.");
     const id = await queueDeployment(serviceId, "manual", { userId: ctx.user.id });
@@ -624,7 +624,7 @@ export async function deployService(serviceId: string) {
 /** Deploy once without the build cache (fresh base images and layers). */
 export async function deployWithoutCache(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "app" || service.source?.type !== "git" || !service.build) throw new UserError("Only services built from a repository have a build cache.");
     await db
@@ -638,7 +638,7 @@ export async function deployWithoutCache(serviceId: string) {
 
 export async function redeployDeployment(deploymentId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const [dep] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, deploymentId));
     if (!dep) throw new UserError("Deployment not found.");
     await serviceInOrg(dep.serviceId, ctx.org.id);
@@ -649,7 +649,7 @@ export async function redeployDeployment(deploymentId: string) {
 
 export async function rollbackTo(deploymentId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const [dep] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, deploymentId));
     if (!dep) throw new UserError("Deployment not found.");
     const { service } = await serviceInOrg(dep.serviceId, ctx.org.id);
@@ -670,7 +670,7 @@ export async function rollbackTo(deploymentId: string) {
 
 export async function cancelDeployment(deploymentId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const [dep] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, deploymentId));
     if (!dep) throw new UserError("Deployment not found.");
     await serviceInOrg(dep.serviceId, ctx.org.id);
@@ -687,7 +687,7 @@ export async function cancelDeployment(deploymentId: string) {
 
 export async function serviceControl(serviceId: string, command: "stop" | "start" | "restart") {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     await requestServiceControl(service, command, ctx.user.id);
     return null;
@@ -697,7 +697,7 @@ export async function serviceControl(serviceId: string, command: "stop" | "start
 /** The compose file Serve last deployed for a stack: the user's file plus labels, networks and ports. Values stay in .env. */
 export async function deployedCompose(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("projects.view");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "compose" || !service.compose) throw new UserError("Only Docker Compose services have a compose file.");
     const { default: fs } = await import("node:fs/promises");
@@ -716,7 +716,7 @@ export async function deployedCompose(serviceId: string) {
 /** Restart one container of a service (for example one compose service), without a deployment. */
 export async function restartContainer(serviceId: string, containerId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (!(await restartOwnContainer(service, containerId))) throw new UserError("This container is not part of the service any more.");
     await logActivity({
@@ -738,7 +738,7 @@ export async function restartContainer(serviceId: string, containerId: string) {
  */
 export async function moveService(serviceId: string, serverId: string, opts: { force?: boolean } = {}) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.parentServiceId) throw new UserError("Preview deployments follow their parent service.");
     if (service.serverId === serverId) throw new UserError("The service already runs on that server.");
@@ -833,7 +833,7 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
 
 export async function deleteService(serviceId: string, removeVolumes: boolean) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const domains = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
     // Remove DNS records Serve created.
@@ -854,7 +854,8 @@ export async function deleteService(serviceId: string, removeVolumes: boolean) {
 /*                                 Variables                                  */
 /* -------------------------------------------------------------------------- */
 
-type VarInput = { key: string; value: string; buildTime: boolean; runtime: boolean };
+/** `keep`: keep the stored value of that key (the editor did not receive it). */
+type VarInput = { key: string; value: string; buildTime: boolean; runtime: boolean; keep?: string };
 
 async function writeEnvVars(serviceId: string, vars: VarInput[]) {
   const keys = new Set<string>();
@@ -873,11 +874,20 @@ async function writeEnvVars(serviceId: string, vars: VarInput[]) {
 
 export async function saveEnvVars(serviceId: string, vars: VarInput[], redeploy: boolean) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("variables.edit");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    const stored = await db.select({ key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId));
+    const { decryptOrNull } = await import("@/server/crypto");
     await writeEnvVars(
       serviceId,
-      vars.map((v) => ({ ...v, key: v.key.trim() })).filter((v) => v.key),
+      vars
+        .map((v) => {
+          if (v.keep === undefined) return { key: v.key.trim(), value: v.value, buildTime: v.buildTime, runtime: v.runtime };
+          const kept = stored.find((s) => s.key === v.keep);
+          if (!kept) throw new UserError(`${v.keep} no longer exists. Reload the page.`);
+          return { key: v.key.trim(), value: decryptOrNull(kept.value) ?? "", buildTime: v.buildTime, runtime: v.runtime };
+        })
+        .filter((v) => v.key),
     );
     let deploymentId: string | null = null;
     if (redeploy && service.status !== "idle") deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
@@ -911,7 +921,7 @@ const domainSchema = z.object({
 
 export async function addDomain(serviceId: string, input: z.input<typeof domainSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("domains.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type === "database") throw new UserError("Databases are reached over TCP, not domains. Enable a public port instead.");
     const data = domainSchema.parse(input);
@@ -1035,7 +1045,7 @@ const domainUpdateSchema = z.object({
  */
 export async function setDomainRoute(domainId: string, tunnelId: string | null) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("domains.manage");
     if (!ctx.isAdmin) throw new UserError("Only organization admins can change how a domain is routed.");
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
@@ -1112,7 +1122,7 @@ export async function setDomainRoute(domainId: string, tunnelId: string | null) 
 /** Reconnect a domain that waits for a tunnel to a tunnel of its server, right now. */
 export async function reconnectDomainTunnel(domainId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("domains.manage");
     if (!ctx.isAdmin) throw new UserError("Only organization admins can change how a domain is routed.");
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
@@ -1134,7 +1144,7 @@ export async function reconnectDomainTunnel(domainId: string) {
 /** Makes a domain the service's main one (SERVE_PUBLIC_URL). Applies on the next deploy. */
 export async function setPrimaryDomain(domainId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("domains.manage");
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
     await serviceInOrg(domain.serviceId, ctx.org.id);
@@ -1149,7 +1159,7 @@ export async function setPrimaryDomain(domainId: string) {
 
 export async function updateDomain(domainId: string, input: z.input<typeof domainUpdateSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("domains.manage");
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
     await serviceInOrg(domain.serviceId, ctx.org.id);
@@ -1176,7 +1186,7 @@ export async function updateDomain(domainId: string, input: z.input<typeof domai
 
 export async function removeDomain(domainId: string, deleteDns: boolean) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("domains.manage");
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
     await serviceInOrg(domain.serviceId, ctx.org.id);
@@ -1196,7 +1206,7 @@ export async function removeDomain(domainId: string, deleteDns: boolean) {
 
 export async function generateDomain(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("domains.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const generated = await generatedHostname(service.slug, service.serverId);
     if (!generated) throw new UserError("Set a wildcard domain or the public IP of this service's server first.");
@@ -1216,7 +1226,7 @@ export async function generateDomain(serviceId: string) {
 
 export async function createBackup(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("databases.backups");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "database") throw new UserError("Backups are available for databases.");
     if (service.status !== "running") throw new UserError("Start the database before backing it up.");
@@ -1229,7 +1239,7 @@ export async function createBackup(serviceId: string) {
 
 export async function restoreFromBackup(backupId: string, opts: { backupFirst?: boolean } = {}) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("databases.backups");
     const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
     if (b?.status !== "success") throw new UserError("Backup not found.");
     const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
@@ -1252,7 +1262,7 @@ export async function restoreFromBackup(backupId: string, opts: { backupFirst?: 
 
 export async function deleteBackup(backupId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("databases.backups");
     const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
     if (!b) throw new UserError("Backup not found.");
     const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
@@ -1266,7 +1276,7 @@ export async function deleteBackup(backupId: string) {
 /** Apply database config changes (version, public port) by recreating the container. */
 export async function applyDatabaseChanges(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "database") throw new UserError("Not a database.");
     if (service.database?.publicPort) {
@@ -1285,7 +1295,7 @@ export async function applyDatabaseChanges(serviceId: string) {
 
 /** Latest deployments for a list of services (used by live cards). */
 export async function latestDeployments(serviceIds: string[]) {
-  const ctx = await requireOrg();
+  const ctx = await requirePermission("projects.view");
   if (!serviceIds.length) return [];
   const rows = await db
     .select({ d: schema.deployment })
@@ -1300,7 +1310,7 @@ export async function latestDeployments(serviceIds: string[]) {
 
 export async function checkDomainDns(domainId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("projects.view");
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
     const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
@@ -1311,7 +1321,7 @@ export async function checkDomainDns(domainId: string) {
 
 export async function retryCertificate(domainId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("domains.manage");
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
     await serviceInOrg(domain.serviceId, ctx.org.id);

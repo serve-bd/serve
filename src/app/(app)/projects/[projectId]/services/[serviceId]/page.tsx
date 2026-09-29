@@ -21,7 +21,9 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
     const cfg = service.database;
     const engine = engines[cfg.engine];
     const [published] = await publishedPorts(service);
-    const creds = { username: cfg.username, password: decryptOrNull(cfg.password) ?? "", database: cfg.database };
+    // Roles without secret access get the shape of the URL, never the password.
+    const hideSecrets = !ctx.can("variables.view-secrets");
+    const creds = { username: cfg.username, password: hideSecrets ? "********" : (decryptOrNull(cfg.password) ?? ""), database: cfg.database };
     const monitoring = await monitorSummary(service.id);
     return (
       <PageBody className="flex flex-col gap-6">
@@ -37,6 +39,8 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           publicBind={cfg.publicBind ?? "0.0.0.0"}
           publicAddress={published?.label ?? null}
           name={service.name}
+          hideSecrets={hideSecrets}
+          canManage={ctx.can("services.manage")}
           uptime={<UptimeCard summary={monitoring} settingsHref={`/projects/${projectId}/services/${service.id}/settings/monitoring`} />}
           uptimeInSide={!monitoring.monitor}
         />

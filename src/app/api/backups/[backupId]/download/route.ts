@@ -1,3 +1,4 @@
+import { cannotMessage } from "@/lib/permissions";
 import fs from "node:fs";
 import { Readable } from "node:stream";
 import { eq } from "drizzle-orm";
@@ -9,6 +10,7 @@ import { backupFile, openS3Backup } from "@/server/backups";
 export async function GET(_req: Request, ctx: RouteContext<"/api/backups/[backupId]/download">) {
   const { backupId } = await ctx.params;
   const org = await requireOrg();
+  if (!org.can("databases.backups")) return new Response(cannotMessage("databases.backups"), { status: 403 });
   const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
   if (!b?.filename) return new Response("Not found", { status: 404 });
   try {

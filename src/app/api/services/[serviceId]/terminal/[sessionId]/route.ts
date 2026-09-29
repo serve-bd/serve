@@ -1,3 +1,4 @@
+import { cannotMessage } from "@/lib/permissions";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { requireOrg } from "@/server/auth";
@@ -10,6 +11,7 @@ type Ctx = RouteContext<"/api/services/[serviceId]/terminal/[sessionId]">;
 async function load(ctx: Ctx) {
   const { serviceId, sessionId } = await ctx.params;
   const org = await requireOrg();
+  if (!org.can("console.access")) return new Response(cannotMessage("console.access"), { status: 403 });
   const session = getSession(sessionId, org.user.id);
   return session && session.scope === `service:${serviceId}` ? session : null;
 }

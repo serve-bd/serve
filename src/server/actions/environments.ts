@@ -3,7 +3,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrg } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { projectInOrg, serviceInOrg } from "@/server/services/access";
 import { cloneEnvironment, scrubCommand } from "@/server/services/environments";
@@ -25,7 +25,7 @@ async function environmentInOrg(environmentId: string, orgId: string) {
 /** Copy an environment and all its services into a new environment. Nothing is deployed. */
 export async function cloneEnvironmentAction(environmentId: string, input: { name: string; generatedDomains?: boolean; copyData?: boolean }) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("projects.manage");
     const env = await environmentInOrg(environmentId, ctx.org.id);
     const name = envName.parse(input.name);
     const [exists] = await db
@@ -46,7 +46,7 @@ export async function cloneEnvironmentAction(environmentId: string, input: { nam
 /** Deploy every service of an environment (after a clone, for example). Previews are left alone. */
 export async function deployEnvironment(environmentId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     await environmentInOrg(environmentId, ctx.org.id);
     const services = await db
       .select({ id: schema.service.id })
@@ -71,7 +71,7 @@ const previewDbSchema = z
 /** Give each pull request preview of an app its own copy of a database (or turn that off). */
 export async function savePreviewDatabase(serviceId: string, input: z.input<typeof previewDbSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.parentServiceId) throw new UserError("Preview deployments follow their parent service.");
     if (service.type !== "app" || service.source?.type !== "git") throw new UserError("Only apps deployed from Git have pull request previews.");

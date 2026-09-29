@@ -23,7 +23,8 @@ export default async function DomainsPage() {
       .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
       .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
       .where(eq(schema.project.organizationId, ctx.org.id))
-      .orderBy(asc(schema.domain.hostname)),
+      .orderBy(asc(schema.domain.hostname))
+      .then((list) => list.filter((r) => ctx.canAccessProject(r.project.id))),
     db.select().from(schema.certificate).where(eq(schema.certificate.organizationId, ctx.org.id)),
   ]);
 

@@ -28,6 +28,7 @@ type Token = {
   lastUsedIp: string | null;
   createdAt: string;
   userName: string;
+  userId: string;
 };
 type Project = { id: string; name: string };
 
@@ -62,7 +63,7 @@ function ScopeBadges({ scopes }: { scopes: string[] }) {
   );
 }
 
-function TokenRow({ token: t, projects, isAdmin, onRevoke }: { token: Token; projects: Project[]; isAdmin: boolean; onRevoke: () => void }) {
+function TokenRow({ token: t, projects, canRevoke, onRevoke }: { token: Token; projects: Project[]; canRevoke: boolean; onRevoke: () => void }) {
   const now = useNow();
   const expiry = expiryState(t.expiresAt, now);
   const expired = expiry?.tone === "bad";
@@ -108,7 +109,7 @@ function TokenRow({ token: t, projects, isAdmin, onRevoke }: { token: Token; pro
             "Never used"
           )}
         </span>
-        {isAdmin && (
+        {canRevoke && (
           <Button size="icon-sm" variant="ghost" aria-label={`Revoke ${t.name}`} onClick={onRevoke}>
             <Trash2 />
           </Button>
@@ -118,11 +119,26 @@ function TokenRow({ token: t, projects, isAdmin, onRevoke }: { token: Token; pro
   );
 }
 
-function CreateTokenDialog({ open, onOpenChange, projects, baseUrl }: { open: boolean; onOpenChange: (open: boolean) => void; projects: Project[]; baseUrl: string }) {
+function CreateTokenDialog({
+  open,
+  onOpenChange,
+  projects,
+  baseUrl,
+  allowed,
+  limitedToProjects,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projects: Project[];
+  baseUrl: string;
+  allowed: ApiScope[];
+  limitedToProjects: boolean;
+}) {
   const [name, setName] = React.useState("");
   const [expiry, setExpiry] = React.useState("90");
-  const [scopes, setScopes] = React.useState<ApiScope[]>(["read", "deploy"]);
-  const [restrict, setRestrict] = React.useState(false);
+  const [scopes, setScopes] = React.useState<ApiScope[]>(() => (["read", "deploy"] as ApiScope[]).filter((s) => allowed.includes(s)));
+  // Members limited to some projects always pick projects.
+  const [restrict, setRestrict] = React.useState(limitedToProjects);
   const [projectIds, setProjectIds] = React.useState<string[]>([]);
   const [created, setCreated] = React.useState<string | null>(null);
   const implied = impliedScopes(scopes);
@@ -180,8 +196,9 @@ function CreateTokenDialog({ open, onOpenChange, projects, baseUrl }: { open: bo
                   <span className="text-[13px] font-medium text-fg">Permissions</span>
                   <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
                     {API_SCOPES.map((s) => {
-                      const locked = implied.has(s);
-                      const checked = locked || scopes.includes(s);
+                      const denied = !allowed.includes(s);
+                      const locked = implied.has(s) || denied;
+                      const checked = !denied && (implied.has(s) || scopes.includes(s));
                       return (
                         <label
                           key={s}
@@ -191,7 +208,11 @@ function CreateTokenDialog({ open, onOpenChange, projects, baseUrl }: { open: bo
                           <span className="flex min-w-0 flex-col gap-0.5">
                             <span className="flex items-center gap-2 text-[13px] font-medium text-fg">
                               {SCOPE_INFO[s].label}
-                              {locked && <span className="text-[11px] font-normal text-faint">Included</span>}
+                              {denied ? (
+                                <span className="text-[11px] font-normal text-faint">Your role does not allow it</span>
+                              ) : (
+                                locked && <span className="text-[11px] font-normal text-faint">Included</span>
+                              )}
                             </span>
                             <span className="text-[12.5px] leading-snug text-muted">{SCOPE_INFO[s].description}</span>
                           </span>
@@ -216,9 +237,11 @@ function CreateTokenDialog({ open, onOpenChange, projects, baseUrl }: { open: bo
                       <button
                         key={String(o.value)}
                         type="button"
+                        disabled={limitedToProjects && !o.value}
+                        title={limitedToProjects && !o.value ? "Your access is limited to some projects." : undefined}
                         onClick={() => setRestrict(o.value)}
                         className={cn(
-                          "flex flex-col gap-0.5 rounded-xl border px-3.5 py-2.5 text-left transition-colors",
+                          "flex flex-col gap-0.5 rounded-xl border px-3.5 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                           restrict === o.value ? "border-accent bg-accent-soft/50 ring-1 ring-accent" : "border-line hover:bg-hover",
                         )}
                       >
@@ -254,7 +277,25 @@ function CreateTokenDialog({ open, onOpenChange, projects, baseUrl }: { open: bo
   );
 }
 
-export function TokensView({ tokens, projects, isAdmin, baseUrl }: { tokens: Token[]; projects: Project[]; isAdmin: boolean; baseUrl: string }) {
+export function TokensView({
+  tokens,
+  projects,
+  canManage,
+  me,
+  allowed,
+  limitedToProjects,
+  baseUrl,
+}: {
+  tokens: Token[];
+  projects: Project[];
+  /** Sees and revokes every token of the organization. */
+  canManage: boolean;
+  me: string;
+  /** Scopes the member's role allows; a token cannot have more. */
+  allowed: ApiScope[];
+  limitedToProjects: boolean;
+  baseUrl: string;
+}) {
   const confirm = useConfirm();
   const [dialog, setDialog] = React.useState(0);
   const [open, setOpen] = React.useState(false);
@@ -267,18 +308,16 @@ export function TokensView({ tokens, projects, isAdmin, baseUrl }: { tokens: Tok
           title="Tokens"
           description={`${tokens.length} token${tokens.length === 1 ? "" : "s"} for this organization`}
           actions={
-            isAdmin && (
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() => {
-                  setDialog((d) => d + 1);
-                  setOpen(true);
-                }}
-              >
-                <Plus /> Create token
-              </Button>
-            )
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => {
+                setDialog((d) => d + 1);
+                setOpen(true);
+              }}
+            >
+              <Plus /> Create token
+            </Button>
           }
         />
         {tokens.length === 0 ? (
@@ -290,7 +329,7 @@ export function TokensView({ tokens, projects, isAdmin, baseUrl }: { tokens: Tok
                 key={t.id}
                 token={t}
                 projects={projects}
-                isAdmin={isAdmin}
+                canRevoke={canManage || t.userId === me}
                 onRevoke={async () => {
                   if (await confirm({ title: `Revoke ${t.name}?`, description: "Anything using this token stops working right away.", confirmLabel: "Revoke token", danger: true }))
                     revoke.run(t.id);
@@ -324,7 +363,7 @@ export function TokensView({ tokens, projects, isAdmin, baseUrl }: { tokens: Tok
         </CardBody>
       </Card>
 
-      <CreateTokenDialog key={dialog} open={open} onOpenChange={setOpen} projects={projects} baseUrl={baseUrl} />
+      <CreateTokenDialog key={dialog} open={open} onOpenChange={setOpen} projects={projects} baseUrl={baseUrl} allowed={allowed} limitedToProjects={limitedToProjects} />
     </div>
   );
 }

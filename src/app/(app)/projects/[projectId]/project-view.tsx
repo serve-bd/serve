@@ -20,6 +20,7 @@ import { createEnvironment } from "@/server/actions/projects";
 import type { ServiceCardData } from "@/server/project-data";
 import { CloneEnvironmentDialog } from "./clone-environment";
 import { cn } from "@/lib/utils";
+import { useCan } from "@/components/permissions";
 
 type Props = {
   project: { id: string; name: string; description: string | null; color: string };
@@ -29,6 +30,7 @@ type Props = {
 };
 
 function EnvironmentSwitcher({ project, environments, environment }: Omit<Props, "initialServices">) {
+  const can = useCan();
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [cloning, setCloning] = React.useState(false);
@@ -52,13 +54,17 @@ function EnvironmentSwitcher({ project, environments, environment }: Omit<Props,
               {e.id === environment.id && <Check className="!text-accent" />}
             </MenuItem>
           ))}
-          <MenuSeparator />
-          <MenuItem onClick={() => setOpen(true)}>
-            <Plus /> New environment
-          </MenuItem>
-          <MenuItem onClick={() => setCloning(true)}>
-            <Copy /> Clone {environment.name}…
-          </MenuItem>
+          {can("projects.manage") && (
+            <>
+              <MenuSeparator />
+              <MenuItem onClick={() => setOpen(true)}>
+                <Plus /> New environment
+              </MenuItem>
+              <MenuItem onClick={() => setCloning(true)}>
+                <Copy /> Clone {environment.name}…
+              </MenuItem>
+            </>
+          )}
         </MenuContent>
       </Menu>
       <CloneEnvironmentDialog projectId={project.id} environment={environment} open={cloning} onOpenChange={setCloning} />
@@ -166,6 +172,7 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
 }
 
 export function ProjectView({ project, environments, environment, initialServices }: Props) {
+  const can = useCan();
   const { data } = useSWR<{ services: ServiceCardData[] }>(`/api/projects/${project.id}/services?env=${environment.id}`, {
     fallbackData: { services: initialServices },
     refreshInterval: (d) => (d?.services.some((s) => ["building", "deploying", "restarting"].includes(s.status)) ? 2000 : 8000),
@@ -190,9 +197,11 @@ export function ProjectView({ project, environments, environment, initialService
             <Link href={`/projects/${project.id}/settings?env=${environment.name}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
               <Settings /> Settings
             </Link>
-            <Link href={newHref} className={buttonVariants({ variant: "primary", size: "sm" })}>
-              <Plus /> New service
-            </Link>
+            {can("services.manage") && (
+              <Link href={newHref} className={buttonVariants({ variant: "primary", size: "sm" })}>
+                <Plus /> New service
+              </Link>
+            )}
           </>
         }
       />
@@ -204,6 +213,7 @@ export function ProjectView({ project, environments, environment, initialService
             ))}
             <Link
               href={newHref}
+              hidden={!can("services.manage")}
               className="flex min-h-[168px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line-strong text-[13px] font-medium text-muted transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent"
             >
               <Plus className="size-5" />
@@ -217,9 +227,11 @@ export function ProjectView({ project, environments, environment, initialService
               title={`Nothing in ${environment.name} yet`}
               description="Deploy from a Git repository or Docker image, add a database, or start a one-click service."
               action={
-                <Link href={newHref} className={buttonVariants({ variant: "primary", size: "sm" })}>
-                  <Plus /> New service
-                </Link>
+                can("services.manage") && (
+                  <Link href={newHref} className={buttonVariants({ variant: "primary", size: "sm" })}>
+                    <Plus /> New service
+                  </Link>
+                )
               }
             />
           </Card>

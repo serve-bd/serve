@@ -1,4 +1,4 @@
-import { requireOrgAdmin } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { serviceInOrg } from "@/server/services/access";
 import { serverOf } from "@/server/servers/context";
 import { listServiceContainers } from "@/server/docker/client";
@@ -14,9 +14,10 @@ export async function GET(request: Request, ctx: RouteContext<"/api/services/[se
   const { serviceId } = await ctx.params;
   let org;
   try {
-    org = await requireOrgAdmin();
+    org = await requirePermission("services.manage");
+    if (!org.can("variables.view-secrets")) throw new Error("secrets");
   } catch {
-    return new Response("Only organization admins can download volume data.", { status: 403 });
+    return new Response("Your role cannot download volume data.", { status: 403 });
   }
   let service;
   try {

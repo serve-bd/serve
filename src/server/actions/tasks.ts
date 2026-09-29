@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { CronExpressionParser } from "cron-parser";
 import { act, UserError } from "@/server/action";
-import { requireOrg } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { serviceInOrg } from "@/server/services/access";
@@ -39,7 +39,7 @@ async function taskInOrg(taskId: string, orgId: string) {
 
 export async function saveTask(serviceId: string, taskId: string | null, input: z.input<typeof taskSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const data = taskSchema.parse(input);
     if (taskId) {
@@ -63,7 +63,7 @@ export async function saveTask(serviceId: string, taskId: string | null, input: 
 
 export async function toggleTask(taskId: string, enabled: boolean) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     await taskInOrg(taskId, ctx.org.id);
     await db.update(schema.scheduledTask).set({ enabled }).where(eq(schema.scheduledTask.id, taskId));
     return null;
@@ -72,7 +72,7 @@ export async function toggleTask(taskId: string, enabled: boolean) {
 
 export async function deleteTask(taskId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     await taskInOrg(taskId, ctx.org.id);
     await db.delete(schema.scheduledTask).where(eq(schema.scheduledTask.id, taskId));
     return null;
@@ -81,7 +81,7 @@ export async function deleteTask(taskId: string) {
 
 export async function runTaskNow(taskId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const task = await taskInOrg(taskId, ctx.org.id);
     const [running] = await db
       .select({ id: schema.taskRun.id })

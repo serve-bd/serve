@@ -1,3 +1,4 @@
+import { NoAccess } from "@/components/no-access";
 import { requireOrg } from "@/server/auth";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
@@ -10,6 +11,7 @@ export default async function LogsPage(props: PageProps<"/projects/[projectId]/s
   const { projectId, serviceId } = await props.params;
   const { container } = await props.searchParams;
   const ctx = await requireOrg();
+  if (!ctx.can("logs.view")) return <NoAccess permission="logs.view" />;
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   return (
     <PageBody>

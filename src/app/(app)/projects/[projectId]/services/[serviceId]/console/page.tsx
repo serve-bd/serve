@@ -1,3 +1,4 @@
+import { NoAccess } from "@/components/no-access";
 import { requireOrg } from "@/server/auth";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
@@ -9,6 +10,7 @@ export default async function ConsolePage(props: PageProps<"/projects/[projectId
   const { projectId, serviceId } = await props.params;
   const { container } = await props.searchParams;
   const ctx = await requireOrg();
+  if (!ctx.can("console.access")) return <NoAccess permission="console.access" />;
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   const hints: Record<string, string[]> = {
     postgres: ["psql", "psql -c '\\dt'", "pg_isready"],

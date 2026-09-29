@@ -3,7 +3,7 @@ import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { NextResponse } from "next/server";
-import { requireOrgAdmin } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
@@ -24,9 +24,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/services/[s
   const { serviceId } = await ctx.params;
   let org;
   try {
-    org = await requireOrgAdmin();
+    org = await requirePermission("databases.backups");
   } catch {
-    return NextResponse.json({ error: "Only organization admins can restore backups." }, { status: 403 });
+    return NextResponse.json({ error: "Your role cannot manage backups." }, { status: 403 });
   }
   let service;
   try {

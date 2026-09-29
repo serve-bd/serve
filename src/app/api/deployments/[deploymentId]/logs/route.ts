@@ -1,3 +1,4 @@
+import { cannotMessage } from "@/lib/permissions";
 import { NextResponse, type NextRequest } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
@@ -8,6 +9,7 @@ import { serviceInOrg } from "@/server/services/access";
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/deployments/[deploymentId]/logs">) {
   const { deploymentId } = await ctx.params;
   const org = await requireOrg();
+  if (!org.can("logs.view")) return new Response(cannotMessage("logs.view"), { status: 403 });
   const offset = Math.max(0, Number(request.nextUrl.searchParams.get("offset") ?? 0));
   const [row] = await db
     .select({

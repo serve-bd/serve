@@ -2,7 +2,7 @@
 
 import { eq } from "drizzle-orm";
 import { act, UserError } from "@/server/action";
-import { requireOrg } from "@/server/auth";
+import { requireOrg, requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { logActivity } from "@/server/activity";
 import { serviceInOrg } from "@/server/services/access";
@@ -37,7 +37,7 @@ function nginxMessage(output: string) {
  */
 export async function updateServiceProxy(serviceId: string, input: ProxyInput) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("domains.manage");
     if (!ctx.isAdmin) throw new UserError("Only organization admins can change HTTP options.");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type === "database") throw new UserError("Databases are reached over TCP; HTTP options do not apply.");

@@ -32,6 +32,7 @@ import { AreaChart } from "@/components/charts/area-chart";
 import { useAction } from "@/hooks/use-action";
 import { deployService } from "@/server/actions/services";
 import { cn, formatBytes } from "@/lib/utils";
+import { useCan, useCannot } from "@/components/permissions";
 import type { OverviewData } from "./overview-data";
 import { UptimeCard } from "./uptime-card";
 import { ContainerDialog } from "./container-dialog";
@@ -90,6 +91,8 @@ export function ServiceOverview(data: OverviewData) {
   const { service, current } = data;
   const router = useRouter();
   const base = `/projects/${data.projectId}/services/${service.id}`;
+  const can = useCan();
+  const cannot = useCannot();
   const { data: live } = useSWR<Live>(`/api/services/${service.id}/live`, { refreshInterval: 5000 });
   const { data: metrics } = useSWR<{ series: Series }>(`/api/metrics?scope=${service.id}&hours=6`, { refreshInterval: 15000 });
   const { data: req } = useSWR<Req>(data.domains.length ? `/api/services/${service.id}/requests?hours=24` : null, { refreshInterval: 30000 });
@@ -130,7 +133,7 @@ export function ServiceOverview(data: OverviewData) {
                     <ScrollText /> Build log
                   </Link>
                 )}
-                <Button size="sm" variant="primary" onClick={() => deploy.run()} loading={deploy.pending}>
+                <Button size="sm" variant="primary" onClick={() => deploy.run()} loading={deploy.pending} disabled={!can("services.deploy")} title={cannot("services.deploy")}>
                   <Rocket /> {current ? "Redeploy" : "Deploy"}
                 </Button>
               </div>

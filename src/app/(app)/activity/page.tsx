@@ -9,7 +9,7 @@ export const metadata = { title: "Activity" };
 
 export default async function ActivityPage() {
   const ctx = await requireOrg();
-  const items = await recentActivity(ctx.org.id, 200);
+  const items = await recentActivity(ctx.org.id, 200, ctx.projectIds);
   return (
     <>
       <PageHeader title="Activity" description="An audit trail of changes made in this organization." />

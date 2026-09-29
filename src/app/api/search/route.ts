@@ -17,5 +17,5 @@ export async function GET() {
     .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
     .where(eq(schema.project.organizationId, ctx.org.id))
     .orderBy(asc(schema.service.name));
-  return Response.json({ services });
+  return Response.json({ services: services.filter((s) => ctx.canAccessProject(s.projectId)) });
 }

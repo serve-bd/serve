@@ -19,6 +19,7 @@ import { TimeAgo } from "@/components/ui/misc";
 import type { ServiceLive } from "@/server/service-data";
 import type { ServiceIssue } from "@/server/services/issues";
 import { cn } from "@/lib/utils";
+import { useCan, useCannot } from "@/components/permissions";
 
 type Props = {
   project: { id: string; name: string };
@@ -81,17 +82,19 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
       toggleMaintenance.run(true);
   };
 
+  const can = useCan();
+  const cannot = useCannot();
   const tabHref = (tab: ServiceIssue["tab"]) => (tab === "overview" ? base : `${base}/${tab}`);
   const tabs: { href: string; label: string; exact?: boolean }[] = [
     { href: base, label: "Overview", exact: true },
     { href: `${base}/deployments`, label: "Deployments" },
-    { href: `${base}/logs`, label: "Logs" },
-    { href: `${base}/console`, label: "Console" },
+    ...(can("logs.view") ? [{ href: `${base}/logs`, label: "Logs" }] : []),
+    ...(can("console.access") ? [{ href: `${base}/console`, label: "Console" }] : []),
     { href: `${base}/metrics`, label: "Metrics" },
     { href: `${base}/variables`, label: "Variables" },
     ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains & ports" }] : []),
     ...(service.type === "database" ? [{ href: `${base}/backups`, label: "Backups" }] : [{ href: `${base}/tasks`, label: "Tasks" }]),
-    { href: `${base}/settings`, label: "Settings" },
+    ...(can("services.manage") ? [{ href: `${base}/settings`, label: "Settings" }] : []),
   ];
 
   /** Worst issue tone for a tab (the Overview tab only marks incidents). */
@@ -165,7 +168,11 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
           </div>
           <div className="ml-auto flex flex-none items-center gap-2">
             <Menu>
-              <MenuTrigger className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-[13px] font-medium text-fg shadow-sm hover:bg-hover">
+              <MenuTrigger
+                disabled={!can("services.deploy")}
+                title={cannot("services.deploy")}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-[13px] font-medium text-fg shadow-sm hover:bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+              >
                 <Power className="size-3.5" /> Manage <ChevronDown className="size-3.5 text-muted" />
               </MenuTrigger>
               <MenuContent>
@@ -210,7 +217,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 )}
               </MenuContent>
             </Menu>
-            <Button variant="primary" size="sm" onClick={() => deploy.run()} loading={deploy.pending}>
+            <Button variant="primary" size="sm" onClick={() => deploy.run()} loading={deploy.pending} disabled={!can("services.deploy")} title={cannot("services.deploy")}>
               <Rocket /> {service.type === "database" ? "Redeploy" : "Deploy"}
             </Button>
           </div>

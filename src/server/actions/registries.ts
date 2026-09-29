@@ -3,7 +3,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrg, requireOrgAdmin } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
@@ -52,7 +52,7 @@ async function assertLogin(host: string, username: string, password: string) {
 
 export async function addRegistry(input: z.input<typeof registrySchema>) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const data = parseRegistry(input);
     if (!data.password) throw new UserError("Enter a password or access token.");
     await assertLogin(data.host, data.username, data.password);
@@ -73,7 +73,7 @@ export async function addRegistry(input: z.input<typeof registrySchema>) {
 /** Edit a registry. An empty password keeps the stored one; the login is checked again. */
 export async function updateRegistry(id: string, input: z.input<typeof registrySchema>) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const row = await getRegistry(id, ctx.org.id);
     if (!row) throw new UserError("Registry not found.");
     const data = parseRegistry(input);
@@ -89,7 +89,7 @@ export async function updateRegistry(id: string, input: z.input<typeof registryS
 
 export async function deleteRegistry(id: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const row = await getRegistry(id, ctx.org.id);
     if (!row) throw new UserError("Registry not found.");
     const users = await db.select({ name: schema.service.name }).from(schema.service).where(usesRegistry(id));
@@ -111,7 +111,7 @@ export async function deleteRegistry(id: string) {
 
 export async function testRegistry(id: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("integrations.manage");
     const row = await getRegistry(id, ctx.org.id);
     if (!row) throw new UserError("Registry not found.");
     const auth = registryAuth(row);
@@ -139,7 +139,7 @@ const distributionSchema = z.object({
  */
 export async function saveDistribution(serviceId: string, input: z.input<typeof distributionSchema>, opts: { deploy?: boolean } = {}) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "app") throw new UserError("Only apps can run on several servers.");
     if (service.parentServiceId) throw new UserError("Preview deployments run on their parent's server only.");

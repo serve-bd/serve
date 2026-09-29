@@ -147,7 +147,7 @@ export function ServiceHeader({ project, environment, service, initialLive }: Pr
             </Button>
           </div>
         </div>
-        <nav className="scrollbar-none -mx-4 -mb-px flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <nav className="scrollbar-none -mx-4 -mb-px flex gap-1 overflow-x-auto px-1 sm:-mx-3 sm:px-0">
           {tabs.map((t) => {
             const active = t.exact ? pathname === t.href || pathname.startsWith(`${base}/deployments`) : pathname.startsWith(t.href);
             return (

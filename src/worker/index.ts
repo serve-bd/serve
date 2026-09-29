@@ -1,3 +1,4 @@
+import { copyEnvironmentData, preparePreviewDatabase } from "@/server/services/environments";
 import "dotenv/config";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { ProxyKind } from "@/server/proxy/config";
@@ -46,6 +47,10 @@ async function handle(job: Job, signal: AbortSignal) {
       return restartService(p.serviceId);
     case "service.delete":
       return destroyService(job.payload as never);
+    case "environment.copy-data":
+      return copyEnvironmentData(job.payload as JobPayloads["environment.copy-data"]);
+    case "preview.database":
+      return preparePreviewDatabase(job.payload as JobPayloads["preview.database"]);
     case "certificate.issue":
       return issueCertificate(p.certificateId);
     case "certificate.renew-all":

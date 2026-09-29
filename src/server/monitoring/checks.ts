@@ -140,7 +140,9 @@ export async function runUptimeChecks() {
   const now = Date.now();
   const due = [];
   for (const r of rows) {
-    if (["stopped", "idle"].includes(r.service.status) || r.service.parentServiceId) {
+    // In maintenance mode the domains answer 503 on purpose; container checks keep running.
+    const maintenance = r.monitor.kind === "http" && !!r.service.maintenance?.enabled;
+    if (["stopped", "idle"].includes(r.service.status) || r.service.parentServiceId || maintenance) {
       if (r.monitor.status !== "paused") {
         await db.update(schema.monitor).set({ status: "paused", consecutiveFailures: 0 }).where(eq(schema.monitor.id, r.monitor.id));
         // A service that is stopped on purpose is not an outage.

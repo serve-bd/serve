@@ -48,6 +48,7 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
         initialLive={JSON.parse(JSON.stringify(live))}
         server={servers.length > 1 && server ? { id: service.serverId, name: server.name } : null}
         ports={ports.map((p) => ({ label: p.label, url: p.url, protocol: p.protocol }))}
+        maintenance={service.type === "database" ? null : { enabled: !!service.maintenance?.enabled, since: service.maintenance?.since ?? null }}
       />
       {props.children}
     </>

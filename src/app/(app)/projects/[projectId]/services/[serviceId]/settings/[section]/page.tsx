@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { privateHost } from "@/lib/hostname";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -138,6 +138,27 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
         server={server ?? { id: service.serverId, name: "Unknown server", host: "", isLocal: false }}
         servers={servers}
         isRootAdmin={ctx.isInstanceAdmin}
+        maintenance={
+          section === "maintenance"
+            ? {
+                config: service.maintenance ?? null,
+                domains: (await db.select({ hostname: schema.domain.hostname }).from(schema.domain).where(eq(schema.domain.serviceId, service.id))).map((d) => d.hostname),
+              }
+            : undefined
+        }
+        previewDatabase={
+          section === "source" && service.type === "app" && service.source?.type === "git" && !service.parentServiceId
+            ? {
+                config: service.previewDatabase ?? null,
+                databases: (
+                  await db
+                    .select({ id: schema.service.id, name: schema.service.name, database: schema.service.database })
+                    .from(schema.service)
+                    .where(and(eq(schema.service.environmentId, service.environmentId), eq(schema.service.type, "database"), isNull(schema.service.parentServiceId)))
+                ).map((d) => ({ id: d.id, name: d.name, engine: d.database?.engine ?? "", label: d.database ? engines[d.database.engine].label : "" })),
+              }
+            : undefined
+        }
         monitoring={
           section === "monitoring" ? { monitor: (await monitorSummary(service.id)).monitor, defaultUrl: await monitorUrl({ url: null, path: "/" }, service.id) } : undefined
         }

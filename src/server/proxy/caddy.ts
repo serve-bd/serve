@@ -127,6 +127,16 @@ function routeBody(site: SiteModel, h: HostModel, targets: string[] | null) {
   const allow = [...(h.allow ?? []), ...(o?.allow ?? [])];
   if (o?.deny?.length) lines.push(`@serve_denied client_ip ${o.deny.join(" ")}`, "respond @serve_denied 403");
   if (allow.length) lines.push(`@serve_blocked not client_ip ${allow.join(" ")}`, "respond @serve_blocked 403");
+  const m = site.maintenance;
+  if (m) {
+    // Visitors on the allow list still reach the app; everyone else gets the page with a 503.
+    lines.push(
+      m.allow.length ? `@serve_maintenance not client_ip ${m.allow.join(" ")}` : "@serve_maintenance path *",
+      "handle @serve_maintenance {",
+      tab([`header Retry-After "${m.retryAfter}"`, `header Cache-Control "no-store"`, `root * ${proxyPaths.pages}`, `rewrite * /${m.page}`, "file_server {", "\tstatus 503", "}"]),
+      "}",
+    );
+  }
   if (o?.maxBodySize) lines.push("request_body {", `\tmax_size ${sizeToBytes(o.maxBodySize) ?? o.maxBodySize}`, "}");
   if (o?.gzip !== false) lines.push("encode zstd gzip");
   const headers = headerLines(o, h.https);

@@ -48,6 +48,13 @@ export function DeploymentsIndicator() {
     return () => clearInterval(t);
   }, [running.length]);
 
+  // Toasts share the corner: lift them above the pill while it shows.
+  const visible = list.length > 0;
+  React.useEffect(() => {
+    document.documentElement.style.setProperty("--deploy-pill", visible ? "52px" : "0px");
+    return () => document.documentElement.style.setProperty("--deploy-pill", "0px");
+  }, [visible]);
+
   if (!list.length) return null;
   const failed = done.some((d) => d.status === "failed");
   const title = running.length
@@ -59,7 +66,7 @@ export function DeploymentsIndicator() {
       : `${done.length} deployments finished`;
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-4">
+    <div className="pointer-events-none fixed right-4 bottom-4 z-40 flex max-w-[calc(100vw-2rem)] justify-end">
       <Popover>
         <PopoverTrigger
           className={cn(
@@ -79,7 +86,7 @@ export function DeploymentsIndicator() {
           {running.length === 1 && <span className="flex-none text-xs font-normal text-muted tabular-nums">{elapsed(running[0].startedAt ?? running[0].createdAt, now)}</span>}
           <ChevronRight className="size-3.5 flex-none -rotate-90 text-faint" />
         </PopoverTrigger>
-        <PopoverContent side="top" className="w-[min(22rem,calc(100vw-2rem))] p-1">
+        <PopoverContent side="top" align="end" className="w-[min(22rem,calc(100vw-2rem))] p-1">
           <div className="flex items-center justify-between px-2.5 pt-1.5 pb-1">
             <span className="text-[11px] font-medium tracking-wide text-faint uppercase">Deployments</span>
             {done.length > 0 && (

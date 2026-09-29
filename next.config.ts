@@ -7,7 +7,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["dockerode", "ssh2", "cpu-features", "postgres"],
   poweredByHeader: false,
   // Keep the dev tools badge away from the account menu in the sidebar.
-  devIndicators: { position: "bottom-right" },
+  // Bottom right holds the deployments pill and toasts.
+  devIndicators: { position: "bottom-left" },
   // Development only: domains that may load dev assets (e.g. the dashboard domain through a tunnel).
   allowedDevOrigins: (process.env.SERVE_DEV_ORIGINS ?? "")
     .split(",")

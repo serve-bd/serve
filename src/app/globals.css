@@ -270,8 +270,9 @@
     position: fixed;
     z-index: 60;
     right: 16px;
-    bottom: 16px;
+    bottom: calc(16px + var(--deploy-pill, 0px));
     width: min(380px, calc(100vw - 32px));
+    transition: bottom 0.2s ease;
   }
   .toast {
     --gap: 10px;

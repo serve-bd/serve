@@ -14,7 +14,7 @@ export default async function NotificationsPage() {
   return (
     <>
       <PageHeader title="Notifications" description="Get told when deployments fail, services crash, backups run or certificates renew." />
-      <PageBody className="max-w-3xl">
+      <PageBody>
         <NotificationChannels
           isAdmin={ctx.isAdmin}
           events={notifyEvents}

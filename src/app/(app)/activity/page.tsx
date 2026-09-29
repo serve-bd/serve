@@ -13,7 +13,7 @@ export default async function ActivityPage() {
   return (
     <>
       <PageHeader title="Activity" description="An audit trail of changes made in this organization." />
-      <PageBody className="max-w-3xl">
+      <PageBody>
         <Card className="overflow-hidden">
           {items.length === 0 ? (
             <EmptyState icon={<Activity />} title="No activity yet" />

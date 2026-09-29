@@ -25,7 +25,7 @@ export default async function MembersPage() {
   return (
     <>
       <PageHeader title="Members" description={`People with access to ${ctx.org.name}.`} />
-      <PageBody className="max-w-4xl">
+      <PageBody>
         <MembersView
           baseUrl={env.appUrl.replace(/\/$/, "")}
           me={ctx.user.id}

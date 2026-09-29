@@ -46,7 +46,7 @@ export default async function SharedVariablesPage(props: PageProps<"/shared-vari
         title="Shared variables"
         description="Define a value once and reference it from any service. Values are encrypted at rest."
       />
-      <PageBody className="max-w-4xl">
+      <PageBody>
         <SharedVariables
           key={`${scope}:${project?.id ?? ""}:${environment?.id ?? ""}`}
           scope={scope}

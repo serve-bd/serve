@@ -16,7 +16,7 @@ export default async function StoragePage() {
   return (
     <>
       <PageHeader title="S3 storage" description="Send database backups to S3-compatible storage like AWS S3, Cloudflare R2, Backblaze B2 or MinIO." />
-      <PageBody className="max-w-3xl">
+      <PageBody>
         <StorageDestinations destinations={rows} isAdmin={ctx.isAdmin} />
       </PageBody>
     </>

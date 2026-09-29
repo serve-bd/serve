@@ -313,7 +313,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
       await writeEnvVars(id, vars);
     }
     if (data.deploy) await queueDeployment(id, "create", { userId: ctx.user.id });
-    await logActivity({ userId: ctx.user.id, projectId: data.projectId, action: "service.created", targetType: "service", targetId: id, message: `Created ${template ? template.name : "compose stack"} ${data.name}` });
+    await logActivity({ userId: ctx.user.id, projectId: data.projectId, action: "service.created", targetType: "service", targetId: id, message: !template ? `Created compose stack ${data.name}` : data.name === template.name ? `Created ${data.name}` : `Created ${data.name} from the ${template.name} template` });
     return { id };
   });
 }

@@ -40,7 +40,7 @@ export default async function GitPage() {
   return (
     <>
       <PageHeader title="Git providers" description="Connect GitHub to deploy private repositories, with push-to-deploy and pull request previews set up automatically." />
-      <PageBody className="max-w-3xl">
+      <PageBody>
         <GitProviders isAdmin={ctx.isAdmin} credentials={credentials} baseUrl={base} publicUrl={isPublicUrl(base)} />
       </PageBody>
     </>

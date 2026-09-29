@@ -667,11 +667,6 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
               <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint" />
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${props.templates.length} services`} className="pl-8" aria-label="Search services" />
             </div>
-            {props.canManageTemplates && (
-              <Link href="/templates" className="hidden h-9 flex-none items-center rounded-lg px-2.5 text-[13px] text-muted transition-colors hover:bg-hover hover:text-fg sm:inline-flex">
-                Manage templates
-              </Link>
-            )}
           </div>
         </div>
         {list.length ? (

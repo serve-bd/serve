@@ -57,12 +57,16 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
     }
     const before = await getSettings();
     // Routing the dashboard through a tunnel: Cloudflare serves HTTPS, so no certificate here.
-    const tunnelId = data.dashboardTunnelId === undefined ? before.dashboardTunnelId : data.dashboardTunnelId;
+    let tunnelId = data.dashboardTunnelId === undefined ? before.dashboardTunnelId : data.dashboardTunnelId;
     const domain = data.dashboardDomain === undefined ? before.dashboardDomain : data.dashboardDomain || null;
-    if (tunnelId && (data.dashboardTunnelId !== undefined || data.dashboardDomain !== undefined)) {
+    // No domain means nothing to route: drop the tunnel choice instead of refusing to save.
+    if (tunnelId && !domain) {
+      tunnelId = null;
+      patch.dashboardTunnelId = null;
+    }
+    if (tunnelId && domain && (data.dashboardTunnelId !== undefined || data.dashboardDomain !== undefined)) {
       const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
       if (!tunnel || tunnel.serverId !== "local") throw new UserError("Choose a tunnel on the server Serve runs on.");
-      if (!domain) throw new UserError("Enter the dashboard domain first.");
       const { Cloudflare } = await import("@/server/cloudflare/api");
       const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
       const zone = await cf.zoneFor(domain).catch(() => null);

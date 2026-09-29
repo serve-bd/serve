@@ -26,7 +26,7 @@ export function DashboardSettings({
       <SettingsCard title="Dashboard domain" description="Serve this dashboard on its own domain, like any service." initial={dashboard}>
         {(v, set) => (
           <>
-            <Field label="Domain" optional description="GitHub webhooks and invite links use this address.">
+            <Field label="Domain" optional={!v.dashboardTunnelId} description={v.dashboardTunnelId && !v.dashboardDomain ? "Enter a domain to route it through the tunnel. Without one, the tunnel choice is cleared on save." : "GitHub webhooks and invite links use this address."}>
               <Input value={v.dashboardDomain} onChange={(e) => set("dashboardDomain")(e.target.value)} placeholder="serve.example.com" />
             </Field>
             {tunnels.length > 0 && (

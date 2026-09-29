@@ -15,41 +15,62 @@ export type ProjectSummary = {
 
 const typeIcon = { app: Box, database: Database, compose: Layers } as const;
 
+const typeLabel = { app: "App", database: "Database", compose: "Stack" } as const;
+
 export function ProjectCard({ project }: { project: ProjectSummary }) {
+  const total = project.services.length;
   const running = project.services.filter((s) => s.status === "running").length;
   const failing = project.services.filter((s) => s.status === "failed" || s.status === "crashed").length;
+  const counts = (Object.keys(typeIcon) as (keyof typeof typeIcon)[]).map((t) => ({ t, n: project.services.filter((s) => s.type === t).length })).filter((c) => c.n);
+  const color = projectColor(project.color);
+  const health = total === 0 ? "idle" : failing ? "failed" : running === total ? "running" : "stopped";
   return (
     <Link
       href={`/projects/${project.id}`}
-      className="group relative flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-md"
+      className="group flex flex-col gap-4 rounded-xl border border-line bg-surface p-4 shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-md"
     >
-      <span className="absolute inset-x-0 top-0 h-0.5" style={{ background: projectColor(project.color) }} />
-      <div className="flex flex-col gap-1 px-4 pt-4 pb-3">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="truncate text-[15px] font-semibold text-fg">{project.name}</h3>
-          {failing > 0 && <span className="text-[11px] font-medium text-bad">{failing} failing</span>}
-        </div>
-        <p className="line-clamp-1 text-[13px] text-muted">{project.description || `${project.services.length} service${project.services.length === 1 ? "" : "s"}`}</p>
-      </div>
-      <div className="flex flex-1 flex-col gap-1 px-4 pb-3">
-        {project.services.slice(0, 4).map((s) => {
-          const Icon = typeIcon[s.type as keyof typeof typeIcon] ?? Box;
-          return (
-            <div key={s.id} className="flex items-center gap-2 text-[13px] text-fg-2">
-              <Icon className="size-3.5 text-faint" />
-              <span className="flex-1 truncate">{s.name}</span>
-              <StatusDot status={s.status} />
-            </div>
-          );
-        })}
-        {project.services.length > 4 && <p className="text-xs text-faint">+{project.services.length - 4} more</p>}
-        {project.services.length === 0 && <p className="text-[13px] text-faint">No services yet</p>}
-      </div>
-      <div className="flex items-center justify-between border-t border-line px-4 py-2.5 text-xs text-faint">
-        <span>
-          {running}/{project.services.length} running
+      <div className="flex items-start gap-3">
+        <span
+          className="flex size-9 flex-none items-center justify-center rounded-lg text-[14px] font-semibold text-white"
+          style={{ background: color }}
+          aria-hidden
+        >
+          {project.name.trim().charAt(0).toUpperCase() || "P"}
         </span>
-        <TimeAgo date={project.updatedAt} />
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[15px] font-semibold text-fg">{project.name}</h3>
+          <p className="truncate text-[13px] text-muted">
+            {project.description || (
+              <>
+                Updated <TimeAgo date={project.updatedAt} />
+              </>
+            )}
+          </p>
+        </div>
+        {failing > 0 && <span className="flex-none rounded-full bg-bad-soft px-2 py-0.5 text-[11px] font-medium text-bad">{failing} failing</span>}
+      </div>
+      <div className="flex items-center justify-between gap-3 text-xs text-muted">
+        <div className="flex min-w-0 items-center gap-3">
+          {counts.length ? (
+            counts.map(({ t, n }) => {
+              const Icon = typeIcon[t];
+              return (
+                <span key={t} className="inline-flex items-center gap-1" title={`${n} ${typeLabel[t].toLowerCase()}${n === 1 ? "" : "s"}`}>
+                  <Icon className="size-3.5 text-faint" />
+                  {n}
+                </span>
+              );
+            })
+          ) : (
+            <span className="text-faint">No services yet</span>
+          )}
+        </div>
+        {total > 0 && (
+          <span className="inline-flex flex-none items-center gap-1.5 tabular-nums">
+            <StatusDot status={health} />
+            {running}/{total} running
+          </span>
+        )}
       </div>
     </Link>
   );

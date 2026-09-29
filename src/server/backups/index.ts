@@ -112,6 +112,9 @@ export async function runBackup(backupId: string) {
         title: `Backup of ${service.name} finished`,
         body: filename,
         url: `/projects/${service.projectId}/services/${service.id}/backups`,
+        serviceId: service.id,
+        dedupKey: `backup:${service.id}`,
+        data: { backupId: backup.id, filename, size, s3: s3Status },
       });
     }
   } catch (error) {
@@ -126,6 +129,10 @@ export async function runBackup(backupId: string) {
       title: `Backup of ${service.name} failed`,
       body: message.slice(0, 400),
       url: `/projects/${service.projectId}/services/${service.id}/backups`,
+      error: message.slice(0, 2000),
+      serviceId: service.id,
+      dedupKey: `backup:${service.id}`,
+      data: { backupId: backup.id },
     });
     throw error;
   }

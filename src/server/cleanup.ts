@@ -148,6 +148,8 @@ async function scheduleOn(serverId: string) {
         title: `Disk is ${Math.round(percent)}% full${where}`,
         body: `Serve ran an automatic cleanup and freed ${formatSize(result.reclaimed)}. The disk is now ${nowPercent}% full.`,
         url: `/servers/${serverId}/cleanup`,
+        serverId,
+        data: { percent: Math.round(percent), nowPercent, reclaimedBytes: result.reclaimed },
       }).catch(() => {});
       return;
     }

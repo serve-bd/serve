@@ -19,7 +19,8 @@ export type JobType =
   | "server.setup"
   | "proxy.switch"
   | "instance.backup"
-  | "instance.update";
+  | "instance.update"
+  | "notification.deliver";
 
 export type JobPayloads = {
   deploy: { deploymentId: string };
@@ -39,6 +40,7 @@ export type JobPayloads = {
   "task.run": { runId: string };
   "instance.backup": { backupId: string };
   "instance.update": { to: string };
+  "notification.deliver": { deliveryId: string };
 };
 
 export type Job<T extends JobType = JobType> = Omit<typeof schema.job.$inferSelect, "payload" | "type"> & {

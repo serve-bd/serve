@@ -689,6 +689,11 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       title: `${service.name} deployed`,
       body: dep.commitMessage ? `Commit: ${dep.commitMessage}` : `Deployment finished in ${seconds}s.`,
       url: `/projects/${service.projectId}/services/${service.id}/deployments/${dep.id}`,
+      status: "succeeded",
+      serviceId: service.id,
+      deploymentId: dep.id,
+      dedupKey: `deploy:${service.id}`,
+      data: { durationSeconds: seconds, commit: dep.commitSha ?? null, commitMessage: dep.commitMessage ?? null },
     });
   } catch (error) {
     const cancelled = error instanceof DeployCancelled || signal?.aborted;
@@ -729,6 +734,12 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
         title: `${service.name} failed to deploy`,
         body: message.split("\n")[0].slice(0, 500),
         url: `/projects/${service.projectId}/services/${service.id}/deployments/${dep.id}`,
+        status: "failed",
+        error: message.slice(0, 2000),
+        serviceId: service.id,
+        deploymentId: dep.id,
+        dedupKey: `deploy:${service.id}`,
+        data: { keptPreviousVersion: running },
       });
     }
   }

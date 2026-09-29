@@ -63,3 +63,43 @@ export async function publicGet(
   }
   throw new PublicFetchError("Too many redirects.");
 }
+
+/**
+ * Send a request with a body to a public http(s) URL and read the answer (up to 64 KB).
+ * Redirects are not followed: a webhook that redirects answers with its 3xx status.
+ */
+export async function publicRequest(
+  raw: string,
+  opts: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number } = {},
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; text: string }> {
+  const url = new URL(raw);
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new PublicFetchError("Only http and https URLs are allowed.");
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (net.isIP(host) && isPrivateAddress(host)) throw new PublicFetchError("That address points at a private network.");
+  const body = opts.body !== undefined ? Buffer.from(opts.body) : undefined;
+  return new Promise((resolve, reject) => {
+    const req = (url.protocol === "https:" ? https : http).request(
+      url,
+      {
+        method: opts.method ?? "POST",
+        lookup: publicLookup,
+        timeout: opts.timeoutMs ?? 15_000,
+        headers: { ...(body ? { "content-length": String(body.length) } : {}), ...opts.headers },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        res.on("data", (c: Buffer) => {
+          size += c.length;
+          if (size <= 65_536) chunks.push(c);
+        });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, text: Buffer.concat(chunks).toString("utf8") }));
+        res.on("error", reject);
+      },
+    );
+    req.on("timeout", () => req.destroy(new PublicFetchError("The server did not answer in time.")));
+    req.on("error", reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}

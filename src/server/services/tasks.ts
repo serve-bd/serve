@@ -55,6 +55,8 @@ export async function runTask(runId: string) {
       title: `Task ${task?.name ?? run.command} failed on ${service.name}`,
       body: output.trim().split("\n").slice(-5).join("\n").slice(0, 500) || `Exit code ${exitCode}`,
       url: `/projects/${service.projectId}/services/${service.id}/tasks`,
+      serviceId: service.id,
+      data: { taskId: task?.id ?? null, runId, exitCode },
     });
   }
 }

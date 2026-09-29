@@ -11,6 +11,7 @@ import { getSettings, type InstanceBackup, type Settings } from "@/server/settin
 import { SCHEMA_VERSION } from "@/server/version";
 import { buildManifest, bundleName, expiredBackups, INSTANCE_BACKUP_EXCLUDES, INSTANCE_BACKUP_PATHS, scheduleDue } from "./manifest";
 import { currentCommit, currentVersion } from "./version";
+import { notify } from "@/server/notify";
 
 const MAX_KEPT_RECORDS = 50;
 
@@ -156,8 +157,27 @@ export async function runInstanceBackup(id: string, log: (line: string) => void 
       }
     }
     await patchBackup(id, { status: "success", finishedAt: new Date().toISOString(), s3Key, s3Status, error: null });
+    const trigger = settings.instanceBackups.find((b) => b.id === id)?.trigger;
+    if (trigger !== "manual") {
+      await notify(settings.rootOrganizationId, "instance.backup.success", {
+        ok: true,
+        title: "Serve backup finished",
+        body: `${filename}${s3Status === "failed" ? " (the S3 upload failed; the local copy is kept)" : ""}`,
+        url: "/settings/backups",
+        dedupKey: "instance-backup",
+        data: { backupId: id, filename, size, s3: s3Status },
+      });
+    }
   } catch (e) {
     await patchBackup(id, { status: "failed", finishedAt: new Date().toISOString(), error: (e as Error).message.slice(0, 2000) });
+    await notify(settings.rootOrganizationId, "instance.backup.failed", {
+      ok: false,
+      title: "Serve backup failed",
+      body: (e as Error).message.slice(0, 400),
+      url: "/settings/backups",
+      dedupKey: "instance-backup",
+      data: { backupId: id },
+    });
     await fs.promises.rm(path.join(instanceBackupDir(), `.tmp-${id}`), { recursive: true, force: true }).catch(() => {});
     throw e;
   } finally {

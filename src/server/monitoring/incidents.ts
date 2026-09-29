@@ -88,6 +88,11 @@ export async function resolveIncident(key: string, recovered?: { event: NotifyEv
       title: recovered.title,
       body: `${recovered.body} It was down for ${minutes < 60 ? `${minutes} min` : `${(minutes / 60).toFixed(1)} h`}.`,
       url: recovered.url,
+      status: "recovered",
+      serviceId: open.serviceId,
+      serverId: open.serverId,
+      dedupKey: open.key,
+      data: { incidentId: open.id, downMinutes: minutes },
     }).catch(() => {});
   }
   return row;
@@ -99,5 +104,11 @@ async function send(input: OpenIncident, row: Incident) {
     title: row.title,
     body: row.detail ?? "",
     url: input.url,
+    severity: row.severity === "warning" ? "warning" : "critical",
+    status: input.kind === "down" ? "down" : "alert",
+    serviceId: input.serviceId,
+    serverId: input.serverId,
+    dedupKey: row.key,
+    data: { incidentId: row.id, kind: input.kind },
   }).catch(() => {});
 }

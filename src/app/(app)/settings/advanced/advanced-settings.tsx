@@ -20,15 +20,7 @@ export function AdvancedSettings({
 }) {
   return (
     <>
-      <SettingsCard
-        title="Builds and limits"
-        description={
-          <>
-            Resources <ProductName /> itself may use.
-          </>
-        }
-        initial={limits}
-      >
+      <SettingsCard title="Builds and limits" description="How much this dashboard may build at once, and how long it keeps images and metrics." initial={limits}>
         {(v, set) => (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Concurrent builds" description="More builds at once need more CPU and memory.">

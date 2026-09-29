@@ -1,5 +1,6 @@
-import { copyEnvironmentData, preparePreviewDatabase } from "@/server/services/environments";
+// Must stay first: every other import may read the environment when it loads.
 import "dotenv/config";
+import { copyEnvironmentData, preparePreviewDatabase } from "@/server/services/environments";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { ProxyKind } from "@/server/proxy/config";
 import { CronExpressionParser } from "cron-parser";

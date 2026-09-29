@@ -490,12 +490,17 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       if (hostname) {
         if (service.type === "compose") throw new UserError("Compose stacks name each container themselves; set a custom hostname on apps and databases.");
         if (!HOSTNAME_RE.test(hostname)) throw new UserError("Use lowercase letters, numbers and dashes, like postgres or api-db.");
-        const siblings = await db
-          .select({ id: schema.service.id, name: schema.service.name, slug: schema.service.slug, hostname: schema.service.hostname })
-          .from(schema.service)
-          .where(eq(schema.service.environmentId, service.environmentId));
-        const taken = siblings.find((x) => x.id !== service.id && (x.slug === hostname || x.hostname === hostname));
-        if (taken) throw new UserError(`${taken.name} in this environment already uses ${hostname}.`);
+        // The proxy joins every environment network and reaches upstreams by names derived from
+        // slugs (<slug>, <slug>-<service>), so a hostname must never match one of those anywhere.
+        // Plain names like "db" only need to be unique within their own environment.
+        if (hostname.startsWith("serve-")) throw new UserError("Names starting with serve- are reserved.");
+        const all = await db
+          .select({ id: schema.service.id, environmentId: schema.service.environmentId, slug: schema.service.slug, hostname: schema.service.hostname })
+          .from(schema.service);
+        const taken = all.find(
+          (x) => x.id !== service.id && (x.slug === hostname || hostname.startsWith(`${x.slug}-`) || (x.environmentId === service.environmentId && x.hostname === hostname)),
+        );
+        if (taken) throw new UserError(`${hostname} is already used by another service. Choose a different name.`);
       }
       patch.hostname = hostname;
     }
@@ -762,6 +767,9 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
       }
       for (const id of touched) await syncTunnelIngress(id).catch(() => {});
     }
+    // Domains that want a tunnel pick up any tunnel of the new server whose account owns their zone.
+    const { reattachOnServer } = await import("@/server/cloudflare/tunnels");
+    await reattachOnServer(target.id).catch(() => {});
 
     const deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
     await logActivity({
@@ -940,6 +948,7 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
         cloudflareZoneId: tunnelZoneId ?? data.cloudflare?.zoneId ?? null,
         cloudflareRecordId: recordId,
         tunnelId: tunnel?.id ?? null,
+        wantsTunnel: !!tunnel,
       })
       .returning();
     if (tunnel) {
@@ -984,9 +993,10 @@ export async function setDomainRoute(domainId: string, tunnelId: string | null) 
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
     const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
-    if (domain.tunnelId === tunnelId) return null;
+    if (domain.tunnelId === tunnelId && (tunnelId || !domain.wantsTunnel)) return null;
     const previousTunnel = domain.tunnelId;
     const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+    let warning: string | null = null;
 
     if (tunnelId) {
       const [tunnel] = await db
@@ -1007,9 +1017,21 @@ export async function setDomainRoute(domainId: string, tunnelId: string | null) 
       }
       await db
         .update(schema.domain)
-        .set({ tunnelId, https: false, forceHttps: false, cloudflareAccountId: tunnel.cloudflareAccountId, cloudflareZoneId: zone.id, cloudflareRecordId: recordId })
+        .set({
+          tunnelId,
+          wantsTunnel: true,
+          tunnelError: null,
+          https: false,
+          forceHttps: false,
+          cloudflareAccountId: tunnel.cloudflareAccountId,
+          cloudflareZoneId: zone.id,
+          cloudflareRecordId: recordId,
+        })
         .where(eq(schema.domain.id, domainId));
-      await syncTunnelIngress(tunnelId);
+      // The DNS and the database already say "tunnel": finish the other syncs, then report.
+      await syncTunnelIngress(tunnelId).catch((e) => {
+        warning = `The tunnel's routes were not updated: ${(e as Error).message}. Use Sync routes on the tunnel, or edit the domain again.`;
+      });
     } else {
       const ip = await serverPublicIp(service.serverId);
       if (!ip) throw new UserError("This server has no public IP set. Add it in the server's settings first.");
@@ -1017,23 +1039,48 @@ export async function setDomainRoute(domainId: string, tunnelId: string | null) 
       if (domain.cloudflareAccountId && domain.cloudflareZoneId) {
         const cf = await Cloudflare.forAccount(domain.cloudflareAccountId);
         // Serve's own CNAME to the tunnel must go before an A record can exist for the name.
+        const [oldTunnel] = previousTunnel ? await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, previousTunnel)) : [];
         if (domain.cloudflareRecordId) await cf.deleteDnsRecord(domain.cloudflareZoneId, domain.cloudflareRecordId).catch(() => {});
         try {
           recordId = (await cf.upsertARecord(domain.cloudflareZoneId, domain.hostname, ip, true)).id;
         } catch (e) {
+          // Put the tunnel record back so DNS matches what the database still says.
+          if (oldTunnel) await cf.upsertTunnelRecord(domain.cloudflareZoneId, domain.hostname, oldTunnel.cfTunnelId).catch(() => {});
           throw new UserError(`Could not point ${domain.hostname} at ${ip}: ${(e as Error).message}`);
         }
       }
       const [updated] = await db
         .update(schema.domain)
-        .set({ tunnelId: null, https: true, forceHttps: true, cloudflareRecordId: recordId })
+        .set({ tunnelId: null, wantsTunnel: false, tunnelError: null, https: true, forceHttps: true, cloudflareRecordId: recordId })
         .where(eq(schema.domain.id, domainId))
         .returning();
       await ensureCertificateFor(updated, ctx.org.id);
     }
     if (previousTunnel) await syncTunnelIngress(previousTunnel).catch(() => {});
     await syncServiceProxy(domain.serviceId);
-    return null;
+    return { warning };
+  });
+}
+
+/** Reconnect a domain that waits for a tunnel to a tunnel of its server, right now. */
+export async function reconnectDomainTunnel(domainId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    if (!ctx.isAdmin) throw new UserError("Only organization admins can change how a domain is routed.");
+    const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
+    if (!domain) throw new UserError("Domain not found.");
+    const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
+    if (domain.tunnelId) return null;
+    if (!domain.wantsTunnel) throw new UserError("This domain does not use a tunnel. Choose Cloudflare Tunnel in Edit.");
+    // A manual retry clears the stored failure first.
+    await db.update(schema.domain).set({ tunnelError: null }).where(eq(schema.domain.id, domainId));
+    const { reattachOnServer } = await import("@/server/cloudflare/tunnels");
+    const result = await reattachOnServer(service.serverId, { domainId });
+    if (result.reconnected.includes(domain.hostname)) return null;
+    const failed = result.failed.find((f) => f.hostname === domain.hostname);
+    if (failed) throw new UserError(`Could not reconnect ${domain.hostname}: ${failed.error}`);
+    if (!result.tunnels) throw new UserError("This server has no Cloudflare Tunnel. Create one in Integrations → Cloudflare; the domain reconnects by itself.");
+    throw new UserError(`${domain.hostname} is not in a zone of any Cloudflare account with a tunnel on this server.`);
   });
 }
 

@@ -86,7 +86,7 @@ export function ServiceHeader({ project, environment, service, initialLive }: Pr
           ]}
         />
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex w-full min-w-0 items-start gap-3.5 sm:w-auto sm:items-center">
+          <div className="flex min-w-0 flex-[1_1_20rem] items-start gap-3.5 sm:items-center">
             <ServiceIcon type={service.type} engine={service.engine} icon={service.icon} source={service.sourceType} size="lg" />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <div className="flex min-w-0 items-center gap-3">
@@ -110,7 +110,7 @@ export function ServiceHeader({ project, environment, service, initialLive }: Pr
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-none items-center gap-2">
             <Menu>
               <MenuTrigger className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-[13px] font-medium text-fg shadow-sm hover:bg-hover">
                 <Power className="size-3.5" /> Manage <ChevronDown className="size-3.5 text-muted" />

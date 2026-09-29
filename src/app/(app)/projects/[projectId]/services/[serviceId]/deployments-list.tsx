@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/hooks/use-router";
 import { Ban, GitCommitHorizontal, MoreHorizontal, RefreshCw, RotateCcw, Rocket, User } from "lucide-react";
 import { Card, CardHeader, EmptyState, TimeAgo, Badge } from "@/components/ui/misc";
 import { StatusDot, statusText } from "@/components/ui/status";

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/hooks/use-router";
 import { ArrowLeft, ArrowUpRight, ChevronRight, Container, Database, GitBranch, Layers, Lock, Search, Server, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";

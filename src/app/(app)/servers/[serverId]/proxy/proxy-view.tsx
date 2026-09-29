@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/hooks/use-router";
 import { Check, Info, Loader2, Play, Power, RefreshCw, RotateCw, Square, TriangleAlert, Unplug, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";

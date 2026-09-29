@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/hooks/use-router";
 import { AlertTriangle, ChevronRight, Cloud, FileKey2, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldAlert, ShieldCheck, Server as ServerIcon, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/misc";

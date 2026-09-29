@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/hooks/use-router";
 import { ArrowLeft, Ban, Clock, GitBranch, GitCommitHorizontal, RefreshCw, RotateCcw, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, TimeAgo } from "@/components/ui/misc";

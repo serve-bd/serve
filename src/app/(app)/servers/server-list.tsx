@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/hooks/use-router";
 import { ArrowRight, Plus, Server } from "lucide-react";
 import { Badge, Card, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";

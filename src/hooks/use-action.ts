@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/hooks/use-router";
 import { toast } from "@/components/ui/toast";
 import type { ActionResult } from "@/server/action";
 import { useLatest } from "./use-client";

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/hooks/use-router";
 import { Command } from "cmdk";
 import useSWR from "swr";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";

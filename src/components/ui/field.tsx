@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import type * as React from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { cn } from "@/lib/utils";
 

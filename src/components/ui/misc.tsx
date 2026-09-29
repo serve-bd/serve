@@ -191,7 +191,6 @@ export function Avatar({ name, src, className }: { name: string; src?: string | 
         className,
       )}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- small remote avatars */}
       {src ? <img src={src} alt="" className="size-full object-cover" /> : initials || "?"}
     </span>
   );

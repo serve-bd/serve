@@ -10,7 +10,7 @@ import { getSetting } from "@/server/settings";
 /** Execute one task run (called by the worker). */
 export async function runTask(runId: string) {
   const [run] = await db.select().from(schema.taskRun).where(eq(schema.taskRun.id, runId));
-  if (!run || run.status !== "running") return;
+  if (run?.status !== "running") return;
   const service = await getService(run.serviceId);
   const task = run.taskId ? (await db.select().from(schema.scheduledTask).where(eq(schema.scheduledTask.id, run.taskId)))[0] : null;
   let exitCode = 1;

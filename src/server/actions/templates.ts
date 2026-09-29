@@ -151,7 +151,7 @@ export async function fetchComposeFromUrl(raw: string) {
       if (!next) break;
       url = await assertPublicUrl(new URL(next, url).href);
     }
-    if (!res || !res.ok) throw new UserError(`The server answered ${res?.status ?? "nothing"}.`);
+    if (!res?.ok) throw new UserError(`The server answered ${res?.status ?? "nothing"}.`);
     if (Number(res.headers.get("content-length") ?? 0) > MAX_BYTES) throw new UserError("The file is larger than 256 KB.");
     const reader = res.body?.getReader();
     const chunks: Uint8Array[] = [];

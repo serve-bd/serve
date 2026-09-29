@@ -158,7 +158,7 @@ export async function serverHealth(a: ServerCtx | HealthSettings | null | undefi
         withTimeout(serverSnapshot(ctx).catch(() => null), null),
       ])
     : [false, false, null];
-  const diskPercent = snap && snap.disk.total ? (snap.disk.used / snap.disk.total) * 100 : 0;
+  const diskPercent = snap?.disk.total ? (snap.disk.used / snap.disk.total) * 100 : 0;
   const issues: string[] = [];
   if (!reachable) issues.push(ctx.row.statusMessage ? `Unreachable: ${ctx.row.statusMessage}` : "The server is unreachable");
   else if (!dockerOk) issues.push("Docker is not reachable");

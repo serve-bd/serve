@@ -166,7 +166,7 @@ async function proxyProbe(
 ): Promise<boolean | null> {
   const { execInContainer } = await import("@/server/docker/client");
   const cmd = pathName
-    ? `wget -S -q -T 4 -O /dev/null "http://${host}:${port}${pathName}" 2>&1 | awk '/HTTP\//{print $2}' | tail -1`
+    ? `wget -S -q -T 4 -O /dev/null "http://${host}:${port}${pathName}" 2>&1 | awk '/HTTP//{print $2}' | tail -1`
     : `nc -z -w 2 ${host} ${port} && echo open`;
   let res: { exitCode: number; output: string };
   try {

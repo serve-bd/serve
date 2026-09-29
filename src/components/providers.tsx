@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import type * as React from "react";
 import { SWRConfig } from "swr";
 import { ProgressProvider } from "@bprogress/next/app";
 import { ThemeProvider } from "next-themes";

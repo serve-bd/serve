@@ -50,7 +50,7 @@ async function dnsStep(domain: string, route: "ip" | "tunnel", serverIp: string 
       }
       const records = (await cf.dnsRecords(zone.id, { name: domain })).filter((r) => ["A", "AAAA", "CNAME"].includes(r.type));
       const cname = records.find((r) => r.type === "CNAME" && r.content === target);
-      if (cname && cname.proxied) return { id: "dns", title, state: "ok", summary: `CNAME points at the tunnel (${zone.name})` };
+      if (cname?.proxied) return { id: "dns", title, state: "ok", summary: `CNAME points at the tunnel (${zone.name})` };
       const fix = { action: "dns" as const, label: "Fix DNS" };
       if (cname) return { id: "dns", title, state: "fail", summary: "The CNAME is not proxied (grey cloud)", detail: "Tunnel records only work when Cloudflare proxies them.", fix };
       if (records.length) {

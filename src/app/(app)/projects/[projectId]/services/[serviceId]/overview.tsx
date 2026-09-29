@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import type * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";

@@ -51,7 +51,7 @@ async function removeStaleContainers(ctx: ServerCtx) {
   for (const c of containers) {
     const service = byId.get(c.Labels[LABEL.service]);
     const deployment = c.Labels[LABEL.deployment];
-    if (!service || service.type !== "app" || !deployment) continue;
+    if (service?.type !== "app" || !deployment) continue;
     if (service.status === "stopped" || busyIds.has(service.id) || deployment === service.currentDeploymentId) continue;
     await removeContainer(c.Id, 5, ctx.docker).catch(() => {});
     removed++;

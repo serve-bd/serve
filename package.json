@@ -9,7 +9,9 @@
     "build:worker": "esbuild src/worker/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/worker.cjs --external:cpu-features --external:*.node --log-level=warning",
     "start": "next start",
     "worker": "node dist/worker.cjs",
-    "lint": "eslint",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "check": "biome check --write .",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
@@ -49,6 +51,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.14",
     "@tailwindcss/postcss": "^4",
     "@types/dockerode": "^4.0.1",
     "@types/node": "^20",
@@ -59,8 +62,6 @@
     "dotenv": "^18.0.4",
     "drizzle-kit": "^0.31.11",
     "esbuild": "^0.28.2",
-    "eslint": "^9",
-    "eslint-config-next": "16.3.6",
     "playwright-core": "^1.63.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",

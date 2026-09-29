@@ -52,7 +52,7 @@ export async function runBackup(backupId: string) {
     where: eq(schema.backup.id, backupId),
     with: { service: true },
   });
-  if (!backup || !backup.service.database) return;
+  if (!backup?.service.database) return;
   const service = backup.service;
   const cfg = service.database!;
   const engine = engines[cfg.engine];

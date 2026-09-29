@@ -135,7 +135,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const missing = new Set<string>();
 
   const expand = (value: string, depth = 0): string =>
-    value.replace(REF, (match, ref: string) => {
+    value.replace(REF, (_match, ref: string) => {
       const dot = ref.indexOf(".");
       let result: string | undefined;
       if (dot === -1) {

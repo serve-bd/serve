@@ -138,7 +138,7 @@ export function DeploymentView({
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
               {deployment.commitSha && (
                 <a
-                  href={repoUrl && repoUrl.startsWith("http") ? `${repoUrl}/commit/${deployment.commitSha}` : undefined}
+                  href={repoUrl?.startsWith("http") ? `${repoUrl}/commit/${deployment.commitSha}` : undefined}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 font-mono hover:text-fg"

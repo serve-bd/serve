@@ -14,9 +14,9 @@ import { deleteVolumeData } from "@/server/actions/databases";
 import { cn } from "@/lib/utils";
 import type { VolumeMount } from "@/server/services/types";
 
-type Tab = "volumes" | "files" | "directories";
+type StorageTab = "volumes" | "files" | "directories";
 
-const tabOf = (v: VolumeMount): Tab => (v.kind === "volume" ? "volumes" : v.kind === "file" || v.hostType === "file" ? "files" : "directories");
+const tabOf = (v: VolumeMount): StorageTab => (v.kind === "volume" ? "volumes" : v.kind === "file" || v.hostType === "file" ? "files" : "directories");
 
 function Cell({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
@@ -61,7 +61,7 @@ export function StorageSection({
   const [value, setValue] = React.useState(initial);
   const [saved, setSaved] = React.useState(JSON.stringify(initial));
   const [pending, setPending] = React.useState(false);
-  const [tab, setTab] = React.useState<Tab>("volumes");
+  const [tab, setTab] = React.useState<StorageTab>("volumes");
   const [removed, setRemoved] = React.useState<string[]>([]);
   const dirty = JSON.stringify(value) !== saved;
   const purging = React.useRef("");
@@ -71,7 +71,7 @@ export function StorageSection({
   });
 
   const rows = value.volumes.map((v, i) => ({ v, i })).filter(({ v }) => tabOf(v) === tab);
-  const count = (t: Tab) => value.volumes.filter((v) => tabOf(v) === t).length + (t === "volumes" && data ? 1 : 0);
+  const count = (t: StorageTab) => value.volumes.filter((v) => tabOf(v) === t).length + (t === "volumes" && data ? 1 : 0);
   const update = (i: number, patch: Partial<VolumeMount>) => setValue((s) => ({ ...s, volumes: s.volumes.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
   const remove = (i: number) => setValue((s) => ({ ...s, volumes: s.volumes.filter((_, j) => j !== i) }));
   const add = (v: VolumeMount) => {
@@ -126,7 +126,7 @@ export function StorageSection({
         }
       />
       <CardBody className="flex flex-col gap-4 py-5">
-        <Tabs value={tab} onValueChange={(t) => setTab(t as Tab)}>
+        <Tabs value={tab} onValueChange={(t) => setTab(t as StorageTab)}>
           <TabsList>
             <Tab value="volumes">Volumes ({count("volumes")})</Tab>
             <Tab value="files">Files ({count("files")})</Tab>

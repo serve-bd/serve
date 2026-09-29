@@ -464,7 +464,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   let content = cfg.content;
 
   if (cfg.mode === "git") {
-    if (!service.source || service.source.type !== "git") throw new Error("Compose from git needs a git source.");
+    if (service.source?.type !== "git") throw new Error("Compose from git needs a git source.");
     log.step("Cloning repository");
     const repoDir = path.join(serviceDir, "repo");
     const clone = await cloneRepository(service.source, repoDir, log.line, signal, await orgIdOf(service));
@@ -601,7 +601,7 @@ function failureHint(message: string) {
 
 export async function runDeployment(deploymentId: string, signal?: AbortSignal) {
   const dep = await db.query.deployment.findFirst({ where: eq(schema.deployment.id, deploymentId) });
-  if (!dep || dep.status !== "queued") return;
+  if (dep?.status !== "queued") return;
   const service = await db.query.service.findFirst({ where: eq(schema.service.id, dep.serviceId) });
   if (!service) return;
 

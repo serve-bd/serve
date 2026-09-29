@@ -497,7 +497,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       if (runtime.replicas > 1 && runtime.ports.length) throw new UserError("Published host ports only work with a single replica.");
       const grantsHost =
         (data.runtime.privileged === true && !service.runtime.privileged) ||
-        (data.runtime.capAdd !== undefined && data.runtime.capAdd.some((c) => !(service.runtime.capAdd ?? []).includes(c)));
+        (data.runtime.capAdd?.some((c) => !(service.runtime.capAdd ?? []).includes(c)));
       if (grantsHost) assertHostAccess(ctx, "Privileged mode and extra capabilities");
       if (data.runtime.labels?.some((l) => l.key.startsWith("serve."))) throw new UserError("Labels starting with serve. are reserved.");
       if (data.runtime.restartSchedule) {
@@ -1087,7 +1087,7 @@ export async function restoreFromBackup(backupId: string, opts: { backupFirst?: 
   return act(async () => {
     const ctx = await requireOrgAdmin();
     const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
-    if (!b || b.status !== "success") throw new UserError("Backup not found.");
+    if (b?.status !== "success") throw new UserError("Backup not found.");
     const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
     if (service.status !== "running") throw new UserError("Start the database before restoring.");
     await db.update(schema.backup).set({ restoreStatus: "running" }).where(eq(schema.backup.id, backupId));

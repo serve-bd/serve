@@ -44,7 +44,7 @@ export function ConnectionCheck({ domain, tunnel }: { domain: string; tunnel: bo
     },
     {
       // Keep polling until every step is green, so fixes made elsewhere show up on their own.
-      refreshInterval: (d) => (d && d.steps.every((s) => s.state === "ok" || s.state === "skip") ? 0 : 6000),
+      refreshInterval: (d) => (d?.steps.every((s) => s.state === "ok" || s.state === "skip") ? 0 : 6000),
       revalidateOnFocus: true,
     },
   );
@@ -110,7 +110,7 @@ function StepRow({ step, index, onFixed }: { step: ConnectionStep; index: number
   return (
     <li className="px-5 py-3.5">
       <div className="flex min-w-0 items-start gap-3">
-        <span className="mt-px flex-none" aria-label={step.state}>
+        <span className="mt-px flex-none" role="img" aria-label={step.state}>
           {icons[step.state]}
         </span>
         <button

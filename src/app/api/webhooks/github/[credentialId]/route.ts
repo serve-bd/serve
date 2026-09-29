@@ -11,7 +11,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/webhook
   const { credentialId } = await ctx.params;
   const raw = await request.text();
   const [cred] = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.id, credentialId));
-  if (!cred || cred.provider !== "github-app") return NextResponse.json({ error: "Unknown app" }, { status: 404 });
+  if (cred?.provider !== "github-app") return NextResponse.json({ error: "Unknown app" }, { status: 404 });
   const secret = readAppSecret(cred);
   const signature = request.headers.get("x-hub-signature-256") ?? "";
   const expected = `sha256=${crypto.createHmac("sha256", secret.webhookSecret).update(raw).digest("hex")}`;

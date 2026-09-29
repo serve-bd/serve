@@ -105,7 +105,7 @@ export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { service
               <AreaChart data={(req?.series ?? []).map((p) => ({ t: p.t, v: p.avgMs }))} color="var(--accent)" format={(v) => `${Math.round(v)} ms`} height={56} />
             </Panel>
             <Panel title="Server errors" value={req ? compact(req.totals.errors) : "—"}>
-              <p className="text-xs text-muted">{req && req.totals.requests ? `${((req.totals.errors / req.totals.requests) * 100).toFixed(2)}% of requests · ${formatBytes(req.totals.bytes)} sent` : "5xx responses from this service."}</p>
+              <p className="text-xs text-muted">{req?.totals.requests ? `${((req.totals.errors / req.totals.requests) * 100).toFixed(2)}% of requests · ${formatBytes(req.totals.bytes)} sent` : "5xx responses from this service."}</p>
             </Panel>
           </div>
         </div>

@@ -39,7 +39,6 @@ export function ServiceIcon({
         {engine ? (
           <Database />
         ) : brand?.logo ? (
-          // eslint-disable-next-line @next/next/no-img-element -- tiny static SVG
           <img src={brand.logo} alt="" className="size-[55%]" draggable={false} />
         ) : (
           <span className="text-[13px] font-semibold">{(icon ?? "?").slice(0, 1).toUpperCase()}</span>

@@ -208,7 +208,7 @@ export async function saveProxyContainer(serverId: string, kindInput: string, in
     const kind = runningKind(kindInput);
     await serverRow(serverId);
     const { config } = await proxyStateOf(serverId);
-    let container = undefined;
+    let container ;
     if (input !== null) {
       const parsed = containerOverridesSchema.safeParse(input);
       if (!parsed.success) throw new UserError(parsed.error.issues[0]?.message ?? "Invalid container settings.");

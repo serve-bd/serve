@@ -204,8 +204,7 @@ export function CloudflareAccounts({
           />
         </Card>
       ) : (
-        <>
-          {accounts.map((a) => (
+        accounts.map((a) => (
             <Card key={a.id} className="overflow-hidden">
               <CardHeader
                 title={
@@ -270,8 +269,7 @@ export function CloudflareAccounts({
               </div>
               {!a.error && <TunnelsSection account={a} servers={servers} tunnels={tunnels} isAdmin={isAdmin} />}
             </Card>
-          ))}
-        </>
+          ))
       )}
       <ConnectCloudflareDialog open={open} onOpenChange={setOpen} />
       </PageBody>

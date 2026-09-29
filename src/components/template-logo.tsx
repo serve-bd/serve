@@ -21,7 +21,6 @@ export function TemplateLogo({
   if (iconUrl) {
     return (
       <span className={cn("flex shrink-0 items-center justify-center overflow-hidden border border-line bg-surface-2 shadow-sm", dims, className)}>
-        {/* eslint-disable-next-line @next/next/no-img-element -- user supplied icon URL */}
         <img src={iconUrl} alt="" className="size-[70%] object-contain" draggable={false} />
       </span>
     );
@@ -34,7 +33,6 @@ export function TemplateLogo({
       aria-hidden
     >
       {brand.logo && !custom ? (
-        // eslint-disable-next-line @next/next/no-img-element -- tiny static SVG
         <img src={brand.logo} alt="" className="size-[54%]" draggable={false} />
       ) : (
         name.trim().charAt(0).toUpperCase() || "?"

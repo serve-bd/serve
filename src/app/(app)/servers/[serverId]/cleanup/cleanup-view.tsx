@@ -87,7 +87,7 @@ export function CleanupView({
   }, [latest, waitingSince]);
 
   const running = waitingSince !== undefined || start.pending;
-  const percent = disk && disk.total ? (disk.used / disk.total) * 100 : null;
+  const percent = disk?.total ? (disk.used / disk.total) * 100 : null;
   const over = percent !== null && percent >= settings.cleanupDiskThreshold;
 
   return (

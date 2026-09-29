@@ -185,7 +185,6 @@ function TwoFactorCard({ enabled }: { enabled: boolean }) {
                 </Field>
               ) : (
                 <>
-                  {/* eslint-disable-next-line @next/next/no-img-element -- generated data URL */}
                   {qr && <img src={qr} alt="Authenticator QR code" className="mx-auto size-[200px] rounded-xl border border-line bg-white p-2" />}
                   <Field label="6-digit code">
                     <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} required autoFocus inputMode="numeric" maxLength={6} className="text-center font-mono text-lg tracking-[0.4em]" />

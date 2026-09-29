@@ -264,6 +264,7 @@ export function ServerSetupProgress({
     readyRef.current = onReady;
   });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `tick` restarts polling after a retry.
   React.useEffect(() => {
     let stop = false;
     let timer: ReturnType<typeof setTimeout>;

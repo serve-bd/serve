@@ -47,7 +47,7 @@ export async function requireToken(request: Request, scope: ApiScope): Promise<{
       .catch(() => {});
   }
 
-  const projectIds = row.projectIds && row.projectIds.length ? row.projectIds : null;
+  const projectIds = row.projectIds?.length ? row.projectIds : null;
   return {
     auth: {
       tokenId: row.id,

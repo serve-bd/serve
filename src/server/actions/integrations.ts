@@ -563,7 +563,7 @@ export async function githubAppInstallUrl(credentialId: string) {
       .select()
       .from(schema.gitCredential)
       .where(and(eq(schema.gitCredential.id, credentialId), eq(schema.gitCredential.organizationId, ctx.org.id)));
-    if (!cred || cred.provider !== "github-app") throw new UserError("GitHub App not found.");
+    if (cred?.provider !== "github-app") throw new UserError("GitHub App not found.");
     const { readAppSecret, signState } = await import("@/server/git/github-app");
     const secret = readAppSecret(cred);
     const state = signState({ credentialId, organizationId: ctx.org.id, userId: ctx.user.id });

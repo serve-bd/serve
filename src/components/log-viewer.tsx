@@ -51,6 +51,7 @@ export function LogViewer({
     return src.map((l, i) => ({ ...l, n: i + 1 })).filter((l) => l.text.toLowerCase().includes(q));
   }, [lines, query]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll again whenever the visible lines change.
   React.useLayoutEffect(() => {
     if (follow && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [visible, follow]);

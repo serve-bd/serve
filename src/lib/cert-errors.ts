@@ -5,6 +5,15 @@ export function explainCertError(error: string, ctx: { serverIp?: string | null;
   const which = domains.length ? domains.join(", ") : "the domain";
   const ip = ctx.serverIp ? ` pointing to ${ctx.serverIp}` : " pointing to this server";
 
+  const port = error.match(/listens on port (\d+), but Let's Encrypt only checks port 80/);
+  if (port)
+    return {
+      title: `Let's Encrypt cannot reach port ${port[1]}`,
+      hint: "The HTTP check only uses port 80, so it cannot work on this machine. Connect Cloudflare in Integrations to use the DNS check, or open the app over plain HTTP or a localhost port.",
+    };
+  const wrong = error.match(/points to ([\d., ]+), not to .+?\(([\d.]+)\)/);
+  if (wrong) return { title: `${which} points somewhere else`, hint: `Its A record is ${wrong[1].trim()}. Change it to ${wrong[2]} and retry.` };
+  if (/needs the DNS check/.test(error)) return { title: "Wildcard certificates need the DNS check", hint: "Connect Cloudflare in Integrations, then request the certificate with Cloudflare DNS." };
   // Let's Encrypt reached a Cloudflare edge address: the orange-cloud proxy is on.
   if (ctx.provider === "letsencrypt-http" && /2606:4700:|2a06:98c[01]:|\b(104\.(1[6-9]|2[0-7])|172\.(6[4-9]|7[01])|162\.15[89]|188\.114\.9[6-9]|141\.101\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\./.test(e))
     return {

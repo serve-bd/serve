@@ -16,6 +16,7 @@ import { Cloudflare } from "@/server/cloudflare/api";
 import { notify } from "@/server/notify";
 import { enqueue } from "@/server/queue";
 import { certificateCovers } from "./match";
+import { isCloudflareIp, resolveA } from "@/server/dns";
 
 type Cert = typeof schema.certificate.$inferSelect;
 
@@ -70,11 +71,38 @@ export function certificateServer(cert: Pick<Cert, "serverId">) {
   return getServer(cert.serverId || LOCAL_SERVER_ID);
 }
 
+/**
+ * Catch HTTP challenges that cannot pass before asking Let's Encrypt, which
+ * counts failures against rate limits. Only definite problems stop the run.
+ */
+async function httpPreflight(ctx: ServerCtx, cert: Cert, log: (l: string) => void) {
+  if (ctx.proxyHttpPort !== 80) {
+    throw new Error(
+      `The proxy on ${ctx.name} listens on port ${ctx.proxyHttpPort}, but Let's Encrypt only checks port 80. Connect Cloudflare in Integrations to use the DNS check, or use plain HTTP on this machine.`,
+    );
+  }
+  const { serverAddressing } = await import("@/server/proxy/addressing");
+  const { publicIp } = await serverAddressing(ctx.id);
+  for (const domain of cert.domains) {
+    if (domain.startsWith("*.")) throw new Error(`Wildcard ${domain} needs the DNS check. Connect Cloudflare in Integrations and choose Cloudflare DNS.`);
+    const records = await resolveA(domain).catch(() => [] as string[]);
+    if (!records.length) throw new Error(`DNS problem: NXDOMAIN looking up A for ${domain} - no A record points to this server yet.`);
+    if (records.every(isCloudflareIp)) {
+      log(`${domain} is behind Cloudflare's proxy; the check reaches this server only if Cloudflare can connect to it on port 80.`);
+      continue;
+    }
+    if (publicIp && !records.includes(publicIp)) {
+      throw new Error(`${domain} points to ${records.join(", ")}, not to ${ctx.name} (${publicIp}). Update its A record and retry.`);
+    }
+  }
+}
+
 async function certbot(cert: Cert, log: (l: string) => void) {
   const ctx = await certificateServer(cert);
   const settings = await getSettings();
   if (!settings.acmeEmail) throw new Error("Set a Let's Encrypt email in Settings → General first.");
   const isDns = cert.provider === "letsencrypt-cloudflare";
+  if (!isDns) await httpPreflight(ctx, cert, log);
   const args = [
     "run",
     "--rm",

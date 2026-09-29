@@ -91,7 +91,7 @@ export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { service
         </div>
       </div>
       {hasDomains && (
-        <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
           <Panel title="Requests" value={req ? compact(req.totals.requests) : "—"}>
             <StatusBars series={req?.series ?? []} />
             <div className="flex flex-wrap gap-4 text-xs text-muted">
@@ -110,7 +110,7 @@ export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { service
           </div>
         </div>
       )}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="CPU" value={last ? `${last.cpu.toFixed(1)}%` : "—"}>
           <AreaChart data={series.map((p) => ({ t: p.t, v: p.cpu }))} format={(v) => `${v.toFixed(1)}%`} height={160} />
         </Panel>

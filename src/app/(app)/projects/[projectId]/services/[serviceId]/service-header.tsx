@@ -86,24 +86,24 @@ export function ServiceHeader({ project, environment, service, initialLive }: Pr
           ]}
         />
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3.5">
+          <div className="flex w-full min-w-0 items-start gap-3.5 sm:w-auto sm:items-center">
             <ServiceIcon type={service.type} engine={service.engine} icon={service.icon} source={service.sourceType} size="lg" />
-            <div className="flex min-w-0 flex-col gap-1">
-              <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="flex min-w-0 items-center gap-3">
                 <h1 className="truncate text-[22px] leading-tight font-semibold">{service.name}</h1>
-                <StatusLabel status={live.status} className="rounded-full bg-surface-2 px-2.5 py-0.5 text-xs ring-1 ring-line" />
+                <StatusLabel status={live.status} className="shrink-0 rounded-full bg-surface-2 px-2.5 py-0.5 text-xs ring-1 ring-line" />
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
-                <span className="truncate font-mono text-[12px]">{service.sourceLabel}</span>
+                <span className="max-w-full truncate font-mono text-[12px]">{service.sourceLabel}</span>
                 {primary && (
                   <a
                     href={`${primary.https ? "https" : "http"}://${primary.hostname}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-0.5 text-accent hover:underline"
+                    className="inline-flex min-w-0 max-w-full items-center gap-0.5 text-accent hover:underline"
                   >
-                    {primary.hostname}
-                    <ArrowUpRight className="size-3" />
+                    <span className="truncate">{primary.hostname}</span>
+                    <ArrowUpRight className="size-3 shrink-0" />
                   </a>
                 )}
                 <span className="rounded bg-sunken px-1.5 py-px text-[11px] text-muted">{environment}</span>
@@ -147,13 +147,14 @@ export function ServiceHeader({ project, environment, service, initialLive }: Pr
             </Button>
           </div>
         </div>
-        <nav className="-mb-px flex gap-1 overflow-x-auto">
+        <nav className="scrollbar-none -mx-4 -mb-px flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0">
           {tabs.map((t) => {
             const active = t.exact ? pathname === t.href || pathname.startsWith(`${base}/deployments`) : pathname.startsWith(t.href);
             return (
               <Link
                 key={t.href}
                 href={t.href}
+                ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
                 className={cn(
                   "relative px-3 pt-1 pb-3 text-[13px] font-medium whitespace-nowrap transition-colors",
                   active ? "text-fg" : "text-muted hover:text-fg",

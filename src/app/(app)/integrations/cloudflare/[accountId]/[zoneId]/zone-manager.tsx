@@ -61,7 +61,7 @@ function RecordDialog({
         >
           <DialogHeader title={record ? "Edit DNS record" : "Add DNS record"} description={full} />
           <DialogBody>
-            <div className="grid gap-4 sm:grid-cols-[120px_1fr]">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[120px_1fr]">
               <Field label="Type">
                 <Select value={type} onValueChange={setType} options={types.map((t) => ({ value: t, label: t }))} disabled={!!record} />
               </Field>
@@ -82,7 +82,7 @@ function RecordDialog({
                 )}
               </div>
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="TTL">
                 <Select value={ttl} onValueChange={setTtl} options={[{ value: "1", label: "Auto" }, { value: "60", label: "1 minute" }, { value: "300", label: "5 minutes" }, { value: "3600", label: "1 hour" }, { value: "86400", label: "1 day" }]} />
               </Field>
@@ -149,7 +149,7 @@ export function ZoneManager({
   const short = (n: string) => (n === zone.name ? "@" : n.replace(`.${zone.name}`, ""));
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3">
           <div className="relative">

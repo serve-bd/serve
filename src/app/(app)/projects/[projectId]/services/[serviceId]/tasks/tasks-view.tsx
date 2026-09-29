@@ -47,7 +47,7 @@ function TaskDialog({ open, onOpenChange, task, composeServices, onSave, pending
           <DialogBody>
             <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Clear expired sessions" autoFocus /></Field>
             <Field label="Command"><Input value={command} onChange={(e) => setCommand(e.target.value)} required placeholder="npm run cron:cleanup" className="font-mono text-[13px]" /></Field>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Schedule"><Select value={preset} onValueChange={setPreset} options={presets} /></Field>
               {preset === "custom" ? (
                 <Field label="Cron expression"><Input value={cron} onChange={(e) => setCron(e.target.value)} className="font-mono" placeholder="30 2 * * *" /></Field>
@@ -93,7 +93,7 @@ export function TasksView({ serviceId, composeServices }: { serviceId: string; c
   };
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[1fr_380px]">
+    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
       <div className="flex flex-col gap-6">
         <Card className="overflow-hidden">
           <CardHeader title="Scheduled tasks" description="Cron jobs that run commands inside this service." actions={<Button size="sm" variant="primary" onClick={() => openDialog(null)}><Plus /> New task</Button>} />

@@ -75,7 +75,7 @@ export function AccountView({ user }: { user: { name: string; email: string; two
           }}
         >
           <CardHeader title="Password" />
-          <CardBody className="grid gap-4 py-5 sm:grid-cols-2">
+          <CardBody className="grid grid-cols-1 gap-4 py-5 sm:grid-cols-2">
             <Field label="Current password"><Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required autoComplete="current-password" /></Field>
             <Field label="New password" description="At least 8 characters."><Input type="password" value={next} onChange={(e) => setNext(e.target.value)} required minLength={8} autoComplete="new-password" /></Field>
           </CardBody>

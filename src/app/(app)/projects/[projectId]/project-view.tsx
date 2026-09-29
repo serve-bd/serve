@@ -164,7 +164,7 @@ export function ProjectView({ project, environments, environment, initialService
       />
       <PageBody>
         {services.length ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {services.map((s) => (
               <ServiceCard key={s.id} projectId={project.id} s={s} />
             ))}

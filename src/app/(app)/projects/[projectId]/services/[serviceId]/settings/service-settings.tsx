@@ -147,7 +147,7 @@ export function ServiceSettings(props: Props) {
               <Field label="Repository">
                 <Input value={v.repository} onChange={(e) => set({ repository: e.target.value })} className="font-mono text-[13px]" />
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Branch">
                   <Input value={v.branch} onChange={(e) => set({ branch: e.target.value })} className="font-mono text-[13px]" />
                 </Field>
@@ -193,7 +193,7 @@ export function ServiceSettings(props: Props) {
               <Field label="Image">
                 <Input value={v.image} onChange={(e) => set({ image: e.target.value })} className="font-mono text-[13px]" />
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Registry username" optional>
                   <Input value={v.registryUsername} onChange={(e) => set({ registryUsername: e.target.value })} autoComplete="off" />
                 </Field>
@@ -210,7 +210,7 @@ export function ServiceSettings(props: Props) {
         <Section title="Build" description="How the image is built from your repository." initial={service.build} onSave={(v) => save.run({ build: v })}>
           {(v, set) => (
             <>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Builder">
                   <Select
                     value={v.builder}
@@ -301,7 +301,7 @@ export function ServiceSettings(props: Props) {
           }
         >
           {(v, set) => (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Port" description="The port your app listens on.">
                 <Input value={v.port} onChange={(e) => set({ port: e.target.value.replace(/\D/g, "") })} inputMode="numeric" placeholder="3000" />
               </Field>
@@ -342,7 +342,7 @@ export function ServiceSettings(props: Props) {
           onSave={(v) => save.run({ runtime: { cpuLimit: v.cpu ? Number(v.cpu) : null, memoryLimit: num(v.memory) } })}
         >
           {(v, set) => (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="CPU limit">
                 <InputGroup suffix="cores">
                   <Input value={v.cpu} onChange={(e) => set({ cpu: e.target.value.replace(/[^\d.]/g, "") })} placeholder="1.0" inputMode="decimal" />
@@ -400,7 +400,7 @@ export function ServiceSettings(props: Props) {
               {v.ports.map((p, i) => {
                 const update = (patch: Partial<PortMapping>) => set({ ports: v.ports.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
                 return (
-                  <div key={i} className="grid grid-cols-[1fr_1fr_100px_32px] gap-2">
+                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_84px_32px] gap-2">
                     <Input value={String(p.host || "")} onChange={(e) => update({ host: Number(e.target.value.replace(/\D/g, "")) })} placeholder="Host port" className="h-8" inputMode="numeric" />
                     <Input value={String(p.container || "")} onChange={(e) => update({ container: Number(e.target.value.replace(/\D/g, "")) })} placeholder="Container port" className="h-8" inputMode="numeric" />
                     <Select size="sm" value={p.protocol} onValueChange={(proto) => update({ protocol: proto as PortMapping["protocol"] })} options={[{ value: "tcp", label: "TCP" }, { value: "udp", label: "UDP" }]} />

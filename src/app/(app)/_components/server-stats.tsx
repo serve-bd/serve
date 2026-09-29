@@ -52,7 +52,7 @@ export function ServerStats() {
   const uptimeDays = now ? Math.floor(now.uptime / 86400) : 0;
   return (
     <Card className="overflow-hidden">
-      <div className="grid divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+      <div className="grid grid-cols-1 divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <Stat
           icon={<Cpu />}
           label="CPU"
@@ -75,7 +75,7 @@ export function ServerStats() {
           meter={[now?.disk.used ?? 0, now?.disk.total ?? 1]}
         />
       </div>
-      <div className="grid gap-px border-t border-line bg-line sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-px border-t border-line bg-line sm:grid-cols-2">
         <div className="bg-surface px-4 pt-3 pb-2">
           <p className="mb-1 text-[11px] font-medium tracking-wide text-faint uppercase">CPU · 6h</p>
           <AreaChart data={(data?.series ?? []).map((p) => ({ t: p.t, v: p.cpu }))} max={100} height={80} format={(v) => `${v.toFixed(1)}%`} />

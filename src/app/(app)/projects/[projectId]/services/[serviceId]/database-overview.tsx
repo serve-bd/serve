@@ -39,7 +39,7 @@ export function DatabaseOverview(props: {
   const changed = (publicOn ? Number(port) : null) !== props.publicPort;
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[1fr_320px]">
+    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex flex-col gap-6">
         <Card>
           <CardHeader title="Connect" description="Other services in this environment connect over the private network." />
@@ -49,9 +49,9 @@ export function DatabaseOverview(props: {
             </Field>
             <div className="rounded-xl border border-line bg-surface-2 p-3.5 text-[13px] leading-relaxed text-muted">
               Reference it from another service&apos;s variables:{" "}
-              <code className="rounded bg-sunken px-1.5 py-0.5 font-mono text-[12px] text-fg-2">{`DATABASE_URL=\${{${refName}.DATABASE_URL}}`}</code>
+              <code className="break-all rounded bg-sunken px-1.5 py-0.5 font-mono text-[12px] text-fg-2">{`DATABASE_URL=\${{${refName}.DATABASE_URL}}`}</code>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Host">
                 <CopyField value={props.host} />
               </Field>

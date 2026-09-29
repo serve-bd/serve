@@ -81,25 +81,25 @@ export function ServerSettingsView({
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader title="Status" actions={<><Button size="sm" onClick={() => sync.run()} loading={sync.pending}><RefreshCw /> Rebuild proxy</Button><Button size="sm" onClick={() => clean.run()} loading={clean.pending}><Brush /> Clean up</Button></>} />
-        <div className="grid divide-y divide-line sm:grid-cols-2 sm:divide-y-0">
-          <dl className="flex flex-col divide-y divide-line">
+        <div className="grid grid-cols-1 divide-y divide-line sm:grid-cols-2 sm:divide-y-0">
+          <dl className="flex min-w-0 flex-col divide-y divide-line">
             {[
               ["Docker", <span key="d" className="flex items-center gap-2"><Led color={status.docker ? "var(--ok)" : "var(--bad)"} />{status.docker ? `v${status.docker}` : status.dockerError}</span>],
               ["nginx proxy", <span key="p" className="flex items-center gap-2"><Led color={status.proxy?.running ? "var(--ok)" : "var(--bad)"} />{status.proxy?.running ? <>Running · <TimeAgo date={status.proxy.startedAt} /></> : "Not running"}</span>],
               ["Proxy ports", status.proxyPorts],
               ["Nixpacks", status.nixpacks ? "Installed" : "Not installed"],
             ].map(([k, val]) => (
-              <div key={String(k)} className="flex items-center justify-between gap-4 px-5 py-2.5 text-[13px]"><dt className="text-muted">{k}</dt><dd className="text-right text-fg-2">{val}</dd></div>
+              <div key={String(k)} className="flex items-center justify-between gap-4 px-5 py-2.5 text-[13px]"><dt className="flex-none text-muted">{k}</dt><dd className="min-w-0 text-right text-fg-2">{val}</dd></div>
             ))}
           </dl>
-          <dl className="flex flex-col divide-y divide-line sm:border-l sm:border-line">
+          <dl className="flex min-w-0 flex-col divide-y divide-line sm:border-l sm:border-line">
             {[
               ["Hostname", status.hostname],
               ["System", `${status.platform} · ${status.arch}`],
               ["Resources", `${status.cpus} CPU · ${formatBytes(status.memory, 0)}`],
               ["Data directory", <code key="dd" className="font-mono text-xs">{status.dataDir}</code>],
             ].map(([k, val]) => (
-              <div key={String(k)} className="flex items-center justify-between gap-4 px-5 py-2.5 text-[13px]"><dt className="text-muted">{k}</dt><dd className="truncate text-right text-fg-2">{val}</dd></div>
+              <div key={String(k)} className="flex items-center justify-between gap-4 px-5 py-2.5 text-[13px]"><dt className="flex-none text-muted">{k}</dt><dd className="min-w-0 truncate text-right text-fg-2">{val}</dd></div>
             ))}
           </dl>
         </div>
@@ -152,7 +152,7 @@ export function ServerSettingsView({
       </Section>
 
       <Section title="Builds and limits" fields={["buildConcurrency", "imageRetention", "metricsRetentionHours", "proxyMaxBodySize"]} values={v} saved={saved} onSaved={onSaved}>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Concurrent builds"><Input value={String(v.buildConcurrency)} onChange={(e) => set("buildConcurrency")(Number(e.target.value.replace(/\D/g, "")) || 1)} inputMode="numeric" /></Field>
           <Field label="Images kept per service" description="For instant rollbacks."><Input value={String(v.imageRetention)} onChange={(e) => set("imageRetention")(Number(e.target.value.replace(/\D/g, "")) || 1)} inputMode="numeric" /></Field>
           <Field label="Metrics history"><InputGroup suffix="hours"><Input value={String(v.metricsRetentionHours)} onChange={(e) => set("metricsRetentionHours")(Number(e.target.value.replace(/\D/g, "")) || 1)} inputMode="numeric" /></InputGroup></Field>

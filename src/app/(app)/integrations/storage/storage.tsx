@@ -65,7 +65,7 @@ export function StorageDestinations({ destinations, isAdmin }: { destinations: D
               <Field label="Endpoint" description="For example s3.amazonaws.com, <account>.r2.cloudflarestorage.com, s3.us-west-002.backblazeb2.com">
                 <Input value={form.endpoint} onChange={set("endpoint")} required placeholder="https://s3.amazonaws.com" />
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Bucket"><Input value={form.bucket} onChange={set("bucket")} required /></Field>
                 <Field label="Region"><Input value={form.region} onChange={set("region")} placeholder="auto" /></Field>
                 <Field label="Access key ID"><Input value={form.accessKeyId} onChange={set("accessKeyId")} required autoComplete="off" /></Field>

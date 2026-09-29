@@ -4,7 +4,7 @@ import { db, schema } from "@/server/db";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { StorageDestinations } from "./storage";
 
-export const metadata = { title: "Backup storage" };
+export const metadata = { title: "S3 storage" };
 
 export default async function StoragePage() {
   const ctx = await requireOrg();
@@ -15,7 +15,7 @@ export default async function StoragePage() {
     .orderBy(desc(schema.s3Destination.createdAt));
   return (
     <>
-      <PageHeader title="Backup storage" description="Send database backups to S3-compatible storage like AWS S3, Cloudflare R2, Backblaze B2 or MinIO." />
+      <PageHeader title="S3 storage" description="Send database backups to S3-compatible storage like AWS S3, Cloudflare R2, Backblaze B2 or MinIO." />
       <PageBody className="max-w-3xl">
         <StorageDestinations destinations={rows} isAdmin={ctx.isAdmin} />
       </PageBody>

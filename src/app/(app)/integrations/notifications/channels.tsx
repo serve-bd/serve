@@ -75,7 +75,7 @@ export function NotificationChannels({ channels, events, isAdmin }: { channels: 
           <form onSubmit={(e) => { e.preventDefault(); void save.run(); }}>
             <DialogHeader title={editing ? "Edit channel" : "Add channel"} />
             <DialogBody>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Name"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required placeholder="#deploys" /></Field>
                 <Field label="Type">
                   <Select value={form.kind} onValueChange={(k) => setForm({ ...form, kind: k as keyof typeof kinds, config: {} })} options={Object.entries(kinds).map(([k, v]) => ({ value: k, label: v.label }))} />
@@ -87,7 +87,7 @@ export function NotificationChannels({ channels, events, isAdmin }: { channels: 
                 </Field>
               ))}
               <Field label="Events">
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {events.map((ev) => (
                     <label key={ev.id} className="flex items-center gap-2 text-[13px] text-fg-2">
                       <Checkbox checked={form.events.includes(ev.id)} onCheckedChange={(c) => setForm({ ...form, events: c ? [...form.events, ev.id] : form.events.filter((x) => x !== ev.id) })} />

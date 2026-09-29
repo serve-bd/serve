@@ -85,7 +85,7 @@ function RequestDialog({ open, onOpenChange, accounts, hasAcme }: { open: boolea
             </div>
             {tab === "request" ? (
               <>
-                <div className="grid gap-2 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {(
                     [
                       ["letsencrypt-http", "HTTP validation", "Port 80 must reach this server."],

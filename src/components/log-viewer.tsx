@@ -75,7 +75,7 @@ export function LogViewer({
   return (
     <div className={cn("relative flex flex-col overflow-hidden rounded-2xl border border-line bg-log-bg shadow-sm", className)}>
       <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-2">
-        <div className="relative flex-1">
+        <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-white/30" />
           <input
             value={query}

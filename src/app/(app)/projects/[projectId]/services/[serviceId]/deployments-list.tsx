@@ -27,7 +27,7 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
   const relevant = type === "app" ? containers.filter((c) => c.deployment === currentDeploymentId) : containers;
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[1fr_300px]">
+    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
       <Card className="overflow-hidden">
         <CardHeader title="Deployments" description="Every deploy is kept so you can roll back instantly." />
         {deployments.length === 0 ? (

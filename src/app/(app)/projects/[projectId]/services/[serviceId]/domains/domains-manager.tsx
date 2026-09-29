@@ -156,7 +156,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                 <Input value={redirect} onChange={(e) => setRedirect(e.target.value)} placeholder="https://www.example.com" required />
               </Field>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {props.type === "compose" && (
                   <Field label="Compose service">
                     <Select value={composeService} onValueChange={(v) => { setComposeService(v); setPort(defaultPortFor(v)); }} options={props.composeServices.map((s) => ({ value: s, label: s }))} />

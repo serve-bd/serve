@@ -61,7 +61,7 @@ function repoName(url: string) {
 
 function KindPicker({ onPick }: { onPick: (k: Kind) => void }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {kinds.map((k, i) => (
         <button
           key={k.id}
@@ -279,7 +279,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
         </Field>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Branch">
           {branches.length ? (
             <Select value={branch} onValueChange={setBranch} options={branches.map((b) => ({ value: b, label: b }))} />
@@ -292,7 +292,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
         </Field>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Builder">
           <Select
             value={builder}
@@ -314,7 +314,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
         <ChevronRight className={cn("size-3.5 transition-transform", advanced && "rotate-90")} /> Build options
       </button>
       {advanced && (
-        <div className="grid animate-rise gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 animate-rise gap-4 sm:grid-cols-2">
           <Field label="Root directory">
             <InputGroup prefix="/">
               <Input value={rootDir.replace(/^\//, "")} onChange={(e) => setRootDir(`/${e.target.value.replace(/^\//, "")}`)} placeholder="apps/web" />
@@ -373,7 +373,7 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
       <Field label="Image" description="For example nginx:alpine, ghcr.io/owner/app:latest">
         <Input value={image} onChange={(e) => setImage(e.target.value)} placeholder="traefik/whoami:latest" required autoFocus className="font-mono text-[13px]" />
       </Field>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Service name">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={guessName || "web"} />
         </Field>
@@ -386,7 +386,7 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
         This image is in a private registry
       </label>
       {priv && (
-        <div className="grid animate-rise gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 animate-rise gap-4 sm:grid-cols-2">
           <Field label="Username">
             <Input value={user} onChange={(e) => setUser(e.target.value)} autoComplete="off" />
           </Field>
@@ -455,7 +455,7 @@ function DatabaseForm({ props, onBack }: { props: Props; onBack: () => void }) {
           </button>
         ))}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Name">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={info.label.toLowerCase()} />
         </Field>
@@ -553,7 +553,7 @@ function ComposeForm({ props, onBack }: { props: Props; onBack: () => void }) {
           <Field label="Repository URL">
             <Input value={repository} onChange={(e) => setRepository(e.target.value)} placeholder="https://github.com/owner/stack" required className="font-mono text-[13px]" />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Branch">
               <Input value={branch} onChange={(e) => setBranch(e.target.value)} className="font-mono text-[13px]" />
             </Field>
@@ -608,7 +608,7 @@ function TemplatePicker({ props, onBack }: { props: Props; onBack: () => void })
           ))}
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {list.map((t) => (
           <button
             key={t.id}

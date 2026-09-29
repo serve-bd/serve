@@ -73,7 +73,7 @@ export function BackupsManager(props: {
   const backups = data?.backups ?? [];
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[1fr_340px]">
+    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <Card className="overflow-hidden">
         <CardHeader
           title="Backups"
@@ -154,7 +154,7 @@ export function BackupsManager(props: {
               <span className="text-[13px] text-muted">backups</span>
             </div>
           </Field>
-          <Field label="Store in" description={props.destinations.length ? undefined : <>Add S3-compatible storage in <Link href="/integrations/storage" className="text-accent hover:underline">Backup storage</Link>.</>}>
+          <Field label="Store in" description={props.destinations.length ? undefined : <>Add S3-compatible storage in <Link href="/integrations/storage" className="text-accent hover:underline">S3 storage</Link>.</>}>
             <Select
               value={dest}
               onValueChange={setDest}

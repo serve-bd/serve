@@ -142,7 +142,7 @@ export function CopyButton({ value, className, label = "Copy" }: { value: string
 export function CopyField({ value, secret, className }: { value: string; secret?: boolean; className?: string }) {
   const [shown, setShown] = React.useState(!secret);
   return (
-    <div className={cn("flex h-9 items-center gap-1 rounded-md border border-line bg-surface-2 pr-1 pl-3", className)}>
+    <div className={cn("flex h-9 min-w-0 items-center gap-1 rounded-md border border-line bg-surface-2 pr-1 pl-3", className)}>
       <code className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg-2">
         {shown ? value : "•".repeat(Math.min(32, value.length))}
       </code>

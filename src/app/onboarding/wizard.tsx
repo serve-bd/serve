@@ -178,7 +178,7 @@ export function OnboardingWizard({
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-[220px_1fr]">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-[220px_1fr]">
         {/* Compact progress for small screens */}
         <div className="flex flex-col gap-2.5 md:hidden">
           <div className="flex items-baseline justify-between">
@@ -400,7 +400,7 @@ export function OnboardingWizard({
                   <Field label="Project name" description="Projects group related apps and databases, like a website and its database.">
                     <Input value={projectName} onChange={(e) => setProjectName(e.target.value)} autoFocus />
                   </Field>
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     {[
                       ["Deploy from Git", "Push to deploy with automatic builds."],
                       ["Add a database", "Postgres, MySQL, Redis and more."],

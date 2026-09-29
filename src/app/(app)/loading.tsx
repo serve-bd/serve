@@ -10,7 +10,7 @@ export default function Loading() {
           <Skeleton className="h-3 w-96 max-w-full" />
         </div>
       </div>
-      <div className="mx-auto grid w-full max-w-[1200px] gap-4 px-4 py-6 sm:grid-cols-2 sm:px-8 xl:grid-cols-3">
+      <div className="mx-auto grid grid-cols-1 w-full max-w-[1200px] gap-4 px-4 py-6 sm:grid-cols-2 sm:px-8 xl:grid-cols-3">
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-4">
             <div className="flex items-center gap-3">

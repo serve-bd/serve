@@ -50,7 +50,7 @@ export default async function OverviewPage() {
             )}
           </div>
           {projects.length ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {projects.slice(0, 6).map((p) => (
                 <ProjectCard key={p.id} project={p} />
               ))}
@@ -71,7 +71,7 @@ export default async function OverviewPage() {
           )}
         </section>
 
-        <div className="grid items-start gap-6 lg:grid-cols-[1.6fr_1fr]">
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.6fr_1fr]">
           <Card>
             <CardHeader title="Recent deployments" />
             {deployments.length ? (

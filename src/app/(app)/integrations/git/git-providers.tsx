@@ -18,6 +18,7 @@ import type { GitProviderType } from "@/server/db/schema";
 import { cn } from "@/lib/utils";
 import { postManifest } from "@/lib/github";
 import { GithubMark } from "@/components/github-mark";
+import { PageBody, PageHeader } from "@/components/shell/page-header";
 
 type Cred = {
   id: string;
@@ -245,8 +246,23 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
 
   const apps = credentials.filter((c) => c.provider === "github-app");
   const others = credentials.filter((c) => c.provider !== "github-app");
+  const [connecting, setConnecting] = React.useState(false);
 
   return (
+    <>
+    <PageHeader
+      title="Git providers"
+      description="Connect GitHub to deploy private repositories, with push-to-deploy and pull request previews set up automatically."
+      actions={
+        isAdmin &&
+        apps.length > 0 && (
+          <Button size="sm" variant="primary" onClick={() => setConnecting(true)}>
+            <Plus /> Connect GitHub
+          </Button>
+        )
+      }
+    />
+    <PageBody>
     <div className="flex flex-col gap-6">
       {apps.length > 0 && (
         <Card className="overflow-hidden">
@@ -300,15 +316,7 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
         </Card>
       )}
 
-      {isAdmin && (apps.length === 0 ? <ConnectGithub publicUrl={publicUrl} baseUrl={baseUrl} /> : (
-        <details className="group rounded-2xl border border-line bg-surface shadow-sm">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-3.5 text-[13px] font-medium text-fg-2">
-            <Plus className="size-4 text-muted" /> Connect another GitHub account or organization
-            <ChevronRight className="ml-auto size-4 text-faint transition-transform group-open:rotate-90" />
-          </summary>
-          <div className="border-t border-line"><ConnectGithub publicUrl={publicUrl} baseUrl={baseUrl} embedded /></div>
-        </details>
-      ))}
+      {isAdmin && apps.length === 0 && <ConnectGithub publicUrl={publicUrl} baseUrl={baseUrl} />}
 
       {others.length > 0 && (
         <Card className="overflow-hidden">
@@ -343,5 +351,13 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
         <Card><CardBody className="text-[13px] text-muted">Ask an organization admin to connect GitHub.</CardBody></Card>
       )}
     </div>
+    </PageBody>
+    <Dialog open={connecting} onOpenChange={setConnecting}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader title="Connect another GitHub account" description="Each GitHub account or organization gets its own GitHub App." />
+        <ConnectGithub publicUrl={publicUrl} baseUrl={baseUrl} embedded />
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

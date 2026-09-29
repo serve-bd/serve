@@ -17,7 +17,7 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="grid min-h-dvh grid-cols-1 bg-bg lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       {/* Brand panel: always dark, only on wide screens. */}
-      <aside className="relative hidden flex-col justify-between overflow-hidden bg-[#0b0b0d] p-10 text-white lg:flex">
+      <aside className="relative hidden flex-col justify-between overflow-hidden border-r border-white/10 bg-[#07070a] p-10 text-white lg:flex">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-[0.07] [background-image:linear-gradient(#fff_1px,transparent_1px),linear-gradient(90deg,#fff_1px,transparent_1px)] [background-size:44px_44px] [mask-image:radial-gradient(ellipse_at_30%_40%,#000,transparent_70%)]"
@@ -45,7 +45,7 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
         <p className="relative text-xs text-white/40">Self-hosted with Serve · v{pkg.version}</p>
       </aside>
 
-      <main className="flex flex-col px-4 py-10 sm:px-8">
+      <main className="flex flex-col bg-surface px-4 py-10 sm:px-8">
         <div className="flex items-center gap-2.5 lg:hidden">
           <Logo withText={false} className="[&_svg]:size-7" />
           <span className="text-[15px] font-semibold tracking-tight text-fg">{name}</span>

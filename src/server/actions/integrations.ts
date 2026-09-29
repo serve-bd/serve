@@ -326,6 +326,31 @@ export async function addS3Destination(input: z.input<typeof s3Schema>) {
   });
 }
 
+/** Edit a destination. Access is checked before saving. */
+export async function updateS3Destination(id: string, input: Omit<z.input<typeof s3Schema>, "secretAccessKey" | "accessKeyId"> & { accessKeyId?: string; secretAccessKey?: string }) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const [row] = await db
+      .select()
+      .from(schema.s3Destination)
+      .where(and(eq(schema.s3Destination.id, id), eq(schema.s3Destination.organizationId, ctx.org.id)));
+    if (!row) throw new UserError("Destination not found.");
+    // Empty key fields keep the stored credentials.
+    const secret = input.secretAccessKey?.trim() || decrypt(row.secretAccessKey);
+    const data = s3Schema.parse({ ...input, accessKeyId: input.accessKeyId?.trim() || row.accessKeyId, secretAccessKey: secret });
+    try {
+      await s3Test(data);
+    } catch (e) {
+      throw new UserError(`Could not access the bucket: ${(e as Error).message}`);
+    }
+    await db
+      .update(schema.s3Destination)
+      .set({ ...data, secretAccessKey: encrypt(data.secretAccessKey) })
+      .where(eq(schema.s3Destination.id, id));
+    return null;
+  });
+}
+
 export async function deleteS3Destination(id: string) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
@@ -344,7 +369,11 @@ export async function testS3Destination(id: string) {
       .from(schema.s3Destination)
       .where(and(eq(schema.s3Destination.id, id), eq(schema.s3Destination.organizationId, ctx.org.id)));
     if (!row) throw new UserError("Destination not found.");
-    await s3Test({ ...row, secretAccessKey: decrypt(row.secretAccessKey) });
+    try {
+      await s3Test({ ...row, secretAccessKey: decrypt(row.secretAccessKey) });
+    } catch (e) {
+      throw new UserError(`Could not access the bucket: ${(e as Error).message}`);
+    }
     return null;
   });
 }

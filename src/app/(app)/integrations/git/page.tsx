@@ -2,7 +2,6 @@ import { desc, eq } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { publicBaseUrl, readAppSecret } from "@/server/git/github-app";
-import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { GitProviders } from "./git-providers";
 
 export const metadata = { title: "Git providers" };
@@ -37,12 +36,5 @@ export default async function GitPage() {
     };
   });
 
-  return (
-    <>
-      <PageHeader title="Git providers" description="Connect GitHub to deploy private repositories, with push-to-deploy and pull request previews set up automatically." />
-      <PageBody>
-        <GitProviders isAdmin={ctx.isAdmin} credentials={credentials} baseUrl={base} publicUrl={isPublicUrl(base)} />
-      </PageBody>
-    </>
-  );
+  return <GitProviders isAdmin={ctx.isAdmin} credentials={credentials} baseUrl={base} publicUrl={isPublicUrl(base)} />;
 }

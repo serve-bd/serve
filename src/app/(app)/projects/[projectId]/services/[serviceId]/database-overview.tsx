@@ -13,7 +13,6 @@ import { useAction } from "@/hooks/use-action";
 import { applyDatabaseChanges, updateService } from "@/server/actions/services";
 import { useServiceLive } from "./service-header";
 import { ContainerDialog } from "./container-dialog";
-import { referenceName } from "@/lib/refs";
 
 export function DatabaseOverview(props: {
   serviceId: string;
@@ -45,7 +44,6 @@ export function DatabaseOverview(props: {
     },
     { success: "Applying changes. The database restarts briefly." },
   );
-  const refName = referenceName(props.name);
   const changed = (publicOn ? Number(port) : null) !== props.publicPort || (publicOn && bind !== props.publicBind);
 
   return (
@@ -57,10 +55,6 @@ export function DatabaseOverview(props: {
             <Field label="Private connection URL">
               <CopyField value={props.internalUrl} secret />
             </Field>
-            <div className="rounded-xl border border-line bg-surface-2 p-3.5 text-[13px] leading-relaxed text-muted">
-              Reference it from another service&apos;s variables:{" "}
-              <code className="break-all rounded bg-sunken px-1.5 py-0.5 font-mono text-[12px] text-fg-2">{`DATABASE_URL=\${{${refName}.DATABASE_URL}}`}</code>
-            </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Host">
                 <CopyField value={props.host} />

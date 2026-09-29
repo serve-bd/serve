@@ -6,7 +6,7 @@ import { decryptOrNull } from "@/server/crypto";
 import type Docker from "dockerode";
 import type { BuildConfig, PortMapping } from "@/server/services/types";
 import { ensureNetwork, imageExists, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
-import { getServer, serverOf, type ServerCtx } from "@/server/servers/context";
+import { forgetServer, getServer, serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
 import { buildSlotFree } from "@/server/limits";
 import { syncServiceProxy } from "@/server/proxy/nginx";
@@ -189,12 +189,32 @@ function registryOf(image: string) {
   return first.includes(".") || first.includes(":") ? first : "https://index.docker.io/v1/";
 }
 
+/**
+ * A server that is still being set up (Install Docker, validation) is waited for instead of
+ * failing the deploy: a deploy started right after adding a server just starts a bit later.
+ */
+async function waitForServerSetup(serverId: string, name: string, log: (line: string) => void) {
+  const status = async () => (await db.select({ status: schema.server.status }).from(schema.server).where(eq(schema.server.id, serverId)))[0]?.status;
+  let current = await status();
+  if (current !== "validating") return current;
+  log(`Waiting for ${name} to finish setting up…`);
+  const deadline = Date.now() + 15 * 60_000;
+  while (current === "validating" && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    current = await status();
+  }
+  forgetServer(serverId);
+  return current;
+}
+
 /** A server a deployment runs on, checked for reachability first. */
 async function connectTo(serverId: string, log: StepLog, role: string) {
+  // The status comes from the database: the cached connection keeps the status it was made with.
+  const fresh = await waitForServerSetup(serverId, role, (l) => log.line(l));
   const server = await getServer(serverId).catch(() => null);
   if (!server) throw new Error(`The ${role} server no longer exists. Choose another one in Settings → Servers & registry.`);
   if (!server.local) {
-    const status = server.row.status;
+    const status = fresh ?? server.row.status;
     if (status === "pending" || status === "validating") throw new Error(`${server.name} is not set up yet. Validate it in Servers first.`);
     try {
       await server.docker.ping();
@@ -797,9 +817,10 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
 
 /** The service's server, checked for reachability before any work starts. */
 async function connectServer(service: Service, log: DeployLogger) {
+  const fresh = await waitForServerSetup(service.serverId, "the server", (l) => log.line(l));
   const server = await serverOf(service);
   if (server.local) return server;
-  const status = server.row.status;
+  const status = fresh ?? server.row.status;
   if (status === "pending" || status === "validating") throw new Error(`${server.name} is not set up yet. Validate it in Servers first.`);
   log.line(`Deploying to ${server.name} (${server.row.host})`);
   try {

@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, or } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
@@ -13,14 +13,25 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
   const { projectId, serviceId } = await props.params;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
-  const [vars, shared, siblings] = await Promise.all([
+  const [vars, shared, siblings, scoped] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId)).orderBy(asc(schema.envVar.key)),
     db.select({ key: schema.sharedVar.key }).from(schema.sharedVar).where(eq(schema.sharedVar.environmentId, service.environmentId)),
     db.select().from(schema.service).where(eq(schema.service.environmentId, service.environmentId)),
+    db
+      .select({ key: schema.sharedVar.key, projectId: schema.sharedVar.projectId })
+      .from(schema.sharedVar)
+      .where(or(eq(schema.sharedVar.projectId, projectId), eq(schema.sharedVar.organizationId, ctx.org.id)))
+      .orderBy(asc(schema.sharedVar.key)),
   ]);
-  const references = siblings
-    .filter((s) => s.id !== service.id)
-    .map((s) => ({ name: s.name, keys: Object.keys(providedVars(s)).filter((k) => !k.startsWith("SERVE_SERVICE")) }));
+  const projectKeys = scoped.filter((v) => v.projectId).map((v) => v.key);
+  const orgKeys = scoped.filter((v) => !v.projectId).map((v) => v.key);
+  const references = [
+    ...siblings
+      .filter((s) => s.id !== service.id)
+      .map((s) => ({ name: s.name, keys: Object.keys(providedVars(s)).filter((k) => !k.startsWith("SERVE_SERVICE")) })),
+    ...(projectKeys.length ? [{ name: "project", label: "Project variables", keys: projectKeys }] : []),
+    ...(orgKeys.length ? [{ name: "org", label: "Organization variables", keys: orgKeys }] : []),
+  ];
 
   return (
     <PageBody>

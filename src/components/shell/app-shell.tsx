@@ -22,6 +22,7 @@ import {
   Bell,
   HardDriveUpload,
   KeyRound,
+  Variable,
   Activity,
   AlertTriangle,
   Settings,
@@ -68,6 +69,7 @@ const integrationNav: NavItem[] = [
 
 const orgNav: NavItem[] = [
   { href: "/organization/members", label: "Members", icon: Users },
+  { href: "/shared-variables", label: "Shared variables", icon: Variable },
   { href: "/keys", label: "Keys & tokens", icon: KeyRound },
 ];
 

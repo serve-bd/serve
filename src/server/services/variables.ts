@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull } from "@/server/crypto";
 import { engines } from "@/server/databases/engines";
@@ -64,9 +64,23 @@ export type ResolvedEnv = {
 
 /** Resolve service variables, shared variables and ${{ref}} references. */
 export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
+  const [scope] = await db
+    .select({ projectId: schema.project.id, organizationId: schema.project.organizationId })
+    .from(schema.environment)
+    .innerJoin(schema.project, eq(schema.environment.projectId, schema.project.id))
+    .where(eq(schema.environment.id, service.environmentId));
   const [own, shared, siblings, siblingDomains] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, service.id)),
-    db.select().from(schema.sharedVar).where(eq(schema.sharedVar.environmentId, service.environmentId)),
+    db
+      .select()
+      .from(schema.sharedVar)
+      .where(
+        or(
+          eq(schema.sharedVar.environmentId, service.environmentId),
+          scope ? eq(schema.sharedVar.projectId, scope.projectId) : undefined,
+          scope ? eq(schema.sharedVar.organizationId, scope.organizationId) : undefined,
+        ),
+      ),
     db.select().from(schema.service).where(eq(schema.service.environmentId, service.environmentId)),
     db
       .select({ domain: schema.domain })
@@ -80,8 +94,14 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     domainsBy.set(domain.serviceId, [...(domainsBy.get(domain.serviceId) ?? []), domain]);
   }
 
+  // Environment variables apply to every service; organization and project ones only by reference.
   const sharedMap: Record<string, string> = {};
-  for (const v of shared) sharedMap[v.key] = decryptOrNull(v.value) ?? "";
+  const projectMap: Record<string, string> = {};
+  const orgMap: Record<string, string> = {};
+  for (const v of shared) {
+    const target = v.environmentId ? sharedMap : v.projectId ? projectMap : orgMap;
+    target[v.key] = decryptOrNull(v.value) ?? "";
+  }
 
   const lookup = new Map<string, Record<string, string>>();
   // Private hostnames only resolve on the same server; drop them for services elsewhere.
@@ -98,7 +118,12 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     // Preferred form: names with spaces or symbols become dashed ("postgresql-sd").
     if (!lookup.has(referenceName(s.name))) lookup.set(referenceName(s.name), provided);
   }
+  // Scope names win over services with the same name.
   lookup.set("shared", sharedMap);
+  lookup.set("environment", sharedMap);
+  lookup.set("project", projectMap);
+  lookup.set("org", orgMap);
+  lookup.set("team", orgMap);
 
   const ownRaw: Record<string, { value: string; build: boolean; runtime: boolean }> = {};
   for (const v of own) ownRaw[v.key] = { value: decrypt(v.value), build: v.buildTime, runtime: v.runtime };
@@ -139,10 +164,12 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   }
 
   const secretKey = /SECRET|TOKEN|PASS|KEY|URL|DSN|AUTH|PRIVATE|CREDENTIAL/i;
-  const secrets = Object.entries(runtime)
-    .concat(Object.entries(build))
-    .filter(([k, v]) => v.length >= 6 && (secretKey.test(k) || v.length >= 20))
-    .map(([, v]) => v);
+  const values = Object.entries(runtime).concat(Object.entries(build));
+  const secrets = values.filter(([k, v]) => v.length >= 6 && (secretKey.test(k) || v.length >= 20)).map(([, v]) => v);
+  // Shared values of any scope that ended up in the environment are redacted too.
+  for (const [k, v] of [...Object.entries(sharedMap), ...Object.entries(projectMap), ...Object.entries(orgMap)]) {
+    if (v.length >= 6 && secretKey.test(k) && values.some(([, x]) => x.includes(v))) secrets.push(v);
+  }
 
   return { runtime, build, secrets: [...new Set(secrets)], missing: [...missing] };
 }

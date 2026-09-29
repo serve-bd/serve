@@ -41,7 +41,7 @@ export function VariablesEditor({
   status: string;
   initial: Omit<Var, "id">[];
   shared: string[];
-  references: { name: string; keys: string[] }[];
+  references: { name: string; keys: string[]; label?: string }[];
   settingsHref: string;
 }) {
   const [vars, setVars] = React.useState<Var[]>(() => initial.map(withId));
@@ -177,11 +177,11 @@ export function VariablesEditor({
         <Card>
           <CardHeader title="References" description="Link values from other services. They update when those services change." />
           <div className="flex max-h-80 flex-col gap-3 overflow-y-auto px-5 py-4 scrollbar-thin">
-            {references.length === 0 && <p className="text-[13px] text-muted">Add a database or another service to this environment to reference its variables.</p>}
+            {references.length === 0 && <p className="text-[13px] text-muted">Add a database or another service to this environment, or add shared variables, to reference their values.</p>}
             {references.map((r) => (
-              <div key={r.name} className="flex flex-col gap-1.5">
+              <div key={r.label ?? r.name} className="flex flex-col gap-1.5">
                 <span className="flex items-center gap-1.5 text-[12px] font-semibold text-fg-2">
-                  <Link2 className="size-3" /> {r.name}
+                  <Link2 className="size-3" /> {r.label ?? r.name}
                 </span>
                 <div className="flex flex-wrap gap-1">
                   {r.keys.map((k) => {
@@ -204,7 +204,12 @@ export function VariablesEditor({
             {shared.length ? `${shared.length} shared variable${shared.length === 1 ? "" : "s"} apply to every service in this environment: ${shared.slice(0, 6).join(", ")}${shared.length > 6 ? "…" : ""}.` : "Define variables once for every service in this environment."}{" "}
             <Link href={settingsHref} className="text-accent hover:underline">
               Manage
+            </Link>{" "}
+            Project and organization variables are in{" "}
+            <Link href="/shared-variables" className="text-accent hover:underline">
+              Shared variables
             </Link>
+            .
           </p>
         </Card>
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -60,7 +61,15 @@ export function ProjectSettings({
       <Card>
         <CardHeader
           title="Shared variables"
-          description="Available to every service in the selected environment. Service variables with the same name win."
+          description={
+            <>
+              Available to every service in the selected environment. Service variables with the same name win. Project and organization variables live in{" "}
+              <Link href={`/shared-variables?scope=project&project=${project.id}`} className="text-accent hover:underline">
+                Shared variables
+              </Link>
+              .
+            </>
+          }
           actions={<Select size="sm" value={environment.name} onValueChange={(v) => router.push(`/projects/${project.id}/settings?env=${v}`)} options={environments.map((e) => ({ value: e.name, label: e.name }))} className="w-40" />}
         />
         <CardBody className="py-4">

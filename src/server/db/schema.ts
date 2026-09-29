@@ -2,6 +2,7 @@ import {
   type AnyPgColumn,
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -371,15 +372,21 @@ export const sharedVar = pgTable(
   "shared_var",
   {
     id: id(),
-    environmentId: text("environment_id")
-      .notNull()
-      .references(() => environment.id, { onDelete: "cascade" }),
+    /** Exactly one scope is set: organization (${{org.KEY}}), project (${{project.KEY}}) or environment. */
+    organizationId: text("organization_id").references(() => organization.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => project.id, { onDelete: "cascade" }),
+    environmentId: text("environment_id").references(() => environment.id, { onDelete: "cascade" }),
     key: text("key").notNull(),
     value: text("value").notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex("shared_var_env_key_idx").on(t.environmentId, t.key)],
+  (t) => [
+    uniqueIndex("shared_var_env_key_idx").on(t.environmentId, t.key),
+    uniqueIndex("shared_var_project_key_idx").on(t.projectId, t.key),
+    uniqueIndex("shared_var_org_key_idx").on(t.organizationId, t.key),
+    check("shared_var_one_scope", sql`num_nonnulls(${t.organizationId}, ${t.projectId}, ${t.environmentId}) = 1`),
+  ],
 );
 
 export type DeploymentStatus =

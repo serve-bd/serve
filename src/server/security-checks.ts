@@ -26,6 +26,9 @@ export async function securityChecks(settings?: Settings): Promise<SecurityCheck
       href: "/settings/dashboard",
       action: "Set domain",
     });
+  } else if (s.dashboardTunnelId) {
+    // Cloudflare terminates TLS at its edge; the tunnel itself is encrypted.
+    checks.push({ id: "dashboard-https", title: "Dashboard uses HTTPS", status: "ok", detail: `Served at https://${s.dashboardDomain} through a Cloudflare Tunnel.` });
   } else if (!s.dashboardHttps) {
     checks.push({
       id: "dashboard-https",

@@ -904,6 +904,70 @@ const domainUpdateSchema = z.object({
   certificateId: z.string().nullable().optional(),
 });
 
+/**
+ * Switch how a domain is reached: through a Cloudflare Tunnel of the service's server, or
+ * the server's public IP (null). Serve rewrites the DNS record it manages accordingly.
+ */
+export async function setDomainRoute(domainId: string, tunnelId: string | null) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    if (!ctx.isAdmin) throw new UserError("Only organization admins can change how a domain is routed.");
+    const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
+    if (!domain) throw new UserError("Domain not found.");
+    const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
+    if (domain.tunnelId === tunnelId) return null;
+    const previousTunnel = domain.tunnelId;
+    const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+
+    if (tunnelId) {
+      const [tunnel] = await db
+        .select()
+        .from(schema.cloudflareTunnel)
+        .where(and(eq(schema.cloudflareTunnel.id, tunnelId), eq(schema.cloudflareTunnel.organizationId, ctx.org.id)));
+      if (!tunnel) throw new UserError("Tunnel not found.");
+      if (tunnel.serverId !== service.serverId) throw new UserError("That tunnel belongs to another server than this service.");
+      if (domain.hostname.startsWith("*.")) throw new UserError("Wildcard domains cannot route through a tunnel.");
+      const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+      const zone = await cf.zoneFor(domain.hostname).catch(() => null);
+      if (!zone) throw new UserError(`${domain.hostname} is not in a zone of the tunnel's Cloudflare account.`);
+      let recordId: string;
+      try {
+        recordId = (await cf.upsertTunnelRecord(zone.id, domain.hostname, tunnel.cfTunnelId)).id;
+      } catch (e) {
+        throw new UserError(`Could not point ${domain.hostname} at the tunnel: ${(e as Error).message}`);
+      }
+      await db
+        .update(schema.domain)
+        .set({ tunnelId, https: false, forceHttps: false, cloudflareAccountId: tunnel.cloudflareAccountId, cloudflareZoneId: zone.id, cloudflareRecordId: recordId })
+        .where(eq(schema.domain.id, domainId));
+      await syncTunnelIngress(tunnelId);
+    } else {
+      const ip = await serverPublicIp(service.serverId);
+      if (!ip) throw new UserError("This server has no public IP set. Add it in the server's settings first.");
+      let recordId = domain.cloudflareRecordId;
+      if (domain.cloudflareAccountId && domain.cloudflareZoneId) {
+        const cf = await Cloudflare.forAccount(domain.cloudflareAccountId);
+        // Serve's own CNAME to the tunnel must go before an A record can exist for the name.
+        if (domain.cloudflareRecordId) await cf.deleteDnsRecord(domain.cloudflareZoneId, domain.cloudflareRecordId).catch(() => {});
+        try {
+          recordId = (await cf.upsertARecord(domain.cloudflareZoneId, domain.hostname, ip, true)).id;
+        } catch (e) {
+          throw new UserError(`Could not point ${domain.hostname} at ${ip}: ${(e as Error).message}`);
+        }
+      }
+      const [updated] = await db
+        .update(schema.domain)
+        .set({ tunnelId: null, https: true, forceHttps: true, cloudflareRecordId: recordId })
+        .where(eq(schema.domain.id, domainId))
+        .returning();
+      await ensureCertificateFor(updated, ctx.org.id);
+    }
+    if (previousTunnel) await syncTunnelIngress(previousTunnel).catch(() => {});
+    await syncServiceProxy(domain.serviceId);
+    return null;
+  });
+}
+
 /** Makes a domain the service's main one (SERVE_PUBLIC_URL). Applies on the next deploy. */
 export async function setPrimaryDomain(domainId: string) {
   return act(async () => {

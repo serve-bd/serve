@@ -15,9 +15,10 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
-import { addDomain, checkDomainDns, generateDomain, removeDomain, retryCertificate, setPrimaryDomain, updateDomain } from "@/server/actions/services";
+import { addDomain, checkDomainDns, generateDomain, removeDomain, retryCertificate, setDomainRoute, setPrimaryDomain, updateDomain } from "@/server/actions/services";
 import { findCloudflareZone } from "@/server/actions/integrations";
 import useSWR from "swr";
+import { cn } from "@/lib/utils";
 import { useDebounced } from "@/hooks/use-client";
 
 type DomainRow = {
@@ -316,18 +317,56 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
     success: "Domain updated",
     onSuccess: onClose,
   });
+  const submit = async () => {
+    const wantTunnel = route === "tunnel";
+    if (wantTunnel !== domain.tunnel && props.tunnels.length) {
+      // run() resolves to undefined when the action failed (the error is already shown).
+      if ((await reroute.run(wantTunnel ? tunnel.id : null)) === undefined) return;
+    }
+    await save.run();
+  };
   const detected = compose ? props.composePorts[composeService] ?? [] : [];
+  const [route, setRoute] = React.useState<"ip" | "tunnel">(domain.tunnel ? "tunnel" : "ip");
+  const tunnel = props.tunnels[0];
+  const reroute = useAction((to: string | null) => setDomainRoute(domain.id, to), { success: "Route updated. DNS points to the new target." });
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void save.run();
+            void submit();
           }}
         >
           <DialogHeader title={`Edit ${domain.hostname}`} description="Where traffic for this domain goes. Applies right away; no redeploy needed." />
           <DialogBody>
+            {props.tunnels.length > 0 && (
+              <Field
+                label="Route traffic through"
+                description={
+                  route === "tunnel"
+                    ? "Cloudflare serves HTTPS and forwards to this server through the tunnel. No public IP or open port needed."
+                    : "Visitors connect to the server's public IP. Ports 80 and 443 must be reachable."
+                }
+              >
+                <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
+                  {(["ip", "tunnel"] as const).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRoute(r)}
+                      className={cn(
+                        "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg text-[13px] transition-colors",
+                        route === r ? "bg-surface font-medium text-fg shadow-sm" : "text-muted hover:text-fg",
+                      )}
+                    >
+                      {r === "tunnel" ? <Waypoints className="size-3.5 text-[#f38020]" /> : <Globe className="size-3.5" />}
+                      {r === "tunnel" ? "Cloudflare Tunnel" : "Server IP"}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
             {compose && (
               <Field label="Compose service">
                 <Select
@@ -351,7 +390,7 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
           </DialogBody>
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
-            <Button type="submit" variant="primary" size="sm" loading={save.pending}>
+            <Button type="submit" variant="primary" size="sm" loading={save.pending || reroute.pending}>
               Save
             </Button>
           </DialogFooter>

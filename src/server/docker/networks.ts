@@ -89,12 +89,21 @@ export async function removeEnvNetworkIfUnused(environmentId: string, target: Ne
   try {
     const info = await d.getNetwork(name).inspect();
     const members = Object.values(info.Containers ?? {}) as { Name: string }[];
-    if (members.some((c) => c.Name !== target.proxyContainer)) return;
-    if (members.length)
-      await d
-        .getNetwork(name)
-        .disconnect({ Container: target.proxyContainer, Force: true })
-        .catch(() => {});
+    // The proxy and the private network's name forwarders only serve the environment's services.
+    const helper = (c: { Name: string }) => c.Name === target.proxyContainer || c.Name.startsWith("serve-link-");
+    if (members.some((c) => !helper(c))) return;
+    for (const c of members) {
+      if (c.Name === target.proxyContainer)
+        await d
+          .getNetwork(name)
+          .disconnect({ Container: c.Name, Force: true })
+          .catch(() => {});
+      else
+        await d
+          .getContainer(c.Name)
+          .remove({ force: true })
+          .catch(() => {});
+    }
     await d.getNetwork(name).remove();
   } catch {
     // already gone

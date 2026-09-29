@@ -18,6 +18,8 @@ type Row = {
   port: number;
   username: string;
   isLocal: boolean;
+  /** In the private network. */
+  mesh: boolean;
   status: ServerStatus;
   statusMessage: string | null;
   info: ServerInfo;
@@ -106,6 +108,7 @@ function ServerCard({ server: s }: { server: Row }) {
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-[15px] font-semibold text-fg">{s.name}</span>
             {s.isLocal && <Badge tone="accent">This server</Badge>}
+            {s.mesh && <Badge>Private network</Badge>}
           </div>
           <span className="truncate font-mono text-[12px] text-muted">
             {s.isLocal ? (s.publicIp ?? "Local Docker") : `${s.username}@${s.host}${s.port === 22 ? "" : `:${s.port}`}`}

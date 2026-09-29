@@ -171,6 +171,8 @@ export async function executeMove(serviceIds: string[], targetEnvironmentId: str
     }
     await (await import("@/server/proxy/nginx")).syncServiceProxy(s.id).catch(() => {});
   }
+  // The private network follows the new environments (addresses and who may reach whom).
+  await (await import("@/server/queue")).enqueue("mesh.sync", {}, { concurrencyKey: "mesh" }).catch(() => {});
   return { preview, warnings };
 }
 

@@ -216,6 +216,25 @@ export const privateKey = pgTable("private_key", {
 
 export type ServerStatus = "pending" | "validating" | "ready" | "unreachable" | "error";
 
+/** A server's membership in the private network (WireGuard between servers). */
+export type ServerMesh = {
+  enabled: boolean;
+  /** Address the other servers reach this one at (IP or host name), without the port. */
+  endpoint: string | null;
+  /** UDP port WireGuard listens on. */
+  port: number;
+  publicKey: string;
+  /** Encrypted WireGuard private key. */
+  privateKey: string;
+  /** Hash of the configuration last written to the server. */
+  configHash?: string | null;
+  /** Agent image the server runs. */
+  agent?: string | null;
+  state: "starting" | "ready" | "error" | "off";
+  message?: string | null;
+  syncedAt?: string | null;
+};
+
 export type ServerInfo = {
   os?: string;
   kernel?: string;
@@ -273,6 +292,9 @@ export const server = pgTable("server", {
   proxyPortsCustomized: boolean("proxy_ports_customized").notNull().default(false),
   /** Organizations allowed to deploy here; null means every organization. */
   organizationIds: text("organization_ids").array(),
+  /** Slot in the private network: the server owns 10.240.<index>.0/24 and 10.241.<index>.0/24. */
+  meshIndex: integer("mesh_index").unique(),
+  mesh: jsonb("mesh").$type<ServerMesh>(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -1013,6 +1035,28 @@ export type ServerAlertConfig = {
   cpu: number;
   cpuMinutes: number;
 };
+
+/**
+ * Private network addresses a server hands out: one per service it exposes to other servers
+ * ("svc:<serviceId>" or "svc:<serviceId>:<compose service>") and one per environment whose
+ * containers reach other servers ("env:<environmentId>"). Kept while the service stays on the
+ * server, so the names other servers map to it never change.
+ */
+export const meshAddress = pgTable(
+  "mesh_address",
+  {
+    id: id(),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => server.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    serviceId: text("service_id").references(() => service.id, { onDelete: "cascade" }),
+    environmentId: text("environment_id").references(() => environment.id, { onDelete: "cascade" }),
+    ip: text("ip").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("mesh_address_key_idx").on(t.serverId, t.key), uniqueIndex("mesh_address_ip_idx").on(t.ip)],
+);
 
 export const serverAlerts = pgTable("server_alerts", {
   serverId: text("server_id")

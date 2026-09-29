@@ -1,0 +1,284 @@
+import { execFileSync } from "node:child_process";
+import { createPrivateKey, createPublicKey } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { handshakeAge, meshEndpoint, meshEndpointProblem } from "@/lib/mesh";
+import { LINKS_JQ, RULES_JQ, WG_JQ } from "@/server/mesh/agent";
+import { generateMeshKeys } from "@/server/mesh/keys";
+import { addressChanges, agentConfig, allocateAddress, environmentKey, neededAddresses, type PlanAddress, type PlanServer, type PlanService, serviceKey } from "@/server/mesh/plan";
+
+const server = (id: string, index: number, endpoint: string | null = `10.0.0.${index}`): PlanServer => ({ id, index, endpoint, port: 51820, publicKey: `pub-${id}` });
+const svc = (id: string, patch: Partial<PlanService> = {}): PlanService => ({
+  id,
+  environmentId: "env1",
+  serverId: "a",
+  extraServerIds: [],
+  type: "database",
+  slug: id,
+  hostname: null,
+  composeServices: [],
+  isolated: false,
+  composeSubnet: null,
+  currentDeploymentId: null,
+  ...patch,
+});
+
+const A = server("a", 1);
+const B = server("b", 2);
+const C = server("c", 3);
+
+describe("private network planning", () => {
+  it("only wires environments that span two servers of the network", () => {
+    expect(neededAddresses([A, B], [svc("db"), svc("app", { type: "app" })])).toEqual([]);
+    // The app's server is not in the network: nothing to connect.
+    expect(neededAddresses([A], [svc("db"), svc("app", { type: "app", serverId: "b" })])).toEqual([]);
+    const needs = neededAddresses([A, B], [svc("db"), svc("app", { type: "app", serverId: "b" })]);
+    expect(needs.map((n) => `${n.serverId} ${n.key}`).sort()).toEqual(["a env:env1", "a svc:db", "b env:env1", "b svc:app"]);
+  });
+
+  it("counts extra servers of an app and gives each compose service its own address", () => {
+    const needs = neededAddresses(
+      [A, B, C],
+      [
+        svc("app", { type: "app", extraServerIds: ["c"] }),
+        svc("stack", { type: "compose", serverId: "b", composeServices: ["web", "worker"] }),
+        svc("iso", { type: "compose", serverId: "b", composeServices: ["x"], isolated: true }),
+      ],
+    );
+    const keys = needs.map((n) => `${n.serverId} ${n.key}`).sort();
+    expect(keys).toEqual(["a env:env1", "a svc:app", "b env:env1", "b svc:stack:web", "b svc:stack:worker", "c env:env1"]);
+  });
+
+  it("keeps service addresses when they move and forgets only what is gone", () => {
+    const addresses: PlanAddress[] = [
+      { serverId: "a", key: serviceKey("db"), ip: "10.240.1.1" },
+      { serverId: "a", key: serviceKey("moved"), ip: "10.240.1.2" },
+      { serverId: "b", key: serviceKey("stack", "gone"), ip: "10.240.1.3" },
+      { serverId: "b", key: serviceKey("stack", "web"), ip: "10.240.1.4" },
+      { serverId: "a", key: serviceKey("deleted"), ip: "10.240.1.5" },
+      { serverId: "a", key: environmentKey("env1"), ip: "10.241.1.2" },
+    ];
+    const services = [svc("db"), svc("moved", { serverId: "b" }), svc("stack", { type: "compose", serverId: "b", composeServices: ["web"] })];
+    const { remove, move } = addressChanges(addresses, services);
+    expect(remove.map((a) => a.ip)).toEqual(["10.240.1.3", "10.240.1.5"]);
+    expect(move.map((m) => [m.address.ip, m.serverId])).toEqual([["10.240.1.2", "b"]]);
+  });
+
+  it("hands out service addresses from one pool and environment addresses per server", () => {
+    expect(allocateAddress(7, "svc", new Set())).toBe("10.240.1.1");
+    expect(allocateAddress(7, "svc", new Set(["10.240.1.1"]))).toBe("10.240.1.2");
+    expect(allocateAddress(7, "svc", new Set(Array.from({ length: 254 }, (_, i) => `10.240.1.${i + 1}`)))).toBe("10.240.2.1");
+    expect(allocateAddress(7, "env", new Set())).toBe("10.241.7.2");
+    const full = new Set(Array.from({ length: 253 }, (_, i) => `10.241.7.${i + 2}`));
+    expect(allocateAddress(7, "env", full)).toBeNull();
+  });
+
+  const services = [svc("db"), svc("app", { type: "app", serverId: "b", currentDeploymentId: "dep9" }), svc("other", { environmentId: "env2", serverId: "b" })];
+  const addresses: PlanAddress[] = [
+    { serverId: "a", key: serviceKey("db"), ip: "10.240.1.1" },
+    { serverId: "a", key: environmentKey("env1"), ip: "10.241.1.2" },
+    { serverId: "b", key: serviceKey("app"), ip: "10.240.1.2" },
+    { serverId: "b", key: environmentKey("env1"), ip: "10.241.2.2" },
+    // Kept from before, not needed now: not configured anywhere.
+    { serverId: "b", key: serviceKey("other"), ip: "10.240.1.9" },
+  ];
+
+  it("lets only the same environment on other servers reach an exposed service", () => {
+    const needs = neededAddresses([A, B], services);
+    const cfg = agentConfig({ ...A, privateKey: "priv-a" }, [A, B], services, addresses, needs);
+    expect(cfg.address).toBe("10.241.1.1");
+    // Routes to B's own range and to the services of its environments there, nothing else.
+    expect(cfg.peers).toEqual([{ serverId: "b", publicKey: "pub-b", endpoint: "10.0.0.2:51820", allowedIps: ["10.241.2.0/24", "10.240.1.2/32"] }]);
+    expect(cfg.exposures).toEqual([{ ip: "10.240.1.1", service: "db", compose: null, deployment: null, network: "serve-env-env1", allow: ["10.241.2.2"] }]);
+    expect(cfg.sources).toEqual([{ ip: "10.241.1.2", networks: ["serve-env-env1"], subnets: [] }]);
+    expect(cfg.localAddresses).toEqual(["10.240.1.1", "10.241.1.2"]);
+    const cfgB = agentConfig({ ...B, privateKey: "priv-b" }, [A, B], services, addresses, needs);
+    // Apps only forward to containers of their live deployment.
+    expect(cfgB.exposures).toEqual([{ ip: "10.240.1.2", service: "app", compose: null, deployment: "dep9", network: "serve-env-env1", allow: ["10.241.1.2"] }]);
+    expect(cfgB.localAddresses).not.toContain("10.240.1.9");
+    expect(cfgB.peers[0].allowedIps).toEqual(["10.241.1.0/24", "10.240.1.1/32"]);
+  });
+
+  it("changes the configuration hash only when something changes", () => {
+    const needs = neededAddresses([A, B], services);
+    const one = agentConfig({ ...A, privateKey: "k" }, [A, B], services, addresses, needs);
+    const two = agentConfig({ ...A, privateKey: "k" }, [A, B], services, addresses, needs);
+    expect(one.hash).toBe(two.hash);
+    const moved = agentConfig({ ...A, privateKey: "k" }, [A, { ...B, endpoint: "198.51.100.4" }], services, addresses, needs);
+    expect(moved.hash).not.toBe(one.hash);
+    expect(moved.peers[0].endpoint).toBe("198.51.100.4:51820");
+  });
+
+  it("answers to the names of services on other servers with link containers", () => {
+    const list = [
+      svc("db", { hostname: "maindb" }),
+      svc("app", { type: "app", serverId: "b" }),
+      svc("stack", { type: "compose", serverId: "b", slug: "shop-ab12", composeServices: ["web"] }),
+      svc("replicated", { type: "app", serverId: "b", extraServerIds: ["a"] }),
+    ];
+    const addrs: PlanAddress[] = [
+      { serverId: "a", key: serviceKey("db"), ip: "10.240.1.2" },
+      { serverId: "a", key: environmentKey("env1"), ip: "10.241.1.2" },
+      { serverId: "b", key: serviceKey("app"), ip: "10.240.2.2" },
+      { serverId: "b", key: serviceKey("stack", "web"), ip: "10.240.2.3" },
+      { serverId: "b", key: serviceKey("replicated"), ip: "10.240.2.4" },
+      { serverId: "b", key: environmentKey("env1"), ip: "10.241.2.2" },
+    ];
+    const needs = neededAddresses([A, B], list);
+    const onA = agentConfig({ ...A, privateKey: "" }, [A, B], list, addrs, needs).imports;
+    // "replicated" also runs on A, so A reaches it directly.
+    expect(onA).toEqual([
+      { name: "serve-link-10-240-2-2", ip: "10.240.2.2", network: "serve-env-env1", aliases: ["app"] },
+      { name: "serve-link-10-240-2-3", ip: "10.240.2.3", network: "serve-env-env1", aliases: ["shop-ab12-web"] },
+    ]);
+    const onB = agentConfig({ ...B, privateKey: "" }, [A, B], list, addrs, needs).imports;
+    expect(onB).toEqual([{ name: "serve-link-10-240-1-2", ip: "10.240.1.2", network: "serve-env-env1", aliases: ["db", "maindb"] }]);
+  });
+});
+
+describe("private network helpers", () => {
+  it("checks the address other servers use", () => {
+    expect(meshEndpointProblem("203.0.113.10")).toBeNull();
+    expect(meshEndpointProblem("node-1.example.com")).toBeNull();
+    expect(meshEndpointProblem("2001:db8::1")).toBeNull();
+    expect(meshEndpointProblem("")).toMatch(/Enter/);
+    expect(meshEndpointProblem("127.0.0.1")).toMatch(/only works on the server/);
+    expect(meshEndpointProblem("localhost")).toMatch(/only works on the server/);
+    expect(meshEndpointProblem("1.2.3.4:51820")).toMatch(/without a port/);
+    expect(meshEndpoint("2001:db8::1", 51820)).toBe("[2001:db8::1]:51820");
+  });
+
+  it("makes WireGuard keys", () => {
+    const { publicKey, privateKey } = generateMeshKeys();
+    expect(Buffer.from(publicKey, "base64")).toHaveLength(32);
+    expect(Buffer.from(privateKey, "base64")).toHaveLength(32);
+    // The public key belongs to the private key.
+    const priv = createPrivateKey({ key: { kty: "OKP", crv: "X25519", d: Buffer.from(privateKey, "base64").toString("base64url"), x: "" }, format: "jwk" });
+    expect(Buffer.from(createPublicKey(priv).export({ format: "jwk" }).x ?? "", "base64url").toString("base64")).toBe(publicKey);
+  });
+
+  it("describes handshake age", () => {
+    expect(handshakeAge(0)).toBeNull();
+    expect(handshakeAge(100, 112)).toBe("12s ago");
+    expect(handshakeAge(100, 100 + 3 * 60)).toBe("3m ago");
+  });
+});
+
+/** The agent's jq programs, run with the real jq (as the agent does). */
+describe.runIf(!!process.env.PATH && fs.existsSync("/usr/bin/jq"))("private network agent rules", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "serve-mesh-test-"));
+  const write = (name: string, value: unknown) => {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, typeof value === "string" ? value : JSON.stringify(value));
+    return file;
+  };
+  const config = {
+    privateKey: "cHJpdg==",
+    listenPort: 51820,
+    peers: [
+      { publicKey: "pb", endpoint: "10.0.0.2:51820", allowedIps: ["10.240.2.0/24", "10.241.2.0/24"] },
+      { publicKey: "pc", endpoint: null, allowedIps: ["10.240.3.0/24", "10.241.3.0/24"] },
+    ],
+    exposures: [
+      { ip: "10.240.1.2", service: "app", compose: null, deployment: "new", network: "serve-env-e", allow: ["10.241.2.1", "10.241.3.1"] },
+      { ip: "10.240.1.3", service: "stack", compose: "web", deployment: null, network: "serve-env-e", allow: ["10.241.2.1"] },
+      { ip: "10.240.1.4", service: "gone", compose: null, deployment: null, network: "serve-env-e", allow: ["10.241.2.1"] },
+    ],
+    sources: [{ ip: "10.241.1.1", networks: ["serve-env-e"], subnets: ["10.210.4.0/24"] }],
+  };
+  const container = (service: string, ip: string, labels: Record<string, string> = {}) => ({
+    Labels: { "serve.service": service, ...labels },
+    NetworkSettings: { Networks: { "serve-env-e": { IPAddress: ip } } },
+  });
+  const containers = [
+    container("app", "172.20.0.5", { "serve.deployment": "new" }),
+    container("app", "172.20.0.6", { "serve.deployment": "new" }),
+    container("app", "172.20.0.7", { "serve.deployment": "old" }),
+    container("app", "172.20.0.8", { "serve.deployment": "new", "serve.kind": "predeploy" }),
+    container("stack", "172.20.0.9", { "com.docker.compose.service": "web" }),
+    container("stack", "172.20.0.10", { "com.docker.compose.service": "db" }),
+  ];
+  const cfg = write("config.json", config);
+  const rules = write("rules.jq", RULES_JQ);
+  const wg = write("wg.jq", WG_JQ);
+  const run = (list: unknown) =>
+    execFileSync(
+      "jq",
+      [
+        "-r",
+        "--arg",
+        "if",
+        "serve-mesh",
+        "--slurpfile",
+        "c",
+        write("c.json", list),
+        "--slurpfile",
+        "nets",
+        write("nets.json", { "serve-env-e": ["172.20.0.0/16"] }),
+        "-f",
+        rules,
+        cfg,
+      ],
+      {
+        encoding: "utf8",
+      },
+    );
+
+  it("forwards to live containers only, spread across replicas", () => {
+    const out = run(containers);
+    expect(out).toContain("-A SERVE-MESH-PRE -i serve-mesh -d 10.240.1.2/32 -m statistic --mode random --probability 0.5 -j DNAT --to-destination 172.20.0.5");
+    expect(out).toContain("-A SERVE-MESH-PRE -i serve-mesh -d 10.240.1.2/32 -j DNAT --to-destination 172.20.0.6");
+    expect(out).not.toContain("172.20.0.7");
+    expect(out).not.toContain("172.20.0.8");
+    expect(out).toContain("-d 10.240.1.3/32 -j DNAT --to-destination 172.20.0.9");
+    expect(out).not.toContain("172.20.0.10");
+    expect(out).not.toContain("10.240.1.4/32 -j DNAT");
+  });
+
+  it("rewrites outgoing sources per environment and allows only listed sources in", () => {
+    const out = run(containers);
+    expect(out).toContain("-A SERVE-MESH-POST -o serve-mesh -s 172.20.0.0/16 -j SNAT --to-source 10.241.1.1");
+    expect(out).toContain("-A SERVE-MESH-POST -o serve-mesh -s 10.210.4.0/24 -j SNAT --to-source 10.241.1.1");
+    expect(out).toContain("-A SERVE-MESH-FWD -i serve-mesh -s 10.241.3.1/32 -m conntrack --ctorigdst 10.240.1.2/32 -j ACCEPT");
+    expect(out).not.toContain("-s 10.241.3.1/32 -m conntrack --ctorigdst 10.240.1.3/32");
+    const lines = out.split("\n");
+    // The drop comes after every allow.
+    expect(lines.indexOf("-A SERVE-MESH-FWD -i serve-mesh -j DROP")).toBeGreaterThan(lines.findLastIndex((l) => l.includes("--ctorigdst")));
+    expect(out).toContain("-A SERVE-MESH-IN -p udp --dport 51820 -j ACCEPT");
+    expect(out.match(/^COMMIT$/gm)).toHaveLength(3);
+  });
+
+  it("falls back to every container of the service before its first deployment finished", () => {
+    const out = run([container("app", "172.20.0.11", { "serve.deployment": "other" })]);
+    expect(out).not.toContain("172.20.0.11");
+    const noLabel = run([container("app", "172.20.0.12")]);
+    expect(noLabel).toContain("--to-destination 172.20.0.12");
+  });
+
+  it("describes the link containers to run", () => {
+    const withImports = write("imports.json", {
+      ...config,
+      imports: [{ name: "serve-link-10-240-1-2", ip: "10.240.1.2", network: "serve-env-e", aliases: ["db", "maindb"] }],
+    });
+    const out = execFileSync("jq", ["-c", "--arg", "img", "serve-mesh:abc", "-f", write("links.jq", LINKS_JQ), withImports], { encoding: "utf8" })
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    expect(out).toHaveLength(1);
+    expect(out[0].name).toBe("serve-link-10-240-1-2");
+    expect(out[0].spec).toBe("10.240.1.2|serve-env-e|db,maindb|serve-mesh:abc");
+    expect(out[0].body.Cmd).toEqual(["link", "10.240.1.2"]);
+    expect(out[0].body.HostConfig.NetworkMode).toBe("serve-env-e");
+    expect(out[0].body.NetworkingConfig.EndpointsConfig["serve-env-e"].Aliases).toEqual(["db", "maindb"]);
+    expect(out[0].body.Labels["serve.mesh-link"]).toBe(out[0].spec);
+  });
+
+  it("writes the WireGuard configuration", () => {
+    const out = execFileSync("jq", ["-r", "-f", wg, cfg], { encoding: "utf8" });
+    expect(out).toContain("[Interface]\nPrivateKey = cHJpdg==\nListenPort = 51820");
+    expect(out).toContain("[Peer]\nPublicKey = pb\nAllowedIPs = 10.240.2.0/24, 10.241.2.0/24\nEndpoint = 10.0.0.2:51820\nPersistentKeepalive = 25");
+    expect(out).toContain("[Peer]\nPublicKey = pc\nAllowedIPs = 10.240.3.0/24, 10.241.3.0/24\nPersistentKeepalive = 25");
+  });
+});

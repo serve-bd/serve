@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { Duplex } from "node:stream";
+import { Duplex } from "node:stream";
 import { Client, utils, type ClientChannel, type ConnectConfig, type SFTPWrapper } from "ssh2";
 
 /**
@@ -310,6 +310,34 @@ export async function dockerStream(t: SshTarget): Promise<Duplex> {
   const socket = ch as unknown as Duplex & Record<string, unknown>;
   for (const name of ["setNoDelay", "setKeepAlive", "ref", "unref"]) if (typeof socket[name] !== "function") socket[name] = () => socket;
   if (typeof socket.setTimeout !== "function") socket.setTimeout = () => socket;
+  // ssh2's destroy() only closes the SSH channel and never emits "close", so Node's HTTP agent
+  // would keep counting the connection as busy. Destroy the stream too.
+  const sshDestroy = ch.destroy.bind(ch);
+  socket.destroy = (error?: Error) => {
+    sshDestroy();
+    if (!socket.destroyed) Duplex.prototype.destroy.call(socket, error);
+    return socket;
+  };
+  // Node's HTTP client ends a finished connection with destroySoon (a net.Socket method).
+  if (typeof socket.destroySoon !== "function")
+    socket.destroySoon = () => {
+      if (socket.writable) socket.end();
+      if (socket.writableFinished) socket.destroy();
+      else socket.once("finish", () => socket.destroy());
+    };
+  // ssh2 only reports a closed channel once its data was read to the end. When Docker closes a
+  // connection nobody reads any more (a finished response), drain it, so the HTTP agent sees the
+  // close and frees the slot. Otherwise a few such connections fill the pool and every later
+  // Docker call to the server waits forever.
+  const push = ch.push.bind(ch);
+  ch.push = (chunk: unknown, encoding?: BufferEncoding) => {
+    const more = push(chunk, encoding);
+    if (chunk === null)
+      setImmediate(() => {
+        if (!socket.readableEnded && socket.listenerCount("data") === 0) socket.resume();
+      });
+    return more;
+  };
   return socket;
 }
 

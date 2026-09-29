@@ -149,8 +149,11 @@ export async function execInContainer(
   await new Promise<void>((resolve, reject) => {
     stream.on("data", (chunk: Buffer) => chunks.push(chunk));
     stream.on("end", resolve);
+    stream.on("close", resolve);
     stream.on("error", reject);
   });
+  // The command finished: release the connection right away.
+  (stream as { destroy?: () => void }).destroy?.();
   const info = await exec.inspect();
   return { exitCode: info.ExitCode ?? 0, output: demuxDockerBuffer(Buffer.concat(chunks)) };
 }

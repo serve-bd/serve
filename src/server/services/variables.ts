@@ -6,6 +6,7 @@ import { databaseUrl } from "@/server/databases/options";
 import { referenceName } from "@/lib/refs";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { privateHost } from "@/lib/hostname";
+import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
 
 type Service = typeof schema.service.$inferSelect;
 type Domain = typeof schema.domain.$inferSelect;
@@ -72,7 +73,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     .from(schema.environment)
     .innerJoin(schema.project, eq(schema.environment.projectId, schema.project.id))
     .where(eq(schema.environment.id, service.environmentId));
-  const [own, shared, siblings, siblingDomains] = await Promise.all([
+  const [own, shared, siblings, siblingDomains, mesh] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, service.id)),
     db
       .select()
@@ -90,6 +91,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       .from(schema.domain)
       .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
       .where(eq(schema.service.environmentId, service.environmentId)),
+    meshMemberIds(),
   ]);
 
   const domainsBy = new Map<string, Domain[]>();
@@ -110,11 +112,11 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const nameCount = new Map<string, number>();
   for (const s of siblings) nameCount.set(referenceName(s.name), (nameCount.get(referenceName(s.name)) ?? 0) + 1);
   const ambiguous = new Set([...nameCount].filter(([, n]) => n > 1).map(([k]) => k));
-  // Private hostnames only resolve on the same server; drop them for services elsewhere.
+  // Private hostnames only resolve on the same server, or between servers in the private network.
   const remoteOnly = new Map<string, Set<string>>();
   for (const s of siblings) {
     let provided = providedVars(s, domainsBy.get(s.id) ?? []);
-    if (s.id !== service.id && s.serverId !== service.serverId) {
+    if (s.id !== service.id && !privatelyConnected(mesh, s.serverId, service.serverId)) {
       const hidden = new Set(Object.keys(provided).filter((k) => PRIVATE_VARS.test(k)));
       provided = Object.fromEntries(Object.entries(provided).filter(([k]) => !hidden.has(k)));
       for (const name of [s.slug, s.name, referenceName(s.name)]) remoteOnly.set(name.toLowerCase(), hidden);
@@ -149,7 +151,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
         const scope = lookup.get(ref.slice(0, dot).toLowerCase());
         result = scope?.[ref.slice(dot + 1)];
         if (result === undefined && remoteOnly.get(ref.slice(0, dot).toLowerCase())?.has(ref.slice(dot + 1))) {
-          missing.add(`${ref} (runs on another server; use its public domain or port)`);
+          missing.add(`${ref} (runs on another server; turn on the private network on both servers, or use its public domain or port)`);
           return "";
         }
       }

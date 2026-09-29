@@ -34,6 +34,8 @@ export function isSystemContainer(labels: Record<string, string>, name: string) 
 function systemRole(labels: Record<string, string>, name: string) {
   const kind = labels[LABEL.kind];
   if (kind === "proxy" || name === env.proxyContainer || name === "serve-proxy") return "nginx proxy";
+  if (kind === "mesh") return "Private network";
+  if (kind === "mesh-link") return "Private network name";
   if (kind) return kind.replace(/[-_]/g, " ");
   const svc = labels["com.docker.compose.service"] ?? name;
   if (/worker/.test(svc)) return "Worker";

@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   SquareTerminal,
+  Waypoints,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SectionPicker } from "./section-picker";
@@ -43,6 +44,7 @@ const icons = {
   ShieldCheck,
   SlidersHorizontal,
   SquareTerminal,
+  Waypoints,
 };
 
 export type SectionNavItem = { href: string; label: string; icon: keyof typeof icons; warn?: boolean; exact?: boolean };

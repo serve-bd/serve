@@ -90,6 +90,15 @@ function remoteDocker(target: SshTarget) {
     );
     return undefined;
   };
+  // Safety net: an SSH channel the server closed must never keep a slot in the pool.
+  const sweep = setInterval(() => {
+    for (const list of Object.values(agent.sockets))
+      for (const socket of list ?? []) {
+        const ch = socket as unknown as { incoming?: { state?: string }; destroyed: boolean; _httpMessage?: unknown; destroy(): void };
+        if (ch.incoming?.state === "closed" && !ch.destroyed && !ch._httpMessage) ch.destroy();
+      }
+  }, 15_000);
+  sweep.unref();
   return new Docker({ protocol: "http", host: "docker", port: 80, agent } as Docker.DockerOptions);
 }
 

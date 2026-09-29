@@ -183,6 +183,13 @@
       "when": 1790718274963,
       "tag": "0025_per_server_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790720529786,
+      "tag": "0026_private_network",
+      "breakpoints": true
     }
   ]
 }

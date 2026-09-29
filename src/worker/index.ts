@@ -29,6 +29,7 @@ import { checkTunnels } from "@/server/cloudflare/tunnels";
 import { checkContainerHealth, checkServerResources, pruneMonitoring, runUptimeChecks } from "@/server/monitoring/checks";
 import { failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBackups } from "@/server/instance/backups";
 import { periodicUpdateCheck, reconcileUpdate, runUpdate } from "@/server/instance/updates";
+import { syncMesh } from "@/server/mesh";
 import { attemptDelivery, flushHeldNotifications, pruneDeliveries, retryDueDeliveries } from "@/server/notifications/deliver";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
@@ -84,6 +85,8 @@ async function handle(job: Job, signal: AbortSignal) {
       return runUpdate(p.to);
     case "notification.deliver":
       return void (await attemptDelivery(p.deliveryId));
+    case "mesh.sync":
+      return syncMesh();
     case "proxy.switch": {
       const { switchProxy } = await import("@/server/proxy/switch");
       return switchProxy(p.serverId, p.to as ProxyKind);
@@ -376,6 +379,8 @@ async function main() {
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
   every(5 * 60_000, "cleanup", scheduleCleanup, true);
   every(5 * 60_000, "proxy-health", checkProxies, true);
+  // Private network: addresses for new services, servers that joined or left, agents that went missing.
+  every(30_000, "mesh", () => syncMesh(), true);
   // Uptime checks run every 15 s and pick the monitors that are due.
   every(15_000, "uptime", runUptimeChecks, true);
   every(60_000, "container-health", checkContainerHealth);

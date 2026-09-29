@@ -33,6 +33,7 @@ import type { ServiceStatus } from "@/server/db/schema";
 import { composeSecurityIssues, containedPath } from "@/server/security";
 import { connectProxy, disconnectProxy, ensureEnvNetwork } from "@/server/docker/networks";
 import { getSetting } from "@/server/settings";
+import { meshAfterStart, meshBeforeStart } from "@/server/mesh";
 
 type Service = typeof schema.service.$inferSelect;
 type Deployment = typeof schema.deployment.$inferSelect;
@@ -416,6 +417,7 @@ async function runOnServer(opts: {
   if (!stillThere) throw new DeployCancelled("The service was deleted");
   const network = await ensureEnvNetwork(service.environmentId, server);
   if (runtime.volumes.some((v) => v.kind !== "volume")) await prepareMounts(server, service.id, runtime.volumes, log.line);
+  await meshBeforeStart(service, server.id, log.line);
 
   if (runtime.preDeployCommand && dep.rollbackOf && primary) log.line("Skipping the pre-deploy command for a rollback");
   // Migrations and similar run once, on the service's own server.
@@ -479,7 +481,11 @@ async function runOnServer(opts: {
   }
 
   // Switch traffic.
-  if (primary) await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
+  if (primary) {
+    await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
+    // Other servers reach the new containers through the private network from now on.
+    await meshAfterStart(server.id, log.line);
+  }
   log.step("Routing traffic");
   try {
     await syncServiceProxy(service.id, server.id);
@@ -676,6 +682,7 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   );
   line(`${engine.label} is ready`);
   await setServiceStatus(service.id, "running");
+  await meshAfterStart(server.id, line);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -768,6 +775,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   const network = await ensureEnvNetwork(service.environmentId, server);
   await assertPortsFree(server.docker, server.name, service.compose?.ports ?? [], service.id);
   const isolated = !!service.compose?.isolated;
+  if (!isolated) await meshBeforeStart(service, server.id, log.line);
   const transformed = transformCompose(content, service.slug, service.id, subnet, network, service.compose?.ports ?? [], isolated);
   // The stack's own network: named in the file, or compose's <project>_default.
   const declared = (parseCompose(transformed).networks as Record<string, { name?: string } | null> | undefined)?.default?.name;
@@ -806,6 +814,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     }
   }
   await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
+  await meshAfterStart(server.id, log.line);
   log.step("Routing traffic");
   try {
     await syncServiceProxy(service.id);

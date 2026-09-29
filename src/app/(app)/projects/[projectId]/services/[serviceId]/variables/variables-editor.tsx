@@ -42,7 +42,7 @@ export function VariablesEditor({
   type: string;
   status: string;
   initial: Omit<Var, "id">[];
-  references: { name: string; keys: string[]; label?: string }[];
+  references: { name: string; keys: string[]; label?: string; note?: string; warn?: boolean }[];
   /** ${VARIABLES} the compose file uses without a default. */
   composeVars?: string[];
   canEdit?: boolean;
@@ -315,7 +315,7 @@ function ReferencesCard({
   taken,
   onAdd,
 }: {
-  references: { name: string; keys: string[]; label?: string }[];
+  references: { name: string; keys: string[]; label?: string; note?: string; warn?: boolean }[];
   canEdit: boolean;
   taken: Set<string>;
   onAdd: (key: string, value: string) => void;
@@ -364,7 +364,10 @@ function ReferencesCard({
                     <span className="flex size-6 flex-none items-center justify-center rounded-md bg-fg/[0.05] text-muted">
                       <Link2 className="size-3.5" />
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">{r.title}</span>
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-[13px] font-medium text-fg">{r.title}</span>
+                      {r.note && <span className={cn("truncate text-[11px]", r.warn ? "text-warn" : "text-faint")}>{r.note}</span>}
+                    </span>
                     <span className="flex-none text-xs text-faint tabular-nums">{r.keys.length}</span>
                     <ChevronDown className={cn("size-3.5 flex-none text-faint transition-transform", expanded && "rotate-180")} />
                   </button>
@@ -408,7 +411,7 @@ function AddReferenceMenu({
   onAdd,
   variant = "secondary",
 }: {
-  references: { name: string; keys: string[]; label?: string }[];
+  references: { name: string; keys: string[]; label?: string; note?: string; warn?: boolean }[];
   taken: Set<string>;
   onAdd: (key: string, value: string) => void;
   variant?: "secondary" | "ghost";

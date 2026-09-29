@@ -51,6 +51,7 @@ Everything runs in Docker. A reverse proxy of your choice (nginx, Caddy or Traef
 **Servers**
 - Deploy to any number of Linux servers over SSH, next to the machine Serve runs on. Serve installs Docker and the proxy when needed.
 - Per-server proxy, certificates, domains, metrics, Docker cleanup and a root terminal. Move services between servers.
+- Private network between servers (WireGuard): services on different servers reach each other by their private names, encrypted, with no public ports. A service keeps its private address when it moves.
 
 **Operate**
 - Projects with environments (production, staging…), and shared variables at organization, project and environment level.
@@ -185,7 +186,16 @@ Servers → **Add server**:
 2. Generate an SSH key in Serve (or import one) and run the shown command on the server to authorize it.
 3. Connect. Serve pins the server's host key, checks Docker (and installs it if you ask), prepares `/data/serve` and starts the proxy.
 
-Only SSH needs to be reachable from the Serve machine. Open ports 80 and 443 on the server for its apps, or use a Cloudflare Tunnel. Services on different servers cannot reach each other over the private network; use public domains or published ports between them.
+Only SSH needs to be reachable from the Serve machine. Open ports 80 and 443 on the server for its apps, or use a Cloudflare Tunnel.
+
+### Private network between servers
+
+Services on different servers reach each other by their private names once both servers are in the private network (a server → **Private network** → **Join**). `${{postgres.DATABASE_URL}}` then works when the database runs on another server.
+
+- Each server runs a small agent container (`serve-mesh`) that sets up WireGuard, the firewall rules and one `serve-link-*` container per service used from another server. The link answers to the service's names on the environment network and forwards to it.
+- Only services of the same environment reach each other; other environments and the servers themselves are blocked.
+- Servers connect to each other on UDP port 51820 (changeable). The server's own firewall is opened by the agent; open the port in a cloud firewall if your provider has one.
+- Addresses: `10.240.0.0/16` for services (kept when a service moves) and `10.241.N.0/24` per server.
 
 ### Cloudflare Tunnels
 
@@ -273,6 +283,7 @@ src/server/         Server-only code
   deploy/           Build and deploy pipeline (git, builders, containers, compose)
   proxy/            nginx, Caddy and Traefik configuration, switching and reloads
   servers/          SSH connections, remote Docker and server setup
+  mesh/             Private network between servers (WireGuard agent, addresses, links)
   ssl/              Certificates (Let's Encrypt, Cloudflare Origin, uploads)
   cloudflare/       Cloudflare API client and tunnels
   git/              Git providers, OAuth and repository webhooks

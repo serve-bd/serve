@@ -237,8 +237,14 @@ export async function deleteServer(id: string) {
         `${extraOf.map((s) => s.name).join(", ")} ${extraOf.length === 1 ? "uses" : "use"} this server to build or run. Remove it in their Servers & registry settings first.`,
       );
     }
+    if (row.mesh && row.mesh.state !== "off") {
+      // Take the private network down there while Serve can still reach the server.
+      const { teardownMesh } = await import("@/server/mesh");
+      await Promise.race([getServer(id).then(teardownMesh), new Promise((r) => setTimeout(r, 30_000))]).catch(() => {});
+    }
     await db.delete(schema.server).where(eq(schema.server.id, id));
     forgetServer(id);
+    if (row.mesh?.enabled) await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.delete", message: `Removed server ${row.name}` });
     return null;
   });

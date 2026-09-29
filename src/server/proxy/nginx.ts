@@ -83,6 +83,15 @@ export async function getProxyContainer() {
   }
 }
 
+/**
+ * Create (or repair) the proxy on any server.
+ * TODO(multi-server): remote servers get their own proxy container and config files.
+ */
+export async function ensureServerProxy(ctx: import("@/server/servers/context").ServerCtx, log?: (line: string) => void) {
+  if (ctx.local) return ensureProxy(log);
+  throw new Error("Remote proxies are not implemented yet.");
+}
+
 /** Create (or repair) the nginx proxy container. */
 export async function ensureProxy(log?: (line: string) => void) {
   await ensureNetwork();

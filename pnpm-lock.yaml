@@ -65,6 +65,9 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
+      ssh2:
+        specifier: ^1.17.0
+        version: 1.17.0
       swr:
         specifier: ^2.5.1
         version: 2.5.1(react@19.2.8)
@@ -96,6 +99,9 @@ importers:
       '@types/react-dom':
         specifier: ^19
         version: 19.3.0(@types/react@19.3.0)
+      '@types/ssh2':
+        specifier: ^1.15.6
+        version: 1.15.6
       dotenv:
         specifier: ^18.0.4
         version: 18.0.4

@@ -14,7 +14,8 @@ export type JobType =
   | "backup.restore"
   | "proxy.sync"
   | "cleanup"
-  | "task.run";
+  | "task.run"
+  | "server.setup";
 
 export type JobPayloads = {
   deploy: { deploymentId: string };
@@ -28,6 +29,7 @@ export type JobPayloads = {
   "backup.restore": { backupId: string };
   "proxy.sync": Record<string, never>;
   cleanup: { full?: boolean };
+  "server.setup": { serverId: string; installDocker?: boolean };
   "task.run": { runId: string };
 };
 

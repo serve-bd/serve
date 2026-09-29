@@ -17,6 +17,7 @@ import { notify, orgOfService } from "@/server/notify";
 import { runTask, scheduleTasks } from "@/server/services/tasks";
 import { ingestAccessLog } from "@/server/analytics";
 import { runCleanup, scheduleCleanup } from "@/server/cleanup";
+import { probeServer, setupServer } from "@/server/servers/setup";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -52,6 +53,8 @@ async function handle(job: Job, signal: AbortSignal) {
       return void (await runCleanup((job.payload as { full?: boolean }).full === true ? "manual" : "schedule"));
     case "task.run":
       return runTask(p.runId);
+    case "server.setup":
+      return setupServer(p.serverId, { installDocker: (job.payload as { installDocker?: boolean }).installDocker === true });
   }
 }
 
@@ -128,6 +131,12 @@ function every(ms: number, name: string, fn: () => Promise<unknown>, runNow = fa
   };
   if (runNow) void tick();
   return setInterval(tick, ms);
+}
+
+/** Keeps remote server status fresh (ready / unreachable). */
+async function probeRemoteServers() {
+  const rows = await db.select({ id: schema.server.id, status: schema.server.status }).from(schema.server).where(eq(schema.server.isLocal, false));
+  await Promise.all(rows.filter((r) => r.status === "ready" || r.status === "unreachable").map((r) => probeServer(r.id)));
 }
 
 /** Detect crashed or recovered services by looking at their containers. */
@@ -262,6 +271,7 @@ async function main() {
 
   every(15_000, "heartbeat", () => updateSettings({ workerHeartbeat: new Date().toISOString() }), true);
   every(15_000, "monitor", monitorServices, true);
+  every(60_000, "servers", probeRemoteServers, true);
   every(30_000, "metrics", collectMetrics, true);
   every(60_000, "backups", scheduleBackups);
   every(60_000, "tasks", scheduleTasks);

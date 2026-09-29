@@ -1,46 +1,31 @@
 import path from "node:path";
 import { env } from "@/server/env";
 
-/** Host paths inside the Serve data directory. */
-export const paths = {
-  get root() {
-    return env.dataDir;
-  },
-  get builds() {
-    return path.join(env.dataDir, "builds");
-  },
-  service(serviceId: string) {
-    return path.join(env.dataDir, "services", serviceId);
-  },
-  get proxy() {
-    return path.join(env.dataDir, "proxy");
-  },
-  get proxySites() {
-    return path.join(env.dataDir, "proxy", "sites");
-  },
-  /** Custom http-level directives, inside the mounted sites dir but not globbed by it. */
-  get proxyCustom() {
-    return path.join(env.dataDir, "proxy", "sites", "custom");
-  },
-  get proxyLogs() {
-    return path.join(env.dataDir, "proxy", "logs");
-  },
-  get acme() {
-    return path.join(env.dataDir, "acme");
-  },
-  get letsencrypt() {
-    return path.join(env.dataDir, "letsencrypt");
-  },
-  get certs() {
-    return path.join(env.dataDir, "certs");
-  },
-  get backups() {
-    return path.join(env.dataDir, "backups");
-  },
-  get ssh() {
-    return path.join(env.dataDir, "ssh");
-  },
-};
+/** Paths inside a server's data directory. */
+export function pathsFor(dataDir: string) {
+  return {
+    root: dataDir,
+    builds: path.posix.join(dataDir, "builds"),
+    service: (serviceId: string) => path.posix.join(dataDir, "services", serviceId),
+    proxy: path.posix.join(dataDir, "proxy"),
+    proxySites: path.posix.join(dataDir, "proxy", "sites"),
+    /** Custom http-level directives, inside the mounted sites dir but not globbed by it. */
+    proxyCustom: path.posix.join(dataDir, "proxy", "sites", "custom"),
+    proxyLogs: path.posix.join(dataDir, "proxy", "logs"),
+    acme: path.posix.join(dataDir, "acme"),
+    letsencrypt: path.posix.join(dataDir, "letsencrypt"),
+    certs: path.posix.join(dataDir, "certs"),
+    backups: path.posix.join(dataDir, "backups"),
+    ssh: path.posix.join(dataDir, "ssh"),
+  };
+}
+
+export type ServerPaths = ReturnType<typeof pathsFor>;
+
+/** Paths in the data directory of the machine Serve runs on. */
+export const paths: ServerPaths = new Proxy({} as ServerPaths, {
+  get: (_t, prop) => pathsFor(env.dataDir)[prop as keyof ServerPaths],
+});
 
 /** Paths as seen from inside the nginx proxy container. */
 export const proxyPaths = {

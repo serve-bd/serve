@@ -177,6 +177,73 @@ const orgRef = () =>
 /* -------------------------------------------------------------------------- */
 
 /** Key/value store for instance-wide settings. */
+/* -------------------------------------------------------------------------- */
+/*                                   Servers                                  */
+/* -------------------------------------------------------------------------- */
+
+/** SSH keys Serve uses to reach remote servers. Managed by Root admins. */
+export const privateKey = pgTable("private_key", {
+  id: id(),
+  name: text("name").notNull(),
+  description: text("description"),
+  /** OpenSSH public key line. */
+  publicKey: text("public_key").notNull(),
+  /** Encrypted OpenSSH private key. */
+  privateKey: text("private_key").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export type ServerStatus = "pending" | "validating" | "ready" | "unreachable" | "error";
+
+export type ServerInfo = {
+  os?: string;
+  kernel?: string;
+  arch?: string;
+  cpus?: number;
+  memory?: number;
+  docker?: string | null;
+  compose?: string | null;
+};
+
+/** The id of the machine Serve itself runs on. */
+export const LOCAL_SERVER_ID = "local";
+
+export const server = pgTable("server", {
+  id: id(),
+  name: text("name").notNull(),
+  description: text("description"),
+  /** The machine Serve runs on; reached through the Docker socket, not SSH. */
+  isLocal: boolean("is_local").notNull().default(false),
+  host: text("host").notNull(),
+  port: integer("port").notNull().default(22),
+  username: text("username").notNull().default("root"),
+  privateKeyId: text("private_key_id").references(() => privateKey.id, { onDelete: "restrict" }),
+  /** SHA256 fingerprint of the SSH host key, pinned on first connection. */
+  hostKey: text("host_key"),
+  status: text("status").$type<ServerStatus>().notNull().default("pending"),
+  statusMessage: text("status_message"),
+  /** Output of the last validation / setup run. */
+  setupLog: text("setup_log").notNull().default(""),
+  info: jsonb("info").$type<ServerInfo>().notNull().default({}),
+  /** Data directory on the server. */
+  dataDir: text("data_dir").notNull().default("/data/serve"),
+  proxyHttpPort: integer("proxy_http_port").notNull().default(80),
+  proxyHttpsPort: integer("proxy_https_port").notNull().default(443),
+  /** Public IPv4 used for DNS records and sslip.io domains. */
+  publicIp: text("public_ip"),
+  /** Wildcard base domain for generated app domains on this server. */
+  wildcardDomain: text("wildcard_domain"),
+  sslipFallback: boolean("sslip_fallback").notNull().default(true),
+  /** Organizations allowed to deploy here; null means every organization. */
+  organizationIds: text("organization_ids").array(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 export const setting = pgTable("setting", {
   key: text("key").primaryKey(),
   value: jsonb("value").notNull(),
@@ -231,6 +298,11 @@ export const service = pgTable(
     environmentId: text("environment_id")
       .notNull()
       .references(() => environment.id, { onDelete: "cascade" }),
+    /** Server the service runs on. */
+    serverId: text("server_id")
+      .notNull()
+      .default(LOCAL_SERVER_ID)
+      .references(() => server.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
     /** Docker-safe unique identifier used for containers, networks and hosts. */
     slug: text("slug").notNull().unique(),
@@ -256,6 +328,7 @@ export const service = pgTable(
   (t) => [
     index("service_project_idx").on(t.projectId),
     index("service_env_idx").on(t.environmentId),
+    index("service_server_idx").on(t.serverId),
   ],
 );
 
@@ -394,6 +467,11 @@ export const certificate = pgTable("certificate", {
   organizationId: orgRef(),
   name: text("name").notNull(),
   domains: text("domains").array().notNull(),
+  /** Server whose proxy serves (and stores) this certificate. */
+  serverId: text("server_id")
+    .notNull()
+    .default(LOCAL_SERVER_ID)
+    .references(() => server.id, { onDelete: "cascade" }),
   provider: text("provider").$type<CertificateProvider>().notNull(),
   status: text("status").$type<CertificateStatus>().notNull().default("pending"),
   /** Absolute paths to PEM files inside the data dir. */
@@ -690,10 +768,16 @@ export const serviceRelations = relations(service, ({ one, many }) => ({
     fields: [service.environmentId],
     references: [environment.id],
   }),
+  server: one(server, { fields: [service.serverId], references: [server.id] }),
   domains: many(domain),
   deployments: many(deployment),
   envVars: many(envVar),
   backups: many(backup),
+}));
+
+export const serverRelations = relations(server, ({ one, many }) => ({
+  privateKey: one(privateKey, { fields: [server.privateKeyId], references: [privateKey.id] }),
+  services: many(service),
 }));
 
 export const deploymentRelations = relations(deployment, ({ one }) => ({

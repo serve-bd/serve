@@ -17,39 +17,46 @@ export const LABEL = {
 
 export type LogFn = (line: string) => void;
 
-let networkReady: Promise<void> | null = null;
+const networkReady = new WeakMap<Docker, Map<string, Promise<void>>>();
 
-/** Make sure the shared bridge network used by every managed container exists. */
-export function ensureNetwork(): Promise<void> {
-  if (!networkReady) {
-    networkReady = (async () => {
-      const networks = await docker.listNetworks({ filters: { name: [env.network] } });
-      if (!networks.some((n) => n.Name === env.network)) {
+/**
+ * Make sure the shared bridge network used by every managed container exists.
+ * Pass another server's Docker client and network name to prepare that server.
+ */
+export function ensureNetwork(d: Docker = docker, name: string = env.network): Promise<void> {
+  let perDocker = networkReady.get(d);
+  if (!perDocker) networkReady.set(d, (perDocker = new Map()));
+  let ready = perDocker.get(name);
+  if (!ready) {
+    ready = (async () => {
+      const networks = await d.listNetworks({ filters: { name: [name] } });
+      if (!networks.some((n) => n.Name === name)) {
         const options = {
-          Name: env.network,
+          Name: name,
           Driver: "bridge",
           Attachable: true,
           Labels: { [LABEL.managed]: "true" },
         };
         try {
-          await docker.createNetwork(options);
+          await d.createNetwork(options);
         } catch (error) {
           // Docker's default pools can be exhausted on busy hosts; fall back to a fixed range.
           if (!/address pools/i.test((error as Error).message)) throw error;
-          await docker.createNetwork({ ...options, IPAM: { Driver: "default", Config: [{ Subnet: "10.209.0.0/16" }] } });
+          await d.createNetwork({ ...options, IPAM: { Driver: "default", Config: [{ Subnet: "10.209.0.0/16" }] } });
         }
       }
     })().catch((error) => {
-      networkReady = null;
+      perDocker.delete(name);
       throw error;
     });
+    perDocker.set(name, ready);
   }
-  return networkReady;
+  return ready;
 }
 
-export async function imageExists(ref: string): Promise<boolean> {
+export async function imageExists(ref: string, d: Docker = docker): Promise<boolean> {
   try {
-    await docker.getImage(ref).inspect();
+    await d.getImage(ref).inspect();
     return true;
   } catch {
     return false;
@@ -59,12 +66,12 @@ export async function imageExists(ref: string): Promise<boolean> {
 export type RegistryAuth = { username: string; password: string; serveraddress?: string };
 
 /** Pull an image and report compact progress through `log`. */
-export async function pullImage(ref: string, log?: LogFn, auth?: RegistryAuth | null) {
+export async function pullImage(ref: string, log?: LogFn, auth?: RegistryAuth | null, d: Docker = docker) {
   const image = ref.includes(":") || ref.includes("@") ? ref : `${ref}:latest`;
-  const stream = await docker.pull(image, auth ? { authconfig: auth } : {});
+  const stream = await d.pull(image, auth ? { authconfig: auth } : {});
   await new Promise<void>((resolve, reject) => {
     const seen = new Set<string>();
-    docker.modem.followProgress(
+    d.modem.followProgress(
       stream,
       (error) => (error ? reject(error) : resolve()),
       (event: { status?: string; id?: string; error?: string }) => {
@@ -85,15 +92,15 @@ export async function pullImage(ref: string, log?: LogFn, auth?: RegistryAuth | 
   });
 }
 
-export async function listServiceContainers(serviceId: string, all = true) {
-  return docker.listContainers({
+export async function listServiceContainers(serviceId: string, all = true, d: Docker = docker) {
+  return d.listContainers({
     all,
     filters: { label: [`${LABEL.service}=${serviceId}`] },
   });
 }
 
-export async function removeContainer(idOrName: string, timeout = 10) {
-  const container = docker.getContainer(idOrName);
+export async function removeContainer(idOrName: string, timeout = 10, d: Docker = docker) {
+  const container = d.getContainer(idOrName);
   try {
     await container.stop({ t: timeout });
   } catch {
@@ -128,8 +135,9 @@ export async function execInContainer(
   idOrName: string,
   cmd: string[],
   opts: { env?: string[]; user?: string } = {},
+  d: Docker = docker,
 ): Promise<{ exitCode: number; output: string }> {
-  const container = docker.getContainer(idOrName);
+  const container = d.getContainer(idOrName);
   const exec = await container.exec({
     Cmd: cmd,
     Env: opts.env,

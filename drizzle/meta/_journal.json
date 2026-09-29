@@ -43,6 +43,13 @@
       "when": 1790664097719,
       "tag": "0005_api_token_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790664526091,
+      "tag": "0006_servers",
+      "breakpoints": true
     }
   ]
 }

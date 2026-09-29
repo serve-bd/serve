@@ -1,0 +1,243 @@
+import crypto from "node:crypto";
+import type { Duplex } from "node:stream";
+import { Client, utils, type ClientChannel, type ConnectConfig, type SFTPWrapper } from "ssh2";
+
+/**
+ * Persistent SSH connections to remote servers, one per server.
+ *
+ * Every consumer (Docker API, file transfers, commands, terminals) opens
+ * channels on the shared connection, so only the first call pays for the
+ * handshake. Connections close after a few idle minutes.
+ */
+
+export type SshTarget = {
+  id: string;
+  host: string;
+  port: number;
+  username: string;
+  privateKey: string;
+  /** Pinned host key ("<type> <base64>"). Null accepts and reports the key (first connection). */
+  hostKey: string | null;
+};
+
+type Conn = { client: Client; ready: Promise<Client>; key: string; channels: number; idle: NodeJS.Timeout | null; sftp: Promise<SFTPWrapper> | null };
+
+const IDLE_MS = 5 * 60_000;
+const store = globalThis as unknown as { __serveSsh?: Map<string, Conn> };
+const conns = (store.__serveSsh ??= new Map());
+
+export class HostKeyMismatchError extends Error {
+  constructor(public presented: string) {
+    super("The server's SSH host key changed since it was added. If the server was reinstalled, reset the host key in the server settings.");
+  }
+}
+
+/** "<type> <base64>" for a raw host key blob. */
+export function formatHostKey(blob: Buffer) {
+  const parsed = utils.parseKey(blob);
+  if (parsed instanceof Error) return `unknown ${blob.toString("base64")}`;
+  const key = Array.isArray(parsed) ? parsed[0] : parsed;
+  return `${key.type} ${key.getPublicSSH().toString("base64")}`;
+}
+
+/** SHA256 fingerprint in OpenSSH style (SHA256:…). */
+export function fingerprint(publicKeyLine: string) {
+  const b64 = publicKeyLine.trim().split(/\s+/)[1] ?? "";
+  return `SHA256:${crypto.createHash("sha256").update(Buffer.from(b64, "base64")).digest("base64").replace(/=+$/, "")}`;
+}
+
+function connKey(t: SshTarget) {
+  return `${t.username}@${t.host}:${t.port}|${crypto.createHash("sha256").update(t.privateKey).digest("hex")}|${t.hostKey ?? ""}`;
+}
+
+function touch(conn: Conn, id: string) {
+  if (conn.idle) clearTimeout(conn.idle);
+  conn.idle = conn.channels > 0 ? null : setTimeout(() => closeConnection(id), IDLE_MS);
+}
+
+export function closeConnection(id: string) {
+  const conn = conns.get(id);
+  if (!conn) return;
+  conns.delete(id);
+  if (conn.idle) clearTimeout(conn.idle);
+  conn.client.end();
+}
+
+/** Opens (or reuses) the connection. `onHostKey` receives the presented key on every handshake. */
+export function connect(t: SshTarget, opts: { onHostKey?: (key: string) => void; timeoutMs?: number } = {}): Promise<Client> {
+  const existing = conns.get(t.id);
+  if (existing && existing.key === connKey(t)) return existing.ready;
+  if (existing) closeConnection(t.id);
+
+  const client = new Client();
+  let presented: string | null = null;
+  const config: ConnectConfig = {
+    host: t.host,
+    port: t.port,
+    username: t.username,
+    privateKey: t.privateKey,
+    readyTimeout: opts.timeoutMs ?? 15_000,
+    keepaliveInterval: 15_000,
+    keepaliveCountMax: 4,
+    hostVerifier: (blob: Buffer) => {
+      presented = formatHostKey(blob);
+      opts.onHostKey?.(presented);
+      return !t.hostKey || t.hostKey === presented;
+    },
+  };
+  const ready = new Promise<Client>((resolve, reject) => {
+    client.once("ready", () => resolve(client));
+    client.once("error", (error) => {
+      conns.delete(t.id);
+      if (presented && t.hostKey && presented !== t.hostKey) reject(new HostKeyMismatchError(presented));
+      else reject(friendlySshError(error, t));
+    });
+    client.once("close", () => {
+      if (conns.get(t.id)?.client === client) conns.delete(t.id);
+    });
+  });
+  const conn: Conn = { client, ready, key: connKey(t), channels: 0, idle: null, sftp: null };
+  conns.set(t.id, conn);
+  client.connect(config);
+  ready.then(() => touch(conn, t.id)).catch(() => {});
+  return ready;
+}
+
+function friendlySshError(error: Error & { level?: string; code?: string }, t: SshTarget) {
+  const where = `${t.username}@${t.host}:${t.port}`;
+  if (error.level === "client-authentication") return new Error(`SSH rejected the key for ${where}. Add the public key to ~/.ssh/authorized_keys of ${t.username}.`);
+  if (error.code === "ECONNREFUSED") return new Error(`Connection refused by ${t.host}:${t.port}. Is SSH running and the port open?`);
+  if (error.code === "ENOTFOUND" || error.code === "EAI_AGAIN") return new Error(`Could not resolve ${t.host}.`);
+  if (error.code === "ETIMEDOUT" || /timed out/i.test(error.message)) return new Error(`Timed out connecting to ${where}. Check the address and firewall.`);
+  return new Error(`SSH error for ${where}: ${error.message}`);
+}
+
+async function channel<T>(t: SshTarget, open: (client: Client) => Promise<T & { once(event: "close", fn: () => void): unknown }>): Promise<T> {
+  const client = await connect(t);
+  const conn = conns.get(t.id)!;
+  conn.channels++;
+  touch(conn, t.id);
+  try {
+    const ch = await open(client);
+    ch.once("close", () => {
+      conn.channels = Math.max(0, conn.channels - 1);
+      touch(conn, t.id);
+    });
+    return ch;
+  } catch (error) {
+    conn.channels = Math.max(0, conn.channels - 1);
+    touch(conn, t.id);
+    throw error;
+  }
+}
+
+/** Raw exec channel. Callers handle stdout/stderr and the exit code. */
+export function execChannel(t: SshTarget, command: string, opts: { pty?: { cols: number; rows: number } | false; env?: Record<string, string> } = {}) {
+  return channel<ClientChannel>(
+    t,
+    (client) =>
+      new Promise((resolve, reject) => {
+        client.exec(command, { pty: opts.pty ? { term: "xterm-256color", cols: opts.pty.cols, rows: opts.pty.rows } : false, env: opts.env as NodeJS.ProcessEnv | undefined }, (err, ch) => (err ? reject(err) : resolve(ch)));
+      }),
+  );
+}
+
+/** Interactive login shell with a PTY. */
+export function shellChannel(t: SshTarget, size: { cols: number; rows: number }) {
+  return channel<ClientChannel>(
+    t,
+    (client) =>
+      new Promise((resolve, reject) => {
+        client.shell({ term: "xterm-256color", cols: size.cols, rows: size.rows }, (err, ch) => (err ? reject(err) : resolve(ch)));
+      }),
+  );
+}
+
+export type SshExecResult = { code: number; stdout: string; stderr: string };
+
+/** Run a command and collect its output. Rejects only on connection errors. */
+export async function sshExec(
+  t: SshTarget,
+  command: string,
+  opts: {
+    onLine?: (line: string) => void;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    /** Input. Pass a function to create the stream only once the channel is open (child process output is lost otherwise). */
+    stdin?: NodeJS.ReadableStream | string | (() => NodeJS.ReadableStream);
+  } = {},
+): Promise<SshExecResult> {
+  const ch = await execChannel(t, command);
+  let stdout = "";
+  let stderr = "";
+  let partial = "";
+  const emit = (text: string) => {
+    if (!opts.onLine) return;
+    partial += text;
+    const lines = partial.split(/\r?\n/);
+    partial = lines.pop() ?? "";
+    for (const line of lines) opts.onLine(line);
+  };
+  ch.on("data", (d: Buffer) => {
+    const text = d.toString("utf8");
+    if (stdout.length < 4_000_000) stdout += text;
+    emit(text);
+  });
+  ch.stderr.on("data", (d: Buffer) => {
+    const text = d.toString("utf8");
+    if (stderr.length < 1_000_000) stderr += text;
+    emit(text);
+  });
+  const input = typeof opts.stdin === "function" ? opts.stdin() : opts.stdin;
+  if (typeof input === "string") ch.end(input);
+  else if (input) input.pipe(ch);
+  else ch.end();
+
+  return new Promise((resolve) => {
+    let timer: NodeJS.Timeout | undefined;
+    let exitCode: number | null = null;
+    let settled = false;
+    const done = (code: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (partial && opts.onLine) opts.onLine(partial);
+      partial = "";
+      resolve({ code, stdout, stderr });
+    };
+    // "exit" carries the status; "close" comes last, after all output was read.
+    ch.once("exit", (code: number | null, signal?: string) => (exitCode = code ?? (signal ? 128 : 1)));
+    ch.once("close", () => done(exitCode ?? 1));
+    if (opts.timeoutMs) timer = setTimeout(() => (ch.close(), done(124)), opts.timeoutMs);
+    opts.signal?.addEventListener("abort", () => (ch.close(), done(130)));
+  });
+}
+
+export async function sftp(t: SshTarget): Promise<SFTPWrapper> {
+  const client = await connect(t);
+  const conn = conns.get(t.id)!;
+  conn.sftp ??= new Promise<SFTPWrapper>((resolve, reject) => client.sftp((err, s) => (err ? reject(err) : resolve(s))));
+  conn.sftp.catch(() => {
+    if (conns.get(t.id) === conn) conn.sftp = null;
+  });
+  const s = await conn.sftp;
+  s.once("close", () => {
+    if (conns.get(t.id) === conn) conn.sftp = null;
+  });
+  return s;
+}
+
+/** A socket-like stream to the remote Docker API (`docker system dial-stdio`). */
+export async function dockerStream(t: SshTarget): Promise<Duplex> {
+  const ch = await execChannel(t, "docker system dial-stdio");
+  // Node's HTTP client calls these on sockets; SSH channels do not implement them.
+  const socket = ch as unknown as Duplex & Record<string, unknown>;
+  for (const name of ["setNoDelay", "setKeepAlive", "ref", "unref"]) if (typeof socket[name] !== "function") socket[name] = () => socket;
+  if (typeof socket.setTimeout !== "function") socket.setTimeout = () => socket;
+  return socket;
+}
+
+/** Single-quote a value for a POSIX shell. */
+export function sh(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}

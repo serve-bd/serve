@@ -37,8 +37,9 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           publicBind={cfg.publicBind ?? "0.0.0.0"}
           publicAddress={published?.label ?? null}
           name={service.name}
+          uptime={<UptimeCard summary={monitoring} settingsHref={`/projects/${projectId}/services/${service.id}/settings/monitoring`} />}
+          uptimeInSide={!monitoring.monitor}
         />
-        <UptimeCard summary={monitoring} settingsHref={`/projects/${projectId}/services/${service.id}/settings/monitoring`} />
       </PageBody>
     );
   }

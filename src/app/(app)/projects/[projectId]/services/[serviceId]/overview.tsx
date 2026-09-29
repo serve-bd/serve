@@ -250,7 +250,7 @@ export function ServiceOverview(data: OverviewData) {
           )}
         </Card>
 
-        <UptimeCard summary={data.monitoring} settingsHref={`${base}/settings/monitoring`} />
+        {data.monitoring.monitor && <UptimeCard summary={data.monitoring} settingsHref={`${base}/settings/monitoring`} />}
 
         {/* Traffic */}
         {data.domains.length > 0 && (
@@ -307,6 +307,7 @@ export function ServiceOverview(data: OverviewData) {
       </div>
 
       <div className="flex min-w-0 flex-col gap-6">
+        {!data.monitoring.monitor && <UptimeCard summary={data.monitoring} settingsHref={`${base}/settings/monitoring`} />}
         {/* Access */}
         <Card>
           <CardHeader

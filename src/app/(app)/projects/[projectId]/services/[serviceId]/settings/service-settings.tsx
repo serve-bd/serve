@@ -22,6 +22,7 @@ import { Section } from "./section";
 import { AdvancedSection, BuildSection, DeploySection, HealthSection, ResourcesSection, RuntimeSection } from "./config-sections";
 import { ApplyBar, DatabaseSections, type DatabaseSettingsProps } from "./database-sections";
 import type { SettingsNavItem } from "./settings-nav";
+import { SectionPicker } from "@/components/shell/section-picker";
 import { addPendingApply, clearPendingApply, usePendingApply } from "./pending-apply";
 import { StorageSection } from "./storage-section";
 import { MonitoringSection } from "./monitoring-section";
@@ -183,10 +184,11 @@ export function ServiceSettings(props: Props) {
 
   return (
     <div className="flex flex-col gap-6 xl:flex-row xl:gap-10">
-      <nav
-        aria-label="Settings sections"
-        className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto px-4 xl:sticky xl:top-6 xl:mx-0 xl:w-44 xl:flex-none xl:flex-col xl:gap-0.5 xl:self-start xl:overflow-visible xl:px-0"
-      >
+      <SectionPicker
+        className="xl:hidden"
+        groups={[{ items: nav.map((item) => ({ href: `${base}/${item.id}`, label: item.label, active: item.id === section, danger: item.id === "danger" })) }]}
+      />
+      <nav aria-label="Settings sections" className="sticky top-6 hidden w-44 flex-none flex-col gap-0.5 self-start xl:flex">
         {nav.map((item) => {
           const active = item.id === section;
           return (
@@ -194,9 +196,8 @@ export function ServiceSettings(props: Props) {
               key={item.id}
               href={`${base}/${item.id}`}
               aria-current={active ? "page" : undefined}
-              ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
               className={cn(
-                "flex-none rounded-lg px-2.5 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors",
+                "rounded-lg px-2.5 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors",
                 active ? "bg-fg/[0.06] text-fg" : "text-fg-2/80 hover:bg-fg/[0.04] hover:text-fg",
                 item.id === "danger" && (active ? "text-bad" : "text-bad/80 hover:text-bad"),
               )}

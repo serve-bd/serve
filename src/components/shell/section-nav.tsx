@@ -20,6 +20,7 @@ import {
   SquareTerminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SectionPicker } from "./section-picker";
 
 /** Icons by name, so server layouts can describe navigation without passing components. */
 const icons = {
@@ -43,34 +44,17 @@ const icons = {
 export type SectionNavItem = { href: string; label: string; icon: keyof typeof icons; warn?: boolean; exact?: boolean };
 export type SectionNavGroup = { title: string; items: SectionNavItem[] };
 
-/** Side navigation for a settings-like section; a scrollable row of pills below `lg`. */
+/** Side navigation for a settings-like section; a section picker below `lg`. */
 export function SectionNav({ groups }: { groups: SectionNavGroup[] }) {
   const pathname = usePathname();
   const isActive = (item: SectionNavItem) => (item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`));
 
   return (
     <>
-      <nav className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto border-b border-line px-4 pb-3 lg:hidden">
-        {groups
-          .flatMap((g) => g.items)
-          .map((item) => {
-            const active = isActive(item);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
-                className={cn(
-                  "relative flex h-8 flex-none items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
-                  active ? "bg-fg/[0.07] text-fg" : "text-muted hover:bg-fg/[0.04] hover:text-fg",
-                )}
-              >
-                {item.label}
-                {item.warn && <span className="size-1.5 rounded-full bg-warn" />}
-              </Link>
-            );
-          })}
-      </nav>
+      <SectionPicker
+        className="lg:hidden"
+        groups={groups.map((g) => ({ title: g.title, items: g.items.map((item) => ({ href: item.href, label: item.label, warn: item.warn, active: isActive(item) })) }))}
+      />
 
       <nav className="sticky top-6 hidden w-[208px] flex-none flex-col gap-5 self-start lg:flex">
         {groups.map((g) => (

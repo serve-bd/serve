@@ -13,17 +13,24 @@ const statusText = { up: "Up", down: "Down", pending: "Checking…", paused: "Pa
 export function UptimeCard({ summary, settingsHref }: { summary: MonitorSummary; settingsHref: string }) {
   const m = summary.monitor;
   if (!m) {
+    // Small card for the side column: an invitation, not a big empty panel.
     return (
-      <Card>
-        <CardHeader
-          title="Uptime"
-          description="Serve can check this service every minute and alert you when it goes down."
-          actions={
-            <Link href={settingsHref} className={buttonVariants({ size: "sm" })}>
-              <Activity /> Set up monitoring
-            </Link>
-          }
-        />
+      <Card className="h-fit">
+        <div className="flex flex-col gap-3 px-5 py-4">
+          <div className="flex items-center gap-2.5">
+            <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-fg/[0.05] text-muted [&_svg]:size-4">
+              <Activity />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[14px] font-semibold text-fg">Uptime</p>
+              <p className="text-xs text-muted">Not monitored</p>
+            </div>
+          </div>
+          <p className="text-[13px] leading-5 text-fg-2">Get an alert when this service goes down, and when it comes back.</p>
+          <Link href={settingsHref} className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "w-full")}>
+            Set up monitoring
+          </Link>
+        </div>
       </Card>
     );
   }

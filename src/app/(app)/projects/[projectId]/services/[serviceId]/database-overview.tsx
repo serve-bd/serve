@@ -27,6 +27,9 @@ export function DatabaseOverview(props: {
   publicBind: "0.0.0.0" | "127.0.0.1";
   /** "address:port" the public port answers on, when enabled. */
   publicAddress: string | null;
+  /** Uptime card: full width under the main cards once set up, else small in the side column. */
+  uptime?: React.ReactNode;
+  uptimeInSide?: boolean;
 }) {
   const { data } = useServiceLive(props.serviceId);
   const [publicOn, setPublicOn] = React.useState(!!props.publicPort);
@@ -129,23 +132,27 @@ export function DatabaseOverview(props: {
             )}
           </CardBody>
         </Card>
+        {!props.uptimeInSide && props.uptime}
       </div>
 
-      <Card className="h-fit">
-        <CardHeader title={props.engine.label} description="Container status" />
-        <div className="divide-y divide-line">
-          {(data?.containers ?? []).map((c) => (
-            <div key={c.id} className="flex items-center gap-3 px-5 py-3">
-              <StatusDot status={c.state === "running" ? "running" : c.state === "restarting" ? "restarting" : "stopped"} />
-              <div className="flex min-w-0 flex-col">
-                <span className="truncate font-mono text-[12px] text-fg-2">{c.image}</span>
-                <span className="text-[11px] text-faint">{c.status}</span>
+      <div className="flex min-w-0 flex-col gap-6">
+        <Card className="h-fit">
+          <CardHeader title={props.engine.label} description="Container status" />
+          <div className="divide-y divide-line">
+            {(data?.containers ?? []).map((c) => (
+              <div key={c.id} className="flex items-center gap-3 px-5 py-3">
+                <StatusDot status={c.state === "running" ? "running" : c.state === "restarting" ? "restarting" : "stopped"} />
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate font-mono text-[12px] text-fg-2">{c.image}</span>
+                  <span className="text-[11px] text-faint">{c.status}</span>
+                </div>
               </div>
-            </div>
-          ))}
-          {!data?.containers.length && <p className="px-5 py-4 text-[13px] text-muted">Starting soon…</p>}
-        </div>
-      </Card>
+            ))}
+            {!data?.containers.length && <p className="px-5 py-4 text-[13px] text-muted">Starting soon…</p>}
+          </div>
+        </Card>
+        {props.uptimeInSide && props.uptime}
+      </div>
     </div>
   );
 }

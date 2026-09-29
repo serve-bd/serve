@@ -107,7 +107,15 @@ export function ServiceOverview(data: OverviewData) {
         <Card>
           <CardHeader
             title="Current deployment"
-            description={current ? `Live since ${new Date(current.finishedAt ?? current.createdAt).toLocaleString()}` : "Nothing is running yet."}
+            description={
+              current ? (
+                <>
+                  Live since <TimeAgo date={current.finishedAt ?? current.createdAt} />
+                </>
+              ) : (
+                "Nothing is running yet."
+              )
+            }
             actions={
               <div className="flex gap-2">
                 {current && (
@@ -123,44 +131,55 @@ export function ServiceOverview(data: OverviewData) {
           />
           {current ? (
             <div className="flex flex-col gap-3 px-5 py-4">
-              <div className="flex min-w-0 items-start gap-3">
-                <span className="mt-1 flex-none">
-                  <StatusLabel status={current.status} kind="deployment" className="text-xs" />
+              <div className="flex min-w-0 items-center gap-3.5">
+                <span className="flex size-10 flex-none items-center justify-center rounded-xl bg-surface-2 text-fg-2">
+                  {current.commitSha ? <GitCommitHorizontal className="size-[18px]" /> : <Box className="size-[18px]" />}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-medium text-fg">
-                    {current.commitMessage ||
-                      (service.source?.kind === "image" ? service.source.image : service.source?.kind === "compose" ? (service.source.template ?? "Compose stack") : triggerLabel[current.trigger] ?? "Deployment")}
-                  </p>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                    {current.commitSha &&
-                      (current.commitUrl ? (
-                        <a href={current.commitUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono hover:text-accent">
-                          <GitCommitHorizontal className="size-3.5" />
-                          {current.commitSha.slice(0, 7)}
-                        </a>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 font-mono">
-                          <GitCommitHorizontal className="size-3.5" />
-                          {current.commitSha.slice(0, 7)}
-                        </span>
-                      ))}
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <p className="truncate text-[15px] font-medium text-fg">
+                      {current.commitMessage ||
+                        (service.source?.kind === "image" ? service.source.image : service.source?.kind === "compose" ? (service.source.template ?? "Compose stack") : triggerLabel[current.trigger] ?? "Deployment")}
+                    </p>
+                    <StatusLabel status={current.status} kind="deployment" className="flex-none rounded-full bg-surface-2 px-2 py-0.5 text-xs" />
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted">
+                    {current.commitSha && (
+                      <>
+                        {current.commitUrl ? (
+                          <a href={current.commitUrl} target="_blank" rel="noreferrer" className="font-mono hover:text-accent">
+                            {current.commitSha.slice(0, 7)}
+                          </a>
+                        ) : (
+                          <span className="font-mono">{current.commitSha.slice(0, 7)}</span>
+                        )}
+                        <span className="text-faint">·</span>
+                      </>
+                    )}
                     {current.branch && (
-                      <span className="inline-flex items-center gap-1">
-                        <GitBranch className="size-3.5" />
-                        {current.branch}
-                      </span>
+                      <>
+                        <span className="inline-flex items-center gap-1">
+                          <GitBranch className="size-3.5" />
+                          {current.branch}
+                        </span>
+                        <span className="text-faint">·</span>
+                      </>
                     )}
                     <span>{triggerLabel[current.trigger] ?? current.trigger}</span>
-                    {(current.commitAuthor || current.userName) && <span>by {current.commitAuthor ?? current.userName}</span>}
-                    <span>
-                      <TimeAgo date={current.createdAt} />
-                    </span>
+                    {(current.commitAuthor || current.userName) && (
+                      <>
+                        <span className="text-faint">·</span>
+                        <span>by {current.commitAuthor ?? current.userName}</span>
+                      </>
+                    )}
                     {duration(current) && (
-                      <span className="inline-flex items-center gap-1">
-                        <Timer className="size-3.5" />
-                        {duration(current)}
-                      </span>
+                      <>
+                        <span className="text-faint">·</span>
+                        <span className="inline-flex items-center gap-1 tabular-nums">
+                          <Timer className="size-3.5" />
+                          Built in {duration(current)}
+                        </span>
+                      </>
                     )}
                   </div>
                 </div>

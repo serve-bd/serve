@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Card, CardBody, CardFooter, CardHeader, Badge } from "@/components/ui/misc";
 import { ServiceIcon } from "@/components/service-icon";
 import { TemplateLogo } from "@/components/template-logo";
+import { CodeEditor } from "@/components/code-editor";
 import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
 import { createAppService, createComposeService, createDatabaseService } from "@/server/actions/services";
@@ -40,6 +41,8 @@ export type CatalogTemplate = {
 
 type ServerOption = { id: string; name: string; host: string; status: string; isLocal: boolean };
 
+const gitProviderNames: Record<string, string> = { github: "GitHub", gitlab: "GitLab", gitea: "Gitea", bitbucket: "Bitbucket" };
+
 type Props = {
   projectId: string;
   environmentId: string;
@@ -48,7 +51,7 @@ type Props = {
   /** Chosen server; set by the wizard. */
   serverId?: string;
   environmentName: string;
-  credentials: { id: string; name: string; provider: string }[];
+  credentials: { id: string; name: string; provider: string; oauth?: boolean }[];
   nixpacks: boolean;
   initialType: string | null;
   initialTemplate: string | null;
@@ -240,7 +243,12 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
             ...props.credentials.map((c) => ({
               value: c.id,
               label: c.name,
-              description: c.provider === "github-app" ? "GitHub App · deploys on push" : c.provider === "ssh" ? "SSH deploy key" : `${c.provider} token`,
+              description:
+                c.provider === "github-app"
+                  ? "GitHub App · deploys on push"
+                  : c.provider === "ssh"
+                    ? "SSH deploy key"
+                    : `${gitProviderNames[c.provider] ?? c.provider} ${c.oauth ? "OAuth" : "token"} · deploys on push`,
             })),
           ]}
         />
@@ -573,7 +581,7 @@ function ComposeForm({ props, onBack }: { props: Props; onBack: () => void }) {
       </Field>
       {mode === "inline" ? (
         <Field label="docker-compose.yml">
-          <Textarea value={content} onChange={(e) => setContent(e.target.value)} rows={14} className="font-mono text-[12.5px] leading-relaxed" spellCheck={false} />
+          <CodeEditor value={content} onChange={setContent} minRows={14} aria-label="docker-compose.yml" />
         </Field>
       ) : (
         <>

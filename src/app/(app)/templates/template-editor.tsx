@@ -6,9 +6,10 @@ import YAML from "yaml";
 import { Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
-import { Input, Textarea } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
+import { Card, CardBody, CardHeader } from "@/components/ui/misc";
+import { CodeEditor } from "@/components/code-editor";
 import { TemplateLogo } from "@/components/template-logo";
 import { useAction } from "@/hooks/use-action";
 import { fetchComposeFromUrl, saveCustomTemplate } from "@/server/actions/templates";
@@ -154,13 +155,12 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
                   <Download /> Import
                 </Button>
               </div>
-              <Textarea
+              <CodeEditor
                 value={compose}
-                onChange={(e) => setCompose(e.target.value)}
+                onChange={setCompose}
                 onBlur={() => refresh(compose)}
-                rows={22}
-                spellCheck={false}
-                className="font-mono text-[12.5px] leading-relaxed"
+                minRows={22}
+                maxHeight="44rem"
                 aria-label="docker-compose.yml"
                 placeholder={"services:\n  app:\n    image: ghcr.io/owner/app:latest\n    environment:\n      SECRET_KEY: ${SECRET_KEY}\n"}
               />
@@ -253,16 +253,14 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
               </Field>
             </CardBody>
           </Card>
-          <Card>
-            <CardFooter className="justify-end gap-2 border-t-0">
+          <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/templates")}>
                 Cancel
               </Button>
               <Button type="submit" variant="primary" size="sm" loading={save.pending} disabled={!name.trim() || !!parsed.error}>
                 {initial.id ? "Save template" : "Create template"}
               </Button>
-            </CardFooter>
-          </Card>
+            </div>
         </aside>
       </div>
 

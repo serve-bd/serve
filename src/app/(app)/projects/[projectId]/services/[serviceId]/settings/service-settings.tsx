@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
+import { CodeEditor } from "@/components/code-editor";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { ArrowRightLeft, Check, LayoutTemplate, RefreshCw, Server as ServerIcon, Trash2 } from "lucide-react";
+import { ArrowRightLeft, Check, LayoutTemplate, RefreshCw, Server as ServerIcon, Trash2, TriangleAlert } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardBody, CardFooter, CardHeader, CopyField } from "@/components/ui/misc";
+import { Card, CardBody, CardFooter, CardHeader, CopyField, TimeAgo } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
-import { Input, Textarea } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,7 +16,8 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { applyDatabaseChanges, deleteService, moveService, regenerateWebhookSecret, updateService } from "@/server/actions/services";
 import { cn } from "@/lib/utils";
-import type { BuildConfig, RuntimeConfig, VolumeMount } from "@/server/services/types";
+import type { BuildConfig, RepoWebhook, RuntimeConfig, VolumeMount } from "@/server/services/types";
+import { registerServiceWebhook, removeServiceWebhook } from "@/server/actions/integrations";
 import { Section } from "./section";
 import { AdvancedSection, BuildSection, DeploySection, HealthSection, ResourcesSection, RuntimeSection } from "./config-sections";
 import { ApplyBar, DatabaseSections, databaseNav, type DatabaseSettingsProps } from "./database-sections";
@@ -23,7 +25,7 @@ import { StorageSection } from "./storage-section";
 import { updateDatabaseSettings } from "@/server/actions/databases";
 
 type Source =
-  | { type: "git"; repository: string; branch: string; credentialId?: string | null }
+  | { type: "git"; repository: string; branch: string; credentialId?: string | null; webhook?: RepoWebhook | null }
   | { type: "image"; image: string; registryUsername: string | null; hasPassword: boolean };
 
 type Props = {
@@ -50,6 +52,8 @@ type Props = {
   nixpacks: boolean;
   webhookUrl: string;
   viaGithubApp: boolean;
+  /** The git credential is a token or OAuth connection Serve can add repository webhooks with. */
+  managedWebhook?: boolean;
   webhookSecret: string;
   deployHookUrl: string;
   /** Server the service runs on, and the servers it could move to. */
@@ -329,7 +333,7 @@ export function ServiceSettings(props: Props) {
                 <Input value={v.path} onChange={(e) => set({ path: e.target.value })} className="font-mono text-[13px]" />
               </Field>
             ) : (
-              <Textarea value={v.content} onChange={(e) => set({ content: e.target.value })} rows={Math.min(30, Math.max(12, v.content.split("\n").length + 1))} className="font-mono text-[12.5px] leading-relaxed" spellCheck={false} />
+              <CodeEditor value={v.content} onChange={(content) => set({ content })} minRows={14} maxHeight="40rem" aria-label="docker-compose.yml" />
             )
           }
         </Section>
@@ -372,9 +376,19 @@ export function ServiceSettings(props: Props) {
                 Push and pull request events arrive automatically through the GitHub App. No webhook setup is needed.
               </p>
             ) : (
-              <Field label="Git webhook URL" description="Add to GitHub, GitLab or Gitea as a push webhook. Use the secret below. Content type: application/json.">
-                <CopyField value={props.webhookUrl} />
-              </Field>
+              <>
+                {props.managedWebhook && service.source?.type === "git" && <RepoWebhookStatus serviceId={service.id} webhook={service.source.webhook ?? null} />}
+                <Field
+                  label="Git webhook URL"
+                  description={
+                    props.managedWebhook
+                      ? "Serve adds this to the repository for you. Add it yourself only if automatic setup is not possible."
+                      : "Add to GitHub, GitLab, Gitea or Bitbucket as a push webhook. Use the secret below. Content type: application/json."
+                  }
+                >
+                  <CopyField value={props.webhookUrl} />
+                </Field>
+              </>
             )}
             <Field label="Webhook secret">
               <div className="flex gap-2">
@@ -427,6 +441,42 @@ export function ServiceSettings(props: Props) {
         </CardFooter>
       </Card>
     </div>
+    </div>
+  );
+}
+
+const hookProviderNames: Record<string, string> = { github: "GitHub", gitlab: "GitLab", gitea: "Gitea", bitbucket: "Bitbucket" };
+
+/** Status of the repository webhook Serve manages through the provider API. */
+function RepoWebhookStatus({ serviceId, webhook }: { serviceId: string; webhook: RepoWebhook | null }) {
+  const register = useAction(() => registerServiceWebhook(serviceId), { success: "Webhook registered" });
+  const remove = useAction(() => removeServiceWebhook(serviceId), { success: "Webhook removed" });
+  const name = webhook ? hookProviderNames[webhook.provider] : "the provider";
+  if (webhook?.id) {
+    return (
+      <div className="flex flex-wrap items-center gap-3 rounded-xl bg-ok-soft px-3.5 py-3 text-[13px] text-fg-2">
+        <Check className="size-4 shrink-0 text-ok" />
+        <span className="min-w-0 flex-1">
+          Registered on {name} · hook <span className="font-mono">#{webhook.id.replace(/[{}]/g, "").slice(0, 12)}</span> · <TimeAgo date={webhook.createdAt} />
+        </span>
+        <Button size="sm" variant="ghost" onClick={() => register.run()} loading={register.pending}>
+          <RefreshCw /> Re-register
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => remove.run()} loading={remove.pending}>
+          Remove
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl bg-warn-soft px-3.5 py-3 text-[13px] text-fg-2">
+      <TriangleAlert className="size-4 shrink-0 text-warn" />
+      <span className="min-w-0 flex-1">
+        {webhook?.error ? <>Could not add the webhook on {name}: {webhook.error}</> : "Deploy on push is not set up on the repository yet."}
+      </span>
+      <Button size="sm" onClick={() => register.run()} loading={register.pending}>
+        <RefreshCw /> {webhook?.error ? "Retry" : "Register webhook"}
+      </Button>
     </div>
   );
 }

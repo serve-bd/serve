@@ -18,6 +18,7 @@ import { fetchBranches, fetchRepositories } from "@/server/actions/integrations"
 import { cn } from "@/lib/utils";
 import { parseEnv } from "@/lib/env";
 import { GithubMark } from "@/components/github-mark";
+import { PageBody, PageHeader, type Crumb } from "@/components/shell/page-header";
 import useSWR from "swr";
 import type { DbEngine } from "@/server/services/types";
 
@@ -818,20 +819,19 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
   );
 }
 
-function ServerBar({ servers, value, onChange }: { servers: ServerOption[]; value: string; onChange: (id: string) => void }) {
+function ServerBar({ servers, value, onChange }: { servers: Props["servers"]; value: string; onChange: (id: string) => void }) {
   const current = servers.find((s) => s.id === value);
   return (
-    <div className="mb-5 flex flex-col gap-2 rounded-2xl border border-line bg-surface px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <span className="flex min-w-0 items-center gap-2.5 text-[13px]">
-        <Server className="size-4 flex-none text-muted" />
-        <span className="text-fg-2">Deploy to</span>
-        {current && current.status !== "ready" && !current.isLocal && <Badge tone="warn">{current.status === "unreachable" ? "Unreachable" : "Not ready"}</Badge>}
+    <div className="flex items-center gap-2">
+      {current && current.status !== "ready" && !current.isLocal && <Badge tone="warn">{current.status === "unreachable" ? "Unreachable" : "Not ready"}</Badge>}
+      <span className="hidden items-center gap-1.5 text-[13px] text-muted sm:inline-flex">
+        <Server className="size-3.5" /> Deploy to
       </span>
       <Select
         size="sm"
         value={value}
         onValueChange={onChange}
-        className="sm:w-72"
+        className="w-56"
         options={servers.map((s) => ({
           value: s.id,
           label: s.isLocal ? `${s.name} (this server)` : s.name,
@@ -843,13 +843,16 @@ function ServerBar({ servers, value, onChange }: { servers: ServerOption[]; valu
   );
 }
 
-export function NewServiceWizard(props: Props) {
+/** Renders the page header too, so the server picker can sit in its actions. */
+export function NewServiceWizard({ header, ...props }: Props & { header: { title: string; description: string; breadcrumbs: Crumb[] } }) {
   const [serverId, setServerId] = React.useState(props.servers[0]?.id ?? "local");
   const p = { ...props, serverId };
   return (
     <>
-      {props.servers.length > 1 && <ServerBar servers={props.servers} value={serverId} onChange={setServerId} />}
-      <WizardSteps props={p} />
+      <PageHeader {...header} actions={props.servers.length > 1 ? <ServerBar servers={props.servers} value={serverId} onChange={setServerId} /> : undefined} />
+      <PageBody>
+        <WizardSteps props={p} />
+      </PageBody>
     </>
   );
 }

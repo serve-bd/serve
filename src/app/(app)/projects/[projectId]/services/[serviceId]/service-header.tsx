@@ -79,15 +79,20 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   const busy = ["building", "deploying", "restarting"].includes(live.status);
 
   return (
-    <header className="border-b border-line bg-glass backdrop-blur-xl">
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-4 px-4 pt-6 sm:px-8">
-        <Breadcrumbs
-          items={[
-            { label: "Projects", href: "/projects" },
-            { label: project.name, href: `/projects/${project.id}?env=${environment}` },
-            { label: service.name },
-          ]}
-        />
+    <>
+      {/* Thin header: breadcrumbs only. Title, actions and tabs belong to the page. */}
+      <header className="border-b border-line bg-bg">
+        <div className="mx-auto w-full max-w-[1200px] px-4 py-3 sm:px-8">
+          <Breadcrumbs
+            items={[
+              { label: "Projects", href: "/projects" },
+              { label: project.name, href: `/projects/${project.id}?env=${environment}` },
+              { label: service.name },
+            ]}
+          />
+        </div>
+      </header>
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 px-4 pt-7 sm:px-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 flex-[1_1_20rem] items-start gap-3.5 sm:items-center">
             <ServiceIcon type={service.type} engine={service.engine} icon={service.icon} source={service.sourceType} size="lg" />
@@ -176,7 +181,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
             </Button>
           </div>
         </div>
-        <nav className="scrollbar-none -mx-4 -mb-px flex gap-1 overflow-x-auto px-1 sm:-mx-3 sm:px-0">
+        <nav className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto border-b border-line px-1 sm:mx-0 sm:px-0 [&>a:first-child]:sm:pl-0 [&>a:first-child>span]:sm:left-0">
           {tabs.map((t) => {
             const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);
             return (
@@ -196,6 +201,6 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
           })}
         </nav>
       </div>
-    </header>
+    </>
   );
 }

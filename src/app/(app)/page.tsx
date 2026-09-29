@@ -63,6 +63,7 @@ export default async function OverviewPage() {
     <>
       <PageHeader
         title={ctx.org.name}
+        crumb="Overview"
         description={`${projects.length} project${projects.length === 1 ? "" : "s"} · ${running} of ${services.length} services running`}
         actions={
           <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })}>

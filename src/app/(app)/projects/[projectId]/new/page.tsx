@@ -7,7 +7,6 @@ import { templates } from "@/server/services/templates";
 import { engineList } from "@/server/databases/engines";
 import { commandExists } from "@/server/process";
 import { serversForOrg } from "@/server/servers/access";
-import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { NewServiceWizard, type CatalogTemplate } from "./wizard";
 
 export const metadata = { title: "New service" };
@@ -57,40 +56,36 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
   ];
 
   return (
-    <>
-      <PageHeader
-        title="New service"
-        description={`Add to ${project.name} · ${current.name}`}
-        breadcrumbs={[
+    <NewServiceWizard
+      header={{
+        title: "New service",
+        description: `Add to ${project.name} · ${current.name}`,
+        breadcrumbs: [
           { label: "Projects", href: "/projects" },
           { label: project.name, href: `/projects/${project.id}?env=${current.name}` },
           { label: "New service" },
-        ]}
-      />
-      <PageBody>
-        <NewServiceWizard
-          projectId={project.id}
-          environmentId={current.id}
-          environmentName={current.name}
-          servers={servers.map((s) => ({ id: s.id, name: s.name, host: s.host, status: s.status, isLocal: s.isLocal }))}
-          credentials={credentials}
-          nixpacks={nixpacks}
-          initialType={typeof type === "string" ? type : null}
-          initialTemplate={typeof template === "string" ? template : null}
-          templates={catalog}
-          canManageTemplates={ctx.isAdmin}
-          engines={engineList.map((e) => ({
-            engine: e.engine,
-            label: e.label,
-            versions: e.versions,
-            defaultVersion: e.defaultVersion,
-            hasUser: e.hasUser,
-            hasDatabase: e.hasDatabase,
-            defaultUser: e.defaultUser,
-            defaultDatabase: e.defaultDatabase,
-          }))}
-        />
-      </PageBody>
-    </>
+        ],
+      }}
+      projectId={project.id}
+      environmentId={current.id}
+      environmentName={current.name}
+      servers={servers.map((s) => ({ id: s.id, name: s.name, host: s.host, status: s.status, isLocal: s.isLocal }))}
+      credentials={credentials}
+      nixpacks={nixpacks}
+      initialType={typeof type === "string" ? type : null}
+      initialTemplate={typeof template === "string" ? template : null}
+      templates={catalog}
+      canManageTemplates={ctx.isAdmin}
+      engines={engineList.map((e) => ({
+        engine: e.engine,
+        label: e.label,
+        versions: e.versions,
+        defaultVersion: e.defaultVersion,
+        hasUser: e.hasUser,
+        hasDatabase: e.hasDatabase,
+        defaultUser: e.defaultUser,
+        defaultDatabase: e.defaultDatabase,
+      }))}
+    />
   );
 }

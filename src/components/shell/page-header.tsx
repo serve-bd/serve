@@ -24,11 +24,16 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
   );
 }
 
+/**
+ * The header bar holds only the breadcrumbs. The title, description and actions
+ * are part of the page content, aligned with PageBody.
+ */
 export function PageHeader({
   title,
   description,
   actions,
   breadcrumbs,
+  crumb,
   className,
   children,
 }: {
@@ -36,23 +41,28 @@ export function PageHeader({
   description?: React.ReactNode;
   actions?: React.ReactNode;
   breadcrumbs?: Crumb[];
+  /** Breadcrumb label for top-level pages without `breadcrumbs` (defaults to the title). */
+  crumb?: React.ReactNode;
   className?: string;
   children?: React.ReactNode;
 }) {
   return (
-    <header className={cn("border-b border-line bg-bg", className)}>
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 px-4 pt-6 pb-5 sm:px-8">
-        {breadcrumbs && <Breadcrumbs items={breadcrumbs} />}
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="truncate text-[22px] leading-tight font-semibold text-fg">{title}</h1>
-            {description && <p className="max-w-2xl text-[13px] leading-relaxed text-muted">{description}</p>}
-          </div>
-          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    <>
+      {/* Every page keeps the thin breadcrumb bar; top-level pages show just their own name. */}
+      <header className={cn("border-b border-line bg-bg", className)}>
+        <div className="mx-auto w-full max-w-[1200px] px-4 py-3 sm:px-8">
+          <Breadcrumbs items={breadcrumbs ?? [{ label: crumb ?? title }]} />
         </div>
+      </header>
+      <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-end justify-between gap-x-4 gap-y-3 px-4 pt-7 pb-2 sm:px-8">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h1 className="truncate text-[22px] leading-tight font-semibold text-fg">{title}</h1>
+          {description && <p className="max-w-2xl text-[13px] leading-relaxed text-muted">{description}</p>}
+        </div>
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         {children}
       </div>
-    </header>
+    </>
   );
 }
 

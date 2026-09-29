@@ -63,7 +63,8 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   });
 
   const tabs = [
-    { href: base, label: service.type === "database" ? "Overview" : "Deployments", exact: true },
+    { href: base, label: "Overview", exact: true },
+    { href: `${base}/deployments`, label: "Deployments" },
     { href: `${base}/logs`, label: "Logs" },
     { href: `${base}/console`, label: "Console" },
     { href: `${base}/metrics`, label: "Metrics" },
@@ -177,7 +178,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
         </div>
         <nav className="scrollbar-none -mx-4 -mb-px flex gap-1 overflow-x-auto px-1 sm:-mx-3 sm:px-0">
           {tabs.map((t) => {
-            const active = t.exact ? pathname === t.href || pathname.startsWith(`${base}/deployments`) : pathname.startsWith(t.href);
+            const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);
             return (
               <Link
                 key={t.href}

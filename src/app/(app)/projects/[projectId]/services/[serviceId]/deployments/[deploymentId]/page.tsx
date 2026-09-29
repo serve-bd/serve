@@ -32,7 +32,7 @@ export default async function DeploymentPage(props: PageProps<"/projects/[projec
       <DeploymentView
         key={dep.id}
         deployment={JSON.parse(JSON.stringify(dep))}
-        backHref={`/projects/${projectId}/services/${serviceId}`}
+        backHref={`/projects/${projectId}/services/${serviceId}/deployments`}
         serviceType={service.type}
         isCurrent={service.currentDeploymentId === dep.id}
         repoUrl={service.source?.type === "git" ? service.source.repository.replace(/\.git$/, "") : null}

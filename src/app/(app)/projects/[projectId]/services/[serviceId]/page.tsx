@@ -1,7 +1,8 @@
 import { requireOrg } from "@/server/auth";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
-import { DeploymentsList } from "./deployments-list";
+import { ServiceOverview } from "./overview";
+import { loadOverview } from "./overview-data";
 import { DatabaseOverview } from "./database-overview";
 import { engines } from "@/server/databases/engines";
 import { decryptOrNull } from "@/server/crypto";
@@ -38,7 +39,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
 
   return (
     <PageBody>
-      <DeploymentsList serviceId={service.id} projectId={projectId} type={service.type} />
+      <ServiceOverview {...await loadOverview(service, projectId, ctx.org.id)} />
     </PageBody>
   );
 }

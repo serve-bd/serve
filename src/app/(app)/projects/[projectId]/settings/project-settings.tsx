@@ -87,8 +87,8 @@ export function ProjectSettings({
           title="Shared variables"
           description={
             <>
-              Services of the selected environment use them by reference, like <code className="font-mono">{"KEY=${{environment.KEY}}"}</code>, added on a service&apos;s Variables page. Project and organization
-              variables live in{" "}
+              Services of the selected environment use them by reference, like <code className="font-mono">{"KEY=${{environment.KEY}}"}</code>, added on a service&apos;s Variables
+              page. Project and organization variables live in{" "}
               <Link href={`/shared-variables?scope=project&project=${project.id}`} className="text-accent hover:underline">
                 Shared variables
               </Link>

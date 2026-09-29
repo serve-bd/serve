@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUpRight, CircleCheck, Download, RefreshCw, Sparkles, Info } from "lucide-react";
+import { ArrowUpRight, CircleAlert, CircleCheck, Download, Info, Package, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, CardBody, CardHeader, TimeAgo } from "@/components/ui/misc";
+import { Badge, Card, CardBody, CardHeader, CopyButton, TimeAgo } from "@/components/ui/misc";
+import { cn } from "@/lib/utils";
 import { SwitchRow } from "@/components/ui/switch";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
@@ -64,33 +65,75 @@ export function UpdatesView({
   return (
     <>
       <Card>
-        <CardHeader
-          title="Version"
-          description={`Releases come from github.com/${repository}.`}
-          actions={
-            <Button size="sm" onClick={() => checkNow.run()} loading={checkNow.pending}>
-              <RefreshCw /> Check now
-            </Button>
-          }
-        />
-        <CardBody className="flex flex-col gap-4 py-5">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
-            <span>
-              <span className="text-muted">Running </span>
-              <span className="font-medium text-fg">v{version}</span>
-            </span>
-            {commit && (
-              <span className="font-mono text-xs text-muted" title={commit}>
-                {commit.slice(0, 7)}
-              </span>
+        <div className="flex flex-wrap items-center gap-4 px-5 py-5">
+          <span
+            className={cn(
+              "flex size-11 flex-none items-center justify-center rounded-xl [&_svg]:size-5",
+              available ? "bg-accent-soft text-accent" : check?.error ? "bg-warn-soft text-warn" : check?.latest ? "bg-ok-soft text-ok" : "bg-fg/[0.05] text-muted",
             )}
-            {check && (
-              <span className="text-xs text-muted">
-                Checked <TimeAgo date={check.checkedAt} />
-              </span>
-            )}
+          >
+            {available ? <Sparkles /> : check?.error ? <CircleAlert /> : check?.latest ? <CircleCheck /> : <Package />}
+          </span>
+          <div className="flex min-w-[12rem] flex-1 flex-col gap-0.5">
+            <p className="text-[15px] font-semibold text-fg">
+              {available && check?.latest
+                ? `Serve v${check.latest} is available`
+                : check?.error
+                  ? "Could not check for updates"
+                  : check?.latest
+                    ? "Serve is up to date"
+                    : check
+                      ? "No releases published yet"
+                      : "Not checked yet"}
+            </p>
+            <p className="text-[13px] text-muted">
+              {check?.error
+                ? check.error
+                : check?.latest
+                  ? `You run v${version}. The newest release is v${check.latest}.`
+                  : `You run v${version}. Updates appear here once github.com/${repository} publishes a release.`}
+            </p>
           </div>
-
+          <Button size="sm" onClick={() => checkNow.run()} loading={checkNow.pending} className="ml-auto flex-none">
+            <RefreshCw /> Check now
+          </Button>
+        </div>
+        <div className="grid grid-cols-2 gap-px border-y border-line bg-line sm:grid-cols-4">
+          <Fact label="Running" value={<span className="font-medium">v{version}</span>} />
+          <Fact
+            label="Commit"
+            value={
+              commit ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="font-mono text-[12.5px]" title={commit}>
+                    {commit.slice(0, 7)}
+                  </span>
+                  <CopyButton value={commit} />
+                </span>
+              ) : (
+                "—"
+              )
+            }
+          />
+          <Fact
+            label="Latest release"
+            value={
+              check?.latest ? (
+                check.url ? (
+                  <a href={check.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-accent hover:underline">
+                    v{check.latest} <ArrowUpRight className="size-3.5" />
+                  </a>
+                ) : (
+                  `v${check.latest}`
+                )
+              ) : (
+                "None"
+              )
+            }
+          />
+          <Fact label="Last checked" value={check ? <TimeAgo date={check.checkedAt} /> : "Never"} />
+        </div>
+        <CardBody className="flex flex-col gap-4 py-5">
           {available && check?.latest ? (
             <div className="flex flex-col gap-3 rounded-xl border border-accent/30 bg-accent-soft/40 p-4">
               <div className="flex flex-wrap items-center gap-2">
@@ -132,15 +175,7 @@ export function UpdatesView({
                 <ManualSteps />
               )}
             </div>
-          ) : (
-            check &&
-            !check.error && (
-              <p className="flex items-center gap-2 text-[13px] text-fg-2">
-                <CircleCheck className="size-4 text-ok" /> {check.latest ? "Serve is up to date." : "No releases are published yet."}
-              </p>
-            )
-          )}
-          {check?.error && <p className="text-xs text-warn">Last check failed: {check.error}</p>}
+          ) : null}
 
           <SwitchRow
             title="Check for updates"
@@ -170,6 +205,15 @@ export function UpdatesView({
         </Card>
       )}
     </>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 bg-surface px-5 py-3">
+      <span className="text-[11px] text-faint">{label}</span>
+      <span className="truncate text-[13px] text-fg">{value}</span>
+    </div>
   );
 }
 

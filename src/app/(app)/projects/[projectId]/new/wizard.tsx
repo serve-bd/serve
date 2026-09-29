@@ -1,5 +1,6 @@
 "use client";
 
+import { typedServiceName } from "@/lib/service-name";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
@@ -382,7 +383,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
           )}
         </Field>
         <Field label="Service name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={repoName(repository) || "web"} />
+          <Input value={name} onChange={(e) => setName(typedServiceName(e.target.value))} placeholder={repoName(repository) || "web"} />
         </Field>
       </div>
 
@@ -474,7 +475,7 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
       </Field>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Service name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={guessName || "web"} />
+          <Input value={name} onChange={(e) => setName(typedServiceName(e.target.value))} placeholder={guessName || "web"} />
         </Field>
         <Field label="Port" optional description="Uses the image's exposed port when empty.">
           <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder="80" inputMode="numeric" />
@@ -557,7 +558,7 @@ function DatabaseForm({ props, onBack, initialEngine }: { props: Props; onBack: 
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={info.label.toLowerCase()} />
+          <Input value={name} onChange={(e) => setName(typedServiceName(e.target.value))} placeholder={info.label.toLowerCase()} />
         </Field>
         <Field label="Version">
           <Select value={version} onValueChange={setVersion} options={info.versions.map((v) => ({ value: v, label: v }))} />
@@ -636,7 +637,7 @@ function ComposeForm({ props, onBack }: { props: Props; onBack: () => void }) {
         ))}
       </div>
       <Field label="Name">
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="stack" />
+        <Input value={name} onChange={(e) => setName(typedServiceName(e.target.value))} placeholder="stack" />
       </Field>
       {mode === "inline" ? (
         <Field label="docker-compose.yml">
@@ -860,7 +861,7 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
               </div>
             )}
             <Field label="Service name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={template.name} autoFocus />
+              <Input value={name} onChange={(e) => setName(typedServiceName(e.target.value))} placeholder={template.name} autoFocus />
             </Field>
             {editable.map((v) => (
               <Field key={v.key} label={v.label ?? v.key} description={v.label ? v.key : undefined}>

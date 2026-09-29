@@ -107,6 +107,9 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   }
 
   const lookup = new Map<string, Record<string, string>>();
+  const nameCount = new Map<string, number>();
+  for (const s of siblings) nameCount.set(referenceName(s.name), (nameCount.get(referenceName(s.name)) ?? 0) + 1);
+  const ambiguous = new Set([...nameCount].filter(([, n]) => n > 1).map(([k]) => k));
   // Private hostnames only resolve on the same server; drop them for services elsewhere.
   const remoteOnly = new Map<string, Set<string>>();
   for (const s of siblings) {
@@ -117,6 +120,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       for (const name of [s.slug, s.name, referenceName(s.name)]) remoteOnly.set(name.toLowerCase(), hidden);
     }
     lookup.set(s.slug.toLowerCase(), provided);
+    // Two services with the same name: neither answers to it, only to its unique slug.
+    if (ambiguous.has(referenceName(s.name))) continue;
     lookup.set(s.name.toLowerCase(), provided);
     // Preferred form: names with spaces or symbols become dashed ("postgresql-sd").
     if (!lookup.has(referenceName(s.name))) lookup.set(referenceName(s.name), provided);

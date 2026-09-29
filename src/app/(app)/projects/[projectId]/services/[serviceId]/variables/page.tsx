@@ -6,6 +6,7 @@ import { pageService } from "@/server/services/access";
 import { providedVars } from "@/server/services/variables";
 import { PageBody } from "@/components/shell/page-header";
 import { composeVariables } from "@/lib/compose-vars";
+import { referenceName } from "@/lib/refs";
 import { VariablesEditor } from "./variables-editor";
 
 export const metadata = { title: "Variables" };
@@ -30,7 +31,17 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
   const envKeys = [...new Set(shared.map((s) => s.key))].sort();
   const references = [
     ...(envKeys.length ? [{ name: "environment", label: "Environment variables", keys: envKeys }] : []),
-    ...siblings.filter((s) => s.id !== service.id).map((s) => ({ name: s.name, keys: Object.keys(providedVars(s)).filter((k) => !k.startsWith("SERVE_SERVICE")) })),
+    ...siblings
+      .filter((s) => s.id !== service.id)
+      .map((s) => {
+        // Names two services share do not resolve; point at the unique slug instead.
+        const shared = siblings.filter((x) => referenceName(x.name) === referenceName(s.name)).length > 1;
+        return {
+          name: shared ? s.slug : s.name,
+          label: shared ? `${s.name} (${s.slug})` : undefined,
+          keys: Object.keys(providedVars(s)).filter((k) => !k.startsWith("SERVE_SERVICE")),
+        };
+      }),
     ...(projectKeys.length ? [{ name: "project", label: "Project variables", keys: projectKeys }] : []),
     ...(orgKeys.length ? [{ name: "org", label: "Organization variables", keys: orgKeys }] : []),
   ];

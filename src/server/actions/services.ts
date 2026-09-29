@@ -10,7 +10,7 @@ import { newId } from "@/server/id";
 import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { projectInOrg, serviceInOrg } from "@/server/services/access";
-import { generatedHostname, newWebhookSecret, queueDeployment, uniqueServiceSlug } from "@/server/services/create";
+import { generatedHostname, newWebhookSecret, queueDeployment, serviceNameTaken, uniqueServiceName, uniqueServiceSlug } from "@/server/services/create";
 import { defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig } from "@/server/services/types";
 import { engines } from "@/server/databases/engines";
 import { resolveTemplate, templateVarValue } from "@/server/services/custom-templates";
@@ -29,6 +29,7 @@ import { hasRoom, requireNotOver, requireResourceChange, requireRoom, withReserv
 import { restartOwnContainer } from "@/server/services/container-info";
 import { resolveServerForOrg, serverPublicIp } from "@/server/servers/access";
 import { HOSTNAME_RE } from "@/lib/hostname";
+import { SERVICE_NAME_RE, toServiceName } from "@/lib/service-name";
 import { CAPABILITIES } from "@/server/deploy/options";
 import { volumeSchema } from "@/server/services/volume-schema";
 
@@ -88,12 +89,20 @@ async function addGeneratedDomain(serviceId: string, slug: string, organizationI
 /*                                   Create                                   */
 /* -------------------------------------------------------------------------- */
 
+/** Letters, numbers and hyphens; other text (a template title) is turned into that form. */
+const serviceName = z
+  .string()
+  .trim()
+  .min(1, "Enter a name")
+  .transform((v) => toServiceName(v))
+  .pipe(z.string().regex(SERVICE_NAME_RE, "Use letters, numbers and hyphens, like api or web-2"));
+
 const envVarInput = z.array(z.object({ key: z.string(), value: z.string() })).optional();
 
 const appSchema = z.object({
   projectId: z.string(),
   environmentId: z.string(),
-  name: z.string().trim().min(1, "Enter a name").max(60),
+  name: serviceName,
   source: z.discriminatedUnion("type", [
     z.object({
       type: z.literal("git"),
@@ -150,6 +159,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
           };
 
     const id = newId();
+    data.name = await uniqueServiceName(data.environmentId, data.name);
     const slug = await uniqueServiceSlug(data.name);
     await db.insert(schema.service).values({
       id,
@@ -181,7 +191,7 @@ const dbSchema = z.object({
   deploy: z.boolean().default(false),
   projectId: z.string(),
   environmentId: z.string(),
-  name: z.string().trim().min(1).max(60),
+  name: serviceName,
   engine: z.enum(["postgres", "mysql", "mariadb", "mongodb", "redis", "valkey", "clickhouse"]),
   version: z.string().optional(),
   username: z
@@ -209,6 +219,7 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
     const engine = engines[data.engine];
     const version = data.version && engine.versions.includes(data.version) ? data.version : engine.defaultVersion;
     const id = newId();
+    data.name = await uniqueServiceName(data.environmentId, data.name);
     await db.insert(schema.service).values({
       id,
       projectId: data.projectId,
@@ -248,7 +259,7 @@ const composeSchema = z.object({
   deploy: z.boolean().default(false),
   projectId: z.string(),
   environmentId: z.string(),
-  name: z.string().trim().min(1).max(60),
+  name: serviceName,
   mode: z.enum(["inline", "git"]),
   content: z.string().optional(),
   path: z.string().optional(),
@@ -287,6 +298,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
     if (data.mode === "git") content = "";
 
     const id = newId();
+    data.name = await uniqueServiceName(data.environmentId, data.name);
     const slug = await uniqueServiceSlug(data.name);
     await db.insert(schema.service).values({
       id,
@@ -350,7 +362,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
 /* -------------------------------------------------------------------------- */
 
 const updateSchema = z.object({
-  name: z.string().trim().min(1).max(60).optional(),
+  name: serviceName.optional(),
   /** Extra private hostname; "" or null removes it. */
   hostname: z.string().trim().toLowerCase().max(63).nullable().optional(),
   autoDeploy: z.boolean().optional(),
@@ -491,7 +503,12 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const data = updateSchema.parse(input);
     const patch: Partial<typeof schema.service.$inferInsert> = {};
-    if (data.name) patch.name = data.name;
+    if (data.name) {
+      if (await serviceNameTaken(service.environmentId, data.name, service.id)) {
+        throw new UserError(`Another service in this environment is already called ${data.name}. References like \${{name.KEY}} need unique names.`);
+      }
+      patch.name = data.name;
+    }
     if (data.hostname !== undefined) {
       const hostname = data.hostname && data.hostname !== service.slug ? data.hostname : null;
       if (hostname) {

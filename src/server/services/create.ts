@@ -16,6 +16,27 @@ export async function uniqueServiceSlug(name: string) {
   return `${base}-${newId()}`;
 }
 
+/** Whether another service in the environment already answers to this name in references. */
+export async function serviceNameTaken(environmentId: string, name: string, exceptId?: string) {
+  const { referenceName } = await import("@/lib/refs");
+  const want = referenceName(name);
+  const rows = await db.select({ id: schema.service.id, name: schema.service.name }).from(schema.service).where(eq(schema.service.environmentId, environmentId));
+  return rows.some((r) => r.id !== exceptId && referenceName(r.name) === want);
+}
+
+/**
+ * A name no other service of the environment uses, so ${{name.KEY}} references stay unambiguous:
+ * "postgresql", then "postgresql-2", "postgresql-3"…
+ */
+export async function uniqueServiceName(environmentId: string, name: string) {
+  if (!(await serviceNameTaken(environmentId, name))) return name;
+  for (let i = 2; i < 100; i++) {
+    const next = `${name}-${i}`;
+    if (!(await serviceNameTaken(environmentId, next))) return next;
+  }
+  return `${name}-${shortId()}`;
+}
+
 export function newWebhookSecret() {
   return randomSecret(24);
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { typedServiceName } from "@/lib/service-name";
 import * as React from "react";
 import { CodeEditor } from "@/components/code-editor";
 import Link from "next/link";
@@ -234,8 +235,8 @@ export function ServiceSettings(props: Props) {
           >
             {(v, set) => (
               <>
-                <Field label="Service name">
-                  <Input value={v.name} onChange={(e) => set({ name: e.target.value })} required />
+                <Field label="Service name" description="Letters, numbers and hyphens. Other services reference it as ${{name.KEY}}, so it is unique in the environment.">
+                  <Input value={v.name} onChange={(e) => set({ name: typedServiceName(e.target.value) })} required />
                 </Field>
                 {service.type === "compose" ? (
                   <Field label="Private hostname" description="Other services in this environment reach this one at this hostname.">

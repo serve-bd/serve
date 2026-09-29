@@ -2,13 +2,13 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowUpRight, ChevronDown, Container, Globe, RefreshCw, RotateCw, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
+import { ArrowUpCircle, ArrowUpRight, ChevronDown, Container, Globe, RefreshCw, RotateCw, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { CopyButton, Skeleton, TimeAgo } from "@/components/ui/misc";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { useRouter } from "@/hooks/use-router";
-import { disableTunnel, restartTunnelConnector, tunnelDetails, tunnelImpact } from "@/server/actions/integrations";
+import { disableTunnel, restartTunnelConnector, tunnelDetails, tunnelImpact, updateTunnelConnector } from "@/server/actions/integrations";
 import type { TunnelDetails } from "@/server/cloudflare/tunnels";
 import { cn } from "@/lib/utils";
 
@@ -80,6 +80,10 @@ export function TunnelRow({
     success: "Connector restarted",
     onSuccess: () => setTimeout(() => void load(), 4000),
   });
+  const update = useAction(updateTunnelConnector, {
+    success: "Connector updated. The tunnel stayed online.",
+    onSuccess: () => setTimeout(() => void load(), 4000),
+  });
   const remove = useAction(disableTunnel, { success: "Tunnel removed" });
 
   const cf = details?.cloudflare;
@@ -87,6 +91,8 @@ export function TunnelRow({
   const connections = cf?.ok ? cf.connections : [];
   const colos = [...new Set(connections.map((c) => c.colo))];
   const version = connections.find((c) => c.version)?.version ?? null;
+  const updateInfo = connector?.ok && connector.exists ? connector.update : null;
+  const latest = updateInfo?.latestVersion?.replace(/^v/, "") ?? null;
 
   return (
     <div>
@@ -197,6 +203,14 @@ export function TunnelRow({
                       {connector.restarts > 0 && ` · ${connector.restarts} restart${connector.restarts === 1 ? "" : "s"}`}
                       {version && ` · v${version}`}
                     </p>
+                    {updateInfo?.available ? (
+                      <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-accent">
+                        <ArrowUpCircle className="size-3.5" />
+                        {latest && latest !== version ? `Update available: v${latest}` : "Update available"}
+                      </p>
+                    ) : updateInfo && !updateInfo.error ? (
+                      <p className="mt-1 text-xs text-faint">Up to date</p>
+                    ) : null}
                   </>
                 ) : (
                   <>
@@ -257,8 +271,13 @@ export function TunnelRow({
             <Button size="sm" variant="secondary" onClick={() => void load()} loading={loading}>
               <RefreshCw /> Refresh
             </Button>
+            {isAdmin && updateInfo?.available && (
+              <Button size="sm" onClick={() => update.run(tunnel.id)} loading={update.pending} disabled={restart.pending}>
+                <ArrowUpCircle /> {update.pending ? "Updating, tunnel stays online…" : "Update connector"}
+              </Button>
+            )}
             {isAdmin && (
-              <Button size="sm" variant="secondary" onClick={() => restart.run(tunnel.id)} loading={restart.pending}>
+              <Button size="sm" variant="secondary" onClick={() => restart.run(tunnel.id)} loading={restart.pending} disabled={update.pending}>
                 <RotateCw /> Restart connector
               </Button>
             )}

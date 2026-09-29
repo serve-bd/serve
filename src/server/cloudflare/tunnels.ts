@@ -72,7 +72,12 @@ export async function ensureTunnelContainer(tunnel: Tunnel) {
     return;
   }
   if (!(await imageExists(TUNNEL_IMAGE, ctx.docker))) await pullImage(TUNNEL_IMAGE, undefined, null, ctx.docker);
-  const container = await ctx.docker.createContainer({
+  const container = await ctx.docker.createContainer(await connectorSpec(tunnel, name, ctx.network));
+  await container.start();
+}
+
+async function connectorSpec(tunnel: Tunnel, name: string, network: string) {
+  return {
     name,
     Image: TUNNEL_IMAGE,
     // The token stays out of the command line (and `docker ps`).
@@ -81,11 +86,97 @@ export async function ensureTunnelContainer(tunnel: Tunnel) {
     Labels: { [LABEL.managed]: "true", [LABEL.kind]: "tunnel", "serve.tunnel": tunnel.id, [INSTANCE_LABEL]: await instanceId() },
     HostConfig: {
       RestartPolicy: { Name: "unless-stopped" },
-      NetworkMode: ctx.network,
+      NetworkMode: network,
       LogConfig: { Type: "json-file", Config: { "max-size": "10m", "max-file": "3" } },
     },
-  });
+  };
+}
+
+export type ConnectorUpdate = {
+  /** Newer image published for the connector's tag. */
+  available: boolean;
+  /** Pulled already, but the running container still uses the old image. */
+  pulled: boolean;
+  latestVersion: string | null;
+  error: string | null;
+};
+
+const latestRelease = { at: 0, version: null as string | null };
+
+/** Latest cloudflared release tag (cached for an hour). Only used for display. */
+async function latestConnectorVersion() {
+  if (Date.now() - latestRelease.at < 3600_000) return latestRelease.version;
+  const res = await fetch("https://api.github.com/repos/cloudflare/cloudflared/releases/latest", {
+    headers: { accept: "application/vnd.github+json", "user-agent": "serve" },
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => null);
+  const tag = res?.ok ? ((await res.json()) as { tag_name?: string }).tag_name : null;
+  latestRelease.at = Date.now();
+  latestRelease.version = tag ?? null;
+  return latestRelease.version;
+}
+
+/** Whether the connector runs the newest image of its tag: the registry's digest against the local image and container. */
+export async function connectorUpdate(tunnel: Tunnel, containerImageId: string | null): Promise<ConnectorUpdate> {
+  const ctx = await getServer(tunnel.serverId);
+  const [remote, local, latestVersion] = await Promise.all([
+    (ctx.docker.getImage(TUNNEL_IMAGE).distribution() as Promise<{ Descriptor: { digest: string } }>).then((d) => d.Descriptor.digest),
+    ctx.docker
+      .getImage(TUNNEL_IMAGE)
+      .inspect()
+      .catch(() => null),
+    latestConnectorVersion(),
+  ]).catch((e: Error) => [null, null, null, e] as const);
+  if (!remote) return { available: false, pulled: false, latestVersion: null, error: "Could not reach the image registry." };
+  const localDigests = (local?.RepoDigests ?? []).map((d) => d.split("@")[1]);
+  const pulled = !!local && localDigests.includes(remote) && !!containerImageId && containerImageId !== local.Id;
+  return { available: !localDigests.includes(remote) || pulled, pulled, latestVersion, error: null };
+}
+
+/**
+ * Update the connector without dropping traffic: pull the new image, start a second
+ * connector next to the old one (a tunnel accepts several), wait until it has
+ * registered with Cloudflare, then remove the old one and take over its name.
+ */
+export async function updateTunnelConnector(tunnel: Tunnel) {
+  const ctx = await getServer(tunnel.serverId);
+  const name = tunnelContainerName(tunnel);
+  const next = `${name}-next`;
+  await pullImage(TUNNEL_IMAGE, undefined, null, ctx.docker);
+  await ctx.docker
+    .getContainer(next)
+    .remove({ force: true })
+    .catch(() => {});
+  const container = await ctx.docker.createContainer(await connectorSpec(tunnel, next, ctx.network));
   await container.start();
+  const deadline = Date.now() + 60_000;
+  let ready = false;
+  while (!ready && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const info = await container.inspect();
+    if (!info.State.Running) break;
+    const logs = (await container.logs({ stdout: true, stderr: true, tail: 200 })).toString("utf8");
+    ready = /Registered tunnel connection/i.test(logs);
+  }
+  if (!ready) {
+    const logs = (await container.logs({ stdout: true, stderr: true, tail: 20 }).catch(() => Buffer.from(""))).toString("utf8");
+    await container.remove({ force: true }).catch(() => {});
+    throw new Error(`The new connector did not connect to Cloudflare within a minute. The old one keeps running.${logs ? `\n${logs.slice(-600)}` : ""}`);
+  }
+  await ctx.docker
+    .getContainer(name)
+    .remove({ force: true })
+    .catch(() => {});
+  // The worker may have recreated the connector in the moment between: keep that one then.
+  await container.rename({ name }).catch(async () => {
+    const other = await ctx.docker
+      .getContainer(name)
+      .inspect()
+      .catch(() => null);
+    if (other?.State.Running) await container.remove({ force: true });
+    else throw new Error("The new connector runs, but could not take over its name. Restart the connector.");
+  });
+  await db.update(schema.cloudflareTunnel).set({ status: "pending", statusMessage: "Connector updated" }).where(eq(schema.cloudflareTunnel.id, tunnel.id));
 }
 
 async function removeTunnelContainer(tunnel: Tunnel) {
@@ -405,7 +496,18 @@ export type TunnelDetails = {
     | { ok: false; error: string };
   connector:
     | { ok: true; exists: false }
-    | { ok: true; exists: true; state: string; running: boolean; startedAt: string | null; image: string; restarts: number; error: string | null }
+    | {
+        ok: true;
+        exists: true;
+        state: string;
+        running: boolean;
+        startedAt: string | null;
+        image: string;
+        restarts: number;
+        error: string | null;
+        imageId: string;
+        update: ConnectorUpdate | null;
+      }
     | { ok: false; error: string };
 };
 
@@ -466,11 +568,22 @@ export async function tunnelDetails(tunnel: Tunnel): Promise<TunnelDetails> {
               image: info.Config.Image,
               restarts: info.RestartCount ?? 0,
               error: info.State.Error || null,
+              update: null,
+              imageId: info.Image,
             }
           : { ok: true, exists: false },
       (error): TunnelDetails["connector"] => ({ ok: false, error: (error as Error).message }),
     ),
   ]);
+  if (connector.ok && connector.exists) {
+    const update = await withTimeout(connectorUpdate(tunnel, connector.imageId), 8000, "The image registry").catch((e: Error) => ({
+      available: false,
+      pulled: false,
+      latestVersion: null,
+      error: e.message,
+    }));
+    return { cloudflare, connector: { ...connector, update } };
+  }
   return { cloudflare, connector };
 }
 

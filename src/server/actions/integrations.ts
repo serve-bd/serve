@@ -696,6 +696,22 @@ export async function restartTunnelConnector(tunnelId: string) {
   });
 }
 
+/** Update the connector to the newest image without dropping traffic. */
+export async function updateTunnelConnector(tunnelId: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const tunnel = await orgTunnel(tunnelId, ctx.org.id);
+    const { updateTunnelConnector: update } = await import("@/server/cloudflare/tunnels");
+    try {
+      await update(tunnel);
+    } catch (e) {
+      throw new UserError(`Could not update the connector: ${(e as Error).message}`);
+    }
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "tunnel.update", message: `Updated the connector of the Cloudflare Tunnel ${tunnel.name}` });
+    return null;
+  });
+}
+
 /** Refresh the status of this organization's tunnels that are still starting or down. */
 export async function refreshTunnels() {
   return act(async () => {

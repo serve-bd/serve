@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "@/components/ui/toast";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
@@ -128,7 +129,15 @@ export function DeploymentView({
     return () => clearInterval(t);
   }, [active]);
 
-  const cancel = useAction(() => cancelDeployment(deployment.id), { success: "Cancelling…", refresh: false });
+  // No toast for the request: the button waits, and one toast reports how it ended.
+  const [cancelling, setCancelling] = React.useState(false);
+  const cancel = useAction(() => cancelDeployment(deployment.id), { refresh: false, onSuccess: () => setCancelling(true) });
+  React.useEffect(() => {
+    if (!cancelling || active) return;
+    setCancelling(false);
+    if (state.status === "cancelled") toast.success("Deployment cancelled");
+    else toast.info(`The deployment ${state.status === "success" ? "finished" : state.status} before it could be cancelled`);
+  }, [cancelling, active, state.status]);
   const redeploy = useAction(() => redeployDeployment(deployment.id), {
     success: "Redeploy queued",
     onSuccess: (d) => router.push(`${backHref}/deployments/${d.id}`),
@@ -188,8 +197,8 @@ export function DeploymentView({
           </div>
           <div className="flex items-center gap-2">
             {active ? (
-              <Button variant="danger-ghost" size="sm" onClick={() => cancel.run()} loading={cancel.pending}>
-                <Ban /> Cancel
+              <Button variant="danger-ghost" size="sm" onClick={() => cancel.run()} loading={cancel.pending || cancelling} disabled={cancelling}>
+                {!(cancel.pending || cancelling) && <Ban />} {cancelling ? "Cancelling…" : "Cancel"}
               </Button>
             ) : (
               <>

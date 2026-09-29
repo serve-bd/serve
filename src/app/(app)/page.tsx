@@ -5,7 +5,6 @@ import { projectSummaries, recentActivity, recentDeployments } from "@/server/qu
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
-import { ServerStats } from "./_components/server-stats";
 import { ProjectCard } from "./_components/project-card";
 import { DeploymentRow } from "./_components/deployment-row";
 
@@ -33,16 +32,10 @@ export default async function OverviewPage() {
         }
       />
       <PageBody className="flex flex-col gap-8">
-        {ctx.isInstanceAdmin && (
-          <section className="flex flex-col gap-3">
-            <h2 className="text-[13px] font-medium text-muted">Server</h2>
-            <ServerStats />
-          </section>
-        )}
 
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-[13px] font-medium text-muted">Projects</h2>
+            <h2 className="text-[13px] font-medium text-muted">Recent projects</h2>
             {projects.length > 0 && (
               <Link href="/projects" className="text-[13px] text-muted hover:text-fg">
                 View all

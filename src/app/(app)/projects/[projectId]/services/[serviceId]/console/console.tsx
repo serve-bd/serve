@@ -27,10 +27,10 @@ const KEYS: { label: string; data: string }[] = [
   { label: "→", data: "\x1b[C" },
 ];
 
-export function Console({ serviceId, suggestions }: { serviceId: string; suggestions: string[] }) {
+export function Console({ serviceId, suggestions, initialTarget = null }: { serviceId: string; suggestions: string[]; initialTarget?: string | null }) {
   const { data, isLoading } = useSWR<{ targets: { name: string; composeService: string | null }[] }>(`/api/services/${serviceId}/exec`, { refreshInterval: 15000 });
   const targets = data?.targets ?? [];
-  const [target, setTarget] = React.useState<string | null>(null);
+  const [target, setTarget] = React.useState<string | null>(initialTarget);
   const [session, setSession] = React.useState(0);
   const [status, setStatus] = React.useState<TerminalStatus>("connecting");
   const terminal = React.useRef<TerminalHandle>(null);

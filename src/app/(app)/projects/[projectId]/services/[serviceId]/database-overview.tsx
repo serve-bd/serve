@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Globe, Lock } from "lucide-react";
+import { ChevronRight, Globe, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
@@ -12,6 +12,7 @@ import { StatusDot } from "@/components/ui/status";
 import { useAction } from "@/hooks/use-action";
 import { applyDatabaseChanges, updateService } from "@/server/actions/services";
 import { useServiceLive } from "./service-header";
+import { ContainerDialog } from "./container-dialog";
 import { referenceName } from "@/lib/refs";
 
 export function DatabaseOverview(props: {
@@ -32,6 +33,7 @@ export function DatabaseOverview(props: {
   uptimeInSide?: boolean;
 }) {
   const { data } = useServiceLive(props.serviceId);
+  const [openContainer, setOpenContainer] = React.useState<string | null>(null);
   const [publicOn, setPublicOn] = React.useState(!!props.publicPort);
   const [port, setPort] = React.useState(String(props.publicPort ?? props.engine.port + 10000));
   const [bind, setBind] = React.useState(props.publicBind);
@@ -140,18 +142,30 @@ export function DatabaseOverview(props: {
           <CardHeader title={props.engine.label} description="Container status" />
           <div className="divide-y divide-line">
             {(data?.containers ?? []).map((c) => (
-              <div key={c.id} className="flex items-center gap-3 px-5 py-3">
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setOpenContainer(c.id)}
+                className="group flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-hover"
+              >
                 <StatusDot status={c.state === "running" ? "running" : c.state === "restarting" ? "restarting" : "stopped"} />
-                <div className="flex min-w-0 flex-col">
+                <div className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate font-mono text-[12px] text-fg-2">{c.image}</span>
                   <span className="text-[11px] text-faint">{c.status}</span>
                 </div>
-              </div>
+                <ChevronRight className="size-3.5 flex-none text-faint transition-colors group-hover:text-muted" />
+              </button>
             ))}
             {!data?.containers.length && <p className="px-5 py-4 text-[13px] text-muted">Starting soon…</p>}
           </div>
         </Card>
         {props.uptimeInSide && props.uptime}
+        <ContainerDialog
+          serviceId={props.serviceId}
+          base={`/projects/${props.projectId}/services/${props.serviceId}`}
+          containerId={openContainer}
+          onOpenChange={(o) => !o && setOpenContainer(null)}
+        />
       </div>
     </div>
   );

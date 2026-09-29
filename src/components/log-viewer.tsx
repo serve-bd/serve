@@ -1,5 +1,6 @@
 "use client";
 
+import { hasAnsi, parseAnsi, stripAnsi } from "@/lib/ansi";
 import * as React from "react";
 import { ArrowDown, Download, Search, WrapText } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -48,7 +49,7 @@ export function LogViewer({
     const src = lines.length > MAX_LINES ? lines.slice(-MAX_LINES) : lines;
     if (!query) return src.map((l, i) => ({ ...l, n: i + 1 }));
     const q = query.toLowerCase();
-    return src.map((l, i) => ({ ...l, n: i + 1 })).filter((l) => l.text.toLowerCase().includes(q));
+    return src.map((l, i) => ({ ...l, n: i + 1 })).filter((l) => stripAnsi(l.text).toLowerCase().includes(q));
   }, [lines, query]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll again whenever the visible lines change.
@@ -64,7 +65,7 @@ export function LogViewer({
   };
 
   const download = () => {
-    const blob = new Blob([lines.map((l) => (l.time ? `${l.time} ` : "") + l.text).join("\n")], { type: "text/plain" });
+    const blob = new Blob([lines.map((l) => (l.time ? `${l.time} ` : "") + stripAnsi(l.text)).join("\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -108,7 +109,8 @@ export function LogViewer({
           <table className="w-full border-collapse">
             <tbody>
               {visible.map((l) => {
-                const tone = lineTone(l.text);
+                const colored = hasAnsi(l.text);
+                const tone = lineTone(colored ? stripAnsi(l.text) : l.text);
                 return (
                   <tr key={l.n} className={cn("group align-top hover:bg-white/[0.03]", tone.startsWith("step") && "bg-white/[0.035]")}>
                     <td className="w-px pr-3 pl-4 text-right whitespace-nowrap text-white/20 select-none tabular-nums">{l.n}</td>
@@ -129,7 +131,15 @@ export function LogViewer({
                         tone === "warn" && "text-[#ffd60a]/90",
                       )}
                     >
-                      {l.text.startsWith("==> ") ? l.text.slice(4) : l.text || " "}
+                      {colored
+                        ? parseAnsi(l.text).map((part, pi) => (
+                            <span key={pi} style={{ color: part.color }} className={cn(part.bold && "font-semibold", part.dim && "opacity-60")}>
+                              {part.text}
+                            </span>
+                          ))
+                        : l.text.startsWith("==> ")
+                          ? l.text.slice(4)
+                          : l.text || " "}
                     </td>
                   </tr>
                 );

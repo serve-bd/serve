@@ -26,7 +26,10 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
   } catch (e) {
     return new Response(`The server of this service is unreachable: ${(e as Error).message}`, { status: 503 });
   }
-  const containers = service.type === "app" && service.currentDeploymentId ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : all;
+  const current = service.type === "app" && service.currentDeploymentId ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : all;
+  // One compose service only, when the page asks for it.
+  const only = request.nextUrl.searchParams.get("container");
+  const containers = only ? current.filter((c) => c.Labels["com.docker.compose.service"] === only) : current;
 
   const encoder = new TextEncoder();
   const streams: NodeJS.ReadableStream[] = [];
@@ -43,7 +46,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
         }
       };
       if (!containers.length) {
-        send("info", { message: "No containers are running for this service." });
+        send("info", { message: only ? `No container is running for ${only}.` : "No containers are running for this service." });
       }
       const multi = containers.length > 1;
       for (const c of containers) {

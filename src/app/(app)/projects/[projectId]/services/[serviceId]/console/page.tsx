@@ -7,6 +7,7 @@ export const metadata = { title: "Console" };
 
 export default async function ConsolePage(props: PageProps<"/projects/[projectId]/services/[serviceId]/console">) {
   const { projectId, serviceId } = await props.params;
+  const { container } = await props.searchParams;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   const hints: Record<string, string[]> = {
@@ -20,7 +21,11 @@ export default async function ConsolePage(props: PageProps<"/projects/[projectId
   };
   return (
     <PageBody>
-      <Console serviceId={service.id} suggestions={service.database ? (hints[service.database.engine] ?? []) : ["ls -la", "env | sort", "df -h", "top"]} />
+      <Console
+        serviceId={service.id}
+        initialTarget={typeof container === "string" ? container : null}
+        suggestions={service.database ? (hints[service.database.engine] ?? []) : ["ls -la", "env | sort", "df -h", "top"]}
+      />
     </PageBody>
   );
 }

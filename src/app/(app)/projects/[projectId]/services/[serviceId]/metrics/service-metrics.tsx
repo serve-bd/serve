@@ -1,5 +1,6 @@
 "use client";
 
+import { counterRate } from "@/lib/counter-rate";
 import * as React from "react";
 import useSWR from "swr";
 import { AreaChart } from "@/components/charts/area-chart";
@@ -15,17 +16,6 @@ const ranges = [
   { hours: 48, label: "48h" },
   { hours: 168, label: "7d" },
 ];
-
-function rate(series: Series, key: "netRx" | "netTx") {
-  const out: { t: number; v: number | null }[] = [];
-  for (let i = 1; i < series.length; i++) {
-    const a = series[i - 1][key];
-    const b = series[i][key];
-    const dt = (series[i].t - series[i - 1].t) / 1000;
-    out.push({ t: series[i].t, v: a !== null && b !== null && b >= a && dt > 0 ? (b - a) / dt : null });
-  }
-  return out;
-}
 
 function Panel({ title, value, children }: { title: string; value: string; children: React.ReactNode }) {
   return (
@@ -72,8 +62,8 @@ export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { service
   const { data } = useSWR<{ series: Series }>(`/api/metrics?scope=${serviceId}&hours=${hours}`, { refreshInterval: 15000 });
   const series = data?.series ?? [];
   const last = series.at(-1);
-  const rx = rate(series, "netRx");
-  const tx = rate(series, "netTx");
+  const rx = counterRate(series, "netRx");
+  const tx = counterRate(series, "netTx");
   const limit = memoryLimit ? memoryLimit * 1024 * 1024 : last?.memoryLimit || undefined;
   const { data: req } = useSWR<Req>(hasDomains ? `/api/services/${serviceId}/requests?hours=${hours}` : null, { refreshInterval: 30000 });
 

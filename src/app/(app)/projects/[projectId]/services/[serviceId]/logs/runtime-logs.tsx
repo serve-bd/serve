@@ -6,10 +6,33 @@ import { LogViewer, type LogLine } from "@/components/log-viewer";
 import { Led } from "@/components/ui/status";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useLatest } from "@/hooks/use-client";
+import { cn } from "@/lib/utils";
 
 type Incoming = { t: string; m: string; s: string | null; e: boolean };
 
-export function RuntimeLogs({ serviceId, name }: { serviceId: string; name: string }) {
+/** Merges a batch into the log in time order: the first lines of each container arrive one container at a time. */
+function mergeByTime(prev: LogLine[], next: LogLine[]) {
+  const merged = prev.concat(next);
+  const last = prev.at(-1)?.time;
+  if (!last || next.every((l) => !l.time || l.time >= last)) return merged;
+  return merged
+    .map((l, i) => ({ l, i }))
+    .sort((a, b) => (a.l.time && b.l.time && a.l.time !== b.l.time ? (a.l.time < b.l.time ? -1 : 1) : a.i - b.i))
+    .map((x) => x.l);
+}
+
+export function RuntimeLogs({
+  serviceId,
+  name,
+  containers = [],
+  initialContainer = null,
+}: {
+  serviceId: string;
+  name: string;
+  containers?: string[];
+  initialContainer?: string | null;
+}) {
+  const [container, setContainer] = React.useState<string | null>(initialContainer && containers.includes(initialContainer) ? initialContainer : null);
   const [lines, setLines] = React.useState<LogLine[]>([]);
   const [connected, setConnected] = React.useState(false);
   const [paused, setPaused] = React.useState(false);
@@ -20,7 +43,9 @@ export function RuntimeLogs({ serviceId, name }: { serviceId: string; name: stri
     let es: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout>;
     const connect = () => {
-      es = new EventSource(`/api/services/${serviceId}/logs?tail=500`);
+      const query = new URLSearchParams({ tail: "500" });
+      if (container) query.set("container", container);
+      es = new EventSource(`/api/services/${serviceId}/logs?${query}`);
       es.onopen = () => setConnected(true);
       es.addEventListener("logs", (ev) => {
         const batch = JSON.parse((ev as MessageEvent).data) as Incoming[];
@@ -36,13 +61,15 @@ export function RuntimeLogs({ serviceId, name }: { serviceId: string; name: stri
         retry = setTimeout(connect, 3000);
       };
     };
+    setLines([]);
+    buffer.current = [];
     connect();
     // Batch UI updates for smooth scrolling under heavy output.
     const flush = setInterval(() => {
       if (pausedRef.current || !buffer.current.length) return;
       const next = buffer.current.splice(0);
       setLines((prev) => {
-        const merged = prev.concat(next);
+        const merged = mergeByTime(prev, next);
         return merged.length > 5000 ? merged.slice(-5000) : merged;
       });
     }, 250);
@@ -51,13 +78,13 @@ export function RuntimeLogs({ serviceId, name }: { serviceId: string; name: stri
       clearTimeout(retry);
       clearInterval(flush);
     };
-  }, [serviceId, pausedRef]);
+  }, [serviceId, container, pausedRef]);
 
-  return (
+  const viewer = (
     <LogViewer
       lines={lines}
       showTime
-      filename={`${name}.log`}
+      filename={`${container ? `${name}-${container}` : name}.log`}
       emptyText={connected ? "No output yet." : "Connecting…"}
       height="calc(100vh - 290px)"
       toolbar={
@@ -79,5 +106,30 @@ export function RuntimeLogs({ serviceId, name }: { serviceId: string; name: stri
         </div>
       }
     />
+  );
+
+  if (containers.length < 2) return viewer;
+  return (
+    <div className="flex flex-col gap-3">
+      <div role="tablist" aria-label="Containers" className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        {[null, ...containers].map((c) => (
+          <button
+            key={c ?? "all"}
+            type="button"
+            role="tab"
+            aria-selected={container === c}
+            onClick={() => setContainer(c)}
+            className={cn(
+              "h-8 flex-none rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
+              container === c ? "bg-fg/[0.07] text-fg" : "text-muted hover:bg-fg/[0.04] hover:text-fg",
+              c && "font-mono text-[12.5px]",
+            )}
+          >
+            {c ?? "All containers"}
+          </button>
+        ))}
+      </div>
+      {viewer}
+    </div>
   );
 }

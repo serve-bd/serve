@@ -25,6 +25,7 @@ import { teardownServices } from "@/server/services/teardown";
 import { composeSecurityIssues, safeRedirectUrl } from "@/server/security";
 import type { OrgContext } from "@/server/auth";
 import { requestServiceControl } from "@/server/services/control";
+import { restartOwnContainer } from "@/server/services/container-info";
 import { resolveServerForOrg, serverPublicIp } from "@/server/servers/access";
 import { HOSTNAME_RE } from "@/lib/hostname";
 import { CAPABILITIES } from "@/server/deploy/options";
@@ -689,6 +690,25 @@ export async function serviceControl(serviceId: string, command: "stop" | "start
     const ctx = await requireOrg();
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     await requestServiceControl(service, command, ctx.user.id);
+    return null;
+  });
+}
+
+/** Restart one container of a service (for example one compose service), without a deployment. */
+export async function restartContainer(serviceId: string, containerId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (!(await restartOwnContainer(service, containerId))) throw new UserError("This container is not part of the service any more.");
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      organizationId: ctx.org.id,
+      action: "service.container.restart",
+      message: `Restarted container ${containerId.slice(0, 12)} of ${service.name}`,
+      targetType: "service",
+      targetId: service.id,
+    });
     return null;
   });
 }

@@ -133,7 +133,7 @@ export function serverScope(serverId: string) {
   return serverId === LOCAL_SERVER_ID ? "server" : `server:${serverId}`;
 }
 
-type Stats = {
+export type Stats = {
   cpu_stats: { cpu_usage: { total_usage: number }; system_cpu_usage?: number; online_cpus?: number };
   precpu_stats: { cpu_usage: { total_usage: number }; system_cpu_usage?: number };
   memory_stats: { usage?: number; limit?: number; stats?: { inactive_file?: number; cache?: number } };

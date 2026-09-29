@@ -13,7 +13,7 @@ export default async function OrganizationsSettingsPage() {
       .select({
         id: schema.organization.id,
         name: schema.organization.name,
-        members: sql<number>`(select count(*)::int from member m where m.organization_id = ${schema.organization.id})`,
+        members: sql<number>`(select count(*)::int from member m where m.organization_id = "organization"."id")`,
       })
       .from(schema.organization)
       .orderBy(asc(schema.organization.createdAt)),

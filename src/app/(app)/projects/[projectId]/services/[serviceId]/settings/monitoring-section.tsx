@@ -41,7 +41,8 @@ export function MonitoringSection({
   // Databases and services without a domain are checked through their containers.
   const defaultKind = type === "database" || !defaultUrl ? "container" : "http";
   const initial = {
-    enabled: monitor?.enabled ?? true,
+    // Off until someone turns it on, so switching it on is a change Save can send.
+    enabled: monitor?.enabled ?? false,
     kind: (monitor?.kind ?? defaultKind) as string,
     url: monitor?.url ?? "",
     path: monitor?.path ?? "/",
@@ -77,7 +78,7 @@ export function MonitoringSection({
           </Button>
         )
       }
-      footerNote={monitor ? undefined : "Nothing is checked until you save."}
+      footerNote={monitor ? undefined : "Nothing is checked until you turn it on and save."}
     >
       {(v, set) => (
         <>

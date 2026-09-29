@@ -12,7 +12,7 @@ import { destroyService, restartService, startService, stopService } from "@/ser
 import { issueCertificate, renewDueCertificates } from "@/server/ssl/certificates";
 import { restoreBackup, runBackup } from "@/server/backups";
 import { collectMetrics, pruneMetrics } from "@/server/metrics";
-import { getSettings } from "@/server/settings";
+import { getSettings, updateSettings } from "@/server/settings";
 import { notify, orgOfService } from "@/server/notify";
 import { run } from "@/server/process";
 import { runTask, scheduleTasks } from "@/server/services/tasks";
@@ -265,6 +265,7 @@ async function main() {
     }
   });
 
+  every(15_000, "heartbeat", () => updateSettings({ workerHeartbeat: new Date().toISOString() }), true);
   every(15_000, "monitor", monitorServices, true);
   every(30_000, "metrics", collectMetrics, true);
   every(60_000, "backups", scheduleBackups);
@@ -287,6 +288,7 @@ async function shutdown() {
   const deadline = Date.now() + 25_000;
   while (running.size && Date.now() < deadline) await new Promise((r) => setTimeout(r, 500));
   for (const r of running.values()) r.controller.abort();
+  await updateSettings({ workerHeartbeat: null }).catch(() => {});
   await sql.end({ timeout: 5 });
   process.exit(0);
 }

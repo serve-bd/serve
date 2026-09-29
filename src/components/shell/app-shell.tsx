@@ -23,6 +23,7 @@ import {
   HardDriveUpload,
   KeyRound,
   Activity,
+  AlertTriangle,
 } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
@@ -42,6 +43,7 @@ type ShellProps = {
   isInstanceAdmin: boolean;
   canCreateOrg: boolean;
   instanceName: string;
+  workerOnline: boolean;
   children: React.ReactNode;
 };
 
@@ -58,7 +60,7 @@ const mainNav: NavItem[] = [
 const integrationNav: NavItem[] = [
   { href: "/integrations/cloudflare", label: "Cloudflare", icon: Cloud },
   { href: "/integrations/git", label: "Git providers", icon: FolderGit2 },
-  { href: "/integrations/storage", label: "Backup storage", icon: HardDriveUpload },
+  { href: "/integrations/storage", label: "S3 storage", icon: HardDriveUpload },
   { href: "/integrations/notifications", label: "Notifications", icon: Bell },
 ];
 
@@ -240,6 +242,15 @@ export function AppShell(props: ShellProps) {
             </button>
             <Logo />
           </div>
+          {!props.workerOnline && (
+            <div role="status" className="flex items-start gap-2.5 border-b border-warn/25 bg-warn-soft px-4 py-2.5 text-[13px] text-fg sm:items-center sm:px-8">
+              <AlertTriangle className="mt-0.5 size-4 flex-none text-warn sm:mt-0" />
+              <p className="min-w-0">
+                <span className="font-medium">The worker is not running.</span>{" "}
+                <span className="text-muted">Deployments, backups and other jobs wait until it starts.</span>
+              </p>
+            </div>
+          )}
           <main className="flex-1">{props.children}</main>
         </div>
       </div>

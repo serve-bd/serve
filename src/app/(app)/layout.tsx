@@ -5,6 +5,10 @@ import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { AppShell } from "@/components/shell/app-shell";
 
+function workerOnline(heartbeat: string | null) {
+  return !!heartbeat && Date.now() - new Date(heartbeat).getTime() < 60_000;
+}
+
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const ctx = await requireOrg();
   const settings = await getSettings();
@@ -33,6 +37,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       isInstanceAdmin={ctx.isInstanceAdmin}
       canCreateOrg={ctx.isInstanceAdmin || settings.allowOrganizationCreation}
       instanceName={settings.instanceName}
+      workerOnline={workerOnline(settings.workerHeartbeat)}
     >
       {children}
     </AppShell>

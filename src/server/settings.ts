@@ -28,6 +28,8 @@ export type Settings = {
   rootOrganizationId: string | null;
   /** Let every user create organizations (otherwise only Root admins can). */
   allowOrganizationCreation: boolean;
+  /** Last time the worker reported in (ISO timestamp). */
+  workerHeartbeat: string | null;
 };
 
 export const defaultSettings: Settings = {
@@ -46,6 +48,7 @@ export const defaultSettings: Settings = {
   onboardingDone: false,
   rootOrganizationId: null,
   allowOrganizationCreation: false,
+  workerHeartbeat: null,
 };
 
 export async function getSettings(): Promise<Settings> {

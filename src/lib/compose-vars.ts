@@ -1,8 +1,30 @@
-/** `${VAR}` names a compose file interpolates (ignores `$${…}` escapes). */
+/** YAML comments removed (a `#` at line start or after whitespace, outside quotes is close enough here). */
+function stripComments(content: string) {
+  return content
+    .split("\n")
+    .map((line) => {
+      let quote: string | null = null;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (quote) {
+          if (c === quote) quote = null;
+        } else if (c === '"' || c === "'") quote = c;
+        else if (c === "#" && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i);
+      }
+      return line;
+    })
+    .join("\n");
+}
+
+/**
+ * `${VAR}` names a compose file interpolates (ignores `$${…}` escapes and comments).
+ * `hasDefault` is true when the file still works with the variable unset:
+ * `${VAR-x}`, `${VAR:-x}`, `${VAR+x}` and `${VAR:+x}`.
+ */
 export function composeVariables(content: string): { name: string; hasDefault: boolean }[] {
   const seen = new Map<string, boolean>();
-  for (const m of content.matchAll(/(?<!\$)\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-?+][^}]*)?\}/g)) {
-    const hasDefault = !!m[2] && /^:?-/.test(m[2]);
+  for (const m of stripComments(content).matchAll(/(?<!\$)\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-?+][^}]*)?\}/g)) {
+    const hasDefault = !!m[2] && /^:?[-+]/.test(m[2]);
     seen.set(m[1], (seen.get(m[1]) ?? false) || hasDefault);
   }
   return [...seen].map(([name, hasDefault]) => ({ name, hasDefault }));

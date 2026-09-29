@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { env } from "@/server/env";
@@ -107,20 +107,32 @@ export async function credentialToken(cred: Credential, opts: { force?: boolean 
   if (!tokens.refreshToken) return tokens.accessToken;
   const [app] = await db.select().from(schema.gitOAuthApp).where(eq(schema.gitOAuthApp.id, cred.oauthAppId));
   if (!app) throw new Error("The OAuth app of this connection was deleted.");
-  let next: OAuthTokens;
-  try {
-    next = await refreshTokens(app, tokens.refreshToken);
-  } catch (e) {
-    throw new Error(`Could not refresh the ${app.name} connection: ${(e as Error).message} Reconnect it on the Git providers page.`);
-  }
-  // Some providers keep the refresh token unchanged and omit it.
-  next.refreshToken ??= tokens.refreshToken;
-  await db
-    .update(schema.gitCredential)
-    .set({ secret: encrypt(JSON.stringify(next)) })
-    .where(eq(schema.gitCredential.id, cred.id));
-  cred.secret = encrypt(JSON.stringify(next));
-  return next.accessToken;
+  // Providers rotate refresh tokens: two refreshes with the same one break the connection.
+  // One refresh at a time per credential (across the web and worker processes).
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`git-oauth:${cred.id}`}))`);
+    const [row] = await tx.select().from(schema.gitCredential).where(eq(schema.gitCredential.id, cred.id));
+    if (!row) throw new Error("This Git connection was removed.");
+    const current = readTokens(row);
+    // Someone else refreshed while we waited: use their tokens.
+    if (current.accessToken !== tokens.accessToken && (current.expiresAt === null || current.expiresAt - Date.now() >= REFRESH_MARGIN)) {
+      cred.secret = row.secret;
+      return current.accessToken;
+    }
+    if (!current.refreshToken) return current.accessToken;
+    let next: OAuthTokens;
+    try {
+      next = await refreshTokens(app, current.refreshToken);
+    } catch (e) {
+      throw new Error(`Could not refresh the ${app.name} connection: ${(e as Error).message} Reconnect it on the Git providers page.`);
+    }
+    // Some providers keep the refresh token unchanged and omit it.
+    next.refreshToken ??= current.refreshToken;
+    const secret = encrypt(JSON.stringify(next));
+    await tx.update(schema.gitCredential).set({ secret }).where(eq(schema.gitCredential.id, cred.id));
+    cred.secret = secret;
+    return next.accessToken;
+  });
 }
 
 /** Run a provider call with the credential's token; retry once with a refreshed token on 401. */

@@ -173,7 +173,10 @@ export async function applyPullRequest(service: Service, event: PrEvent): Promis
 export async function applyPush(service: Service, push: PushInfo): Promise<EventResult> {
   if (!service.autoDeploy) return { skipped: "Auto deploy is off" };
   if (service.source?.type !== "git") return { skipped: "Service does not deploy from git" };
-  if (push.branch && push.branch !== service.source.branch) {
+  // Tag pushes and branch deletions carry no branch (or no new commit): nothing to deploy.
+  if (!push.branch) return { skipped: "Not a branch push (a tag or a deleted branch)" };
+  if (!push.sha || /^0+$/.test(push.sha)) return { skipped: `Branch ${push.branch} was deleted` };
+  if (push.branch !== service.source.branch) {
     return { skipped: `Push to ${push.branch}, service tracks ${service.source.branch}` };
   }
   if (!matchesWatchPaths(push.files ?? null, service.build?.watchPaths)) {

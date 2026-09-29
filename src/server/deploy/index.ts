@@ -561,8 +561,11 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   await assertPortsFree(server.docker, server.name, service.compose?.ports ?? [], service.id);
   const isolated = !!service.compose?.isolated;
   const transformed = transformCompose(content, service.slug, service.id, subnet, network, service.compose?.ports ?? [], isolated);
+  // The stack's own network: named in the file, or compose's <project>_default.
+  const declared = (parseCompose(transformed).networks as Record<string, { name?: string } | null> | undefined)?.default?.name;
+  const stackNet = declared || stackNetworkName(service.slug);
   // Compose may recreate the stack network; the proxy must not hold it while that happens.
-  await disconnectProxy(stackNetworkName(service.slug), server).catch(() => {});
+  await disconnectProxy(stackNet, server).catch(() => {});
   const run = { projectName: service.slug, dir, file: ".serve-compose.yml", vars: env.runtime, log: log.line, signal, redact: env.secrets };
   await writeComposeFiles({ ...run, content: transformed });
   await setDeployment(dep.id, { status: "deploying" });
@@ -580,9 +583,20 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     target = { ...target, dir: remoteDir };
   }
   log.step(`Starting ${composeServiceNames(content).length} compose services`);
-  await composeUp(target);
-  // Isolated stacks are not on the environment network; the proxy joins the stack's own one.
-  if (isolated) await connectProxy(stackNetworkName(service.slug), server);
+  try {
+    await composeUp(target);
+  } finally {
+    // Isolated stacks are not on the environment network; the proxy joins the stack's own one.
+    // Also after a failed deploy, so the containers still running stay reachable.
+    if (isolated) {
+      await connectProxy(stackNet, server).catch((e) => log.line(`Could not attach the proxy to ${stackNet}: ${(e as Error).message}`));
+      const joined = await server.docker
+        .getNetwork(stackNet)
+        .inspect()
+        .catch(() => null);
+      if (!joined) log.line(`Network ${stackNet} was not found; domains of this stack cannot be routed.`);
+    }
+  }
   await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
   log.step("Routing traffic");
   try {

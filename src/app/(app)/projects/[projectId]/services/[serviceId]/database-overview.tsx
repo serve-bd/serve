@@ -11,6 +11,7 @@ import { StatusDot } from "@/components/ui/status";
 import { useAction } from "@/hooks/use-action";
 import { applyDatabaseChanges, updateService } from "@/server/actions/services";
 import { useServiceLive } from "./service-header";
+import { referenceName } from "@/lib/refs";
 
 export function DatabaseOverview(props: {
   serviceId: string;
@@ -35,7 +36,7 @@ export function DatabaseOverview(props: {
     },
     { success: "Applying changes. The database restarts briefly." },
   );
-  const refName = props.name.toLowerCase();
+  const refName = referenceName(props.name);
   const changed = (publicOn ? Number(port) : null) !== props.publicPort;
 
   return (

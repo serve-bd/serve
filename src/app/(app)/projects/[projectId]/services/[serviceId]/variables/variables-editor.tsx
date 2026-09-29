@@ -13,6 +13,7 @@ import { useAction } from "@/hooks/use-action";
 import { saveEnvVars } from "@/server/actions/services";
 import { parseEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
+import { referenceOf } from "@/lib/refs";
 
 type Var = { key: string; value: string; buildTime: boolean; runtime: boolean; id?: number };
 
@@ -184,7 +185,7 @@ export function VariablesEditor({
                 </span>
                 <div className="flex flex-wrap gap-1">
                   {r.keys.map((k) => {
-                    const ref = `\${{${r.name.toLowerCase()}.${k}}}`;
+                    const ref = referenceOf(r.name, k);
                     return (
                       <span key={k} className="inline-flex items-center rounded-md bg-surface-2 pl-2 font-mono text-[11px] text-muted ring-1 ring-line">
                         {k}

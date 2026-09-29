@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull } from "@/server/crypto";
 import { engines } from "@/server/databases/engines";
+import { referenceName } from "@/lib/refs";
 
 type Service = typeof schema.service.$inferSelect;
 type Domain = typeof schema.domain.$inferSelect;
@@ -83,6 +84,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     const provided = providedVars(s, domainsBy.get(s.id) ?? []);
     lookup.set(s.slug.toLowerCase(), provided);
     lookup.set(s.name.toLowerCase(), provided);
+    // Preferred form: names with spaces or symbols become dashed ("postgresql-sd").
+    if (!lookup.has(referenceName(s.name))) lookup.set(referenceName(s.name), provided);
   }
   lookup.set("shared", sharedMap);
 

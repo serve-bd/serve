@@ -110,7 +110,7 @@ export function ServiceHeader({ project, environment, service, initialLive }: Pr
               </div>
             </div>
           </div>
-          <div className="flex flex-none items-center gap-2">
+          <div className="ml-auto flex flex-none items-center gap-2">
             <Menu>
               <MenuTrigger className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-[13px] font-medium text-fg shadow-sm hover:bg-hover">
                 <Power className="size-3.5" /> Manage <ChevronDown className="size-3.5 text-muted" />

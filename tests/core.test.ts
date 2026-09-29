@@ -3,6 +3,7 @@ import YAML from "yaml";
 import { certificateCovers } from "@/server/ssl/match";
 import { parseEnv } from "@/lib/env";
 import { explainCertError } from "@/lib/cert-errors";
+import { referenceName } from "@/lib/refs";
 import { isCloudflareIp } from "@/server/dns";
 import { composeServiceNames, composeServicePorts, transformCompose } from "@/server/deploy/compose";
 import { serverBlocks, upstreamBlock } from "@/server/proxy/templates";
@@ -182,5 +183,14 @@ describe("explainCertError", () => {
   });
   it("falls back to a generic message", () => {
     expect(explainCertError("something odd", { provider: "custom" }).title).toBe("The certificate could not be issued");
+  });
+});
+
+describe("referenceName", () => {
+  it("makes names safe for ${{name.VAR}} references", () => {
+    expect(referenceName("postgresql sd")).toBe("postgresql-sd");
+    expect(referenceName("  My  API (v2) ")).toBe("my-api-v2");
+    expect(referenceName("Café")).toBe("cafe");
+    expect(referenceName("!!!")).toBe("service");
   });
 });

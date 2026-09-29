@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useSearchParams } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
-import { AlertTriangle, ArrowUpRight, Check, ChevronRight, FolderGit2, KeyRound, Plus, Settings2, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, ChevronDown, ChevronRight, FolderGit2, KeyRound, Plus, Settings2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardBody, CardHeader, CopyField, TimeAgo } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -11,6 +11,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useConfirm } from "@/components/ui/confirm";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
 import { addGitToken, createDeployKey, deleteGitCredential, githubAppInstallUrl, startGithubApp } from "@/server/actions/integrations";
@@ -84,7 +85,7 @@ function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: bo
   }
 
   const body = (
-    <div className="flex flex-col gap-5 p-5 sm:p-6">
+    <div id="connect-github" className="flex scroll-mt-6 flex-col gap-5 p-5 sm:p-6">
       <div className="flex items-start gap-4">
         <span className="flex size-10 flex-none items-center justify-center rounded-xl bg-fg text-bg">
           <GithubMark className="size-5" />
@@ -129,10 +130,18 @@ function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: bo
   return embedded ? body : <Card>{body}</Card>;
 }
 
-function OtherProviders({ isAdmin }: { isAdmin: boolean }) {
+type DialogState = { tokenOpen: boolean; setTokenOpen: (o: boolean) => void; keyOpen: boolean; setKeyOpen: (o: boolean) => void; provider: GitProviderType; setProvider: (p: GitProviderType) => void };
+
+/** Dialog state lives in GitProviders so the page's Add provider menu can open them too. */
+function useProviderDialogs(): DialogState {
   const [tokenOpen, setTokenOpen] = React.useState(false);
   const [keyOpen, setKeyOpen] = React.useState(false);
   const [provider, setProvider] = React.useState<GitProviderType>("gitlab");
+  return { tokenOpen, setTokenOpen, keyOpen, setKeyOpen, provider, setProvider };
+}
+
+function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: DialogState }) {
+  const { tokenOpen, setTokenOpen, keyOpen, setKeyOpen, provider, setProvider } = dialogs;
   const [name, setName] = React.useState("");
   const [token, setToken] = React.useState("");
   const [baseUrl, setBaseUrl] = React.useState("");
@@ -147,6 +156,14 @@ function OtherProviders({ isAdmin }: { isAdmin: boolean }) {
     },
   });
   const key = useAction(() => createDeployKey(keyName), { onSuccess: (d) => setPublicKey(d.publicKey) });
+  const [wasOpen, setWasOpen] = React.useState(keyOpen);
+  if (keyOpen !== wasOpen) {
+    setWasOpen(keyOpen);
+    if (keyOpen) {
+      setPublicKey(null);
+      setKeyName("");
+    }
+  }
 
   if (!isAdmin) return null;
   return (
@@ -162,7 +179,7 @@ function OtherProviders({ isAdmin }: { isAdmin: boolean }) {
             </span>
             <ChevronRight className="size-4 text-faint" />
           </button>
-          <button type="button" onClick={() => { setPublicKey(null); setKeyName(""); setKeyOpen(true); }} className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-hover/50">
+          <button type="button" onClick={() => setKeyOpen(true)} className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-hover/50">
             <KeyRound className="size-4 text-muted" />
             <span className="flex flex-1 flex-col">
               <span className="text-[13px] font-medium text-fg">Create an SSH deploy key</span>
@@ -247,6 +264,7 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
   const apps = credentials.filter((c) => c.provider === "github-app");
   const others = credentials.filter((c) => c.provider !== "github-app");
   const [connecting, setConnecting] = React.useState(false);
+  const dialogs = useProviderDialogs();
 
   return (
     <>
@@ -254,11 +272,27 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
       title="Git providers"
       description="Connect GitHub to deploy private repositories, with push-to-deploy and pull request previews set up automatically."
       actions={
-        isAdmin &&
-        apps.length > 0 && (
-          <Button size="sm" variant="primary" onClick={() => setConnecting(true)}>
-            <Plus /> Connect GitHub
-          </Button>
+        isAdmin && (
+          <Menu>
+            <MenuTrigger render={<Button size="sm" variant="primary" />}>
+              <Plus /> Add provider <ChevronDown className="size-3.5 opacity-80" />
+            </MenuTrigger>
+            <MenuContent align="end">
+              <MenuItem onClick={() => (apps.length ? setConnecting(true) : document.getElementById("connect-github")?.scrollIntoView({ behavior: "smooth" }))}>
+                <GithubMark /> GitHub
+              </MenuItem>
+              <MenuSeparator />
+              {(["gitlab", "gitea", "bitbucket"] as const).map((p) => (
+                <MenuItem key={p} onClick={() => (dialogs.setProvider(p), dialogs.setTokenOpen(true))}>
+                  <FolderGit2 /> {providerNames[p]}
+                </MenuItem>
+              ))}
+              <MenuSeparator />
+              <MenuItem onClick={() => dialogs.setKeyOpen(true)}>
+                <KeyRound /> SSH deploy key
+              </MenuItem>
+            </MenuContent>
+          </Menu>
         )
       }
     />
@@ -346,7 +380,7 @@ export function GitProviders({ credentials, isAdmin, baseUrl, publicUrl }: { cre
         </Card>
       )}
 
-      <OtherProviders isAdmin={isAdmin} />
+      <OtherProviders isAdmin={isAdmin} dialogs={dialogs} />
       {!isAdmin && credentials.length === 0 && (
         <Card><CardBody className="text-[13px] text-muted">Ask an organization admin to connect GitHub.</CardBody></Card>
       )}

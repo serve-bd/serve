@@ -175,9 +175,28 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   const old = (await listServiceContainers(service.id, true, d)).filter((c) => c.Labels[LABEL.deployment] !== dep.id);
   const replicas = Math.max(1, Math.min(runtime.replicas || 1, 20));
   const needsStopFirst = runtime.ports.length > 0;
+  if (needsStopFirst) {
+    // Fail before touching the running version when another container holds a port.
+    const ownIds = new Set(old.map((c) => c.Id));
+    const others = (await d.listContainers()).filter((c) => !ownIds.has(c.Id));
+    for (const p of runtime.ports) {
+      const holder = others.find((c) =>
+        c.Ports.some(
+          (x) =>
+            x.PublicPort === p.host &&
+            x.Type === p.protocol &&
+            (x.IP === "0.0.0.0" || x.IP === "::" || !p.bindAddress || p.bindAddress === "0.0.0.0" || x.IP === p.bindAddress),
+        ),
+      );
+      if (holder) {
+        const name = holder.Names[0]?.replace(/^\//, "") ?? holder.Id.slice(0, 12);
+        throw new Error(`Port ${p.host} is already used by the container ${name} on ${server.name}. Choose another port in Domains & ports.`);
+      }
+    }
+  }
   if (needsStopFirst && old.length) {
     log.line("Stopping the previous version first because host ports are published");
-    for (const c of old) await removeContainer(c.Id, 10, d);
+    for (const c of old) await d.getContainer(c.Id).stop({ t: 10 }).catch(() => {});
   }
 
   const [stillThere] = await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.id, service.id));
@@ -210,6 +229,11 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     log.line("All containers are healthy");
   } catch (error) {
     for (const id of started) await removeContainer(id, 0, d);
+    if (needsStopFirst && old.length) {
+      // Bring the previous version back so a failed deploy does not take the app down.
+      log.line("Restarting the previous version");
+      for (const c of old) await d.getContainer(c.Id).start().catch(() => {});
+    }
     throw error;
   }
 
@@ -230,6 +254,8 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     log.line(`Draining ${old.length} old container${old.length > 1 ? "s" : ""}`);
     await new Promise((r) => setTimeout(r, 3000));
     await Promise.all(old.map((c) => removeContainer(c.Id, 15, d)));
+  } else if (old.length) {
+    await Promise.all(old.map((c) => removeContainer(c.Id, 0, d)));
   }
   await pruneImages(service, d).catch(() => {});
 }

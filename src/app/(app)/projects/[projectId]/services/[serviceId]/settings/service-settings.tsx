@@ -14,7 +14,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { applyDatabaseChanges, deleteService, moveService, regenerateWebhookSecret, updateService } from "@/server/actions/services";
 import { cn } from "@/lib/utils";
-import type { BuildConfig, RuntimeConfig, VolumeMount, PortMapping } from "@/server/services/types";
+import type { BuildConfig, RuntimeConfig, VolumeMount } from "@/server/services/types";
 
 type Source =
   | { type: "git"; repository: string; branch: string; credentialId?: string | null }
@@ -465,61 +465,6 @@ export function ServiceSettings(props: Props) {
                 );
               })}
               {v.volumes.length === 0 && <p className="text-[13px] text-muted">No volumes. Data written inside the container is lost on every deploy.</p>}
-            </div>
-          )}
-        </Section>
-      )}
-
-      {service.type === "app" && (
-        <Section
-          title="Published ports"
-          description="Publish TCP or UDP ports on the server. This machine answers at localhost:<port> on the server only; Everyone answers on every network interface. Needs a single replica."
-          initial={{ ports: service.runtime.ports }}
-          onSave={(v) => save.run({ runtime: { ports: v.ports.filter((p) => p.host && p.container) } })}
-          footerAction={(v, set) => (
-            <Button size="sm" onClick={() => set({ ports: [...v.ports, { host: 0, container: service.runtime.port || 0, protocol: "tcp", bindAddress: "127.0.0.1" }] })}>
-              <Plus /> Add port
-            </Button>
-          )}
-        >
-          {(v, set) => (
-            <div className="flex flex-col gap-3">
-              {v.ports.length > 0 && (
-                <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px] gap-2 px-0.5 text-[11px] font-medium tracking-wide text-faint uppercase sm:grid">
-                  <span>Server port</span>
-                  <span>Container port</span>
-                  <span>Protocol</span>
-                  <span>Reachable by</span>
-                  <span />
-                </div>
-              )}
-              {v.ports.map((p, i) => {
-                const update = (patch: Partial<PortMapping>) => set({ ports: v.ports.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
-                return (
-                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px] gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]">
-                    <Input value={String(p.host || "")} onChange={(e) => update({ host: Number(e.target.value.replace(/\D/g, "")) })} placeholder="Server port" aria-label="Server port" className="h-8 font-mono" inputMode="numeric" />
-                    <Input value={String(p.container || "")} onChange={(e) => update({ container: Number(e.target.value.replace(/\D/g, "")) })} placeholder="Container port" aria-label="Container port" className="h-8 font-mono" inputMode="numeric" />
-                    <Button variant="ghost" size="icon" className="order-3 sm:order-5" onClick={() => set({ ports: v.ports.filter((_, j) => j !== i) })} aria-label="Remove port">
-                      <Trash2 />
-                    </Button>
-                    <div className="order-4 sm:order-3">
-                      <Select size="sm" value={p.protocol} onValueChange={(proto) => update({ protocol: proto as PortMapping["protocol"] })} options={[{ value: "tcp", label: "TCP" }, { value: "udp", label: "UDP" }]} />
-                    </div>
-                    <div className="order-5 col-span-2 sm:order-4 sm:col-span-1">
-                      <Select
-                        size="sm"
-                        value={p.bindAddress ?? "0.0.0.0"}
-                        onValueChange={(b) => update({ bindAddress: b as PortMapping["bindAddress"] })}
-                        options={[
-                          { value: "127.0.0.1", label: "This machine", description: "localhost only" },
-                          { value: "0.0.0.0", label: "Everyone", description: "Every interface" },
-                        ]}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-              {v.ports.length === 0 && <p className="text-[13px] text-muted">No published ports. HTTP traffic goes through your domains.</p>}
             </div>
           )}
         </Section>

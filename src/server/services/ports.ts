@@ -35,3 +35,16 @@ export async function publishedPorts(service: Service, server?: { publicIp: stri
     return { host: p.host, container: p.container, protocol: p.protocol, bindAddress, address, label, url: p.protocol === "tcp" ? `http://${label}` : null };
   });
 }
+
+/** Host ports already published on the service's server by other containers (and the proxy). */
+export async function busyHostPorts(service: Service): Promise<number[]> {
+  const { serverOf } = await import("@/server/servers/context");
+  const server = await serverOf(service);
+  const busy = new Set<number>([server.proxyHttpPort, server.proxyHttpsPort]);
+  const containers = await server.docker.listContainers().catch(() => []);
+  for (const c of containers) {
+    if (c.Labels["serve.service"] === service.id) continue;
+    for (const p of c.Ports) if (p.PublicPort) busy.add(p.PublicPort);
+  }
+  return [...busy].sort((a, b) => a - b);
+}

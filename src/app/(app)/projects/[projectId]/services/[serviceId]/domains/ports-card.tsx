@@ -1,0 +1,198 @@
+"use client";
+
+import * as React from "react";
+import { ArrowUpRight, Laptop, Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { useAction } from "@/hooks/use-action";
+import { deployService, updateService } from "@/server/actions/services";
+import type { PortMapping } from "@/server/services/types";
+import type { PublishedPort } from "@/server/services/ports";
+
+const digits = (value: string) => Number(value.replace(/\D/g, "")) || 0;
+const suggestedHost = (container: number) => (container < 1024 ? 8080 : container);
+
+/**
+ * Publish container ports on the server, e.g. to open an app at
+ * localhost:3000 while developing on the machine Serve runs on.
+ */
+export function PortsCard({
+  serviceId,
+  appPort,
+  initial,
+  published,
+  isLocalServer,
+  serverName,
+  busy,
+}: {
+  serviceId: string;
+  appPort: number | null;
+  initial: PortMapping[];
+  published: PublishedPort[];
+  isLocalServer: boolean;
+  serverName: string;
+  /** Host ports other containers already publish on this server. */
+  busy: number[];
+}) {
+  const [ports, setPorts] = React.useState<PortMapping[]>(initial);
+  const [saved, setSaved] = React.useState(JSON.stringify(initial));
+  const dirty = JSON.stringify(ports) !== saved;
+  const valid = ports.filter((p) => p.host && p.container);
+  const busySet = new Set(busy);
+  const clash = ports.find((p) => busySet.has(p.host));
+  const firstFree = (from: number) => {
+    let port = from;
+    while (busySet.has(port) || ports.some((p) => p.host === port)) port++;
+    return port;
+  };
+
+  const save = useAction(
+    async () => {
+      const res = await updateService(serviceId, { runtime: { ports: valid } });
+      if (!res.ok) return res;
+      return deployService(serviceId);
+    },
+    {
+      success: "Ports saved. Redeploying to publish them.",
+      onSuccess: () => {
+        setPorts(valid);
+        setSaved(JSON.stringify(valid));
+      },
+    },
+  );
+
+  const update = (i: number, patch: Partial<PortMapping>) => setPorts((all) => all.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  const add = () => {
+    const container = appPort || 3000;
+    const used = new Set([...busy, ...ports.map((p) => p.host)]);
+    // Ports below 1024 usually need root or are taken (80/443 by the proxy): offer 8080 instead.
+    let host = suggestedHost(container);
+    while (used.has(host)) host++;
+    setPorts((all) => [...all, { host, container, protocol: "tcp", bindAddress: isLocalServer ? "127.0.0.1" : "0.0.0.0" }]);
+  };
+
+  return (
+    <Card>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save.run();
+        }}
+      >
+        <CardHeader
+          title="Ports"
+          description={
+            isLocalServer
+              ? "Open the app straight from this machine, like localhost:3000, without a domain. Useful while developing."
+              : `Publish ports on ${serverName} for TCP or UDP traffic that does not go through a domain.`
+          }
+        />
+        <CardBody className="flex flex-col gap-3 py-5">
+          {published.length > 0 && !dirty && (
+            <div className="flex flex-wrap gap-2">
+              {published.map((p) =>
+                p.url ? (
+                  <a
+                    key={`${p.host}/${p.protocol}`}
+                    href={p.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5 font-mono text-[12.5px] text-accent hover:underline"
+                  >
+                    {p.label}
+                    <ArrowUpRight className="size-3.5" />
+                  </a>
+                ) : (
+                  <span key={`${p.host}/${p.protocol}`} className="rounded-lg bg-surface-2 px-2.5 py-1.5 font-mono text-[12.5px] text-fg-2">
+                    {p.label}/udp
+                  </span>
+                ),
+              )}
+            </div>
+          )}
+
+          {ports.length > 0 && (
+            <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px] gap-2 px-0.5 text-[11px] font-medium tracking-wide text-faint uppercase sm:grid">
+              <span>{isLocalServer ? "Local port" : "Server port"}</span>
+              <span>Container port</span>
+              <span>Protocol</span>
+              <span>Reachable by</span>
+              <span />
+            </div>
+          )}
+          {ports.map((p, i) => (
+            <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px] gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]">
+              <Input value={String(p.host || "")} onChange={(e) => update(i, { host: digits(e.target.value) })} placeholder="3000" aria-label="Server port" aria-invalid={busySet.has(p.host) || undefined} className="h-8 font-mono" inputMode="numeric" />
+              <Input value={String(p.container || "")} onChange={(e) => update(i, { container: digits(e.target.value) })} placeholder={String(appPort || 3000)} aria-label="Container port" className="h-8 font-mono" inputMode="numeric" />
+              <Button variant="ghost" size="icon" className="order-3 sm:order-5" onClick={() => setPorts((all) => all.filter((_, j) => j !== i))} aria-label="Remove port">
+                <Trash2 />
+              </Button>
+              <div className="order-4 sm:order-3">
+                <Select size="sm" value={p.protocol} onValueChange={(v) => update(i, { protocol: v as PortMapping["protocol"] })} options={[{ value: "tcp", label: "TCP" }, { value: "udp", label: "UDP" }]} />
+              </div>
+              <div className="order-5 col-span-2 sm:order-4 sm:col-span-1">
+                <Select
+                  size="sm"
+                  value={p.bindAddress ?? "0.0.0.0"}
+                  onValueChange={(v) => update(i, { bindAddress: v as PortMapping["bindAddress"] })}
+                  options={[
+                    { value: "127.0.0.1", label: "This machine", description: "localhost only" },
+                    { value: "0.0.0.0", label: "Everyone", description: "Any network" },
+                  ]}
+                />
+              </div>
+            </div>
+          ))}
+
+          {ports.length === 0 && (
+            <button
+              type="button"
+              onClick={add}
+              className="flex items-center gap-3 rounded-xl border border-dashed border-line-strong px-4 py-3.5 text-left transition-colors hover:border-accent hover:bg-accent-soft/40"
+            >
+              <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-surface-2 text-fg-2">
+                <Laptop className="size-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-fg">
+                  Open on {isLocalServer ? "localhost" : serverName}:{firstFree(suggestedHost(appPort || 3000))}
+                </span>
+                <span className="block text-xs text-muted">
+                  {isLocalServer ? "Publishes the app's port on this machine only." : "Publishes the app's port on the server."}
+                </span>
+              </span>
+            </button>
+          )}
+          {clash && (
+            <p className="text-xs text-warn">
+              Port {clash.host} is already used on {isLocalServer ? "this machine" : serverName}. Try {firstFree(clash.host)}.
+            </p>
+          )}
+          {ports.length > 0 && !clash && <p className="text-xs text-muted">One replica only: two containers cannot share a port.</p>}
+        </CardBody>
+        <CardFooter>
+          <div className="flex min-w-0 items-center gap-3">
+            {ports.length > 0 && (
+              <Button size="sm" onClick={add}>
+                <Plus /> Add port
+              </Button>
+            )}
+            {dirty && <span className="truncate text-xs text-muted">Unsaved changes</span>}
+          </div>
+          <div className="flex flex-none gap-2">
+            {dirty && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setPorts(JSON.parse(saved))}>
+                Discard
+              </Button>
+            )}
+            <Button type="submit" variant="primary" size="sm" disabled={!dirty || !!clash} loading={save.pending}>
+              Save and redeploy
+            </Button>
+          </div>
+        </CardFooter>
+      </form>
+    </Card>
+  );
+}

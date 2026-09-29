@@ -68,7 +68,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     { href: `${base}/console`, label: "Console" },
     { href: `${base}/metrics`, label: "Metrics" },
     { href: `${base}/variables`, label: "Variables" },
-    ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains" }] : []),
+    ...(service.type !== "database" ? [{ href: `${base}/domains`, label: service.type === "app" ? "Domains & ports" : "Domains" }] : []),
     ...(service.type === "database" ? [{ href: `${base}/backups`, label: "Backups" }] : [{ href: `${base}/tasks`, label: "Tasks" }]),
     { href: `${base}/settings`, label: "Settings" },
   ];

@@ -154,7 +154,11 @@ export function DatabaseOverview(props: {
                 <ChevronRight className="size-3.5 flex-none text-faint transition-colors group-hover:text-muted" />
               </button>
             ))}
-            {!data?.containers.length && <p className="px-5 py-4 text-[13px] text-muted">Starting soon…</p>}
+            {!data?.containers.length && (
+              <p className="px-5 py-4 text-[13px] text-muted">
+                {data?.status === "idle" ? "Not deployed yet. Click Deploy to start it." : data?.status === "stopped" ? "Stopped." : "Starting soon…"}
+              </p>
+            )}
           </div>
         </Card>
         {props.uptimeInSide && props.uptime}

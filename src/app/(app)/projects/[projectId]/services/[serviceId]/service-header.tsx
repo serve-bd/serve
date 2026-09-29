@@ -104,6 +104,8 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   };
   const primary = pickPrimaryDomain(live.domains);
   const stopped = live.status === "stopped";
+  // Never deployed: nothing runs yet, so there is nothing to restart or stop.
+  const notDeployed = live.status === "idle";
   const busy = ["building", "deploying", "restarting"].includes(live.status);
 
   return (
@@ -176,7 +178,11 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 <Power className="size-3.5" /> Manage <ChevronDown className="size-3.5 text-muted" />
               </MenuTrigger>
               <MenuContent>
-                {stopped ? (
+                {notDeployed ? (
+                  <MenuItem disabled>
+                    <Rocket /> Deploy first to start it
+                  </MenuItem>
+                ) : stopped ? (
                   <MenuItem onClick={() => control.run("start")}>
                     <Play /> Start
                   </MenuItem>
@@ -193,7 +199,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                     </MenuItem>
                   </>
                 )}
-                {!stopped && (
+                {!stopped && !notDeployed && (
                   <>
                     <MenuSeparator />
                     <MenuItem
@@ -218,7 +224,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
               </MenuContent>
             </Menu>
             <Button variant="primary" size="sm" onClick={() => deploy.run()} loading={deploy.pending} disabled={!can("services.deploy")} title={cannot("services.deploy")}>
-              <Rocket /> {service.type === "database" ? "Redeploy" : "Deploy"}
+              <Rocket /> {service.type === "database" && live.status !== "idle" ? "Redeploy" : "Deploy"}
             </Button>
           </div>
         </div>

@@ -96,7 +96,7 @@ export function LoginForm({ next }: { next: string }) {
   }
 
   return (
-    <AuthCard title="Sign in" description="Use your account to continue.">
+    <AuthCard title="Welcome back" description="Sign in to manage your deployments.">
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <Field label="Email">
           <Input name="email" type="email" required autoFocus autoComplete="email" placeholder="you@company.com" className="h-10" />

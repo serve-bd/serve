@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/** Centered sign-in style card: title, optional subtitle, then the form. */
+/** Sign-in form block: title, optional subtitle, then the form. No card; the page is the surface. */
 export function AuthCard({
   title,
   description,
@@ -15,16 +15,11 @@ export function AuthCard({
   className?: string;
 }) {
   return (
-    <section
-      className={cn(
-        "w-full rounded-2xl border border-line bg-surface px-6 py-7 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_12px_32px_-12px_rgb(0_0_0/0.18)] sm:px-7",
-        className,
-      )}
-    >
-      <header className="mb-6 flex flex-col items-center gap-1.5 text-center">
+    <section className={cn("w-full", className)}>
+      <header className="mb-7 flex flex-col gap-1.5">
         {eyebrow && <p className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">{eyebrow}</p>}
-        <h1 className="font-display text-[22px] leading-tight font-semibold tracking-tight text-fg">{title}</h1>
-        {description && <p className="text-[13px] leading-relaxed text-muted">{description}</p>}
+        <h1 className="font-display text-[26px] leading-tight font-semibold tracking-tight text-fg">{title}</h1>
+        {description && <p className="text-[14px] leading-relaxed text-muted">{description}</p>}
       </header>
       {children}
     </section>

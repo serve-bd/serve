@@ -239,6 +239,74 @@ function httpsDescription(props: Props) {
   return props.hasAcme ? "Get a free certificate and redirect HTTP to HTTPS." : "Add a Let's Encrypt email in Server settings to enable automatic certificates.";
 }
 
+/** Whether a certificate's names cover a hostname (exact, or one wildcard level). */
+function certCovers(names: string[], host: string) {
+  return names.some((n) => n === host || (n.startsWith("*.") && host.endsWith(n.slice(1)) && !host.slice(0, -n.length + 1).includes(".")));
+}
+
+/** How the domain is secured: a free certificate, a stored one, or plain HTTP behind the user's own TLS. */
+function TlsChoice({
+  props,
+  hostname,
+  value,
+  onChange,
+  certificateId,
+  onCertificate,
+}: {
+  props: Props;
+  hostname: string;
+  value: "auto" | "custom" | "none";
+  onChange: (v: "auto" | "custom" | "none") => void;
+  certificateId: string;
+  onCertificate: (id: string) => void;
+}) {
+  const own = props.certificates.filter((c) => !c.provider.startsWith("letsencrypt") && c.status === "active" && certCovers(c.domains, hostname));
+  const options: { id: "auto" | "custom" | "none"; title: string; body: string }[] = [
+    { id: "auto", title: "HTTPS, free certificate", body: httpsDescription(props) },
+    ...(own.length || value === "custom" ? [{ id: "custom" as const, title: "HTTPS, my certificate", body: "Use a certificate you uploaded in Certificates." }] : []),
+    { id: "none", title: "HTTP only", body: "No certificate. For when your own proxy, load balancer or CDN in front of Serve handles HTTPS." },
+  ];
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-[13px] font-medium text-fg">Security</span>
+      <div className="flex flex-col gap-2" role="radiogroup" aria-label="Security">
+        {options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            role="radio"
+            aria-checked={value === o.id}
+            onClick={() => {
+              onChange(o.id);
+              if (o.id === "custom" && !certificateId && own[0]) onCertificate(own[0].id);
+            }}
+            className={cn(
+              "flex items-start gap-3 rounded-xl border p-3 text-left transition-colors",
+              value === o.id ? "border-accent bg-accent-soft/40" : "border-line hover:border-line-strong",
+            )}
+          >
+            <span className={cn("mt-0.5 flex size-4 flex-none items-center justify-center rounded-full border", value === o.id ? "border-accent" : "border-line-strong")}>
+              {value === o.id && <span className="size-2 rounded-full bg-accent" />}
+            </span>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-[13px] font-medium text-fg">{o.title}</span>
+              <span className="text-xs leading-relaxed text-muted">{o.body}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      {value === "custom" && own.length > 0 && (
+        <Select value={certificateId} onValueChange={onCertificate} options={own.map((c) => ({ value: c.id, label: c.name, description: c.domains.join(", ") }))} />
+      )}
+      {value === "none" && (
+        <p className="text-xs leading-relaxed text-muted">
+          Point your proxy at this server&apos;s HTTP port and pass <span className="font-mono">X-Forwarded-Proto: https</span>; the app then sees the request as HTTPS.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Why Let's Encrypt cannot validate the domain over the network, or null when it can. */
 function challengeProblem(props: Props, viaDns: boolean) {
   const kind = props.proxyKind ?? "nginx";
@@ -291,7 +359,10 @@ function DnsRecordTable({ hostname, ip }: { hostname: string; ip: string }) {
 
 function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: boolean; onOpenChange: (o: boolean) => void }) {
   const [hostname, setHostname] = React.useState("");
-  const [https, setHttps] = React.useState(true);
+  // auto: the proxy gets a free certificate; custom: a stored certificate; none: plain HTTP, TLS ends in front of Serve.
+  const [tls, setTls] = React.useState<"auto" | "custom" | "none">("auto");
+  const [certificateId, setCertificateId] = React.useState<string>("");
+  const https = tls !== "none";
   const [port, setPort] = React.useState(() => (props.type === "compose" ? String(props.composePorts[props.composeServices[0] ?? ""]?.[0] ?? "") : ""));
   const [composeService, setComposeService] = React.useState(props.composeServices[0] ?? "");
   const defaultPortFor = (svc: string) => String(props.composePorts[svc]?.[0] ?? "");
@@ -327,7 +398,8 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
       addDomain(props.serviceId, {
         hostname,
         https,
-        forceHttps: true,
+        forceHttps: https,
+        certificateId: tls === "custom" && certificateId ? certificateId : null,
         port: port ? Number(port) : null,
         composeService: props.type === "compose" ? composeService : null,
         redirectTo: mode === "redirect" ? redirect : null,
@@ -484,7 +556,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                   </div>
                 ) : (
                   <>
-                    <SwitchRow title="HTTPS" description={httpsDescription(props)} checked={https} onCheckedChange={setHttps} />
+                    <TlsChoice props={props} hostname={hostname} value={tls} onChange={setTls} certificateId={certificateId} onCertificate={setCertificateId} />
                     {https && !!hostname && challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx") && (
                       <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
                         {challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx")} Route the domain through a Cloudflare Tunnel

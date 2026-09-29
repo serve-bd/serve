@@ -296,7 +296,8 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
           .returning();
         if (domain.https) await ensureCertificateFor(domain, ctx.org.id);
       }
-      const publicUrl = generated ? `${generated.https ? "https" : "http"}://${generated.hostname}` : "http://localhost";
+      // A reference, so the value follows the service's primary domain (a custom domain replaces the generated one).
+      const publicUrl = generated ? "${{SERVE_PUBLIC_URL}}" : "http://localhost";
       const vars = template.vars.map((v) => ({
         key: v.key,
         value: v.publicUrl

@@ -13,7 +13,11 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
     SERVE_SERVICE_NAME: service.name,
     SERVE_PRIVATE_DOMAIN: service.slug,
   };
-  const primary = domains.find((d) => !d.redirectTo) ?? null;
+  // Custom domains win over generated ones (sslip.io / wildcard); the oldest of each kind first.
+  const primary =
+    domains
+      .filter((d) => !d.redirectTo)
+      .sort((a, b) => Number(a.generated) - Number(b.generated) || a.createdAt.getTime() - b.createdAt.getTime())[0] ?? null;
   if (primary) {
     vars.SERVE_PUBLIC_DOMAIN = primary.hostname;
     // Tunnel domains are HTTPS at Cloudflare even though the proxy serves them over HTTP.

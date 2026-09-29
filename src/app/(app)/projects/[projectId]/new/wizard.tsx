@@ -575,9 +575,9 @@ const YOURS = "Your templates";
 function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Kind, engine?: DbEngine) => void; onTemplate: (id: string) => void }) {
   const [query, setQuery] = React.useState("");
   const hasCustom = props.templates.some((t) => t.custom);
-  const [category, setCategory] = React.useState(POPULAR);
+  const [category, setCategory] = React.useState("All");
   const builtIn = [...new Set(props.templates.filter((t) => !t.custom).map((t) => t.category))];
-  const chips = [POPULAR, "All", ...(hasCustom ? [YOURS] : []), ...builtIn];
+  const chips = ["All", POPULAR, ...(hasCustom ? [YOURS] : []), ...builtIn];
   const q = query.trim().toLowerCase();
   const list = props.templates
     .filter((t) =>
@@ -625,8 +625,8 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
               size="sm"
               value={category}
               onValueChange={setCategory}
-              options={chips.map((c) => ({ value: c, label: c === "All" ? "All categories" : c }))}
-              className="w-40 flex-none"
+              options={chips.map((c) => ({ value: c, label: c === "All" ? "All services" : c }))}
+              className="w-44 flex-none"
             />
             <div className="relative w-full sm:w-64">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint" />

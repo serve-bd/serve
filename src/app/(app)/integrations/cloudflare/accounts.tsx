@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { connectCloudflare, disconnectCloudflare } from "@/server/actions/integrations";
+import { PageBody, PageHeader } from "@/components/shell/page-header";
 
 type Account = { id: string; name: string; zones: { id: string; name: string; status: string; plan: string | null }[]; error: string | null };
 
@@ -65,12 +66,26 @@ export function ConnectCloudflareDialog({ open, onOpenChange }: { open: boolean;
   );
 }
 
-export function CloudflareAccounts({ accounts, isAdmin }: { accounts: Account[]; isAdmin: boolean }) {
+/** The whole page, so "Connect account" can sit in the page header next to the title. */
+export function CloudflareAccounts({ accounts, isAdmin, title, description }: { accounts: Account[]; isAdmin: boolean; title: string; description: string }) {
   const [open, setOpen] = React.useState(false);
   const confirm = useConfirm();
   const remove = useAction(disconnectCloudflare, { success: "Account disconnected" });
   return (
-    <div className="flex flex-col gap-6">
+    <>
+      <PageHeader
+        title={title}
+        description={description}
+        actions={
+          isAdmin &&
+          accounts.length > 0 && (
+            <Button variant="primary" size="sm" onClick={() => setOpen(true)}>
+              <Plus /> Connect account
+            </Button>
+          )
+        }
+      />
+      <PageBody className="flex flex-col gap-6">
       {accounts.length === 0 ? (
         <Card>
           <EmptyState
@@ -82,13 +97,6 @@ export function CloudflareAccounts({ accounts, isAdmin }: { accounts: Account[];
         </Card>
       ) : (
         <>
-          {isAdmin && (
-            <div className="flex justify-end">
-              <Button variant="primary" size="sm" onClick={() => setOpen(true)}>
-                <Plus /> Connect account
-              </Button>
-            </div>
-          )}
           {accounts.map((a) => (
             <Card key={a.id} className="overflow-hidden">
               <CardHeader
@@ -127,6 +135,7 @@ export function CloudflareAccounts({ accounts, isAdmin }: { accounts: Account[];
         </>
       )}
       <ConnectCloudflareDialog open={open} onOpenChange={setOpen} />
-    </div>
+      </PageBody>
+    </>
   );
 }

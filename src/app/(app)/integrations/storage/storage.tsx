@@ -24,16 +24,32 @@ export function StorageDestinations({ destinations, isAdmin }: { destinations: D
 
   return (
     <div className="flex flex-col gap-4">
-      {isAdmin && (
-        <div className="flex justify-end">
-          <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
-            <Plus /> Add storage
-          </Button>
-        </div>
-      )}
       <Card className="overflow-hidden">
+        {destinations.length > 0 && (
+          <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+            <p className="text-[13px] text-muted">
+              {destinations.length} destination{destinations.length === 1 ? "" : "s"}
+            </p>
+            {isAdmin && (
+              <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
+                <Plus /> Add storage
+              </Button>
+            )}
+          </div>
+        )}
         {destinations.length === 0 ? (
-          <EmptyState icon={<HardDriveUpload />} title="No backup storage" description="Backups stay on this server until you add off-site storage." />
+          <EmptyState
+            icon={<HardDriveUpload />}
+            title="No backup storage"
+            description="Backups stay on this server until you add off-site storage."
+            action={
+              isAdmin && (
+                <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
+                  <Plus /> Add storage
+                </Button>
+              )
+            }
+          />
         ) : (
           <div className="divide-y divide-line">
             {destinations.map((d) => (

@@ -3,7 +3,6 @@ import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decrypt } from "@/server/crypto";
 import { Cloudflare, type CfZone } from "@/server/cloudflare/api";
-import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { CloudflareAccounts } from "./accounts";
 
 export const metadata = { title: "Cloudflare" };
@@ -22,11 +21,11 @@ export default async function CloudflarePage() {
     }),
   );
   return (
-    <>
-      <PageHeader title="Cloudflare" description="Manage DNS records, SSL modes and certificates for your Cloudflare zones without leaving Serve." />
-      <PageBody>
-        <CloudflareAccounts accounts={withZones} isAdmin={ctx.isAdmin} />
-      </PageBody>
-    </>
+    <CloudflareAccounts
+      title="Cloudflare"
+      description="Manage DNS records, SSL modes and certificates for your Cloudflare zones without leaving Serve."
+      accounts={withZones}
+      isAdmin={ctx.isAdmin}
+    />
   );
 }

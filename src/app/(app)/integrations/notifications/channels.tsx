@@ -41,14 +41,32 @@ export function NotificationChannels({ channels, events, isAdmin }: { channels: 
 
   return (
     <div className="flex flex-col gap-4">
-      {isAdmin && (
-        <div className="flex justify-end">
-          <Button size="sm" variant="primary" onClick={() => openFor(null)}><Plus /> Add channel</Button>
-        </div>
-      )}
       <Card className="overflow-hidden">
+        {channels.length > 0 && (
+          <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+            <p className="text-[13px] text-muted">
+              {channels.length} channel{channels.length === 1 ? "" : "s"}
+            </p>
+            {isAdmin && (
+              <Button size="sm" variant="primary" onClick={() => openFor(null)}>
+                <Plus /> Add channel
+              </Button>
+            )}
+          </div>
+        )}
         {channels.length === 0 ? (
-          <EmptyState icon={<Bell />} title="No notification channels" description="Send alerts to Discord, Slack, Telegram or any webhook." />
+          <EmptyState
+            icon={<Bell />}
+            title="No notification channels"
+            description="Send alerts to Discord, Slack, Telegram or any webhook."
+            action={
+              isAdmin && (
+                <Button size="sm" variant="primary" onClick={() => openFor(null)}>
+                  <Plus /> Add channel
+                </Button>
+              )
+            }
+          />
         ) : (
           <div className="divide-y divide-line">
             {channels.map((c) => (

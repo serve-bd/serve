@@ -12,6 +12,7 @@ import { syncServiceProxy } from "@/server/proxy/nginx";
 import { getSettings } from "@/server/settings";
 import { resolveEnv } from "@/server/services/variables";
 import { composeVariables } from "@/lib/compose-vars";
+import { networkAliases } from "@/lib/hostname";
 import { parseCompose } from "@/server/deploy/compose";
 import { engines } from "@/server/databases/engines";
 import { logActivity } from "@/server/activity";
@@ -237,7 +238,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
         kind: "app",
         env: env.runtime,
         runtime,
-        aliases: [service.slug],
+        aliases: networkAliases(service),
         network,
         serviceDir: server.paths.service(service.id),
       }, server);
@@ -440,7 +441,7 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
       healthcheckPath: null,
       healthcheckTimeout: 180,
     },
-    aliases: [service.slug],
+    aliases: networkAliases(service),
     network,
   }, server);
   line(`Volume ${volumeName(service.slug, "data")} mounted at ${plan.dataMountPath}`);

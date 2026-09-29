@@ -34,6 +34,7 @@ type Props = {
     id: string;
     name: string;
     slug: string;
+    hostname: string | null;
     type: string;
     autoDeploy: boolean;
     previewsEnabled: boolean;
@@ -205,15 +206,37 @@ export function ServiceSettings(props: Props) {
       </nav>
     <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
       {isDb && <ApplyBar pending={pendingApply} running={running} applying={applyDb.pending} onApply={() => applyDb.run()} />}
-      <Section id="general" title="General" initial={{ name: service.name }} onSave={(v) => save.run({ name: v.name })}>
+      <Section
+        id="general"
+        title="General"
+        initial={{ name: service.name, hostname: service.hostname ?? "" }}
+        onSave={(v) => save.run({ name: v.name, ...(service.type !== "compose" ? { hostname: v.hostname.trim() || null } : {}) })}
+        footerNote={service.type !== "compose" ? "A new hostname applies after redeploying this service and the services that reference it." : undefined}
+      >
         {(v, set) => (
           <>
             <Field label="Service name">
               <Input value={v.name} onChange={(e) => set({ name: e.target.value })} required />
             </Field>
-            <Field label="Private hostname" description="Other services in this environment reach this one at this hostname.">
-              <CopyField value={service.slug} />
-            </Field>
+            {service.type === "compose" ? (
+              <Field label="Private hostname" description="Other services in this environment reach this one at this hostname.">
+                <CopyField value={service.slug} />
+              </Field>
+            ) : (
+              <Field
+                label="Private hostname"
+                optional
+                description={`Other services in this environment reach this one at this name. ${service.slug} keeps working as well.`}
+              >
+                <Input
+                  value={v.hostname}
+                  onChange={(e) => set({ hostname: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
+                  placeholder={service.slug}
+                  maxLength={63}
+                  className="font-mono text-[13px]"
+                />
+              </Field>
+            )}
           </>
         )}
       </Section>

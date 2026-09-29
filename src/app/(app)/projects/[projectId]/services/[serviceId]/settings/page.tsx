@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { privateHost } from "@/lib/hostname";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { pageService } from "@/server/services/access";
@@ -53,7 +54,7 @@ function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean) 
       tls: !!engine.tlsArgs,
       healthcheck: (check[0] === "CMD-SHELL" ? check[1] : check.slice(1).join(" ")).replaceAll(password, "••••••"),
     },
-    internalUrl: databaseUrl(cfg, creds, service.slug, engine.port),
+    internalUrl: databaseUrl(cfg, creds, privateHost(service), engine.port),
     dataPath: cfg.dataMountPath || engine.dataPath,
     defaultDataPath: engine.dataPath,
   };
@@ -89,6 +90,7 @@ export default async function SettingsPage(props: PageProps<"/projects/[projectI
           id: service.id,
           name: service.name,
           slug: service.slug,
+          hostname: service.hostname,
           type: service.type,
           autoDeploy: service.autoDeploy,
           previewsEnabled: service.previewsEnabled,

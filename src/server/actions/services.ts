@@ -26,6 +26,7 @@ import { composeSecurityIssues, safeRedirectUrl } from "@/server/security";
 import type { OrgContext } from "@/server/auth";
 import { requestServiceControl } from "@/server/services/control";
 import { resolveServerForOrg, serverPublicIp } from "@/server/servers/access";
+import { HOSTNAME_RE } from "@/lib/hostname";
 import { CAPABILITIES } from "@/server/deploy/options";
 import { volumeSchema } from "@/server/services/volume-schema";
 
@@ -327,6 +328,8 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
 
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
+  /** Extra private hostname; "" or null removes it. */
+  hostname: z.string().trim().toLowerCase().max(63).nullable().optional(),
   autoDeploy: z.boolean().optional(),
   previewsEnabled: z.boolean().optional(),
   source: z
@@ -444,6 +447,20 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     const data = updateSchema.parse(input);
     const patch: Partial<typeof schema.service.$inferInsert> = {};
     if (data.name) patch.name = data.name;
+    if (data.hostname !== undefined) {
+      const hostname = data.hostname && data.hostname !== service.slug ? data.hostname : null;
+      if (hostname) {
+        if (service.type === "compose") throw new UserError("Compose stacks name each container themselves; set a custom hostname on apps and databases.");
+        if (!HOSTNAME_RE.test(hostname)) throw new UserError("Use lowercase letters, numbers and dashes, like postgres or api-db.");
+        const siblings = await db
+          .select({ id: schema.service.id, name: schema.service.name, slug: schema.service.slug, hostname: schema.service.hostname })
+          .from(schema.service)
+          .where(eq(schema.service.environmentId, service.environmentId));
+        const taken = siblings.find((x) => x.id !== service.id && (x.slug === hostname || x.hostname === hostname));
+        if (taken) throw new UserError(`${taken.name} in this environment already uses ${hostname}.`);
+      }
+      patch.hostname = hostname;
+    }
     if (data.autoDeploy !== undefined) patch.autoDeploy = data.autoDeploy;
     if (data.previewsEnabled !== undefined) patch.previewsEnabled = data.previewsEnabled;
     if (data.source) {

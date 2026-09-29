@@ -1,4 +1,5 @@
 import "server-only";
+import { privateHost } from "@/lib/hostname";
 import { and, count, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { getServerRow } from "@/server/servers/context";
@@ -78,7 +79,7 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
     service: {
       id: service.id,
       name: service.name,
-      slug: service.slug,
+      slug: privateHost(service),
       type: service.type as "app" | "compose",
       status: service.status,
       autoDeploy: service.autoDeploy,

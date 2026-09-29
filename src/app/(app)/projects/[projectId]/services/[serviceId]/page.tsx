@@ -1,4 +1,5 @@
 import { requireOrg } from "@/server/auth";
+import { privateHost } from "@/lib/hostname";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
 import { ServiceOverview } from "./overview";
@@ -26,9 +27,9 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           projectId={projectId}
           engine={{ label: engine.label, port: engine.port, hasUser: engine.hasUser, hasDatabase: engine.hasDatabase }}
           creds={creds}
-          internalUrl={databaseUrl(cfg, creds, service.slug, engine.port)}
+          internalUrl={databaseUrl(cfg, creds, privateHost(service), engine.port)}
           publicUrl={published ? databaseUrl(cfg, creds, published.address, published.host) : null}
-          host={service.slug}
+          host={privateHost(service)}
           publicPort={cfg.publicPort ?? null}
           publicBind={cfg.publicBind ?? "0.0.0.0"}
           publicAddress={published?.label ?? null}

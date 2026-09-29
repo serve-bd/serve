@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import { privateHost } from "@/lib/hostname";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { redirect } from "next/navigation";
 import { requireOrg } from "@/server/auth";
@@ -139,7 +140,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           custom={service.proxyCustom?.[kind] ?? null}
           otherCustom={(["nginx", "caddy", "traefik"] as const).filter((k) => k !== kind && !!service.proxyCustom?.[k])}
           hasDomains={domains.length > 0}
-          alias={appPort ? `${service.slug}:${appPort}` : null}
+          alias={appPort ? `${privateHost(service)}:${appPort}` : null}
         />
       )}
     </PageBody>

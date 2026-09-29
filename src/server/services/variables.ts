@@ -5,6 +5,7 @@ import { engines } from "@/server/databases/engines";
 import { databaseUrl } from "@/server/databases/options";
 import { referenceName } from "@/lib/refs";
 import { pickPrimaryDomain } from "@/lib/domains";
+import { privateHost } from "@/lib/hostname";
 
 type Service = typeof schema.service.$inferSelect;
 type Domain = typeof schema.domain.$inferSelect;
@@ -13,7 +14,7 @@ type Domain = typeof schema.domain.$inferSelect;
 export function providedVars(service: Service, domains: Domain[] = []): Record<string, string> {
   const vars: Record<string, string> = {
     SERVE_SERVICE_NAME: service.name,
-    SERVE_PRIVATE_DOMAIN: service.slug,
+    SERVE_PRIVATE_DOMAIN: privateHost(service),
   };
   const primary = pickPrimaryDomain(domains);
   if (primary) {
@@ -32,9 +33,9 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
       password: decryptOrNull(cfg.password) ?? "",
       database: cfg.database,
     };
-    const url = databaseUrl(cfg, creds, service.slug, engine.port);
+    const url = databaseUrl(cfg, creds, privateHost(service), engine.port);
     Object.assign(vars, {
-      HOST: service.slug,
+      HOST: privateHost(service),
       PORT: String(engine.port),
       USERNAME: creds.username,
       PASSWORD: creds.password,

@@ -319,6 +319,8 @@ export const service = pgTable(
     name: text("name").notNull(),
     /** Docker-safe unique identifier used for containers, networks and hosts. */
     slug: text("slug").notNull().unique(),
+    /** Extra private hostname chosen by the user; the slug stays reachable too. */
+    hostname: text("hostname"),
     type: text("type").$type<ServiceType>().notNull(),
     icon: text("icon"),
     status: text("status").$type<ServiceStatus>().notNull().default("idle"),

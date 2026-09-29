@@ -1,11 +1,13 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22-alpine AS deps
+# Dependencies and the build run on the runner's own platform: the output is plain
+# JavaScript, and building under emulation for other platforms is slow and crashes.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS deps
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
 
-FROM deps AS build
+FROM --platform=$BUILDPLATFORM deps AS build
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build

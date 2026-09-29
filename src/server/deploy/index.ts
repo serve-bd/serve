@@ -4,6 +4,7 @@ import { and, desc, eq, gt, ne } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import type Docker from "dockerode";
+import type { PortMapping } from "@/server/services/types";
 import { ensureNetwork, imageExists, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
 import { serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
@@ -177,22 +178,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   const needsStopFirst = runtime.ports.length > 0;
   if (needsStopFirst) {
     // Fail before touching the running version when another container holds a port.
-    const ownIds = new Set(old.map((c) => c.Id));
-    const others = (await d.listContainers()).filter((c) => !ownIds.has(c.Id));
-    for (const p of runtime.ports) {
-      const holder = others.find((c) =>
-        c.Ports.some(
-          (x) =>
-            x.PublicPort === p.host &&
-            x.Type === p.protocol &&
-            (x.IP === "0.0.0.0" || x.IP === "::" || !p.bindAddress || p.bindAddress === "0.0.0.0" || x.IP === p.bindAddress),
-        ),
-      );
-      if (holder) {
-        const name = holder.Names[0]?.replace(/^\//, "") ?? holder.Id.slice(0, 12);
-        throw new Error(`Port ${p.host} is already used by the container ${name} on ${server.name}. Choose another port in Domains & ports.`);
-      }
-    }
+    await assertPortsFree(d, server.name, runtime.ports, service.id);
   }
   if (needsStopFirst && old.length) {
     log.line("Stopping the previous version first because host ports are published");
@@ -258,6 +244,26 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     await Promise.all(old.map((c) => removeContainer(c.Id, 0, d)));
   }
   await pruneImages(service, d).catch(() => {});
+}
+
+/** Throws a clear error when another container already publishes one of the ports. */
+async function assertPortsFree(d: Docker, serverName: string, ports: PortMapping[], serviceId: string) {
+  if (!ports.length) return;
+  const others = (await d.listContainers()).filter((c) => c.Labels[LABEL.service] !== serviceId);
+  for (const p of ports) {
+    const holder = others.find((c) =>
+      c.Ports.some(
+        (x) =>
+          x.PublicPort === p.host &&
+          x.Type === p.protocol &&
+          (x.IP === "0.0.0.0" || x.IP === "::" || !p.bindAddress || p.bindAddress === "0.0.0.0" || x.IP === p.bindAddress),
+      ),
+    );
+    if (holder) {
+      const name = holder.Names[0]?.replace(/^\//, "") ?? holder.Id.slice(0, 12);
+      throw new Error(`Port ${p.host} is already used by the container ${name} on ${serverName}. Choose another port in Domains & ports.`);
+    }
+  }
 }
 
 /** Keep the newest N images per service for rollbacks. */
@@ -385,7 +391,8 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     await db.update(schema.service).set({ compose: { ...(fresh?.compose ?? cfg), subnet } }).where(eq(schema.service.id, service.id));
   }
   const network = await ensureEnvNetwork(service.environmentId, server);
-  const transformed = transformCompose(content, service.slug, service.id, subnet, network);
+  await assertPortsFree(server.docker, server.name, service.compose?.ports ?? [], service.id);
+  const transformed = transformCompose(content, service.slug, service.id, subnet, network, service.compose?.ports ?? []);
   const run = { projectName: service.slug, dir, file: ".serve-compose.yml", vars: env.runtime, log: log.line, signal, redact: env.secrets };
   await writeComposeFiles({ ...run, content: transformed });
   await setDeployment(dep.id, { status: "deploying" });

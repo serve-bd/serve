@@ -25,7 +25,9 @@ export async function publishedPorts(service: Service, server?: { publicIp: stri
       ? [{ host: service.database.publicPort, container: engines[service.database.engine].port, protocol: "tcp" as const, bindAddress: service.database.publicBind }]
       : service.type === "app"
         ? service.runtime.ports
-        : [];
+        : service.type === "compose"
+          ? (service.compose?.ports ?? [])
+          : [];
   if (!mappings.length) return [];
   const publicAddress = server?.publicIp ?? (await serverPublicIp(service.serverId)) ?? (server && !server.isLocal ? server.host : "localhost");
   return mappings.map((p) => {

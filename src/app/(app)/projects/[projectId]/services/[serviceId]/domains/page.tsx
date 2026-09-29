@@ -12,6 +12,7 @@ import { getServerRow } from "@/server/servers/context";
 import { busyHostPorts, publishedPorts } from "@/server/services/ports";
 import { DomainsManager } from "./domains-manager";
 import { PortsCard } from "./ports-card";
+import { getTemplate } from "@/server/services/templates";
 
 export const metadata = { title: "Domains & ports" };
 
@@ -28,16 +29,24 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
     serverAddressing(service.serverId),
     getServerRow(service.serverId),
   ]);
-  const [published, busy] = service.type === "app" ? await Promise.all([publishedPorts(service, server), busyHostPorts(service)]) : [[], []];
+  const hasPorts = service.type === "app" || service.type === "compose";
+  const [published, busy] = hasPorts ? await Promise.all([publishedPorts(service, server), busyHostPorts(service)]) : [[], []];
   const content = service.compose?.content ?? "";
+  // Main compose service first: the one a template exposes, else the file's first.
+  const template = service.compose?.template ? getTemplate(service.compose.template) : null;
+  const names = composeServiceNames(content);
+  const main = template?.expose.service && names.includes(template.expose.service) ? template.expose.service : names[0];
+  const composeServices = main ? [main, ...names.filter((n) => n !== main)] : names;
+  const composePorts = composeServicePorts(content);
+  if (template?.expose && main === template.expose.service && !composePorts[main]?.length) composePorts[main] = [template.expose.port];
   return (
     <PageBody className="flex flex-col gap-6">
       <DomainsManager
         serviceId={service.id}
         type={service.type}
         defaultPort={service.runtime.port}
-        composeServices={composeServiceNames(content)}
-        composePorts={composeServicePorts(content)}
+        composeServices={names}
+        composePorts={composePorts}
         hasCloudflare={cfAccounts.length > 0}
         hasAcme={!!settings.acmeEmail}
         serverIp={addressing.publicIp}
@@ -62,12 +71,15 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           };
         })}
       />
-      {service.type === "app" && (
+      {(service.type === "app" || (service.type === "compose" && composeServices.length > 0)) && (
         <PortsCard
-          key={JSON.stringify(service.runtime.ports)}
+          key={JSON.stringify(service.type === "app" ? service.runtime.ports : service.compose?.ports ?? [])}
           serviceId={service.id}
-          appPort={service.runtime.port}
-          initial={service.runtime.ports}
+          kind={service.type === "app" ? "app" : "compose"}
+          composeServices={composeServices}
+          composePorts={composePorts}
+          appPort={service.type === "app" ? service.runtime.port : (composePorts[main ?? ""]?.[0] ?? null)}
+          initial={service.type === "app" ? service.runtime.ports : (service.compose?.ports ?? [])}
           published={published}
           isLocalServer={server.isLocal}
           serverName={server.name}

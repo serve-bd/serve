@@ -389,7 +389,24 @@ const updateSchema = z.object({
     })
     .partial()
     .optional(),
-  compose: z.object({ content: z.string().optional(), path: z.string().optional() }).optional(),
+  compose: z
+    .object({
+      content: z.string().optional(),
+      path: z.string().optional(),
+      ports: z
+        .array(
+          z.object({
+            service: z.string().min(1).max(100),
+            host: z.number().int().min(1).max(65535),
+            container: z.number().int().min(1).max(65535),
+            protocol: z.enum(["tcp", "udp"]),
+            bindAddress: z.enum(["0.0.0.0", "127.0.0.1"]).optional(),
+          }),
+        )
+        .max(20)
+        .optional(),
+    })
+    .optional(),
 });
 
 export async function updateService(serviceId: string, input: z.input<typeof updateSchema>) {
@@ -462,6 +479,17 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
           throw new UserError(`The compose file is not valid: ${(e as Error).message}`);
         }
         assertSafeCompose(ctx, data.compose.content);
+      }
+      if (data.compose.ports) {
+        const ports = data.compose.ports;
+        if (ports.length && JSON.stringify(ports) !== JSON.stringify(service.compose.ports ?? [])) assertHostAccess(ctx, "Publishing host ports");
+        if (ports.some((p) => p.host < 1024)) throw new UserError("Ports below 1024 are reserved for the proxy and system services.");
+        const seen = new Set<string>();
+        for (const p of ports) {
+          const key = `${p.host}/${p.protocol}`;
+          if (seen.has(key)) throw new UserError(`Port ${p.host} is used twice.`);
+          seen.add(key);
+        }
       }
       patch.compose = { ...service.compose, ...data.compose };
     }

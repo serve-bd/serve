@@ -105,7 +105,11 @@ export type ComposeConfig = {
   template?: string | null;
   /** Private /24 subnet Serve assigned to the stack's default network. */
   subnet?: string | null;
+  /** Host ports Serve publishes for services of the stack, on top of the compose file's own. */
+  ports?: ComposePort[];
 };
+
+export type ComposePort = PortMapping & { service: string };
 
 export const defaultRuntime = (port: number | null = null): RuntimeConfig => ({
   port,

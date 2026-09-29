@@ -194,3 +194,15 @@ describe("referenceName", () => {
     expect(referenceName("!!!")).toBe("service");
   });
 });
+
+describe("transformCompose ports", () => {
+  it("publishes dashboard ports on the chosen compose service only", () => {
+    const out = YAML.parse(
+      transformCompose("services:\n  web:\n    image: nginx\n    ports: ['9000:9000']\n  db:\n    image: postgres\n", "stack", "svc1", null, "serve", [
+        { service: "web", host: 8083, container: 80, protocol: "tcp", bindAddress: "127.0.0.1" },
+      ]),
+    );
+    expect(out.services.web.ports).toEqual(["9000:9000", { target: 80, published: "8083", protocol: "tcp", mode: "host", host_ip: "127.0.0.1" }]);
+    expect(out.services.db.ports).toBeUndefined();
+  });
+});

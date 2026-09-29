@@ -7,8 +7,12 @@ import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
+import { cn } from "@/lib/utils";
 import { deployService, updateService } from "@/server/actions/services";
 import type { PortMapping } from "@/server/services/types";
+
+/** A port row; `service` names the compose service for compose stacks. */
+type Row = PortMapping & { service?: string };
 import type { PublishedPort } from "@/server/services/ports";
 
 const digits = (value: string) => Number(value.replace(/\D/g, "")) || 0;
@@ -20,6 +24,9 @@ const suggestedHost = (container: number) => (container < 1024 ? 8080 : containe
  */
 export function PortsCard({
   serviceId,
+  kind = "app",
+  composeServices = [],
+  composePorts = {},
   appPort,
   initial,
   published,
@@ -28,15 +35,24 @@ export function PortsCard({
   busy,
 }: {
   serviceId: string;
+  kind?: "app" | "compose";
+  /** Services of the compose stack, main service first. */
+  composeServices?: string[];
+  /** Container ports each compose service exposes, when known. */
+  composePorts?: Record<string, number[]>;
+  /** App port, or the main compose service's port. */
   appPort: number | null;
-  initial: PortMapping[];
+  initial: Row[];
   published: PublishedPort[];
   isLocalServer: boolean;
   serverName: string;
   /** Host ports other containers already publish on this server. */
   busy: number[];
 }) {
-  const [ports, setPorts] = React.useState<PortMapping[]>(initial);
+  const [ports, setPorts] = React.useState<Row[]>(initial);
+  const compose = kind === "compose";
+  const pickService = compose && composeServices.length > 1;
+  const defaultPort = (service?: string) => (service && composePorts[service]?.[0]) || appPort || (compose ? 80 : 3000);
   const [saved, setSaved] = React.useState(JSON.stringify(initial));
   const dirty = JSON.stringify(ports) !== saved;
   const valid = ports.filter((p) => p.host && p.container);
@@ -50,7 +66,9 @@ export function PortsCard({
 
   const save = useAction(
     async () => {
-      const res = await updateService(serviceId, { runtime: { ports: valid } });
+      const res = compose
+        ? await updateService(serviceId, { compose: { ports: valid.map((p) => ({ ...p, service: p.service ?? composeServices[0] })) } })
+        : await updateService(serviceId, { runtime: { ports: valid } });
       if (!res.ok) return res;
       return deployService(serviceId);
     },
@@ -63,14 +81,15 @@ export function PortsCard({
     },
   );
 
-  const update = (i: number, patch: Partial<PortMapping>) => setPorts((all) => all.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  const update = (i: number, patch: Partial<Row>) => setPorts((all) => all.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   const add = () => {
-    const container = appPort || 3000;
+    const service = compose ? composeServices[0] : undefined;
+    const container = defaultPort(service);
     const used = new Set([...busy, ...ports.map((p) => p.host)]);
     // Ports below 1024 usually need root or are taken (80/443 by the proxy): offer 8080 instead.
     let host = suggestedHost(container);
     while (used.has(host)) host++;
-    setPorts((all) => [...all, { host, container, protocol: "tcp", bindAddress: isLocalServer ? "127.0.0.1" : "0.0.0.0" }]);
+    setPorts((all) => [...all, { ...(service ? { service } : {}), host, container, protocol: "tcp", bindAddress: isLocalServer ? "127.0.0.1" : "0.0.0.0" }]);
   };
 
   return (
@@ -114,7 +133,8 @@ export function PortsCard({
           )}
 
           {ports.length > 0 && (
-            <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px] gap-2 px-0.5 text-[11px] font-medium tracking-wide text-faint uppercase sm:grid">
+            <div className={cn("hidden gap-2 px-0.5 text-[11px] font-medium tracking-wide text-faint uppercase sm:grid", pickService ? "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]" : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]")}>
+              {pickService && <span>Service</span>}
               <span>{isLocalServer ? "Local port" : "Server port"}</span>
               <span>Container port</span>
               <span>Protocol</span>
@@ -123,9 +143,25 @@ export function PortsCard({
             </div>
           )}
           {ports.map((p, i) => (
-            <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px] gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]">
+            <div
+              key={i}
+              className={cn(
+                "grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px] gap-2",
+                pickService ? "sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]",
+              )}
+            >
+              {pickService && (
+                <div className="col-span-3 sm:col-span-1">
+                  <Select
+                    size="sm"
+                    value={p.service ?? composeServices[0]}
+                    onValueChange={(v) => update(i, { service: v, container: defaultPort(v) })}
+                    options={composeServices.map((name) => ({ value: name, label: name }))}
+                  />
+                </div>
+              )}
               <Input value={String(p.host || "")} onChange={(e) => update(i, { host: digits(e.target.value) })} placeholder="3000" aria-label="Server port" aria-invalid={busySet.has(p.host) || undefined} className="h-8 font-mono" inputMode="numeric" />
-              <Input value={String(p.container || "")} onChange={(e) => update(i, { container: digits(e.target.value) })} placeholder={String(appPort || 3000)} aria-label="Container port" className="h-8 font-mono" inputMode="numeric" />
+              <Input value={String(p.container || "")} onChange={(e) => update(i, { container: digits(e.target.value) })} placeholder={String(defaultPort(p.service))} aria-label="Container port" className="h-8 font-mono" inputMode="numeric" />
               <Button variant="ghost" size="icon" className="order-3 sm:order-5" onClick={() => setPorts((all) => all.filter((_, j) => j !== i))} aria-label="Remove port">
                 <Trash2 />
               </Button>
@@ -157,10 +193,11 @@ export function PortsCard({
               </span>
               <span className="min-w-0">
                 <span className="block text-[13px] font-medium text-fg">
-                  Open on {isLocalServer ? "localhost" : serverName}:{firstFree(suggestedHost(appPort || 3000))}
+                  Open on {isLocalServer ? "localhost" : serverName}:{firstFree(suggestedHost(defaultPort(compose ? composeServices[0] : undefined)))}
                 </span>
                 <span className="block text-xs text-muted">
-                  {isLocalServer ? "Publishes the app's port on this machine only." : "Publishes the app's port on the server."}
+                  {compose && composeServices[0] ? `Publishes ${composeServices[0]}'s port ${defaultPort(composeServices[0])}` : "Publishes the app's port"}
+                  {isLocalServer ? " on this machine only." : " on the server."}
                 </span>
               </span>
             </button>

@@ -5,6 +5,7 @@ import { env } from "@/server/env";
 import { LABEL } from "@/server/docker/client";
 import { run } from "@/server/process";
 import type { ServerCtx } from "@/server/servers/context";
+import type { ComposePort } from "@/server/services/types";
 import { sh } from "@/server/servers/ssh";
 import { composeAlias } from "@/server/proxy/names";
 
@@ -61,9 +62,31 @@ export function composeServicePorts(content: string): Record<string, number[]> {
  * Attach every service to the shared Serve network with a predictable alias,
  * so the proxy can route to `<slug>-<service>`.
  */
-export function transformCompose(content: string, slug: string, serviceId: string, subnet?: string | null, network: string = env.network): string {
+export function transformCompose(
+  content: string,
+  slug: string,
+  serviceId: string,
+  subnet?: string | null,
+  network: string = env.network,
+  extraPorts: ComposePort[] = [],
+): string {
   const doc = parseCompose(content);
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
+    // Ports published from the dashboard (Domains & ports).
+    const mine = extraPorts.filter((p) => p.service === name);
+    if (mine.length) {
+      const existing = Array.isArray(svc.ports) ? (svc.ports as unknown[]) : [];
+      svc.ports = [
+        ...existing,
+        ...mine.map((p) => ({
+          target: p.container,
+          published: String(p.host),
+          protocol: p.protocol,
+          mode: "host",
+          ...(p.bindAddress && p.bindAddress !== "0.0.0.0" ? { host_ip: p.bindAddress } : {}),
+        })),
+      ];
+    }
     if (svc.network_mode) continue;
     const alias = composeAlias(slug, name);
     if (Array.isArray(svc.networks)) {

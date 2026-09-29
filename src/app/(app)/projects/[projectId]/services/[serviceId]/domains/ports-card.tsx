@@ -16,7 +16,6 @@ type Row = PortMapping & { service?: string };
 import type { PublishedPort } from "@/server/services/ports";
 
 const digits = (value: string) => Number(value.replace(/\D/g, "")) || 0;
-const suggestedHost = (container: number) => (container < 1024 ? 8080 : container);
 
 /**
  * Publish container ports on the server, e.g. to open an app at
@@ -82,15 +81,12 @@ export function PortsCard({
   );
 
   const update = (i: number, patch: Partial<Row>) => setPorts((all) => all.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  // A blank row: the user types both ports; nothing is guessed.
   const add = () => {
     const service = compose ? composeServices[0] : undefined;
-    const container = defaultPort(service);
-    const used = new Set([...busy, ...ports.map((p) => p.host)]);
-    // Ports below 1024 usually need root or are taken (80/443 by the proxy): offer 8080 instead.
-    let host = suggestedHost(container);
-    while (used.has(host)) host++;
-    setPorts((all) => [...all, { ...(service ? { service } : {}), host, container, protocol: "tcp", bindAddress: isLocalServer ? "127.0.0.1" : "0.0.0.0" }]);
+    setPorts((all) => [...all, { ...(service ? { service } : {}), host: 0, container: 0, protocol: "tcp", bindAddress: isLocalServer ? "127.0.0.1" : "0.0.0.0" }]);
   };
+  const incomplete = ports.some((p) => !p.host || !p.container);
 
   return (
     <Card>
@@ -160,7 +156,7 @@ export function PortsCard({
                   />
                 </div>
               )}
-              <Input value={String(p.host || "")} onChange={(e) => update(i, { host: digits(e.target.value) })} placeholder="3000" aria-label="Server port" aria-invalid={busySet.has(p.host) || undefined} className="h-8 font-mono" inputMode="numeric" />
+              <Input value={String(p.host || "")} onChange={(e) => update(i, { host: digits(e.target.value) })} placeholder="8080" aria-label="Server port" aria-invalid={busySet.has(p.host) || undefined} className="h-8 font-mono" inputMode="numeric" />
               <Input value={String(p.container || "")} onChange={(e) => update(i, { container: digits(e.target.value) })} placeholder={String(defaultPort(p.service))} aria-label="Container port" className="h-8 font-mono" inputMode="numeric" />
               <Button variant="ghost" size="icon" className="order-3 sm:order-5" onClick={() => setPorts((all) => all.filter((_, j) => j !== i))} aria-label="Remove port">
                 <Trash2 />
@@ -183,24 +179,17 @@ export function PortsCard({
           ))}
 
           {ports.length === 0 && (
-            <button
-              type="button"
-              onClick={add}
-              className="flex items-center gap-3 rounded-xl border border-dashed border-line-strong px-4 py-3.5 text-left transition-colors hover:border-accent hover:bg-accent-soft/40"
-            >
-              <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-surface-2 text-fg-2">
-                <Laptop className="size-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[13px] font-medium text-fg">
-                  Open on {isLocalServer ? "localhost" : serverName}:{firstFree(suggestedHost(defaultPort(compose ? composeServices[0] : undefined)))}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-line-strong px-4 py-3.5">
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-surface-2 text-fg-2">
+                  <Laptop className="size-4" />
                 </span>
-                <span className="block text-xs text-muted">
-                  {compose && composeServices[0] ? `Publishes ${composeServices[0]}'s port ${defaultPort(composeServices[0])}` : "Publishes the app's port"}
-                  {isLocalServer ? " on this machine only." : " on the server."}
-                </span>
+                <span className="text-[13px] text-muted">No ports published.</span>
               </span>
-            </button>
+              <Button size="sm" onClick={add}>
+                <Plus /> Add port
+              </Button>
+            </div>
           )}
           {clash && (
             <p className="text-xs text-warn">
@@ -224,7 +213,7 @@ export function PortsCard({
                 Discard
               </Button>
             )}
-            <Button type="submit" variant="primary" size="sm" disabled={!dirty || !!clash} loading={save.pending}>
+            <Button type="submit" variant="primary" size="sm" disabled={!dirty || !!clash || incomplete} loading={save.pending}>
               Save and redeploy
             </Button>
           </div>

@@ -50,6 +50,7 @@ export function settingsNav(s: SettingsNavInput): SettingsNavItem[] {
     ...(s.type !== "compose" ? [{ id: "resources", label: "Resources" }] : []),
     ...(s.type !== "compose" ? [{ id: "advanced", label: "Advanced" }] : []),
     ...(s.type !== "database" ? [{ id: "webhooks", label: "Webhooks" }] : []),
+    { id: "monitoring", label: "Monitoring" },
     { id: "danger", label: "Danger zone" },
   ];
 }

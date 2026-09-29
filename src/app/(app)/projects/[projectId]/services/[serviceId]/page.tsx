@@ -9,6 +9,8 @@ import { engines } from "@/server/databases/engines";
 import { databaseUrl } from "@/server/databases/options";
 import { decryptOrNull } from "@/server/crypto";
 import { publishedPorts } from "@/server/services/ports";
+import { monitorSummary } from "@/server/monitoring/queries";
+import { UptimeCard } from "./uptime-card";
 
 export default async function ServicePage(props: PageProps<"/projects/[projectId]/services/[serviceId]">) {
   const { projectId, serviceId } = await props.params;
@@ -20,8 +22,9 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
     const engine = engines[cfg.engine];
     const [published] = await publishedPorts(service);
     const creds = { username: cfg.username, password: decryptOrNull(cfg.password) ?? "", database: cfg.database };
+    const monitoring = await monitorSummary(service.id);
     return (
-      <PageBody>
+      <PageBody className="flex flex-col gap-6">
         <DatabaseOverview
           serviceId={service.id}
           projectId={projectId}
@@ -35,6 +38,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           publicAddress={published?.label ?? null}
           name={service.name}
         />
+        <UptimeCard summary={monitoring} settingsHref={`/projects/${projectId}/services/${service.id}/settings/monitoring`} />
       </PageBody>
     );
   }

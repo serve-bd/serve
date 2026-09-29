@@ -1,3 +1,4 @@
+import { monitorSummary } from "@/server/monitoring/queries";
 import "server-only";
 import { privateHost } from "@/lib/hostname";
 import { and, count, desc, eq } from "drizzle-orm";
@@ -73,7 +74,9 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
     commitUrl: repository && d.commitSha ? commitUrl(repository, d.commitSha) : null,
   });
 
+  const monitoring = await monitorSummary(service.id);
   return {
+    monitoring,
     projectId,
     orgId,
     service: {

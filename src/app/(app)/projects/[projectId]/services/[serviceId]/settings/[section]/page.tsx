@@ -12,6 +12,8 @@ import { PageBody } from "@/components/shell/page-header";
 import { notFound } from "next/navigation";
 import { ServiceSettings } from "../service-settings";
 import { settingsNav } from "../settings-nav";
+import { monitorSummary } from "@/server/monitoring/queries";
+import { monitorUrl } from "@/server/monitoring/checks";
 
 export async function generateMetadata(props: PageProps<"/projects/[projectId]/services/[serviceId]/settings/[section]">) {
   const { section } = await props.params;
@@ -136,6 +138,9 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
         server={server ?? { id: service.serverId, name: "Unknown server", host: "", isLocal: false }}
         servers={servers}
         isRootAdmin={ctx.isInstanceAdmin}
+        monitoring={
+          section === "monitoring" ? { monitor: (await monitorSummary(service.id)).monitor, defaultUrl: await monitorUrl({ url: null, path: "/" }, service.id) } : undefined
+        }
       />
     </PageBody>
   );

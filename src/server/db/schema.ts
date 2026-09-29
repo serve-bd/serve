@@ -791,6 +791,119 @@ export const requestMetric = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/*                                 Monitoring                                 */
+/* -------------------------------------------------------------------------- */
+
+export type MonitorKind = "http" | "container";
+export type MonitorStatus = "pending" | "up" | "down" | "paused";
+
+/** Uptime check of one service: HTTP against a URL, or the health of its containers. */
+export const monitor = pgTable("monitor", {
+  id: id(),
+  serviceId: text("service_id")
+    .notNull()
+    .unique()
+    .references(() => service.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(true),
+  kind: text("kind").$type<MonitorKind>().notNull().default("http"),
+  /** Full URL to check; null checks the service's primary domain. */
+  url: text("url"),
+  path: text("path").notNull().default("/"),
+  /** Accepted status codes, like "200-399" or "200,204". */
+  expectedStatus: text("expected_status").notNull().default("200-399"),
+  /** Text the response body must contain. */
+  keyword: text("keyword"),
+  intervalSeconds: integer("interval_seconds").notNull().default(60),
+  timeoutMs: integer("timeout_ms").notNull().default(10_000),
+  /** Consecutive failed checks before the service counts as down. */
+  failureThreshold: integer("failure_threshold").notNull().default(3),
+  status: text("status").$type<MonitorStatus>().notNull().default("pending"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  lastLatencyMs: integer("last_latency_ms"),
+  lastError: text("last_error"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Raw check results, kept for two days (daily rollups keep the long history). */
+export const monitorCheck = pgTable(
+  "monitor_check",
+  {
+    id: id(),
+    monitorId: text("monitor_id")
+      .notNull()
+      .references(() => monitor.id, { onDelete: "cascade" }),
+    ok: boolean("ok").notNull(),
+    latencyMs: integer("latency_ms"),
+    statusCode: integer("status_code"),
+    error: text("error"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("monitor_check_monitor_idx").on(t.monitorId, t.createdAt)],
+);
+
+/** One row per monitor and UTC day: counts for uptime bars and average latency. */
+export const monitorDaily = pgTable(
+  "monitor_daily",
+  {
+    monitorId: text("monitor_id")
+      .notNull()
+      .references(() => monitor.id, { onDelete: "cascade" }),
+    /** YYYY-MM-DD (UTC). */
+    day: text("day").notNull(),
+    checks: integer("checks").notNull().default(0),
+    failures: integer("failures").notNull().default(0),
+    latencySum: bigint("latency_sum", { mode: "number" }).notNull().default(0),
+    latencyCount: integer("latency_count").notNull().default(0),
+  },
+  (t) => [uniqueIndex("monitor_daily_idx").on(t.monitorId, t.day)],
+);
+
+export type IncidentKind = "down" | "crashloop" | "resource";
+
+/** Something that went wrong and when it was resolved. At most one open incident per key. */
+export const incident = pgTable(
+  "incident",
+  {
+    id: id(),
+    organizationId: orgRef(),
+    serviceId: text("service_id").references(() => service.id, { onDelete: "cascade" }),
+    serverId: text("server_id").references(() => server.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<IncidentKind>().notNull(),
+    /** Dedupe key, like "down:<serviceId>" or "resource:<serverId>:disk". */
+    key: text("key").notNull(),
+    severity: text("severity").$type<"warning" | "critical">().notNull().default("critical"),
+    title: text("title").notNull(),
+    detail: text("detail"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [index("incident_org_idx").on(t.organizationId, t.startedAt), index("incident_key_idx").on(t.key, t.resolvedAt)],
+);
+
+/** Per-server thresholds for resource alerts. */
+export type ServerAlertConfig = {
+  enabled: boolean;
+  /** Disk use (percent) for a warning and for a critical alert. */
+  diskWarn: number;
+  diskCritical: number;
+  /** Memory use (percent). */
+  memory: number;
+  /** CPU use (percent), sustained for cpuMinutes. */
+  cpu: number;
+  cpuMinutes: number;
+};
+
+export const serverAlerts = pgTable("server_alerts", {
+  serverId: text("server_id")
+    .primaryKey()
+    .references(() => server.id, { onDelete: "cascade" }),
+  config: jsonb("config").$type<ServerAlertConfig>().notNull(),
+  updatedAt: updatedAt(),
+});
+
+/* -------------------------------------------------------------------------- */
 /*                                 Relations                                  */
 /* -------------------------------------------------------------------------- */
 

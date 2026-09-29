@@ -27,6 +27,7 @@ import {
   Variable,
   Activity,
   AlertTriangle,
+  HeartPulse,
   Settings,
 } from "lucide-react";
 import { Logo } from "@/components/brand";
@@ -59,6 +60,7 @@ const mainNav: NavItem[] = [
   { href: "/projects", label: "Projects", icon: Blocks },
   { href: "/domains", label: "Domains", icon: Globe },
   { href: "/certificates", label: "Certificates", icon: ShieldCheck },
+  { href: "/monitoring", label: "Monitoring", icon: HeartPulse },
   { href: "/activity", label: "Activity", icon: Activity },
 ];
 

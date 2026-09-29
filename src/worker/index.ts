@@ -22,6 +22,7 @@ import { probeServer, setupServer } from "@/server/servers/setup";
 import { getServer, serverOf } from "@/server/servers/context";
 import { SCHEMA_VERSION } from "@/server/version";
 import { checkTunnels } from "@/server/cloudflare/tunnels";
+import { checkContainerHealth, checkServerResources, pruneMonitoring, runUptimeChecks } from "@/server/monitoring/checks";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -326,6 +327,11 @@ async function main() {
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
   every(5 * 60_000, "cleanup", scheduleCleanup, true);
   every(5 * 60_000, "proxy-health", checkProxies, true);
+  // Uptime checks run every 15 s and pick the monitors that are due.
+  every(15_000, "uptime", runUptimeChecks, true);
+  every(60_000, "container-health", checkContainerHealth);
+  every(60_000, "server-resources", checkServerResources);
+  every(3600_000, "monitoring-prune", pruneMonitoring);
 
   void loop();
 }

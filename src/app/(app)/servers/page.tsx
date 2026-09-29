@@ -29,6 +29,7 @@ export default async function ServersPage() {
       lastSeenAt: schema.server.lastSeenAt,
       services: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id")`,
       running: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id" and s.status = 'running')`,
+      alerts: sql<number>`(select count(*)::int from incident i where i.server_id = "server"."id" and i.resolved_at is null)`,
     })
     .from(schema.server)
     .orderBy(sql`${schema.server.isLocal} desc`, asc(schema.server.createdAt));

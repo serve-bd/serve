@@ -224,7 +224,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
               </MenuContent>
             </Menu>
             <Button variant="primary" size="sm" onClick={() => deploy.run()} loading={deploy.pending} disabled={!can("services.deploy")} title={cannot("services.deploy")}>
-              <Rocket /> {service.type === "database" && live.status !== "idle" ? "Redeploy" : "Deploy"}
+              <Rocket /> {live.status === "idle" ? "Deploy" : "Redeploy"}
             </Button>
           </div>
         </div>

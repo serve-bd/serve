@@ -24,7 +24,7 @@ import {
   Timer,
   Waypoints,
 } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Badge, Card, CardHeader, CopyField, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -92,12 +92,12 @@ export function ServiceOverview(data: OverviewData) {
   const { service, current } = data;
   const router = useRouter();
   const base = `/projects/${data.projectId}/services/${service.id}`;
-  const can = useCan();
-  const cannot = useCannot();
+  const _can = useCan();
+  const _cannot = useCannot();
   const { data: live } = useSWR<Live>(`/api/services/${service.id}/live`, { refreshInterval: 5000 });
   const { data: metrics } = useSWR<{ series: Series }>(`/api/metrics?scope=${service.id}&hours=6`, { refreshInterval: 15000 });
   const { data: req } = useSWR<Req>(data.domains.length ? `/api/services/${service.id}/requests?hours=24` : null, { refreshInterval: 30000 });
-  const deploy = useAction(() => deployService(service.id), { success: "Deployment queued", onSuccess: (d) => router.push(`${base}/deployments/${d.id}`) });
+  const _deploy = useAction(() => deployService(service.id), { success: "Deployment queued", onSuccess: (d) => router.push(`${base}/deployments/${d.id}`) });
 
   const series = metrics?.series ?? [];
   const last = series.at(-1);
@@ -128,16 +128,12 @@ export function ServiceOverview(data: OverviewData) {
               )
             }
             actions={
-              <div className="flex gap-2">
-                {current && (
-                  <Link href={`${base}/deployments/${current.id}`} className={buttonVariants({ size: "sm" })}>
-                    <ScrollText /> Build log
-                  </Link>
-                )}
-                <Button size="sm" variant="primary" onClick={() => deploy.run()} loading={deploy.pending} disabled={!can("services.deploy")} title={cannot("services.deploy")}>
-                  <Rocket /> {current ? "Redeploy" : "Deploy"}
-                </Button>
-              </div>
+              // Deploying lives in the page header; the card only links to the log.
+              current && (
+                <Link href={`${base}/deployments/${current.id}`} className={buttonVariants({ size: "sm" })}>
+                  <ScrollText /> Build log
+                </Link>
+              )
             }
           />
           {current ? (

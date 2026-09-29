@@ -1,5 +1,6 @@
 "use server";
 
+import { requireRoomFor } from "@/server/limits";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
@@ -33,6 +34,11 @@ export async function cloneEnvironmentAction(environmentId: string, input: { nam
       .from(schema.environment)
       .where(and(eq(schema.environment.projectId, env.projectId), eq(schema.environment.name, name)));
     if (exists) throw new UserError("An environment with that name already exists.");
+    const copies = await db
+      .select({ type: schema.service.type, runtime: schema.service.runtime })
+      .from(schema.service)
+      .where(and(eq(schema.service.environmentId, env.id), isNull(schema.service.parentServiceId)));
+    await requireRoomFor(ctx.org.id, copies);
     return cloneEnvironment({
       sourceEnvironmentId: env.id,
       name,

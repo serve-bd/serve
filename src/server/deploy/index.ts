@@ -8,6 +8,7 @@ import type { BuildConfig, PortMapping } from "@/server/services/types";
 import { ensureNetwork, imageExists, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
 import { getServer, serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
+import { buildSlotFree } from "@/server/limits";
 import { syncServiceProxy } from "@/server/proxy/nginx";
 import { getSettings } from "@/server/settings";
 import { resolveEnv } from "@/server/services/variables";
@@ -842,6 +843,15 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     .limit(1);
   if (newer.length) {
     await setDeployment(dep.id, { status: "superseded", finishedAt: new Date(), logs: "Skipped: a newer deployment was queued.\n" });
+    return;
+  }
+
+  // The organization's builds-at-once limit: wait in the queue instead of failing.
+  const organizationId = await orgIdOf(service);
+  if (organizationId && !(await buildSlotFree(organizationId, dep.id))) {
+    await setDeployment(dep.id, { logs: "Waiting for a free build slot: this organization is at its limit of builds at once.\n" });
+    const { enqueue } = await import("@/server/queue");
+    await enqueue("deploy", { deploymentId: dep.id }, { concurrencyKey: `service:${service.id}`, runAt: new Date(Date.now() + 10_000) });
     return;
   }
 

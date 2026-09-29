@@ -2,6 +2,7 @@ import { eq, inArray, notLike, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { EmailSettings } from "@/server/email/config";
 import type { BrandingConfig } from "@/lib/branding";
+import type { OrgLimits } from "@/lib/limits";
 
 export type Settings = {
   instanceName: string;
@@ -34,6 +35,8 @@ export type Settings = {
   rootOrganizationId: string | null;
   /** Let every user create organizations (otherwise only Root admins can). */
   allowOrganizationCreation: boolean;
+  /** Limits for organizations that have none of their own (the Root organization is unlimited). */
+  defaultOrgLimits: OrgLimits;
   /** Last time the worker reported in (ISO timestamp). */
   workerHeartbeat: string | null;
   /** Cloudflare Tunnel (on the local server) that serves the dashboard domain; HTTPS by Cloudflare. */
@@ -142,6 +145,7 @@ export const defaultSettings: Settings = {
   onboardingDone: false,
   rootOrganizationId: null,
   allowOrganizationCreation: false,
+  defaultOrgLimits: {},
   workerHeartbeat: null,
   workerSchemaVersion: null,
   dashboardTunnelId: null,

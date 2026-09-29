@@ -14,6 +14,7 @@ import type {
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import type { ProxyKind, RunningKind, ProxySwitchState, ServerProxyConfig } from "@/server/proxy/config";
 import type { ChannelScope, MessageTemplate, NotificationKind, QuietHours, Severity } from "@/lib/notifications";
+import type { OrgLimits } from "@/lib/limits";
 
 const id = () => text("id").primaryKey();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -1097,3 +1098,19 @@ export const taskRunRelations = relations(taskRun, ({ one }) => ({
 export const activityRelations = relations(activity, ({ one }) => ({
   user: one(user, { fields: [activity.userId], references: [user.id] }),
 }));
+
+/** Limits set by Root admins for one organization, and its measured usage. */
+export const organizationLimit = pgTable("organization_limit", {
+  organizationId: text("organization_id")
+    .primaryKey()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  /** False while the organization follows the instance defaults; the row then only keeps measurements. */
+  custom: boolean("custom").notNull().default(false),
+  limits: jsonb("limits").$type<OrgLimits>().notNull().default({}),
+  /** Limits already announced as reached, so each one notifies once until usage drops again. */
+  notified: text("notified").array().notNull().default(sql`'{}'::text[]`),
+  /** Last measured size of the organization's volumes, in bytes. */
+  diskBytes: bigint("disk_bytes", { mode: "number" }),
+  diskMeasuredAt: timestamp("disk_measured_at", { withTimezone: true }),
+  updatedAt: updatedAt(),
+});

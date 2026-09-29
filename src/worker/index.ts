@@ -1,5 +1,6 @@
 // Must stay first: every other import may read the environment when it loads.
 import "dotenv/config";
+import { checkLimitNotices, hasRoomFor, measureOrgDisk } from "@/server/limits";
 import { copyEnvironmentData, preparePreviewDatabase } from "@/server/services/environments";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { ProxyKind } from "@/server/proxy/config";
@@ -260,6 +261,13 @@ async function scheduleBackups() {
       // Fire if the previous occurrence happened within the last minute and was not handled yet.
       if (now.getTime() - prev < 60_000 && lastBackupRun.get(s.id) !== prev) {
         lastBackupRun.set(s.id, prev);
+        // A full backup storage limit skips the scheduled backup (the organization is notified).
+        const [owner] = await db
+          .select({ organizationId: schema.project.organizationId })
+          .from(schema.project)
+          .innerJoin(schema.service, eq(schema.service.projectId, schema.project.id))
+          .where(eq(schema.service.id, s.id));
+        if (owner && !(await hasRoomFor(owner.organizationId, "backupStorage"))) continue;
         const id = newId();
         await db.insert(schema.backup).values({ id, serviceId: s.id, trigger: "schedule" });
         await enqueue("backup.run", { backupId: id }, { concurrencyKey: `backup:${s.id}` });
@@ -356,6 +364,8 @@ async function main() {
   every(60_000, "container-health", checkContainerHealth);
   every(60_000, "server-resources", checkServerResources);
   every(3600_000, "monitoring-prune", pruneMonitoring);
+  every(30 * 60_000, "org-disk", measureOrgDisk, true);
+  every(5 * 60_000, "org-limits", checkLimitNotices);
   // Quiet-hours summaries, lost retries and old delivery history.
   every(60_000, "notifications", async () => {
     await flushHeldNotifications();

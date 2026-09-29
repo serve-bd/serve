@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { requireRoomFor } from "@/server/limits";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
@@ -43,6 +44,8 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
 
   let databaseId: string | null = null;
   if (!preview) {
+    // Previews count against the organization's limits like any service.
+    await requireRoomFor(await orgId(parent.projectId), [{ type: "app", runtime: parent.runtime }]);
     const id = newId();
     const slug = `${parent.slug}-pr${pr.number}`.slice(0, 60);
     [preview] = await db

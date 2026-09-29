@@ -1,5 +1,6 @@
 "use server";
 
+import { requireRoom } from "@/server/limits";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
@@ -24,6 +25,7 @@ export async function createProject(input: z.input<typeof projectSchema>) {
   return act(async () => {
     const ctx = await requireOrg();
     const data = projectSchema.parse(input);
+    await requireRoom(ctx.org.id, { projects: 1 });
     const id = newId();
     const colors = Object.keys(projectColors);
     await db.insert(schema.project).values({

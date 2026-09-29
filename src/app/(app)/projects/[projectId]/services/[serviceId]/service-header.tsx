@@ -1,11 +1,13 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { AlertTriangle, ArrowUpRight, ChevronDown, Construction, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, ChevronDown, Construction, FolderInput, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
+import { MoveServicesDialog } from "@/components/move-services-dialog";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { Button } from "@/components/ui/button";
 import { StatusLabel } from "@/components/ui/status";
@@ -32,6 +34,8 @@ type Props = {
     engine: string | null;
     sourceType: "git" | "image" | null;
     sourceLabel: string;
+    environmentId: string;
+    isPreview: boolean;
   };
   initialLive: ServiceLive;
   server: { id: string; name: string } | null;
@@ -104,6 +108,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   };
   const primary = pickPrimaryDomain(live.domains);
   const stopped = live.status === "stopped";
+  const [moving, setMoving] = React.useState(false);
   // Never deployed: nothing runs yet, so there is nothing to restart or stop.
   const notDeployed = live.status === "idle";
   const busy = ["building", "deploying", "restarting"].includes(live.status);
@@ -191,6 +196,14 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                     <RotateCw /> Restart
                   </MenuItem>
                 )}
+                {!service.isPreview && can("services.manage") && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem onClick={() => setMoving(true)}>
+                      <FolderInput /> Move to project…
+                    </MenuItem>
+                  </>
+                )}
                 {maintenance && (
                   <>
                     <MenuSeparator />
@@ -223,6 +236,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 )}
               </MenuContent>
             </Menu>
+            <MoveServicesDialog serviceIds={[service.id]} environmentId={service.environmentId} open={moving} onOpenChange={setMoving} />
             <Button variant="primary" size="sm" onClick={() => deploy.run()} loading={deploy.pending} disabled={!can("services.deploy")} title={cannot("services.deploy")}>
               <Rocket /> {live.status === "idle" || live.status === "stopped" ? "Deploy" : "Redeploy"}
             </Button>

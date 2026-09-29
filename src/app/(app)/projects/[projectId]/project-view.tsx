@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { AlertTriangle, ArrowUpRight, Check, ChevronDown, Copy, Layers3, Plus, Settings } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, FolderInput, SquareCheck, ChevronDown, Copy, Layers3, Plus, Settings } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, EmptyState, TimeAgo } from "@/components/ui/misc";
@@ -19,6 +19,7 @@ import { useAction } from "@/hooks/use-action";
 import { createEnvironment } from "@/server/actions/projects";
 import type { ServiceCardData } from "@/server/project-data";
 import { CloneEnvironmentDialog } from "./clone-environment";
+import { MoveServicesDialog } from "@/components/move-services-dialog";
 import { cn } from "@/lib/utils";
 import { useCan } from "@/components/permissions";
 
@@ -104,7 +105,7 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
     <Link
       href={`/projects/${projectId}/services/${s.id}`}
       className={cn(
-        "group flex flex-col rounded-2xl border bg-surface shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-md",
+        "group flex h-full flex-col rounded-2xl border bg-surface shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-md",
         s.issues[0]?.tone === "bad"
           ? "border-bad/40 hover:border-bad/60"
           : s.issues[0]?.tone === "warn"
@@ -179,6 +180,15 @@ export function ProjectView({ project, environments, environment, initialService
   });
   const services = data?.services ?? initialServices;
   const newHref = `/projects/${project.id}/new?env=${environment.name}`;
+  // Select mode: tick services, then move them together. Previews follow their parent.
+  const [selecting, setSelecting] = React.useState(false);
+  const [selected, setSelected] = React.useState<string[]>([]);
+  const [moving, setMoving] = React.useState(false);
+  const toggle = (id: string) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const stopSelecting = () => {
+    setSelecting(false);
+    setSelected([]);
+  };
 
   return (
     <>
@@ -194,6 +204,11 @@ export function ProjectView({ project, environments, environment, initialService
         actions={
           <>
             <EnvironmentSwitcher project={project} environments={environments} environment={environment} />
+            {can("services.manage") && services.length > 0 && (
+              <Button size="sm" variant={selecting ? "primary" : "secondary"} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+                <SquareCheck /> {selecting ? "Done" : "Select"}
+              </Button>
+            )}
             <Link href={`/projects/${project.id}/settings?env=${environment.name}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
               <Settings /> Settings
             </Link>
@@ -208,9 +223,41 @@ export function ProjectView({ project, environments, environment, initialService
       <PageBody>
         {services.length ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {services.map((s) => (
-              <ServiceCard key={s.id} projectId={project.id} s={s} />
-            ))}
+            {services.map((s) => {
+              const on = selected.includes(s.id);
+              const selectable = s.previewPr === null;
+              return (
+                <div key={s.id} className="relative">
+                  <ServiceCard projectId={project.id} s={s} />
+                  {selecting && (
+                    <button
+                      type="button"
+                      disabled={!selectable}
+                      aria-pressed={on}
+                      aria-label={`${on ? "Unselect" : "Select"} ${s.name}`}
+                      title={selectable ? undefined : "Previews move with their parent service"}
+                      onClick={() => toggle(s.id)}
+                      className={cn(
+                        "absolute inset-0 rounded-2xl transition-colors",
+                        selectable ? "cursor-pointer" : "cursor-not-allowed bg-bg/50",
+                        on ? "bg-accent/[0.06] ring-2 ring-accent" : selectable && "hover:bg-fg/[0.02]",
+                      )}
+                    >
+                      {selectable && (
+                        <span
+                          className={cn(
+                            "absolute top-4 right-4 flex size-5 items-center justify-center rounded-md border shadow-sm transition-colors",
+                            on ? "border-accent bg-accent text-accent-fg" : "border-line-strong bg-surface",
+                          )}
+                        >
+                          {on && <Check className="size-3.5" />}
+                        </span>
+                      )}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
             <Link
               href={newHref}
               hidden={!can("services.manage")}
@@ -236,6 +283,26 @@ export function ProjectView({ project, environments, environment, initialService
             />
           </Card>
         )}
+        {selecting && (
+          <div className="sticky bottom-4 z-20 mx-auto mt-6 flex w-full max-w-md items-center gap-3 rounded-2xl border border-line bg-surface/95 px-4 py-3 shadow-lg backdrop-blur-xl">
+            <span className="min-w-0 flex-1 text-[13px] text-fg-2">{selected.length ? `${selected.length} selected` : "Tap services to select them"}</span>
+            <Button size="sm" variant="ghost" onClick={stopSelecting}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" disabled={!selected.length} onClick={() => setMoving(true)}>
+              <FolderInput /> Move{selected.length > 1 ? ` ${selected.length}` : ""}…
+            </Button>
+          </div>
+        )}
+        <MoveServicesDialog
+          serviceIds={selected}
+          environmentId={environment.id}
+          open={moving}
+          onOpenChange={(o) => {
+            setMoving(o);
+            if (!o && !selecting) setSelected([]);
+          }}
+        />
       </PageBody>
     </>
   );

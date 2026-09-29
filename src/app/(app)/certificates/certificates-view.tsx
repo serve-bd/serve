@@ -268,10 +268,10 @@ function CertificateRow({
 
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
-      <div className="flex items-start gap-3.5 sm:items-center">
+      <div className="flex items-start gap-3.5">
         <span
           className={cn(
-            "flex size-9 flex-none items-center justify-center rounded-[10px] border",
+            "mt-0.5 flex size-9 flex-none items-center justify-center rounded-[10px] border",
             failed ? "border-bad/20 bg-bad-soft text-bad" : "border-line bg-surface-2 text-fg-2",
           )}
         >

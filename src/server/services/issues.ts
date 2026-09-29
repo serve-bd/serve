@@ -38,10 +38,20 @@ export async function serviceIssues(serviceIds: string[]): Promise<Map<string, S
       .select({ serviceId: schema.incident.serviceId, title: schema.incident.title, severity: schema.incident.severity })
       .from(schema.incident)
       .where(and(inArray(schema.incident.serviceId, serviceIds), isNull(schema.incident.resolvedAt))),
-    db.select({ id: schema.service.id, status: schema.service.status }).from(schema.service).where(inArray(schema.service.id, serviceIds)),
+    db
+      .select({ id: schema.service.id, status: schema.service.status, serverName: schema.server.name, proxyStopped: schema.server.proxyStopped })
+      .from(schema.service)
+      .innerJoin(schema.server, eq(schema.service.serverId, schema.server.id))
+      .where(inArray(schema.service.id, serviceIds)),
   ]);
   const add = (id: string | null, issue: ServiceIssue) => id && out.get(id)?.push(issue);
 
+  // A stopped proxy takes every domain of its server offline.
+  for (const s of services) {
+    if (s.proxyStopped && domains.some((d) => d.serviceId === s.id)) {
+      add(s.id, { tone: "bad", text: `The proxy on ${s.serverName} is stopped, so no domain answers. Start it in Servers → ${s.serverName} → Proxy`, tab: "domains" });
+    }
+  }
   for (const i of incidents) add(i.serviceId, { tone: i.severity === "warning" ? "warn" : "bad", text: i.title, tab: "overview" });
   for (const d of domains) {
     if (d.wantsTunnel && !d.tunnelId) add(d.serviceId, { tone: "bad", text: `${d.hostname} is offline: it waits for a Cloudflare Tunnel`, tab: "domains" });

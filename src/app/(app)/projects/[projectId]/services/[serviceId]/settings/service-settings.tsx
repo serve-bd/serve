@@ -1,6 +1,7 @@
 "use client";
 
 import { typedServiceName } from "@/lib/service-name";
+import { BranchField } from "@/components/branch-field";
 import * as React from "react";
 import { CodeEditor } from "@/components/code-editor";
 import Link from "next/link";
@@ -303,7 +304,12 @@ export function ServiceSettings(props: Props) {
                 </Field>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Branch">
-                    <Input value={v.branch} onChange={(e) => set({ branch: e.target.value })} className="font-mono text-[13px]" />
+                    <BranchField
+                      repository={v.repository}
+                      credentialId={v.credentialId === "public" ? null : v.credentialId}
+                      value={v.branch}
+                      onChange={(branch) => set({ branch })}
+                    />
                   </Field>
                   <Field label="Access">
                     <Select

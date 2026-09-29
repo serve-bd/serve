@@ -29,7 +29,7 @@ import { certificateCovers } from "@/server/ssl/match";
 import { composeAlias } from "./names";
 import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker/networks";
 import crypto from "node:crypto";
-import { customFilePattern, defaultsOf, proxyImages, type ProxyFile, type ProxyKind, type RunningKind, type ServerProxyConfig } from "./config";
+import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type ProxyFile, type ProxyKind, type RunningKind, type ServerProxyConfig } from "./config";
 import { appTargets, dashboardModel, serviceModel, trustedSubnets, type SiteModel } from "./model";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
@@ -166,7 +166,7 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
       }
     }
     const n = config.nginx ?? {};
-    const main = mainConfig({ ...n, maxBodySize: n.maxBodySize || settings.proxyMaxBodySize, catchAll: defaultsOf(n.defaults).catchAll });
+    const main = mainConfig({ ...n, maxBodySize: n.maxBodySize || DEFAULT_MAX_BODY_SIZE, catchAll: defaultsOf(n.defaults).catchAll });
     const mainChanged = await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "nginx.conf"), main);
     const paramsChanged = await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "proxy_params.conf"), proxyParams);
     if (mainChanged || paramsChanged) {

@@ -30,14 +30,6 @@ const settingsSchema = z
     dashboardHttps: z.boolean(),
     acmeEmail: z.union([z.email("Enter a valid email"), z.literal("")]),
     acmeStaging: z.boolean(),
-    imageRetention: z.number().int().min(1).max(50),
-    metricsRetentionHours: z
-      .number()
-      .int()
-      .min(1)
-      .max(24 * 30),
-    buildConcurrency: z.number().int().min(1).max(16),
-    proxyMaxBodySize: z.string().regex(/^\d+[kmg]?$/i, "Use a size like 100m"),
     allowOrganizationCreation: z.boolean(),
     dashboardTunnelId: z.string().nullable(),
     /** The dashboard should use a tunnel, even while none is available (it reconnects later). */
@@ -108,7 +100,7 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
       for (const id of new Set([before.dashboardTunnelId, after.dashboardTunnelId].filter(Boolean) as string[])) await syncTunnelIngress(id).catch(() => {});
     }
 
-    const proxyRelevant: (keyof Settings)[] = ["dashboardDomain", "dashboardHttps", "dashboardTunnelId", "proxyMaxBodySize", "proxyCustomConfig", "dashboardAllowlist"];
+    const proxyRelevant: (keyof Settings)[] = ["dashboardDomain", "dashboardHttps", "dashboardTunnelId", "proxyCustomConfig", "dashboardAllowlist"];
     if (proxyRelevant.some((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]))) await enqueue("proxy.sync", {});
 
     // Dashboard HTTPS: request a certificate from the Root organization.

@@ -7,10 +7,11 @@ import type { ProxyKind } from "@/server/proxy/config";
 import { CronExpressionParser } from "cron-parser";
 import { db, schema, sql } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
+import { fullBuildServers } from "@/lib/server-limits";
 import { newId } from "@/server/id";
 import { docker, ensureNetwork, LABEL, listServiceContainers } from "@/server/docker/client";
 import { ensureProxy, ensureServerProxy, syncAllProxy } from "@/server/proxy/nginx";
-import { CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
+import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
 import { runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
 import { issueCertificate, renewDueCertificates } from "@/server/ssl/certificates";
@@ -32,7 +33,8 @@ import { attemptDelivery, flushHeldNotifications, pruneDeliveries, retryDueDeliv
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
-const running = new Map<string, { job: Job; controller: AbortController }>();
+/** Running jobs; a deploy also records the server that builds it, for per-server build slots. */
+const running = new Map<string, { job: Job; controller: AbortController; buildServer?: string | null }>();
 let wake: (() => void) | null = null;
 let stopping = false;
 
@@ -89,9 +91,9 @@ async function handle(job: Job, signal: AbortSignal) {
   }
 }
 
-async function execute(job: Job) {
+async function execute(job: Job, buildServer: string | null = null) {
   const controller = new AbortController();
-  running.set(job.id, { job, controller });
+  running.set(job.id, { job, controller, buildServer });
   const started = Date.now();
   try {
     await handle(job, controller.signal);
@@ -109,22 +111,37 @@ async function execute(job: Job) {
 
 async function loop() {
   while (!stopping) {
-    const settings = await getSettings().catch(() => null);
-    const buildLimit = Math.max(1, settings?.buildConcurrency ?? 2);
-    const deploys = [...running.values()].filter((r) => r.job.type === "deploy").length;
-    const others = running.size - deploys;
+    // Build slots are per server: only a full server holds back its own builds.
+    const limits = new Map(
+      (
+        await db
+          .select({ id: schema.server.id, buildConcurrency: schema.server.buildConcurrency })
+          .from(schema.server)
+          .catch(() => [] as { id: string; buildConcurrency: number }[])
+      ).map((s) => [s.id, s.buildConcurrency]),
+    );
+    const runningDeploys = [...running.values()].filter((r) => r.job.type === "deploy");
+    const fullServers = fullBuildServers(
+      runningDeploys.map((r) => r.buildServer ?? null),
+      limits,
+    );
+    const others = running.size - runningDeploys.length;
     let claimed = false;
 
-    const buildsFull = deploys >= buildLimit;
+    const buildsFull = limits.size > 0 && [...limits.keys()].every((id) => fullServers.includes(id));
     const othersFull = others >= 4;
     if (!(buildsFull && othersFull)) {
       const busyKeys = [...running.values()].map((r) => r.job.concurrencyKey).filter(Boolean) as string[];
       try {
         // Only ask for job types that have a free slot, so a waiting build never blocks other work.
-        const job = await claimJob(busyKeys, buildsFull ? { excludeTypes: ["deploy"] } : othersFull ? { onlyTypes: ["deploy"] } : {});
+        const job = await claimJob(
+          busyKeys,
+          buildsFull ? { excludeTypes: ["deploy"] } : othersFull ? { onlyTypes: ["deploy"], fullBuildServers: fullServers } : { fullBuildServers: fullServers },
+        );
         if (job) {
           claimed = true;
-          void execute(job);
+          const buildServer = job.type === "deploy" ? await buildServerForDeployment((job.payload as { deploymentId: string }).deploymentId).catch(() => null) : null;
+          void execute(job, buildServer);
         }
       } catch (error) {
         log("claim failed", (error as Error).message);

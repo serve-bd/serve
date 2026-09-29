@@ -255,6 +255,12 @@ export const server = pgTable("server", {
   /** Wildcard base domain for generated app domains on this server. */
   wildcardDomain: text("wildcard_domain"),
   sslipFallback: boolean("sslip_fallback").notNull().default(true),
+  /** Builds this server runs at once (deploys it builds count against it). */
+  buildConcurrency: integer("build_concurrency").notNull().default(2),
+  /** Images kept per service on this server, for instant rollbacks. */
+  imageRetention: integer("image_retention").notNull().default(5),
+  /** Hours of CPU, memory and request metrics kept for this server and its services. */
+  metricsRetentionHours: integer("metrics_retention_hours").notNull().default(48),
   /** Reverse proxy running on this server. */
   proxyKind: text("proxy_kind").$type<ProxyKind>().notNull().default("nginx"),
   /** Global settings of each proxy kind (kept for all kinds so switching back restores them). */

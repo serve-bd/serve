@@ -23,14 +23,6 @@ export type Settings = {
   /** Email used for Let's Encrypt registration. */
   acmeEmail: string | null;
   acmeStaging: boolean;
-  /** Number of old images kept per service for rollbacks. */
-  imageRetention: number;
-  /** Days deployments logs are kept. */
-  metricsRetentionHours: number;
-  /** Maximum concurrent builds. */
-  buildConcurrency: number;
-  /** Max request body size for proxied apps, e.g. "100m". */
-  proxyMaxBodySize: string;
   onboardingDone: boolean;
   /** The organization created during setup. Its admins manage the server. */
   rootOrganizationId: string | null;
@@ -141,10 +133,6 @@ export const defaultSettings: Settings = {
   dashboardHttps: true,
   acmeEmail: null,
   acmeStaging: false,
-  imageRetention: 5,
-  metricsRetentionHours: 48,
-  buildConcurrency: 2,
-  proxyMaxBodySize: "100m",
   onboardingDone: false,
   rootOrganizationId: null,
   allowOrganizationCreation: false,

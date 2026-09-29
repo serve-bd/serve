@@ -75,9 +75,10 @@ export async function enqueue<T extends JobType>(type: T, payload: JobPayloads[T
 }
 
 /** Claim the next runnable job, respecting per-key concurrency. */
-export async function claimJob(excludeKeys: string[] = [], filter: { excludeTypes?: string[]; onlyTypes?: string[] } = {}): Promise<Job | null> {
+export async function claimJob(excludeKeys: string[] = [], filter: { excludeTypes?: string[]; onlyTypes?: string[]; fullBuildServers?: string[] } = {}): Promise<Job | null> {
   const exclude = JSON.stringify(filter.excludeTypes ?? []);
   const only = filter.onlyTypes ? JSON.stringify(filter.onlyTypes) : null;
+  const fullServers = JSON.stringify(filter.fullBuildServers ?? []);
   const rows = await db.execute<typeof schema.job.$inferSelect & Record<string, unknown>>(dsql`
     UPDATE job SET status = 'running', locked_at = now(), attempts = attempts + 1
     WHERE id = (
@@ -85,6 +86,14 @@ export async function claimJob(excludeKeys: string[] = [], filter: { excludeType
       WHERE j.status = 'pending' AND j.run_at <= now()
         AND NOT (${exclude}::jsonb ? j.type)
         AND (${only}::jsonb IS NULL OR ${only}::jsonb ? j.type)
+        -- A deploy waits only while its own build server is full; other servers keep building.
+        AND NOT (
+          j.type = 'deploy' AND ${fullServers}::jsonb ? COALESCE((
+            SELECT COALESCE(NULLIF(s.distribution->>'buildServerId', ''), s.server_id)
+            FROM deployment d JOIN service s ON s.id = d.service_id
+            WHERE d.id = j.payload->>'deploymentId'
+          ), '')
+        )
         AND (
           j.concurrency_key IS NULL OR (
             NOT EXISTS (
@@ -102,6 +111,15 @@ export async function claimJob(excludeKeys: string[] = [], filter: { excludeType
       created_at AS "createdAt", finished_at AS "finishedAt"
   `);
   return (rows[0] as unknown as Job) ?? null;
+}
+
+/** The server that builds a deploy job's service, for counting build slots. */
+export async function buildServerForDeployment(deploymentId: string): Promise<string | null> {
+  const rows = await db.execute<{ id: string | null }>(dsql`
+    SELECT COALESCE(NULLIF(s.distribution->>'buildServerId', ''), s.server_id) AS id
+    FROM deployment d JOIN service s ON s.id = d.service_id WHERE d.id = ${deploymentId}
+  `);
+  return (rows[0] as { id: string | null } | undefined)?.id ?? null;
 }
 
 export async function finishJob(id: string, error?: string | null) {

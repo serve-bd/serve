@@ -33,9 +33,12 @@ export type ProxyContainerOverrides = {
 
 type Common = { files?: ProxyFile[]; defaults?: ProxyDefaults; container?: ProxyContainerOverrides };
 
+/** Request body limit nginx uses when the server sets none. */
+export const DEFAULT_MAX_BODY_SIZE = "100m";
+
 export type NginxSettings = {
   workerConnections?: number | null;
-  /** Default request body limit, like "100m" (falls back to Settings → Advanced). */
+  /** This server's request body limit, like "100m" (DEFAULT_MAX_BODY_SIZE when unset). */
   maxBodySize?: string | null;
   keepaliveTimeout?: number | null;
   proxyConnectTimeout?: number | null;

@@ -10,7 +10,6 @@ import { getServer, serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
 import { buildSlotFree } from "@/server/limits";
 import { syncServiceProxy } from "@/server/proxy/nginx";
-import { getSettings } from "@/server/settings";
 import { resolveEnv } from "@/server/services/variables";
 import { composeVariables } from "@/lib/compose-vars";
 import { networkAliases } from "@/lib/hostname";
@@ -366,7 +365,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     await setDeployment(dep.id, { error: `Not deployed to ${failed.map((t) => `${t.name}: ${t.error ?? t.status}`).join("; ")}`.slice(0, 4000) });
   }
   // The build server keeps a copy for fast rebuilds; trim it like the others.
-  if (buildServer.id !== server.id && !extras.some((e) => e.id === buildServer.id)) await pruneImages(service, buildServer.docker).catch(() => {});
+  if (buildServer.id !== server.id && !extras.some((e) => e.id === buildServer.id)) await pruneImages(service, buildServer).catch(() => {});
 }
 
 /** Start a deployment's containers on one server, wait for health, switch traffic and retire the old version there. */
@@ -477,7 +476,7 @@ async function runOnServer(opts: {
   } else if (old.length) {
     await Promise.all(old.map((c) => removeContainer(c.Id, 0, d)));
   }
-  await pruneImages(service, d).catch(() => {});
+  await pruneImages(service, server).catch(() => {});
 }
 
 /**
@@ -559,15 +558,15 @@ async function assertPortsFree(d: Docker, serverName: string, ports: PortMapping
   }
 }
 
-/** Keep the newest N images per service for rollbacks. */
-async function pruneImages(service: Service, d: Docker) {
-  const settings = await getSettings();
+/** Keep the newest N images per service for rollbacks; N is set per server. */
+async function pruneImages(service: Service, server: ServerCtx) {
+  const d = server.docker;
   const keep = await db
     .select({ image: schema.deployment.image })
     .from(schema.deployment)
     .where(and(eq(schema.deployment.serviceId, service.id), eq(schema.deployment.status, "success")))
     .orderBy(desc(schema.deployment.createdAt))
-    .limit(settings.imageRetention + 1);
+    .limit(Math.max(1, server.row.imageRetention) + 1);
   const keepSet = new Set(keep.map((k) => k.image).filter(Boolean));
   const images = await d.listImages({ filters: { reference: [`${imageRepo(service.slug)}:*`] } });
   for (const img of images) {

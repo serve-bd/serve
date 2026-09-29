@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
-import { and, eq, inArray, lt, sql as dsql } from "drizzle-orm";
+import { and, eq, inArray, lt, or, sql as dsql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LABEL } from "@/server/docker/client";
+import { metricsCutoff } from "@/lib/server-limits";
 import { env } from "@/server/env";
-import { getSettings } from "@/server/settings";
 import { getServer, LOCAL_SERVER_ID, type ServerCtx } from "@/server/servers/context";
 import { sh } from "@/server/servers/ssh";
 
@@ -225,9 +225,20 @@ export async function collectMetrics() {
   if (failed && !rows.length) throw failed.reason;
 }
 
+/**
+ * Each server keeps its own metrics history: its host samples and the samples of the services
+ * running on it. Samples of services that no longer exist follow the longest history.
+ */
 export async function pruneMetrics() {
-  const { metricsRetentionHours } = await getSettings();
-  await db.delete(schema.metric).where(lt(schema.metric.createdAt, new Date(Date.now() - metricsRetentionHours * 3600_000)));
+  const servers = await db.select({ id: schema.server.id, hours: schema.server.metricsRetentionHours }).from(schema.server);
+  for (const s of servers) {
+    const onServer = db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.serverId, s.id));
+    await db
+      .delete(schema.metric)
+      .where(and(lt(schema.metric.createdAt, metricsCutoff(s.hours)), or(eq(schema.metric.scope, serverScope(s.id)), inArray(schema.metric.scope, onServer))));
+  }
+  const longest = Math.max(48, ...servers.map((s) => s.hours));
+  await db.delete(schema.metric).where(lt(schema.metric.createdAt, metricsCutoff(longest)));
 }
 
 /** Downsampled series for charts: average per bucket. */

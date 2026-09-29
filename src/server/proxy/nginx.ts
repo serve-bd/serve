@@ -1,11 +1,12 @@
-import fs from "node:fs/promises";
 import path from "node:path";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { demuxDockerBuffer, docker, ensureNetwork, execInContainer, imageExists, LABEL, pullImage } from "@/server/docker/client";
+import { LOCAL_SERVER_ID } from "@/server/db/schema";
+import { demuxDockerBuffer, ensureNetwork, execInContainer, imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { env } from "@/server/env";
-import { paths, proxyPaths } from "@/server/paths";
+import { proxyPaths } from "@/server/paths";
 import { getSettings } from "@/server/settings";
+import { getServer, listServers, type ServerCtx } from "@/server/servers/context";
 import {
   mainConfig,
   pages,
@@ -20,135 +21,171 @@ import { certificateCovers } from "@/server/ssl/match";
 import { composeAlias } from "./names";
 import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker/networks";
 
-async function writeIfChanged(file: string, content: string): Promise<boolean> {
-  try {
-    if ((await fs.readFile(file, "utf8")) === content) return false;
-  } catch {
-    // missing
-  }
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, content);
-  return true;
-}
+/**
+ * nginx proxies, one per server. Every server has its own `serve-proxy`
+ * container with config files in its data directory; all reads and writes go
+ * through the server's ServerCtx, so local and remote proxies share this code.
+ */
 
-/** Serialize reloads so concurrent deploys never race each other. */
-let chain: Promise<unknown> = Promise.resolve();
-function serialized<T>(fn: () => Promise<T>): Promise<T> {
-  const next = chain.then(fn, fn);
-  chain = next.catch(() => {});
+type Log = (line: string) => void;
+
+/** Serialize config changes per server so concurrent deploys never race each other. */
+const chains = new Map<string, Promise<unknown>>();
+function serialized<T>(serverId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = chains.get(serverId) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  chains.set(
+    serverId,
+    next.catch(() => {}),
+  );
   return next;
 }
 
-const customFile = () => path.join(paths.proxyCustom, "custom.conf");
+const local = () => getServer(LOCAL_SERVER_ID);
+
+/** Servers whose proxies Serve keeps in sync: the local one and every remote server set up successfully. */
+export async function activeServers(): Promise<ServerCtx[]> {
+  const rows = await listServers();
+  const out: ServerCtx[] = [];
+  for (const row of rows) {
+    if (!row.isLocal && row.status !== "ready") continue;
+    try {
+      out.push(await getServer(row.id));
+    } catch {
+      // key missing or similar: the server page shows the problem
+    }
+  }
+  return out;
+}
+
+const customFile = (ctx: ServerCtx) => path.posix.join(ctx.paths.proxyCustom, "custom.conf");
 
 function customContent(config: string | null) {
   return config?.trim() ? `# Managed by Serve — custom directives from Server → Proxy.\n${config.trim()}\n` : null;
 }
 
 /** Write (or remove) the custom http-level config file. Returns true when it changed. */
-async function writeCustomConfig(config: string | null) {
+async function writeCustomConfig(ctx: ServerCtx, config: string | null) {
   const content = customContent(config);
-  if (content) return writeIfChanged(customFile(), content);
-  try {
-    await fs.rm(customFile());
-    return true;
-  } catch {
-    return false;
-  }
+  if (content) return ctx.fs.writeIfChanged(customFile(ctx), content);
+  if (!(await ctx.fs.exists(customFile(ctx)))) return false;
+  await ctx.fs.rm(customFile(ctx));
+  return true;
 }
 
-async function writeStaticFiles() {
+async function writeStaticFiles(ctx: ServerCtx) {
   const settings = await getSettings();
+  const p = ctx.paths;
   let changed = false;
-  changed = (await writeIfChanged(path.join(paths.proxy, "nginx.conf"), mainConfig({ maxBodySize: settings.proxyMaxBodySize }))) || changed;
-  changed = (await writeIfChanged(path.join(paths.proxy, "proxy_params.conf"), proxyParams)) || changed;
-  for (const [name, html] of Object.entries(pages)) {
-    changed = (await writeIfChanged(path.join(paths.proxy, "pages", name), html)) || changed;
+  // If the proxy container started before these files existed (fresh data directory),
+  // Docker created directories in their place. Replace them with the real files.
+  for (const file of ["nginx.conf", "proxy_params.conf"]) {
+    const target = path.posix.join(p.proxy, file);
+    if ((await ctx.fs.stat(target))?.isDirectory) {
+      await ctx.fs.rm(target);
+      changed = true;
+    }
   }
-  await fs.mkdir(paths.proxySites, { recursive: true });
-  changed = (await writeCustomConfig(settings.proxyCustomConfig)) || changed;
-  await fs.mkdir(paths.proxyLogs, { recursive: true });
-  await fs.mkdir(paths.acme, { recursive: true });
-  await fs.mkdir(paths.letsencrypt, { recursive: true });
-  await fs.mkdir(paths.certs, { recursive: true });
+  changed = (await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "nginx.conf"), mainConfig({ maxBodySize: settings.proxyMaxBodySize }))) || changed;
+  changed = (await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "proxy_params.conf"), proxyParams)) || changed;
+  for (const [name, html] of Object.entries(pages)) {
+    changed = (await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "pages", name), html)) || changed;
+  }
+  for (const dir of [p.proxySites, p.proxyLogs, p.acme, p.letsencrypt, p.certs]) await ctx.fs.mkdir(dir);
+  changed = (await writeCustomConfig(ctx, settings.proxyCustomConfig)) || changed;
   return changed;
 }
 
-export async function getProxyContainer() {
+export async function getProxyContainer(ctx?: ServerCtx) {
+  const c = ctx ?? (await local());
   try {
-    const info = await docker.getContainer(env.proxyContainer).inspect();
-    return info;
+    return await c.docker.getContainer(c.proxyContainer).inspect();
   } catch {
     return null;
   }
 }
 
-/**
- * Create (or repair) the proxy on any server.
- * TODO(multi-server): remote servers get their own proxy container and config files.
- */
-export async function ensureServerProxy(ctx: import("@/server/servers/context").ServerCtx, log?: (line: string) => void) {
-  if (ctx.local) return ensureProxy(log);
-  throw new Error("Remote proxies are not implemented yet.");
-}
-
-/** Create (or repair) the nginx proxy container. */
-export async function ensureProxy(log?: (line: string) => void) {
-  await ensureNetwork();
-  const changed = await writeStaticFiles();
-  let info = await getProxyContainer();
+/** Create (or repair) the nginx proxy container on a server. */
+export async function ensureServerProxy(ctx: ServerCtx, log?: Log) {
+  await ensureNetwork(ctx.docker, ctx.network);
+  const changed = await writeStaticFiles(ctx);
+  let info = await getProxyContainer(ctx);
+  const p = ctx.paths;
 
   if (!info) {
-    if (!(await imageExists(PROXY_IMAGE))) {
+    if (!(await imageExists(PROXY_IMAGE, ctx.docker))) {
       log?.(`Pulling ${PROXY_IMAGE}`);
-      await pullImage(PROXY_IMAGE, log);
+      await pullImage(PROXY_IMAGE, log, null, ctx.docker);
     }
-    const container = await docker.createContainer({
-      name: env.proxyContainer,
+    const container = await ctx.docker.createContainer({
+      name: ctx.proxyContainer,
       Image: PROXY_IMAGE,
       Labels: { [LABEL.managed]: "true", [LABEL.kind]: "proxy" },
       ExposedPorts: { "80/tcp": {}, "443/tcp": {} },
       HostConfig: {
         RestartPolicy: { Name: "unless-stopped" },
-        NetworkMode: env.network,
+        NetworkMode: ctx.network,
         PortBindings: {
-          "80/tcp": [{ HostPort: String(env.proxyHttpPort) }],
-          "443/tcp": [{ HostPort: String(env.proxyHttpsPort) }],
+          "80/tcp": [{ HostPort: String(ctx.proxyHttpPort) }],
+          "443/tcp": [{ HostPort: String(ctx.proxyHttpsPort) }],
         },
         ExtraHosts: ["host.docker.internal:host-gateway"],
         Binds: [
-          `${path.join(paths.proxy, "nginx.conf")}:/etc/nginx/nginx.conf:ro`,
-          `${path.join(paths.proxy, "proxy_params.conf")}:/etc/nginx/serve/proxy_params.conf:ro`,
-          `${path.join(paths.proxy, "pages")}:${proxyPaths.pages}:ro`,
-          `${paths.proxySites}:${proxyPaths.sites}:ro`,
-          `${paths.acme}:${proxyPaths.acme}:ro`,
-          `${paths.letsencrypt}:${proxyPaths.letsencrypt}:ro`,
-          `${paths.certs}:${proxyPaths.certs}:ro`,
-          `${paths.proxyLogs}:${proxyPaths.logs}`,
+          `${path.posix.join(p.proxy, "nginx.conf")}:/etc/nginx/nginx.conf:ro`,
+          `${path.posix.join(p.proxy, "proxy_params.conf")}:/etc/nginx/serve/proxy_params.conf:ro`,
+          `${path.posix.join(p.proxy, "pages")}:${proxyPaths.pages}:ro`,
+          `${p.proxySites}:${proxyPaths.sites}:ro`,
+          `${p.acme}:${proxyPaths.acme}:ro`,
+          `${p.letsencrypt}:${proxyPaths.letsencrypt}:ro`,
+          `${p.certs}:${proxyPaths.certs}:ro`,
+          `${p.proxyLogs}:${proxyPaths.logs}`,
         ],
         LogConfig: { Type: "json-file", Config: { "max-size": "10m", "max-file": "3" } },
       },
     });
     await container.start();
-    await connectProxyToAll();
+    await connectProxyToAll(ctx);
     log?.("Proxy container started");
-    info = await getProxyContainer();
-  } else if (!info.State.Running) {
-    await docker.getContainer(env.proxyContainer).start();
-    log?.("Proxy container restarted");
-  } else if (changed) {
-    await reloadProxy();
+    info = await getProxyContainer(ctx);
+  } else {
+    const ports = info.HostConfig.PortBindings as Record<string, { HostPort?: string }[] | undefined> | undefined;
+    const bound = [ports?.["80/tcp"]?.[0]?.HostPort, ports?.["443/tcp"]?.[0]?.HostPort];
+    if (bound[0] !== String(ctx.proxyHttpPort) || bound[1] !== String(ctx.proxyHttpsPort)) {
+      // Published ports changed in the server settings: recreate the container.
+      log?.(`Proxy ports changed to ${ctx.proxyHttpPort}/${ctx.proxyHttpsPort}; recreating the proxy`);
+      await ctx.docker.getContainer(ctx.proxyContainer).remove({ force: true });
+      return ensureServerProxy(ctx, log);
+    }
+    if (!info.State.Running) {
+      try {
+        await ctx.docker.getContainer(ctx.proxyContainer).start();
+        log?.("Proxy container restarted");
+      } catch (error) {
+        // Broken mounts (for example after the data directory was wiped): start over.
+        log?.(`Proxy did not start (${(error as Error).message.split(":")[0]}); recreating it`);
+        await ctx.docker.getContainer(ctx.proxyContainer).remove({ force: true });
+        return ensureServerProxy(ctx, log);
+      }
+    } else if (changed) {
+      await reloadProxy(ctx);
+    }
   }
   return info;
 }
 
+/** Create (or repair) the proxy of the machine Serve runs on. */
+export async function ensureProxy(log?: Log) {
+  return ensureServerProxy(await local(), log);
+}
+
 export class ProxyConfigError extends Error {}
 
-/** Validate config and gracefully reload nginx. */
-export async function reloadProxy() {
-  const test = await execInContainer(env.proxyContainer, ["nginx", "-t"]);
+/** Validate config and gracefully reload nginx on a server. */
+export async function reloadProxy(ctx?: ServerCtx) {
+  const c = ctx ?? (await local());
+  const test = await execInContainer(c.proxyContainer, ["nginx", "-t"], {}, c.docker);
   if (test.exitCode !== 0) throw new ProxyConfigError(test.output.trim());
-  const reload = await execInContainer(env.proxyContainer, ["nginx", "-s", "reload"]);
+  const reload = await execInContainer(c.proxyContainer, ["nginx", "-s", "reload"], {}, c.docker);
   if (reload.exitCode !== 0) throw new ProxyConfigError(reload.output.trim());
 }
 
@@ -170,9 +207,9 @@ const upstreamName = (slug: string, suffix: string) =>
   `svc_${slug}_${suffix}`.replace(/[^a-zA-Z0-9_]/g, "_");
 
 /** Container names currently serving traffic for an app service. */
-async function appTargets(service: typeof schema.service.$inferSelect): Promise<string[]> {
+async function appTargets(ctx: ServerCtx, service: typeof schema.service.$inferSelect): Promise<string[]> {
   if (!service.currentDeploymentId) return [];
-  const containers = await docker.listContainers({
+  const containers = await ctx.docker.listContainers({
     all: false,
     filters: {
       label: [`${LABEL.service}=${service.id}`, `${LABEL.deployment}=${service.currentDeploymentId}`],
@@ -181,23 +218,28 @@ async function appTargets(service: typeof schema.service.$inferSelect): Promise<
   return containers.map((c) => c.Names[0].replace(/^\//, "")).sort();
 }
 
-export async function renderServiceSite(serviceId: string): Promise<string | null> {
+/** Certificates a site on a server may use: same organization, stored on that server. */
+function usableCertificates(organizationId: string, serverId: string) {
+  return db
+    .select()
+    .from(schema.certificate)
+    .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, serverId)));
+}
+
+export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Promise<string | null> {
   const service = await db.query.service.findFirst({
     where: eq(schema.service.id, serviceId),
     with: { domains: true, project: { columns: { organizationId: true } } },
   });
   if (!service || service.type === "database" || service.domains.length === 0) return null;
+  const server = ctx ?? (await getServer(service.serverId));
 
-  // Only certificates owned by the same organization can be used.
-  const certs = await db
-    .select()
-    .from(schema.certificate)
-    .where(eq(schema.certificate.organizationId, service.project.organizationId));
+  const certs = await usableCertificates(service.project.organizationId, service.serverId);
   const upstreams = new Map<string, SiteUpstream>();
   const servers: SiteServer[] = [];
   const stopped = service.status === "stopped";
 
-  const containers = service.type === "app" && !stopped ? await appTargets(service) : [];
+  const containers = service.type === "app" && !stopped ? await appTargets(server, service) : [];
 
   for (const d of service.domains) {
     let upstream: string | null = null;
@@ -238,12 +280,11 @@ export async function renderServiceSite(serviceId: string): Promise<string | nul
 
 export { composeAlias };
 
+/** The dashboard is only served by the proxy of the machine Serve runs on. */
 async function renderDashboardSite(): Promise<string | null> {
   const settings = await getSettings();
   if (!settings.dashboardDomain) return null;
-  const certs = settings.rootOrganizationId
-    ? await db.select().from(schema.certificate).where(eq(schema.certificate.organizationId, settings.rootOrganizationId))
-    : [];
+  const certs = settings.rootOrganizationId ? await usableCertificates(settings.rootOrganizationId, LOCAL_SERVER_ID) : [];
   const upstream: SiteUpstream = { name: "serve_dashboard", servers: [env.dashboardUpstream] };
   return [
     "# Managed by Serve — dashboard.",
@@ -258,84 +299,121 @@ async function renderDashboardSite(): Promise<string | null> {
   ].join("\n");
 }
 
-const siteFile = (name: string) => path.join(paths.proxySites, `${name}.conf`);
+const siteFile = (ctx: ServerCtx, name: string) => path.posix.join(ctx.paths.proxySites, `${name}.conf`);
 
 /**
  * Apply a set of site file changes atomically: write, test, reload, and roll back
  * every file if nginx rejects the new configuration.
  */
-async function applySites(changes: Map<string, string | null>) {
+async function applySites(ctx: ServerCtx, changes: Map<string, string | null>) {
   const previous = new Map<string, string | null>();
-  let dirty = false;
   for (const [file, content] of changes) {
-    let old: string | null = null;
-    try {
-      old = await fs.readFile(file, "utf8");
-    } catch {
-      old = null;
-    }
+    const old = await ctx.fs.readFile(file).catch(() => null);
     if (old === content) continue;
     previous.set(file, old);
-    dirty = true;
-    if (content === null) await fs.rm(file, { force: true });
-    else await fs.writeFile(file, content);
+    if (content === null) await ctx.fs.rm(file);
+    else await ctx.fs.writeFile(file, content);
   }
-  if (!dirty) return false;
-  if (!(await getProxyContainer())?.State.Running) return true;
+  if (!previous.size) return false;
+  if (!(await getProxyContainer(ctx))?.State.Running) return true;
   try {
-    await reloadProxy();
+    await reloadProxy(ctx);
   } catch (error) {
     for (const [file, old] of previous) {
-      if (old === null) await fs.rm(file, { force: true });
-      else await fs.writeFile(file, old);
+      if (old === null) await ctx.fs.rm(file);
+      else await ctx.fs.writeFile(file, old);
     }
     throw error;
   }
   return true;
 }
 
-export function syncServiceProxy(serviceId: string) {
-  return serialized(async () => {
-    await fs.mkdir(paths.proxySites, { recursive: true });
-    const [svc] = await db.select({ environmentId: schema.service.environmentId }).from(schema.service).where(eq(schema.service.id, serviceId));
-    if (svc) await connectProxy(envNetworkName(svc.environmentId)).catch(() => {});
-    const content = await renderServiceSite(serviceId);
-    await applySites(new Map([[siteFile(`svc-${serviceId}`), content]]));
+/** Render the site of one service on the server it runs on. */
+export async function syncServiceProxy(serviceId: string) {
+  const [svc] = await db
+    .select({ environmentId: schema.service.environmentId, serverId: schema.service.serverId })
+    .from(schema.service)
+    .where(eq(schema.service.id, serviceId));
+  const ctx = await getServer(svc?.serverId ?? LOCAL_SERVER_ID);
+  return serialized(ctx.id, async () => {
+    await ctx.fs.mkdir(ctx.paths.proxySites);
+    if (svc) await connectProxy(envNetworkName(svc.environmentId), ctx).catch(() => {});
+    const content = await renderServiceSite(serviceId, ctx);
+    await applySites(ctx, new Map([[siteFile(ctx, `svc-${serviceId}`), content]]));
   });
 }
 
-export function removeServiceProxy(serviceId: string) {
-  return serialized(() => applySites(new Map([[siteFile(`svc-${serviceId}`), null]])));
+/**
+ * Remove a service's site. Pass the server it ran on when the service row is
+ * already gone (or moved); without it the service's current server is used,
+ * and every active server when the service no longer exists.
+ */
+export async function removeServiceProxy(serviceId: string, serverId?: string) {
+  let targets: ServerCtx[];
+  if (serverId) targets = [await getServer(serverId)];
+  else {
+    const [svc] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, serviceId));
+    targets = svc ? [await getServer(svc.serverId)] : await activeServers();
+  }
+  for (const ctx of targets) {
+    await serialized(ctx.id, () => applySites(ctx, new Map([[siteFile(ctx, `svc-${serviceId}`), null]]))).catch((error) => {
+      if (serverId || targets.length === 1) throw error;
+    });
+  }
 }
 
-/** Regenerate every site file, removing stale ones. */
-export function syncAllProxy() {
-  return serialized(async () => {
-    const staticChanged = await writeStaticFiles();
+/** Regenerate every site file on one server, removing stale ones. */
+function syncServer(ctx: ServerCtx) {
+  return serialized(ctx.id, async () => {
+    const staticChanged = await writeStaticFiles(ctx);
     const changes = new Map<string, string | null>();
-    const existing = await fs.readdir(paths.proxySites).catch(() => [] as string[]);
-    for (const f of existing) if (f.endsWith(".conf")) changes.set(path.join(paths.proxySites, f), null);
+    for (const f of await ctx.fs.readdir(ctx.paths.proxySites)) if (f.endsWith(".conf")) changes.set(path.posix.join(ctx.paths.proxySites, f), null);
 
     const services = await db
       .select({ id: schema.service.id })
       .from(schema.service)
-      .where(inArray(schema.service.type, ["app", "compose"]));
-    for (const s of services) {
-      changes.set(siteFile(`svc-${s.id}`), await renderServiceSite(s.id));
+      .where(and(inArray(schema.service.type, ["app", "compose"]), eq(schema.service.serverId, ctx.id)));
+    for (const s of services) changes.set(siteFile(ctx, `svc-${s.id}`), await renderServiceSite(s.id, ctx));
+    if (ctx.local) changes.set(siteFile(ctx, "_dashboard"), await renderDashboardSite());
+    const reloaded = await applySites(ctx, changes);
+    if (staticChanged && !reloaded && (await getProxyContainer(ctx))?.State.Running) await reloadProxy(ctx);
+  });
+}
+
+/**
+ * Regenerate every site on every active server. Remote proxies are created or
+ * repaired first. A failing remote server does not stop the others; the local
+ * server's error is rethrown.
+ */
+export async function syncAllProxy(log?: Log) {
+  const servers = await activeServers();
+  let localError: unknown = null;
+  for (const ctx of servers) {
+    try {
+      if (!ctx.local) await ensureServerProxy(ctx, log);
+      await syncServer(ctx);
+    } catch (error) {
+      if (ctx.local) localError = error;
+      else log?.(`Proxy sync failed on ${ctx.name}: ${(error as Error).message}`);
     }
-    changes.set(siteFile("_dashboard"), await renderDashboardSite());
-    const reloaded = await applySites(changes);
-    if (staticChanged && !reloaded && (await getProxyContainer())?.State.Running) await reloadProxy();
+  }
+  if (localError) throw localError;
+}
+
+/** Regenerate every site on one server (after setup or a ports change). */
+export async function syncServerProxy(ctx: ServerCtx, log?: Log) {
+  await ensureServerProxy(ctx, log);
+  await syncServer(ctx);
+}
+
+export async function syncDashboardProxy() {
+  const ctx = await local();
+  return serialized(ctx.id, async () => {
+    await applySites(ctx, new Map([[siteFile(ctx, "_dashboard"), await renderDashboardSite()]]));
   });
 }
 
-export function syncDashboardProxy() {
-  return serialized(async () => {
-    await applySites(new Map([[siteFile("_dashboard"), await renderDashboardSite()]]));
-  });
-}
-
-/** Services whose domains use a given certificate (explicitly or by hostname). */
+/** Services whose domains use a given certificate (explicitly or by hostname), on the certificate's server. */
 export async function servicesUsingCertificate(cert: CertRow): Promise<string[]> {
   const domains = (
     await db
@@ -343,7 +421,7 @@ export async function servicesUsingCertificate(cert: CertRow): Promise<string[]>
       .from(schema.domain)
       .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
       .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
-      .where(eq(schema.project.organizationId, cert.organizationId))
+      .where(and(eq(schema.project.organizationId, cert.organizationId), eq(schema.service.serverId, cert.serverId)))
   ).map((r) => r.domain);
   return [
     ...new Set(
@@ -354,8 +432,8 @@ export async function servicesUsingCertificate(cert: CertRow): Promise<string[]>
   ];
 }
 
-export async function proxyStatus() {
-  const info = await getProxyContainer();
+export async function proxyStatus(ctx?: ServerCtx) {
+  const info = await getProxyContainer(ctx).catch(() => null);
   return {
     exists: !!info,
     running: !!info?.State.Running,
@@ -368,51 +446,62 @@ export async function proxyStatus() {
 /*                              Admin inspection                              */
 /* -------------------------------------------------------------------------- */
 
-/** Run `nginx -t` in the proxy container. */
-export async function testProxyConfig() {
-  if (!(await getProxyContainer())?.State.Running) return { ok: false, output: "The proxy is not running." };
-  const res = await execInContainer(env.proxyContainer, ["nginx", "-t"]).catch((e: Error) => ({ exitCode: 1, output: e.message }));
+/** Run `nginx -t` in a server's proxy container. */
+export async function testProxyConfig(ctx?: ServerCtx) {
+  const c = ctx ?? (await local());
+  if (!(await getProxyContainer(c))?.State.Running) return { ok: false, output: "The proxy is not running." };
+  const res = await execInContainer(c.proxyContainer, ["nginx", "-t"], {}, c.docker).catch((e: Error) => ({ exitCode: 1, output: e.message }));
   return { ok: res.exitCode === 0, output: res.output.trim() };
 }
 
 /**
- * Validate and apply custom http-level directives. On failure the previous file is
- * restored and the nginx error is thrown, so nothing changes.
+ * Validate and apply custom http-level directives on every active server. If any
+ * proxy rejects them, every server gets its previous file back and the nginx
+ * error is thrown, so nothing changes.
  */
-export function applyCustomConfig(config: string | null) {
-  return serialized(async () => {
-    let previous: string | null = null;
-    try {
-      previous = await fs.readFile(customFile(), "utf8");
-    } catch {
-      previous = null;
+export async function applyCustomConfig(config: string | null) {
+  const servers = await activeServers();
+  const content = customContent(config);
+  const applied: { ctx: ServerCtx; previous: string | null }[] = [];
+  try {
+    for (const ctx of servers) {
+      await serialized(ctx.id, async () => {
+        const previous = await ctx.fs.readFile(customFile(ctx)).catch(() => null);
+        if (content === previous) return;
+        applied.push({ ctx, previous });
+        if (content) await ctx.fs.writeFile(customFile(ctx), content);
+        else await ctx.fs.rm(customFile(ctx));
+        if ((await getProxyContainer(ctx))?.State.Running) {
+          try {
+            await reloadProxy(ctx);
+          } catch (error) {
+            if (error instanceof ProxyConfigError && servers.length > 1) error.message = `${ctx.name}: ${error.message}`;
+            throw error;
+          }
+        }
+      });
     }
-    const content = customContent(config);
-    if (content === previous) return;
-    if (content) {
-      await fs.mkdir(paths.proxyCustom, { recursive: true });
-      await fs.writeFile(customFile(), content);
-    } else await fs.rm(customFile(), { force: true });
-    if (!(await getProxyContainer())?.State.Running) return;
-    try {
-      await reloadProxy();
-    } catch (error) {
-      if (previous === null) await fs.rm(customFile(), { force: true });
-      else await fs.writeFile(customFile(), previous);
-      throw error;
+  } catch (error) {
+    for (const { ctx, previous } of applied.reverse()) {
+      await serialized(ctx.id, async () => {
+        if (previous === null) await ctx.fs.rm(customFile(ctx));
+        else await ctx.fs.writeFile(customFile(ctx), previous);
+        if ((await getProxyContainer(ctx))?.State.Running) await reloadProxy(ctx).catch(() => {});
+      }).catch(() => {});
     }
-  });
+    throw error;
+  }
 }
 
 export type SiteFileInfo = { file: string; kind: "dashboard" | "service" | "custom" | "other"; serviceId: string | null; size: number; updatedAt: string };
 
-/** Generated site files, newest first. */
-export async function listSiteFiles(): Promise<SiteFileInfo[]> {
+/** Generated site files on a server, newest first. */
+export async function listSiteFiles(ctx?: ServerCtx): Promise<SiteFileInfo[]> {
+  const c = ctx ?? (await local());
   const out: SiteFileInfo[] = [];
-  const entries = await fs.readdir(paths.proxySites).catch(() => [] as string[]);
-  for (const f of entries.filter((e) => e.endsWith(".conf"))) {
-    const stat = await fs.stat(path.join(paths.proxySites, f)).catch(() => null);
-    if (!stat?.isFile()) continue;
+  for (const f of (await c.fs.readdir(c.paths.proxySites)).filter((e) => e.endsWith(".conf"))) {
+    const stat = await c.fs.stat(path.posix.join(c.paths.proxySites, f));
+    if (!stat || stat.isDirectory) continue;
     const svc = /^svc-(.+)\.conf$/.exec(f);
     out.push({
       file: f,
@@ -422,21 +511,22 @@ export async function listSiteFiles(): Promise<SiteFileInfo[]> {
       updatedAt: stat.mtime.toISOString(),
     });
   }
-  const custom = await fs.stat(customFile()).catch(() => null);
+  const custom = await c.fs.stat(customFile(c));
   if (custom) out.push({ file: "custom/custom.conf", kind: "custom", serviceId: null, size: custom.size, updatedAt: custom.mtime.toISOString() });
   return out.sort((a, b) => (a.kind === "dashboard" ? -1 : b.kind === "dashboard" ? 1 : b.updatedAt.localeCompare(a.updatedAt)));
 }
 
 /** Read one site file by the name `listSiteFiles` returned. */
-export async function readSiteFile(file: string) {
-  if (file === "custom/custom.conf") return fs.readFile(customFile(), "utf8");
+export async function readSiteFile(ctx: ServerCtx, file: string) {
+  if (file === "custom/custom.conf") return ctx.fs.readFile(customFile(ctx));
   if (!/^[a-zA-Z0-9_.-]+\.conf$/.test(file)) throw new Error("Invalid file name");
-  return fs.readFile(path.join(paths.proxySites, file), "utf8");
+  return ctx.fs.readFile(path.posix.join(ctx.paths.proxySites, file));
 }
 
-/** Last lines of the proxy container's output (nginx errors go to stderr). */
-export async function proxyLogs(tail = 300) {
-  const buffer = (await docker.getContainer(env.proxyContainer).logs({ stdout: true, stderr: true, tail, timestamps: true })) as unknown as Buffer;
+/** Last lines of a proxy container's output (nginx errors go to stderr). */
+export async function proxyLogs(ctx?: ServerCtx, tail = 300) {
+  const c = ctx ?? (await local());
+  const buffer = (await c.docker.getContainer(c.proxyContainer).logs({ stdout: true, stderr: true, tail, timestamps: true })) as unknown as Buffer;
   return demuxDockerBuffer(Buffer.isBuffer(buffer) ? buffer : Buffer.from(String(buffer)))
     .split("\n")
     .filter(Boolean)
@@ -446,6 +536,7 @@ export async function proxyLogs(tail = 300) {
     });
 }
 
-export async function restartProxy() {
-  await docker.getContainer(env.proxyContainer).restart({ t: 5 });
+export async function restartProxy(ctx?: ServerCtx) {
+  const c = ctx ?? (await local());
+  await c.docker.getContainer(c.proxyContainer).restart({ t: 5 });
 }

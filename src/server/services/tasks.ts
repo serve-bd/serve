@@ -22,6 +22,7 @@ export async function runTask(runId: string) {
     let last = Date.now();
     const result = await execCommand(container.id, run.command, {
       timeoutSeconds: task?.timeoutSeconds ?? 3600,
+      docker: container.docker,
       onData: (text) => {
         buffer += text;
         // Persist progress every couple of seconds so the UI can follow long runs.

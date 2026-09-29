@@ -3,11 +3,13 @@ import type { Duplex } from "node:stream";
 import { Client, utils, type ClientChannel, type ConnectConfig, type SFTPWrapper } from "ssh2";
 
 /**
- * Persistent SSH connections to remote servers, one per server.
+ * Persistent SSH connections to remote servers.
  *
  * Every consumer (Docker API, file transfers, commands, terminals) opens
- * channels on the shared connection, so only the first call pays for the
- * handshake. Connections close after a few idle minutes.
+ * channels on shared connections, so only the first call pays for the
+ * handshake. sshd limits channels per connection (MaxSessions, 10 by
+ * default), so each server gets a small pool: a new connection opens when
+ * the others are busy. Idle connections close after a few minutes.
  */
 
 export type SshTarget = {
@@ -20,11 +22,15 @@ export type SshTarget = {
   hostKey: string | null;
 };
 
-type Conn = { client: Client; ready: Promise<Client>; key: string; channels: number; idle: NodeJS.Timeout | null; sftp: Promise<SFTPWrapper> | null };
+type Conn = { client: Client; ready: Promise<Client>; channels: number; idle: NodeJS.Timeout | null; sftp: Promise<SFTPWrapper> | null; closed: boolean };
+type Pool = { key: string; conns: Conn[] };
 
 const IDLE_MS = 5 * 60_000;
-const store = globalThis as unknown as { __serveSsh?: Map<string, Conn> };
-const conns = (store.__serveSsh ??= new Map());
+/** Stay below sshd's default MaxSessions of 10. */
+const CHANNELS_PER_CONN = 8;
+const MAX_CONNS = 4;
+const store = globalThis as unknown as { __serveSshPools?: Map<string, Pool> };
+const pools: Map<string, Pool> = (store.__serveSshPools ??= new Map());
 
 export class HostKeyMismatchError extends Error {
   constructor(public presented: string) {
@@ -50,25 +56,49 @@ function connKey(t: SshTarget) {
   return `${t.username}@${t.host}:${t.port}|${crypto.createHash("sha256").update(t.privateKey).digest("hex")}|${t.hostKey ?? ""}`;
 }
 
+function dropConn(id: string, conn: Conn) {
+  conn.closed = true;
+  if (conn.idle) clearTimeout(conn.idle);
+  const pool = pools.get(id);
+  if (pool) {
+    pool.conns = pool.conns.filter((c) => c !== conn);
+    if (!pool.conns.length) pools.delete(id);
+  }
+}
+
 function touch(conn: Conn, id: string) {
   if (conn.idle) clearTimeout(conn.idle);
-  conn.idle = conn.channels > 0 ? null : setTimeout(() => closeConnection(id), IDLE_MS);
+  conn.idle =
+    conn.channels > 0
+      ? null
+      : setTimeout(() => {
+          dropConn(id, conn);
+          conn.client.end();
+        }, IDLE_MS);
 }
 
 export function closeConnection(id: string) {
-  const conn = conns.get(id);
-  if (!conn) return;
-  conns.delete(id);
-  if (conn.idle) clearTimeout(conn.idle);
-  conn.client.end();
+  const pool = pools.get(id);
+  if (!pool) return;
+  pools.delete(id);
+  for (const conn of pool.conns) {
+    conn.closed = true;
+    if (conn.idle) clearTimeout(conn.idle);
+    conn.client.end();
+  }
 }
 
-/** Opens (or reuses) the connection. `onHostKey` receives the presented key on every handshake. */
-export function connect(t: SshTarget, opts: { onHostKey?: (key: string) => void; timeoutMs?: number } = {}): Promise<Client> {
-  const existing = conns.get(t.id);
-  if (existing && existing.key === connKey(t)) return existing.ready;
+function pool(t: SshTarget) {
+  const key = connKey(t);
+  const existing = pools.get(t.id);
+  if (existing && existing.key === key) return existing;
   if (existing) closeConnection(t.id);
+  const fresh: Pool = { key, conns: [] };
+  pools.set(t.id, fresh);
+  return fresh;
+}
 
+function openConn(t: SshTarget, opts: { onHostKey?: (key: string) => void; timeoutMs?: number } = {}): Conn {
   const client = new Client();
   let presented: string | null = null;
   const config: ConnectConfig = {
@@ -85,22 +115,57 @@ export function connect(t: SshTarget, opts: { onHostKey?: (key: string) => void;
       return !t.hostKey || t.hostKey === presented;
     },
   };
-  const ready = new Promise<Client>((resolve, reject) => {
+  const conn: Conn = { client, ready: null as unknown as Promise<Client>, channels: 0, idle: null, sftp: null, closed: false };
+  conn.ready = new Promise<Client>((resolve, reject) => {
     client.once("ready", () => resolve(client));
     client.once("error", (error) => {
-      conns.delete(t.id);
+      dropConn(t.id, conn);
       if (presented && t.hostKey && presented !== t.hostKey) reject(new HostKeyMismatchError(presented));
       else reject(friendlySshError(error, t));
     });
-    client.once("close", () => {
-      if (conns.get(t.id)?.client === client) conns.delete(t.id);
-    });
+    client.once("close", () => dropConn(t.id, conn));
   });
-  const conn: Conn = { client, ready, key: connKey(t), channels: 0, idle: null, sftp: null };
-  conns.set(t.id, conn);
+  pool(t).conns.push(conn);
   client.connect(config);
-  ready.then(() => touch(conn, t.id)).catch(() => {});
-  return ready;
+  conn.ready.then(() => touch(conn, t.id)).catch(() => {});
+  return conn;
+}
+
+/** The first connection of the pool (opened when missing). `onHostKey` sees the key presented at the handshake. */
+async function primary(t: SshTarget, opts: { onHostKey?: (key: string) => void; timeoutMs?: number } = {}) {
+  const p = pool(t);
+  const conn = p.conns.find((c) => !c.closed) ?? openConn(t, opts);
+  await conn.ready;
+  return conn;
+}
+
+/** Opens (or reuses) a connection; used to validate access. */
+export async function connect(t: SshTarget, opts: { onHostKey?: (key: string) => void; timeoutMs?: number } = {}): Promise<Client> {
+  return (await primary(t, opts)).client;
+}
+
+/** Reserves a channel slot on a connection with room, opening a new connection when all are busy. */
+async function acquire(t: SshTarget): Promise<Conn> {
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    const p = pool(t);
+    const live = p.conns.filter((c) => !c.closed);
+    let conn = live.find((c) => c.channels < CHANNELS_PER_CONN);
+    if (!conn && live.length < MAX_CONNS) conn = openConn(t);
+    if (conn) {
+      conn.channels++;
+      touch(conn, t.id);
+      try {
+        await conn.ready;
+        return conn;
+      } catch (error) {
+        conn.channels--;
+        throw error;
+      }
+    }
+    if (Date.now() > deadline) throw new Error("Too many open sessions to this server. Close some terminals or log views and try again.");
+    await new Promise((r) => setTimeout(r, 100));
+  }
 }
 
 function friendlySshError(error: Error & { level?: string; code?: string }, t: SshTarget) {
@@ -113,20 +178,27 @@ function friendlySshError(error: Error & { level?: string; code?: string }, t: S
 }
 
 async function channel<T>(t: SshTarget, open: (client: Client) => Promise<T & { once(event: "close", fn: () => void): unknown }>): Promise<T> {
-  const client = await connect(t);
-  const conn = conns.get(t.id)!;
-  conn.channels++;
-  touch(conn, t.id);
-  try {
-    const ch = await open(client);
-    ch.once("close", () => {
-      conn.channels = Math.max(0, conn.channels - 1);
-      touch(conn, t.id);
-    });
-    return ch;
-  } catch (error) {
+  const conn = await acquire(t);
+  const release = () => {
     conn.channels = Math.max(0, conn.channels - 1);
     touch(conn, t.id);
+  };
+  try {
+    let ch!: T & { once(event: "close", fn: () => void): unknown };
+    // sshd may allow fewer sessions than we assume; wait for one to free up.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        ch = await open(conn.client);
+        break;
+      } catch (error) {
+        if (!/Channel open failure/i.test((error as Error).message) || attempt >= 40) throw error;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+    ch.once("close", release);
+    return ch;
+  } catch (error) {
+    release();
     throw error;
   }
 }
@@ -214,17 +286,17 @@ export async function sshExec(
 }
 
 export async function sftp(t: SshTarget): Promise<SFTPWrapper> {
-  const client = await connect(t);
-  const conn = conns.get(t.id)!;
-  conn.sftp ??= new Promise<SFTPWrapper>((resolve, reject) => client.sftp((err, s) => (err ? reject(err) : resolve(s))));
-  conn.sftp.catch(() => {
-    if (conns.get(t.id) === conn) conn.sftp = null;
-  });
-  const s = await conn.sftp;
-  s.once("close", () => {
-    if (conns.get(t.id) === conn) conn.sftp = null;
-  });
-  return s;
+  const conn = await primary(t);
+  if (!conn.sftp) {
+    const session = new Promise<SFTPWrapper>((resolve, reject) => conn.client.sftp((err, s) => (err ? reject(err) : resolve(s))));
+    conn.sftp = session;
+    const reset = () => {
+      if (conn.sftp === session) conn.sftp = null;
+    };
+    // One listener per session, not per call.
+    session.then((s) => s.once("close", reset), reset);
+  }
+  return conn.sftp;
 }
 
 /** A socket-like stream to the remote Docker API (`docker system dial-stdio`). */

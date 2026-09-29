@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import useSWR from "swr";
-import { ArrowUpRight, ChevronDown, Play, Power, RotateCw, Rocket, Square } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
 import { Button } from "@/components/ui/button";
 import { StatusLabel } from "@/components/ui/status";
@@ -29,6 +29,8 @@ type Props = {
     sourceLabel: string;
   };
   initialLive: ServiceLive;
+  server: { id: string; name: string } | null;
+  ports: { label: string; url: string | null; protocol: "tcp" | "udp" }[];
 };
 
 export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
@@ -41,7 +43,7 @@ export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
   });
 }
 
-export function ServiceHeader({ project, environment, service, initialLive }: Props) {
+export function ServiceHeader({ project, environment, service, initialLive, server, ports }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const confirm = useConfirm();
@@ -106,7 +108,33 @@ export function ServiceHeader({ project, environment, service, initialLive }: Pr
                     <ArrowUpRight className="size-3 shrink-0" />
                   </a>
                 )}
+                {ports.map((p) =>
+                  p.url ? (
+                    <a
+                      key={p.label}
+                      href={p.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Published port"
+                      className="inline-flex min-w-0 max-w-full items-center gap-1 font-mono text-[12px] text-fg-2 hover:text-accent"
+                    >
+                      <Plug className="size-3 shrink-0 text-faint" />
+                      <span className="truncate">{p.label}</span>
+                    </a>
+                  ) : (
+                    <span key={p.label} title="Published UDP port" className="inline-flex min-w-0 items-center gap-1 font-mono text-[12px] text-fg-2">
+                      <Plug className="size-3 shrink-0 text-faint" />
+                      <span className="truncate">{p.label}/udp</span>
+                    </span>
+                  ),
+                )}
                 <span className="rounded bg-sunken px-1.5 py-px text-[11px] text-muted">{environment}</span>
+                {server && (
+                  <Link href={`/servers/${server.id}`} className="inline-flex max-w-full items-center gap-1 rounded bg-sunken px-1.5 py-px text-[11px] text-muted hover:text-fg">
+                    <ServerIcon className="size-3 shrink-0" />
+                    <span className="truncate">{server.name}</span>
+                  </Link>
+                )}
               </div>
             </div>
           </div>

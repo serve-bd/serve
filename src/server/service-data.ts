@@ -1,6 +1,7 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { listServiceContainers, LABEL } from "@/server/docker/client";
+import { serverOf } from "@/server/servers/context";
 
 export type ServiceLive = Awaited<ReturnType<typeof serviceLive>>;
 
@@ -29,7 +30,9 @@ export async function serviceLive(serviceId: string) {
       .where(eq(schema.deployment.serviceId, serviceId))
       .orderBy(desc(schema.deployment.createdAt))
       .limit(30),
-    listServiceContainers(serviceId).catch(() => []),
+    serverOf(service)
+      .then((server) => listServiceContainers(serviceId, true, server.docker))
+      .catch(() => []),
   ]);
   return {
     status: service.status,

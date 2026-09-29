@@ -23,7 +23,7 @@ export async function securityChecks(settings?: Settings): Promise<SecurityCheck
       title: "Dashboard has no domain",
       status: "warn",
       detail: "The dashboard is reached over plain HTTP on its port. Give it a domain so sign-ins travel over HTTPS.",
-      href: "/server/domains",
+      href: "/settings/dashboard",
       action: "Set domain",
     });
   } else if (!s.dashboardHttps) {
@@ -32,7 +32,7 @@ export async function securityChecks(settings?: Settings): Promise<SecurityCheck
       title: "Dashboard domain is not using HTTPS",
       status: "warn",
       detail: `${s.dashboardDomain} is served without TLS. Passwords and sessions can be read on the network.`,
-      href: "/server/domains",
+      href: "/settings/dashboard",
       action: "Turn on HTTPS",
     });
   } else {
@@ -45,7 +45,7 @@ export async function securityChecks(settings?: Settings): Promise<SecurityCheck
       title: "Let's Encrypt is not set up",
       status: "warn",
       detail: "Without an account email, Serve cannot issue or renew certificates automatically.",
-      href: "/server/domains",
+      href: "/settings/dashboard",
       action: "Add email",
     });
   } else if (s.acmeStaging) {
@@ -54,7 +54,7 @@ export async function securityChecks(settings?: Settings): Promise<SecurityCheck
       title: "Let's Encrypt staging is on",
       status: "warn",
       detail: "New certificates are test certificates that browsers do not trust.",
-      href: "/server/domains",
+      href: "/settings/dashboard",
       action: "Turn off",
     });
   } else {

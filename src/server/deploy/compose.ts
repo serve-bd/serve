@@ -4,6 +4,8 @@ import YAML from "yaml";
 import { env } from "@/server/env";
 import { LABEL } from "@/server/docker/client";
 import { run } from "@/server/process";
+import type { ServerCtx } from "@/server/servers/context";
+import { sh } from "@/server/servers/ssh";
 import { composeAlias } from "@/server/proxy/names";
 
 type ComposeFile = {
@@ -90,11 +92,11 @@ export function transformCompose(content: string, slug: string, serviceId: strin
 }
 
 /** Pick the lowest free 10.210-10.219.x.0/24 subnet not used by other stacks or networks. */
-export async function allocateSubnet(taken: string[]): Promise<string> {
-  const { docker } = await import("@/server/docker/client");
+export async function allocateSubnet(taken: string[], server?: Pick<ServerCtx, "docker">): Promise<string> {
+  const d = server?.docker ?? (await import("@/server/docker/client")).docker;
   const used = new Set(taken);
   try {
-    for (const n of await docker.listNetworks()) {
+    for (const n of await d.listNetworks()) {
       for (const c of n.IPAM?.Config ?? []) if (c.Subnet) used.add(c.Subnet);
     }
   } catch {
@@ -127,6 +129,11 @@ export type ComposeRun = {
   log: (line: string) => void;
   signal?: AbortSignal;
   redact?: string[];
+  /**
+   * Target server. For a remote server `dir` is the path ON that server; the
+   * caller uploads the project there and compose runs through SSH.
+   */
+  server?: ServerCtx;
 };
 
 export async function writeComposeFiles(opts: ComposeRun & { content: string }) {
@@ -139,8 +146,14 @@ function composeArgs(opts: Pick<ComposeRun, "projectName" | "dir" | "file">) {
   return ["compose", "-p", opts.projectName, "--project-directory", opts.dir, "-f", path.join(opts.dir, opts.file)];
 }
 
+const UP_ARGS = ["up", "-d", "--build", "--remove-orphans", "--wait", "--wait-timeout", "300"];
+
 export async function composeUp(opts: ComposeRun) {
-  await run("docker", [...composeArgs(opts), "up", "-d", "--build", "--remove-orphans", "--wait", "--wait-timeout", "300"], {
+  if (opts.server && !opts.server.local) {
+    await remoteCompose(opts.server, opts, UP_ARGS, opts.log, opts.signal, opts.redact);
+    return;
+  }
+  await run("docker", [...composeArgs(opts), ...UP_ARGS], {
     cwd: opts.dir,
     onLine: opts.log,
     signal: opts.signal,
@@ -148,17 +161,44 @@ export async function composeUp(opts: ComposeRun) {
   });
 }
 
-export async function composeCommand(
+/** Runs `docker compose` on a remote server so relative paths resolve against its copy of the project. */
+async function remoteCompose(
+  server: ServerCtx,
   opts: Pick<ComposeRun, "projectName" | "dir" | "file">,
   args: string[],
   log?: (line: string) => void,
+  signal?: AbortSignal,
+  redact: string[] = [],
 ) {
+  const secrets = redact.filter((s) => s && s.length >= 4);
+  const clean = (line: string) => secrets.reduce((acc, s) => acc.split(s).join("********"), line);
+  const cmd = `cd ${sh(opts.dir)} && docker ${[...composeArgs(opts), ...args].map(sh).join(" ")} 2>&1`;
+  const res = await server.exec(cmd, {
+    onLine: log ? (line) => void (line.trim() && log(clean(line))) : undefined,
+    signal,
+    timeoutMs: 30 * 60_000,
+  });
+  if (res.code !== 0) {
+    const output = clean(`${res.stdout}\n${res.stderr}`);
+    throw Object.assign(new Error(`docker compose ${args[0]} exited with code ${res.code}`), { output });
+  }
+  return clean(res.stdout);
+}
+
+export async function composeCommand(
+  opts: Pick<ComposeRun, "projectName" | "dir" | "file" | "server">,
+  args: string[],
+  log?: (line: string) => void,
+) {
+  if (opts.server && !opts.server.local) return remoteCompose(opts.server, opts, args, log);
   return run("docker", [...composeArgs(opts), ...args], { cwd: opts.dir, onLine: log });
 }
 
 /** `docker compose down` using only the project name (works without files). */
-export async function composeDownByProject(projectName: string, removeVolumes: boolean) {
+export async function composeDownByProject(projectName: string, removeVolumes: boolean, server?: ServerCtx) {
   const args = ["compose", "-p", projectName, "down", "--remove-orphans"];
   if (removeVolumes) args.push("-v");
-  await run("docker", args).catch(() => {});
+  const env = server ? await server.cliEnv().catch(() => null) : {};
+  if (env === null) return;
+  await run("docker", args, { env }).catch(() => {});
 }

@@ -1,6 +1,7 @@
-import { inArray, sql as dsql } from "drizzle-orm";
+import { and, eq, inArray, sql as dsql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { docker, LABEL, removeContainer } from "@/server/docker/client";
+import { LABEL, removeContainer } from "@/server/docker/client";
+import { getServer, LOCAL_SERVER_ID, type ServerCtx } from "@/server/servers/context";
 import { pruneJobs } from "@/server/queue";
 import { pruneMetrics, serverSnapshot } from "@/server/metrics";
 import { pruneRequestMetrics } from "@/server/analytics";
@@ -19,9 +20,9 @@ export function parseReclaimed(output: string) {
   return Math.round(Number(m[1]) * (UNITS[m[2].toLowerCase()] ?? 1));
 }
 
-async function docker_(args: string[]) {
+async function docker_(ctx: ServerCtx, args: string[]) {
   try {
-    return parseReclaimed(await run("docker", args));
+    return parseReclaimed(await run("docker", args, { env: await ctx.cliEnv() }));
   } catch {
     return 0;
   }
@@ -32,11 +33,14 @@ async function docker_(args: string[]) {
  * failed zero-downtime switch). Only touches services this instance knows,
  * never the current deployment, stopped services or services mid-deploy.
  */
-async function removeStaleContainers() {
-  const containers = await docker.listContainers({ all: true, filters: { label: [`${LABEL.managed}=true`], status: ["exited", "created", "dead"] } });
+async function removeStaleContainers(ctx: ServerCtx) {
+  const containers = await ctx.docker.listContainers({ all: true, filters: { label: [`${LABEL.managed}=true`], status: ["exited", "created", "dead"] } });
   const ids = [...new Set(containers.map((c) => c.Labels[LABEL.service]).filter(Boolean))];
   if (!ids.length) return 0;
-  const services = await db.select().from(schema.service).where(inArray(schema.service.id, ids));
+  const services = await db
+    .select()
+    .from(schema.service)
+    .where(and(inArray(schema.service.id, ids), eq(schema.service.serverId, ctx.id)));
   const busy = await db
     .select({ serviceId: schema.deployment.serviceId })
     .from(schema.deployment)
@@ -49,79 +53,101 @@ async function removeStaleContainers() {
     const deployment = c.Labels[LABEL.deployment];
     if (!service || service.type !== "app" || !deployment) continue;
     if (service.status === "stopped" || busyIds.has(service.id) || deployment === service.currentDeploymentId) continue;
-    await removeContainer(c.Id, 5).catch(() => {});
+    await removeContainer(c.Id, 5, ctx.docker).catch(() => {});
     removed++;
   }
   return removed;
 }
 
-let active: Promise<CleanupRun> | null = null;
+const active = new Map<string, Promise<CleanupRun>>();
 
 /**
- * Housekeeping for Serve's data and Docker. Routine runs only touch Serve's own
- * images and containers; manual and low-disk runs also reclaim host-wide caches.
+ * Housekeeping for one server's Docker (and, on the local server, Serve's own
+ * data). Routine runs only touch Serve's images and containers; manual and
+ * low-disk runs also reclaim host-wide caches. One run per server at a time.
  */
-export function runCleanup(trigger: Trigger): Promise<CleanupRun> {
-  active ??= doCleanup(trigger).finally(() => {
-    active = null;
-  });
-  return active;
+export function runCleanup(trigger: Trigger, serverId: string = LOCAL_SERVER_ID): Promise<CleanupRun> {
+  let run = active.get(serverId);
+  if (!run) {
+    run = doCleanup(trigger, serverId).finally(() => active.delete(serverId));
+    active.set(serverId, run);
+  }
+  return run;
 }
 
-async function doCleanup(trigger: Trigger): Promise<CleanupRun> {
+async function doCleanup(trigger: Trigger, serverId: string): Promise<CleanupRun> {
   const started = Date.now();
   const settings = await getSettings();
   let reclaimed = 0;
   let error: string | null = null;
+  let serverName = serverId;
   try {
-    await pruneJobs();
-    await pruneMetrics();
-    await pruneRequestMetrics();
-    await db.execute(dsql`DELETE FROM activity WHERE created_at < now() - interval '90 days'`);
+    const ctx = await getServer(serverId);
+    serverName = ctx.name;
+    if (ctx.local) {
+      await pruneJobs();
+      await pruneMetrics();
+      await pruneRequestMetrics();
+      await db.execute(dsql`DELETE FROM activity WHERE created_at < now() - interval '90 days'`);
+    }
 
-    await removeStaleContainers();
+    await removeStaleContainers(ctx);
     // Dangling layers from Serve builds.
-    reclaimed += await docker_(["image", "prune", "-f", "--filter", `label=${LABEL.managed}=true`]);
+    reclaimed += await docker_(ctx, ["image", "prune", "-f", "--filter", `label=${LABEL.managed}=true`]);
 
     const cacheDays = trigger === "disk" ? 1 : settings.cleanupBuildCacheDays;
-    if (cacheDays > 0) reclaimed += await docker_(["builder", "prune", "-f", "--filter", `until=${cacheDays * 24}h`]);
+    if (cacheDays > 0) reclaimed += await docker_(ctx, ["builder", "prune", "-f", "--filter", `until=${cacheDays * 24}h`]);
 
-    if (trigger !== "schedule") reclaimed += await docker_(["image", "prune", "-f"]);
+    if (trigger !== "schedule") reclaimed += await docker_(ctx, ["image", "prune", "-f"]);
 
     // Unused images, except Serve's own tags: the deploy pipeline keeps those for rollbacks.
     if (settings.cleanupUnusedImages || trigger === "disk") {
-      reclaimed += await docker_(["image", "prune", "-af", "--filter", "until=24h", "--filter", `label!=${LABEL.managed}`]);
+      reclaimed += await docker_(ctx, ["image", "prune", "-af", "--filter", "until=24h", "--filter", `label!=${LABEL.managed}`]);
     }
   } catch (e) {
     error = (e as Error).message;
   }
 
-  const result: CleanupRun = { at: new Date().toISOString(), trigger, reclaimed, durationMs: Date.now() - started, error };
+  const result: CleanupRun = { at: new Date().toISOString(), trigger, reclaimed, durationMs: Date.now() - started, error, serverId, serverName };
   const latest = await getSettings();
-  await updateSettings({ lastCleanup: result, cleanupHistory: [result, ...latest.cleanupHistory].slice(0, 10) });
+  await updateSettings({ lastCleanup: result, cleanupHistory: [result, ...latest.cleanupHistory].slice(0, 30) });
   return result;
+}
+
+/** Runs of one server, newest first. Runs recorded before multi-server belong to the local server. */
+export function cleanupRunsFor(history: CleanupRun[], serverId: string) {
+  return history.filter((r) => (r.serverId ?? LOCAL_SERVER_ID) === serverId);
 }
 
 const HOUR = 3600_000;
 
-/** Called every few minutes by the worker: interval runs and low-disk runs. */
+/** Called every few minutes by the worker: interval and low-disk runs on every reachable server. */
 export async function scheduleCleanup() {
-  const settings = await getSettings();
-  const history = settings.cleanupHistory;
+  const servers = await db.select({ id: schema.server.id, isLocal: schema.server.isLocal, status: schema.server.status }).from(schema.server);
+  const results = await Promise.allSettled(servers.filter((s) => s.isLocal || s.status === "ready").map((s) => scheduleOn(s.id)));
+  const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+  if (failed) throw failed.reason;
+}
 
-  const snap = await serverSnapshot().catch(() => null);
+async function scheduleOn(serverId: string) {
+  const settings = await getSettings();
+  const history = cleanupRunsFor(settings.cleanupHistory, serverId);
+  const ctx = await getServer(serverId);
+
+  const snap = await serverSnapshot(ctx).catch(() => null);
   const percent = snap?.disk.total ? (snap.disk.used / snap.disk.total) * 100 : 0;
   if (percent >= settings.cleanupDiskThreshold) {
     const lastDisk = history.find((r) => r.trigger === "disk");
     if (!lastDisk || Date.now() - new Date(lastDisk.at).getTime() > HOUR) {
-      const result = await runCleanup("disk");
-      const after = await serverSnapshot().catch(() => null);
+      const result = await runCleanup("disk", serverId);
+      const after = await serverSnapshot(ctx).catch(() => null);
       const nowPercent = after?.disk.total ? Math.round((after.disk.used / after.disk.total) * 100) : Math.round(percent);
+      const where = ctx.local ? "" : ` on ${ctx.name}`;
       await notify(settings.rootOrganizationId, "server.disk", {
         ok: false,
-        title: `Disk is ${Math.round(percent)}% full`,
+        title: `Disk is ${Math.round(percent)}% full${where}`,
         body: `Serve ran an automatic cleanup and freed ${formatSize(result.reclaimed)}. The disk is now ${nowPercent}% full.`,
-        url: "/server/cleanup",
+        url: `/servers/${serverId}/cleanup`,
       }).catch(() => {});
       return;
     }
@@ -130,7 +156,7 @@ export async function scheduleCleanup() {
   if (!settings.cleanupEnabled) return;
   const lastScheduled = history.find((r) => r.trigger === "schedule");
   if (lastScheduled && Date.now() - new Date(lastScheduled.at).getTime() < settings.cleanupIntervalHours * HOUR) return;
-  await runCleanup("schedule");
+  await runCleanup("schedule", serverId);
 }
 
 function formatSize(bytes: number) {

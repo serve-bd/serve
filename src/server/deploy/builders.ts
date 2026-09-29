@@ -13,6 +13,8 @@ export type BuildContext = {
   log: (line: string) => void;
   signal?: AbortSignal;
   redact: string[];
+  /** Points the docker CLI (and nixpacks) at the target server; empty for the local server. */
+  dockerEnv?: Record<string, string>;
 };
 
 export type BuildResult = {
@@ -295,7 +297,7 @@ async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileCont
       onLine: ctx.log,
       signal: ctx.signal,
       redact: ctx.redact,
-      env: { DOCKER_BUILDKIT: "1" },
+      env: { DOCKER_BUILDKIT: "1", ...ctx.dockerEnv },
     });
   } finally {
     if (tempDockerfile) await fs.rm(tempDockerfile, { force: true });
@@ -329,7 +331,7 @@ export async function buildImage(ctx: BuildContext): Promise<BuildResult> {
     if (build.startCommand) args.push("--start-cmd", build.startCommand);
     for (const [k, v] of Object.entries(ctx.buildEnv)) args.push("--env", `${k}=${v}`);
     for (const [k, v] of Object.entries(ctx.labels)) args.push("--label", `${k}=${v}`);
-    await run("nixpacks", args, { onLine: ctx.log, signal: ctx.signal, redact: ctx.redact });
+    await run("nixpacks", args, { onLine: ctx.log, signal: ctx.signal, redact: ctx.redact, env: ctx.dockerEnv });
     return { builder: "nixpacks" };
   }
 

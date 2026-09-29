@@ -39,12 +39,13 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
     ...(spec.extraBinds ?? []),
   ];
   const exposed: Record<string, object> = {};
-  const bindings: Record<string, { HostPort: string }[]> = {};
+  const bindings: Record<string, { HostPort: string; HostIp?: string }[]> = {};
   if (runtime.port) exposed[`${runtime.port}/tcp`] = {};
   for (const p of runtime.ports) {
     const key = `${p.container}/${p.protocol}`;
     exposed[key] = {};
-    bindings[key] = [...(bindings[key] ?? []), { HostPort: String(p.host) }];
+    const hostIp = p.bindAddress && p.bindAddress !== "0.0.0.0" ? p.bindAddress : undefined;
+    bindings[key] = [...(bindings[key] ?? []), hostIp ? { HostIp: hostIp, HostPort: String(p.host) } : { HostPort: String(p.host) }];
   }
   const restart = runtime.restartPolicy;
 
@@ -83,8 +84,13 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
   };
 }
 
-export async function startContainer(spec: ContainerSpec) {
-  const container = await docker.createContainer(createSpec(spec));
+/** The server a container runs on. Any ServerCtx fits; defaults to the local server. */
+export type ContainerTarget = { docker: Docker; proxyContainer: string; local: boolean };
+
+export const localContainerTarget = (): ContainerTarget => ({ docker, proxyContainer: env.proxyContainer, local: true });
+
+export async function startContainer(spec: ContainerSpec, target: ContainerTarget = localContainerTarget()) {
+  const container = await target.docker.createContainer(createSpec(spec));
   await container.start();
   return container;
 }
@@ -117,12 +123,19 @@ function tcpCheck(host: string, port: number, timeout = 2000) {
 /** Workers inside a container cannot route to other bridge networks; probe through the proxy instead. */
 const inContainer = existsSync("/.dockerenv");
 
-async function proxyProbe(host: string, port: number, pathName: string | null) {
+/** Probe from inside the proxy container, which joins every environment network. Null when the proxy is missing. */
+async function proxyProbe(target: ContainerTarget, host: string, port: number, pathName: string | null): Promise<boolean | null> {
   const { execInContainer } = await import("@/server/docker/client");
   const cmd = pathName
     ? `wget -S -q -T 4 -O /dev/null "http://${host}:${port}${pathName}" 2>&1 | awk '/HTTP\//{print $2}' | tail -1`
     : `nc -z -w 2 ${host} ${port} && echo open`;
-  const res = await execInContainer(env.proxyContainer, ["sh", "-c", cmd]).catch(() => ({ exitCode: 1, output: "" }));
+  let res: { exitCode: number; output: string };
+  try {
+    res = await execInContainer(target.proxyContainer, ["sh", "-c", cmd], {}, target.docker);
+  } catch (error) {
+    if (/No such container|404|is not running|409/i.test((error as Error).message)) return null;
+    return false;
+  }
   const out = res.output.trim();
   if (!pathName) return out.includes("open");
   const status = Number(out.split(/\s+/).pop());
@@ -138,9 +151,9 @@ async function httpCheck(url: string) {
   }
 }
 
-async function containerLogsTail(id: string, lines = 30) {
+async function containerLogsTail(d: Docker, id: string, lines = 30) {
   try {
-    const buf = (await docker.getContainer(id).logs({ stdout: true, stderr: true, tail: lines })) as unknown as Buffer;
+    const buf = (await d.getContainer(id).logs({ stdout: true, stderr: true, tail: lines })) as unknown as Buffer;
     const { demuxDockerBuffer } = await import("@/server/docker/client");
     return demuxDockerBuffer(buf).trim();
   } catch {
@@ -158,7 +171,10 @@ export async function waitHealthy(
   log: (line: string) => void,
   signal?: AbortSignal,
   network: string = env.network,
+  target: ContainerTarget = localContainerTarget(),
 ) {
+  const d = target.docker;
+  let proxyMissingNoted = false;
   const timeoutMs = (runtime.healthcheckTimeout ?? 120) * 1000;
   const started = Date.now();
   let stableSince = 0;
@@ -169,11 +185,11 @@ export async function waitHealthy(
   };
 
   while (Date.now() - started < timeoutMs) {
-    const info = await docker.getContainer(containerId).inspect();
+    const info = await d.getContainer(containerId).inspect();
     const state = info.State;
     if (!state.Running || state.Restarting) {
       if (state.Status === "exited" || state.Restarting || info.RestartCount > 0) {
-        const tail = await containerLogsTail(containerId);
+        const tail = await containerLogsTail(d, containerId);
         throw new Error(
           `Container exited with code ${state.ExitCode}.${tail ? `\n--- last logs ---\n${tail}` : ""}`,
         );
@@ -190,11 +206,19 @@ export async function waitHealthy(
     const ip = info.NetworkSettings.Networks?.[network]?.IPAddress;
     if (runtime.port && ip) {
       const probePath = runtime.healthcheckPath ? `${runtime.healthcheckPath.startsWith("/") ? "" : "/"}${runtime.healthcheckPath}` : null;
-      const ok = inContainer
-        ? await proxyProbe(ip, runtime.port, probePath)
-        : probePath
-          ? await httpCheck(`http://${ip}:${runtime.port}${probePath}`)
-          : await tcpCheck(ip, runtime.port);
+      // Remote servers (and a containerized worker) cannot reach bridge IPs directly.
+      let ok: boolean | null =
+        !target.local || inContainer
+          ? await proxyProbe(target, ip, runtime.port, probePath)
+          : probePath
+            ? await httpCheck(`http://${ip}:${runtime.port}${probePath}`)
+            : await tcpCheck(ip, runtime.port);
+      if (ok === null) {
+        // No proxy on that server yet: rely on the container staying up (and its own healthcheck).
+        if (!proxyMissingNoted) log("Proxy not running on this server yet, skipping the port check");
+        proxyMissingNoted = true;
+        ok = true;
+      }
       if (!ok) {
         stableSince = 0;
         note(
@@ -212,7 +236,7 @@ export async function waitHealthy(
     if (Date.now() - stableSince >= (runtime.port ? 1500 : 5000)) return;
     await sleep(500, signal);
   }
-  const tail = await containerLogsTail(containerId);
+  const tail = await containerLogsTail(d, containerId);
   throw new Error(
     `Healthcheck timed out after ${Math.round(timeoutMs / 1000)}s.${runtime.port ? ` Make sure the app listens on 0.0.0.0:${runtime.port}.` : ""}${tail ? `\n--- last logs ---\n${tail}` : ""}`,
   );

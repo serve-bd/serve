@@ -21,7 +21,7 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
   await db.delete(schema.service).where(inArray(schema.service.id, all.map((s) => s.id)));
   // Same concurrency key as deployments, so cleanup runs after an in-flight deploy stops.
   for (const s of all) {
-    await enqueue("service.delete", { serviceId: s.id, slug: s.slug, type: s.type, removeVolumes, environmentId: s.environmentId }, { concurrencyKey: `service:${s.id}` });
+    await enqueue("service.delete", { serviceId: s.id, slug: s.slug, type: s.type, removeVolumes, environmentId: s.environmentId, serverId: s.serverId }, { concurrencyKey: `service:${s.id}` });
   }
 }
 

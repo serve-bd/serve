@@ -18,6 +18,7 @@ import {
   Plus,
   Search,
   Server,
+  Settings,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -145,8 +146,13 @@ export function CommandPalette({
                       <Activity /> Activity
                     </Command.Item>
                     {isInstanceAdmin && (
-                      <Command.Item onSelect={() => go("/server")} className={itemClass}>
-                        <Server /> Server
+                      <Command.Item onSelect={() => go("/servers")} className={itemClass}>
+                        <Server /> Servers
+                      </Command.Item>
+                    )}
+                    {isInstanceAdmin && (
+                      <Command.Item onSelect={() => go("/settings")} className={itemClass}>
+                        <Settings /> Settings
                       </Command.Item>
                     )}
                   </Command.Group>

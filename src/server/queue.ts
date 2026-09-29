@@ -22,13 +22,13 @@ export type JobPayloads = {
   "service.stop": { serviceId: string };
   "service.start": { serviceId: string };
   "service.restart": { serviceId: string };
-  "service.delete": { serviceId: string; slug: string; type: string; removeVolumes: boolean; environmentId?: string };
+  "service.delete": { serviceId: string; slug: string; type: string; removeVolumes: boolean; environmentId?: string; serverId?: string; keepFiles?: boolean };
   "certificate.issue": { certificateId: string };
   "certificate.renew-all": Record<string, never>;
   "backup.run": { backupId: string };
   "backup.restore": { backupId: string };
   "proxy.sync": Record<string, never>;
-  cleanup: { full?: boolean };
+  cleanup: { full?: boolean; serverId?: string };
   "server.setup": { serverId: string; installDocker?: boolean };
   "task.run": { runId: string };
 };

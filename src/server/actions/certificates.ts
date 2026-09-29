@@ -5,6 +5,7 @@ import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requireOrg, requireOrgAdmin } from "@/server/auth";
 import { db, schema } from "@/server/db";
+import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { getSettings } from "@/server/settings";
@@ -22,7 +23,17 @@ const requestSchema = z.object({
     .refine((d) => d.every((x) => nameRe.test(x)), "One of the domains is not valid"),
   cloudflareAccountId: z.string().nullable().optional(),
   name: z.string().trim().max(80).optional(),
+  /** Server whose proxy will serve the certificate. Defaults to the local server. */
+  serverId: z.string().optional(),
 });
+
+/** A server the organization may place certificates on. */
+async function allowedServer(serverId: string | undefined, orgId: string) {
+  const id = serverId || LOCAL_SERVER_ID;
+  const [server] = await db.select().from(schema.server).where(eq(schema.server.id, id));
+  if (!server || (server.organizationIds && !server.organizationIds.includes(orgId))) throw new UserError("Server not found.");
+  return server.id;
+}
 
 export async function requestCertificate(input: z.input<typeof requestSchema>) {
   return act(async () => {
@@ -42,10 +53,12 @@ export async function requestCertificate(input: z.input<typeof requestSchema>) {
     if (data.provider.startsWith("letsencrypt") && !(await getSettings()).acmeEmail) {
       throw new UserError("Set a Let's Encrypt email in Server settings first.");
     }
+    const serverId = await allowedServer(data.serverId, ctx.org.id);
     const id = newId();
     await db.insert(schema.certificate).values({
       id,
       organizationId: ctx.org.id,
+      serverId,
       name: data.name || data.domains[0],
       domains: [...new Set(data.domains)],
       provider: data.provider,
@@ -57,13 +70,14 @@ export async function requestCertificate(input: z.input<typeof requestSchema>) {
   });
 }
 
-export async function uploadCertificate(input: { name: string; certificate: string; privateKey: string }) {
+export async function uploadCertificate(input: { name: string; certificate: string; privateKey: string; serverId?: string }) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
+    const serverId = await allowedServer(input.serverId, ctx.org.id);
     const id = newId();
     let parsed;
     try {
-      parsed = await saveCustomCertificate(id, input.certificate, input.privateKey);
+      parsed = await saveCustomCertificate(id, input.certificate, input.privateKey, serverId);
     } catch (e) {
       throw new UserError(`Could not read the certificate: ${(e as Error).message}`);
     }
@@ -72,6 +86,7 @@ export async function uploadCertificate(input: { name: string; certificate: stri
       .values({
         id,
         organizationId: ctx.org.id,
+        serverId,
         name: input.name.trim() || parsed.names[0] || "Custom certificate",
         domains: parsed.names,
         provider: "custom",

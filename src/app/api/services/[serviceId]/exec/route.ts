@@ -54,7 +54,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/service
         }
       };
       try {
-        const result = await execCommand(container.id, parsed.data.command, { onData: push, signal: abort.signal, timeoutSeconds: 900 });
+        const result = await execCommand(container.id, parsed.data.command, { onData: push, signal: abort.signal, timeoutSeconds: 900, docker: container.docker });
         push(`\n\u0000${result.exitCode}`);
       } catch (e) {
         push(`${(e as Error).message}\n\u00001`);

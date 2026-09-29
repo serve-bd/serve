@@ -10,13 +10,18 @@ import { setupServer } from "@/server/servers/setup";
 import { run } from "@/server/process";
 
 const id = "e2eremote";
-const key = generateKeyPair("serve-e2e");
-execFileSync("scripts/e2e/remote/run.sh", [key.publicKey], { stdio: "inherit" });
-
-await db.delete(schema.server).where(eq(schema.server.id, id));
-await db.delete(schema.privateKey).where(eq(schema.privateKey.id, id));
-await db.insert(schema.privateKey).values({ id, name: "e2e", publicKey: key.publicKey, privateKey: encrypt(key.privateKey), fingerprint: key.fingerprint });
-await db.insert(schema.server).values({ id, name: "e2e-remote", host: "127.0.0.1", port: 2222, privateKeyId: id, proxyHttpPort: 8090, proxyHttpsPort: 8453 });
+// Reuse a running fake server and its key; other tests may be using it. RESET=1 starts from scratch.
+const running = execFileSync("docker", ["ps", "-q", "--filter", "name=^serve-e2e-remote$"]).toString().trim();
+const [existingKey] = await db.select().from(schema.privateKey).where(eq(schema.privateKey.id, id));
+if (process.env.RESET || !running || !existingKey) {
+  const key = generateKeyPair("serve-e2e");
+  execFileSync("scripts/e2e/remote/run.sh", [key.publicKey], { stdio: "inherit" });
+  const keyRow = { publicKey: key.publicKey, privateKey: encrypt(key.privateKey), fingerprint: key.fingerprint };
+  await db.insert(schema.privateKey).values({ id, name: "e2e", ...keyRow }).onConflictDoUpdate({ target: schema.privateKey.id, set: keyRow });
+  // Inside the fake server the proxy listens on 80/443; the host maps them to 8090/8453.
+  const serverRow = { name: "e2e-remote", host: "127.0.0.1", port: 2222, privateKeyId: id, hostKey: null, proxyHttpPort: 80, proxyHttpsPort: 443 };
+  await db.insert(schema.server).values({ id, ...serverRow }).onConflictDoUpdate({ target: schema.server.id, set: serverRow });
+}
 forgetServer(id);
 
 const t0 = Date.now();

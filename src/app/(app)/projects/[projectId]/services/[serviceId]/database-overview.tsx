@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { StatusDot } from "@/components/ui/status";
 import { useAction } from "@/hooks/use-action";
@@ -23,21 +24,24 @@ export function DatabaseOverview(props: {
   publicUrl: string | null;
   host: string;
   publicPort: number | null;
-  serverIp: string | null;
+  publicBind: "0.0.0.0" | "127.0.0.1";
+  /** "address:port" the public port answers on, when enabled. */
+  publicAddress: string | null;
 }) {
   const { data } = useServiceLive(props.serviceId);
   const [publicOn, setPublicOn] = React.useState(!!props.publicPort);
   const [port, setPort] = React.useState(String(props.publicPort ?? props.engine.port + 10000));
+  const [bind, setBind] = React.useState(props.publicBind);
   const apply = useAction(
     async () => {
-      const res = await updateService(props.serviceId, { database: { publicPort: publicOn ? Number(port) : null } });
+      const res = await updateService(props.serviceId, { database: { publicPort: publicOn ? Number(port) : null, publicBind: bind } });
       if (!res.ok) return res;
       return applyDatabaseChanges(props.serviceId);
     },
     { success: "Applying changes. The database restarts briefly." },
   );
   const refName = referenceName(props.name);
-  const changed = (publicOn ? Number(port) : null) !== props.publicPort;
+  const changed = (publicOn ? Number(port) : null) !== props.publicPort || (publicOn && bind !== props.publicBind);
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -79,21 +83,37 @@ export function DatabaseOverview(props: {
         <Card>
           <CardHeader
             title="Public access"
-            description="Expose the database on a port of this server, for example to connect from your laptop."
+            description="Publish the database on a port of its server, for example to connect with a desktop client."
             actions={<Switch checked={publicOn} onCheckedChange={setPublicOn} />}
           />
           <CardBody className="flex flex-col gap-4">
             {publicOn ? (
               <>
-                <Field label="Public port" description="Use a high, non-standard port and a strong password. Restrict access with a firewall when possible.">
-                  <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} className="max-w-40 font-mono" inputMode="numeric" />
-                </Field>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
+                  <Field label="Port">
+                    <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} className="font-mono" inputMode="numeric" />
+                  </Field>
+                  <Field label="Reachable by">
+                    <Select
+                      value={bind}
+                      onValueChange={(b) => setBind(b as typeof bind)}
+                      options={[
+                        { value: "127.0.0.1", label: "This machine", description: "localhost on the server only, safest" },
+                        { value: "0.0.0.0", label: "Everyone", description: "Any network that reaches the server" },
+                      ]}
+                    />
+                  </Field>
+                </div>
+                <p className="text-[12.5px] leading-relaxed text-muted">
+                  {bind === "127.0.0.1"
+                    ? "Connect at localhost on the server, or through an SSH tunnel from your laptop."
+                    : "Use a high, non-standard port and a strong password. Restrict access with a firewall when possible."}
+                </p>
                 {props.publicUrl && !changed && (
-                  <Field label="Public connection URL">
+                  <Field label={`Public connection URL · ${props.publicAddress}`}>
                     <CopyField value={props.publicUrl} secret />
                   </Field>
                 )}
-                {!props.serverIp && <p className="text-[13px] text-warn">Set the server IP in Server settings to see the public URL.</p>}
               </>
             ) : (
               <p className="flex items-center gap-2 text-[13px] text-muted">

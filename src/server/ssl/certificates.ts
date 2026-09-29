@@ -2,14 +2,16 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { and, eq, lt } from "drizzle-orm";
+import { and, asc, eq, lt } from "drizzle-orm";
 import { db, schema } from "@/server/db";
+import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { decrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
-import { paths, proxyPaths } from "@/server/paths";
+import { proxyPaths } from "@/server/paths";
 import { run } from "@/server/process";
 import { getSettings } from "@/server/settings";
-import { ensureProxy, servicesUsingCertificate, syncDashboardProxy, syncServiceProxy } from "@/server/proxy/nginx";
+import { getServer, type ServerCtx } from "@/server/servers/context";
+import { ensureServerProxy, servicesUsingCertificate, syncDashboardProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { notify } from "@/server/notify";
 import { enqueue } from "@/server/queue";
@@ -44,13 +46,18 @@ async function appendLog(id: string, text: string) {
   await db.update(schema.certificate).set({ logs }).where(eq(schema.certificate.id, id));
 }
 
+/** Docker CLI on the certificate's server (certbot runs where the proxy serves the challenge). */
+async function docker(ctx: ServerCtx, args: string[], opts: { onLine?: (l: string) => void } = {}) {
+  return run("docker", args, { env: await ctx.cliEnv(), onLine: opts.onLine });
+}
+
 /** Read a file produced by certbot (root-owned) through a throwaway container. */
-async function readFromLetsencrypt(relative: string) {
-  return run("docker", [
+async function readFromLetsencrypt(ctx: ServerCtx, relative: string) {
+  return docker(ctx, [
     "run",
     "--rm",
     "-v",
-    `${paths.letsencrypt}:/etc/letsencrypt:ro`,
+    `${ctx.paths.letsencrypt}:/etc/letsencrypt:ro`,
     "--entrypoint",
     "cat",
     CERTBOT_IMAGE,
@@ -58,7 +65,13 @@ async function readFromLetsencrypt(relative: string) {
   ]);
 }
 
+/** The server a certificate is stored on and served from. */
+export function certificateServer(cert: Pick<Cert, "serverId">) {
+  return getServer(cert.serverId || LOCAL_SERVER_ID);
+}
+
 async function certbot(cert: Cert, log: (l: string) => void) {
+  const ctx = await certificateServer(cert);
   const settings = await getSettings();
   if (!settings.acmeEmail) throw new Error("Set a Let's Encrypt email in Settings → General first.");
   const isDns = cert.provider === "letsencrypt-cloudflare";
@@ -66,9 +79,9 @@ async function certbot(cert: Cert, log: (l: string) => void) {
     "run",
     "--rm",
     "-v",
-    `${paths.letsencrypt}:/etc/letsencrypt`,
+    `${ctx.paths.letsencrypt}:/etc/letsencrypt`,
     "-v",
-    `${paths.acme}:/var/www/acme`,
+    `${ctx.paths.acme}:/var/www/acme`,
     isDns ? CERTBOT_CF_IMAGE : CERTBOT_IMAGE,
     "certonly",
     "--non-interactive",
@@ -88,10 +101,8 @@ async function certbot(cert: Cert, log: (l: string) => void) {
       .from(schema.cloudflareAccount)
       .where(eq(schema.cloudflareAccount.id, cert.cloudflareAccountId));
     if (!account) throw new Error("The Cloudflare account for this certificate was removed.");
-    const credsDir = path.join(paths.letsencrypt, "serve-cloudflare");
-    await fs.mkdir(credsDir, { recursive: true });
-    const credsFile = path.join(credsDir, `${account.id}.ini`);
-    await fs.writeFile(credsFile, `dns_cloudflare_api_token = ${decrypt(account.apiToken)}\n`, { mode: 0o600 });
+    const credsFile = path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${account.id}.ini`);
+    await ctx.fs.writeFile(credsFile, `dns_cloudflare_api_token = ${decrypt(account.apiToken)}\n`, 0o600);
     args.push(
       "--dns-cloudflare",
       "--dns-cloudflare-credentials",
@@ -100,13 +111,13 @@ async function certbot(cert: Cert, log: (l: string) => void) {
       "30",
     );
   } else {
-    await ensureProxy(log);
+    await ensureServerProxy(ctx, log);
     args.push("--webroot", "-w", "/var/www/acme");
   }
   for (const d of cert.domains) args.push("-d", d);
-  log(`$ certbot certonly ${isDns ? "--dns-cloudflare" : "--webroot"} ${cert.domains.map((d) => `-d ${d}`).join(" ")}`);
-  await run("docker", args, { onLine: log });
-  const pem = await readFromLetsencrypt(`live/${cert.id}/fullchain.pem`);
+  log(`$ certbot certonly ${isDns ? "--dns-cloudflare" : "--webroot"} ${cert.domains.map((d) => `-d ${d}`).join(" ")}${ctx.local ? "" : `  (on ${ctx.name})`}`);
+  await docker(ctx, args, { onLine: log });
+  const pem = await readFromLetsencrypt(ctx, `live/${cert.id}/fullchain.pem`);
   return {
     pem,
     certPath: `${proxyPaths.letsencrypt}/live/${cert.id}/fullchain.pem`,
@@ -120,6 +131,7 @@ async function openssl(args: string[], cwd: string) {
 
 async function cloudflareOrigin(cert: Cert, log: (l: string) => void) {
   if (!cert.cloudflareAccountId) throw new Error("Pick a Cloudflare account for the origin certificate.");
+  const ctx = await certificateServer(cert);
   const cf = await Cloudflare.forAccount(cert.cloudflareAccountId);
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "serve-csr-"));
   try {
@@ -131,11 +143,9 @@ async function cloudflareOrigin(cert: Cert, log: (l: string) => void) {
     const csr = await fs.readFile(path.join(tmp, "csr.pem"), "utf8");
     log("Requesting Cloudflare Origin CA certificate");
     const result = await cf.createOriginCertificate(cert.domains, csr);
-    const dir = path.join(paths.certs, cert.id);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, "fullchain.pem"), result.certificate.trim() + "\n");
-    await fs.copyFile(path.join(tmp, "key.pem"), path.join(dir, "privkey.pem"));
-    await fs.chmod(path.join(dir, "privkey.pem"), 0o600);
+    const dir = path.posix.join(ctx.paths.certs, cert.id);
+    await ctx.fs.writeFile(path.posix.join(dir, "fullchain.pem"), result.certificate.trim() + "\n");
+    await ctx.fs.writeFile(path.posix.join(dir, "privkey.pem"), await fs.readFile(path.join(tmp, "key.pem")), 0o600);
     return {
       pem: result.certificate,
       certPath: `${proxyPaths.certs}/${cert.id}/fullchain.pem`,
@@ -146,15 +156,15 @@ async function cloudflareOrigin(cert: Cert, log: (l: string) => void) {
   }
 }
 
-/** Save an uploaded certificate + key pair. */
-export async function saveCustomCertificate(id: string, certPem: string, keyPem: string) {
+/** Save an uploaded certificate + key pair on the server that will serve it. */
+export async function saveCustomCertificate(id: string, certPem: string, keyPem: string, serverId: string = LOCAL_SERVER_ID) {
   const parsed = parseCertificate(certPem);
   const key = crypto.createPrivateKey(keyPem);
   if (!parsed.x509.checkPrivateKey(key)) throw new Error("The private key does not match the certificate.");
-  const dir = path.join(paths.certs, id);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, "fullchain.pem"), certPem.trim() + "\n");
-  await fs.writeFile(path.join(dir, "privkey.pem"), keyPem.trim() + "\n", { mode: 0o600 });
+  const ctx = await getServer(serverId);
+  const dir = path.posix.join(ctx.paths.certs, id);
+  await ctx.fs.writeFile(path.posix.join(dir, "fullchain.pem"), certPem.trim() + "\n");
+  await ctx.fs.writeFile(path.posix.join(dir, "privkey.pem"), keyPem.trim() + "\n", 0o600);
   return {
     ...parsed,
     certPath: `${proxyPaths.certs}/${id}/fullchain.pem`,
@@ -167,7 +177,8 @@ export async function applyCertificate(cert: Cert) {
   const services = await servicesUsingCertificate(cert);
   for (const id of services) await syncServiceProxy(id).catch(() => {});
   const settings = await getSettings();
-  if (settings.dashboardDomain && certificateCovers(cert.domains, settings.dashboardDomain)) {
+  // The dashboard is served by the local proxy only.
+  if (cert.serverId === LOCAL_SERVER_ID && settings.dashboardDomain && certificateCovers(cert.domains, settings.dashboardDomain)) {
     await syncDashboardProxy().catch(() => {});
   }
 }
@@ -261,7 +272,13 @@ export async function renewDueCertificates() {
  */
 export async function ensureCertificateFor(domain: typeof schema.domain.$inferSelect, organizationId: string) {
   if (!domain.https) return null;
-  const certs = await db.select().from(schema.certificate).where(eq(schema.certificate.organizationId, organizationId));
+  // Certificates live on the server whose proxy serves the domain.
+  const [svc] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, domain.serviceId));
+  const serverId = svc?.serverId ?? LOCAL_SERVER_ID;
+  const certs = await db
+    .select()
+    .from(schema.certificate)
+    .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, serverId)));
   const existing = certs.find(
     (c) => c.id === domain.certificateId || certificateCovers(c.domains, domain.hostname),
   );
@@ -280,6 +297,7 @@ export async function ensureCertificateFor(domain: typeof schema.domain.$inferSe
     .values({
       id,
       organizationId,
+      serverId,
       name: domain.hostname,
       domains: [domain.hostname],
       provider: useDns ? "letsencrypt-cloudflare" : "letsencrypt-http",
@@ -291,14 +309,30 @@ export async function ensureCertificateFor(domain: typeof schema.domain.$inferSe
   return cert;
 }
 
+/** Certificates of an organization with the name of the server each one lives on. */
+export async function certificatesWithServers(organizationId: string) {
+  return db
+    .select({ certificate: schema.certificate, serverName: schema.server.name, serverIsLocal: schema.server.isLocal })
+    .from(schema.certificate)
+    .innerJoin(schema.server, eq(schema.certificate.serverId, schema.server.id))
+    .where(eq(schema.certificate.organizationId, organizationId))
+    .orderBy(asc(schema.certificate.createdAt));
+}
+
 export async function deleteCertificateFiles(cert: Cert) {
-  await fs.rm(path.join(paths.certs, cert.id), { recursive: true, force: true }).catch(() => {});
+  let ctx: ServerCtx;
+  try {
+    ctx = await certificateServer(cert);
+  } catch {
+    return; // server removed
+  }
+  await ctx.fs.rm(path.posix.join(ctx.paths.certs, cert.id)).catch(() => {});
   if (cert.provider.startsWith("letsencrypt")) {
-    await run("docker", [
+    await docker(ctx, [
       "run",
       "--rm",
       "-v",
-      `${paths.letsencrypt}:/etc/letsencrypt`,
+      `${ctx.paths.letsencrypt}:/etc/letsencrypt`,
       CERTBOT_IMAGE,
       "delete",
       "--non-interactive",

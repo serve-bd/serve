@@ -2,34 +2,45 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { sql as dsql } from "drizzle-orm";
 import { db } from "@/server/db";
-import { paths } from "@/server/paths";
+import { sh } from "@/server/servers/ssh";
+import type { ServerCtx } from "@/server/servers/context";
+import { activeServers } from "@/server/proxy/nginx";
 
 const MAX_LOG_SIZE = 64 * 1024 * 1024;
-let offset: number | null = null;
+const CHUNK = 16 * 1024 * 1024;
+/** Read position in each server's access log. Unknown servers start at the end. */
+const offsets = new Map<string, number>();
 
 type Bucket = { requests: number; s2: number; s3: number; s4: number; s5: number; bytes: number; ms: number; max: number };
 
-/** Read new access log lines and fold them into per-minute counters. */
+/** Read new access log lines from every proxy and fold them into per-minute counters. */
 export async function ingestAccessLog() {
-  const file = path.join(paths.proxyLogs, "access.log");
-  let stat;
-  try {
-    stat = await fs.stat(file);
-  } catch {
-    return 0;
+  let total = 0;
+  for (const ctx of await activeServers()) {
+    try {
+      total += await ingestServerLog(ctx);
+    } catch {
+      // unreachable server: try again next round from the same offset
+    }
   }
-  if (offset === null || offset > stat.size) offset = offset === null ? stat.size : 0; // start at the end on boot
+  return total;
+}
+
+async function ingestServerLog(ctx: ServerCtx) {
+  const file = path.posix.join(ctx.paths.proxyLogs, "access.log");
+  const stat = await ctx.fs.stat(file);
+  if (!stat) return 0;
+  let offset = offsets.get(ctx.id);
+  if (offset === undefined || offset > stat.size) offset = offset === undefined ? stat.size : 0; // start at the end on boot
+  offsets.set(ctx.id, offset);
   if (stat.size === offset) return 0;
 
-  const handle = await fs.open(file, "r");
-  const length = Math.min(stat.size - offset, 16 * 1024 * 1024);
-  const buffer = Buffer.alloc(length);
-  await handle.read(buffer, 0, length, offset);
-  await handle.close();
+  const buffer = await ctx.fs.readFrom(file, offset, Math.min(stat.size - offset, CHUNK));
   const text = buffer.toString("utf8");
   const lastNewline = text.lastIndexOf("\n");
   if (lastNewline === -1) return 0;
   offset += Buffer.byteLength(text.slice(0, lastNewline + 1));
+  offsets.set(ctx.id, offset);
 
   const buckets = new Map<string, Bucket>();
   let count = 0;
@@ -80,8 +91,12 @@ export async function ingestAccessLog() {
   // Keep the log small; nginx appends, so truncating in place is safe.
   if (stat.size > MAX_LOG_SIZE && offset >= stat.size) {
     try {
-      await fs.truncate(file, 0);
-      offset = 0;
+      if (ctx.local) await fs.truncate(file, 0);
+      else {
+        const r = await ctx.exec(`truncate -s 0 ${sh(file)} || : > ${sh(file)}`);
+        if (r.code !== 0) throw new Error(r.stderr);
+      }
+      offsets.set(ctx.id, 0);
     } catch {
       // not writable (e.g. dev worker without root); keep reading
     }

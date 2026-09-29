@@ -5,7 +5,7 @@ import { DeploymentsList } from "./deployments-list";
 import { DatabaseOverview } from "./database-overview";
 import { engines } from "@/server/databases/engines";
 import { decryptOrNull } from "@/server/crypto";
-import { getSettings } from "@/server/settings";
+import { publishedPorts } from "@/server/services/ports";
 
 export default async function ServicePage(props: PageProps<"/projects/[projectId]/services/[serviceId]">) {
   const { projectId, serviceId } = await props.params;
@@ -15,7 +15,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
   if (service.type === "database" && service.database) {
     const cfg = service.database;
     const engine = engines[cfg.engine];
-    const settings = await getSettings();
+    const [published] = await publishedPorts(service);
     const creds = { username: cfg.username, password: decryptOrNull(cfg.password) ?? "", database: cfg.database };
     return (
       <PageBody>
@@ -25,10 +25,11 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           engine={{ label: engine.label, port: engine.port, hasUser: engine.hasUser, hasDatabase: engine.hasDatabase }}
           creds={creds}
           internalUrl={engine.url({ ...creds, host: service.slug, port: engine.port })}
-          publicUrl={cfg.publicPort && settings.serverIp ? engine.url({ ...creds, host: settings.serverIp, port: cfg.publicPort }) : null}
+          publicUrl={published ? engine.url({ ...creds, host: published.address, port: published.host }) : null}
           host={service.slug}
           publicPort={cfg.publicPort ?? null}
-          serverIp={settings.serverIp}
+          publicBind={cfg.publicBind ?? "0.0.0.0"}
+          publicAddress={published?.label ?? null}
           name={service.name}
         />
       </PageBody>

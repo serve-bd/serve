@@ -5,7 +5,7 @@ import { db, schema, sql } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
 import { newId } from "@/server/id";
 import { docker, ensureNetwork, LABEL, listServiceContainers } from "@/server/docker/client";
-import { ensureProxy, syncAllProxy } from "@/server/proxy/nginx";
+import { ensureProxy, ensureServerProxy, syncAllProxy } from "@/server/proxy/nginx";
 import { CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job } from "@/server/queue";
 import { runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
@@ -18,6 +18,7 @@ import { runTask, scheduleTasks } from "@/server/services/tasks";
 import { ingestAccessLog } from "@/server/analytics";
 import { runCleanup, scheduleCleanup } from "@/server/cleanup";
 import { probeServer, setupServer } from "@/server/servers/setup";
+import { getServer, serverOf } from "@/server/servers/context";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -49,8 +50,10 @@ async function handle(job: Job, signal: AbortSignal) {
     case "proxy.sync":
       await ensureProxy();
       return syncAllProxy();
-    case "cleanup":
-      return void (await runCleanup((job.payload as { full?: boolean }).full === true ? "manual" : "schedule"));
+    case "cleanup": {
+      const payload = job.payload as { full?: boolean; serverId?: string };
+      return void (await runCleanup(payload.full === true ? "manual" : "schedule", payload.serverId));
+    }
     case "task.run":
       return runTask(p.runId);
     case "server.setup":
@@ -139,14 +142,29 @@ async function probeRemoteServers() {
   await Promise.all(rows.filter((r) => r.status === "ready" || r.status === "unreachable").map((r) => probeServer(r.id)));
 }
 
+/** Servers whose Docker can be asked right now: the local one and ready remote ones. */
+async function reachableServers() {
+  const rows = await db.select({ id: schema.server.id, isLocal: schema.server.isLocal, status: schema.server.status }).from(schema.server);
+  return new Set(rows.filter((r) => r.isLocal || r.status === "ready").map((r) => r.id));
+}
+
 /** Detect crashed or recovered services by looking at their containers. */
 async function monitorServices() {
   const services = await db
     .select()
     .from(schema.service)
     .where(inArray(schema.service.status, ["running", "crashed", "restarting"]));
+  const reachable = await reachableServers();
   for (const s of services) {
-    const containers = await listServiceContainers(s.id);
+    // An unreachable server says nothing about its services; keep their last known status.
+    if (!reachable.has(s.serverId)) continue;
+    let containers;
+    try {
+      const server = await serverOf(s);
+      containers = await listServiceContainers(s.id, true, server.docker);
+    } catch {
+      continue;
+    }
     const relevant =
       s.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === s.currentDeploymentId) : containers;
     // Every container is gone (removed by hand or by a Docker reset).
@@ -174,6 +192,20 @@ async function monitorServices() {
           url: `/projects/${s.projectId}/services/${s.id}`,
         });
       }
+    }
+  }
+}
+
+/** Restarts a stopped or missing proxy on every reachable server. */
+async function checkProxies() {
+  const reachable = await reachableServers();
+  for (const id of reachable) {
+    try {
+      const server = await getServer(id);
+      const info = await server.docker.getContainer(server.proxyContainer).inspect().catch(() => null);
+      if (!info?.State.Running) await ensureServerProxy(server, (l) => log(`[${server.name}] ${l}`));
+    } catch (error) {
+      log(`proxy check on ${id} failed:`, (error as Error).message);
     }
   }
 }
@@ -218,7 +250,9 @@ async function recover() {
     .where(inArray(schema.deployment.status, ["building", "deploying"]))
     .returning({ serviceId: schema.deployment.serviceId });
   for (const { serviceId } of stuck) {
-    const up = (await listServiceContainers(serviceId, false)).length > 0;
+    const [service] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, serviceId));
+    const server = service ? await getServer(service.serverId).catch(() => null) : null;
+    const up = server ? (await listServiceContainers(serviceId, false, server.docker).catch(() => [])).length > 0 : false;
     await setServiceStatus(serviceId, up ? "running" : "failed");
   }
   // Certificates interrupted mid-issue get another attempt.
@@ -278,10 +312,7 @@ async function main() {
   every(20_000, "analytics", ingestAccessLog, true);
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
   every(5 * 60_000, "cleanup", scheduleCleanup, true);
-  every(5 * 60_000, "proxy-health", async () => {
-    const info = await docker.getContainer(process.env.SERVE_PROXY_CONTAINER ?? "serve-proxy").inspect().catch(() => null);
-    if (!info?.State.Running) await ensureProxy((l) => log(l));
-  });
+  every(5 * 60_000, "proxy-health", checkProxies, true);
 
   void loop();
 }

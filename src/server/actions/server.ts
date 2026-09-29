@@ -11,6 +11,8 @@ import { newId } from "@/server/id";
 import { certificateCovers } from "@/server/ssl/match";
 import { eq } from "drizzle-orm";
 import { logActivity } from "@/server/activity";
+import { LOCAL_SERVER_ID } from "@/server/db/schema";
+import { updateLocalAddressing } from "@/server/proxy/addressing";
 
 const hostname = z
   .string()
@@ -53,7 +55,10 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
       (patch as Record<string, unknown>)[k] = v === "" ? null : v;
     }
     const before = await getSettings();
-    await updateSettings(patch);
+    // Addressing belongs to the local server row; the settings keys are deprecated.
+    const { serverIp, wildcardDomain, sslipFallback, ...rest } = patch;
+    await updateLocalAddressing({ publicIp: serverIp, wildcardDomain, sslipFallback });
+    await updateSettings(rest);
     const after = await getSettings();
 
     const proxyRelevant: (keyof Settings)[] = ["dashboardDomain", "dashboardHttps", "proxyMaxBodySize", "proxyCustomConfig", "dashboardAllowlist"];
@@ -116,10 +121,13 @@ export async function resyncProxy() {
   });
 }
 
-export async function runCleanup() {
+/** Queues a full cleanup on one server (the local server by default). */
+export async function runCleanup(serverId: string = LOCAL_SERVER_ID) {
   return act(async () => {
     await requireInstanceAdmin();
-    await enqueue("cleanup", { full: true });
+    const [server] = await db.select({ id: schema.server.id }).from(schema.server).where(eq(schema.server.id, serverId));
+    if (!server) throw new UserError("Server not found.");
+    await enqueue("cleanup", { full: true, serverId }, { concurrencyKey: `cleanup:${serverId}` });
     return null;
   });
 }

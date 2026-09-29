@@ -5,7 +5,7 @@ import { pipeline } from "node:stream/promises";
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt } from "@/server/crypto";
-import { docker } from "@/server/docker/client";
+import { serverOf } from "@/server/servers/context";
 import { engines } from "@/server/databases/engines";
 import { paths } from "@/server/paths";
 import { notify, orgOfService } from "@/server/notify";
@@ -49,6 +49,8 @@ export async function runBackup(backupId: string) {
   await fs.promises.mkdir(path.dirname(file), { recursive: true });
 
   try {
+    // The dump runs next to the database on its server and streams back here.
+    const { docker } = await serverOf(service);
     const exec = await docker.getContainer(service.slug).exec({
       Cmd: ["sh", "-c", engine.backupCommand(creds)],
       AttachStdout: true,
@@ -129,6 +131,7 @@ export async function restoreBackup(backupId: string) {
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
     await s3Download(s3, s3Key(s3.prefix, service.slug, backup.filename), file);
   }
+  const { docker } = await serverOf(service);
   const exec = await docker.getContainer(service.slug).exec({
     Cmd: ["sh", "-c", engine.restoreCommand(creds)],
     AttachStdin: true,

@@ -16,7 +16,7 @@ import { engines } from "@/server/databases/engines";
 import { getTemplate } from "@/server/services/templates";
 import { normalizeRepoUrl } from "@/server/deploy/git";
 import { composeServiceNames, parseCompose } from "@/server/deploy/compose";
-import { syncServiceProxy } from "@/server/proxy/nginx";
+import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { getSettings } from "@/server/settings";
@@ -24,6 +24,7 @@ import { teardownServices } from "@/server/services/teardown";
 import { composeSecurityIssues, safeRedirectUrl } from "@/server/security";
 import type { OrgContext } from "@/server/auth";
 import { requestServiceControl } from "@/server/services/control";
+import { resolveServerForOrg, serverPublicIp } from "@/server/servers/access";
 
 async function assertEnvironment(projectId: string, environmentId: string) {
   const [env] = await db
@@ -55,8 +56,15 @@ function assertSafeCompose(ctx: OrgContext, content: string) {
   }
 }
 
-async function addGeneratedDomain(serviceId: string, slug: string, organizationId: string, port?: number | null, composeService?: string | null) {
-  const generated = await generatedHostname(slug);
+async function addGeneratedDomain(
+  serviceId: string,
+  slug: string,
+  organizationId: string,
+  port?: number | null,
+  composeService?: string | null,
+  serverId?: string,
+) {
+  const generated = await generatedHostname(slug, serverId);
   if (!generated) return;
   const [domain] = await db
     .insert(schema.domain)
@@ -114,6 +122,8 @@ const appSchema = z.object({
   port: z.number().int().min(1).max(65535).nullable().optional(),
   envVars: envVarInput,
   deploy: z.boolean().default(true),
+  /** Server to run on; defaults to the server Serve runs on. */
+  serverId: z.string().nullable().optional(),
 });
 
 export async function createAppService(input: z.input<typeof appSchema>) {
@@ -124,6 +134,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
     await assertEnvironment(data.projectId, data.environmentId);
 
     if (data.source.type === "git") await assertCredential(data.source.credentialId, ctx.org.id);
+    const server = await resolveServerForOrg(data.serverId, ctx.org.id);
 
     const source: SourceConfig =
       data.source.type === "git"
@@ -141,6 +152,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
       id,
       projectId: data.projectId,
       environmentId: data.environmentId,
+      serverId: server.id,
       name: data.name,
       slug,
       type: "app",
@@ -150,7 +162,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
       webhookSecret: newWebhookSecret(),
     });
     await writeEnvVars(id, (data.envVars ?? []).filter((v) => v.key.trim()).map((v) => ({ ...v, buildTime: false, runtime: true })));
-    await addGeneratedDomain(id, slug, ctx.org.id);
+    await addGeneratedDomain(id, slug, ctx.org.id, null, null, server.id);
     if (data.deploy) await queueDeployment(id, "create", { userId: ctx.user.id });
     await logActivity({ userId: ctx.user.id, projectId: data.projectId, action: "service.created", targetType: "service", targetId: id, message: `Created ${data.name}` });
     return { id };
@@ -166,6 +178,7 @@ const dbSchema = z.object({
   username: z.string().trim().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Use letters, numbers and underscores").optional(),
   database: z.string().trim().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Use letters, numbers and underscores").optional(),
   password: z.string().min(8).optional(),
+  serverId: z.string().nullable().optional(),
 });
 
 export async function createDatabaseService(input: z.input<typeof dbSchema>) {
@@ -174,6 +187,7 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
     const data = dbSchema.parse(input);
     await projectInOrg(data.projectId, ctx.org.id);
     await assertEnvironment(data.projectId, data.environmentId);
+    const server = await resolveServerForOrg(data.serverId, ctx.org.id);
     const engine = engines[data.engine];
     const version = data.version && engine.versions.includes(data.version) ? data.version : engine.defaultVersion;
     const id = newId();
@@ -181,6 +195,7 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
       id,
       projectId: data.projectId,
       environmentId: data.environmentId,
+      serverId: server.id,
       name: data.name,
       slug: await uniqueServiceSlug(data.name),
       type: "database",
@@ -215,6 +230,7 @@ const composeSchema = z.object({
     .object({ repository: z.string().trim().min(3), branch: z.string().trim().default("main"), credentialId: z.string().nullable().optional() })
     .optional(),
   template: z.string().optional(),
+  serverId: z.string().nullable().optional(),
 });
 
 export async function createComposeService(input: z.input<typeof composeSchema>) {
@@ -235,6 +251,10 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
       if (!template) assertSafeCompose(ctx, content);
     } else if (!data.source) throw new UserError("Enter a repository.");
     await assertCredential(data.source?.credentialId, ctx.org.id);
+    const server = await resolveServerForOrg(data.serverId, ctx.org.id);
+    if (!server.isLocal && server.info && (server.info as { compose?: string | null }).compose === null) {
+      throw new UserError(`${server.name} has no Docker Compose. Install the compose plugin there first.`);
+    }
     if (data.mode === "git") content = "";
 
     const id = newId();
@@ -243,6 +263,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
       id,
       projectId: data.projectId,
       environmentId: data.environmentId,
+      serverId: server.id,
       name: data.name,
       slug,
       type: "compose",
@@ -257,7 +278,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
     });
 
     if (template) {
-      const generated = await generatedHostname(slug);
+      const generated = await generatedHostname(slug, server.id);
       if (generated) {
         const [domain] = await db
           .insert(schema.domain)
@@ -346,7 +367,14 @@ const updateSchema = z.object({
           kind: z.enum(["volume", "bind"]),
         }),
       ),
-      ports: z.array(z.object({ host: z.number().int().min(1).max(65535), container: z.number().int().min(1).max(65535), protocol: z.enum(["tcp", "udp"]) })),
+      ports: z.array(
+        z.object({
+          host: z.number().int().min(1).max(65535),
+          container: z.number().int().min(1).max(65535),
+          protocol: z.enum(["tcp", "udp"]),
+          bindAddress: z.enum(["0.0.0.0", "127.0.0.1"]).optional(),
+        }),
+      ),
     })
     .partial()
     .optional(),
@@ -354,6 +382,7 @@ const updateSchema = z.object({
     .object({
       version: z.string(),
       publicPort: z.number().int().min(1024).max(65535).nullable(),
+      publicBind: z.enum(["0.0.0.0", "127.0.0.1"]).optional(),
       backupSchedule: z.string().nullable(),
       backupRetention: z.number().int().min(1).max(365),
       s3DestinationId: z.string().nullable(),
@@ -519,6 +548,60 @@ export async function serviceControl(serviceId: string, command: "stop" | "start
   });
 }
 
+/**
+ * Move a service to another server: its containers on the old server are
+ * removed (data volumes stay there) and it is deployed fresh on the new one.
+ */
+export async function moveService(serviceId: string, serverId: string, opts: { force?: boolean } = {}) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (service.parentServiceId) throw new UserError("Preview deployments follow their parent service.");
+    if (service.serverId === serverId) throw new UserError("The service already runs on that server.");
+    const target = await resolveServerForOrg(serverId, ctx.org.id);
+    const [source] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, service.serverId));
+    if (service.type === "database" && !opts.force) {
+      throw new UserError(`Moving a database starts it empty on ${target.name}. Its data stays in a volume on ${source?.name ?? "the old server"}. Back it up and restore it after the move.`);
+    }
+    const [busy] = await db
+      .select({ id: schema.deployment.id })
+      .from(schema.deployment)
+      .where(and(eq(schema.deployment.serviceId, serviceId), inArray(schema.deployment.status, ["queued", "building", "deploying"])))
+      .limit(1);
+    if (busy) throw new UserError("Wait for the running deployment to finish first.");
+
+    // Old containers go first (same concurrency key as deployments, so it runs before the new deploy).
+    await enqueue(
+      "service.delete",
+      { serviceId, slug: service.slug, type: service.type, removeVolumes: false, environmentId: service.environmentId, serverId: service.serverId, keepFiles: true },
+      { concurrencyKey: `service:${serviceId}` },
+    );
+    // Stop routing on the old server right away; the delete job also cleans it up.
+    await removeServiceProxy(serviceId, service.serverId).catch(() => {});
+    await db.update(schema.service).set({ serverId: target.id, status: "deploying" }).where(eq(schema.service.id, serviceId));
+
+    // Generated domains carry the server's address (sslip.io / wildcard); give them the new one.
+    const domains = await db.select().from(schema.domain).where(and(eq(schema.domain.serviceId, serviceId), eq(schema.domain.generated, true)));
+    for (const d of domains) {
+      const next = await generatedHostname(service.slug, target.id);
+      if (!next || next.hostname === d.hostname) continue;
+      const [taken] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, next.hostname));
+      if (!taken) await db.update(schema.domain).set({ hostname: next.hostname, https: next.https, forceHttps: next.https }).where(eq(schema.domain.id, d.id));
+    }
+
+    const deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "service.moved",
+      targetType: "service",
+      targetId: serviceId,
+      message: `Moved ${service.name} from ${source?.name ?? "another server"} to ${target.name}${service.runtime.volumes.length || service.type !== "app" ? ". Data volumes stay on the old server" : ""}`,
+    });
+    return { deploymentId };
+  });
+}
+
 export async function deleteService(serviceId: string, removeVolumes: boolean) {
   return act(async () => {
     const ctx = await requireOrg();
@@ -630,11 +713,11 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
         if (!zone || (data.hostname !== zone.name && !data.hostname.endsWith(`.${zone.name}`))) {
           throw new UserError("That domain is not part of the selected Cloudflare zone.");
         }
-        const settings = await getSettings();
-        if (!settings.serverIp) throw new UserError("Set the server IP in Server settings before creating DNS records.");
+        const ip = await serverPublicIp(service.serverId);
+        if (!ip) throw new UserError("Set the public IP of this service's server before creating DNS records.");
         const cf = await Cloudflare.forAccount(account.id);
         try {
-          const record = await cf.upsertARecord(data.cloudflare.zoneId, data.hostname, settings.serverIp, data.cloudflare.proxied);
+          const record = await cf.upsertARecord(data.cloudflare.zoneId, data.hostname, ip, data.cloudflare.proxied);
           recordId = record.id;
         } catch (e) {
           warning = `DNS record not created: ${(e as Error).message}`;
@@ -719,13 +802,13 @@ export async function generateDomain(serviceId: string) {
   return act(async () => {
     const ctx = await requireOrg();
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
-    const generated = await generatedHostname(service.slug);
-    if (!generated) throw new UserError("Set a wildcard domain or the server IP in Server settings first.");
+    const generated = await generatedHostname(service.slug, service.serverId);
+    if (!generated) throw new UserError("Set a wildcard domain or the public IP of this service's server first.");
     const [taken] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, generated.hostname));
     if (taken) throw new UserError("The generated domain is already in use.");
     let composeService: string | null = null;
     if (service.type === "compose") composeService = composeServiceNames(service.compose?.content ?? "")[0] ?? null;
-    await addGeneratedDomain(serviceId, service.slug, ctx.org.id, null, composeService);
+    await addGeneratedDomain(serviceId, service.slug, ctx.org.id, null, composeService, service.serverId);
     await syncServiceProxy(serviceId).catch(() => {});
     return null;
   });
@@ -783,9 +866,9 @@ export async function applyDatabaseChanges(serviceId: string) {
       const clash = await db
         .select({ id: schema.service.id, database: schema.service.database })
         .from(schema.service)
-        .where(and(eq(schema.service.type, "database"), ne(schema.service.id, serviceId)));
+        .where(and(eq(schema.service.type, "database"), ne(schema.service.id, serviceId), eq(schema.service.serverId, service.serverId)));
       if (clash.some((c) => c.database?.publicPort === service.database?.publicPort)) {
-        throw new UserError("Another database already uses that public port.");
+        throw new UserError("Another database on this server already uses that public port.");
       }
     }
     const id = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
@@ -813,10 +896,9 @@ export async function checkDomainDns(domainId: string) {
     const ctx = await requireOrg();
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
-    await serviceInOrg(domain.serviceId, ctx.org.id);
+    const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
     const { domainDnsStatus } = await import("@/server/dns");
-    const settings = await getSettings();
-    return domainDnsStatus(domain.hostname, settings.serverIp);
+    return domainDnsStatus(domain.hostname, await serverPublicIp(service.serverId));
   });
 }
 

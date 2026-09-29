@@ -47,6 +47,9 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
   return vars;
 }
 
+/** Variables that point at the private network (unreachable from another server). */
+const PRIVATE_VARS = /^(HOST|PORT|DATABASE_URL|REDIS_URL|MONGO_URL|POSTGRES_URL|MYSQL_URL|SERVE_PRIVATE_DOMAIN)$/;
+
 const REF = /\$\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g;
 
 export type ResolvedEnv = {
@@ -80,8 +83,15 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   for (const v of shared) sharedMap[v.key] = decryptOrNull(v.value) ?? "";
 
   const lookup = new Map<string, Record<string, string>>();
+  // Private hostnames only resolve on the same server; drop them for services elsewhere.
+  const remoteOnly = new Map<string, Set<string>>();
   for (const s of siblings) {
-    const provided = providedVars(s, domainsBy.get(s.id) ?? []);
+    let provided = providedVars(s, domainsBy.get(s.id) ?? []);
+    if (s.id !== service.id && s.serverId !== service.serverId) {
+      const hidden = new Set(Object.keys(provided).filter((k) => PRIVATE_VARS.test(k)));
+      provided = Object.fromEntries(Object.entries(provided).filter(([k]) => !hidden.has(k)));
+      for (const name of [s.slug, s.name, referenceName(s.name)]) remoteOnly.set(name.toLowerCase(), hidden);
+    }
     lookup.set(s.slug.toLowerCase(), provided);
     lookup.set(s.name.toLowerCase(), provided);
     // Preferred form: names with spaces or symbols become dashed ("postgresql-sd").
@@ -104,6 +114,10 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       } else {
         const scope = lookup.get(ref.slice(0, dot).toLowerCase());
         result = scope?.[ref.slice(dot + 1)];
+        if (result === undefined && remoteOnly.get(ref.slice(0, dot).toLowerCase())?.has(ref.slice(dot + 1))) {
+          missing.add(`${ref} (runs on another server; use its public domain or port)`);
+          return "";
+        }
       }
       if (result === undefined) {
         missing.add(ref);

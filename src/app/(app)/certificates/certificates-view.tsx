@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ChevronRight, Cloud, FileKey2, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldAlert, ShieldCheck, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, ChevronRight, Cloud, FileKey2, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldAlert, ShieldCheck, Server as ServerIcon, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
@@ -23,6 +23,10 @@ import { cn } from "@/lib/utils";
 
 type Cert = {
   id: string;
+  /** Server name, when the instance has more than one server. */
+  server: string | null;
+  /** Public IP of the certificate's server, for DNS hints. */
+  serverIp: string | null;
   name: string;
   domains: string[];
   provider: string;
@@ -46,7 +50,20 @@ function daysLeft(iso: string | null) {
   return Math.floor((new Date(iso).getTime() - Date.now()) / 86400000);
 }
 
-function RequestDialog({ open, onOpenChange, accounts, hasAcme }: { open: boolean; onOpenChange: (o: boolean) => void; accounts: { id: string; name: string }[]; hasAcme: boolean }) {
+function RequestDialog({
+  open,
+  onOpenChange,
+  accounts,
+  hasAcme,
+  servers,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  accounts: { id: string; name: string }[];
+  hasAcme: boolean;
+  servers: { id: string; name: string; isLocal: boolean }[];
+}) {
+  const [serverId, setServerId] = React.useState(servers[0]?.id ?? "local");
   const [tab, setTab] = React.useState<"request" | "upload">("request");
   const [provider, setProvider] = React.useState<"letsencrypt-http" | "letsencrypt-cloudflare" | "cloudflare-origin">(accounts.length ? "letsencrypt-cloudflare" : "letsencrypt-http");
   const [domains, setDomains] = React.useState("");
@@ -61,10 +78,11 @@ function RequestDialog({ open, onOpenChange, accounts, hasAcme }: { open: boolea
         provider,
         domains: domains.split(/[\s,]+/).filter(Boolean),
         cloudflareAccountId: provider === "letsencrypt-http" ? null : account,
+        serverId,
       }),
     { success: "Certificate requested", onSuccess: close },
   );
-  const upload = useAction(() => uploadCertificate({ name, certificate: cert, privateKey: key }), { success: "Certificate uploaded", onSuccess: close });
+  const upload = useAction(() => uploadCertificate({ name, certificate: cert, privateKey: key, serverId }), { success: "Certificate uploaded", onSuccess: close });
   const needsCf = provider !== "letsencrypt-http";
 
   return (
@@ -85,6 +103,11 @@ function RequestDialog({ open, onOpenChange, accounts, hasAcme }: { open: boolea
                 </button>
               ))}
             </div>
+            {servers.length > 1 && (
+              <Field label="Server" description="The certificate is stored and served by this server's proxy.">
+                <Select value={serverId} onValueChange={setServerId} options={servers.map((s) => ({ value: s.id, label: s.isLocal ? `${s.name} (this server)` : s.name }))} />
+              </Field>
+            )}
             {tab === "request" ? (
               <>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -210,7 +233,7 @@ function CertificateRow({
   const days = daysLeft(c.expiresAt);
   const failed = c.status === "failed";
   const managed = c.provider !== "custom";
-  const problem = failed && c.lastError ? explainCertError(c.lastError, { serverIp, provider: c.provider }) : null;
+  const problem = failed && c.lastError ? explainCertError(c.lastError, { serverIp: c.serverIp ?? serverIp, provider: c.provider }) : null;
 
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
@@ -249,6 +272,15 @@ function CertificateRow({
           )}
           <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted">
             <span>{providerLabel[c.provider]}</span>
+            {c.server && (
+              <>
+                <span className="text-faint">·</span>
+                <span className="inline-flex items-center gap-1">
+                  <ServerIcon className="size-3" />
+                  {c.server}
+                </span>
+              </>
+            )}
             {days !== null && !failed && (
               <>
                 <span className="text-faint">·</span>
@@ -340,7 +372,9 @@ export function CertificatesView({
   hasAcme,
   staging,
   serverIp,
+  servers,
 }: {
+  servers: { id: string; name: string; isLocal: boolean }[];
   certificates: Cert[];
   accounts: { id: string; name: string }[];
   isAdmin: boolean;
@@ -401,7 +435,7 @@ export function CertificatesView({
           </div>
         )}
       </Card>
-      <RequestDialog open={open} onOpenChange={setOpen} accounts={accounts} hasAcme={hasAcme} />
+      <RequestDialog open={open} onOpenChange={setOpen} accounts={accounts} hasAcme={hasAcme} servers={servers} />
       <LogsDialog certId={logsFor} onClose={() => setLogsFor(null)} />
     </div>
   );

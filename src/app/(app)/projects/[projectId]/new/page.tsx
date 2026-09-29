@@ -6,6 +6,7 @@ import { resolveEnvironment } from "@/server/project-data";
 import { templates } from "@/server/services/templates";
 import { engineList } from "@/server/databases/engines";
 import { commandExists } from "@/server/process";
+import { serversForOrg } from "@/server/servers/access";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { NewServiceWizard } from "./wizard";
 
@@ -17,12 +18,13 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
   const ctx = await requireOrg();
   const project = await pageProject(projectId, ctx.org.id);
   const { current } = await resolveEnvironment(projectId, typeof env === "string" ? env : undefined);
-  const [credentials, nixpacks] = await Promise.all([
+  const [credentials, nixpacks, servers] = await Promise.all([
     db
       .select({ id: schema.gitCredential.id, name: schema.gitCredential.name, provider: schema.gitCredential.provider })
       .from(schema.gitCredential)
       .where(eq(schema.gitCredential.organizationId, ctx.org.id)),
     commandExists("nixpacks"),
+    serversForOrg(ctx.org.id),
   ]);
 
   return (
@@ -41,6 +43,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
           projectId={project.id}
           environmentId={current.id}
           environmentName={current.name}
+          servers={servers.map((s) => ({ id: s.id, name: s.name, host: s.host, status: s.status, isLocal: s.isLocal }))}
           credentials={credentials}
           nixpacks={nixpacks}
           initialType={typeof type === "string" ? type : null}

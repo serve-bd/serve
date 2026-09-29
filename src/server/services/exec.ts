@@ -1,19 +1,24 @@
 import { PassThrough } from "node:stream";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { docker, LABEL, listServiceContainers } from "@/server/docker/client";
+import type Docker from "dockerode";
+import { docker as localDocker, LABEL, listServiceContainers } from "@/server/docker/client";
+import { serverOf } from "@/server/servers/context";
 
 type Service = typeof schema.service.$inferSelect;
 
 /** Running containers a command can be executed in, with a readable label. */
 export async function execTargets(service: Service) {
-  const containers = (await listServiceContainers(service.id, false)).filter((c) =>
+  const server = await serverOf(service);
+  const containers = (await listServiceContainers(service.id, false, server.docker)).filter((c) =>
     service.type === "app" && service.currentDeploymentId ? c.Labels[LABEL.deployment] === service.currentDeploymentId : true,
   );
   return containers.map((c) => ({
     id: c.Id,
     name: c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12),
     composeService: c.Labels["com.docker.compose.service"] ?? null,
+    /** Docker client of the server the container runs on. */
+    docker: server.docker,
   }));
 }
 
@@ -32,8 +37,9 @@ export type ExecResult = { exitCode: number; output: string; timedOut: boolean }
 export async function execCommand(
   containerId: string,
   command: string,
-  opts: { onData?: (text: string) => void; signal?: AbortSignal; timeoutSeconds?: number; maxOutput?: number } = {},
+  opts: { onData?: (text: string) => void; signal?: AbortSignal; timeoutSeconds?: number; maxOutput?: number; docker?: Docker } = {},
 ): Promise<ExecResult> {
+  const docker = opts.docker ?? localDocker;
   const container = docker.getContainer(containerId);
   const exec = await container.exec({
     Cmd: ["sh", "-c", command],

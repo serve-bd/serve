@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChevronRight, Container, Database, GitBranch, Layers, Lock, Search, Sparkles } from "lucide-react";
+import { ArrowLeft, ChevronRight, Container, Database, GitBranch, Layers, Lock, Search, Server, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup, Textarea } from "@/components/ui/input";
@@ -21,9 +21,15 @@ import type { DbEngine } from "@/server/services/types";
 
 type Kind = "git" | "image" | "database" | "compose" | "template";
 
+type ServerOption = { id: string; name: string; host: string; status: string; isLocal: boolean };
+
 type Props = {
   projectId: string;
   environmentId: string;
+  /** Servers the organization may deploy to (local first). */
+  servers: ServerOption[];
+  /** Chosen server; set by the wizard. */
+  serverId?: string;
   environmentName: string;
   credentials: { id: string; name: string; provider: string }[];
   nixpacks: boolean;
@@ -186,6 +192,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
         run({
           projectId: props.projectId,
           environmentId: props.environmentId,
+          serverId: props.serverId,
           name: name || repoName(repository) || "app",
           source: { type: "git", repository, branch, credentialId: credentialId === "public" ? null : credentialId },
           build: { builder: builder as "auto", rootDir, buildCommand: buildCommand || null, startCommand: startCommand || null },
@@ -358,6 +365,7 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
         run({
           projectId: props.projectId,
           environmentId: props.environmentId,
+          serverId: props.serverId,
           name: name || guessName || "app",
           source: { type: "image", image, registryUsername: priv ? user : null, registryPassword: priv ? pass : null },
           port: port ? Number(port) : null,
@@ -391,7 +399,7 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
             <Input value={user} onChange={(e) => setUser(e.target.value)} autoComplete="off" />
           </Field>
           <Field label="Password or token">
-            <Input type="password" value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="new-password" />
+            <Input type="password" value={pass} onChange={(e) => setPass(e.target.value)} />
           </Field>
         </div>
       )}
@@ -426,6 +434,7 @@ function DatabaseForm({ props, onBack }: { props: Props; onBack: () => void }) {
         run({
           projectId: props.projectId,
           environmentId: props.environmentId,
+          serverId: props.serverId,
           name: name || info.label.toLowerCase(),
           engine,
           version,
@@ -509,6 +518,7 @@ function ComposeForm({ props, onBack }: { props: Props; onBack: () => void }) {
         run({
           projectId: props.projectId,
           environmentId: props.environmentId,
+          serverId: props.serverId,
           name: name || (mode === "git" ? repoName(repository) : "stack") || "stack",
           mode,
           content,
@@ -616,7 +626,7 @@ function TemplatePicker({ props, onBack }: { props: Props; onBack: () => void })
             disabled={!!creating}
             onClick={async () => {
               setCreating(t.id);
-              await run({ projectId: props.projectId, environmentId: props.environmentId, name: t.name, mode: "inline", template: t.id });
+              await run({ projectId: props.projectId, environmentId: props.environmentId, serverId: props.serverId, name: t.name, mode: "inline", template: t.id });
               setCreating(null);
             }}
             className="group flex items-start gap-3 rounded-2xl border border-line bg-surface p-4 text-left shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-md disabled:opacity-60"
@@ -636,7 +646,43 @@ function TemplatePicker({ props, onBack }: { props: Props; onBack: () => void })
   );
 }
 
+function ServerBar({ servers, value, onChange }: { servers: ServerOption[]; value: string; onChange: (id: string) => void }) {
+  const current = servers.find((s) => s.id === value);
+  return (
+    <div className="mb-5 flex flex-col gap-2 rounded-2xl border border-line bg-surface px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <span className="flex min-w-0 items-center gap-2.5 text-[13px]">
+        <Server className="size-4 flex-none text-muted" />
+        <span className="text-fg-2">Deploy to</span>
+        {current && current.status !== "ready" && !current.isLocal && <Badge tone="warn">{current.status === "unreachable" ? "Unreachable" : "Not ready"}</Badge>}
+      </span>
+      <Select
+        size="sm"
+        value={value}
+        onValueChange={onChange}
+        className="sm:w-72"
+        options={servers.map((s) => ({
+          value: s.id,
+          label: s.isLocal ? `${s.name} (this server)` : s.name,
+          description: s.isLocal ? "Where Serve runs" : s.host,
+          disabled: !s.isLocal && s.status !== "ready" && s.status !== "unreachable",
+        }))}
+      />
+    </div>
+  );
+}
+
 export function NewServiceWizard(props: Props) {
+  const [serverId, setServerId] = React.useState(props.servers[0]?.id ?? "local");
+  const p = { ...props, serverId };
+  return (
+    <>
+      {props.servers.length > 1 && <ServerBar servers={props.servers} value={serverId} onChange={setServerId} />}
+      <WizardSteps props={p} />
+    </>
+  );
+}
+
+function WizardSteps({ props }: { props: Props }) {
   const initial = kinds.some((k) => k.id === props.initialType) ? (props.initialType as Kind) : null;
   const [kind, setKind] = React.useState<Kind | null>(initial);
   const back = () => setKind(null);

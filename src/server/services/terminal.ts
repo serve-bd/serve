@@ -1,10 +1,13 @@
 import crypto from "node:crypto";
 import type { Duplex } from "node:stream";
 import type Docker from "dockerode";
-import { docker, imageExists, LABEL, pullImage, removeContainer } from "@/server/docker/client";
+import { docker as localDocker, imageExists, LABEL, pullImage, removeContainer } from "@/server/docker/client";
+import { getServer } from "@/server/servers/context";
+import { shellChannel } from "@/server/servers/ssh";
 
 /**
- * Interactive shells inside containers (docker exec with a TTY).
+ * Interactive shells: inside containers (docker exec with a TTY) or on a
+ * server itself (nsenter locally, an SSH shell on remote servers).
  *
  * Route handlers cannot upgrade to WebSockets, so a session lives in this
  * process: output is fanned out to Server-Sent Event subscribers and input
@@ -14,14 +17,17 @@ import { docker, imageExists, LABEL, pullImage, removeContainer } from "@/server
 
 type Listener = (event: { type: "data"; seq: number; data: Buffer } | { type: "exit"; code: number | null }) => void;
 
+/** What a session runs on: resizing and the exit status differ between Docker exec and SSH. */
+type Backend = { resize(cols: number, rows: number): Promise<void>; exitCode(): Promise<number | null> };
+
 type Session = {
   id: string;
   userId: string;
-  /** Who the session belongs to, like `service:<id>` or `host`. */
+  /** Who the session belongs to, like `service:<id>` or `host:<serverId>`. */
   scope: string;
   containerName: string;
   onClose?: () => void;
-  exec: Docker.Exec;
+  backend: Backend;
   stream: Duplex;
   chunks: { seq: number; data: Buffer }[];
   bufferedBytes: number;
@@ -64,45 +70,25 @@ function emit(session: Session, event: Parameters<Listener>[0]) {
 async function finish(session: Session) {
   if (session.exited) return;
   session.exited = true;
-  const info = await session.exec.inspect().catch(() => null);
-  session.exitCode = info?.ExitCode ?? null;
+  session.exitCode = await session.backend.exitCode().catch(() => null);
   emit(session, { type: "exit", code: session.exitCode });
   scheduleIdle(session);
 }
 
-export async function openSession(opts: {
-  userId: string;
-  scope: string;
-  containerId: string;
-  containerName: string;
-  cols: number;
-  rows: number;
-  /** Command to run with a TTY. Defaults to a login shell inside the container. */
-  cmd?: string[];
-  /** Called once when the session is closed and removed. */
-  onClose?: () => void;
-}) {
-  const owned = [...sessions.values()].filter((s) => s.userId === opts.userId).sort((a, b) => a.createdAt - b.createdAt);
+function evictOldest(userId: string) {
+  const owned = [...sessions.values()].filter((s) => s.userId === userId).sort((a, b) => a.createdAt - b.createdAt);
   // Oldest sessions make room instead of refusing a new tab.
   while (owned.length >= MAX_PER_USER) closeSession(owned.shift()!.id);
+}
 
-  const exec = await docker.getContainer(opts.containerId).exec({
-    Cmd: opts.cmd ?? ["sh", "-c", SHELL],
-    AttachStdin: true,
-    AttachStdout: true,
-    AttachStderr: true,
-    Tty: true,
-    Env: ["TERM=xterm-256color", "COLORTERM=truecolor", "LANG=C.UTF-8"],
-  });
-  const stream = (await exec.start({ hijack: true, stdin: true, Tty: true })) as unknown as Duplex;
-
+function track(opts: { userId: string; scope: string; containerName: string; onClose?: () => void }, backend: Backend, stream: Duplex) {
   const session: Session = {
     id: crypto.randomBytes(16).toString("hex"),
     userId: opts.userId,
     scope: opts.scope,
     containerName: opts.containerName,
     onClose: opts.onClose,
-    exec,
+    backend,
     stream,
     chunks: [],
     bufferedBytes: 0,
@@ -125,7 +111,39 @@ export async function openSession(opts: {
   stream.on("end", () => void finish(session));
   stream.on("close", () => void finish(session));
   stream.on("error", () => void finish(session));
+  return session;
+}
 
+export async function openSession(opts: {
+  userId: string;
+  scope: string;
+  containerId: string;
+  containerName: string;
+  cols: number;
+  rows: number;
+  /** Command to run with a TTY. Defaults to a login shell inside the container. */
+  cmd?: string[];
+  /** Called once when the session is closed and removed. */
+  onClose?: () => void;
+  /** Docker client of the container's server (defaults to the local server). */
+  docker?: Docker;
+}) {
+  evictOldest(opts.userId);
+  const docker = opts.docker ?? localDocker;
+  const exec = await docker.getContainer(opts.containerId).exec({
+    Cmd: opts.cmd ?? ["sh", "-c", SHELL],
+    AttachStdin: true,
+    AttachStdout: true,
+    AttachStderr: true,
+    Tty: true,
+    Env: ["TERM=xterm-256color", "COLORTERM=truecolor", "LANG=C.UTF-8"],
+  });
+  const stream = (await exec.start({ hijack: true, stdin: true, Tty: true })) as unknown as Duplex;
+  const backend: Backend = {
+    resize: async (cols, rows) => void (await exec.resize({ w: cols, h: rows }).catch(() => {})),
+    exitCode: async () => (await exec.inspect().catch(() => null))?.ExitCode ?? null,
+  };
+  const session = track(opts, backend, stream);
   await resizeSession(session, opts.cols, opts.rows);
   scheduleIdle(session);
   return session;
@@ -156,7 +174,7 @@ export async function resizeSession(session: Session, cols: number, rows: number
   if (session.exited) return;
   const w = Math.max(10, Math.min(500, Math.floor(cols)));
   const h = Math.max(4, Math.min(200, Math.floor(rows)));
-  await session.exec.resize({ w, h }).catch(() => {});
+  await session.backend.resize(w, h).catch(() => {});
 }
 
 export function closeSession(id: string) {
@@ -187,7 +205,11 @@ export function countSessions(scope: string) {
 /*                                 Host shell                                 */
 /* -------------------------------------------------------------------------- */
 
-export const HOST_SCOPE = "host";
+/** Session scope for a server's host shell. */
+export function hostScope(serverId: string) {
+  return `host:${serverId}`;
+}
+
 const HOST_CONTAINER = "serve-host-shell";
 const HOST_IMAGE = "alpine:3.22";
 const HOST_IDLE_MS = 30_000;
@@ -199,11 +221,11 @@ const hostStore = globalThis as unknown as { __serveHostShellTimer?: NodeJS.Time
  * enters every namespace of the host's init process, which gives a real host shell.
  */
 async function ensureHostContainer(): Promise<string> {
-  const info = await docker.getContainer(HOST_CONTAINER).inspect().catch(() => null);
+  const info = await localDocker.getContainer(HOST_CONTAINER).inspect().catch(() => null);
   if (info?.State.Running) return info.Id;
   if (info) await removeContainer(HOST_CONTAINER, 1);
   if (!(await imageExists(HOST_IMAGE))) await pullImage(HOST_IMAGE);
-  const container = await docker.createContainer({
+  const container = await localDocker.createContainer({
     name: HOST_CONTAINER,
     Image: HOST_IMAGE,
     Cmd: ["sleep", "infinity"],
@@ -222,11 +244,11 @@ async function ensureHostContainer(): Promise<string> {
   return container.id;
 }
 
-function scheduleHostCleanup() {
+function scheduleHostCleanup(scope: string) {
   if (hostStore.__serveHostShellTimer) clearTimeout(hostStore.__serveHostShellTimer);
   hostStore.__serveHostShellTimer = setTimeout(() => {
     hostStore.__serveHostShellTimer = null;
-    if (countSessions(HOST_SCOPE) === 0) void removeContainer(HOST_CONTAINER, 1);
+    if (countSessions(scope) === 0) void removeContainer(HOST_CONTAINER, 1);
   }, HOST_IDLE_MS);
 }
 
@@ -236,8 +258,25 @@ const HOST_SHELL = [
   "if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi",
 ].join("; ");
 
-/** Open a root shell on the host. */
-export async function openHostSession(opts: { userId: string; cols: number; rows: number }) {
+/** Open a root shell on a server: nsenter on the local host, a login shell over SSH elsewhere. */
+export async function openHostSession(opts: { userId: string; cols: number; rows: number; serverId?: string }) {
+  const server = await getServer(opts.serverId);
+  const scope = hostScope(server.id);
+  if (!server.local) {
+    evictOldest(opts.userId);
+    const cols = Math.max(10, Math.min(500, Math.floor(opts.cols)));
+    const rows = Math.max(4, Math.min(200, Math.floor(opts.rows)));
+    const channel = await shellChannel(server.ssh!, { cols, rows });
+    let exitCode: number | null = null;
+    channel.once("exit", (code: number | null) => (exitCode = code));
+    const backend: Backend = {
+      resize: async (c, r) => void channel.setWindow(r, c, 0, 0),
+      exitCode: async () => exitCode,
+    };
+    const session = track({ userId: opts.userId, scope, containerName: `${server.row.username}@${server.row.host}` }, backend, channel as unknown as Duplex);
+    scheduleIdle(session);
+    return session;
+  }
   if (hostStore.__serveHostShellTimer) {
     clearTimeout(hostStore.__serveHostShellTimer);
     hostStore.__serveHostShellTimer = null;
@@ -249,12 +288,12 @@ export async function openHostSession(opts: { userId: string; cols: number; rows
   const containerId = await hostStore.__serveHostShellReady;
   return openSession({
     userId: opts.userId,
-    scope: HOST_SCOPE,
+    scope,
     containerId,
     containerName: HOST_CONTAINER,
     cols: opts.cols,
     rows: opts.rows,
     cmd: ["nsenter", "-t", "1", "-m", "-u", "-i", "-n", "-p", "--", "sh", "-c", HOST_SHELL],
-    onClose: scheduleHostCleanup,
+    onClose: () => scheduleHostCleanup(scope),
   });
 }

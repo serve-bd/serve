@@ -7,6 +7,8 @@ export async function GET(request: NextRequest) {
   const ctx = await requireOrg();
   const scope = request.nextUrl.searchParams.get("scope") ?? "server";
   const hours = Math.min(Math.max(Number(request.nextUrl.searchParams.get("hours") ?? 6), 1), 168);
+  // Other servers' history is under /api/servers/<id>/metrics (Root admins only).
+  if (scope.startsWith("server:")) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (scope !== "server") {
     try {
       await serviceInOrg(scope, ctx.org.id);

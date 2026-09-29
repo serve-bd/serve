@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowRightLeft, Check, Plus, RefreshCw, Server as ServerIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
@@ -12,7 +12,8 @@ import { SwitchRow } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { applyDatabaseChanges, deleteService, regenerateWebhookSecret, updateService } from "@/server/actions/services";
+import { applyDatabaseChanges, deleteService, moveService, regenerateWebhookSecret, updateService } from "@/server/actions/services";
+import { cn } from "@/lib/utils";
 import type { BuildConfig, RuntimeConfig, VolumeMount, PortMapping } from "@/server/services/types";
 
 type Source =
@@ -42,6 +43,9 @@ type Props = {
   viaGithubApp: boolean;
   webhookSecret: string;
   deployHookUrl: string;
+  /** Server the service runs on, and the servers it could move to. */
+  server: { id: string; name: string; host: string; isLocal: boolean };
+  servers: { id: string; name: string; host: string; status: string; isLocal: boolean }[];
 };
 
 /** A settings card with its own form state and save button. */
@@ -104,6 +108,73 @@ function Section<T>({
 
 const num = (v: string) => (v.trim() === "" ? null : Number(v));
 
+function ServerCard({ service, server, servers }: { service: Props["service"]; server: Props["server"]; servers: Props["servers"] }) {
+  const router = useRouter();
+  const confirm = useConfirm();
+  const others = servers.filter((s) => s.id !== server.id);
+  const [target, setTarget] = React.useState<string | null>(null);
+  const move = useAction((force: boolean) => moveService(service.id, target!, { force }), {
+    success: "Moving. The service redeploys on the new server.",
+    onSuccess: () => {
+      setTarget(null);
+      router.refresh();
+    },
+  });
+  const to = servers.find((s) => s.id === target);
+  return (
+    <Card>
+      <CardHeader title="Server" description="The machine this service runs on." />
+      <CardBody className="flex flex-col gap-4 py-5">
+        <div className="flex items-center gap-3">
+          <span className={cn("flex size-9 flex-none items-center justify-center rounded-[10px]", server.isLocal ? "bg-fg text-bg" : "bg-surface-2 text-fg-2 ring-1 ring-line")}>
+            <ServerIcon className="size-4" />
+          </span>
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate text-[14px] font-medium text-fg">{server.name}</span>
+            <span className="truncate font-mono text-[12px] text-muted">{server.isLocal ? "The server Serve runs on" : server.host}</span>
+          </div>
+        </div>
+        {!service.isPreview && others.length > 0 && (
+          <div className="flex flex-col gap-2 border-t border-line pt-4 sm:flex-row sm:items-end">
+            <Field label="Move to" className="min-w-0 flex-1">
+              <Select
+                value={target}
+                onValueChange={setTarget}
+                placeholder="Choose a server"
+                options={others.map((s) => ({
+                  value: s.id,
+                  label: s.isLocal ? `${s.name} (this server)` : s.name,
+                  description: s.isLocal ? "Where Serve runs" : s.host,
+                  disabled: !s.isLocal && s.status !== "ready",
+                }))}
+              />
+            </Field>
+            <Button
+              disabled={!target}
+              loading={move.pending}
+              onClick={async () => {
+                if (!to) return;
+                const isDb = service.type === "database";
+                const ok = await confirm({
+                  title: `Move ${service.name} to ${to.name}?`,
+                  description: isDb
+                    ? `The database starts empty on ${to.name}. Its data stays in a volume on ${server.name}. Back it up first and restore the backup after the move.`
+                    : `Serve stops the containers on ${server.name} and deploys again on ${to.name}. Expect a short downtime. Volumes are not copied, and domains pointing at ${server.name} must be pointed at ${to.name}.`,
+                  confirmLabel: isDb ? "Move without data" : "Move service",
+                  danger: isDb,
+                });
+                if (ok) await move.run(isDb);
+              }}
+            >
+              <ArrowRightLeft /> Move
+            </Button>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
 export function ServiceSettings(props: Props) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -134,6 +205,8 @@ export function ServiceSettings(props: Props) {
           </>
         )}
       </Section>
+
+      <ServerCard service={service} server={props.server} servers={props.servers} />
 
       {service.source?.type === "git" && (
         <Section
@@ -400,27 +473,49 @@ export function ServiceSettings(props: Props) {
       {service.type === "app" && (
         <Section
           title="Published ports"
-          description="Expose TCP/UDP ports directly on the server, for non-HTTP traffic. Only works with one replica."
+          description="Publish TCP or UDP ports on the server. This machine answers at localhost:<port> on the server only; Everyone answers on every network interface. Needs a single replica."
           initial={{ ports: service.runtime.ports }}
           onSave={(v) => save.run({ runtime: { ports: v.ports.filter((p) => p.host && p.container) } })}
           footerAction={(v, set) => (
-            <Button size="sm" onClick={() => set({ ports: [...v.ports, { host: 0, container: 0, protocol: "tcp" }] })}>
+            <Button size="sm" onClick={() => set({ ports: [...v.ports, { host: 0, container: service.runtime.port || 0, protocol: "tcp", bindAddress: "127.0.0.1" }] })}>
               <Plus /> Add port
             </Button>
           )}
         >
           {(v, set) => (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
+              {v.ports.length > 0 && (
+                <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px] gap-2 px-0.5 text-[11px] font-medium tracking-wide text-faint uppercase sm:grid">
+                  <span>Server port</span>
+                  <span>Container port</span>
+                  <span>Protocol</span>
+                  <span>Reachable by</span>
+                  <span />
+                </div>
+              )}
               {v.ports.map((p, i) => {
                 const update = (patch: Partial<PortMapping>) => set({ ports: v.ports.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
                 return (
-                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_84px_32px] gap-2">
-                    <Input value={String(p.host || "")} onChange={(e) => update({ host: Number(e.target.value.replace(/\D/g, "")) })} placeholder="Host port" className="h-8" inputMode="numeric" />
-                    <Input value={String(p.container || "")} onChange={(e) => update({ container: Number(e.target.value.replace(/\D/g, "")) })} placeholder="Container port" className="h-8" inputMode="numeric" />
-                    <Select size="sm" value={p.protocol} onValueChange={(proto) => update({ protocol: proto as PortMapping["protocol"] })} options={[{ value: "tcp", label: "TCP" }, { value: "udp", label: "UDP" }]} />
-                    <Button variant="ghost" size="icon" onClick={() => set({ ports: v.ports.filter((_, j) => j !== i) })} aria-label="Remove port">
+                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px] gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_78px_150px_32px]">
+                    <Input value={String(p.host || "")} onChange={(e) => update({ host: Number(e.target.value.replace(/\D/g, "")) })} placeholder="Server port" aria-label="Server port" className="h-8 font-mono" inputMode="numeric" />
+                    <Input value={String(p.container || "")} onChange={(e) => update({ container: Number(e.target.value.replace(/\D/g, "")) })} placeholder="Container port" aria-label="Container port" className="h-8 font-mono" inputMode="numeric" />
+                    <Button variant="ghost" size="icon" className="order-3 sm:order-5" onClick={() => set({ ports: v.ports.filter((_, j) => j !== i) })} aria-label="Remove port">
                       <Trash2 />
                     </Button>
+                    <div className="order-4 sm:order-3">
+                      <Select size="sm" value={p.protocol} onValueChange={(proto) => update({ protocol: proto as PortMapping["protocol"] })} options={[{ value: "tcp", label: "TCP" }, { value: "udp", label: "UDP" }]} />
+                    </div>
+                    <div className="order-5 col-span-2 sm:order-4 sm:col-span-1">
+                      <Select
+                        size="sm"
+                        value={p.bindAddress ?? "0.0.0.0"}
+                        onValueChange={(b) => update({ bindAddress: b as PortMapping["bindAddress"] })}
+                        options={[
+                          { value: "127.0.0.1", label: "This machine", description: "localhost only" },
+                          { value: "0.0.0.0", label: "Everyone", description: "Every interface" },
+                        ]}
+                      />
+                    </div>
                   </div>
                 );
               })}

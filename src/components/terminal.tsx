@@ -56,7 +56,7 @@ export function Terminal({
   ref,
   className,
 }: {
-  /** Session API base, like `/api/services/<id>/terminal` or `/api/server/terminal`. */
+  /** Session API base, like `/api/services/<id>/terminal` or `/api/servers/<id>/terminal`. */
   endpoint: string;
   /** Container to open the shell in, for services with several. */
   target?: string | null;

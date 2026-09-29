@@ -2,7 +2,8 @@ import { PassThrough } from "node:stream";
 import type { NextRequest } from "next/server";
 import { requireOrg } from "@/server/auth";
 import { serviceInOrg } from "@/server/services/access";
-import { docker, LABEL, listServiceContainers } from "@/server/docker/client";
+import { LABEL, listServiceContainers } from "@/server/docker/client";
+import { serverOf } from "@/server/servers/context";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,14 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
     return new Response("Not found", { status: 404 });
   }
   const tail = Math.min(Math.max(Number(request.nextUrl.searchParams.get("tail") ?? 300), 10), 5000);
-  const all = await listServiceContainers(serviceId);
+  let docker;
+  let all;
+  try {
+    docker = (await serverOf(service)).docker;
+    all = await listServiceContainers(serviceId, true, docker);
+  } catch (e) {
+    return new Response(`The server of this service is unreachable: ${(e as Error).message}`, { status: 503 });
+  }
   const containers =
     service.type === "app" && service.currentDeploymentId
       ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId)

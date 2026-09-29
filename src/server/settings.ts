@@ -3,11 +3,15 @@ import { db, schema } from "@/server/db";
 
 export type Settings = {
   instanceName: string;
-  /** Public IPv4 of this server. Used for DNS records and sslip.io domains. */
+  /**
+   * @deprecated Addressing lives on the server row now (server.public_ip, wildcard_domain,
+   * sslip_fallback). getSettings() fills these three from the local server for old readers.
+   * Public IPv4 of this server. Used for DNS records and sslip.io domains.
+   */
   serverIp: string | null;
-  /** Wildcard base domain for generated app URLs, e.g. apps.example.com */
+  /** @deprecated See serverIp. Wildcard base domain for generated app URLs, e.g. apps.example.com */
   wildcardDomain: string | null;
-  /** Use <slug>.<ip>.sslip.io when no wildcard domain is configured. */
+  /** @deprecated See serverIp. Use <slug>.<ip>.sslip.io when no wildcard domain is configured. */
   sslipFallback: boolean;
   /** Domain the dashboard itself is served on through the proxy. */
   dashboardDomain: string | null;
@@ -49,7 +53,16 @@ export type Settings = {
   cleanupHistory: CleanupRun[];
 };
 
-export type CleanupRun = { at: string; trigger: "schedule" | "manual" | "disk"; reclaimed: number; durationMs: number; error?: string | null };
+export type CleanupRun = {
+  at: string;
+  trigger: "schedule" | "manual" | "disk";
+  reclaimed: number;
+  durationMs: number;
+  error?: string | null;
+  /** Server the run cleaned (missing on runs from before multi-server: the local server). */
+  serverId?: string;
+  serverName?: string;
+};
 
 export const defaultSettings: Settings = {
   instanceName: "Serve",
@@ -80,13 +93,26 @@ export const defaultSettings: Settings = {
   cleanupHistory: [],
 };
 
+/** The local server row is the source of truth for the deprecated addressing keys. */
+async function localAddressing(): Promise<Partial<Settings>> {
+  const [row] = await db
+    .select({ publicIp: schema.server.publicIp, wildcardDomain: schema.server.wildcardDomain, sslipFallback: schema.server.sslipFallback })
+    .from(schema.server)
+    .where(eq(schema.server.id, "local"));
+  return row ? { serverIp: row.publicIp, wildcardDomain: row.wildcardDomain, sslipFallback: row.sslipFallback } : {};
+}
+
 export async function getSettings(): Promise<Settings> {
-  const rows = await db.select().from(schema.setting);
+  const [rows, addressing] = await Promise.all([db.select().from(schema.setting), localAddressing()]);
   const values = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  return { ...defaultSettings, ...values } as Settings;
+  return { ...defaultSettings, ...values, ...addressing } as Settings;
 }
 
 export async function getSetting<K extends keyof Settings>(key: K): Promise<Settings[K]> {
+  if (key === "serverIp" || key === "wildcardDomain" || key === "sslipFallback") {
+    const addressing = await localAddressing();
+    if (key in addressing) return addressing[key] as Settings[K];
+  }
   const [row] = await db.select().from(schema.setting).where(eq(schema.setting.key, key));
   return (row ? row.value : defaultSettings[key]) as Settings[K];
 }

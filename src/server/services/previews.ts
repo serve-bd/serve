@@ -48,6 +48,7 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
         id,
         projectId: parent.projectId,
         environmentId: parent.environmentId,
+        serverId: parent.serverId,
         name: `${parent.name} · PR #${pr.number}`,
         slug,
         type: "app",
@@ -74,7 +75,7 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
     }
     if (rows.length) await db.insert(schema.envVar).values(rows);
 
-    const host = await generatedHostname(slug);
+    const host = await generatedHostname(slug, parent.serverId);
     if (host) {
       const [domain] = await db
         .insert(schema.domain)
@@ -96,7 +97,7 @@ export async function removePreview(parent: Service, prNumber: number) {
   const preview = await previewFor(parent.id, prNumber);
   if (!preview) return false;
   await db.delete(schema.service).where(eq(schema.service.id, preview.id));
-  await enqueue("service.delete", { serviceId: preview.id, slug: preview.slug, type: preview.type, removeVolumes: true, environmentId: preview.environmentId }, { concurrencyKey: `service:${preview.id}` });
+  await enqueue("service.delete", { serviceId: preview.id, slug: preview.slug, type: preview.type, removeVolumes: true, environmentId: preview.environmentId, serverId: preview.serverId }, { concurrencyKey: `service:${preview.id}` });
   await logActivity({ action: "preview.removed", projectId: parent.projectId, message: `Preview for PR #${prNumber} removed` });
   return true;
 }

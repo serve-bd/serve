@@ -31,7 +31,15 @@ const certTones: Record<string, Tone> = {
   expired: { led: "var(--bad)", label: "Expired" },
 };
 
-const maps = { service: serviceTones, deployment: deploymentTones, certificate: certTones };
+const serverTones: Record<string, Tone> = {
+  pending: { led: "var(--idle)", label: "Not validated", off: true },
+  validating: { led: "var(--info)", label: "Validating", pulse: true },
+  ready: { led: "var(--ok)", label: "Ready" },
+  unreachable: { led: "var(--bad)", label: "Unreachable", pulse: true },
+  error: { led: "var(--bad)", label: "Error" },
+};
+
+const maps = { service: serviceTones, deployment: deploymentTones, certificate: certTones, server: serverTones };
 
 export function Led({ color, pulse, off, className }: { color: string; pulse?: boolean; off?: boolean; className?: string }) {
   return (

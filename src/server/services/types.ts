@@ -41,10 +41,15 @@ export type VolumeMount = {
   kind: "volume" | "bind";
 };
 
+/** "127.0.0.1" publishes only on the server itself (e.g. localhost:3000 on a dev machine). */
+export type BindAddress = "0.0.0.0" | "127.0.0.1";
+
 export type PortMapping = {
   host: number;
   container: number;
   protocol: "tcp" | "udp";
+  /** Host interface to publish on; undefined means every interface. */
+  bindAddress?: BindAddress;
 };
 
 export type RestartPolicy = "always" | "unless-stopped" | "on-failure" | "no";
@@ -83,6 +88,8 @@ export type DatabaseConfig = {
   database: string;
   /** Publish the database on this host port when set. */
   publicPort?: number | null;
+  /** Interface the public port binds to; undefined means every interface. */
+  publicBind?: BindAddress;
   /** Cron expression for automatic backups. */
   backupSchedule?: string | null;
   backupRetention: number;

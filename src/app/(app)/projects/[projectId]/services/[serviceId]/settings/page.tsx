@@ -4,6 +4,7 @@ import { db, schema } from "@/server/db";
 import { pageService } from "@/server/services/access";
 import { commandExists } from "@/server/process";
 import { engines } from "@/server/databases/engines";
+import { serversForOrg } from "@/server/servers/access";
 import { PageBody } from "@/components/shell/page-header";
 import { ServiceSettings } from "./service-settings";
 
@@ -13,12 +14,17 @@ export default async function SettingsPage(props: PageProps<"/projects/[projectI
   const { projectId, serviceId } = await props.params;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
-  const [credentials, nixpacks] = await Promise.all([
+  const [credentials, nixpacks, servers, [server]] = await Promise.all([
     db
       .select({ id: schema.gitCredential.id, name: schema.gitCredential.name, provider: schema.gitCredential.provider })
       .from(schema.gitCredential)
       .where(eq(schema.gitCredential.organizationId, ctx.org.id)),
     commandExists("nixpacks"),
+    serversForOrg(ctx.org.id),
+    db
+      .select({ id: schema.server.id, name: schema.server.name, host: schema.server.host, isLocal: schema.server.isLocal })
+      .from(schema.server)
+      .where(eq(schema.server.id, service.serverId)),
   ]);
   const { publicBaseUrl } = await import("@/server/git/github-app");
   const base = await publicBaseUrl();
@@ -53,6 +59,8 @@ export default async function SettingsPage(props: PageProps<"/projects/[projectI
         viaGithubApp={!!viaApp}
         webhookSecret={service.webhookSecret}
         deployHookUrl={`${base}/api/deploy-hooks/${service.id}?token=${service.webhookSecret}`}
+        server={server ?? { id: service.serverId, name: "Unknown server", host: "", isLocal: false }}
+        servers={servers}
       />
     </PageBody>
   );

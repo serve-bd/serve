@@ -76,7 +76,8 @@ function localExec(command: string, opts: Parameters<ServerCtx["exec"]>[1] = {})
 /** Docker API over the shared SSH connection: one exec channel per HTTP connection. */
 function remoteDocker(target: SshTarget) {
   // Keep-alive reuses one dial-stdio channel for many API calls; hijacked streams get their own.
-  const agent = new http.Agent({ keepAlive: true, maxSockets: 16, maxFreeSockets: 4, timeout: 60_000 });
+  // sshd allows 10 sessions per connection by default (MaxSessions); leave room for commands and SFTP.
+  const agent = new http.Agent({ keepAlive: true, maxSockets: 6, maxFreeSockets: 2, timeout: 60_000 });
   (agent as unknown as { createConnection: unknown }).createConnection = (_opts: unknown, cb: (err: Error | null, socket?: unknown) => void) => {
     dockerStream(target).then(
       (socket) => cb(null, socket),
@@ -137,7 +138,8 @@ const store = globalThis as unknown as { __serveServers?: Map<string, { stamp: s
 const cache = (store.__serveServers ??= new Map());
 
 function stamp(row: ServerRow) {
-  return `${row.updatedAt.getTime()}|${row.hostKey ?? ""}|${row.privateKeyId ?? ""}`;
+  // Only fields that change how we connect. Status/lastSeenAt updates must not rebuild clients.
+  return JSON.stringify([row.host, row.port, row.username, row.privateKeyId, row.hostKey, row.dataDir, row.proxyHttpPort, row.proxyHttpsPort, row.name, row.isLocal]);
 }
 
 export async function getServerRow(id: string) {

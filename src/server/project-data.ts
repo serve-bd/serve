@@ -1,5 +1,7 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
+import { pickPrimaryDomain } from "@/lib/domains";
+import { type ServiceIssue, serviceIssues } from "@/server/services/issues";
 
 export type ServiceCardData = {
   id: string;
@@ -13,13 +15,15 @@ export type ServiceCardData = {
   domainHttps: boolean;
   previewPr: number | null;
   lastDeploy: { id: string; status: string; commitMessage: string | null; createdAt: Date } | null;
+  /** Problems that need attention, worst first. */
+  issues: ServiceIssue[];
 };
 
 export async function environmentServices(environmentId: string): Promise<ServiceCardData[]> {
   const services = await db.select().from(schema.service).where(eq(schema.service.environmentId, environmentId)).orderBy(asc(schema.service.createdAt));
   if (!services.length) return [];
   const ids = services.map((s) => s.id);
-  const [domains, deployments] = await Promise.all([
+  const [domains, deployments, issues] = await Promise.all([
     db.select().from(schema.domain).where(inArray(schema.domain.serviceId, ids)).orderBy(asc(schema.domain.createdAt)),
     db
       .selectDistinctOn([schema.deployment.serviceId], {
@@ -32,10 +36,10 @@ export async function environmentServices(environmentId: string): Promise<Servic
       .from(schema.deployment)
       .where(inArray(schema.deployment.serviceId, ids))
       .orderBy(schema.deployment.serviceId, desc(schema.deployment.createdAt)),
+    serviceIssues(ids),
   ]);
   return services.map((s) => {
-    const d = domains.filter((x) => x.serviceId === s.id && !x.redirectTo);
-    const primary = d.find((x) => !x.generated) ?? d[0];
+    const primary = pickPrimaryDomain(domains.filter((x) => x.serviceId === s.id));
     const dep = deployments.find((x) => x.serviceId === s.id);
     return {
       id: s.id,
@@ -58,6 +62,7 @@ export async function environmentServices(environmentId: string): Promise<Servic
       domainHttps: primary?.https ?? false,
       previewPr: s.previewPr ?? null,
       lastDeploy: dep ? { id: dep.id, status: dep.status, commitMessage: dep.commitMessage, createdAt: dep.createdAt } : null,
+      issues: issues.get(s.id) ?? [],
     };
   });
 }

@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { ArrowUpRight, Check, ChevronDown, Copy, Layers3, Plus, Settings } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, ChevronDown, Copy, Layers3, Plus, Settings } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, EmptyState, TimeAgo } from "@/components/ui/misc";
@@ -19,6 +19,7 @@ import { useAction } from "@/hooks/use-action";
 import { createEnvironment } from "@/server/actions/projects";
 import type { ServiceCardData } from "@/server/project-data";
 import { CloneEnvironmentDialog } from "./clone-environment";
+import { cn } from "@/lib/utils";
 
 type Props = {
   project: { id: string; name: string; description: string | null; color: string };
@@ -91,11 +92,19 @@ function EnvironmentSwitcher({ project, environments, environment }: Omit<Props,
 }
 
 function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }) {
+  const router = useRouter();
   const sourceKind = s.source && s.type === "app" ? (s.source.includes("/") && !s.source.includes(":") ? "git" : "image") : null;
   return (
     <Link
       href={`/projects/${projectId}/services/${s.id}`}
-      className="group flex flex-col rounded-2xl border border-line bg-surface shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-md"
+      className={cn(
+        "group flex flex-col rounded-2xl border bg-surface shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-md",
+        s.issues[0]?.tone === "bad"
+          ? "border-bad/40 hover:border-bad/60"
+          : s.issues[0]?.tone === "warn"
+            ? "border-warn/40 hover:border-warn/60"
+            : "border-line hover:border-line-strong",
+      )}
     >
       <div className="flex items-start gap-3 p-4">
         <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind} />
@@ -124,6 +133,26 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
           <span className="text-[13px] text-faint">{s.type === "database" ? "Private network only" : "No domain"}</span>
         )}
       </div>
+      {s.issues.length > 0 && (
+        <span
+          role="link"
+          title={s.issues.map((i) => i.text).join("\n")}
+          onClick={(e) => {
+            e.preventDefault();
+            router.push(`/projects/${projectId}/services/${s.id}${s.issues[0].tab === "overview" ? "" : `/${s.issues[0].tab}`}`);
+          }}
+          className={cn(
+            "mx-4 mb-3 flex items-start gap-2 rounded-lg px-2.5 py-2 text-xs leading-snug",
+            s.issues[0].tone === "bad" ? "bg-bad-soft text-bad" : "bg-warn-soft text-warn",
+          )}
+        >
+          <AlertTriangle className="mt-px size-3.5 flex-none" />
+          <span className="min-w-0 flex-1 text-fg-2">
+            <span className="line-clamp-2">{s.issues[0].text}</span>
+            {s.issues.length > 1 && <span className="text-muted"> · {s.issues.length - 1} more</span>}
+          </span>
+        </span>
+      )}
       <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2.5">
         <StatusLabel status={s.status} className="text-xs" />
         {s.lastDeploy && (

@@ -714,14 +714,14 @@ export function DomainsManager(props: Props) {
       ) : (
         <div className="divide-y divide-line">
           {props.domains.map((d) => (
-            <div key={d.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
+            <div key={d.id} className="flex items-start gap-3 px-4 py-4 sm:gap-4 sm:px-5">
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                   <a
                     href={`${d.https || d.tunnel ? "https" : "http"}://${d.hostname}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex min-w-0 items-center gap-1 text-[14px] font-medium text-fg hover:text-accent"
+                    className="inline-flex min-w-0 max-w-full items-center gap-1 text-[14px] font-medium text-fg hover:text-accent"
                   >
                     <span className="truncate">{d.hostname}</span>
                     <ArrowUpRight className="size-3.5 shrink-0 text-faint" />
@@ -757,65 +757,67 @@ export function DomainsManager(props: Props) {
                 </div>
                 <TunnelNotice d={d} tunnels={props.tunnels} serverName={props.serverName} />
               </div>
-              <DnsBadge domainId={d.id} />
-              <Menu>
-                <MenuTrigger className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-fg" aria-label="Domain actions">
-                  <MoreHorizontal className="size-4" />
-                </MenuTrigger>
-                <MenuContent>
-                  {d.wantsTunnel && !d.tunnel && (
-                    <>
-                      <MenuItem onClick={() => reconnect.run(d.id)}>
-                        <RefreshCw /> Reconnect to tunnel
-                      </MenuItem>
-                      <MenuSeparator />
-                    </>
-                  )}
-                  {!d.redirectTo && (
-                    <MenuItem onClick={() => setEditing(d)}>
-                      <Pencil /> Edit
-                    </MenuItem>
-                  )}
-                  {!d.primary && !d.redirectTo && (
-                    <>
-                      <MenuItem onClick={() => makePrimary.run(d.id)}>
-                        <Star /> Make primary
-                      </MenuItem>
-                      <MenuSeparator />
-                    </>
-                  )}
-                  {/* Tunnel domains get HTTPS from Cloudflare; there is nothing to toggle. */}
-                  {!d.tunnel && !d.wantsTunnel && (
-                    <>
-                      <MenuItem onClick={() => toggleHttps.run(d.id, !d.https)}>
-                        {d.https ? <LockOpen /> : <Lock />} {d.https ? "Use HTTP only" : "Enable HTTPS"}
-                      </MenuItem>
-                      {d.https && d.certificate?.status !== "active" && (
-                        <MenuItem onClick={() => retry.run(d.id)}>
-                          <RefreshCw /> Retry certificate
+              <div className="flex flex-none items-center gap-2 pt-0.5">
+                <DnsBadge domainId={d.id} />
+                <Menu>
+                  <MenuTrigger className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-fg" aria-label="Domain actions">
+                    <MoreHorizontal className="size-4" />
+                  </MenuTrigger>
+                  <MenuContent>
+                    {d.wantsTunnel && !d.tunnel && (
+                      <>
+                        <MenuItem onClick={() => reconnect.run(d.id)}>
+                          <RefreshCw /> Reconnect to tunnel
                         </MenuItem>
-                      )}
-                      <MenuSeparator />
-                    </>
-                  )}
-                  <MenuItem
-                    danger
-                    onClick={async () => {
-                      if (
-                        await confirm({
-                          title: `Remove ${d.hostname}?`,
-                          description: d.managedRecord ? "The DNS record Serve created in Cloudflare is deleted too." : "The domain stops routing to this service.",
-                          confirmLabel: "Remove domain",
-                          danger: true,
-                        })
-                      )
-                        remove.run(d.id, true);
-                    }}
-                  >
-                    <Trash2 /> Remove
-                  </MenuItem>
-                </MenuContent>
-              </Menu>
+                        <MenuSeparator />
+                      </>
+                    )}
+                    {!d.redirectTo && (
+                      <MenuItem onClick={() => setEditing(d)}>
+                        <Pencil /> Edit
+                      </MenuItem>
+                    )}
+                    {!d.primary && !d.redirectTo && (
+                      <>
+                        <MenuItem onClick={() => makePrimary.run(d.id)}>
+                          <Star /> Make primary
+                        </MenuItem>
+                        <MenuSeparator />
+                      </>
+                    )}
+                    {/* Tunnel domains get HTTPS from Cloudflare; there is nothing to toggle. */}
+                    {!d.tunnel && !d.wantsTunnel && (
+                      <>
+                        <MenuItem onClick={() => toggleHttps.run(d.id, !d.https)}>
+                          {d.https ? <LockOpen /> : <Lock />} {d.https ? "Use HTTP only" : "Enable HTTPS"}
+                        </MenuItem>
+                        {d.https && d.certificate?.status !== "active" && (
+                          <MenuItem onClick={() => retry.run(d.id)}>
+                            <RefreshCw /> Retry certificate
+                          </MenuItem>
+                        )}
+                        <MenuSeparator />
+                      </>
+                    )}
+                    <MenuItem
+                      danger
+                      onClick={async () => {
+                        if (
+                          await confirm({
+                            title: `Remove ${d.hostname}?`,
+                            description: d.managedRecord ? "The DNS record Serve created in Cloudflare is deleted too." : "The domain stops routing to this service.",
+                            confirmLabel: "Remove domain",
+                            danger: true,
+                          })
+                        )
+                          remove.run(d.id, true);
+                      }}
+                    >
+                      <Trash2 /> Remove
+                    </MenuItem>
+                  </MenuContent>
+                </Menu>
+              </div>
             </div>
           ))}
         </div>

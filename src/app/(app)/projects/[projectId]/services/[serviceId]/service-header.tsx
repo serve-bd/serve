@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { ArrowUpRight, ChevronDown, Construction, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, ChevronDown, Construction, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { deployService, serviceControl } from "@/server/actions/services";
 import { setMaintenance } from "@/server/actions/maintenance";
 import { TimeAgo } from "@/components/ui/misc";
 import type { ServiceLive } from "@/server/service-data";
+import type { ServiceIssue } from "@/server/services/issues";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -36,6 +37,8 @@ type Props = {
   ports: { label: string; url: string | null; protocol: "tcp" | "udp" }[];
   /** Maintenance mode, for services with domains. */
   maintenance: { enabled: boolean; since: string | null } | null;
+  /** Problems that need attention (see serviceIssues), worst first. */
+  issues: ServiceIssue[];
 };
 
 export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
@@ -46,7 +49,7 @@ export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
   });
 }
 
-export function ServiceHeader({ project, environment, service, initialLive, server, ports, maintenance }: Props) {
+export function ServiceHeader({ project, environment, service, initialLive, server, ports, maintenance, issues }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const confirm = useConfirm();
@@ -78,7 +81,8 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
       toggleMaintenance.run(true);
   };
 
-  const tabs = [
+  const tabHref = (tab: ServiceIssue["tab"]) => (tab === "overview" ? base : `${base}/${tab}`);
+  const tabs: { href: string; label: string; exact?: boolean }[] = [
     { href: base, label: "Overview", exact: true },
     { href: `${base}/deployments`, label: "Deployments" },
     { href: `${base}/logs`, label: "Logs" },
@@ -90,6 +94,11 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     { href: `${base}/settings`, label: "Settings" },
   ];
 
+  /** Worst issue tone for a tab (the Overview tab only marks incidents). */
+  const tabIssue = (href: string) => {
+    const hit = issues.filter((i) => tabHref(i.tab) === href);
+    return hit.length ? (hit.some((i) => i.tone === "bad") ? "bad" : "warn") : null;
+  };
   const primary = pickPrimaryDomain(live.domains);
   const stopped = live.status === "stopped";
   const busy = ["building", "deploying", "restarting"].includes(live.status);
@@ -206,6 +215,28 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
             </Button>
           </div>
         </div>
+        {issues.length > 0 && (
+          <div
+            className={cn("flex items-start gap-3 rounded-xl border px-4 py-3 text-[13px]", issues[0].tone === "bad" ? "border-bad/30 bg-bad-soft" : "border-warn/30 bg-warn-soft")}
+          >
+            <AlertTriangle className={cn("mt-0.5 size-4 flex-none", issues[0].tone === "bad" ? "text-bad" : "text-warn")} />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <p className="font-medium text-fg">{issues.length === 1 ? "This service needs attention" : `${issues.length} problems need attention`}</p>
+              <ul className="flex flex-col gap-0.5">
+                {issues.map((i) => (
+                  <li key={`${i.tab}:${i.text}`} className="flex flex-wrap items-baseline gap-x-2 text-fg-2">
+                    <span className="min-w-0">{i.text}</span>
+                    {!(i.tab === "overview" ? pathname === base : pathname.startsWith(tabHref(i.tab))) && (
+                      <Link href={tabHref(i.tab)} className="font-medium whitespace-nowrap text-accent hover:underline">
+                        {i.tab === "domains" ? "Open Domains & ports" : i.tab === "deployments" ? "See deployments" : "Open overview"}
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
         {maintenance?.enabled && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-warn/30 bg-warn-soft px-4 py-3 text-[13px]">
             <Construction className="size-4 flex-none text-warn" />
@@ -239,7 +270,10 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
                 className={cn("relative px-3 pt-1 pb-3 text-[13px] font-medium whitespace-nowrap transition-colors", active ? "text-fg" : "text-muted hover:text-fg")}
               >
-                {t.label}
+                <span className="inline-flex items-center gap-1.5">
+                  {t.label}
+                  {tabIssue(t.href) && <AlertTriangle className={cn("size-3.5", tabIssue(t.href) === "bad" ? "text-bad" : "text-warn")} aria-label="Needs attention" />}
+                </span>
                 {active && <span className="absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-fg" />}
               </Link>
             );

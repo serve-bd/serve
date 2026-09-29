@@ -26,16 +26,18 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       .select({ id: schema.project.id, name: schema.project.name, color: schema.project.color })
       .from(schema.project)
       .where(eq(schema.project.organizationId, ctx.org.id))
-      .orderBy(asc(schema.project.name)),
+      .orderBy(asc(schema.project.name))
+      .then((list) => list.filter((p) => ctx.canAccessProject(p.id))),
   ]);
 
   return (
     <AppShell
       user={{ id: ctx.user.id, name: ctx.user.name, email: ctx.user.email, image: ctx.user.image ?? null }}
-      org={{ id: ctx.org.id, name: ctx.org.name, logo: ctx.org.logo, role: ctx.role, isRoot: ctx.isRoot }}
+      org={{ id: ctx.org.id, name: ctx.org.name, logo: ctx.org.logo, role: ctx.roleName, isRoot: ctx.isRoot }}
       orgs={orgs.map((o) => ({ ...o, isRoot: o.id === settings.rootOrganizationId }))}
       projects={projects}
       isInstanceAdmin={ctx.isInstanceAdmin}
+      access={{ permissions: [...ctx.permissions], roleName: ctx.roleName, isAdmin: ctx.isAdmin }}
       canCreateOrg={ctx.isInstanceAdmin || settings.allowOrganizationCreation}
       instanceName={settings.instanceName}
       workerOnline={workerOnline(settings.workerHeartbeat)}

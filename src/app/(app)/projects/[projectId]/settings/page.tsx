@@ -14,6 +14,8 @@ export default async function ProjectSettingsPage(props: PageProps<"/projects/[p
   const { env } = await props.searchParams;
   const ctx = await requireOrg();
   const project = await pageProject(projectId, ctx.org.id);
+  // Shared values are edited as one text block, so editing them needs seeing them.
+  const canEditShared = ctx.can("variables.edit") && ctx.can("variables.view-secrets");
   const { envs, current } = await resolveEnvironment(projectId, typeof env === "string" ? env : undefined);
   const [shared, counts] = await Promise.all([
     db.select().from(schema.sharedVar).where(eq(schema.sharedVar.environmentId, current.id)).orderBy(asc(schema.sharedVar.key)),
@@ -38,8 +40,10 @@ export default async function ProjectSettingsPage(props: PageProps<"/projects/[p
           project={{ id: project.id, name: project.name, description: project.description ?? "", color: project.color }}
           environments={envs.map((e) => ({ id: e.id, name: e.name, services: counts.filter((c) => c.environmentId === e.id).length }))}
           environment={{ id: current.id, name: current.name }}
-          shared={shared.map((s) => ({ key: s.key, value: decryptOrNull(s.value) ?? "" }))}
-          isAdmin={ctx.isAdmin}
+          shared={shared.map((s) => ({ key: s.key, value: canEditShared ? (decryptOrNull(s.value) ?? "") : "" }))}
+          canEditShared={canEditShared}
+          canManage={ctx.can("projects.manage")}
+          canDeploy={ctx.can("services.deploy")}
         />
       </PageBody>
     </>

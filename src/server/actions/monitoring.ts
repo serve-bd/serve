@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireInstanceAdmin, requireOrg } from "@/server/auth";
+import { requireInstanceAdmin, requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
@@ -41,7 +41,7 @@ const monitorSchema = z.object({
 /** Create or update the uptime check of a service. */
 export async function saveMonitor(serviceId: string, input: z.input<typeof monitorSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const data = monitorSchema.parse(input);
     const values = { ...data, url: data.url || null, keyword: data.keyword || null };
@@ -70,7 +70,7 @@ export async function saveMonitor(serviceId: string, input: z.input<typeof monit
 /** Run the check once now and return its result (does not wait for the worker). */
 export async function checkMonitorNow(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("projects.view");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const [m] = await db.select().from(schema.monitor).where(eq(schema.monitor.serviceId, serviceId));
     if (!m) throw new UserError("Save the check first.");

@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrg } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { logActivity } from "@/server/activity";
 import { serviceInOrg } from "@/server/services/access";
@@ -27,7 +27,7 @@ const maintenanceSchema = z.object({
 /** Turn maintenance mode on or off (and save its page), then update the proxy right away. */
 export async function setMaintenance(serviceId: string, input: z.input<typeof maintenanceSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type === "database") throw new UserError("Databases have no domains to put in maintenance.");
     const data = maintenanceSchema.parse(input);

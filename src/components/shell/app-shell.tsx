@@ -40,6 +40,8 @@ import { cn } from "@/lib/utils";
 import { OrgSwitcher, type OrgItem } from "./org-switcher";
 import { CommandPalette, useCommandPalette } from "./command-palette";
 import { useTheme } from "@/hooks/use-client";
+import { PermissionsProvider } from "@/components/permissions";
+import type { Permission } from "@/lib/permissions";
 
 type ShellProps = {
   user: { id: string; name: string; email: string; image: string | null };
@@ -47,6 +49,7 @@ type ShellProps = {
   orgs: OrgItem[];
   projects: { id: string; name: string; color: string }[];
   isInstanceAdmin: boolean;
+  access: { permissions: Permission[]; roleName: string; isAdmin: boolean };
   canCreateOrg: boolean;
   instanceName: string;
   workerOnline: boolean;
@@ -77,6 +80,7 @@ const integrationNav: NavItem[] = [
 const orgNav: NavItem[] = [
   { href: "/organization/members", label: "Members", icon: Users },
   { href: "/organization/usage", label: "Usage", icon: Gauge },
+  { href: "/organization/roles", label: "Roles", icon: ShieldCheck },
   { href: "/shared-variables", label: "Shared variables", icon: Variable },
   { href: "/templates", label: "Templates", icon: LayoutTemplate },
   { href: "/keys", label: "Keys & tokens", icon: KeyRound },
@@ -148,16 +152,20 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
           ))}
         </NavGroup>
 
-        <NavGroup title="Integrations">
-          {integrationNav.map((item) => (
-            <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
-          ))}
-        </NavGroup>
+        {props.access.permissions.includes("integrations.manage") && (
+          <NavGroup title="Integrations">
+            {integrationNav.map((item) => (
+              <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+            ))}
+          </NavGroup>
+        )}
 
         <NavGroup title="Organization">
-          {orgNav.map((item) => (
-            <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
-          ))}
+          {orgNav
+            .filter((item) => item.href !== "/templates" || props.access.permissions.includes("integrations.manage"))
+            .map((item) => (
+              <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+            ))}
         </NavGroup>
 
         {props.isInstanceAdmin && (
@@ -205,48 +213,50 @@ export function AppShell(props: ShellProps) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
   return (
-    <CommandPalette projects={props.projects} isInstanceAdmin={props.isInstanceAdmin}>
-      <div className="flex min-h-screen">
-        <aside className="sticky top-0 hidden h-screen w-[248px] shrink-0 border-r border-line bg-glass backdrop-blur-2xl lg:block">
-          <SidebarContent props={props} />
-        </aside>
+    <PermissionsProvider value={props.access}>
+      <CommandPalette projects={props.projects} isInstanceAdmin={props.isInstanceAdmin}>
+        <div className="flex min-h-screen">
+          <aside className="sticky top-0 hidden h-screen w-[248px] shrink-0 border-r border-line bg-glass backdrop-blur-2xl lg:block">
+            <SidebarContent props={props} />
+          </aside>
 
-        <BaseDialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
-          <BaseDialog.Portal>
-            <BaseDialog.Backdrop className="fixed inset-0 z-50 bg-[var(--backdrop)] transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 lg:hidden" />
-            <BaseDialog.Popup className="fixed inset-y-0 left-0 z-50 w-[280px] border-r border-line bg-bg shadow-lg outline-none transition-transform duration-300 ease-[var(--ease-out-quint)] data-[ending-style]:-translate-x-full data-[starting-style]:-translate-x-full lg:hidden">
-              <BaseDialog.Title className="sr-only">Navigation</BaseDialog.Title>
-              <SidebarContent props={props} onNavigate={() => setMobileOpen(false)} />
-            </BaseDialog.Popup>
-          </BaseDialog.Portal>
-        </BaseDialog.Root>
+          <BaseDialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
+            <BaseDialog.Portal>
+              <BaseDialog.Backdrop className="fixed inset-0 z-50 bg-[var(--backdrop)] transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 lg:hidden" />
+              <BaseDialog.Popup className="fixed inset-y-0 left-0 z-50 w-[280px] border-r border-line bg-bg shadow-lg outline-none transition-transform duration-300 ease-[var(--ease-out-quint)] data-[ending-style]:-translate-x-full data-[starting-style]:-translate-x-full lg:hidden">
+                <BaseDialog.Title className="sr-only">Navigation</BaseDialog.Title>
+                <SidebarContent props={props} onNavigate={() => setMobileOpen(false)} />
+              </BaseDialog.Popup>
+            </BaseDialog.Portal>
+          </BaseDialog.Root>
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line bg-bg/85 px-4 backdrop-blur lg:hidden">
-            <button type="button" onClick={() => setMobileOpen(true)} className="rounded-md p-1.5 text-muted hover:bg-hover hover:text-fg" aria-label="Open navigation">
-              <MenuIcon className="size-5" />
-            </button>
-            <Logo />
-          </div>
-          {(!props.workerOnline || props.workerOutdated) && (
-            <div role="status" className="border-b border-warn/20 bg-warn-soft">
-              <div className="mx-auto flex w-full max-w-[1200px] items-start gap-2.5 px-4 py-2.5 text-[13px] sm:items-center sm:px-8">
-                <AlertTriangle className="mt-0.5 size-4 flex-none text-warn sm:mt-0" />
-                {props.workerOnline ? (
-                  <p className="min-w-0 text-fg-2">
-                    <span className="font-medium text-fg">The worker is running older code.</span> Restart it so deployments use the latest version.
-                  </p>
-                ) : (
-                  <p className="min-w-0 text-fg-2">
-                    <span className="font-medium text-fg">The worker is not running.</span> Deployments, backups and other jobs wait until it starts.
-                  </p>
-                )}
-              </div>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line bg-bg/85 px-4 backdrop-blur lg:hidden">
+              <button type="button" onClick={() => setMobileOpen(true)} className="rounded-md p-1.5 text-muted hover:bg-hover hover:text-fg" aria-label="Open navigation">
+                <MenuIcon className="size-5" />
+              </button>
+              <Logo />
             </div>
-          )}
-          <main className="flex-1">{props.children}</main>
+            {(!props.workerOnline || props.workerOutdated) && (
+              <div role="status" className="border-b border-warn/20 bg-warn-soft">
+                <div className="mx-auto flex w-full max-w-[1200px] items-start gap-2.5 px-4 py-2.5 text-[13px] sm:items-center sm:px-8">
+                  <AlertTriangle className="mt-0.5 size-4 flex-none text-warn sm:mt-0" />
+                  {props.workerOnline ? (
+                    <p className="min-w-0 text-fg-2">
+                      <span className="font-medium text-fg">The worker is running older code.</span> Restart it so deployments use the latest version.
+                    </p>
+                  ) : (
+                    <p className="min-w-0 text-fg-2">
+                      <span className="font-medium text-fg">The worker is not running.</span> Deployments, backups and other jobs wait until it starts.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+            <main className="flex-1">{props.children}</main>
+          </div>
         </div>
-      </div>
-    </CommandPalette>
+      </CommandPalette>
+    </PermissionsProvider>
   );
 }

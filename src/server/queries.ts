@@ -1,9 +1,15 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { ProjectSummary } from "@/app/(app)/_components/project-card";
 
-export async function projectSummaries(orgId: string): Promise<ProjectSummary[]> {
-  const projects = await db.select().from(schema.project).where(eq(schema.project.organizationId, orgId)).orderBy(desc(schema.project.updatedAt));
+/** `projectIds` limits the result to the projects a member can reach (null: all). */
+export async function projectSummaries(orgId: string, projectIds: string[] | null = null): Promise<ProjectSummary[]> {
+  if (projectIds && !projectIds.length) return [];
+  const projects = await db
+    .select()
+    .from(schema.project)
+    .where(and(eq(schema.project.organizationId, orgId), projectIds ? inArray(schema.project.id, projectIds) : undefined))
+    .orderBy(desc(schema.project.updatedAt));
   if (!projects.length) return [];
   const services = await db
     .select({
@@ -28,7 +34,8 @@ export async function projectSummaries(orgId: string): Promise<ProjectSummary[]>
   });
 }
 
-export async function recentDeployments(orgId: string, limit = 8, projectId?: string) {
+export async function recentDeployments(orgId: string, limit = 8, projectId?: string, projectIds: string[] | null = null) {
+  if (projectIds && !projectIds.length) return [];
   return db
     .select({
       id: schema.deployment.id,
@@ -53,12 +60,13 @@ export async function recentDeployments(orgId: string, limit = 8, projectId?: st
     .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
     .leftJoin(schema.environment, eq(schema.service.environmentId, schema.environment.id))
     .leftJoin(schema.server, eq(schema.service.serverId, schema.server.id))
-    .where(and(eq(schema.project.organizationId, orgId), projectId ? eq(schema.project.id, projectId) : undefined))
+    .where(and(eq(schema.project.organizationId, orgId), projectId ? eq(schema.project.id, projectId) : undefined, projectIds ? inArray(schema.project.id, projectIds) : undefined))
     .orderBy(desc(schema.deployment.createdAt))
     .limit(limit);
 }
 
-export async function recentActivity(orgId: string, limit = 12) {
+/** With `projectIds`, only entries of those projects (and organization-wide ones). */
+export async function recentActivity(orgId: string, limit = 12, projectIds: string[] | null = null) {
   return db
     .select({
       id: schema.activity.id,
@@ -72,7 +80,12 @@ export async function recentActivity(orgId: string, limit = 12) {
     })
     .from(schema.activity)
     .leftJoin(schema.user, eq(schema.activity.userId, schema.user.id))
-    .where(eq(schema.activity.organizationId, orgId))
+    .where(
+      and(
+        eq(schema.activity.organizationId, orgId),
+        projectIds ? or(isNull(schema.activity.projectId), projectIds.length ? inArray(schema.activity.projectId, projectIds) : undefined) : undefined,
+      ),
+    )
     .orderBy(desc(schema.activity.createdAt))
     .limit(limit);
 }

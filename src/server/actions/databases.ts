@@ -3,7 +3,7 @@
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrg, requireOrgAdmin } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull, encrypt, randomPassword } from "@/server/crypto";
 import { logActivity } from "@/server/activity";
@@ -63,7 +63,7 @@ const RESTART_FIELDS: (keyof DatabaseConfig)[] = [
 /** Saves database settings. Returns whether the running container must restart to apply them. */
 export async function updateDatabaseSettings(serviceId: string, input: z.input<typeof settingsSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (!service.database) throw new UserError("Not a database.");
     const data = settingsSchema.parse(input);
@@ -108,7 +108,7 @@ async function dependentsOf(service: typeof schema.service.$inferSelect) {
 
 export async function databaseDependents(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("projects.view");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     return dependentsOf(service);
   });
@@ -120,7 +120,7 @@ export async function databaseDependents(serviceId: string) {
  */
 export async function changeDatabasePassword(serviceId: string, password?: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const cfg = service.database;
     if (!cfg) throw new UserError("Not a database.");
@@ -163,7 +163,7 @@ export async function changeDatabasePassword(serviceId: string, password?: strin
 /** Redeploys running services (after a database password change). */
 export async function redeployServices(serviceIds: string[]) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     let queued = 0;
     for (const id of serviceIds.slice(0, 50)) {
       const { service } = await serviceInOrg(id, ctx.org.id);
@@ -178,7 +178,7 @@ export async function redeployServices(serviceIds: string[]) {
 /** Permanently deletes a Docker volume of the service that is no longer mounted. */
 export async function deleteVolumeData(serviceId: string, source: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type === "database" && source === "data") throw new UserError("The data volume holds the database. Delete the service to remove it.");
     if (service.runtime.volumes.some((v) => v.kind === "volume" && v.source === source)) throw new UserError("Remove the mount and redeploy before deleting its data.");
@@ -224,7 +224,7 @@ const remoteImportSchema = z.union([
 /** Imports a dump from a URL or an S3 destination, then restores it. */
 export async function importBackupFromRemote(serviceId: string, input: z.input<typeof remoteImportSchema>, backupFirst: boolean) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("databases.backups");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (!service.database) throw new UserError("Not a database.");
     if (service.status !== "running") throw new UserError("Start the database before importing.");

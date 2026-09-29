@@ -1,3 +1,4 @@
+import { NoAccess } from "@/components/no-access";
 import { asc, eq, sql } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -15,6 +16,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
   const { projectId } = await props.params;
   const { env, type, template } = await props.searchParams;
   const ctx = await requireOrg();
+  if (!ctx.can("services.manage")) return <NoAccess permission="services.manage" />;
   const project = await pageProject(projectId, ctx.org.id);
   const { current } = await resolveEnvironment(projectId, typeof env === "string" ? env : undefined);
   const [credentials, nixpacks, servers, custom] = await Promise.all([

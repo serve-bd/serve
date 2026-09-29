@@ -16,7 +16,8 @@ export default async function SharedVariablesPage(props: PageProps<"/shared-vari
     .select({ id: schema.project.id, name: schema.project.name })
     .from(schema.project)
     .where(eq(schema.project.organizationId, ctx.org.id))
-    .orderBy(asc(schema.project.name));
+    .orderBy(asc(schema.project.name))
+    .then((rows) => rows.filter((p) => ctx.canAccessProject(p.id)));
   const environments = projects.length
     ? await db
         .select({ id: schema.environment.id, name: schema.environment.name, projectId: schema.environment.projectId })
@@ -42,7 +43,8 @@ export default async function SharedVariablesPage(props: PageProps<"/shared-vari
         : environment && eq(schema.sharedVar.environmentId, environment.id);
   const rows = where ? await db.select().from(schema.sharedVar).where(where).orderBy(asc(schema.sharedVar.key)) : [];
   // Organization values are admin-only; members see which keys exist.
-  const canEdit = scope === "org" ? ctx.isAdmin : true;
+  // Values are edited in place, so editing them needs seeing them.
+  const canEdit = ctx.can("variables.edit") && ctx.can("variables.view-secrets") && (scope === "org" ? ctx.isAdmin : true);
 
   return (
     <>

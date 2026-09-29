@@ -30,6 +30,8 @@ import { findCloudflareZone } from "@/server/actions/integrations";
 import useSWR from "swr";
 import { relativeRecordName } from "@/lib/dns-name";
 import { cn } from "@/lib/utils";
+import { useCan } from "@/components/permissions";
+import { cannotMessage } from "@/lib/permissions";
 import { useDebounced } from "@/hooks/use-client";
 import { ProductName } from "@/components/brand";
 
@@ -756,6 +758,7 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
 }
 
 export function DomainsManager(props: Props) {
+  const canManage = useCan()("domains.manage");
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DomainRow | null>(null);
   const confirm = useConfirm();
@@ -773,12 +776,12 @@ export function DomainsManager(props: Props) {
         description={proxySubtitle(props.proxyKind)}
         actions={
           <>
-            {props.canGenerate && (
+            {props.canGenerate && canManage && (
               <Button size="sm" onClick={() => generate.run()} loading={generate.pending}>
                 <Sparkles /> Generate
               </Button>
             )}
-            <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
+            <Button size="sm" variant="primary" onClick={() => setOpen(true)} disabled={!canManage} title={canManage ? undefined : cannotMessage("domains.manage")}>
               <Plus /> Add domain
             </Button>
           </>
@@ -835,7 +838,12 @@ export function DomainsManager(props: Props) {
               <div className="flex flex-none items-center gap-2 pt-0.5">
                 <DnsBadge domainId={d.id} />
                 <Menu>
-                  <MenuTrigger className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-fg" aria-label="Domain actions">
+                  <MenuTrigger
+                    className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-fg disabled:opacity-40"
+                    aria-label="Domain actions"
+                    disabled={!canManage}
+                    title={canManage ? undefined : cannotMessage("domains.manage")}
+                  >
                     <MoreHorizontal className="size-4" />
                   </MenuTrigger>
                   <MenuContent>

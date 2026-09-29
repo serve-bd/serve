@@ -4,7 +4,8 @@ import { requireRoom } from "@/server/limits";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrg, requireOrgAdmin } from "@/server/auth";
+import { cannotMessage } from "@/lib/permissions";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
@@ -23,7 +24,7 @@ const projectSchema = z.object({
 
 export async function createProject(input: z.input<typeof projectSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("projects.manage");
     const data = projectSchema.parse(input);
     await requireRoom(ctx.org.id, { projects: 1 });
     const id = newId();
@@ -43,7 +44,7 @@ export async function createProject(input: z.input<typeof projectSchema>) {
 
 export async function updateProject(projectId: string, input: z.input<typeof projectSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("projects.manage");
     await projectInOrg(projectId, ctx.org.id);
     const data = projectSchema.parse(input);
     await db
@@ -56,7 +57,7 @@ export async function updateProject(projectId: string, input: z.input<typeof pro
 
 export async function deleteProject(projectId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("projects.manage");
     const project = await projectInOrg(projectId, ctx.org.id);
     const services = await db.select().from(schema.service).where(eq(schema.service.projectId, projectId));
     const { teardownServices } = await import("@/server/services/teardown");
@@ -69,7 +70,7 @@ export async function deleteProject(projectId: string) {
 
 export async function createEnvironment(projectId: string, name: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("projects.manage");
     await projectInOrg(projectId, ctx.org.id);
     const clean = z
       .string()
@@ -90,7 +91,7 @@ export async function createEnvironment(projectId: string, name: string) {
 
 export async function deleteEnvironment(environmentId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("projects.manage");
     const [env] = await db.select().from(schema.environment).where(eq(schema.environment.id, environmentId));
     if (!env) throw new UserError("Environment not found.");
     await projectInOrg(env.projectId, ctx.org.id);
@@ -116,7 +117,9 @@ const varsSchema = z.array(
 
 export async function saveSharedVars(environmentId: string, vars: z.input<typeof varsSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("variables.edit");
+    // The values are replaced as a whole, so only roles that can see them may write them.
+    if (!ctx.can("variables.view-secrets")) throw new UserError(cannotMessage("variables.view-secrets"));
     const [env] = await db.select().from(schema.environment).where(eq(schema.environment.id, environmentId));
     if (!env) throw new UserError("Environment not found.");
     await projectInOrg(env.projectId, ctx.org.id);
@@ -139,7 +142,7 @@ export async function saveSharedVars(environmentId: string, vars: z.input<typeof
 /** Queue redeploys for every service in an environment (after shared variable changes). */
 export async function redeployEnvironment(environmentId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const [env] = await db.select().from(schema.environment).where(eq(schema.environment.id, environmentId));
     if (!env) throw new UserError("Environment not found.");
     await projectInOrg(env.projectId, ctx.org.id);

@@ -1,3 +1,4 @@
+import { cannotMessage } from "@/lib/permissions";
 import { PassThrough } from "node:stream";
 import type { NextRequest } from "next/server";
 import { requireOrg } from "@/server/auth";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/services/[serviceId]/logs">) {
   const { serviceId } = await ctx.params;
   const org = await requireOrg();
+  if (!org.can("logs.view")) return new Response(cannotMessage("logs.view"), { status: 403 });
   let service;
   try {
     service = (await serviceInOrg(serviceId, org.org.id)).service;

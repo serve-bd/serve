@@ -47,7 +47,7 @@ async function joinOrganization(invitationId: string, userId: string, email: str
   }
   await db
     .insert(schema.member)
-    .values({ id: newId(), organizationId: inv.org.id, userId, role: inv.invitation.role ?? "member" })
+    .values({ id: newId(), organizationId: inv.org.id, userId, role: inv.invitation.role ?? "member", roleId: inv.invitation.roleId ?? null })
     .onConflictDoNothing();
   await db.update(schema.invitation).set({ status: "accepted" }).where(eq(schema.invitation.id, invitationId));
   await logActivity({ userId, organizationId: inv.org.id, action: "member.joined", message: `Joined ${inv.org.name}` });

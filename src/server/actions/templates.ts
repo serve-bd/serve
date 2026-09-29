@@ -5,7 +5,7 @@ import net from "node:net";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrgAdmin } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
@@ -66,7 +66,7 @@ function validate(data: z.output<typeof templateSchema>, isInstanceAdmin: boolea
 
 export async function saveCustomTemplate(id: string | null, input: CustomTemplateInput) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const data = templateSchema.parse(input);
     validate(data, ctx.isInstanceAdmin);
     const values = {
@@ -98,7 +98,7 @@ export async function saveCustomTemplate(id: string | null, input: CustomTemplat
 
 export async function deleteCustomTemplate(id: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const [row] = await db
       .delete(schema.customTemplate)
       .where(and(eq(schema.customTemplate.id, id), eq(schema.customTemplate.organizationId, ctx.org.id)))
@@ -131,7 +131,7 @@ async function assertPublicUrl(raw: string) {
 /** Fetches a compose file from a public URL (GitHub "raw" links, gists, …). */
 export async function fetchComposeFromUrl(raw: string) {
   return act(async () => {
-    await requireOrgAdmin();
+    await requirePermission("integrations.manage");
     let url = await assertPublicUrl(raw);
     // GitHub page links → raw file.
     const gh = url.hostname === "github.com" && url.pathname.match(/^\/([^/]+)\/([^/]+)\/blob\/(.+)$/);

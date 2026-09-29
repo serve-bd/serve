@@ -3,7 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrg, requireOrgAdmin } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { newId } from "@/server/id";
@@ -37,7 +37,7 @@ async function allowedServer(serverId: string | undefined, orgId: string) {
 
 export async function requestCertificate(input: z.input<typeof requestSchema>) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const data = requestSchema.parse(input);
     if (data.provider === "letsencrypt-http" && data.domains.some((d) => d.startsWith("*."))) {
       throw new UserError("Wildcard certificates need DNS validation. Choose Let's Encrypt with Cloudflare DNS.");
@@ -72,7 +72,7 @@ export async function requestCertificate(input: z.input<typeof requestSchema>) {
 
 export async function uploadCertificate(input: { name: string; certificate: string; privateKey: string; serverId?: string }) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const serverId = await allowedServer(input.serverId, ctx.org.id);
     const id = newId();
     let parsed;
@@ -114,7 +114,7 @@ async function certInOrg(id: string, orgId: string) {
 
 export async function renewCertificate(id: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const cert = await certInOrg(id, ctx.org.id);
     if (cert.provider === "custom") throw new UserError("Upload a new file to replace a custom certificate.");
     await enqueue("certificate.issue", { certificateId: id }, { concurrencyKey: `cert:${id}` });
@@ -124,7 +124,7 @@ export async function renewCertificate(id: string) {
 
 export async function setCertificateAutoRenew(id: string, autoRenew: boolean) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     await certInOrg(id, ctx.org.id);
     await db.update(schema.certificate).set({ autoRenew }).where(eq(schema.certificate.id, id));
     return null;
@@ -133,7 +133,7 @@ export async function setCertificateAutoRenew(id: string, autoRenew: boolean) {
 
 export async function deleteCertificate(id: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const cert = await certInOrg(id, ctx.org.id);
     await db.update(schema.domain).set({ certificateId: null }).where(eq(schema.domain.certificateId, id));
     await db.delete(schema.certificate).where(eq(schema.certificate.id, id));
@@ -145,7 +145,7 @@ export async function deleteCertificate(id: string) {
 
 export async function certificateLogs(id: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("integrations.manage");
     const cert = await certInOrg(id, ctx.org.id);
     return { logs: cert.logs, status: cert.status, error: cert.lastError };
   });

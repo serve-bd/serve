@@ -162,6 +162,13 @@
       "when": 1790705730540,
       "tag": "0022_organization_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790706818411,
+      "tag": "0023_roles_permissions",
+      "breakpoints": true
     }
   ]
 }

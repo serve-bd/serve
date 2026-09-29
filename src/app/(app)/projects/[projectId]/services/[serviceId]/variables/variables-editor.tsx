@@ -15,7 +15,8 @@ import { parseEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
 import { referenceOf } from "@/lib/refs";
 
-type Var = { key: string; value: string; buildTime: boolean; runtime: boolean; id?: number };
+/** `hidden`: the value is kept on the server and not sent here (the role cannot see secrets); `from` is its stored key. */
+type Var = { key: string; value: string; buildTime: boolean; runtime: boolean; id?: number; hidden?: boolean; from?: string };
 
 let seq = 0;
 const withId = (v: Omit<Var, "id">): Var => ({ ...v, id: ++seq });
@@ -36,6 +37,8 @@ export function VariablesEditor({
   references,
   settingsHref,
   composeVars = [],
+  canEdit = true,
+  canSeeSecrets = true,
 }: {
   serviceId: string;
   type: string;
@@ -46,17 +49,24 @@ export function VariablesEditor({
   settingsHref: string;
   /** ${VARIABLES} the compose file uses without a default. */
   composeVars?: string[];
+  canEdit?: boolean;
+  /** Without it, values arrive hidden and saving keeps them unless replaced. */
+  canSeeSecrets?: boolean;
 }) {
   const [vars, setVars] = React.useState<Var[]>(() => initial.map(withId));
   const [raw, setRaw] = React.useState<string | null>(null);
   const [revealed, setRevealed] = React.useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const [baseline, setBaseline] = React.useState(() => JSON.stringify(initial));
+  const [baseline, setBaseline] = React.useState(() =>
+    JSON.stringify(
+      initial.filter((v) => v.key).map((v) => ({ key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime, ...(v.hidden ? { keep: v.from ?? v.key } : {}) })),
+    ),
+  );
 
   const current =
     raw !== null
       ? parseEnv(raw).map((v) => ({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? false, runtime: vars.find((x) => x.key === v.key)?.runtime ?? true }))
-      : vars.map((v) => ({ key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime }));
+      : vars.map((v) => ({ key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime, ...(v.hidden ? { keep: v.from ?? v.key } : {}) }));
   const dirty = JSON.stringify(current.filter((v) => v.key)) !== baseline;
 
   const save = useAction((redeploy: boolean) => saveEnvVars(serviceId, current, redeploy), {
@@ -102,19 +112,22 @@ export function VariablesEditor({
             title="Environment variables"
             description="Encrypted at rest. Changes apply on the next deploy."
             actions={
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  if (raw === null) setRaw(toRaw(vars));
-                  else {
-                    setVars(parseEnv(raw).map((v) => withId({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? false, runtime: true })));
-                    setRaw(null);
-                  }
-                }}
-              >
-                <Code2 /> {raw === null ? "Raw editor" : "Table view"}
-              </Button>
+              canSeeSecrets &&
+              canEdit && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    if (raw === null) setRaw(toRaw(vars));
+                    else {
+                      setVars(parseEnv(raw).map((v) => withId({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? false, runtime: true })));
+                      setRaw(null);
+                    }
+                  }}
+                >
+                  <Code2 /> {raw === null ? "Raw editor" : "Table view"}
+                </Button>
+              )
             }
           />
           {raw !== null ? (
@@ -162,17 +175,25 @@ export function VariablesEditor({
                       hasBuild ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_32px]" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_32px]",
                     )}
                   >
-                    <Input value={v.key} onChange={(e) => update(v.id!, { key: e.target.value.replace(/\s/g, "_") })} placeholder="KEY" className="font-mono text-[12.5px]" />
+                    <Input
+                      value={v.key}
+                      onChange={(e) => update(v.id!, { key: e.target.value.replace(/\s/g, "_") })}
+                      placeholder="KEY"
+                      className="font-mono text-[12.5px]"
+                      disabled={!canEdit}
+                    />
                     <div className="relative">
                       <Input
                         value={v.value}
                         type={shown || isRef ? "text" : "password"}
-                        onChange={(e) => update(v.id!, { value: e.target.value })}
-                        placeholder="value"
+                        onChange={(e) => update(v.id!, { value: e.target.value, hidden: false })}
+                        placeholder={v.hidden ? "Hidden. Type to replace it." : "value"}
                         className={cn("pr-9 font-mono text-[12.5px]", isRef && "text-accent")}
                         autoComplete="off"
+                        disabled={!canEdit}
+                        title={v.hidden ? "Your role cannot see secret values." : undefined}
                       />
-                      {!isRef && (
+                      {!isRef && !v.hidden && (canSeeSecrets || !v.from) && (
                         <button
                           type="button"
                           onClick={() =>
@@ -194,31 +215,43 @@ export function VariablesEditor({
                       <div className="flex items-center gap-3 text-xs text-muted">
                         <Tooltip content="Available while the app runs">
                           <label className="flex items-center gap-1.5">
-                            <Checkbox checked={v.runtime} onCheckedChange={(c) => update(v.id!, { runtime: !!c })} /> Run
+                            <Checkbox checked={v.runtime} onCheckedChange={(c) => update(v.id!, { runtime: !!c })} disabled={!canEdit} /> Run
                           </label>
                         </Tooltip>
                         <Tooltip content="Passed as a build argument">
                           <label className="flex items-center gap-1.5">
-                            <Checkbox checked={v.buildTime} onCheckedChange={(c) => update(v.id!, { buildTime: !!c })} /> Build
+                            <Checkbox checked={v.buildTime} onCheckedChange={(c) => update(v.id!, { buildTime: !!c })} disabled={!canEdit} /> Build
                           </label>
                         </Tooltip>
                       </div>
                     )}
-                    <Button variant="ghost" size="icon-sm" onClick={() => setVars((prev) => prev.filter((x) => x.id !== v.id))} aria-label="Remove variable">
+                    <Button variant="ghost" size="icon-sm" onClick={() => setVars((prev) => prev.filter((x) => x.id !== v.id))} aria-label="Remove variable" disabled={!canEdit}>
                       <Trash2 />
                     </Button>
                   </div>
                 );
               })}
               <div className="px-5 py-3">
-                <Button size="sm" variant="ghost" onClick={() => setVars((prev) => [...prev, withId({ key: "", value: "", buildTime: false, runtime: true })])}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setVars((prev) => [...prev, withId({ key: "", value: "", buildTime: false, runtime: true })])}
+                  disabled={!canEdit}
+                  title={canEdit ? undefined : "Your role cannot edit variables."}
+                >
                   <Plus /> Add variable
                 </Button>
               </div>
             </div>
           )}
           <CardFooter className={cn("transition-opacity", !dirty && "opacity-60")}>
-            <span className="text-xs text-muted">{dirty ? "You have unsaved changes." : `${current.filter((v) => v.key).length} variables`}</span>
+            <span className="text-xs text-muted">
+              {!canEdit
+                ? "Your role cannot edit variables."
+                : dirty
+                  ? "You have unsaved changes."
+                  : `${current.filter((v) => v.key).length} variables${canSeeSecrets ? "" : " · values hidden for your role"}`}
+            </span>
             <div className="flex gap-2">
               {dirty && (
                 <Button
@@ -232,7 +265,7 @@ export function VariablesEditor({
                   Discard
                 </Button>
               )}
-              <Button size="sm" variant="primary" disabled={!dirty} loading={save.pending} onClick={() => (canRedeploy ? setConfirmOpen(true) : save.run(false))}>
+              <Button size="sm" variant="primary" disabled={!dirty || !canEdit} loading={save.pending} onClick={() => (canRedeploy ? setConfirmOpen(true) : save.run(false))}>
                 Save changes
               </Button>
             </div>

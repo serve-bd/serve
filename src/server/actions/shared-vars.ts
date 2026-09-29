@@ -3,7 +3,8 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrg, requireOrgAdmin } from "@/server/auth";
+import { cannotMessage } from "@/lib/permissions";
+import { requireOrgAdmin, requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decryptOrNull, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
@@ -53,7 +54,9 @@ export async function saveOrgSharedVars(vars: z.input<typeof varsSchema>) {
 /** Project variables, used as ${{project.KEY}} in every environment of the project. */
 export async function saveProjectSharedVars(projectId: string, vars: z.input<typeof varsSchema>) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("variables.edit");
+    // The values are replaced as a whole, so only roles that can see them may write them.
+    if (!ctx.can("variables.view-secrets")) throw new UserError(cannotMessage("variables.view-secrets"));
     const project = await projectInOrg(projectId, ctx.org.id);
     await replaceVars({ projectId }, parseVars(vars));
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "variables.shared", message: `Updated shared variables of ${project.name}` });
@@ -67,7 +70,7 @@ export async function saveProjectSharedVars(projectId: string, vars: z.input<typ
  */
 export async function redeployReferencing(scope: "org" | { projectId: string }) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.deploy");
     const projectIds =
       scope === "org"
         ? (await db.select({ id: schema.project.id }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id))).map((p) => p.id)

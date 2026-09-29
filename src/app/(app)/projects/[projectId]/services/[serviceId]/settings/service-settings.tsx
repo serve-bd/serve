@@ -7,6 +7,7 @@ import { useRouter } from "@/hooks/use-router";
 import { ArrowRightLeft, Check, LayoutTemplate, RefreshCw, Server as ServerIcon, Trash2, TriangleAlert } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, CopyField, TimeAgo } from "@/components/ui/misc";
+import { SecretField } from "@/components/ui/secret-field";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -68,6 +69,8 @@ type Props = {
   managedWebhook?: boolean;
   webhookSecret: string;
   deployHookUrl: string;
+  /** The role cannot see secret values: secrets arrive masked and are not copyable. */
+  hideSecrets?: boolean;
   /** Server the service runs on, and the servers it could move to. */
   server: { id: string; name: string; host: string; isLocal: boolean };
   servers: { id: string; name: string; host: string; status: string; isLocal: boolean }[];
@@ -492,7 +495,7 @@ export function ServiceSettings(props: Props) {
               )}
               <Field label="Webhook secret">
                 <div className="flex gap-2">
-                  <CopyField value={props.webhookSecret} secret className="flex-1" />
+                  <SecretField value={props.webhookSecret} hidden={props.hideSecrets} className="flex-1" />
                   <Button
                     onClick={async () => {
                       if (
@@ -511,7 +514,7 @@ export function ServiceSettings(props: Props) {
                 </div>
               </Field>
               <Field label="Deploy hook" description="POST to this URL from CI to deploy the latest commit.">
-                <CopyField value={props.deployHookUrl} secret />
+                <SecretField value={props.deployHookUrl} hidden={props.hideSecrets} shape={props.deployHookUrl} />
               </Field>
             </CardBody>
           </Card>

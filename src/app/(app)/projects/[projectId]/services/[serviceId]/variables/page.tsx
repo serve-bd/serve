@@ -14,6 +14,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
   const { projectId, serviceId } = await props.params;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
+  const canSeeSecrets = ctx.can("variables.view-secrets");
   const [vars, shared, siblings, scoped] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId)).orderBy(asc(schema.envVar.key)),
     db.select({ key: schema.sharedVar.key }).from(schema.sharedVar).where(eq(schema.sharedVar.environmentId, service.environmentId)),
@@ -38,7 +39,15 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
         serviceId={service.id}
         type={service.type}
         status={service.status}
-        initial={vars.map((v) => ({ key: v.key, value: decryptOrNull(v.value) ?? "", buildTime: v.buildTime, runtime: v.runtime }))}
+        initial={vars.map((v) => {
+          const value = decryptOrNull(v.value) ?? "";
+          // References are not secret; everything else stays on the server for roles without secret access.
+          return canSeeSecrets || value.includes("${{")
+            ? { key: v.key, value, buildTime: v.buildTime, runtime: v.runtime }
+            : { key: v.key, value: "", buildTime: v.buildTime, runtime: v.runtime, hidden: true, from: v.key };
+        })}
+        canEdit={ctx.can("variables.edit")}
+        canSeeSecrets={canSeeSecrets}
         shared={shared.map((s) => s.key)}
         references={references}
         settingsHref={`/projects/${projectId}/settings`}

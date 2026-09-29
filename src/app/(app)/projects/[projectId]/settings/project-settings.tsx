@@ -20,13 +20,18 @@ export function ProjectSettings({
   environments,
   environment,
   shared,
-  isAdmin,
+  canEditShared,
+  canManage,
+  canDeploy,
 }: {
   project: { id: string; name: string; description: string; color: string };
   environments: { id: string; name: string; services: number }[];
   environment: { id: string; name: string };
   shared: { key: string; value: string }[];
-  isAdmin: boolean;
+  /** Values are only sent to roles that may see and edit them. */
+  canEditShared: boolean;
+  canManage: boolean;
+  canDeploy: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -69,7 +74,7 @@ export function ProjectSettings({
               size="sm"
               variant="primary"
               loading={save.pending}
-              disabled={name === project.name && description === project.description && color === project.color}
+              disabled={!canManage || (name === project.name && description === project.description && color === project.color)}
             >
               Save
             </Button>
@@ -100,20 +105,27 @@ export function ProjectSettings({
           }
         />
         <CardBody className="py-4">
-          <Textarea
-            value={raw}
-            onChange={(e) => setRaw(e.target.value)}
-            rows={Math.max(6, raw.split("\n").length + 1)}
-            placeholder={"APP_ENV=production\nSENTRY_DSN=https://…"}
-            className="font-mono text-[12.5px] leading-relaxed"
-            spellCheck={false}
-          />
+          {!canEditShared ? (
+            <p className="text-[13px] text-muted">
+              {shared.length ? `${shared.length} variable${shared.length === 1 ? "" : "s"}: ${shared.map((s) => s.key).join(", ")}. ` : "No shared variables. "}
+              Your role cannot see or edit their values.
+            </p>
+          ) : (
+            <Textarea
+              value={raw}
+              onChange={(e) => setRaw(e.target.value)}
+              rows={Math.max(6, raw.split("\n").length + 1)}
+              placeholder={"APP_ENV=production\nSENTRY_DSN=https://…"}
+              className="font-mono text-[12.5px] leading-relaxed"
+              spellCheck={false}
+            />
+          )}
         </CardBody>
         <CardFooter>
-          <Button size="sm" variant="ghost" onClick={() => redeploy.run()} loading={redeploy.pending}>
+          <Button size="sm" variant="ghost" onClick={() => redeploy.run()} loading={redeploy.pending} disabled={!canDeploy}>
             Redeploy services
           </Button>
-          <Button size="sm" variant="primary" onClick={() => saveVars.run()} loading={saveVars.pending} disabled={raw === initialRaw}>
+          <Button size="sm" variant="primary" onClick={() => saveVars.run()} loading={saveVars.pending} disabled={raw === initialRaw || !canEditShared}>
             Save variables
           </Button>
         </CardFooter>
@@ -128,7 +140,7 @@ export function ProjectSettings({
               <span className="text-xs text-muted">
                 {e.services} service{e.services === 1 ? "" : "s"}
               </span>
-              {isAdmin && environments.length > 1 && (
+              {canManage && environments.length > 1 && (
                 <Button
                   size="icon-sm"
                   variant="ghost"
@@ -154,7 +166,7 @@ export function ProjectSettings({
         </div>
       </Card>
 
-      {isAdmin && (
+      {canManage && (
         <Card className="border-bad/30">
           <CardHeader title="Delete project" description="Deletes every service, database, volume and domain in all environments." />
           <CardFooter className="justify-end">

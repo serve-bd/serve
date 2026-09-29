@@ -1,3 +1,4 @@
+import { cannotMessage } from "@/lib/permissions";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { requireOrg } from "@/server/auth";
@@ -18,6 +19,7 @@ const bodySchema = z.object({
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/services/[serviceId]/terminal">) {
   const { serviceId } = await ctx.params;
   const org = await requireOrg();
+  if (!org.can("console.access")) return new Response(cannotMessage("console.access"), { status: 403 });
   let service;
   try {
     service = (await serviceInOrg(serviceId, org.org.id)).service;

@@ -17,11 +17,16 @@ const statusText = { up: "Up", down: "Down", pending: "Checking", paused: "Pause
 export default async function MonitoringPage() {
   const ctx = await requireOrg();
   // Server incidents (disk, memory, CPU) belong to the Root organization.
-  const [monitors, open, recent] = await Promise.all([
+  const [allMonitors, allOpen, allRecent] = await Promise.all([
     orgMonitors(ctx.org.id),
     incidentRows({ organizationId: ctx.org.id, openOnly: true, limit: 50 }),
     incidentRows({ organizationId: ctx.org.id, limit: 30 }),
   ]);
+  // Members limited to some projects only see those projects' checks and incidents.
+  const reach = (projectId: string | null | undefined) => !projectId || ctx.canAccessProject(projectId);
+  const monitors = allMonitors.filter((m) => reach(m.projectId));
+  const open = allOpen.filter((i) => reach(i.projectId));
+  const recent = allRecent.filter((i) => reach(i.projectId));
   const resolved = recent.filter((i) => i.resolvedAt);
   const link = (i: (typeof open)[number]) => (i.serviceId && i.projectId ? `/projects/${i.projectId}/services/${i.serviceId}` : i.serverId ? `/servers/${i.serverId}` : null);
 

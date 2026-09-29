@@ -165,7 +165,7 @@ export function SharedVariables({
           ) : rows.length === 0 ? (
             <EmptyState
               title="No shared variables yet"
-              description={canEdit ? "Add a variable and reference it from any service." : "Only admins can add organization variables."}
+              description={canEdit ? "Add a variable and reference it from any service." : "Your role cannot see or edit these values."}
               action={
                 canEdit && (
                   <Button size="sm" onClick={add}>

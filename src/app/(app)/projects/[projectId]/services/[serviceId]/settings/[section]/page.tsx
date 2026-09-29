@@ -1,3 +1,4 @@
+import { NoAccess } from "@/components/no-access";
 import { and, eq, isNull } from "drizzle-orm";
 import { privateHost } from "@/lib/hostname";
 import { requireOrg } from "@/server/auth";
@@ -22,7 +23,7 @@ export async function generateMetadata(props: PageProps<"/projects/[projectId]/s
   return { title: `${label} · Settings` };
 }
 
-function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean) {
+function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean, hideSecrets: boolean) {
   const cfg = service.database;
   if (!cfg) return null;
   const engine = engines[cfg.engine];
@@ -49,7 +50,8 @@ function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean) 
       publicPort: cfg.publicPort ?? null,
       publicBind: cfg.publicBind ?? ("0.0.0.0" as const),
     },
-    password,
+    password: hideSecrets ? "" : password,
+    hideSecrets,
     isAdmin,
     engine: {
       label: engine.label,
@@ -102,6 +104,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
   const { projectId, serviceId, section } = await props.params;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
+  if (!ctx.can("services.manage")) return <NoAccess permission="services.manage" />;
   const [credentials, nixpacks, servers, [server]] = await Promise.all([
     db
       .select({ id: schema.gitCredential.id, name: schema.gitCredential.name, provider: schema.gitCredential.provider })
@@ -120,7 +123,8 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
   const credProvider = source?.type === "git" ? credentials.find((c) => c.id === source.credentialId)?.provider : undefined;
   const viaApp = credProvider === "github-app";
   const managedWebhook = credProvider === "github" || credProvider === "gitlab" || credProvider === "gitea" || credProvider === "bitbucket";
-  const database = dbProps(service, ctx.isAdmin);
+  const hideSecrets = !ctx.can("variables.view-secrets");
+  const database = dbProps(service, ctx.isAdmin, hideSecrets);
   const nav = settingsNav({
     type: service.type,
     hasSource: !!service.source,
@@ -163,8 +167,9 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
         webhookUrl={`${base}/api/webhooks/git/${service.id}`}
         viaGithubApp={!!viaApp}
         managedWebhook={managedWebhook && !service.parentServiceId}
-        webhookSecret={service.webhookSecret}
-        deployHookUrl={`${base}/api/deploy-hooks/${service.id}?token=${service.webhookSecret}`}
+        webhookSecret={hideSecrets ? "" : service.webhookSecret}
+        deployHookUrl={`${base}/api/deploy-hooks/${service.id}?token=${hideSecrets ? "********" : service.webhookSecret}`}
+        hideSecrets={hideSecrets}
         server={server ?? { id: service.serverId, name: "Unknown server", host: "", isLocal: false }}
         servers={servers}
         isRootAdmin={ctx.isInstanceAdmin}

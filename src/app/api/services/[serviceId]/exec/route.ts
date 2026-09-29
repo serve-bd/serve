@@ -1,3 +1,4 @@
+import { cannotMessage } from "@/lib/permissions";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { requireOrg } from "@/server/auth";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: NextRequest, ctx: RouteContext<"/api/services/[serviceId]/exec">) {
   const { serviceId } = await ctx.params;
   const org = await requireOrg();
+  if (!org.can("console.access")) return new Response(cannotMessage("console.access"), { status: 403 });
   try {
     const { service } = await serviceInOrg(serviceId, org.org.id);
     return NextResponse.json({ targets: (await execTargets(service)).map((t) => ({ name: t.name, composeService: t.composeService })) });
@@ -25,6 +27,7 @@ const bodySchema = z.object({ command: z.string().trim().min(1).max(4000), targe
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/services/[serviceId]/exec">) {
   const { serviceId } = await ctx.params;
   const org = await requireOrg();
+  if (!org.can("console.access")) return new Response(cannotMessage("console.access"), { status: 403 });
   let service;
   try {
     service = (await serviceInOrg(serviceId, org.org.id)).service;

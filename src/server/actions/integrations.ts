@@ -3,7 +3,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrg, requireOrgAdmin } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
@@ -32,7 +32,7 @@ async function cfAccount(orgId: string, accountId: string) {
 
 export async function connectCloudflare(input: { name: string; apiToken: string; originCaKey?: string }) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const token = z.string().trim().min(20, "Paste a Cloudflare API token").parse(input.apiToken);
     const cf = new Cloudflare(token);
     try {
@@ -60,7 +60,7 @@ export async function connectCloudflare(input: { name: string; apiToken: string;
 /** What stops working when an account is disconnected: its tunnels and the domains they carry. */
 export async function cloudflareDisconnectImpact(accountId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const { tunnelDomains } = await import("@/server/cloudflare/tunnels");
     const tunnels = await db
       .select({ id: schema.cloudflareTunnel.id, name: schema.cloudflareTunnel.name, serverName: schema.server.name })
@@ -77,7 +77,7 @@ export async function cloudflareDisconnectImpact(accountId: string) {
  */
 export async function disconnectCloudflare(accountId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const [account] = await db
       .select()
       .from(schema.cloudflareAccount)
@@ -136,7 +136,7 @@ const recordSchema = z.object({
 
 export async function upsertDnsRecord(accountId: string, zoneId: string, recordId: string | null, input: z.infer<typeof recordSchema>) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const data = recordSchema.parse(input);
     const cf = await cfAccount(ctx.org.id, accountId);
     const payload: Partial<CfDnsRecord> = {
@@ -155,7 +155,7 @@ export async function upsertDnsRecord(accountId: string, zoneId: string, recordI
 
 export async function deleteDnsRecord(accountId: string, zoneId: string, recordId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const cf = await cfAccount(ctx.org.id, accountId);
     await cf.deleteDnsRecord(zoneId, recordId);
     return null;
@@ -164,7 +164,7 @@ export async function deleteDnsRecord(accountId: string, zoneId: string, recordI
 
 export async function setZoneSsl(accountId: string, zoneId: string, mode: CfSslMode) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const cf = await cfAccount(ctx.org.id, accountId);
     await cf.setSslMode(zoneId, z.enum(["off", "flexible", "full", "strict"]).parse(mode));
     return null;
@@ -173,7 +173,7 @@ export async function setZoneSsl(accountId: string, zoneId: string, mode: CfSslM
 
 export async function setZoneAlwaysHttps(accountId: string, zoneId: string, on: boolean) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const cf = await cfAccount(ctx.org.id, accountId);
     await cf.setAlwaysUseHttps(zoneId, on);
     return null;
@@ -182,7 +182,7 @@ export async function setZoneAlwaysHttps(accountId: string, zoneId: string, on: 
 
 export async function purgeZoneCache(accountId: string, zoneId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const cf = await cfAccount(ctx.org.id, accountId);
     await cf.purgeCache(zoneId);
     return null;
@@ -195,7 +195,7 @@ export async function purgeZoneCache(accountId: string, zoneId: string) {
 
 export async function addGitToken(input: { provider: GitProviderType; name: string; token: string; baseUrl?: string }) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const token = z.string().trim().min(8, "Paste an access token").parse(input.token);
     const baseUrl = input.baseUrl?.trim() || null;
     let login: string;
@@ -231,7 +231,7 @@ const oauthAppSchema = z.object({
 
 export async function createGitOAuthApp(input: z.input<typeof oauthAppSchema>) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const data = oauthAppSchema.parse(input);
     if (data.provider === "gitea" && !data.baseUrl) throw new UserError("Enter the address of your Gitea or Forgejo server.");
     const id = newId();
@@ -253,7 +253,7 @@ export async function createGitOAuthApp(input: z.input<typeof oauthAppSchema>) {
 /** Deletes the app and its connection (services using it can no longer pull). */
 export async function deleteGitOAuthApp(id: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const [app] = await db
       .delete(schema.gitOAuthApp)
       .where(and(eq(schema.gitOAuthApp.id, id), eq(schema.gitOAuthApp.organizationId, ctx.org.id)))
@@ -266,7 +266,7 @@ export async function deleteGitOAuthApp(id: string) {
 /** URL of the provider's consent page for an OAuth app. */
 export async function startGitOAuth(id: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const [app] = await db
       .select()
       .from(schema.gitOAuthApp)
@@ -284,7 +284,7 @@ export async function startGitOAuth(id: string) {
 
 export async function registerServiceWebhook(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const { serviceInOrg } = await import("@/server/services/access");
     await serviceInOrg(serviceId, ctx.org.id);
     const { registerRepoWebhook } = await import("@/server/git/repo-webhooks");
@@ -297,7 +297,7 @@ export async function registerServiceWebhook(serviceId: string) {
 
 export async function removeServiceWebhook(serviceId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const { serviceInOrg } = await import("@/server/services/access");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.source?.type !== "git") return null;
@@ -314,7 +314,7 @@ export async function removeServiceWebhook(serviceId: string) {
 
 export async function createDeployKey(name: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const key = await generateSshKey(`serve-${ctx.org.slug}`);
     const id = newId();
     await db.insert(schema.gitCredential).values({
@@ -331,7 +331,7 @@ export async function createDeployKey(name: string) {
 
 export async function deleteGitCredential(id: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     await db.delete(schema.gitCredential).where(and(eq(schema.gitCredential.id, id), eq(schema.gitCredential.organizationId, ctx.org.id)));
     return null;
   });
@@ -339,7 +339,7 @@ export async function deleteGitCredential(id: string) {
 
 export async function fetchRepositories(credentialId: string): Promise<{ ok: true; data: RemoteRepo[] } | { ok: false; error: string }> {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     const [cred] = await db
       .select()
       .from(schema.gitCredential)
@@ -357,7 +357,7 @@ export async function fetchRepositories(credentialId: string): Promise<{ ok: tru
 
 export async function fetchBranches(repository: string, credentialId: string | null) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("services.manage");
     if (credentialId) {
       const [cred] = await db
         .select({ id: schema.gitCredential.id })
@@ -389,7 +389,7 @@ const s3Schema = z.object({
 
 export async function addS3Destination(input: z.input<typeof s3Schema>) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const data = s3Schema.parse(input);
     try {
       await s3Test(data);
@@ -413,7 +413,7 @@ export async function updateS3Destination(
   input: Omit<z.input<typeof s3Schema>, "secretAccessKey" | "accessKeyId"> & { accessKeyId?: string; secretAccessKey?: string },
 ) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const [row] = await db
       .select()
       .from(schema.s3Destination)
@@ -437,7 +437,7 @@ export async function updateS3Destination(
 
 export async function deleteS3Destination(id: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     await db.delete(schema.s3Destination).where(and(eq(schema.s3Destination.id, id), eq(schema.s3Destination.organizationId, ctx.org.id)));
     return null;
   });
@@ -445,7 +445,7 @@ export async function deleteS3Destination(id: string) {
 
 export async function testS3Destination(id: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("integrations.manage");
     const [row] = await db
       .select()
       .from(schema.s3Destination)
@@ -463,7 +463,7 @@ export async function testS3Destination(id: string) {
 /** Find the Cloudflare zone (across connected accounts) that owns a hostname. */
 export async function findCloudflareZone(hostname: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("domains.manage");
     const accounts = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, ctx.org.id));
     for (const account of accounts) {
       try {
@@ -481,7 +481,7 @@ export async function findCloudflareZone(hostname: string) {
 /** Prepare the GitHub App manifest form. The browser posts it to GitHub. */
 export async function startGithubApp(input: { organization?: string }) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const { buildManifest, signState } = await import("@/server/git/github-app");
     const owner = input.organization?.trim();
     if (owner && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(owner)) throw new UserError("Enter a valid GitHub organization name.");
@@ -502,7 +502,7 @@ export async function startGithubApp(input: { organization?: string }) {
 /** Link to manage which repositories the app can access. */
 export async function githubAppInstallUrl(credentialId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const [cred] = await db
       .select()
       .from(schema.gitCredential)
@@ -522,7 +522,7 @@ export async function githubAppInstallUrl(credentialId: string) {
 /** Create a tunnel from a server to a connected Cloudflare account. */
 export async function enableTunnel(cloudflareAccountId: string, serverId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const [account] = await db
       .select()
       .from(schema.cloudflareAccount)
@@ -553,7 +553,7 @@ export async function enableTunnel(cloudflareAccountId: string, serverId: string
 
 export async function disableTunnel(tunnelId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const [tunnel] = await db
       .select()
       .from(schema.cloudflareTunnel)
@@ -572,7 +572,7 @@ export async function disableTunnel(tunnelId: string) {
 /** Domains (and the dashboard) that stop working when a tunnel is removed. */
 export async function tunnelImpact(tunnelId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const [tunnel] = await db
       .select({ id: schema.cloudflareTunnel.id })
       .from(schema.cloudflareTunnel)
@@ -595,7 +595,7 @@ async function orgTunnel(tunnelId: string, organizationId: string) {
 /** Live connections and connector state of one tunnel (shown when its row is opened). */
 export async function tunnelDetails(tunnelId: string) {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("integrations.manage");
     const tunnel = await orgTunnel(tunnelId, ctx.org.id);
     const { tunnelDetails: details, refreshTunnelStatus } = await import("@/server/cloudflare/tunnels");
     const [result] = await Promise.all([details(tunnel), refreshTunnelStatus(tunnel)]);
@@ -605,7 +605,7 @@ export async function tunnelDetails(tunnelId: string) {
 
 export async function restartTunnelConnector(tunnelId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const tunnel = await orgTunnel(tunnelId, ctx.org.id);
     const { restartTunnelConnector: restart } = await import("@/server/cloudflare/tunnels");
     try {
@@ -621,7 +621,7 @@ export async function restartTunnelConnector(tunnelId: string) {
 /** Update the connector to the newest image without dropping traffic. */
 export async function updateTunnelConnector(tunnelId: string) {
   return act(async () => {
-    const ctx = await requireOrgAdmin();
+    const ctx = await requirePermission("integrations.manage");
     const tunnel = await orgTunnel(tunnelId, ctx.org.id);
     const { updateTunnelConnector: update } = await import("@/server/cloudflare/tunnels");
     try {
@@ -637,7 +637,7 @@ export async function updateTunnelConnector(tunnelId: string) {
 /** Refresh the status of this organization's tunnels that are still starting or down. */
 export async function refreshTunnels() {
   return act(async () => {
-    const ctx = await requireOrg();
+    const ctx = await requirePermission("projects.view");
     const { refreshTunnelStatus } = await import("@/server/cloudflare/tunnels");
     const tunnels = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.organizationId, ctx.org.id));
     const waiting = tunnels.filter((t) => t.status !== "healthy");

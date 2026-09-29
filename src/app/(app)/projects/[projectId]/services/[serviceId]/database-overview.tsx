@@ -12,6 +12,7 @@ import { StatusDot } from "@/components/ui/status";
 import { useAction } from "@/hooks/use-action";
 import { applyDatabaseChanges, updateService } from "@/server/actions/services";
 import { useServiceLive } from "./service-header";
+import { SecretField } from "@/components/ui/secret-field";
 import { ContainerDialog } from "./container-dialog";
 
 export function DatabaseOverview(props: {
@@ -30,6 +31,9 @@ export function DatabaseOverview(props: {
   /** Uptime card: full width under the main cards once set up, else small in the side column. */
   uptime?: React.ReactNode;
   uptimeInSide?: boolean;
+  /** The role cannot see secret values: the password and URLs are masked and not copyable. */
+  hideSecrets?: boolean;
+  canManage?: boolean;
 }) {
   const { data } = useServiceLive(props.serviceId);
   const [openContainer, setOpenContainer] = React.useState<string | null>(null);
@@ -53,7 +57,7 @@ export function DatabaseOverview(props: {
           <CardHeader title="Connect" description="Other services in this environment connect over the private network." />
           <CardBody className="flex flex-col gap-4">
             <Field label="Private connection URL">
-              <CopyField value={props.internalUrl} secret />
+              <SecretField value={props.internalUrl} hidden={props.hideSecrets} shape={props.internalUrl} />
             </Field>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Host">
@@ -68,7 +72,7 @@ export function DatabaseOverview(props: {
                 </Field>
               )}
               <Field label="Password">
-                <CopyField value={props.creds.password} secret />
+                <SecretField value={props.creds.password} hidden={props.hideSecrets} />
               </Field>
               {props.engine.hasDatabase && (
                 <Field label="Database">
@@ -83,7 +87,7 @@ export function DatabaseOverview(props: {
           <CardHeader
             title="Public access"
             description="Publish the database on a port of its server, for example to connect with a desktop client."
-            actions={<Switch checked={publicOn} onCheckedChange={setPublicOn} />}
+            actions={<Switch checked={publicOn} onCheckedChange={setPublicOn} disabled={props.canManage === false} />}
           />
           <CardBody className="flex flex-col gap-4">
             {publicOn ? (
@@ -110,7 +114,7 @@ export function DatabaseOverview(props: {
                 </p>
                 {props.publicUrl && !changed && (
                   <Field label={`Public connection URL · ${props.publicAddress}`}>
-                    <CopyField value={props.publicUrl} secret />
+                    <SecretField value={props.publicUrl} hidden={props.hideSecrets} shape={props.publicUrl} />
                   </Field>
                 )}
               </>

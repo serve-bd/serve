@@ -67,9 +67,10 @@ export const metadata = { title: "Overview" };
 
 export default async function OverviewPage() {
   const ctx = await requireOrg();
+  const canCreate = ctx.can("projects.manage");
   const [projects, deployments, servers] = await Promise.all([
-    projectSummaries(ctx.org.id),
-    recentDeployments(ctx.org.id, 8),
+    projectSummaries(ctx.org.id, ctx.projectIds),
+    recentDeployments(ctx.org.id, 8, undefined, ctx.projectIds),
     ctx.isInstanceAdmin ? serverCards() : Promise.resolve(null),
   ]);
   return (
@@ -92,7 +93,7 @@ export default async function OverviewPage() {
           href={projects.length ? "/projects" : undefined}
           action={
             projects.length > 0 && (
-              <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })}>
+              <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>
                 <Plus /> New project
               </Link>
             )
@@ -111,7 +112,7 @@ export default async function OverviewPage() {
                 title="Create your first project"
                 description="Projects group apps, databases and services that work together."
                 action={
-                  <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })}>
+                  <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>
                     <Plus /> New project
                   </Link>
                 }

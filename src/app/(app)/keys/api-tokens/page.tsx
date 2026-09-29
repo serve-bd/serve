@@ -1,4 +1,5 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
+import { allowedScopes } from "@/lib/permissions";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { publicBaseUrl } from "@/server/git/github-app";
@@ -21,18 +22,28 @@ export default async function TokensPage() {
         lastUsedIp: schema.apiToken.lastUsedIp,
         createdAt: schema.apiToken.createdAt,
         userName: schema.user.name,
+        userId: schema.apiToken.userId,
       })
       .from(schema.apiToken)
       .innerJoin(schema.user, eq(schema.apiToken.userId, schema.user.id))
-      .where(eq(schema.apiToken.organizationId, ctx.org.id))
+      // Members who do not manage members only see their own tokens.
+      .where(and(eq(schema.apiToken.organizationId, ctx.org.id), ctx.can("members.manage") ? undefined : eq(schema.apiToken.userId, ctx.user.id)))
       .orderBy(desc(schema.apiToken.createdAt)),
-    db.select({ id: schema.project.id, name: schema.project.name }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id)).orderBy(asc(schema.project.name)),
+    db
+      .select({ id: schema.project.id, name: schema.project.name })
+      .from(schema.project)
+      .where(eq(schema.project.organizationId, ctx.org.id))
+      .orderBy(asc(schema.project.name))
+      .then((rows) => rows.filter((p) => ctx.canAccessProject(p.id))),
     publicBaseUrl(),
   ]);
   return (
     <div className="max-w-4xl">
       <TokensView
-        isAdmin={ctx.isAdmin}
+        canManage={ctx.can("members.manage")}
+        me={ctx.user.id}
+        allowed={[...allowedScopes(ctx.permissions, ctx.isAdmin)]}
+        limitedToProjects={!!ctx.projectIds}
         baseUrl={baseUrl}
         projects={projects}
         tokens={tokens.map((t) => ({

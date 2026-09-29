@@ -14,6 +14,8 @@ import type { MemberRole } from "@/server/db/schema";
 import { newId } from "@/server/id";
 import { getSetting } from "@/server/settings";
 import { activeProviders, callbackUrl, configHash, discoveryUrl, providerIdOf, providerNames, type SignInSettings, signUpAllowed } from "@/server/sso/config";
+import { cannotMessage, type Permission } from "@/lib/permissions";
+import { accessFrom, organizationRoles } from "@/server/permissions";
 
 async function firstOrganizationFor(userId: string) {
   const [row] = await db
@@ -241,6 +243,14 @@ export type OrgContext = {
   sessionId: string;
   org: typeof schema.organization.$inferSelect;
   role: MemberRole;
+  /** "owner", "admin", "developer", "viewer" or a custom role id. */
+  roleId: string;
+  roleName: string;
+  permissions: Set<Permission>;
+  /** Projects the member can reach; null means every project. */
+  projectIds: string[] | null;
+  can: (permission: Permission) => boolean;
+  canAccessProject: (projectId: string) => boolean;
   isAdmin: boolean;
   isInstanceAdmin: boolean;
   isRoot: boolean;
@@ -274,11 +284,18 @@ export const requireOrg = cache(async (): Promise<OrgContext> => {
   }
   const [org] = await db.select().from(schema.organization).where(eq(schema.organization.id, orgId!));
   const rootId = await getSetting("rootOrganizationId");
+  const access = accessFrom(membership!, await organizationRoles(org.id));
   return {
     user,
     sessionId: session.session.id,
     org,
     role: membership!.role,
+    roleId: access.roleId,
+    roleName: access.roleName,
+    permissions: access.permissions,
+    projectIds: access.projectIds,
+    can: (permission) => access.permissions.has(permission),
+    canAccessProject: (projectId) => !access.projectIds || access.projectIds.includes(projectId),
     isAdmin: membership!.role === "owner" || membership!.role === "admin",
     isInstanceAdmin: await isInstanceAdmin(user.id),
     isRoot: org.id === rootId,
@@ -291,6 +308,26 @@ export async function requireOrgAdmin() {
   const ctx = await requireOrg();
   if (!ctx.isAdmin) throw new ForbiddenError("You need to be an admin of this organization to do this.");
   return ctx;
+}
+
+/** The current member, when their role has `permission`; otherwise a "Your role cannot ..." error. */
+export async function requirePermission(permission: Permission) {
+  const ctx = await requireOrg();
+  if (!ctx.can(permission)) throw new ForbiddenError(cannotMessage(permission));
+  return ctx;
+}
+
+/**
+ * The signed-in member's context when this request has a session, else null (API tokens,
+ * the worker). Used by lookups that also enforce project access.
+ */
+export async function sessionOrgContext(): Promise<OrgContext | null> {
+  try {
+    if (!(await getSession())) return null;
+    return await requireOrg();
+  } catch {
+    return null;
+  }
 }
 
 export async function requireInstanceAdmin() {

@@ -11,14 +11,15 @@ export const metadata = { title: "Projects" };
 
 export default async function ProjectsPage() {
   const ctx = await requireOrg();
-  const projects = await projectSummaries(ctx.org.id);
+  const canCreate = ctx.can("projects.manage");
+  const projects = await projectSummaries(ctx.org.id, ctx.projectIds);
   return (
     <>
       <PageHeader
         title="Projects"
         description="Each project holds apps, databases and services that belong together, with separate environments."
         actions={
-          <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })}>
+          <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>
             <Plus /> New project
           </Link>
         }
@@ -37,7 +38,7 @@ export default async function ProjectsPage() {
               title="No projects yet"
               description="Create a project to deploy your first app or database."
               action={
-                <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })}>
+                <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>
                   <Plus /> New project
                 </Link>
               }

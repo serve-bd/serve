@@ -18,6 +18,7 @@ import {
 } from "./templates";
 import { certificateCovers } from "@/server/ssl/match";
 import { composeAlias } from "./names";
+import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker/networks";
 
 async function writeIfChanged(file: string, content: string): Promise<boolean> {
   try {
@@ -101,6 +102,7 @@ export async function ensureProxy(log?: (line: string) => void) {
       },
     });
     await container.start();
+    await connectProxyToAll();
     log?.("Proxy container started");
     info = await getProxyContainer();
   } else if (!info.State.Running) {
@@ -266,6 +268,8 @@ async function applySites(changes: Map<string, string | null>) {
 export function syncServiceProxy(serviceId: string) {
   return serialized(async () => {
     await fs.mkdir(paths.proxySites, { recursive: true });
+    const [svc] = await db.select({ environmentId: schema.service.environmentId }).from(schema.service).where(eq(schema.service.id, serviceId));
+    if (svc) await connectProxy(envNetworkName(svc.environmentId)).catch(() => {});
     const content = await renderServiceSite(serviceId);
     await applySites(new Map([[siteFile(`svc-${serviceId}`), content]]));
   });

@@ -66,7 +66,7 @@ cd /data/serve && docker compose pull && docker compose up -d
 ## How it works
 
 ```
-Browser ──> nginx proxy (serve-proxy) ──> app containers on the "serve" network
+Browser ──> nginx proxy (serve-proxy) ──> app containers on per-environment networks
                  │
 Dashboard (Next.js) ── server actions ──> PostgreSQL (state + job queue)
                                               │
@@ -77,6 +77,7 @@ Dashboard (Next.js) ── server actions ──> PostgreSQL (state + job queue)
 - **Dashboard** — Next.js App Router, Tailwind CSS, Base UI, better-auth. Server actions write to PostgreSQL through Drizzle.
 - **Worker** — a long-running Node process that claims jobs from a PostgreSQL queue (`FOR UPDATE SKIP LOCKED`, woken by `LISTEN/NOTIFY`), runs builds with the Docker CLI, manages containers with the Docker API, writes nginx configs, runs certbot, collects metrics and executes schedules.
 - **Proxy** — an nginx container on the shared network. Each service gets a site file; upstreams use Docker DNS with `resolve`, and every change is validated with `nginx -t` before a graceful reload, rolling back on failure.
+- **Isolation** — every project environment gets its own Docker network. Services reach each other by name inside an environment; other organizations, other environments and Serve's own database are unreachable. Only the proxy joins every environment network.
 - **Data** — everything lives in `/data/serve` (repositories, proxy config, certificates, backups). The same path is mounted into the worker so bind mounts line up with the host.
 
 ## Development

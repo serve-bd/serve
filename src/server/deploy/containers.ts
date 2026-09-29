@@ -22,6 +22,8 @@ export type ContainerSpec = {
   env: Record<string, string>;
   runtime: RuntimeConfig;
   aliases: string[];
+  /** Docker network the container joins (the environment network). */
+  network: string;
   cmd?: string[];
   healthcheck?: string[];
   extraBinds?: string[];
@@ -74,7 +76,7 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
     },
     NetworkingConfig: {
       EndpointsConfig: {
-        [env.network]: { Aliases: spec.aliases },
+        [spec.network]: { Aliases: spec.aliases },
       },
     },
   };
@@ -139,6 +141,7 @@ export async function waitHealthy(
   runtime: RuntimeConfig,
   log: (line: string) => void,
   signal?: AbortSignal,
+  network: string = env.network,
 ) {
   const timeoutMs = (runtime.healthcheckTimeout ?? 120) * 1000;
   const started = Date.now();
@@ -168,7 +171,7 @@ export async function waitHealthy(
       continue;
     }
 
-    const ip = info.NetworkSettings.Networks?.[env.network]?.IPAddress;
+    const ip = info.NetworkSettings.Networks?.[network]?.IPAddress;
     if (runtime.port && ip) {
       const ok = runtime.healthcheckPath
         ? await httpCheck(`http://${ip}:${runtime.port}${runtime.healthcheckPath.startsWith("/") ? "" : "/"}${runtime.healthcheckPath}`)

@@ -18,6 +18,7 @@ import { startContainer, volumeName, waitHealthy } from "./containers";
 import { allocateSubnet, composeServiceNames, composeUp, transformCompose, writeComposeFiles } from "./compose";
 import type { ServiceStatus } from "@/server/db/schema";
 import { composeSecurityIssues, containedPath } from "@/server/security";
+import { ensureEnvNetwork } from "@/server/docker/networks";
 import { getSetting } from "@/server/settings";
 
 type Service = typeof schema.service.$inferSelect;
@@ -171,6 +172,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
 
   const [stillThere] = await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.id, service.id));
   if (!stillThere) throw new DeployCancelled("The service was deleted");
+  const network = await ensureEnvNetwork(service.environmentId);
   log.step(`Starting ${replicas} container${replicas > 1 ? "s" : ""}`);
   const started: string[] = [];
   try {
@@ -187,13 +189,14 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
         env: env.runtime,
         runtime,
         aliases: [service.slug],
+        network,
       });
       started.push(container.id);
       log.line(`Started ${name}`);
     }
 
     log.step("Waiting for healthchecks");
-    await Promise.all(started.map((id) => waitHealthy(id, runtime, log.line, signal)));
+    await Promise.all(started.map((id) => waitHealthy(id, runtime, log.line, signal, network)));
     log.line("All containers are healthy");
   } catch (error) {
     for (const id of started) await removeContainer(id, 0);
@@ -258,6 +261,7 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   log?.redact([creds.password]);
 
   log?.step("Starting database");
+  const network = await ensureEnvNetwork(service.environmentId);
   await removeContainer(service.slug, 30);
   const container = await startContainer({
     name: service.slug,
@@ -278,6 +282,7 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
       healthcheckTimeout: 180,
     },
     aliases: [service.slug],
+    network,
   });
   line(`Volume ${volumeName(service.slug, "data")} mounted at ${engine.dataPath}`);
   log?.step("Waiting for the database to accept connections");
@@ -340,7 +345,8 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     const [fresh] = await db.select({ compose: schema.service.compose }).from(schema.service).where(eq(schema.service.id, service.id));
     await db.update(schema.service).set({ compose: { ...(fresh?.compose ?? cfg), subnet } }).where(eq(schema.service.id, service.id));
   }
-  const transformed = transformCompose(content, service.slug, service.id, subnet);
+  const network = await ensureEnvNetwork(service.environmentId);
+  const transformed = transformCompose(content, service.slug, service.id, subnet, network);
   const run = { projectName: service.slug, dir, file: ".serve-compose.yml", vars: env.runtime, log: log.line, signal, redact: env.secrets };
   await writeComposeFiles({ ...run, content: transformed });
   await setDeployment(dep.id, { status: "deploying" });

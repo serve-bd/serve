@@ -51,7 +51,7 @@ export async function restartService(serviceId: string) {
   await setServiceStatus(service.id, containers.length ? "running" : service.status);
 }
 
-export async function destroyService(opts: { serviceId: string; slug: string; type: string; removeVolumes: boolean }) {
+export async function destroyService(opts: { serviceId: string; slug: string; type: string; removeVolumes: boolean; environmentId?: string }) {
   await removeServiceProxy(opts.serviceId).catch(() => {});
   if (opts.type === "compose") {
     await composeDownByProject(opts.slug, opts.removeVolumes);
@@ -71,4 +71,8 @@ export async function destroyService(opts: { serviceId: string; slug: string; ty
   }
   await fs.rm(paths.service(opts.serviceId), { recursive: true, force: true }).catch(() => {});
   await run("docker", ["image", "prune", "-f", "--filter", `label=${LABEL.service}=${opts.serviceId}`]).catch(() => {});
+  if (opts.environmentId) {
+    const { removeEnvNetworkIfUnused } = await import("@/server/docker/networks");
+    await removeEnvNetworkIfUnused(opts.environmentId);
+  }
 }

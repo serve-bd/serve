@@ -96,7 +96,7 @@ export async function removePreview(parent: Service, prNumber: number) {
   const preview = await previewFor(parent.id, prNumber);
   if (!preview) return false;
   await db.delete(schema.service).where(eq(schema.service.id, preview.id));
-  await enqueue("service.delete", { serviceId: preview.id, slug: preview.slug, type: preview.type, removeVolumes: true }, { concurrencyKey: `service:${preview.id}` });
+  await enqueue("service.delete", { serviceId: preview.id, slug: preview.slug, type: preview.type, removeVolumes: true, environmentId: preview.environmentId }, { concurrencyKey: `service:${preview.id}` });
   await logActivity({ action: "preview.removed", projectId: parent.projectId, message: `Preview for PR #${prNumber} removed` });
   return true;
 }

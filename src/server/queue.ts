@@ -21,7 +21,7 @@ export type JobPayloads = {
   "service.stop": { serviceId: string };
   "service.start": { serviceId: string };
   "service.restart": { serviceId: string };
-  "service.delete": { serviceId: string; slug: string; type: string; removeVolumes: boolean };
+  "service.delete": { serviceId: string; slug: string; type: string; removeVolumes: boolean; environmentId?: string };
   "certificate.issue": { certificateId: string };
   "certificate.renew-all": Record<string, never>;
   "backup.run": { backupId: string };

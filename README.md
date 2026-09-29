@@ -31,6 +31,12 @@ cd /data/serve && docker compose pull && docker compose up -d
 - Docker Compose stacks, inline or from a repository
 - One-click services: n8n, Uptime Kuma, Umami, Plausible, Ghost, WordPress, MinIO, Gitea, Vaultwarden, Metabase, Grafana, pgAdmin, Adminer, code-server
 
+**Servers**
+- Deploy to any number of Linux servers over SSH, next to the machine Serve runs on
+- Add a server in three steps: address, SSH key (generated or imported), connect; Serve installs Docker and its proxy when needed
+- Per-server proxy, certificates, domains, metrics, resources, Docker cleanup and a root terminal
+- Move services between servers; limit servers to certain organizations
+
 **Databases**
 - PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey and ClickHouse
 - Generated credentials, private networking, optional public port
@@ -122,6 +128,16 @@ src/worker/         Worker entry point
 drizzle/            SQL migrations
 docker/             Production compose file and entrypoint
 ```
+
+## Adding a server
+
+Servers → **Add server**:
+
+1. Enter the server's address, SSH port and user (root, or a user with passwordless sudo).
+2. Generate an SSH key in Serve (or import one) and run the shown command on the server to authorize it.
+3. Connect. Serve pins the server's host key, checks Docker (and installs it if you ask), prepares `/data/serve` and starts the nginx proxy.
+
+Serve talks to remote Docker over SSH, so only port 22 needs to be reachable from the Serve machine. Open ports 80 and 443 on the server for its apps. Services on different servers cannot reach each other over the private network; use public domains or published ports between them.
 
 ## Connecting GitHub
 

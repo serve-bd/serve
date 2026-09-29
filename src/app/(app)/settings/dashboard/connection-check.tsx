@@ -5,7 +5,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, CircleDashed, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CopyButton, CopyField, TimeAgo } from "@/components/ui/misc";
+import { CopyButton, CopyField, TimeAgo } from "@/components/ui/misc";
 import { useAction } from "@/hooks/use-action";
 import { checkDashboardConnection, fixDashboardConnection, type ConnectionStep } from "@/server/actions/dashboard-domain";
 import { cn } from "@/lib/utils";
@@ -17,7 +17,7 @@ const icons: Record<ConnectionStep["state"], React.ReactNode> = {
   skip: <CircleDashed className="size-[18px] text-faint" />,
 };
 
-const placeholders: Record<"ip" | "tunnel", { id: string; title: string }[]> = {
+const _placeholders: Record<"ip" | "tunnel", { id: string; title: string }[]> = {
   ip: [
     { id: "dns", title: "DNS" },
     { id: "proxy", title: "Proxy" },
@@ -54,49 +54,61 @@ export function ConnectionCheck({ domain, tunnel }: { domain: string; tunnel: bo
   const allGood = steps !== null && !steps.some((s) => s.state === "fail" || s.state === "warn");
   const url = `https://${domain}`;
 
+  const [showAll, setShowAll] = React.useState(false);
+  // Problems always show their steps; a working domain folds into one line.
+  const expanded = showAll || (steps !== null && !allGood);
+
   return (
-    <Card>
-      <CardHeader
-        title="Connection"
-        description={
-          steps === null ? (
+    <div
+      className={cn("overflow-hidden rounded-xl border", steps === null ? "border-line" : allGood ? "border-ok/25 bg-ok-soft/40" : failing ? "border-bad/25" : "border-warn/25")}
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3.5 py-2.5">
+        <span className="flex-none">{steps === null ? <Loader2 className="size-[18px] animate-spin text-faint" /> : allGood ? icons.ok : failing ? icons.fail : icons.warn}</span>
+        <p className="min-w-0 flex-1 text-[13px] text-fg-2">
+          {steps === null ? (
             `Checking how ${domain} reaches this dashboard…`
           ) : allGood ? (
             <>
-              <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-accent hover:underline">
+              <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-fg hover:text-accent">
                 {domain}
                 <ArrowUpRight className="size-3.5" />
               </a>{" "}
-              is live.
+              works
+              {data && (
+                <span className="text-muted">
+                  {" "}
+                  · checked <TimeAgo date={data.checkedAt} />
+                </span>
+              )}
             </>
           ) : (
             <>
-              {done} of {steps.length} checks pass{failing ? " · checking again every few seconds" : ""}
+              <span className="font-medium text-fg">
+                {done} of {steps.length} checks pass
+              </span>
+              {failing && <span className="text-muted"> · checking again every few seconds</span>}
             </>
-          )
-        }
-        actions={
-          <Button size="sm" onClick={() => void mutate()} loading={isValidating && steps !== null}>
-            {!(isValidating && steps !== null) && <RefreshCw />} Check again
-          </Button>
-        }
-      />
-      <ol className="divide-y divide-line">
-        {steps
-          ? steps.map((s, i) => <StepRow key={s.id} step={s} index={i} onFixed={() => void mutate()} />)
-          : placeholders[tunnel ? "tunnel" : "ip"].map((p) => (
-              <li key={p.id} className="flex items-center gap-3 px-5 py-3.5">
-                <Loader2 className="size-[18px] animate-spin text-faint" />
-                <span className="text-[13px] font-medium text-fg-2">{p.title}</span>
-              </li>
-            ))}
-      </ol>
-      {data && (
-        <p className="border-t border-line px-5 py-2.5 text-xs text-faint">
-          Checked <TimeAgo date={data.checkedAt} />
+          )}
         </p>
+        <div className="flex flex-none items-center gap-1">
+          {allGood && (
+            <Button type="button" size="xs" variant="ghost" onClick={() => setShowAll((o) => !o)} aria-expanded={showAll}>
+              Details <ChevronDown className={cn("transition-transform", showAll && "rotate-180")} />
+            </Button>
+          )}
+          <Button type="button" size="xs" variant="ghost" onClick={() => void mutate()} loading={isValidating && steps !== null} aria-label="Check again">
+            {!(isValidating && steps !== null) && <RefreshCw />}
+          </Button>
+        </div>
+      </div>
+      {expanded && steps && (
+        <ol className="divide-y divide-line border-t border-line bg-surface">
+          {steps.map((s, i) => (
+            <StepRow key={s.id} step={s} index={i} onFixed={() => void mutate()} />
+          ))}
+        </ol>
       )}
-    </Card>
+    </div>
   );
 }
 

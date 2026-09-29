@@ -38,6 +38,9 @@ export function DashboardSettings({
             >
               <Input value={v.dashboardDomain} onChange={(e) => set("dashboardDomain")(e.target.value)} placeholder="serve.example.com" />
             </Field>
+            {dashboard.dashboardDomain && v.dashboardDomain === dashboard.dashboardDomain && (
+              <ConnectionCheck domain={dashboard.dashboardDomain} tunnel={dashboard.dashboardWantsTunnel} />
+            )}
             {(tunnels.length > 0 || v.dashboardWantsTunnel) && (
               <Field label="Route traffic through">
                 <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
@@ -108,8 +111,6 @@ export function DashboardSettings({
           </>
         )}
       </SettingsCard>
-
-      {dashboard.dashboardDomain && <ConnectionCheck domain={dashboard.dashboardDomain} tunnel={dashboard.dashboardWantsTunnel} />}
 
       <SettingsCard title="Let's Encrypt" description="Free certificates for every server, renewed automatically." initial={acme}>
         {(v, set) => (

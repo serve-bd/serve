@@ -14,10 +14,12 @@ vi.mock("resend", () => ({
     }
   },
 }));
+const publicRequest = vi.fn(async (_url: string, _opts: Record<string, unknown>) => ({ status: 202, headers: {}, text: "{}" }));
+vi.mock("@/server/net/public-fetch", () => ({ publicRequest: (url: string, opts: Record<string, unknown>) => publicRequest(url, opts) }));
 vi.mock("@/server/settings", () => ({ getSetting: vi.fn() }));
 vi.mock("@/server/crypto", () => ({ decryptOrNull: (v: string | null) => (v ? v.replace(/^enc:/, "") : null) }));
 
-import { emailSettingsInput, fromHeader } from "@/server/email/config";
+import { emailSettingsInput, fromHeader, mailroomBase } from "@/server/email/config";
 import { renderEmail } from "@/server/email/templates";
 import { sendWith } from "@/server/email/send";
 
@@ -94,6 +96,29 @@ describe("sendWith", () => {
   it("reports Resend errors", async () => {
     resendSend.mockResolvedValueOnce({ data: null, error: { message: "invalid key" } });
     await expect(sendWith({ provider: "resend", fromName: "", fromAddress: "s@e.co", apiKey: "enc:k" }, { to: "x@e.co", subject: "s", text: "t" })).rejects.toThrow(/invalid key/);
+  });
+
+  it("sends through the Mailroom API", async () => {
+    await sendWith(
+      { provider: "mailroom", fromName: "Serve", fromAddress: "s@e.co", apiKey: "enc:mk_live_1", baseUrl: "https://mail.e.co" },
+      { to: "x@e.co", subject: "s", text: "t" },
+    );
+    const [url, opts] = publicRequest.mock.calls[0];
+    expect(url).toBe("https://mail.e.co/api/v1/emails");
+    expect((opts.headers as Record<string, string>).authorization).toBe("Bearer mk_live_1");
+    expect(JSON.parse(opts.body as string)).toMatchObject({ from: '"Serve" <s@e.co>', to: ["x@e.co"], subject: "s" });
+  });
+
+  it("reports Mailroom errors", async () => {
+    publicRequest.mockResolvedValueOnce({ status: 422, headers: {}, text: JSON.stringify({ error: "The from domain is not verified", code: "invalid_request" }) });
+    await expect(
+      sendWith({ provider: "mailroom", fromName: "", fromAddress: "s@e.co", apiKey: "enc:k", baseUrl: "https://mail.e.co" }, { to: "x@e.co", subject: "s", text: "t" }),
+    ).rejects.toThrow(/not verified/);
+  });
+
+  it("normalizes the Mailroom address", () => {
+    expect(mailroomBase("https://mail.e.co/api/v1/")).toBe("https://mail.e.co");
+    expect(mailroomBase("ftp://x")).toBeNull();
   });
 
   it("reports provider errors", async () => {

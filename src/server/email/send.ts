@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { Resend } from "resend";
+import { publicRequest } from "@/server/net/public-fetch";
 import { decryptOrNull } from "@/server/crypto";
 import { getSetting } from "@/server/settings";
 import { type EmailSettings, fromHeader } from "./config";
@@ -34,6 +35,22 @@ export async function sendWith(settings: EmailSettings, mail: OutgoingEmail) {
   }
   const key = decryptOrNull(settings.apiKey ?? null);
   if (!key) throw new EmailNotConfiguredError();
+  if (settings.provider === "mailroom") {
+    if (!settings.baseUrl) throw new EmailNotConfiguredError();
+    const res = await publicRequest(`${settings.baseUrl}/api/v1/emails`, {
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html }),
+      timeoutMs: 20_000,
+    });
+    if (res.status < 200 || res.status >= 300) {
+      let message = res.text.slice(0, 200);
+      try {
+        message = (JSON.parse(res.text) as { error?: string }).error ?? message;
+      } catch {}
+      throw new Error(`Mailroom refused the message (HTTP ${res.status})${message ? `: ${message}` : ""}`);
+    }
+    return;
+  }
   if (settings.provider === "resend") {
     const { error } = await new Resend(key).emails.send({ from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html });
     if (error) throw new Error(`Resend refused the message: ${error.message}`);

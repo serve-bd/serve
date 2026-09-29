@@ -11,7 +11,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { removeEmailSettings, saveEmailSettings, sendTestEmail } from "@/server/actions/email";
 
-type Provider = "smtp" | "resend" | "postmark";
+type Provider = "smtp" | "resend" | "postmark" | "mailroom";
 type Security = "none" | "starttls" | "tls";
 
 type Initial = {
@@ -24,17 +24,21 @@ type Initial = {
   smtpUsername: string;
   hasPassword: boolean;
   hasApiKey: boolean;
+  baseUrl: string;
 } | null;
 
 const providers: { value: Provider; label: string; description: string }[] = [
   { value: "smtp", label: "SMTP", description: "Any mail server: your own, Gmail, Amazon SES, Mailgun, …" },
   { value: "resend", label: "Resend", description: "API key from the Resend dashboard" },
   { value: "postmark", label: "Postmark", description: "Server API token" },
+  { value: "mailroom", label: "Mailroom", description: "Your own Mailroom instance, with an API key" },
 ];
 
 const ports: Record<Security, number> = { none: 25, starttls: 587, tls: 465 };
 
-export function EmailSettingsForm({ initial }: { initial: Initial }) {
+type MailroomService = { id: string; label: string; url: string | null };
+
+export function EmailSettingsForm({ initial, mailrooms }: { initial: Initial; mailrooms: MailroomService[] }) {
   const confirm = useConfirm();
   const blank = {
     provider: "smtp" as Provider,
@@ -44,6 +48,7 @@ export function EmailSettingsForm({ initial }: { initial: Initial }) {
     smtpPort: 587,
     smtpSecurity: "starttls" as Security,
     smtpUsername: "",
+    baseUrl: "",
   };
   const start = initial ?? { ...blank, hasPassword: false, hasApiKey: false };
   const [v, setV] = React.useState({ ...start, smtpPassword: "", apiKey: "" });
@@ -67,6 +72,7 @@ export function EmailSettingsForm({ initial }: { initial: Initial }) {
         smtpUsername: v.smtpUsername,
         smtpPassword: v.smtpPassword || undefined,
         apiKey: v.apiKey || undefined,
+        baseUrl: v.baseUrl,
       }),
     {
       success: "Email settings saved",
@@ -142,16 +148,49 @@ export function EmailSettingsForm({ initial }: { initial: Initial }) {
               </div>
             </>
           ) : (
-            <Field label="API key" description={v.hasApiKey && initial?.provider === v.provider ? "Saved. Leave empty to keep it." : undefined}>
-              <Input
-                type="password"
-                value={v.apiKey}
-                onChange={(e) => set("apiKey")(e.target.value)}
-                autoComplete="new-password"
-                placeholder={v.hasApiKey && initial?.provider === v.provider ? "••••••••" : v.provider === "resend" ? "re_…" : "Server API token"}
-                className="font-mono text-[13px]"
-              />
-            </Field>
+            <>
+              {v.provider === "mailroom" && (
+                <>
+                  {mailrooms.length > 0 && (
+                    <Field label="Mailroom in Serve" description="Fills in the address of a Mailroom you deployed here.">
+                      <Select
+                        value={mailrooms.find((m) => m.url === v.baseUrl)?.id ?? ""}
+                        onValueChange={(id) => {
+                          const m = mailrooms.find((x) => x.id === id);
+                          if (m?.url) set("baseUrl")(m.url);
+                        }}
+                        placeholder="Choose a service"
+                        options={mailrooms.map((m) => ({ value: m.id, label: m.label, description: m.url ?? "Add a domain to this service first", disabled: !m.url }))}
+                      />
+                    </Field>
+                  )}
+                  <Field label="Mailroom address" description="The address you open Mailroom at. Serve sends through its API at /api/v1/emails.">
+                    <Input value={v.baseUrl} onChange={(e) => set("baseUrl")(e.target.value)} placeholder="https://mail.example.com" className="font-mono text-[13px]" required />
+                  </Field>
+                </>
+              )}
+              <Field
+                label="API key"
+                description={
+                  v.hasApiKey && initial?.provider === v.provider
+                    ? "Saved. Leave empty to keep it."
+                    : v.provider === "mailroom"
+                      ? "Create one in Mailroom under Settings → API keys, with the emails:send scope. The From address must be on a domain verified in Mailroom."
+                      : undefined
+                }
+              >
+                <Input
+                  type="password"
+                  value={v.apiKey}
+                  onChange={(e) => set("apiKey")(e.target.value)}
+                  autoComplete="new-password"
+                  placeholder={
+                    v.hasApiKey && initial?.provider === v.provider ? "••••••••" : v.provider === "resend" ? "re_…" : v.provider === "mailroom" ? "mk_live_…" : "Server API token"
+                  }
+                  className="font-mono text-[13px]"
+                />
+              </Field>
+            </>
           )}
         </CardBody>
         <CardFooter className="justify-between gap-3">

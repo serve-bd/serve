@@ -9,7 +9,7 @@ import { db, schema } from "@/server/db";
 import { logActivity } from "@/server/activity";
 import { newId } from "@/server/id";
 import { getSetting, updateSettings } from "@/server/settings";
-import { defaultSmtpPort, type EmailSettings, type EmailSettingsInput, emailSettingsInput } from "@/server/email/config";
+import { defaultSmtpPort, type EmailSettings, type EmailSettingsInput, emailSettingsInput, mailroomBase } from "@/server/email/config";
 import { sendTestEmailTo } from "@/server/email/messages";
 import { publicBaseUrl } from "@/server/git/github-app";
 
@@ -35,6 +35,7 @@ export async function saveEmailSettings(input: EmailSettingsInput) {
       const key = v.apiKey ? encrypt(v.apiKey) : before?.provider === v.provider ? (before.apiKey ?? null) : null;
       if (!key) throw new UserError("Enter the API key.");
       next.apiKey = key;
+      if (v.provider === "mailroom") next.baseUrl = mailroomBase(v.baseUrl ?? "");
     }
     await updateSettings({ email: next });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "email.update", message: "Updated email settings" });

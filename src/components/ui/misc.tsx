@@ -7,7 +7,7 @@ import { useNow } from "@/hooks/use-client";
 import { Tooltip } from "./tooltip";
 
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("rounded-2xl border border-line bg-surface shadow-sm", className)} {...props} />;
+  return <div className={cn("overflow-hidden rounded-2xl border border-line bg-surface shadow-sm", className)} {...props} />;
 }
 
 export function CardHeader({

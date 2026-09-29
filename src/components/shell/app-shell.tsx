@@ -243,12 +243,13 @@ export function AppShell(props: ShellProps) {
             <Logo />
           </div>
           {!props.workerOnline && (
-            <div role="status" className="flex items-start gap-2.5 border-b border-warn/25 bg-warn-soft px-4 py-2.5 text-[13px] text-fg sm:items-center sm:px-8">
-              <AlertTriangle className="mt-0.5 size-4 flex-none text-warn sm:mt-0" />
-              <p className="min-w-0">
-                <span className="font-medium">The worker is not running.</span>{" "}
-                <span className="text-muted">Deployments, backups and other jobs wait until it starts.</span>
-              </p>
+            <div role="status" className="border-b border-warn/20 bg-warn-soft">
+              <div className="mx-auto flex w-full max-w-[1200px] items-start gap-2.5 px-4 py-2.5 text-[13px] sm:items-center sm:px-8">
+                <AlertTriangle className="mt-0.5 size-4 flex-none text-warn sm:mt-0" />
+                <p className="min-w-0 text-fg-2">
+                  <span className="font-medium text-fg">The worker is not running.</span> Deployments, backups and other jobs wait until it starts.
+                </p>
+              </div>
             </div>
           )}
           <main className="flex-1">{props.children}</main>

@@ -121,7 +121,7 @@ export function ServiceSettings(props: Props) {
   const [removeVolumes, setRemoveVolumes] = React.useState(true);
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="flex max-w-3xl flex-col gap-6">
       <Section title="General" initial={{ name: service.name }} onSave={(v) => save.run({ name: v.name })}>
         {(v, set) => (
           <>

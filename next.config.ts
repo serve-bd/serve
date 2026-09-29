@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: ["dockerode", "ssh2", "cpu-features", "postgres"],
   poweredByHeader: false,
+  // Keep the dev tools badge away from the account menu in the sidebar.
+  devIndicators: { position: "bottom-right" },
 };
 
 export default nextConfig;

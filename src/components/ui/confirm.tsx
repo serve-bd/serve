@@ -4,6 +4,7 @@ import * as React from "react";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Button } from "./button";
 import { Input } from "./input";
+import { actionsRunning, onActionsChange } from "@/hooks/use-action";
 
 type ConfirmOptions = {
   title: string;
@@ -27,11 +28,13 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = React.useState<Pending | null>(null);
   const [open, setOpen] = React.useState(false);
   const [typed, setTyped] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
 
   const confirm = React.useCallback(
     (opts: ConfirmOptions) =>
       new Promise<boolean>((resolve) => {
         setTyped("");
+        setBusy(false);
         setPending({ ...opts, resolve });
         setOpen(true);
       }),
@@ -43,12 +46,35 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     setOpen(false);
   };
 
+  /**
+   * Confirmed: let the caller start its action, then stay open with a spinner
+   * until every action in flight (and the page refresh after it) is done.
+   */
+  const confirmAndWait = () => {
+    pending?.resolve(true);
+    setBusy(true);
+    const started = Date.now();
+    let stop = () => {};
+    const done = () => {
+      stop();
+      setOpen(false);
+    };
+    const check = () => {
+      if (actionsRunning() === 0 || Date.now() - started > 60_000) done();
+    };
+    // Give the caller a moment to start its action before deciding nothing is running.
+    setTimeout(() => {
+      if (actionsRunning() === 0) return done();
+      stop = onActionsChange(check);
+    }, 80);
+  };
+
   const blocked = !!pending?.typeToConfirm && typed !== pending.typeToConfirm;
 
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
-      <AlertDialog.Root open={open} onOpenChange={(o) => !o && close(false)} onOpenChangeComplete={(o) => !o && setPending(null)}>
+      <AlertDialog.Root open={open} onOpenChange={(o) => !o && (busy ? setOpen(false) : close(false))} onOpenChangeComplete={(o) => !o && setPending(null)}>
         <AlertDialog.Portal>
           <AlertDialog.Backdrop className="fixed inset-0 z-50 bg-[var(--backdrop)] backdrop-blur-[2px] transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
           <AlertDialog.Viewport className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[18vh]">
@@ -56,7 +82,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (!blocked) close(true);
+                  if (!blocked && !busy) confirmAndWait();
                 }}
               >
                 <div className="flex flex-col gap-2 px-5 pt-5 pb-4">
@@ -75,8 +101,8 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                   )}
                 </div>
                 <div className="flex justify-end gap-2 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3">
-                  <AlertDialog.Close render={<Button variant="ghost" size="sm" />}>Cancel</AlertDialog.Close>
-                  <Button type="submit" size="sm" variant={pending?.danger ? "danger" : "primary"} disabled={blocked} autoFocus={!pending?.typeToConfirm}>
+                  <AlertDialog.Close render={<Button variant="ghost" size="sm" disabled={busy} />}>Cancel</AlertDialog.Close>
+                  <Button type="submit" size="sm" variant={pending?.danger ? "danger" : "primary"} disabled={blocked} loading={busy} autoFocus={!pending?.typeToConfirm}>
                     {pending?.confirmLabel ?? "Confirm"}
                   </Button>
                 </div>

@@ -4,6 +4,16 @@ const sendMail = vi.fn();
 const createTransport = vi.fn((_opts: Record<string, unknown>) => ({ sendMail }));
 vi.mock("server-only", () => ({}));
 vi.mock("nodemailer", () => ({ default: { createTransport: (opts: Record<string, unknown>) => createTransport(opts) } }));
+const resendSend = vi.fn(async (_mail: Record<string, unknown>) => ({ data: { id: "e1" } as { id: string } | null, error: null as { message: string } | null }));
+const resendCtor = vi.fn();
+vi.mock("resend", () => ({
+  Resend: class {
+    emails = { send: resendSend };
+    constructor(key: string) {
+      resendCtor(key);
+    }
+  },
+}));
 vi.mock("@/server/settings", () => ({ getSetting: vi.fn() }));
 vi.mock("@/server/crypto", () => ({ decryptOrNull: (v: string | null) => (v ? v.replace(/^enc:/, "") : null) }));
 
@@ -75,14 +85,15 @@ describe("sendWith", () => {
     expect(createTransport).toHaveBeenCalledWith(expect.objectContaining({ secure: true, auth: undefined }));
   });
 
-  it("calls the Resend API with the key", async () => {
-    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+  it("sends through the Resend SDK with the key", async () => {
     await sendWith({ provider: "resend", fromName: "Serve", fromAddress: "s@e.co", apiKey: "enc:re_123" }, { to: "x@e.co", subject: "s", text: "t" });
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://api.resend.com/emails");
-    expect((init.headers as Record<string, string>).authorization).toBe("Bearer re_123");
-    vi.unstubAllGlobals();
+    expect(resendCtor).toHaveBeenCalledWith("re_123");
+    expect(resendSend).toHaveBeenCalledWith(expect.objectContaining({ from: '"Serve" <s@e.co>', to: ["x@e.co"], subject: "s" }));
+  });
+
+  it("reports Resend errors", async () => {
+    resendSend.mockResolvedValueOnce({ data: null, error: { message: "invalid key" } });
+    await expect(sendWith({ provider: "resend", fromName: "", fromAddress: "s@e.co", apiKey: "enc:k" }, { to: "x@e.co", subject: "s", text: "t" })).rejects.toThrow(/invalid key/);
   });
 
   it("reports provider errors", async () => {

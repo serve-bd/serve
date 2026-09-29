@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { decryptOrNull } from "@/server/crypto";
 import { getSetting } from "@/server/settings";
 import { type EmailSettings, fromHeader } from "./config";
@@ -33,20 +34,17 @@ export async function sendWith(settings: EmailSettings, mail: OutgoingEmail) {
   }
   const key = decryptOrNull(settings.apiKey ?? null);
   if (!key) throw new EmailNotConfiguredError();
-  const res =
-    settings.provider === "resend"
-      ? await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-          body: JSON.stringify({ from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html }),
-          signal: AbortSignal.timeout(20_000),
-        })
-      : await fetch("https://api.postmarkapp.com/email", {
-          method: "POST",
-          headers: { "x-postmark-server-token": key, accept: "application/json", "content-type": "application/json" },
-          body: JSON.stringify({ From: from, To: mail.to, Subject: mail.subject, TextBody: mail.text, HtmlBody: mail.html, MessageStream: "outbound" }),
-          signal: AbortSignal.timeout(20_000),
-        });
+  if (settings.provider === "resend") {
+    const { error } = await new Resend(key).emails.send({ from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html });
+    if (error) throw new Error(`Resend refused the message: ${error.message}`);
+    return;
+  }
+  const res = await fetch("https://api.postmarkapp.com/email", {
+    method: "POST",
+    headers: { "x-postmark-server-token": key, accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify({ From: from, To: mail.to, Subject: mail.subject, TextBody: mail.text, HtmlBody: mail.html, MessageStream: "outbound" }),
+    signal: AbortSignal.timeout(20_000),
+  });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`The email provider refused the message (HTTP ${res.status})${body ? `: ${body.slice(0, 200)}` : ""}`);

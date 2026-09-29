@@ -1,4 +1,5 @@
 import path from "node:path";
+import { maintenanceHtml, maintenanceOf, maintenancePageName } from "@/server/services/maintenance";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
@@ -10,6 +11,8 @@ import { getSettings } from "@/server/settings";
 import { getServer, listServers, type ServerCtx } from "@/server/servers/context";
 import {
   mainConfig,
+  maintenanceGeo,
+  maintenanceVar,
   pages,
   pagesServerConfig,
   PROXY_IMAGE,
@@ -196,7 +199,15 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
         traefikBaseDynamic({ pagesUrl: `http://${pagesContainer(ctx)}:80`, resolver: !!settings.acmeEmail, dashboard: t.dashboard ?? null, defaults: defaultsOf(t.defaults) }),
       )) || changed;
     changed = (await writeOrRemove(ctx, path.posix.join(p.proxySites, TRAEFIK_CUSTOM), null)) || changed;
-    changed = (await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "pages-server", "default.conf"), pagesServerConfig)) || changed;
+    if (await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "pages-server", "default.conf"), pagesServerConfig)) {
+      changed = true;
+      // The pages server reads its config at start: reload a running one.
+      await ctx.docker
+        .getContainer(pagesContainer(ctx))
+        .exec({ Cmd: ["nginx", "-s", "reload"] })
+        .then((e) => e.start({}))
+        .catch(() => {});
+    }
     changed = (await writeUserFiles(ctx, p.proxySites, t.files, customFilePattern.traefik)) || changed;
   }
   return changed;
@@ -711,6 +722,7 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
 
   const containers = service.type === "app" && !stopped ? await appTargets(server, service) : [];
   const errorPages = defaultsOf((await proxyStateOf(service.serverId)).config.nginx?.defaults).unavailablePage;
+  const maintenance = maintenanceOf(service.id, service.maintenance);
   const cfg = service.proxy;
   const options: SiteOptions | null = cfg ? ({ ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null } as SiteOptions) : null;
   // www ↔ apex redirect, only between hostnames that are both on this service.
@@ -752,10 +764,12 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
       tls: d.https ? tlsFor(d.hostname, d.certificateId, certs) : null,
       options,
       ...(errorPages ? {} : { errorPages: false }),
+      ...(maintenance ? { maintenance: { ...maintenance, geoVar: maintenance.allow.length ? maintenanceVar(service.id) : null } } : {}),
     });
   }
 
-  return [`# Managed by Serve — service "${service.name}" (${service.id}).`, ...[...upstreams.values()].map(upstreamBlock), ...servers.map(serverBlocks)].join("\n");
+  const geo = maintenance?.allow.length ? [maintenanceGeo(maintenanceVar(service.id), maintenance.allow)] : [];
+  return [`# Managed by Serve — service "${service.name}" (${service.id}).`, ...geo, ...[...upstreams.values()].map(upstreamBlock), ...servers.map(serverBlocks)].join("\n");
 }
 
 export { composeAlias };
@@ -837,6 +851,14 @@ async function applySites(ctx: ServerCtx, changes: Map<string, string | null>) {
   return true;
 }
 
+const maintenanceFile = (ctx: ServerCtx, serviceId: string) => path.posix.join(ctx.paths.proxy, "pages", maintenancePageName(serviceId));
+
+/** HTML of a service's maintenance page, or null when maintenance is off. */
+async function maintenancePageContent(serviceId: string) {
+  const [row] = await db.select({ maintenance: schema.service.maintenance }).from(schema.service).where(eq(schema.service.id, serviceId));
+  return row?.maintenance?.enabled ? maintenanceHtml(row.maintenance) : null;
+}
+
 /** Render the site of one service on the server it runs on. */
 export async function syncServiceProxy(serviceId: string) {
   const [svc] = await db.select({ environmentId: schema.service.environmentId, serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, serviceId));
@@ -848,6 +870,8 @@ export async function syncServiceProxy(serviceId: string) {
     if (svc) await connectProxy(envNetworkName(svc.environmentId), ctx).catch(() => {});
     const content = await renderSite(kind, serviceId, ctx);
     const changes = new Map<string, string | null>([[siteFile(ctx, `svc-${serviceId}`, kind), content]]);
+    // The page goes in the same change set, so it exists before the proxy points at it.
+    changes.set(maintenanceFile(ctx, serviceId), content ? await maintenancePageContent(serviceId) : null);
     if (kind === "nginx") {
       const [row] = await db.select({ proxy: schema.service.proxy }).from(schema.service).where(eq(schema.service.id, serviceId));
       const auth = content && row?.proxy?.basicAuth ? `${row.proxy.basicAuth.username}:${row.proxy.basicAuth.passwordHash}\n` : null;
@@ -880,6 +904,7 @@ export async function removeServiceProxy(serviceId: string, serverId?: string) {
           [siteFile(ctx, `svc-${serviceId}`, "caddy"), null],
           [siteFile(ctx, `svc-${serviceId}`, "traefik"), null],
           [authFile(ctx, serviceId), null],
+          [maintenanceFile(ctx, serviceId), null],
         ]),
       ),
     ).catch((error) => {
@@ -900,7 +925,11 @@ async function siteChanges(ctx: ServerCtx, kind: RunningKind) {
     .select({ id: schema.service.id })
     .from(schema.service)
     .where(and(inArray(schema.service.type, ["app", "compose"]), eq(schema.service.serverId, ctx.id)));
-  for (const s of services) changes.set(siteFile(ctx, `svc-${s.id}`, kind), await renderSite(kind, s.id, ctx));
+  for (const s of services) {
+    changes.set(siteFile(ctx, `svc-${s.id}`, kind), await renderSite(kind, s.id, ctx));
+    const page = await maintenancePageContent(s.id);
+    if (page) changes.set(maintenanceFile(ctx, s.id), page);
+  }
   if (ctx.local) changes.set(siteFile(ctx, "_dashboard", kind), await renderDashboard(kind, ctx));
   if (kind === "nginx") {
     for (const s of services) {

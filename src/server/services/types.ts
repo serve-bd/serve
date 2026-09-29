@@ -215,6 +215,29 @@ export type ComposeConfig = {
 
 export type ComposePort = PortMapping & { service: string };
 
+/** Maintenance mode: the proxy answers every domain of the service with a 503 page. */
+export type MaintenanceConfig = {
+  enabled: boolean;
+  title: string;
+  message: string;
+  /** IPs or CIDR ranges that still reach the app. */
+  allow: string[];
+  /** Retry-After header, in minutes. */
+  retryAfterMinutes: number;
+  /** When maintenance was last turned on (ISO). */
+  since?: string | null;
+};
+
+/** Pull request previews get their own copy of a database of the environment. */
+export type PreviewDatabaseConfig = {
+  /** Database service copied for each preview. */
+  sourceServiceId: string;
+  /** Variable of the preview that receives the copy's connection URL. */
+  variable: string;
+  /** SQL run on the copy after the restore, e.g. to replace personal data. */
+  scrubSql?: string | null;
+};
+
 export const defaultRuntime = (port: number | null = null): RuntimeConfig => ({
   port,
   replicas: 1,

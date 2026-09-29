@@ -26,6 +26,9 @@ import { SectionPicker } from "@/components/shell/section-picker";
 import { addPendingApply, clearPendingApply, usePendingApply } from "./pending-apply";
 import { StorageSection } from "./storage-section";
 import { MonitoringSection } from "./monitoring-section";
+import { MaintenanceSection } from "./maintenance-section";
+import { PreviewDatabaseSection } from "./preview-database-section";
+import type { MaintenanceConfig, PreviewDatabaseConfig } from "@/server/services/types";
 import type { MonitorSummary } from "@/server/monitoring/queries";
 import { updateDatabaseSettings } from "@/server/actions/databases";
 
@@ -72,6 +75,10 @@ type Props = {
   nav: SettingsNavItem[];
   /** Uptime check (only loaded for the Monitoring page). */
   monitoring?: { monitor: MonitorSummary["monitor"]; defaultUrl: string | null };
+  /** Maintenance page (only loaded for the Maintenance page). */
+  maintenance?: { config: MaintenanceConfig | null; domains: string[] };
+  /** Database copies for previews (only loaded for the Source page of Git apps). */
+  previewDatabase?: { config: PreviewDatabaseConfig | null; databases: { id: string; name: string; engine: string; label: string }[] };
 };
 
 function ServerCard({ service, server, servers }: { service: Props["service"]; server: Props["server"]; servers: Props["servers"] }) {
@@ -312,6 +319,15 @@ export function ServiceSettings(props: Props) {
           </Section>
         )}
 
+        {show("source") && service.source?.type === "git" && !service.isPreview && props.previewDatabase && (
+          <PreviewDatabaseSection
+            serviceId={service.id}
+            config={props.previewDatabase.config}
+            databases={props.previewDatabase.databases}
+            previewsEnabled={service.previewsEnabled}
+          />
+        )}
+
         {show("source") && service.source?.type === "image" && (
           <Section
             id="source"
@@ -491,6 +507,7 @@ export function ServiceSettings(props: Props) {
           </Card>
         )}
 
+        {show("maintenance") && props.maintenance && <MaintenanceSection serviceId={service.id} config={props.maintenance.config} domains={props.maintenance.domains} />}
         {show("monitoring") && props.monitoring && (
           <MonitoringSection serviceId={service.id} type={service.type} monitor={props.monitoring.monitor} defaultUrl={props.monitoring.defaultUrl} />
         )}

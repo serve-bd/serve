@@ -5,6 +5,8 @@ import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
 import { generatedHostname, newWebhookSecret, queueDeployment } from "./create";
+import { createPreviewDatabase } from "./environments";
+import { teardownServices } from "./teardown";
 
 type Service = typeof schema.service.$inferSelect;
 
@@ -39,6 +41,7 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
   // Previews never own the parent's repository webhook.
   const source = { ...parent.source, branch: pr.branch, repository: pr.repository || parent.source.repository, webhook: null };
 
+  let databaseId: string | null = null;
   if (!preview) {
     const id = newId();
     const slug = `${parent.slug}-pr${pr.number}`.slice(0, 60);
@@ -75,6 +78,8 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
     }
     if (rows.length) await db.insert(schema.envVar).values(rows);
 
+    if (parent.previewDatabase) databaseId = await createPreviewDatabase(preview, parent, pr.number);
+
     const host = await generatedHostname(slug, parent.serverId);
     if (host) {
       const [domain] = await db
@@ -95,19 +100,21 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
     await db.update(schema.service).set({ source }).where(eq(schema.service.id, preview.id));
   }
 
-  const deploymentId = await queueDeployment(preview.id, "webhook", { commitSha: pr.sha, commitMessage: pr.title, branch: pr.branch });
+  const deployment = { commitSha: pr.sha, commitMessage: pr.title, branch: pr.branch };
+  // A new preview with its own database: fill the copy first; that job deploys the preview.
+  if (databaseId) {
+    await enqueue("preview.database", { previewId: preview.id, databaseId, parentId: parent.id, deployment }, { concurrencyKey: `service:${databaseId}:copy` });
+    return { preview, deploymentId: null };
+  }
+  const deploymentId = await queueDeployment(preview.id, "webhook", deployment);
   return { preview, deploymentId };
 }
 
 export async function removePreview(parent: Service, prNumber: number) {
   const preview = await previewFor(parent.id, prNumber);
   if (!preview) return false;
-  await db.delete(schema.service).where(eq(schema.service.id, preview.id));
-  await enqueue(
-    "service.delete",
-    { serviceId: preview.id, slug: preview.slug, type: preview.type, removeVolumes: true, environmentId: preview.environmentId, serverId: preview.serverId },
-    { concurrencyKey: `service:${preview.id}` },
-  );
+  // Also removes the preview's database copy.
+  await teardownServices([preview], true);
   await logActivity({ action: "preview.removed", projectId: parent.projectId, message: `Preview for PR #${prNumber} removed` });
   return true;
 }

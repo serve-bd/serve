@@ -2,12 +2,18 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db, schema, sql } from "@/server/db";
 import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
 
-/** Cancel work, delete rows and queue container cleanup for services and their previews. */
+/** Cancel work, delete rows and queue container cleanup for services, their previews and preview databases. */
 export async function teardownServices(services: (typeof schema.service.$inferSelect)[], removeVolumes: boolean) {
   const ids = services.map((s) => s.id);
   if (!ids.length) return;
-  const previews = await db.select().from(schema.service).where(inArray(schema.service.parentServiceId, ids));
-  const all = [...services, ...previews.filter((p) => !ids.includes(p.id))];
+  // Previews, and what belongs to them (their database copies), all the way down.
+  const all = [...services];
+  let parents = ids;
+  while (parents.length) {
+    const children = (await db.select().from(schema.service).where(inArray(schema.service.parentServiceId, parents))).filter((c) => !all.some((s) => s.id === c.id));
+    all.push(...children);
+    parents = children.map((c) => c.id);
+  }
   for (const s of all) {
     const active = await db
       .select({ id: schema.deployment.id, status: schema.deployment.status })

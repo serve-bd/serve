@@ -1,6 +1,6 @@
 import { type AnyPgColumn, bigint, boolean, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
-import type { BuildConfig, ComposeConfig, DatabaseConfig, RuntimeConfig, SourceConfig } from "@/server/services/types";
+import type { BuildConfig, ComposeConfig, DatabaseConfig, MaintenanceConfig, PreviewDatabaseConfig, RuntimeConfig, SourceConfig } from "@/server/services/types";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import type { ProxyKind, RunningKind, ProxySwitchState, ServerProxyConfig } from "@/server/proxy/config";
 
@@ -309,6 +309,10 @@ export const service = pgTable(
     /** Set on preview services: the service they were created from. */
     parentServiceId: text("parent_service_id").references((): AnyPgColumn => service.id, { onDelete: "cascade" }),
     previewPr: integer("preview_pr"),
+    /** Previews of this service get their own copy of a database. */
+    previewDatabase: jsonb("preview_database").$type<PreviewDatabaseConfig>(),
+    /** Maintenance page on every domain of the service. */
+    maintenance: jsonb("maintenance").$type<MaintenanceConfig>(),
     webhookSecret: text("webhook_secret").notNull(),
     currentDeploymentId: text("current_deployment_id"),
     createdAt: createdAt(),

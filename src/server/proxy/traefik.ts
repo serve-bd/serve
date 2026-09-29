@@ -175,6 +175,12 @@ export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; tr
     };
   }
 
+  const m = site.maintenance;
+  if (m) {
+    middlewares[`${p}-maintenance`] = { replacePath: { path: `/__maintenance/${site.serviceId}` } };
+    middlewares[`${p}-maintenance-headers`] = { headers: { customResponseHeaders: { "Retry-After": String(m.retryAfter), "Cache-Control": "no-store" } } };
+  }
+
   site.hosts.forEach((h, i) => {
     const base = `${p}-${i}`;
     const rule = hostRule(h, o?.deny);
@@ -196,14 +202,29 @@ export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; tr
         // Stopped or not running: Serve's 503 page.
         service = "serve-pages";
         mws = ["serve-unavailable"];
+      } else if (m) {
+        service = "serve-pages";
+        mws = [];
       } else {
         // The 503 page is off: custom files decide what these hosts answer.
         return;
       }
     }
-    const add = (name: string, entryPoints: string[], extra: Obj, middlewareList: string[], r = rule) => {
-      routers[name] = { rule: r, entryPoints, service, ...(middlewareList.length ? { middlewares: middlewareList } : {}), ...extra };
+    // Maintenance: the page for everyone, and (longer rule, higher priority) the app for the allow list.
+    let allowed: { service: string; mws: string[] } | null = null;
+    if (m && !h.redirectTo) {
+      if (m.allow.length && service !== "serve-pages") allowed = { service, mws };
+      service = "serve-pages";
+      mws = [`${p}-maintenance-headers`, `${p}-maintenance`];
+    }
+    const add = (name: string, entryPoints: string[], extra: Obj, middlewareList: string[], r = rule, svc = service) => {
+      routers[name] = { rule: r, entryPoints, service: svc, ...(middlewareList.length ? { middlewares: middlewareList } : {}), ...extra };
     };
+    if (allowed) {
+      const allowRule = `${rule} && (${m!.allow.map((a) => `ClientIP(\`${a}\`)`).join(" || ")})`;
+      if (!(h.https && h.forceHttps)) add(`${base}-web-allowed`, ["web"], {}, allowed.mws, allowRule, allowed.service);
+      if (h.https) add(`${base}-secure-allowed`, ["websecure"], { tls }, allowed.mws, allowRule, allowed.service);
+    }
     if (h.https && h.forceHttps) {
       // With Serve's redirects off, custom files handle HTTP for HTTPS-only hosts.
       if (defaults.httpsRedirect) routers[`${base}-web`] = { rule, entryPoints: ["web"], service: "noop@internal", middlewares: ["serve-redirect-https"] };

@@ -7,6 +7,7 @@ import { getSettings } from "@/server/settings";
 import type { ServerCtx } from "@/server/servers/context";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import { certificateCovers } from "@/server/ssl/match";
+import { maintenanceOf, type ProxyMaintenance } from "@/server/services/maintenance";
 import { composeAlias } from "./names";
 
 /**
@@ -39,6 +40,8 @@ export type SiteModel = {
   upstreams: { key: string; targets: string[] }[];
   hosts: HostModel[];
   options: ServiceProxyConfig | null;
+  /** Maintenance page on every host (except redirects). */
+  maintenance?: ProxyMaintenance | null;
 };
 
 type CertRow = typeof schema.certificate.$inferSelect;
@@ -122,6 +125,7 @@ export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<S
     upstreams: [...upstreams].map(([key, targets]) => ({ key, targets })),
     hosts,
     options: cfg,
+    maintenance: maintenanceOf(service.id, service.maintenance),
   };
 }
 

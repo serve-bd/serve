@@ -1,5 +1,6 @@
 import { proxyPaths } from "@/server/paths";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
+import type { ProxyMaintenance } from "@/server/services/maintenance";
 
 export const PROXY_IMAGE = process.env.SERVE_PROXY_IMAGE ?? "nginx:stable-alpine";
 
@@ -26,6 +27,13 @@ server {
     location = /__unavailable {
         return 503;
     }
+    # Maintenance pages of services, by service id (Traefik rewrites the path to this).
+    location ~ "^/__maintenance/([A-Za-z0-9_-]+)$" {
+        set $serve_mt_page /maintenance-$1.html;
+        error_page 503 $serve_mt_page;
+        return 503;
+    }
+    location ~ "^/maintenance-[A-Za-z0-9_-]+\\.html$" { internal; }
     location = /not-found.html { internal; }
     location = /unavailable.html { internal; }
     location / {
@@ -245,7 +253,18 @@ export type SiteServer = {
   options?: SiteOptions | null;
   /** Serve's 503 page for stopped or unreachable apps (default on). */
   errorPages?: boolean;
+  /** Maintenance page instead of the app. `geoVar` is set when an allow list lets some visitors through. */
+  maintenance?: (ProxyMaintenance & { geoVar?: string | null }) | null;
 };
+
+/** nginx variable name for a service's maintenance allow list. */
+export const maintenanceVar = (serviceId: string) => `serve_mt_${serviceId.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+
+/** http-level `geo` block: 1 for addresses that skip the maintenance page. */
+export function maintenanceGeo(variable: string, allow: string[]) {
+  const lines = allow.filter(safeCidr).map((a) => `    ${a} 1;`);
+  return `geo $${variable} {\n    default 0;\n${lines.join("\n")}\n}\n`;
+}
 
 /** Service HTTP options as the templates need them (auth as a file path, not a hash). */
 export type SiteOptions = Omit<ServiceProxyConfig, "basicAuth"> & {
@@ -378,6 +397,7 @@ function body(s: SiteServer) {
         return 308 ${s.redirectTo.replace(/\/$/, "")}$request_uri;
     }`;
   }
+  if (s.maintenance) return maintenanceBody(s, s.maintenance);
   const target = s.upstream ?? s.directTarget;
   if (!target) {
     if (s.errorPages === false) return `    location / {\n        return 503;\n    }`;
@@ -393,6 +413,25 @@ function body(s: SiteServer) {
     }`;
   }
   return proxyLocation(target, s.options, !!s.tls, s.errorPages !== false);
+}
+
+/** 503 with the service's maintenance page; visitors on the allow list still reach the app. */
+function maintenanceBody(s: SiteServer, m: NonNullable<SiteServer["maintenance"]>) {
+  const page = `    error_page 503 /__serve_maintenance.html;
+    location = /__serve_maintenance.html {
+        internal;
+        root ${proxyPaths.pages};
+        add_header Retry-After ${m.retryAfter} always;
+        add_header Cache-Control "no-store" always;
+        try_files /${m.page} =503;
+    }`;
+  const target = s.upstream ?? s.directTarget;
+  if (!m.geoVar || !target) return `    location / {\n        return 503;\n    }\n\n${page}`;
+  const app = proxyLocation(target, s.options, !!s.tls, false).replace(
+    "    location / {\n",
+    `    location / {\n        if ($${m.geoVar} = 0) {\n            return 503;\n        }\n`,
+  );
+  return `${app}\n\n${page}`;
 }
 
 function acmeLocation(restricted: boolean) {

@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { ArrowUpRight, Check, ChevronDown, Layers3, Plus, Settings } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, Copy, Layers3, Plus, Settings } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, EmptyState, TimeAgo } from "@/components/ui/misc";
@@ -18,6 +18,7 @@ import { projectColor } from "@/components/shell/project-color";
 import { useAction } from "@/hooks/use-action";
 import { createEnvironment } from "@/server/actions/projects";
 import type { ServiceCardData } from "@/server/project-data";
+import { CloneEnvironmentDialog } from "./clone-environment";
 
 type Props = {
   project: { id: string; name: string; description: string | null; color: string };
@@ -29,6 +30,7 @@ type Props = {
 function EnvironmentSwitcher({ project, environments, environment }: Omit<Props, "initialServices">) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
+  const [cloning, setCloning] = React.useState(false);
   const { run, pending } = useAction((name: string) => createEnvironment(project.id, name), {
     success: "Environment created",
     onSuccess: () => setOpen(false),
@@ -53,8 +55,12 @@ function EnvironmentSwitcher({ project, environments, environment }: Omit<Props,
           <MenuItem onClick={() => setOpen(true)}>
             <Plus /> New environment
           </MenuItem>
+          <MenuItem onClick={() => setCloning(true)}>
+            <Copy /> Clone {environment.name}…
+          </MenuItem>
         </MenuContent>
       </Menu>
+      <CloneEnvironmentDialog projectId={project.id} environment={environment} open={cloning} onOpenChange={setCloning} />
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="sm">
           <form

@@ -19,7 +19,9 @@ export type JobType =
   | "server.setup"
   | "proxy.switch"
   | "instance.backup"
-  | "instance.update";
+  | "instance.update"
+  | "environment.copy-data"
+  | "preview.database";
 
 export type JobPayloads = {
   deploy: { deploymentId: string };
@@ -39,6 +41,13 @@ export type JobPayloads = {
   "task.run": { runId: string };
   "instance.backup": { backupId: string };
   "instance.update": { to: string };
+  "environment.copy-data": { environmentId: string; pairs: { from: string; to: string }[]; userId?: string | null };
+  "preview.database": {
+    previewId: string;
+    databaseId: string;
+    parentId: string;
+    deployment: { commitSha?: string | null; commitMessage?: string | null; branch?: string | null };
+  };
 };
 
 export type Job<T extends JobType = JobType> = Omit<typeof schema.job.$inferSelect, "payload" | "type"> & {

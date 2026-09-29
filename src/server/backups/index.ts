@@ -46,6 +46,77 @@ async function logLine(backupId: string, line: string) {
     .where(eq(schema.backup.id, backupId));
 }
 
+type ServiceRow = typeof schema.service.$inferSelect;
+
+/** Dump a database service into a file on this machine. The dump runs next to the database and streams back. Returns the size. */
+export async function dumpDatabase(service: ServiceRow, file: string) {
+  const cfg = service.database;
+  if (!cfg) throw new Error(`${service.name} is not a database`);
+  const engine = engines[cfg.engine];
+  const creds = databaseCreds(cfg, decrypt(cfg.password));
+  const { docker } = await serverOf(service);
+  const exec = await docker.getContainer(service.slug).exec({
+    Cmd: ["sh", "-c", engine.backupCommand(creds)],
+    AttachStdout: true,
+    AttachStderr: true,
+  });
+  const stream = await exec.start({ hijack: true, stdin: false });
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  let errText = "";
+  stderr.on("data", (c: Buffer) => (errText += c.toString()));
+  docker.modem.demuxStream(stream, stdout, stderr);
+  stream.on("end", () => {
+    stdout.end();
+    stderr.end();
+  });
+  await pipeline(stdout, fs.createWriteStream(file));
+  const info = await exec.inspect();
+  if (info.ExitCode !== 0) throw new Error(errText.replaceAll(creds.password, "***").trim() || `Backup command exited with ${info.ExitCode}`);
+  const { size } = await fs.promises.stat(file);
+  if (size === 0) throw new Error(errText.trim() || "Backup produced an empty file");
+  return size;
+}
+
+/** Run a shell command in a database container with `input` on stdin. Returns its output with the password masked. */
+export async function runWithInput(service: ServiceRow, command: string, input: NodeJS.ReadableStream, gz: boolean, password: string) {
+  const { docker } = await serverOf(service);
+  const exec = await docker.getContainer(service.slug).exec({
+    Cmd: ["sh", "-c", command],
+    AttachStdin: true,
+    AttachStdout: true,
+    AttachStderr: true,
+  });
+  const stream = await exec.start({ hijack: true, stdin: true });
+  let output = "";
+  const sink = new PassThrough();
+  sink.on("data", (c: Buffer) => (output += c.toString()));
+  docker.modem.demuxStream(stream, sink, sink);
+  const done = new Promise<void>((resolve) => stream.on("end", resolve));
+  await pipeline(gz ? input.pipe(zlib.createGunzip()) : input, stream, { end: false }).catch(() => {});
+  (stream as unknown as { end: () => void }).end();
+  await done;
+  const info = await exec.inspect();
+  const clean = output.replaceAll(password, "***").trim();
+  if (info.ExitCode && info.ExitCode !== 0) throw new Error(clean.slice(-1500) || `Command exited with ${info.ExitCode}`);
+  return clean;
+}
+
+/** Restore a dump file (made by dumpDatabase for the same engine) into a database service. */
+export async function restoreDumpFile(service: ServiceRow, file: string) {
+  const cfg = service.database;
+  if (!cfg) throw new Error(`${service.name} is not a database`);
+  const creds = databaseCreds(cfg, decrypt(cfg.password));
+  const gz = /\.gz$/i.test(file) && cfg.engine !== "mongodb";
+  const { command } = await restoreCommandFor(cfg, creds, file, gz);
+  const out = await runWithInput(service, command, fs.createReadStream(file), gz, creds.password);
+  if (cfg.engine === "redis" || cfg.engine === "valkey") {
+    const { docker } = await serverOf(service);
+    await docker.getContainer(service.slug).restart();
+  }
+  return out;
+}
+
 export async function runBackup(backupId: string) {
   const backup = await db.query.backup.findFirst({
     where: eq(schema.backup.id, backupId),
@@ -55,35 +126,13 @@ export async function runBackup(backupId: string) {
   const service = backup.service;
   const cfg = service.database!;
   const engine = engines[cfg.engine];
-  const creds = databaseCreds(cfg, decrypt(cfg.password));
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const filename = `${service.slug}-${stamp}.${engine.backupExtension}`;
   const file = backupFile(service.id, filename);
   await fs.promises.mkdir(path.dirname(file), { recursive: true });
 
   try {
-    // The dump runs next to the database on its server and streams back here.
-    const { docker } = await serverOf(service);
-    const exec = await docker.getContainer(service.slug).exec({
-      Cmd: ["sh", "-c", engine.backupCommand(creds)],
-      AttachStdout: true,
-      AttachStderr: true,
-    });
-    const stream = await exec.start({ hijack: true, stdin: false });
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    let errText = "";
-    stderr.on("data", (c: Buffer) => (errText += c.toString()));
-    docker.modem.demuxStream(stream, stdout, stderr);
-    stream.on("end", () => {
-      stdout.end();
-      stderr.end();
-    });
-    await pipeline(stdout, fs.createWriteStream(file));
-    const info = await exec.inspect();
-    if (info.ExitCode !== 0) throw new Error(errText.trim() || `Backup command exited with ${info.ExitCode}`);
-    const { size } = await fs.promises.stat(file);
-    if (size === 0) throw new Error(errText.trim() || "Backup produced an empty file");
+    const size = await dumpDatabase(service, file);
 
     await logLine(backup.id, `Dumped ${filename} (${size} bytes)`);
 
@@ -233,28 +282,10 @@ export async function restoreBackup(backupId: string) {
     const gz = /\.gz$/i.test(backup.filename) && cfg.engine !== "mongodb";
     const { command, format } = await restoreCommandFor(cfg, creds, file, gz);
     await logLine(backupId, `Format: ${format}${gz ? " (gzip)" : ""}`);
-    const { docker } = await serverOf(service);
-    const exec = await docker.getContainer(service.slug).exec({
-      Cmd: ["sh", "-c", command],
-      AttachStdin: true,
-      AttachStdout: true,
-      AttachStderr: true,
-    });
-    const stream = await exec.start({ hijack: true, stdin: true });
-    let output = "";
-    const sink = new PassThrough();
-    sink.on("data", (c: Buffer) => (output += c.toString()));
-    docker.modem.demuxStream(stream, sink, sink);
-    const done = new Promise<void>((resolve) => stream.on("end", resolve));
-    const source = fs.createReadStream(file);
-    await pipeline(gz ? source.pipe(zlib.createGunzip()) : source, stream, { end: false }).catch(() => {});
-    (stream as unknown as { end: () => void }).end();
-    await done;
-    const info = await exec.inspect();
-    const clean = output.replaceAll(creds.password, "***").trim();
-    if (info.ExitCode && info.ExitCode !== 0) throw new Error(clean.slice(-1500) || `Restore exited with ${info.ExitCode}`);
+    const clean = await runWithInput(service, command, fs.createReadStream(file), gz, creds.password);
     if (cfg.engine === "redis" || cfg.engine === "valkey") {
       await logLine(backupId, "Restarting to load the dump");
+      const { docker } = await serverOf(service);
       await docker.getContainer(service.slug).restart();
     }
     if (clean) await logLine(backupId, clean.slice(-2000));

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { ArrowUpRight, ChevronDown, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Construction, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import { ServiceIcon } from "@/components/service-icon";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { deployService, serviceControl } from "@/server/actions/services";
+import { setMaintenance } from "@/server/actions/maintenance";
+import { TimeAgo } from "@/components/ui/misc";
 import type { ServiceLive } from "@/server/service-data";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +34,8 @@ type Props = {
   initialLive: ServiceLive;
   server: { id: string; name: string } | null;
   ports: { label: string; url: string | null; protocol: "tcp" | "udp" }[];
+  /** Maintenance mode, for services with domains. */
+  maintenance: { enabled: boolean; since: string | null } | null;
 };
 
 export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
@@ -42,7 +46,7 @@ export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
   });
 }
 
-export function ServiceHeader({ project, environment, service, initialLive, server, ports }: Props) {
+export function ServiceHeader({ project, environment, service, initialLive, server, ports, maintenance }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const confirm = useConfirm();
@@ -60,6 +64,19 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   const control = useAction((cmd: "stop" | "start" | "restart") => serviceControl(service.id, cmd), {
     onSuccess: () => void mutate(),
   });
+  const toggleMaintenance = useAction((enabled: boolean) => setMaintenance(service.id, { enabled }), {
+    success: (d) => (d.enabled ? "Maintenance mode is on" : "Maintenance mode is off"),
+  });
+  const turnOnMaintenance = async () => {
+    if (
+      await confirm({
+        title: `Put ${service.name} in maintenance?`,
+        description: "Every domain of this service answers with the maintenance page (HTTP 503) until you turn it off. The app keeps running.",
+        confirmLabel: "Turn on maintenance",
+      })
+    )
+      toggleMaintenance.run(true);
+  };
 
   const tabs = [
     { href: base, label: "Overview", exact: true },
@@ -152,6 +169,14 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                     <RotateCw /> Restart
                   </MenuItem>
                 )}
+                {maintenance && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem onClick={() => (maintenance.enabled ? toggleMaintenance.run(false) : turnOnMaintenance())} disabled={toggleMaintenance.pending}>
+                      <Construction /> {maintenance.enabled ? "Turn off maintenance mode" : "Maintenance mode…"}
+                    </MenuItem>
+                  </>
+                )}
                 {!stopped && (
                   <>
                     <MenuSeparator />
@@ -181,6 +206,29 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
             </Button>
           </div>
         </div>
+        {maintenance?.enabled && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-warn/30 bg-warn-soft px-4 py-3 text-[13px]">
+            <Construction className="size-4 flex-none text-warn" />
+            <p className="min-w-0 flex-[1_1_16rem] text-fg-2">
+              <span className="font-medium text-fg">Maintenance mode is on.</span> Visitors see the maintenance page on every domain
+              {maintenance.since ? (
+                <>
+                  {" "}
+                  since <TimeAgo date={maintenance.since} />
+                </>
+              ) : null}
+              .
+            </p>
+            <div className="flex flex-none items-center gap-2">
+              <Link href={`${base}/settings/maintenance`} className="text-[13px] font-medium text-fg-2 hover:text-fg">
+                Edit page
+              </Link>
+              <Button size="sm" onClick={() => toggleMaintenance.run(false)} loading={toggleMaintenance.pending}>
+                Turn off
+              </Button>
+            </div>
+          </div>
+        )}
         <nav className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto border-b border-line px-1 sm:mx-0 sm:px-0 [&>a:first-child]:sm:pl-0 [&>a:first-child>span]:sm:left-0">
           {tabs.map((t) => {
             const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);

@@ -78,7 +78,7 @@ export function certificateServer(cert: Pick<Cert, "serverId">) {
 async function httpPreflight(ctx: ServerCtx, cert: Cert, log: (l: string) => void) {
   if (ctx.proxyHttpPort !== 80) {
     throw new Error(
-      `The proxy on ${ctx.name} listens on port ${ctx.proxyHttpPort}, but Let's Encrypt only checks port 80. Connect Cloudflare in Integrations to use the DNS check, or use plain HTTP on this machine.`,
+      `The proxy on ${ctx.name} listens on port ${ctx.proxyHttpPort}, but Let's Encrypt only checks port 80. Connect Cloudflare in Integrations to use the DNS check, or turn off HTTPS for the domain and open http://${cert.domains[0]}:${ctx.proxyHttpPort}.`,
     );
   }
   const { serverAddressing } = await import("@/server/proxy/addressing");

@@ -9,7 +9,7 @@ export function explainCertError(error: string, ctx: { serverIp?: string | null;
   if (port)
     return {
       title: `Let's Encrypt cannot reach port ${port[1]}`,
-      hint: "The HTTP check only uses port 80, so it cannot work on this machine. Connect Cloudflare in Integrations to use the DNS check, or open the app over plain HTTP or a localhost port.",
+      hint: `The HTTP check only uses port 80, so it cannot work on this machine. Connect Cloudflare in Integrations to use the DNS check. For local testing, turn off HTTPS on the domain and open http://${domains[0] ?? "your-domain"}:${port[1]}, or add a localhost port in Domains & ports.`,
     };
   const wrong = error.match(/points to ([\d., ]+), not to .+?\(([\d.]+)\)/);
   if (wrong) return { title: `${which} points somewhere else`, hint: `Its A record is ${wrong[1].trim()}. Change it to ${wrong[2]} and retry.` };

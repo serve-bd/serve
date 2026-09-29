@@ -1,9 +1,9 @@
-import { getSetting } from "@/server/settings";
+import { productName } from "@/server/branding";
 import { sendEmail } from "./send";
 import { renderEmail } from "./templates";
 
 async function brand() {
-  return (await getSetting("instanceName")) || "Serve";
+  return productName();
 }
 
 export async function sendPasswordResetEmail(to: string, name: string | null, url: string) {
@@ -36,7 +36,7 @@ export async function sendNotificationEmail(to: string, msg: { title: string; bo
     brand: b,
     heading: `${msg.ok ? "✅" : "❌"} ${msg.title}`,
     paragraphs: msg.body.split("\n").filter(Boolean),
-    action: msg.url ? { label: "Open in Serve", url: msg.url } : undefined,
+    action: msg.url ? { label: `Open in ${b}`, url: msg.url } : undefined,
   });
   await sendEmail({ to, subject: msg.title, text, html });
 }

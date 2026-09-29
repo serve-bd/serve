@@ -15,6 +15,7 @@ import { formatBytes } from "@/lib/utils";
 import { removeInstanceBackup, revealEncryptionKey, saveInstanceBackupSettings, startInstanceBackup } from "@/server/actions/instance";
 import type { InstanceBackup } from "@/server/settings";
 import { SettingsCard } from "../_components/settings-card";
+import { ProductName } from "@/components/brand";
 
 type Settings = { schedule: string | null; retention: number; s3DestinationId: string | null };
 
@@ -58,7 +59,7 @@ export function InstanceBackups({
 
       <SettingsCard
         title="Schedule"
-        description={`Backs up Serve itself: its database and instance files. Times use ${timezone}.`}
+        description={`Backs up this instance: its database and files. Times use ${timezone}.`}
         initial={{
           enabled: !!settings.schedule,
           preset: settings.schedule && presets.some((p) => p.value === settings.schedule) ? settings.schedule : settings.schedule ? "custom" : "0 3 * * *",
@@ -168,13 +169,20 @@ export function InstanceBackups({
       </Card>
 
       <Card>
-        <CardHeader title="Restoring" description="A running Serve cannot replace its own database, so restores run from the server's shell." />
+        <CardHeader
+          title="Restoring"
+          description={
+            <>
+              A running <ProductName /> cannot replace its own database, so restores run from the server's shell.
+            </>
+          }
+        />
         <CardBody className="flex flex-col gap-3 py-5 text-[13px] leading-relaxed text-fg-2">
           <p>Copy the backup to the server, keep the same encryption key in /data/serve/.env, then run:</p>
           <CopyField value="sudo bash /data/serve/restore-instance.sh serve-….tar.gz" />
           <p className="text-xs text-muted">
-            The script stops Serve, restores the database and files, and starts it again. It is included in the repository as scripts/restore-instance.sh; the README describes each
-            step.
+            The script stops <ProductName />, restores the database and files, and starts it again. It is included in the repository as scripts/restore-instance.sh; the README
+            describes each step.
           </p>
         </CardBody>
       </Card>
@@ -214,7 +222,7 @@ function EncryptionKeyCard() {
               if (
                 await confirm({
                   title: "Show the encryption key?",
-                  description: "Anyone with this key and a backup can read every secret stored in Serve. The reveal is recorded in the activity log.",
+                  description: "Anyone with this key and a backup can read every secret stored in this instance. The reveal is recorded in the activity log.",
                   confirmLabel: "Show key",
                 })
               )

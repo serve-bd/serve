@@ -7,6 +7,7 @@ import { db, schema } from "@/server/db";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { ServerList } from "./server-list";
+import { ProductName } from "@/components/brand";
 
 export const metadata = { title: "Servers" };
 
@@ -38,7 +39,11 @@ export default async function ServersPage() {
     <>
       <PageHeader
         title="Servers"
-        description="Machines Serve deploys to. Add a server over SSH and Serve installs what it needs."
+        description={
+          <>
+            Machines <ProductName /> deploys to. Add a server over SSH and <ProductName /> installs what it needs.
+          </>
+        }
         actions={
           <Link href="/servers/new" className={buttonVariants({ variant: "primary", size: "sm" })}>
             <Plus /> Add server

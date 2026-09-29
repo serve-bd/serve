@@ -15,6 +15,7 @@ import { SshPublicKey } from "@/components/ssh-public-key";
 import { useAction } from "@/hooks/use-action";
 import { createPrivateKey, deletePrivateKey } from "@/server/actions/servers";
 import { cn } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 type Key = { id: string; name: string; description: string | null; publicKey: string; fingerprint: string; createdAt: string; servers: string[] };
 
@@ -71,7 +72,14 @@ export function AddKeyDialog({
               void create.run();
             }}
           >
-            <DialogHeader title="Add SSH key" description="Serve uses the key to connect to your servers. The private key is encrypted at rest." />
+            <DialogHeader
+              title="Add SSH key"
+              description={
+                <>
+                  <ProductName /> uses the key to connect to your servers. The private key is encrypted at rest.
+                </>
+              }
+            />
             <DialogBody>
               <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1" role="radiogroup" aria-label="Key source">
                 {(
@@ -111,7 +119,7 @@ export function AddKeyDialog({
                 </Field>
               ) : (
                 <p className="rounded-xl bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed text-muted">
-                  Serve creates an ed25519 key pair. You copy the public key to your servers; the private key never leaves Serve.
+                  <ProductName /> creates an ed25519 key pair. You copy the public key to your servers; the private key never leaves <ProductName />.
                 </p>
               )}
             </DialogBody>
@@ -142,7 +150,11 @@ export function KeysView({ keys }: { keys: Key[] }) {
       <Card>
         <CardHeader
           title="SSH keys"
-          description="Keys Serve uses to reach remote servers."
+          description={
+            <>
+              Keys <ProductName /> uses to reach remote servers.
+            </>
+          }
           actions={
             <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
               <Plus /> Add key
@@ -193,7 +205,7 @@ export function KeysView({ keys }: { keys: Key[] }) {
                         if (
                           await confirm({
                             title: `Delete ${k.name}?`,
-                            description: "Serve can no longer use this key. Servers that trust it keep the public key until you remove it there.",
+                            description: "This key can no longer be used. Servers that trust it keep the public key until you remove it there.",
                             confirmLabel: "Delete key",
                             danger: true,
                           })

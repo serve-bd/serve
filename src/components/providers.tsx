@@ -7,6 +7,8 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmProvider } from "@/components/ui/confirm";
+import { BrandProvider } from "@/components/brand";
+import type { Brand } from "@/server/branding";
 
 async function fetcher(url: string) {
   const res = await fetch(url);
@@ -17,7 +19,7 @@ async function fetcher(url: string) {
   return res.json();
 }
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ children, brand }: { children: React.ReactNode; brand: Brand }) {
   return (
     // Same storage key as before, so saved choices carry over.
     <ThemeProvider attribute="data-theme" storageKey="serve-theme" defaultTheme="system" enableSystem disableTransitionOnChange>
@@ -25,7 +27,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <SWRConfig value={{ fetcher, revalidateOnFocus: true, dedupingInterval: 1000, keepPreviousData: true }}>
           <TooltipProvider delay={300}>
             <Toaster>
-              <ConfirmProvider>{children}</ConfirmProvider>
+              <ConfirmProvider>
+                <BrandProvider brand={brand}>{children}</BrandProvider>
+              </ConfirmProvider>
             </Toaster>
           </TooltipProvider>
         </SWRConfig>

@@ -11,6 +11,7 @@ import { Card, EmptyState } from "@/components/ui/misc";
 import { ProjectCard } from "./_components/project-card";
 import { DeploymentsTable } from "./_components/deployments-table";
 import { ServerCards } from "./_components/server-cards";
+import { ProductName } from "@/components/brand";
 
 async function serverCards() {
   const rows = await db
@@ -28,7 +29,19 @@ async function serverCards() {
   return Promise.all(rows.map(async (r) => ({ ...r, series: await metricSeries(serverScope(r.id), 6, 48).catch(() => []) })));
 }
 
-function Section({ title, description, href, action, children }: { title: string; description: string; href?: string; action?: React.ReactNode; children: React.ReactNode }) {
+function Section({
+  title,
+  description,
+  href,
+  action,
+  children,
+}: {
+  title: string;
+  description: React.ReactNode;
+  href?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-end justify-between gap-4">
@@ -108,7 +121,15 @@ export default async function OverviewPage() {
         </Section>
 
         {servers && (
-          <Section title="Servers" description="Machines Serve deploys to, with usage over the last 6 hours." href="/servers">
+          <Section
+            title="Servers"
+            description={
+              <>
+                Machines <ProductName /> deploys to, with usage over the last 6 hours.
+              </>
+            }
+            href="/servers"
+          >
             <ServerCards servers={servers} />
           </Section>
         )}

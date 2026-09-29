@@ -16,6 +16,7 @@ import { useAction } from "@/hooks/use-action";
 import { addRegistry, deleteRegistry, testRegistry, updateRegistry } from "@/server/actions/registries";
 import { registryPresets } from "@/server/registries/refs";
 import type { RegistryKind } from "@/server/db/schema";
+import { ProductName } from "@/components/brand";
 
 export type RegistryItem = {
   id: string;
@@ -117,7 +118,7 @@ export function Registries({ registries, isAdmin }: { registries: RegistryItem[]
                               if (
                                 await confirm({
                                   title: `Remove ${r.name}?`,
-                                  description: "Images already pushed stay in the registry. Serve forgets the login.",
+                                  description: "Images already pushed stay in the registry. The login is forgotten.",
                                   confirmLabel: "Remove registry",
                                   danger: true,
                                 })
@@ -204,7 +205,14 @@ function RegistryDialog({ registry, onClose }: { registry: RegistryItem | null; 
             void save.run();
           }}
         >
-          <DialogHeader title={registry ? `Edit ${registry.name}` : "Add a container registry"} description="Serve logs in to check the credentials before saving." />
+          <DialogHeader
+            title={registry ? `Edit ${registry.name}` : "Add a container registry"}
+            description={
+              <>
+                <ProductName /> logs in to check the credentials before saving.
+              </>
+            }
+          />
           <DialogBody>
             <Field label="Registry" description={preset.hint}>
               <Select

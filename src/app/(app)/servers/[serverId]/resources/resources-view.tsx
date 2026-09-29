@@ -26,7 +26,7 @@ const stateColor: Record<string, string> = {
 };
 
 const kindBadge: Record<ContainerKind, { label: string; tone: "accent" | "neutral" | "info" }> = {
-  system: { label: "Serve", tone: "accent" },
+  system: { label: "Managed", tone: "accent" },
   service: { label: "Service", tone: "info" },
   unmanaged: { label: "Unmanaged", tone: "neutral" },
 };
@@ -113,7 +113,7 @@ export function ResourcesView({ serverId, containers, summary }: { serverId: str
                   filter === f ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg",
                 )}
               >
-                {f === "all" ? "All" : f === "serve" ? "Serve" : "Unmanaged"}
+                {f === "all" ? "All" : f === "serve" ? "Managed" : "Unmanaged"}
                 <span className="text-faint tabular-nums">{counts[f]}</span>
               </button>
             ))}
@@ -184,7 +184,7 @@ export function ResourcesView({ serverId, containers, summary }: { serverId: str
                                     if (
                                       await confirm({
                                         title: `Stop ${c.name}?`,
-                                        description: "Serve does not manage this container. It stays stopped until you or its restart policy start it again.",
+                                        description: "This container is not managed here. It stays stopped until you or its restart policy start it again.",
                                         confirmLabel: "Stop container",
                                         danger: true,
                                       })

@@ -15,6 +15,7 @@ import { changeDatabasePassword, redeployServices, updateDatabaseSettings } from
 import { updateService } from "@/server/actions/services";
 import type { RestartPolicy } from "@/server/services/types";
 import { Section, digits, num } from "./section";
+import { ProductName } from "@/components/brand";
 
 export type DatabaseSettingsProps = {
   serviceId: string;
@@ -179,7 +180,7 @@ function CredentialsSection(props: DatabaseSettingsProps) {
       </CardBody>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="sm">
-          <DialogHeader title="Change password" description={`Serve changes it inside the running ${engine.label}, saves it, and restarts the database.`} />
+          <DialogHeader title="Change password" description={`The password is changed inside the running ${engine.label} and saved, then the database restarts.`} />
           <DialogBody>
             <Field label="New password" optional description="Leave empty to generate a strong one. 12 to 128 letters, numbers, dots, dashes, underscores or tildes.">
               <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Generate" className="font-mono" />
@@ -189,7 +190,9 @@ function CredentialsSection(props: DatabaseSettingsProps) {
                 <TriangleAlert className="mt-px size-3.5 flex-none" /> Start the database first.
               </p>
             )}
-            <p className="text-xs leading-relaxed text-muted">Apps that connect with the old password lose access until they are redeployed. Serve lists them afterwards.</p>
+            <p className="text-xs leading-relaxed text-muted">
+              Apps that connect with the old password lose access until they are redeployed. <ProductName /> lists them afterwards.
+            </p>
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
@@ -349,7 +352,7 @@ function ConfigurationSection(props: DatabaseSettingsProps) {
       title="Configuration"
       description={
         pg
-          ? "postgresql.conf settings, one per line. Serve passes them as -c options, so they win over the file in the data directory."
+          ? "postgresql.conf settings, one per line. They are passed as -c options, so they win over the file in the data directory."
           : `Written to ${engine.config.path} and loaded on start.`
       }
       initial={{ customConfig: config.customConfig ?? "", extraArgs: config.extraArgs ?? "" }}
@@ -476,7 +479,11 @@ function TlsSection(props: DatabaseSettingsProps) {
     <Section
       id="tls"
       title="TLS"
-      description="Encrypts connections with a certificate from a private authority Serve creates for this database. Applies on restart."
+      description={
+        <>
+          Encrypts connections with a certificate from a private authority <ProductName /> creates for this database. Applies on restart.
+        </>
+      }
       initial={{ enabled: !!config.tls?.enabled, mode: config.tls?.mode ?? "prefer" }}
       onSave={(v) => saveDb({ tls: v.enabled ? { enabled: true, mode: v.mode } : null })}
       footerNote={
@@ -500,7 +507,7 @@ function TlsSection(props: DatabaseSettingsProps) {
               label="Mode"
               description={
                 config.engine === "postgres"
-                  ? "Postgres always offers TLS; Require sets sslmode=require in the connection URLs Serve generates."
+                  ? "Postgres always offers TLS; Require sets sslmode=require in the generated connection URLs."
                   : "Require rejects connections without TLS."
               }
             >

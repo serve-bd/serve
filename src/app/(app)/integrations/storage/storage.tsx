@@ -15,6 +15,7 @@ import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { useAction } from "@/hooks/use-action";
 import { formatBytes } from "@/lib/utils";
 import { addS3Destination, deleteS3Destination, testS3Destination, updateS3Destination } from "@/server/actions/integrations";
+import { ProductName } from "@/components/brand";
 
 export type Dest = {
   id: string;
@@ -298,7 +299,14 @@ function DestinationDialog({ destination, onClose }: { destination: Dest | null;
             void save.run();
           }}
         >
-          <DialogHeader title={destination ? `Edit ${destination.name}` : "Add S3-compatible storage"} description="Serve checks it can write to the bucket before saving." />
+          <DialogHeader
+            title={destination ? `Edit ${destination.name}` : "Add S3-compatible storage"}
+            description={
+              <>
+                <ProductName /> checks it can write to the bucket before saving.
+              </>
+            }
+          />
           <DialogBody>
             <Field label="Provider" description={provider.hint}>
               <Select
@@ -331,7 +339,15 @@ function DestinationDialog({ destination, onClose }: { destination: Dest | null;
                 <Input type="password" value={form.secretAccessKey} onChange={set("secretAccessKey")} required={!destination} autoComplete="new-password" />
               </Field>
             </div>
-            <Field label="Path prefix" optional description="Folder inside the bucket. Useful when several Serve instances share one bucket.">
+            <Field
+              label="Path prefix"
+              optional
+              description={
+                <>
+                  Folder inside the bucket. Useful when several <ProductName /> instances share one bucket.
+                </>
+              }
+            >
               <Input value={form.pathPrefix} onChange={set("pathPrefix")} placeholder="serve" />
             </Field>
           </DialogBody>

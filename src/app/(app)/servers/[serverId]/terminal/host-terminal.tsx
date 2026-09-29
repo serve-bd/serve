@@ -46,7 +46,7 @@ export function HostTerminal({ serverId, hostname, user, local }: { serverId: st
           <p className="text-[13px] font-medium text-fg">{user === "root" ? "This is a root shell on the server" : `This is a shell on the server as ${user}`}</p>
           <p className="text-[12.5px] leading-relaxed text-fg-2">
             {local
-              ? "Commands run directly on the machine Serve runs on and can break the server and Serve itself."
+              ? "Commands run directly on the machine this dashboard runs on and can break the server and the dashboard itself."
               : "Commands run over SSH directly on this server and can break it and the services running there."}{" "}
             Every session is recorded in the activity log.
           </p>

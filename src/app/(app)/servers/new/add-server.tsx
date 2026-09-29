@@ -15,6 +15,7 @@ import { createPrivateKey, createServer, updateServer, validateServer } from "@/
 import { getServerProgress } from "@/server/actions/servers-ui";
 import type { ServerStatus } from "@/server/db/schema";
 import { cn } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 type Key = { id: string; name: string; publicKey: string; fingerprint: string };
 type Step = "connection" | "key" | "connect";
@@ -128,9 +129,23 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
           }}
         >
           <Card>
-            <CardHeader title="Where is the server?" description="Any Linux machine with SSH. Serve connects as this user to install and run Docker." />
+            <CardHeader
+              title="Where is the server?"
+              description={
+                <>
+                  Any Linux machine with SSH. <ProductName /> connects as this user to install and run Docker.
+                </>
+              }
+            />
             <CardBody className="flex flex-col gap-4 py-5">
-              <Field label="Name" description="Shown in Serve, for example the provider and region.">
+              <Field
+                label="Name"
+                description={
+                  <>
+                    Shown in <ProductName />, for example the provider and region.
+                  </>
+                }
+              >
                 <Input value={conn.name} onChange={(e) => setConn({ ...conn, name: e.target.value })} placeholder="hetzner-fsn-1" autoFocus />
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
@@ -169,7 +184,18 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
 
       {step === "key" && (
         <Card>
-          <CardHeader title="How does Serve sign in?" description="Serve uses an SSH key. Authorize its public key on the server, then connect." />
+          <CardHeader
+            title={
+              <>
+                How does <ProductName /> sign in?
+              </>
+            }
+            description={
+              <>
+                <ProductName /> uses an SSH key. Authorize its public key on the server, then connect.
+              </>
+            }
+          />
           <CardBody className="flex flex-col gap-4 py-5">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="SSH key">
               {(
@@ -221,7 +247,7 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
             )}
             {keyMode === "generate" && (
               <p className="rounded-xl bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed text-muted">
-                Serve creates a new key pair for this server. Next, you copy its public key to the server. The private key is encrypted and never leaves Serve.
+                <ProductName /> creates a new key pair for this server. Next, you copy its public key to the server. The private key is encrypted and never leaves <ProductName />.
               </p>
             )}
             {keyMode === "import" && (
@@ -346,7 +372,7 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
             </p>
             {status !== "validating" && status !== "ready" && progress?.statusMessage && (
               <p className="text-[12.5px] leading-relaxed break-words text-fg-2">
-                {noDocker ? "Serve can install Docker with the official script from get.docker.com. It takes a few minutes." : progress.statusMessage}
+                {noDocker ? "Docker can be installed with the official script from get.docker.com. It takes a few minutes." : progress.statusMessage}
               </p>
             )}
           </div>
@@ -374,7 +400,14 @@ function ConnectStep({ serverId, name, onBack }: { serverId: string; name: strin
   const [ready, setReady] = React.useState(false);
   return (
     <Card>
-      <CardHeader title={`Connecting to ${name || "the server"}`} description="Serve checks SSH access and Docker, prepares its data directory and starts the proxy." />
+      <CardHeader
+        title={`Connecting to ${name || "the server"}`}
+        description={
+          <>
+            <ProductName /> checks SSH access and Docker, prepares its data directory and starts the proxy.
+          </>
+        }
+      />
       <CardBody className="py-5">
         <ServerSetupProgress serverId={serverId} onReady={() => setReady(true)} />
       </CardBody>

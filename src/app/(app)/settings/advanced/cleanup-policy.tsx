@@ -7,6 +7,7 @@ import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import type { CleanupRun } from "@/server/settings";
 import { SettingsCard } from "../_components/settings-card";
+import { ProductName } from "@/components/brand";
 
 type AutoSettings = {
   cleanupEnabled: boolean;
@@ -37,7 +38,11 @@ export function CleanupPolicy({ settings, latest }: { settings: AutoSettings; la
         <>
           <SwitchRow
             title="Scheduled cleanup"
-            description="Removes dangling Serve images, stale deployment containers and old build cache."
+            description={
+              <>
+                Removes dangling <ProductName /> images, stale deployment containers and old build cache.
+              </>
+            }
             checked={v.cleanupEnabled}
             onCheckedChange={set("cleanupEnabled")}
           />
@@ -75,7 +80,11 @@ export function CleanupPolicy({ settings, latest }: { settings: AutoSettings; la
           </div>
           <SwitchRow
             title="Remove unused images"
-            description="Also delete images no container uses and older than a day, including other projects' images on this host. Serve keeps its own images for rollbacks."
+            description={
+              <>
+                Also delete images no container uses and older than a day, including other projects' images on this host. <ProductName /> keeps its own images for rollbacks.
+              </>
+            }
             checked={v.cleanupUnusedImages}
             onCheckedChange={set("cleanupUnusedImages")}
           />

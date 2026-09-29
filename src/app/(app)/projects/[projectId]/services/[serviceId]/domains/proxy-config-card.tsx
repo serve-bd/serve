@@ -11,6 +11,7 @@ import { toast } from "@/components/ui/toast";
 import { CodeView } from "@/components/code-view";
 import { saveServiceProxyCustom } from "@/server/actions/service-proxy";
 import { cn } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 type RunningKind = "nginx" | "caddy" | "traefik";
 const LABEL: Record<RunningKind, string> = { nginx: "nginx", caddy: "Caddy", traefik: "Traefik" };
@@ -50,7 +51,7 @@ export function ProxyConfigCard({
     const res = await saveServiceProxyCustom(serviceId, content);
     setPending(false);
     if (!res.ok) return setError(res.error);
-    toast.success(content === null ? "Back to the configuration Serve generates" : `Custom ${LABEL[kind]} configuration applied`);
+    toast.success(content === null ? "Back to the generated configuration" : `Custom ${LABEL[kind]} configuration applied`);
     router.refresh();
   };
 
@@ -78,7 +79,7 @@ export function ProxyConfigCard({
                 if (
                   await confirm({
                     title: "Reset to defaults?",
-                    description: "The custom configuration is removed and Serve's generated configuration applies again.",
+                    description: "The custom configuration is removed and the generated configuration applies again.",
                     confirmLabel: "Reset",
                   })
                 ) {
@@ -96,7 +97,7 @@ export function ProxyConfigCard({
         <div role="radiogroup" aria-label="Configuration mode" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {(
             [
-              ["managed", "Managed by Serve", "Generated from the domains and HTTP options on this page."],
+              ["managed", "Generated", "Generated from the domains and HTTP options on this page."],
               ["custom", "Custom", `Your own ${FORMAT[kind]} replace the generated ones.`],
             ] as const
           ).map(([key, title, description]) => (
@@ -122,8 +123,8 @@ export function ProxyConfigCard({
         </div>
         {otherCustom.length > 0 && !custom && (
           <p className="text-xs text-muted">
-            A custom {otherCustom.map((k) => LABEL[k]).join(" and ")} configuration is saved for this service. This server runs {LABEL[kind]}, so Serve&apos;s generated
-            configuration applies. The saved one comes back if you switch the proxy back.
+            A custom {otherCustom.map((k) => LABEL[k]).join(" and ")} configuration is saved for this service. This server runs {LABEL[kind]}, so <ProductName />
+            &apos;s generated configuration applies. The saved one comes back if you switch the proxy back.
           </p>
         )}
         {mode === "custom" && (
@@ -144,7 +145,9 @@ export function ProxyConfigCard({
           generated ? (
             <CodeView code={generated} maxHeight="480px" />
           ) : (
-            <p className="text-[13px] text-muted">Serve writes no configuration for this service yet.</p>
+            <p className="text-[13px] text-muted">
+              <ProductName /> writes no configuration for this service yet.
+            </p>
           )
         ) : (
           <Textarea

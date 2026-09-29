@@ -8,6 +8,7 @@ import { enqueue } from "@/server/queue";
 import { eventInfo, fillTemplate, type NotifyEvent, providerInfo, type Severity, severityRank } from "@/lib/notifications";
 import { type OutgoingMessage, planDelivery } from "./payloads";
 import { channelWants, decide, inQuietHours, retryDelay } from "./rules";
+import { productName } from "@/server/branding";
 
 type Channel = typeof schema.notificationChannel.$inferSelect;
 type Delivery = typeof schema.notificationDelivery.$inferSelect;
@@ -86,6 +87,7 @@ async function resolveMessage(organizationId: string, event: string, input: Noti
     server: server ?? null,
     deployment: input.deploymentId ? { id: input.deploymentId } : null,
     data: input.data ?? {},
+    brand: await productName(),
   };
 }
 
@@ -285,7 +287,7 @@ export async function notify(organizationId: string | null, event: NotifyEvent, 
 }
 
 /** A sample message for "Send test" and the template preview. */
-export function sampleMessage(org: { id: string; name: string }, kind: string): OutgoingMessage {
+export function sampleMessage(org: { id: string; name: string }, kind: string, brand = "Serve"): OutgoingMessage {
   const alerting = !!providerInfo(kind)?.alerting;
   return {
     id: newId(),
@@ -294,7 +296,8 @@ export function sampleMessage(org: { id: string; name: string }, kind: string): 
     severity: "info",
     ok: !alerting,
     status: "test",
-    title: "Test notification from Serve",
+    title: `Test notification from ${brand}`,
+    brand,
     body: "This channel is set up. Real notifications look like this.",
     url: absolute("/integrations/notifications"),
     error: null,

@@ -9,6 +9,7 @@ import { DnsCheck } from "@/components/dns-check";
 import { detectIp } from "@/server/actions/server";
 import { updateServer } from "@/server/actions/servers";
 import { SettingsCard } from "@/app/(app)/settings/_components/settings-card";
+import { ProductName } from "@/components/brand";
 
 const port = (value: string) => Number(value.replace(/\D/g, "").slice(0, 5)) || 0;
 
@@ -37,7 +38,14 @@ export function DomainSettings({
       >
         {(v, set) => (
           <>
-            <Field label="Public IPv4" description="Used for DNS records Serve creates and for sslip.io domains.">
+            <Field
+              label="Public IPv4"
+              description={
+                <>
+                  Used for DNS records <ProductName /> creates and for sslip.io domains.
+                </>
+              }
+            >
               <div className="flex gap-2 sm:max-w-sm">
                 <Input value={v.publicIp} onChange={(e) => set("publicIp")(e.target.value)} className="font-mono" placeholder={isLocal ? "203.0.113.10" : host} />
                 {isLocal ? (

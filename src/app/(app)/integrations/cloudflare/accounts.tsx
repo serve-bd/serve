@@ -160,7 +160,7 @@ export function CloudflareAccounts({
   accounts: Account[];
   isAdmin: boolean;
   title: string;
-  description: string;
+  description: React.ReactNode;
   servers: ServerOption[];
   tunnels: Tunnel[];
 }) {

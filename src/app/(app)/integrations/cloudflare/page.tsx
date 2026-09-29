@@ -6,6 +6,7 @@ import { decrypt } from "@/server/crypto";
 import { Cloudflare, type CfZone } from "@/server/cloudflare/api";
 import { getSettings } from "@/server/settings";
 import { CloudflareAccounts } from "./accounts";
+import { ProductName } from "@/components/brand";
 
 export const metadata = { title: "Cloudflare" };
 
@@ -82,7 +83,11 @@ export default async function CloudflarePage() {
       servers={servers.map((s) => ({ id: s.id, name: s.name, isLocal: s.isLocal, status: s.status }))}
       tunnels={tunnels}
       title="Cloudflare"
-      description="Manage DNS records, SSL modes and certificates for your Cloudflare zones without leaving Serve."
+      description={
+        <>
+          Manage DNS records, SSL modes and certificates for your Cloudflare zones without leaving <ProductName />.
+        </>
+      }
       accounts={withZones}
       isAdmin={ctx.isAdmin}
     />

@@ -5,5 +5,5 @@ export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const settings = await getSettings();
-  return <GeneralSettings initial={{ instanceName: settings.instanceName, timezone: settings.timezone }} />;
+  return <GeneralSettings initial={{ timezone: settings.timezone }} />;
 }

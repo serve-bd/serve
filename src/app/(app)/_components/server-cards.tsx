@@ -57,7 +57,7 @@ export function ServerCards({ servers }: { servers: ServerCardData[] }) {
                   <StatusDot status={status} />
                 </div>
                 <p className="truncate text-xs text-muted">
-                  {s.isLocal ? "The server Serve runs on" : s.host} · {s.running}/{s.services} running
+                  {s.isLocal ? "The server this dashboard runs on" : s.host} · {s.running}/{s.services} running
                 </p>
               </div>
             </div>

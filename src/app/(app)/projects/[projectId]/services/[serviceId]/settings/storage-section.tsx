@@ -283,9 +283,7 @@ export function StorageSection({
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <Toggle label="Read-only" checked={!!v.readOnly} onChange={(c) => update(i, { readOnly: c })} />
-                  <span className="text-[11px] text-faint">
-                    {v.kind === "file" ? "Serve writes this file on the server before each start." : "An existing file on the server."}
-                  </span>
+                  <span className="text-[11px] text-faint">{v.kind === "file" ? "This file is written on the server before each start." : "An existing file on the server."}</span>
                 </div>
               </div>
             ))}

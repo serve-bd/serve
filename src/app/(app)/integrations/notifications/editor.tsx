@@ -32,6 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 import { saveNotificationChannel, testNotificationChannel } from "@/server/actions/notifications";
 import { ProviderIcon } from "./provider-icon";
+import { ProductName } from "@/components/brand";
 
 export type ScopeProject = { id: string; name: string; environments: { id: string; name: string; services: { id: string; name: string }[] }[] };
 
@@ -240,7 +241,7 @@ export function ChannelEditor(props: {
               <CardBody className="flex flex-col gap-5 py-5">
                 {alerting ? (
                   <p className="text-[13px] text-muted">
-                    {provider.label} decides who is paged and when. Serve opens an alert for each problem and closes it when the problem is fixed.
+                    {provider.label} decides who is paged and when. <ProductName /> opens an alert for each problem and closes it when the problem is fixed.
                   </p>
                 ) : (
                   <QuietHoursFields value={form.quietHours} onChange={(quietHours) => set({ quietHours })} />
@@ -410,7 +411,7 @@ function ScopeCard({ tree, scope, onChange, isRoot }: { tree: ScopeProject[]; sc
           ))}
         <SwitchRow
           title={isRoot ? "Events outside projects" : "Certificate events"}
-          description={isRoot ? "Servers, certificates and Serve itself are not part of a project." : "Certificates are not part of a project."}
+          description={isRoot ? "Servers, certificates and this instance itself are not part of a project." : "Certificates are not part of a project."}
           checked={s.includeGlobal}
           onCheckedChange={(includeGlobal) => onChange({ ...s, includeGlobal })}
         />
@@ -581,7 +582,14 @@ function WebhookDocs() {
   const example = JSON.stringify(webhookExample, null, 2);
   return (
     <Card>
-      <CardHeader title="Payload" description="Serve sends this JSON body. Fields may be added over time; existing ones keep their meaning." />
+      <CardHeader
+        title="Payload"
+        description={
+          <>
+            <ProductName /> sends this JSON body. Fields may be added over time; existing ones keep their meaning.
+          </>
+        }
+      />
       <CardBody className="flex flex-col gap-4 py-5">
         <div className="relative">
           <pre className="max-h-80 overflow-auto rounded-xl border border-line bg-sunken p-4 font-mono text-[12px] leading-5 text-fg-2">{example}</pre>

@@ -5,6 +5,7 @@ import { ArrowUpRight, CircleAlert, CircleCheck, Download, Info, Package, Refres
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardBody, CardHeader, CopyButton, TimeAgo } from "@/components/ui/misc";
 import { cn } from "@/lib/utils";
+import { useProductName } from "@/components/brand";
 import { SwitchRow } from "@/components/ui/switch";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
@@ -40,6 +41,7 @@ export function UpdatesView({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const productName = useProductName();
   const [run, setRun] = React.useState(initialRun);
   const [live, setLive] = React.useState<string | null>(null);
   const checkNow = useAction(checkUpdatesNow, { success: (c) => (c.latest ? `Latest release: v${c.latest}` : "No releases published yet") });
@@ -77,11 +79,11 @@ export function UpdatesView({
           <div className="flex min-w-[12rem] flex-1 flex-col gap-0.5">
             <p className="text-[15px] font-semibold text-fg">
               {available && check?.latest
-                ? `Serve v${check.latest} is available`
+                ? `${productName} v${check.latest} is available`
                 : check?.error
                   ? "Could not check for updates"
                   : check?.latest
-                    ? "Serve is up to date"
+                    ? `${productName} is up to date`
                     : check
                       ? "No releases published yet"
                       : "Not checked yet"}
@@ -159,8 +161,7 @@ export function UpdatesView({
                       if (
                         await confirm({
                           title: `Update to v${check.latest}?`,
-                          description:
-                            "Serve backs itself up first, then pulls the new image and restarts. The dashboard is unavailable for a minute; deployed services keep running.",
+                          description: `${productName} backs itself up first, then pulls the new image and restarts. The dashboard is unavailable for a minute; deployed services keep running.`,
                           confirmLabel: "Back up and update",
                         })
                       )

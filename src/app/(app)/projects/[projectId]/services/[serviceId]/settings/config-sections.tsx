@@ -11,6 +11,7 @@ import { deployWithoutCache, type updateService } from "@/server/actions/service
 import type { BuildConfig, KeyValue, RuntimeConfig } from "@/server/services/types";
 import { CAPABILITIES } from "@/server/deploy/options";
 import { digits, KeyValueEditor, linesOf, num, Section } from "./section";
+import { ProductName } from "@/components/brand";
 
 type Save = (patch: Parameters<typeof updateService>[1]) => Promise<unknown>;
 
@@ -233,7 +234,15 @@ export function HealthSection({ runtime, save }: { runtime: RuntimeConfig; save:
     >
       {(v, set) => (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Path" optional description="Without a path, Serve waits for the port to accept connections.">
+          <Field
+            label="Path"
+            optional
+            description={
+              <>
+                Without a path, <ProductName /> waits for the port to accept connections.
+              </>
+            }
+          >
             <Input value={v.path} onChange={(e) => set({ path: e.target.value })} placeholder="/health" className="font-mono text-[13px]" />
           </Field>
           <Field label="Port" optional description="Defaults to the app port.">

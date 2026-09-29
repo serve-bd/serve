@@ -9,6 +9,7 @@ import { useAction } from "@/hooks/use-action";
 import { savePreviewDatabase } from "@/server/actions/environments";
 import type { PreviewDatabaseConfig } from "@/server/services/types";
 import { Section } from "./section";
+import { ProductName } from "@/components/brand";
 
 /** Engines whose copies can run clean-up SQL. */
 const SQL_ENGINES = ["postgres", "mysql", "mariadb", "clickhouse"];
@@ -53,7 +54,12 @@ export function PreviewDatabaseSection({
           <>
             <SwitchRow
               title="Copy a database for each preview"
-              description="When a pull request opens, Serve creates a temporary database, restores a fresh dump into it and deploys the preview against it. It is removed with the preview."
+              description={
+                <>
+                  When a pull request opens, <ProductName /> creates a temporary database, restores a fresh dump into it and deploys the preview against it. It is removed with the
+                  preview.
+                </>
+              }
               checked={v.enabled}
               disabled={!databases.length}
               onCheckedChange={(c) => set({ enabled: c })}

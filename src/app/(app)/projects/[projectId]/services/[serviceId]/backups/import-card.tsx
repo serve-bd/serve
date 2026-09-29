@@ -14,6 +14,7 @@ import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
 import { importBackupFromRemote } from "@/server/actions/databases";
 import { cn, formatBytes } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 type Source = "upload" | "url" | "s3";
 
@@ -77,7 +78,7 @@ export function ImportCard(props: {
     const ok = await confirm({
       title: `Import into ${props.engineLabel}?`,
       description: backupFirst
-        ? "Serve backs up the current data, then replaces it with the imported dump."
+        ? "The current data is backed up first, then replaced with the imported dump."
         : "The current data is replaced with the imported dump. There is no safety backup.",
       confirmLabel: "Import and restore",
       danger: true,
@@ -152,7 +153,14 @@ export function ImportCard(props: {
           </>
         )}
         {source === "url" && (
-          <Field label="File URL" description="A public or pre-signed http(s) link. Serve downloads it on the server.">
+          <Field
+            label="File URL"
+            description={
+              <>
+                A public or pre-signed http(s) link. <ProductName /> downloads it on the server.
+              </>
+            }
+          >
             <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/backups/app.dump" className="font-mono text-[13px]" />
           </Field>
         )}

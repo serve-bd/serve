@@ -18,6 +18,7 @@ import { getSiteFile, reloadProxyNow } from "@/server/actions/server-proxy";
 import { deleteProxyFile, saveProxyContainer, saveProxyDefaults, saveProxyFile } from "@/server/actions/proxy-kind";
 import type { ProxyDefaults, ProxyFile, RunningKind } from "@/server/proxy/config";
 import { cn, formatBytes } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 export type ManagedFile = { file: string; kind: "main" | "dashboard" | "service" | "custom" | "other"; label: string; href: string | null; size: number; updatedAt: string };
 
@@ -76,7 +77,7 @@ export function DynamicConfigsCard({
     <Card>
       <CardHeader
         title="Dynamic configurations"
-        description={`Files ${LABEL[kind]} loads on this server. Serve writes the managed ones; add your own below.`}
+        description={`Files ${LABEL[kind]} loads on this server. The managed ones are generated; add your own below.`}
         actions={
           <Button size="sm" onClick={() => reload.run()} loading={reload.pending} disabled={disabled || !running}>
             <RefreshCw /> Reload
@@ -250,7 +251,7 @@ function FileForm({
     <>
       <DialogHeader
         title={value?.original ? `Edit ${value.original}` : "Add a configuration file"}
-        description={`Serve writes the file, checks it with ${LABEL[kind]} and reloads. A rejected file is rolled back.`}
+        description={`The file is written, checked with ${LABEL[kind]} and reloaded. A rejected file is rolled back.`}
       />
       <DialogBody className="flex flex-col gap-4">
         <Field label="File name" description={help.hint}>
@@ -308,18 +309,35 @@ export function BuiltInDefaultsCard({ serverId, kind, initial, disabled }: { ser
   };
   return (
     <Card>
-      <CardHeader title="Built-in defaults" description="What Serve adds on its own. Turn one off to handle it in a custom file instead." />
+      <CardHeader
+        title="Built-in defaults"
+        description={
+          <>
+            What <ProductName /> adds on its own. Turn one off to handle it in a custom file instead.
+          </>
+        }
+      />
       <CardBody className="flex flex-col gap-3 py-5">
         <SwitchRow
           title="Catch-all 404 page"
-          description={<>Unknown hostnames get Serve&apos;s 404 page.{!value.catchAll && off}</>}
+          description={
+            <>
+              Unknown hostnames get <ProductName />
+              &apos;s 404 page.{!value.catchAll && off}
+            </>
+          }
           checked={value.catchAll}
           onCheckedChange={(x) => setValue({ ...value, catchAll: x })}
           disabled={disabled}
         />
         <SwitchRow
           title="Unavailable page"
-          description={<>Stopped or unreachable services answer with Serve&apos;s 503 page.{!value.unavailablePage && off}</>}
+          description={
+            <>
+              Stopped or unreachable services answer with <ProductName />
+              &apos;s 503 page.{!value.unavailablePage && off}
+            </>
+          }
           checked={value.unavailablePage}
           onCheckedChange={(x) => setValue({ ...value, unavailablePage: x })}
           disabled={disabled}
@@ -424,7 +442,7 @@ export function ProxyContainerCard({
                 if (
                   await confirm({
                     title: "Reset the proxy container?",
-                    description: `The container goes back to Serve's default ${LABEL[kind]} definition and is recreated.`,
+                    description: `The container goes back to the default ${LABEL[kind]} definition and is recreated.`,
                     confirmLabel: "Reset",
                   })
                 )
@@ -545,7 +563,7 @@ export function ProxyContainerCard({
         {error && <ErrorBox message={error} />}
       </CardBody>
       <CardFooter>
-        <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : initial.customized ? "Customized" : "Serve's default container"}</span>
+        <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : initial.customized ? "Customized" : "Default container"}</span>
         <div className="flex flex-none gap-2">
           {dirty && (
             <Button variant="ghost" size="sm" onClick={() => (setValue(start), setError(null))}>

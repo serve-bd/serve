@@ -91,7 +91,11 @@ export async function buildManifest(credentialId: string) {
   const settings = await getSettings();
   const host = new URL(base).hostname.replace(/[^a-z0-9-]/gi, "-").slice(0, 24);
   return {
-    name: `Serve ${settings.instanceName !== "Serve" ? settings.instanceName : host} ${credentialId.slice(0, 4)}`.slice(0, 34),
+    // A white-labelled instance names the app after itself.
+    name: (settings.instanceName && settings.instanceName !== "Serve" ? `${settings.instanceName} ${credentialId.slice(0, 4)}` : `Serve ${host} ${credentialId.slice(0, 4)}`).slice(
+      0,
+      34,
+    ),
     url: base,
     hook_attributes: { url: `${base}/api/webhooks/github/${credentialId}`, active: true },
     redirect_url: `${base}/api/github/manifest`,

@@ -1,6 +1,7 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, notLike, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { EmailSettings } from "@/server/email/config";
+import type { BrandingConfig } from "@/lib/branding";
 
 export type Settings = {
   instanceName: string;
@@ -75,6 +76,8 @@ export type Settings = {
   updateCheck: UpdateCheck | null;
   /** The last self-update, while it runs and after. */
   updateRun: UpdateRun | null;
+  /** Logos, favicon and accent colour (the product name is instanceName). Null means the defaults. */
+  branding: BrandingConfig | null;
 };
 
 export type InstanceBackup = {
@@ -162,7 +165,11 @@ export const defaultSettings: Settings = {
   updateCheckEnabled: true,
   updateCheck: null,
   updateRun: null,
+  branding: null,
 };
+
+/** Rows holding uploaded branding images; kept out of getSettings() so pages do not load image bytes. */
+export const BRAND_ASSET_PREFIX = "brandAsset:";
 
 /** The local server row is the source of truth for the deprecated addressing keys. */
 async function localAddressing(): Promise<Partial<Settings>> {
@@ -174,7 +181,13 @@ async function localAddressing(): Promise<Partial<Settings>> {
 }
 
 export async function getSettings(): Promise<Settings> {
-  const [rows, addressing] = await Promise.all([db.select().from(schema.setting), localAddressing()]);
+  const [rows, addressing] = await Promise.all([
+    db
+      .select()
+      .from(schema.setting)
+      .where(notLike(schema.setting.key, `${BRAND_ASSET_PREFIX}%`)),
+    localAddressing(),
+  ]);
   const values = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   return { ...defaultSettings, ...values, ...addressing } as Settings;
 }

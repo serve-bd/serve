@@ -18,6 +18,7 @@ import { deleteServer, resetHostKey, updateServer, validateServer } from "@/serv
 import type { ServerStatus } from "@/server/db/schema";
 import { SettingsCard } from "@/app/(app)/settings/_components/settings-card";
 import { ServerSetupProgress } from "../new/add-server";
+import { ProductName } from "@/components/brand";
 
 export type ServerDetails = {
   id: string;
@@ -43,7 +44,11 @@ export function ConnectionSettings({ server, keys }: { server: ServerDetails; ke
     return (
       <SettingsCard
         title="Details"
-        description="How this server appears in Serve."
+        description={
+          <>
+            How this server appears in <ProductName />.
+          </>
+        }
         initial={{ name: server.name, description: server.description ?? "" }}
         onSave={(v) => updateServer(server.id, { name: v.name, description: v.description || null })}
       >
@@ -53,7 +58,7 @@ export function ConnectionSettings({ server, keys }: { server: ServerDetails; ke
               <Input value={v.name} onChange={(e) => set("name")(e.target.value)} />
             </Field>
             <Field label="Description" optional>
-              <Input value={v.description} onChange={(e) => set("description")(e.target.value)} placeholder="Where Serve itself runs" />
+              <Input value={v.description} onChange={(e) => set("description")(e.target.value)} placeholder="Where this dashboard runs" />
             </Field>
           </div>
         )}
@@ -122,7 +127,14 @@ export function ConnectionSettings({ server, keys }: { server: ServerDetails; ke
               <Select value={v.privateKeyId || null} onValueChange={set("privateKeyId")} options={keys.map((k) => ({ value: k.id, label: k.name }))} placeholder="Choose a key" />
             </Field>
           </div>
-          <Field label="Data directory" description="Where Serve keeps repositories, proxy configuration and certificates on this server.">
+          <Field
+            label="Data directory"
+            description={
+              <>
+                Where <ProductName /> keeps repositories, proxy configuration and certificates on this server.
+              </>
+            }
+          >
             <Input value={v.dataDir} onChange={(e) => set("dataDir")(e.target.value)} className="font-mono sm:max-w-sm" spellCheck={false} />
           </Field>
         </>
@@ -148,7 +160,7 @@ export function ValidationCard({ server }: { server: ServerDetails }) {
               Last reached <TimeAgo date={server.lastSeenAt} />.
             </>
           ) : (
-            "Serve checks SSH, Docker and the proxy on this server."
+            "Checks SSH, Docker and the proxy on this server."
           )
         }
         actions={
@@ -172,7 +184,7 @@ export function ValidationCard({ server }: { server: ServerDetails }) {
                   if (
                     await confirm({
                       title: "Reset the host key?",
-                      description: "Only do this after reinstalling the server. Serve trusts whatever key the server presents on the next connection.",
+                      description: "Only do this after reinstalling the server. The key the server presents on the next connection is trusted.",
                       confirmLabel: "Reset host key",
                       danger: true,
                     })
@@ -235,7 +247,14 @@ export function DangerZone({ server }: { server: ServerDetails }) {
   const remove = useAction(() => deleteServer(server.id), { success: `${server.name} removed`, refresh: false, onSuccess: () => router.push("/servers") });
   return (
     <Card className="border-bad/25">
-      <CardHeader title="Remove server" description="Serve forgets this server. Containers already running there keep running until you stop them on the server." />
+      <CardHeader
+        title="Remove server"
+        description={
+          <>
+            <ProductName /> forgets this server. Containers already running there keep running until you stop them on the server.
+          </>
+        }
+      />
       <CardBody className="flex flex-wrap items-center justify-between gap-3 py-4">
         <p className="text-[13px] text-muted">
           {server.services > 0

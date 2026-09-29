@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { toast } from "@/components/ui/toast";
+import { AuthError } from "../../_components/auth-card";
+import { PasswordInput } from "../../_components/password-input";
 import { acceptInvite, acceptInviteWithSignup } from "@/server/actions/auth";
 import { authClient } from "@/lib/auth-client";
 
@@ -23,27 +24,32 @@ export function InviteActions({
 }) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   if (signedInAs && signedInAs.toLowerCase() === email.toLowerCase()) {
     return (
-      <Button
-        variant="primary"
-        size="lg"
-        className="w-full"
-        loading={pending}
-        onClick={async () => {
-          setPending(true);
-          const res = await acceptInvite(invitationId);
-          if (!res.ok) {
-            setPending(false);
-            return toast.error(res.error);
-          }
-          router.replace("/");
-          router.refresh();
-        }}
-      >
-        Accept and join
-      </Button>
+      <div className="flex flex-col gap-4">
+        <AuthError>{error}</AuthError>
+        <Button
+          variant="primary"
+          size="lg"
+          className="w-full"
+          loading={pending}
+          onClick={async () => {
+            setPending(true);
+            setError(null);
+            const res = await acceptInvite(invitationId);
+            if (!res.ok) {
+              setPending(false);
+              return setError(res.error);
+            }
+            router.replace("/");
+            router.refresh();
+          }}
+        >
+          Accept and join
+        </Button>
+      </div>
     );
   }
 
@@ -55,6 +61,8 @@ export function InviteActions({
           <span className="text-fg-2">{email}</span>.
         </p>
         <Button
+          size="lg"
+          className="w-full"
           onClick={async () => {
             await authClient.signOut();
             router.refresh();
@@ -70,7 +78,7 @@ export function InviteActions({
     return (
       <div className="flex flex-col gap-3 text-[13px] text-muted">
         <p>You already have an account with this email. Sign in to accept the invite.</p>
-        <Link href={`/login?next=/invite/${invitationId}`} className={buttonVariants({ variant: "primary", size: "lg" })}>
+        <Link href={`/login?next=/invite/${invitationId}`} className={buttonVariants({ variant: "primary", size: "lg", className: "w-full" })}>
           Sign in to accept
         </Link>
       </div>
@@ -84,6 +92,7 @@ export function InviteActions({
         e.preventDefault();
         const form = new FormData(e.currentTarget);
         setPending(true);
+        setError(null);
         const res = await acceptInviteWithSignup({
           invitationId,
           name: String(form.get("name")),
@@ -91,22 +100,23 @@ export function InviteActions({
         });
         if (!res.ok) {
           setPending(false);
-          return toast.error(res.error);
+          return setError(res.error);
         }
         router.replace("/");
         router.refresh();
       }}
     >
       <Field label="Email">
-        <Input value={email} disabled readOnly />
+        <Input value={email} disabled readOnly className="h-10" />
       </Field>
       <Field label="Your name">
-        <Input name="name" required autoFocus autoComplete="name" />
+        <Input name="name" required autoFocus autoComplete="name" className="h-10" />
       </Field>
       <Field label="Choose a password" description="At least 8 characters.">
-        <Input name="password" type="password" required minLength={8} autoComplete="new-password" />
+        <PasswordInput name="password" required minLength={8} autoComplete="new-password" className="h-10" />
       </Field>
-      <Button type="submit" variant="primary" size="lg" loading={pending}>
+      <AuthError>{error}</AuthError>
+      <Button type="submit" variant="primary" size="lg" loading={pending} className="mt-1 w-full">
         Create account and join
       </Button>
     </form>

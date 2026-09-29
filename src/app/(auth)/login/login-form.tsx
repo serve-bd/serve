@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/misc";
+import { AuthCard, AuthError } from "../_components/auth-card";
+import { PasswordInput } from "../_components/password-input";
 import { authClient } from "@/lib/auth-client";
 
 export function LoginForm({ next }: { next: string }) {
@@ -58,12 +59,11 @@ export function LoginForm({ next }: { next: string }) {
 
   if (needsCode) {
     return (
-      <Card className="p-5">
+      <AuthCard
+        title="Two-factor authentication"
+        description={useBackup ? "Enter one of your backup codes." : "Enter the 6-digit code from your authenticator app."}
+      >
         <form onSubmit={verify} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <p className="text-[15px] font-semibold text-fg">Two-factor authentication</p>
-            <p className="text-[13px] text-muted">{useBackup ? "Enter one of your backup codes." : "Enter the 6-digit code from your authenticator app."}</p>
-          </div>
           <Field label={useBackup ? "Backup code" : "Code"}>
             <Input
               key={useBackup ? "backup" : "totp"}
@@ -73,35 +73,42 @@ export function LoginForm({ next }: { next: string }) {
               autoComplete="one-time-code"
               inputMode={useBackup ? "text" : "numeric"}
               maxLength={useBackup ? 32 : 6}
-              className="text-center font-mono text-lg tracking-[0.4em]"
+              className="h-11 text-center font-mono text-lg tracking-[0.4em]"
             />
           </Field>
-          {error && <p className="rounded-md bg-bad-soft px-3 py-2 text-[13px] text-bad">{error}</p>}
-          <Button type="submit" variant="primary" size="lg" loading={pending}>
+          <AuthError>{error}</AuthError>
+          <Button type="submit" variant="primary" size="lg" loading={pending} className="w-full">
             Verify
           </Button>
-          <button type="button" onClick={() => { setUseBackup((b) => !b); setError(null); }} className="text-[13px] text-accent hover:underline">
+          <button
+            type="button"
+            onClick={() => {
+              setUseBackup((b) => !b);
+              setError(null);
+            }}
+            className="text-[13px] text-muted transition-colors hover:text-fg"
+          >
             {useBackup ? "Use authenticator app" : "Use a backup code"}
           </button>
         </form>
-      </Card>
+      </AuthCard>
     );
   }
 
   return (
-    <Card className="p-5">
+    <AuthCard title="Sign in" description="Use your account to continue.">
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <Field label="Email">
-          <Input name="email" type="email" required autoFocus autoComplete="email" placeholder="you@company.com" />
+          <Input name="email" type="email" required autoFocus autoComplete="email" placeholder="you@company.com" className="h-10" />
         </Field>
         <Field label="Password">
-          <Input name="password" type="password" required autoComplete="current-password" />
+          <PasswordInput name="password" required autoComplete="current-password" className="h-10" />
         </Field>
-        {error && <p className="rounded-md bg-bad-soft px-3 py-2 text-[13px] text-bad">{error}</p>}
-        <Button type="submit" variant="primary" size="lg" loading={pending} className="mt-1">
+        <AuthError>{error}</AuthError>
+        <Button type="submit" variant="primary" size="lg" loading={pending} className="mt-1 w-full">
           Sign in
         </Button>
       </form>
-    </Card>
+    </AuthCard>
   );
 }

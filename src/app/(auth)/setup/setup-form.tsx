@@ -5,18 +5,20 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/misc";
-import { toast } from "@/components/ui/toast";
+import { AuthCard, AuthError } from "../_components/auth-card";
+import { PasswordInput } from "../_components/password-input";
 import { setupInstance } from "@/server/actions/auth";
 
 export function SetupForm() {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     setPending(true);
+    setError(null);
     const res = await setupInstance({
       name: String(form.get("name")),
       email: String(form.get("email")),
@@ -24,28 +26,36 @@ export function SetupForm() {
     });
     if (!res.ok) {
       setPending(false);
-      toast.error(res.error);
+      setError(res.error);
       return;
     }
     router.replace("/onboarding");
   }
 
   return (
-    <Card className="p-5">
+    <AuthCard
+      title="Create the owner account"
+      description={
+        <>
+          You will own the <span className="font-medium text-fg-2">Root</span> organization, which manages this server.
+        </>
+      }
+    >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <Field label="Your name">
-          <Input name="name" required autoFocus autoComplete="name" placeholder="Ada Lovelace" />
+        <Field label="Name">
+          <Input name="name" required autoFocus autoComplete="name" placeholder="Ada Lovelace" className="h-10" />
         </Field>
         <Field label="Email">
-          <Input name="email" type="email" required autoComplete="email" placeholder="you@company.com" />
+          <Input name="email" type="email" required autoComplete="email" placeholder="you@company.com" className="h-10" />
         </Field>
         <Field label="Password" description="At least 8 characters.">
-          <Input name="password" type="password" required minLength={8} autoComplete="new-password" />
+          <PasswordInput name="password" required minLength={8} autoComplete="new-password" className="h-10" />
         </Field>
-        <Button type="submit" variant="primary" size="lg" loading={pending} className="mt-1">
-          Create owner account
+        <AuthError>{error}</AuthError>
+        <Button type="submit" variant="primary" size="lg" loading={pending} className="mt-1 w-full">
+          Create account
         </Button>
       </form>
-    </Card>
+    </AuthCard>
   );
 }

@@ -110,7 +110,7 @@ function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: bo
             value={organization}
             onChange={(e) => setOrganization(e.target.value)}
             placeholder="Organization name, e.g. acme"
-            className="mt-1 sm:max-w-xs"
+            className="mt-1"
             autoFocus
             aria-label="GitHub organization name"
           />

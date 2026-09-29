@@ -154,16 +154,27 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
   const [redirect, setRedirect] = React.useState("");
   const [mode, setMode] = React.useState<"route" | "redirect">("route");
 
+  const [step, setStep] = React.useState<1 | 2>(1);
   const lookup = useDebounced(hostname, 500);
-  const { data: zoneData } = useSWR(props.hasCloudflare && /\.[a-z]{2,}$/i.test(lookup) ? ["cf-zone", lookup] : null, async () => {
+  const { data: zoneData, isLoading: zoneLoading } = useSWR(props.hasCloudflare && /\.[a-z]{2,}$/i.test(lookup) ? ["cf-zone", lookup] : null, async () => {
     const res = await findCloudflareZone(lookup);
     return res.ok ? res.data : null;
   });
   const zone = props.hasCloudflare && /\.[a-z]{2,}$/i.test(hostname) ? (zoneData ?? null) : null;
   const tunnel = zone ? props.tunnels.find((t) => t.accountId === zone.accountId) : undefined;
-  // Without a public IP the tunnel is the only way in, so it is the default.
-  const [route, setRoute] = React.useState<"ip" | "tunnel">(props.serverIp ? "ip" : "tunnel");
-  const viaTunnel = !!tunnel && route === "tunnel" && mode === "route";
+  // A tunnel, when the domain's Cloudflare account has one, is the default: it needs no public IP or open port.
+  const [chosenRoute, setRoute] = React.useState<"ip" | "tunnel" | null>(null);
+  const route = chosenRoute ?? (tunnel ? "tunnel" : "ip");
+  const viaTunnel = !!tunnel && route === "tunnel";
+  const validHost = /^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(hostname);
+  const step1Done = validHost && (mode === "redirect" ? !!redirect.trim() : props.type !== "compose" || (!!composeService && !!port));
+  const close = (o: boolean) => {
+    onOpenChange(o);
+    if (!o) {
+      setStep(1);
+      setRoute(null);
+    }
+  };
 
   const { run, pending } = useAction(
     () =>
@@ -181,126 +192,166 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
       onSuccess: (d) => {
         if (d.warning) toast.warning("Domain added", d.warning);
         else toast.success("Domain added");
-        onOpenChange(false);
+        close(false);
         setHostname("");
       },
     },
   );
 
+  const routeCard = (r: "tunnel" | "ip") => (
+    <button
+      key={r}
+      type="button"
+      onClick={() => setRoute(r)}
+      className={cn(
+        "flex items-start gap-3 rounded-xl border p-3.5 text-left transition-colors",
+        route === r ? "border-accent bg-accent-soft/40 ring-1 ring-accent/30" : "border-line bg-surface hover:border-line-strong",
+      )}
+    >
+      <span className={cn("mt-0.5 flex size-4 flex-none items-center justify-center rounded-full border", route === r ? "border-accent" : "border-line-strong")}>
+        {route === r && <span className="size-2 rounded-full bg-accent" />}
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="flex items-center gap-1.5 text-[13px] font-medium text-fg">
+          {r === "tunnel" ? <Waypoints className="size-3.5 text-[#f38020]" /> : <Globe className="size-3.5 text-muted" />}
+          {r === "tunnel" ? "Cloudflare Tunnel" : "Server IP"}
+          {r === "tunnel" && <Badge tone="info">Recommended</Badge>}
+        </span>
+        <span className="text-xs leading-relaxed text-muted">
+          {r === "tunnel"
+            ? `Through the tunnel in ${tunnel?.accountName}. HTTPS by Cloudflare; no public IP or open port needed.`
+            : props.serverIp
+              ? `Visitors connect to ${props.serverIp}. Ports 80 and 443 must be reachable.`
+              : "Visitors connect to the server's public IP. Set it in the server settings first."}
+        </span>
+      </span>
+    </button>
+  );
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent>
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            if (step === 1) {
+              if (step1Done) setStep(2);
+              return;
+            }
             void run();
           }}
         >
-          <DialogHeader title="Add domain" description={
-              props.proxyKind === "none"
+          <DialogHeader
+            title={step === 1 ? "Add domain" : hostname}
+            description={step === 1 ? props.proxyKind === "none"
                 ? "Point a domain at this service. This server runs no proxy, so the domain is saved but not served."
                 : props.proxyKind === "caddy"
                   ? "Point a domain at this service. Caddy obtains and renews the certificate automatically."
                   : props.proxyKind === "traefik"
                     ? "Point a domain at this service. Traefik issues and renews the certificate."
-                    : "Point a domain at this service. HTTPS certificates are issued automatically."
-            }
+                    : "Point a domain at this service. HTTPS certificates are issued automatically." : mode === "redirect" ? `Redirects to ${redirect}` : "Choose how visitors reach this domain."}
           />
           <DialogBody>
+            <p className="-mt-1 text-[11px] font-medium tracking-wide text-faint uppercase">Step {step} of 2 · {step === 1 ? "Domain" : "Connection"}</p>
+            {step === 1 ? (
+              <>
             <Field label="Domain">
-              <Input value={hostname} onChange={(e) => setHostname(e.target.value.trim().toLowerCase())} placeholder="app.example.com" autoFocus required className="font-mono text-[13px]" />
-            </Field>
-            <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
-              {(["route", "redirect"] as const).map((m) => (
-                <button key={m} type="button" onClick={() => setMode(m)} className={`h-8 rounded-lg text-[13px] font-medium transition-all ${mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"}`}>
-                  {m === "route" ? "Route to this service" : "Redirect to a URL"}
-                </button>
-              ))}
-            </div>
-            {mode === "redirect" ? (
-              <Field label="Redirect to" description="Visitors are sent to this URL with a permanent redirect.">
-                <Input value={redirect} onChange={(e) => setRedirect(e.target.value)} placeholder="https://www.example.com" required />
-              </Field>
-            ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {props.type === "compose" && (
-                  <Field label="Compose service">
-                    <Select value={composeService} onValueChange={(v) => { setComposeService(v); setPort(defaultPortFor(v)); }} options={props.composeServices.map((s) => ({ value: s, label: s }))} />
-                  </Field>
-                )}
-                <Field label="Container port" optional={props.type !== "compose"} description={props.type === "app" && props.defaultPort ? `Defaults to ${props.defaultPort}` : undefined}>
-                  <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder={String(props.defaultPort ?? 80)} inputMode="numeric" required={props.type === "compose"} />
+                  <Input value={hostname} onChange={(e) => setHostname(e.target.value.trim().toLowerCase())} placeholder="app.example.com" autoFocus required className="font-mono text-[13px]" />
                 </Field>
-              </div>
-            )}
-            {tunnel && mode === "route" && (
-              <Field label="Route traffic through">
                 <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
-                  {(["tunnel", "ip"] as const).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setRoute(r)}
-                      className={`flex h-8 items-center justify-center gap-1.5 rounded-lg text-[13px] font-medium transition-all ${route === r ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"}`}
-                    >
-                      {r === "tunnel" ? <Waypoints className="size-3.5 text-[#f38020]" /> : <Globe className="size-3.5" />}
-                      {r === "tunnel" ? "Cloudflare Tunnel" : "Server IP"}
+                  {(["route", "redirect"] as const).map((m) => (
+                    <button key={m} type="button" onClick={() => setMode(m)} className={`h-8 rounded-lg text-[13px] font-medium transition-all ${mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"}`}>
+                      {m === "route" ? "Route to this service" : "Redirect to a URL"}
                     </button>
                   ))}
                 </div>
-              </Field>
-            )}
-            {viaTunnel ? (
-              <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
-                <Waypoints className="mt-0.5 size-4 flex-none text-[#f38020]" />
-                <p>
-                  Serve points <span className="font-mono text-fg">{hostname}</span> at the tunnel in {tunnel!.accountName}. Cloudflare serves it over HTTPS, so no
-                  certificate or open port is needed.
-                </p>
-              </div>
-            ) : props.proxyKind === "none" ? (
-              <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
-                <Globe className="mt-0.5 size-4 flex-none text-muted" />
-                <p>No proxy on this server — use published ports or your own proxy. Serve saves the domain and serves it again when a proxy runs.</p>
-              </div>
+                {mode === "redirect" ? (
+                  <Field label="Redirect to" description="Visitors are sent to this URL with a permanent redirect.">
+                    <Input value={redirect} onChange={(e) => setRedirect(e.target.value)} placeholder="https://www.example.com" required />
+                  </Field>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {props.type === "compose" && (
+                      <Field label="Compose service">
+                        <Select value={composeService} onValueChange={(v) => { setComposeService(v); setPort(defaultPortFor(v)); }} options={props.composeServices.map((s) => ({ value: s, label: s }))} />
+                      </Field>
+                    )}
+                    <Field label="Container port" optional={props.type !== "compose"} description={props.type === "app" && props.defaultPort ? `Defaults to ${props.defaultPort}` : undefined}>
+                      <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder={String(props.defaultPort ?? 80)} inputMode="numeric" required={props.type === "compose"} />
+                    </Field>
+                  </div>
+                )}
+              </>
             ) : (
               <>
-                <SwitchRow title="HTTPS" description={httpsDescription(props)} checked={https} onCheckedChange={setHttps} />
-                {https && !!hostname && challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx") && (
-                  <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
-                    {challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx")} Route the domain through a Cloudflare Tunnel
-                    {props.proxyKind === "traefik" ? " or use the Cloudflare DNS challenge (Server → Proxy)" : props.proxyKind === "caddy" ? "" : " or add it from a Cloudflare zone for DNS validation"}.
+                {zoneLoading && !zoneData && <p className="text-xs text-muted">Looking for {hostname} in your Cloudflare accounts…</p>}
+                {tunnel && <div className="grid grid-cols-1 gap-2">{(["tunnel", "ip"] as const).map(routeCard)}</div>}
+            {viaTunnel ? (
+                  <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
+                    <Waypoints className="mt-0.5 size-4 flex-none text-[#f38020]" />
+                    <p>
+                      Serve points <span className="font-mono text-fg">{hostname}</span> at the tunnel in {tunnel!.accountName}. Cloudflare serves it over HTTPS, so no
+                      certificate or open port is needed.
+                    </p>
+                  </div>
+                ) : props.proxyKind === "none" ? (
+                  <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
+                    <Globe className="mt-0.5 size-4 flex-none text-muted" />
+                    <p>No proxy on this server — use published ports or your own proxy. Serve saves the domain and serves it again when a proxy runs.</p>
+                  </div>
+                ) : (
+                  <>
+                    <SwitchRow title="HTTPS" description={httpsDescription(props)} checked={https} onCheckedChange={setHttps} />
+                    {https && !!hostname && challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx") && (
+                      <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
+                        {challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx")} Route the domain through a Cloudflare Tunnel
+                        {props.proxyKind === "traefik" ? " or use the Cloudflare DNS challenge (Server → Proxy)" : props.proxyKind === "caddy" ? "" : " or add it from a Cloudflare zone for DNS validation"}.
+                      </p>
+                    )}
+                  </>
+                )}
+                {zone && !viaTunnel && (
+                  <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4">
+                    <div className="flex items-center gap-2 text-[13px] font-medium text-fg">
+                      <Cloud className="size-4 text-[#f38020]" /> Found {zone.zoneName} in Cloudflare ({zone.accountName})
+                    </div>
+                    <SwitchRow title="Create the DNS record" description={props.serverIp ? `A record → ${props.serverIp}` : "Set the server IP in Server settings first."} checked={createRecord} onCheckedChange={setCreateRecord} />
+                    <SwitchRow title="Proxy through Cloudflare" description="Orange cloud. Hides your server IP and adds Cloudflare's CDN and DDoS protection." checked={proxied} onCheckedChange={setProxied} />
+                    {https && (props.proxyKind ?? "nginx") === "nginx" && <p className="text-xs text-muted">The certificate is validated through Cloudflare DNS, so it works even when proxied.</p>}
+                  </div>
+                )}
+                {!zone && hostname && props.tunnels.length > 0 && (
+                  <p className="text-xs leading-relaxed text-muted">
+                    Domains in {props.tunnels.map((t) => t.accountName).join(" or ")} can use the Cloudflare Tunnel of this server.
+                  </p>
+                )}
+                {!zone && hostname && props.serverIp && (
+                  <p className="text-xs leading-relaxed text-muted">
+                    Create an <span className="font-mono text-fg-2">A</span> record for <span className="font-mono text-fg-2">{hostname}</span> pointing to{" "}
+                    <span className="font-mono text-fg-2">{props.serverIp}</span>.
                   </p>
                 )}
               </>
             )}
-            {zone && !viaTunnel && (
-              <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4">
-                <div className="flex items-center gap-2 text-[13px] font-medium text-fg">
-                  <Cloud className="size-4 text-[#f38020]" /> Found {zone.zoneName} in Cloudflare ({zone.accountName})
-                </div>
-                <SwitchRow title="Create the DNS record" description={props.serverIp ? `A record → ${props.serverIp}` : "Set the server IP in Server settings first."} checked={createRecord} onCheckedChange={setCreateRecord} />
-                <SwitchRow title="Proxy through Cloudflare" description="Orange cloud. Hides your server IP and adds Cloudflare's CDN and DDoS protection." checked={proxied} onCheckedChange={setProxied} />
-                {https && (props.proxyKind ?? "nginx") === "nginx" && <p className="text-xs text-muted">The certificate is validated through Cloudflare DNS, so it works even when proxied.</p>}
-              </div>
-            )}
-            {!zone && hostname && props.tunnels.length > 0 && (
-              <p className="text-xs leading-relaxed text-muted">
-                Domains in {props.tunnels.map((t) => t.accountName).join(" or ")} can use the Cloudflare Tunnel of this server.
-              </p>
-            )}
-            {!zone && hostname && props.serverIp && (
-              <p className="text-xs leading-relaxed text-muted">
-                Create an <span className="font-mono text-fg-2">A</span> record for <span className="font-mono text-fg-2">{hostname}</span> pointing to{" "}
-                <span className="font-mono text-fg-2">{props.serverIp}</span>.
-              </p>
-            )}
           </DialogBody>
           <DialogFooter>
-            <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
-            <Button type="submit" variant="primary" size="sm" loading={pending} disabled={!hostname}>
-              Add domain
-            </Button>
+            {step === 1 ? (
+              <>
+                <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
+                <Button type="submit" variant="primary" size="sm" disabled={!step1Done}>
+                  Continue
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setStep(1)}>
+                  Back
+                </Button>
+                <Button type="submit" variant="primary" size="sm" loading={pending}>
+                  Add domain
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

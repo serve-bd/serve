@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { ServerInfo, ServerStatus } from "@/server/db/schema";
 import { ensureNetwork } from "@/server/docker/client";
-import { forgetServer, getServer, getServerRow, sshTargetFor } from "./context";
+import { forgetServer, getServer, getServerRow, LOCAL_SERVER_ID, sshTargetFor } from "./context";
 import { connect, HostKeyMismatchError, sh, sshExec, type SshTarget } from "./ssh";
 
 type Log = (line: string) => void;
@@ -89,6 +89,20 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
       if (docker.code !== 0) throw new Error(`Docker was installed but does not answer: ${docker.stderr.trim()}`);
     }
     log(`Docker ${docker.stdout.trim()}`);
+
+    // Two servers on one Docker engine would fight over the same proxy container and ports
+    // (e.g. adding 127.0.0.1 over SSH on the machine Serve runs on).
+    const dockerId = (await run(target, "docker info --format '{{.ID}}'", log, { quiet: true })).stdout.trim();
+    if (dockerId) {
+      const local = await getServer(LOCAL_SERVER_ID).then((c) => c.docker.info() as Promise<{ ID?: string }>).catch(() => null);
+      if (local?.ID && local.ID === dockerId) {
+        throw new Error("This is the Docker engine Serve itself runs on. Use the built-in \"This server\" entry instead of adding it again.");
+      }
+      const twin = (await db.select({ id: schema.server.id, name: schema.server.name, info: schema.server.info }).from(schema.server)).find(
+        (r) => r.id !== serverId && (r.info as ServerInfo & { dockerId?: string }).dockerId === dockerId,
+      );
+      if (twin) throw new Error(`This is the same Docker engine as the server ${twin.name}. Each server needs its own Docker engine.`);
+    }
     const compose = await run(target, "docker compose version --short", log, { quiet: true });
     if (compose.code !== 0) log("Docker Compose v2 is missing. Compose services will not deploy on this server.");
     else log(`Compose ${compose.stdout.trim()}`);
@@ -105,7 +119,7 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
       { quiet: true },
     );
     const [os, kernel, arch, cpus, memory] = facts.stdout.trim().split("\n");
-    const info: ServerInfo = { os, kernel, arch, cpus: Number(cpus) || undefined, memory: Number(memory) || undefined, docker: docker.stdout.trim(), compose: compose.code === 0 ? compose.stdout.trim() : null };
+    const info: ServerInfo = { os, kernel, arch, cpus: Number(cpus) || undefined, memory: Number(memory) || undefined, docker: docker.stdout.trim(), compose: compose.code === 0 ? compose.stdout.trim() : null, dockerId } as ServerInfo;
     await db.update(schema.server).set({ info }).where(eq(schema.server.id, serverId));
     log(`${os} · ${arch} · ${cpus} CPU`);
 

@@ -11,6 +11,7 @@ import { paths } from "@/server/paths";
 import { syncServiceProxy } from "@/server/proxy/nginx";
 import { getSettings } from "@/server/settings";
 import { resolveEnv } from "@/server/services/variables";
+import { composeVariables } from "@/lib/compose-vars";
 import { engines } from "@/server/databases/engines";
 import { logActivity } from "@/server/activity";
 import { notify, orgOfService } from "@/server/notify";
@@ -494,6 +495,14 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
       .where(eq(schema.service.id, service.id));
   }
   checkCancelled(signal);
+
+  // Docker Compose silently turns an unset ${VAR} into an empty string, which fails later in
+  // confusing ways (a database without a password never becomes healthy). Stop here instead.
+  const unset = composeVariables(content).filter((v) => !v.hasDefault && !(v.name in env.runtime));
+  if (unset.length) {
+    const names = unset.map((v) => v.name).join(", ");
+    throw new Error(`The compose file uses ${unset.length === 1 ? "a variable that is" : "variables that are"} not set: ${names}. Add ${unset.length === 1 ? "it" : "them"} in Variables (an empty value is fine if that is intended), then deploy again.`);
+  }
 
   let subnet = cfg.subnet ?? null;
   if (!subnet) {

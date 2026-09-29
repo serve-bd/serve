@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Code2, Eye, EyeOff, Plus, Trash2, Link2 } from "lucide-react";
+import { Code2, Eye, EyeOff, Plus, Trash2, Link2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardFooter, CardHeader, CopyButton, EmptyState } from "@/components/ui/misc";
 import { Input, Textarea } from "@/components/ui/input";
@@ -35,6 +35,7 @@ export function VariablesEditor({
   shared,
   references,
   settingsHref,
+  composeVars = [],
 }: {
   serviceId: string;
   type: string;
@@ -43,6 +44,8 @@ export function VariablesEditor({
   shared: string[];
   references: { name: string; keys: string[]; label?: string }[];
   settingsHref: string;
+  /** ${VARIABLES} the compose file uses without a default. */
+  composeVars?: string[];
 }) {
   const [vars, setVars] = React.useState<Var[]>(() => initial.map(withId));
   const [raw, setRaw] = React.useState<string | null>(null);
@@ -68,9 +71,29 @@ export function VariablesEditor({
   const update = (id: number, patch: Partial<Var>) => setVars((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
   const hasBuild = type === "app";
   const canRedeploy = status !== "idle";
+  const missing = composeVars.filter((name) => !current.some((v) => v.key === name) && !shared.includes(name));
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="flex min-w-0 flex-col gap-4">
+      {missing.length > 0 && (
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/30 bg-warn-soft px-4 py-3 text-[13px]">
+          <TriangleAlert className="size-4 flex-none text-warn" />
+          <p className="min-w-0 flex-1 text-fg-2">
+            The compose file uses {missing.length === 1 ? "a variable that is" : "variables that are"} not set:{" "}
+            <span className="font-mono text-fg">{missing.join(", ")}</span>. Deploys stop until {missing.length === 1 ? "it is" : "they are"} added.
+          </p>
+          <Button
+            size="sm"
+            onClick={() => {
+              setRaw(null);
+              setVars((prev) => [...prev, ...missing.map((key) => withId({ key, value: "", buildTime: false, runtime: true }))]);
+            }}
+          >
+            <Plus /> Add {missing.length === 1 ? "it" : "all"}
+          </Button>
+        </div>
+      )}
       <Card className="overflow-hidden">
         <CardHeader
           title="Environment variables"
@@ -172,6 +195,7 @@ export function VariablesEditor({
           </div>
         </CardFooter>
       </Card>
+      </div>
 
       <div className="flex flex-col gap-4">
         <Card>

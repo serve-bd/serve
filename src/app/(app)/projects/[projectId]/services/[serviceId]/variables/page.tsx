@@ -5,6 +5,7 @@ import { decryptOrNull } from "@/server/crypto";
 import { pageService } from "@/server/services/access";
 import { providedVars } from "@/server/services/variables";
 import { PageBody } from "@/components/shell/page-header";
+import { composeVariables } from "@/lib/compose-vars";
 import { VariablesEditor } from "./variables-editor";
 
 export const metadata = { title: "Variables" };
@@ -43,6 +44,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
         shared={shared.map((s) => s.key)}
         references={references}
         settingsHref={`/projects/${projectId}/settings`}
+        composeVars={service.compose ? composeVariables(service.compose.content).filter((v) => !v.hasDefault).map((v) => v.name) : []}
       />
     </PageBody>
   );

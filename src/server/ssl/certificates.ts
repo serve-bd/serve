@@ -253,6 +253,9 @@ export async function issueCertificate(certificateId: string) {
       title: `Certificate ${wasActive ? "renewed" : "issued"}`,
       body: `${cert.domains.join(", ")} — valid until ${parsed.expiresAt.toDateString()}`,
       url: "/certificates",
+      status: wasActive ? "renewed" : "issued",
+      dedupKey: `certificate:${cert.id}`,
+      data: { certificateId: cert.id, domains: cert.domains, expiresAt: parsed.expiresAt.toISOString() },
     });
   } catch (error) {
     clearInterval(flush);
@@ -268,6 +271,9 @@ export async function issueCertificate(certificateId: string) {
       title: "Certificate request failed",
       body: `${cert.domains.join(", ")}: ${hint(output ?? message).slice(0, 300)}`,
       url: "/certificates",
+      error: hint(output ?? message).slice(0, 2000),
+      dedupKey: `certificate:${cert.id}`,
+      data: { certificateId: cert.id, domains: cert.domains },
     });
     // Report the reason, not "docker run exited with code 1", in the job and worker log.
     throw new Error(

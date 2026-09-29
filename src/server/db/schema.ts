@@ -3,6 +3,7 @@ import { relations, sql } from "drizzle-orm";
 import type { BuildConfig, ComposeConfig, DatabaseConfig, RuntimeConfig, SourceConfig } from "@/server/services/types";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import type { ProxyKind, RunningKind, ProxySwitchState, ServerProxyConfig } from "@/server/proxy/config";
+import type { ChannelScope, MessageTemplate, NotificationKind, QuietHours, Severity } from "@/lib/notifications";
 
 const id = () => text("id").primaryKey();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -582,7 +583,7 @@ export const gitCredential = pgTable("git_credential", {
   updatedAt: updatedAt(),
 });
 
-export type NotificationKind = "discord" | "slack" | "telegram" | "webhook" | "email";
+export type { NotificationKind } from "@/lib/notifications";
 
 export const notificationChannel = pgTable("notification_channel", {
   id: id(),
@@ -593,8 +594,55 @@ export const notificationChannel = pgTable("notification_channel", {
   config: text("config").notNull(),
   events: text("events").array().notNull().default(sql`'{}'::text[]`),
   enabled: boolean("enabled").notNull().default(true),
+  /** Projects, environments or services it covers; null means everything. */
+  scope: jsonb("scope").$type<ChannelScope>(),
+  /** Lowest severity that is sent. */
+  minSeverity: text("min_severity").$type<Severity>().notNull().default("info"),
+  quietHours: jsonb("quiet_hours").$type<QuietHours>(),
+  /** Repeats of the same event within this many minutes are grouped into the next message. */
+  throttleMinutes: integer("throttle_minutes").notNull().default(0),
+  /** Custom title and body with {placeholders}; null uses the default text. */
+  template: jsonb("template").$type<MessageTemplate>(),
+  lastDeliveryAt: timestamp("last_delivery_at", { withTimezone: true }),
+  lastDeliveryStatus: text("last_delivery_status").$type<DeliveryStatus>(),
+  lastDeliveryError: text("last_delivery_error"),
   createdAt: createdAt(),
+  updatedAt: updatedAt(),
 });
+
+/**
+ * sent/failed: delivered or not (failed ones retry until attempts run out).
+ * held: waiting for quiet hours to end. suppressed: dropped by quiet hours or a provider.
+ * grouped: a repeat inside the throttle window, counted in the next message.
+ */
+export type DeliveryStatus = "pending" | "sent" | "failed" | "held" | "suppressed" | "grouped";
+
+export const notificationDelivery = pgTable(
+  "notification_delivery",
+  {
+    id: id(),
+    organizationId: orgRef(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => notificationChannel.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    severity: text("severity").$type<Severity>().notNull(),
+    title: text("title").notNull(),
+    status: text("status").$type<DeliveryStatus>().notNull(),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(0),
+    /** event + service/server: repeats share it. */
+    groupKey: text("group_key").notNull(),
+    /** The resolved message, kept for retries and digests. */
+    message: jsonb("message").$type<Record<string, unknown>>().notNull(),
+    /** Test sends are shown in history but never grouped or held. */
+    test: boolean("test").notNull().default(false),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("notification_delivery_channel_idx").on(t.channelId, t.createdAt), index("notification_delivery_org_idx").on(t.organizationId, t.createdAt)],
+);
 
 export const apiToken = pgTable("api_token", {
   id: id(),

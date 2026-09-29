@@ -8,6 +8,7 @@ import { getSettings, type UpdateCheck, type UpdateRun, updateSettings } from "@
 import { queueInstanceBackupRecord, runInstanceBackup } from "./backups";
 import { compareVersions, nextImage } from "./manifest";
 import { currentVersion, updateRepository } from "./version";
+import { notify } from "@/server/notify";
 
 export const UPDATER_CONTAINER = "serve-updater";
 const DEFAULT_IMAGE = "ghcr.io/shahriyardx/serve:latest";
@@ -61,7 +62,20 @@ export async function periodicUpdateCheck() {
   const s = await getSettings();
   if (!s.updateCheckEnabled) return;
   const age = s.updateCheck ? Date.now() - new Date(s.updateCheck.checkedAt).getTime() : Number.POSITIVE_INFINITY;
-  if (age > 6 * 3600_000) await checkForUpdates();
+  if (age <= 6 * 3600_000) return;
+  const previous = s.updateCheck?.latest ?? null;
+  const check = await checkForUpdates();
+  // Tell once per new version, not on every check.
+  if (updateAvailable(check) && check.latest !== previous) {
+    await notify(s.rootOrganizationId, "instance.update.available", {
+      ok: true,
+      title: `Serve ${check.latest} is available`,
+      body: `This instance runs ${currentVersion()}. Open Settings → Updates to see what changed.`,
+      url: "/settings/updates",
+      status: "available",
+      data: { current: currentVersion(), latest: check.latest, releaseUrl: check.url },
+    });
+  }
 }
 
 async function setRun(patch: Partial<UpdateRun>) {
@@ -180,4 +194,14 @@ export async function reconcileUpdate() {
     .getContainer(run.container)
     .remove({ force: true })
     .catch(() => {});
+  const s = await getSettings();
+  await notify(s.rootOrganizationId, ok ? "instance.update.success" : "instance.update.failed", {
+    ok,
+    title: ok ? `Serve updated to ${run.to}` : `Serve update to ${run.to} failed`,
+    body: ok ? `Updated from ${run.from}.` : `The update container exited with code ${exitCode ?? "unknown"}. Serve keeps running ${currentVersion()}.`,
+    url: "/settings/updates",
+    status: ok ? "updated" : "failed",
+    dedupKey: `instance-update:${run.to}`,
+    data: { from: run.from, to: run.to, exitCode },
+  });
 }

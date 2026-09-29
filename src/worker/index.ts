@@ -25,6 +25,7 @@ import { checkTunnels } from "@/server/cloudflare/tunnels";
 import { checkContainerHealth, checkServerResources, pruneMonitoring, runUptimeChecks } from "@/server/monitoring/checks";
 import { failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBackups } from "@/server/instance/backups";
 import { periodicUpdateCheck, reconcileUpdate, runUpdate } from "@/server/instance/updates";
+import { attemptDelivery, flushHeldNotifications, pruneDeliveries, retryDueDeliveries } from "@/server/notifications/deliver";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -72,6 +73,8 @@ async function handle(job: Job, signal: AbortSignal) {
       return runInstanceBackup(p.backupId, (l) => log(`instance backup: ${l}`));
     case "instance.update":
       return runUpdate(p.to);
+    case "notification.deliver":
+      return void (await attemptDelivery(p.deliveryId));
     case "proxy.switch": {
       const { switchProxy } = await import("@/server/proxy/switch");
       return switchProxy(p.serverId, p.to as ProxyKind);
@@ -193,6 +196,8 @@ async function monitorServices() {
         title: `${s.name} has no containers`,
         body: "Its containers were removed outside Serve. Deploy or restart it to recreate them.",
         url: `/projects/${s.projectId}/services/${s.id}`,
+        status: "crashed",
+        serviceId: s.id,
       });
       continue;
     }
@@ -207,6 +212,8 @@ async function monitorServices() {
           title: `${s.name} crashed`,
           body: "All containers for this service have stopped.",
           url: `/projects/${s.projectId}/services/${s.id}`,
+          status: "crashed",
+          serviceId: s.id,
         });
       }
     }
@@ -343,6 +350,12 @@ async function main() {
   every(60_000, "container-health", checkContainerHealth);
   every(60_000, "server-resources", checkServerResources);
   every(3600_000, "monitoring-prune", pruneMonitoring);
+  // Quiet-hours summaries, lost retries and old delivery history.
+  every(60_000, "notifications", async () => {
+    await flushHeldNotifications();
+    await retryDueDeliveries();
+  });
+  every(3600_000, "notifications-prune", pruneDeliveries);
 
   void loop();
 }

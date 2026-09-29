@@ -1,180 +1,290 @@
 "use client";
 
 import * as React from "react";
-import { Bell, Pencil, Plus, Send, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Bell, History, MoreHorizontal, Moon, Pencil, Plus, RotateCw, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, EmptyState } from "@/components/ui/misc";
-import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
-import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { Badge, Card, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuLinkItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useConfirm } from "@/components/ui/confirm";
+import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { useAction } from "@/hooks/use-action";
-import { deleteNotificationChannel, saveNotificationChannel, testNotificationChannel, toggleNotificationChannel } from "@/server/actions/integrations";
+import { eventInfo, providerCategories, providerInfo, providers, severityOptions } from "@/lib/notifications";
+import { cn } from "@/lib/utils";
+import { deleteNotificationChannel, retryNotificationDelivery, testNotificationChannel, toggleNotificationChannel } from "@/server/actions/notifications";
+import { ProviderIcon } from "./provider-icon";
 
-type Channel = { id: string; name: string; kind: string; enabled: boolean; events: string[]; config: Record<string, string> };
+export type ChannelCard = {
+  id: string;
+  name: string;
+  kind: string;
+  enabled: boolean;
+  events: string[];
+  minSeverity: string;
+  scoped: boolean;
+  quietHours: string | null;
+  throttleMinutes: number;
+  lastDelivery: { at: string; status: string; error: string | null } | null;
+};
 
-const kinds = {
-  discord: { label: "Discord", fields: [["webhookUrl", "Webhook URL", "https://discord.com/api/webhooks/…"]] },
-  slack: { label: "Slack", fields: [["webhookUrl", "Incoming webhook URL", "https://hooks.slack.com/services/…"]] },
-  telegram: {
-    label: "Telegram",
-    fields: [
-      ["botToken", "Bot token", "123456:ABC…"],
-      ["chatId", "Chat ID", "-1001234567890"],
-    ],
-  },
-  webhook: { label: "Webhook", fields: [["url", "URL", "https://example.com/hooks/serve"]] },
-  email: { label: "Email", fields: [["to", "Send to", "ops@example.com, oncall@example.com"]] },
-} as const;
+export type DeliveryRow = {
+  id: string;
+  channelId: string;
+  event: string;
+  severity: string;
+  title: string;
+  status: string;
+  error: string | null;
+  attempts: number;
+  nextAttemptAt: string | null;
+  test: boolean;
+  createdAt: string;
+};
 
-export function NotificationChannels({ channels, events, isAdmin }: { channels: Channel[]; events: { id: string; label: string }[]; isAdmin: boolean }) {
+const statusTone: Record<string, { label: string; tone: "ok" | "bad" | "info" | "neutral" | "warn" }> = {
+  sent: { label: "Sent", tone: "ok" },
+  failed: { label: "Failed", tone: "bad" },
+  pending: { label: "Sending", tone: "neutral" },
+  held: { label: "Held", tone: "info" },
+  suppressed: { label: "Not sent", tone: "neutral" },
+  grouped: { label: "Grouped", tone: "neutral" },
+};
+
+const popular = ["slack", "discord", "email", "telegram", "teams", "ntfy", "pagerduty", "webhook"];
+
+export function AddChannelMenu({ label = "Add channel", variant = "primary" }: { label?: string; variant?: "primary" | "secondary" }) {
+  return (
+    <Menu>
+      <MenuTrigger render={<Button size="sm" variant={variant} />}>
+        <Plus /> {label}
+      </MenuTrigger>
+      <MenuContent className="max-h-[70vh] w-60 overflow-y-auto">
+        {providerCategories.map((cat, i) => (
+          <React.Fragment key={cat}>
+            {i > 0 && <MenuSeparator />}
+            <MenuLabel>{cat}</MenuLabel>
+            {providers
+              .filter((p) => p.category === cat)
+              .map((p) => (
+                <MenuLinkItem key={p.id} render={<Link href={`/integrations/notifications/new/${p.id}`} />}>
+                  <ProviderIcon kind={p.id} size="sm" className="[&_svg]:text-white!" />
+                  {p.label}
+                </MenuLinkItem>
+              ))}
+          </React.Fragment>
+        ))}
+      </MenuContent>
+    </Menu>
+  );
+}
+
+export function NotificationChannels({ channels, deliveries, isAdmin }: { channels: ChannelCard[]; deliveries: DeliveryRow[]; isAdmin: boolean }) {
   const confirm = useConfirm();
-  const [editing, setEditing] = React.useState<Channel | null>(null);
-  const [open, setOpen] = React.useState(false);
-  const [form, setForm] = React.useState<{ name: string; kind: keyof typeof kinds; config: Record<string, string>; events: string[] }>({
-    name: "",
-    kind: "discord",
-    config: {},
-    events: ["deploy.failed", "service.crashed", "backup.failed", "certificate.failed"],
-  });
-
-  const openFor = (c: Channel | null) => {
-    setEditing(c);
-    setForm(
-      c
-        ? { name: c.name, kind: c.kind as keyof typeof kinds, config: c.config, events: c.events }
-        : { name: "", kind: "discord", config: {}, events: ["deploy.failed", "service.crashed", "backup.failed", "certificate.failed"] },
-    );
-    setOpen(true);
-  };
-  const save = useAction(() => saveNotificationChannel(editing?.id ?? null, form), { success: "Channel saved", onSuccess: () => setOpen(false) });
+  const [testing, setTesting] = React.useState<string | null>(null);
   const toggle = useAction((id: string, on: boolean) => toggleNotificationChannel(id, on));
-  const test = useAction(testNotificationChannel, { success: "Test sent", refresh: false });
+  const test = useAction((id: string) => testNotificationChannel(id), { success: "Test sent" });
   const remove = useAction(deleteNotificationChannel, { success: "Channel removed" });
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card className="overflow-hidden">
-        {channels.length > 0 && (
-          <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
-            <p className="text-[13px] text-muted">
-              {channels.length} channel{channels.length === 1 ? "" : "s"}
-            </p>
-            {isAdmin && (
-              <Button size="sm" variant="primary" onClick={() => openFor(null)}>
-                <Plus /> Add channel
-              </Button>
-            )}
-          </div>
-        )}
+    <>
+      <PageHeader
+        title="Notifications"
+        description="Choose where Serve sends alerts, which events each place gets, and when."
+        actions={isAdmin && channels.length > 0 && <AddChannelMenu />}
+      />
+      <PageBody className="flex flex-col gap-6">
         {channels.length === 0 ? (
-          <EmptyState
-            icon={<Bell />}
-            title="No notification channels"
-            description="Send alerts to Discord, Slack, Telegram or any webhook."
-            action={
-              isAdmin && (
-                <Button size="sm" variant="primary" onClick={() => openFor(null)}>
-                  <Plus /> Add channel
-                </Button>
-              )
-            }
-          />
+          <Card>
+            <EmptyState
+              icon={<Bell />}
+              title="No notification channels yet"
+              description="Get told when a deployment fails, a site goes down or a backup breaks. Pick where to send alerts."
+              action={isAdmin && <AddChannelMenu label="Choose a channel" />}
+            />
+            {isAdmin && (
+              <div className="grid grid-cols-2 gap-2 border-t border-line p-4 sm:grid-cols-4">
+                {popular.map((id) => {
+                  const p = providerInfo(id)!;
+                  return (
+                    <Link
+                      key={id}
+                      href={`/integrations/notifications/new/${id}`}
+                      className="flex items-center gap-2.5 rounded-xl border border-line px-3 py-2.5 text-[13px] font-medium text-fg-2 transition-colors hover:border-line-strong hover:bg-hover hover:text-fg"
+                    >
+                      <ProviderIcon kind={id} size="sm" />
+                      <span className="truncate">{p.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
         ) : (
-          <div className="divide-y divide-line">
-            {channels.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 px-5 py-3.5">
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex items-center gap-2 text-[14px] font-medium text-fg">
-                    {c.name} <Badge>{kinds[c.kind as keyof typeof kinds]?.label ?? c.kind}</Badge>
-                  </span>
-                  <span className="truncate text-xs text-muted">{c.events.map((e) => events.find((x) => x.id === e)?.label ?? e).join(" · ")}</span>
-                </div>
-                <Button size="sm" variant="ghost" onClick={() => test.run(c.id)} loading={test.pending}>
-                  <Send /> Test
-                </Button>
-                {isAdmin && (
-                  <>
-                    <Button size="icon-sm" variant="ghost" aria-label="Edit" onClick={() => openFor(c)}>
-                      <Pencil />
-                    </Button>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {channels.map((c) => {
+              const p = providerInfo(c.kind);
+              const last = c.lastDelivery;
+              return (
+                <Card key={c.id} className={cn("flex flex-col transition-opacity", !c.enabled && "opacity-70")}>
+                  <div className="flex items-start gap-3 p-5 pb-4">
+                    <ProviderIcon kind={c.kind} />
+                    <div className="min-w-0 flex-1">
+                      <Link href={`/integrations/notifications/${c.id}`} className="block truncate text-[15px] font-semibold text-fg hover:underline">
+                        {c.name}
+                      </Link>
+                      <p className="truncate text-xs text-muted">{p?.label ?? c.kind}</p>
+                    </div>
+                    {isAdmin ? (
+                      <Switch checked={c.enabled} onCheckedChange={(on) => toggle.run(c.id, on)} aria-label={c.enabled ? "Turn off" : "Turn on"} />
+                    ) : (
+                      !c.enabled && <Badge>Off</Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 px-5 pb-4">
+                    <Badge>
+                      {c.events.length} event{c.events.length === 1 ? "" : "s"}
+                    </Badge>
+                    <Badge>{severityOptions.find((s) => s.value === c.minSeverity)?.label ?? "Everything"}</Badge>
+                    <Badge>{c.scoped ? "Some projects" : "All projects"}</Badge>
+                    {c.quietHours && (
+                      <Badge>
+                        <Moon /> {c.quietHours}
+                      </Badge>
+                    )}
+                    {c.throttleMinutes > 0 && <Badge>Grouped {c.throttleMinutes < 60 ? `${c.throttleMinutes} min` : `${c.throttleMinutes / 60} h`}</Badge>}
+                  </div>
+                  <div className="mt-auto flex items-center gap-2 border-t border-line px-5 py-3">
+                    <span className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted">
+                      <span className={cn("size-1.5 flex-none rounded-full", !last ? "bg-idle" : last.status === "failed" ? "bg-bad" : "bg-ok")} />
+                      {last ? (
+                        <span className="truncate" title={last.error ?? undefined}>
+                          {last.status === "failed" ? "Last delivery failed" : "Last sent"} <TimeAgo date={last.at} />
+                        </span>
+                      ) : (
+                        "Nothing sent yet"
+                      )}
+                    </span>
                     <Button
-                      size="icon-sm"
+                      size="sm"
                       variant="ghost"
-                      aria-label="Remove"
+                      loading={testing === c.id}
                       onClick={async () => {
-                        if (await confirm({ title: `Remove ${c.name}?`, confirmLabel: "Remove", danger: true })) remove.run(c.id);
+                        setTesting(c.id);
+                        await test.run(c.id);
+                        setTesting(null);
                       }}
                     >
-                      <Trash2 />
+                      <Send /> Test
                     </Button>
-                    <Switch checked={c.enabled} onCheckedChange={(on) => toggle.run(c.id, on)} />
-                  </>
-                )}
-              </div>
-            ))}
+                    {isAdmin && (
+                      <Menu>
+                        <MenuTrigger render={<Button size="icon-sm" variant="ghost" aria-label="More actions" />}>
+                          <MoreHorizontal />
+                        </MenuTrigger>
+                        <MenuContent>
+                          <MenuLinkItem render={<Link href={`/integrations/notifications/${c.id}`} />}>
+                            <Pencil /> Edit
+                          </MenuLinkItem>
+                          <MenuSeparator />
+                          <MenuItem
+                            danger
+                            onClick={async () => {
+                              if (await confirm({ title: `Remove ${c.name}?`, description: "Its delivery history is removed too.", confirmLabel: "Remove channel", danger: true }))
+                                remove.run(c.id);
+                            }}
+                          >
+                            <Trash2 /> Remove
+                          </MenuItem>
+                        </MenuContent>
+                      </Menu>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
           </div>
         )}
-      </Card>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void save.run();
-            }}
-          >
-            <DialogHeader title={editing ? "Edit channel" : "Add channel"} />
-            <DialogBody>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Name">
-                  <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required placeholder="#deploys" />
-                </Field>
-                <Field label="Type">
-                  <Select
-                    value={form.kind}
-                    onValueChange={(k) => setForm({ ...form, kind: k as keyof typeof kinds, config: {} })}
-                    options={Object.entries(kinds).map(([k, v]) => ({ value: k, label: v.label }))}
-                  />
-                </Field>
-              </div>
-              {kinds[form.kind].fields.map(([key, label, placeholder]) => (
-                <Field key={key} label={label}>
-                  <Input
-                    value={form.config[key] ?? ""}
-                    onChange={(e) => setForm({ ...form, config: { ...form.config, [key]: e.target.value } })}
-                    placeholder={placeholder}
-                    required
-                    className="font-mono text-[13px]"
-                  />
-                </Field>
-              ))}
-              <Field label="Events">
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {events.map((ev) => (
-                    <label key={ev.id} className="flex items-center gap-2 text-[13px] text-fg-2">
-                      <Checkbox
-                        checked={form.events.includes(ev.id)}
-                        onCheckedChange={(c) => setForm({ ...form, events: c ? [...form.events, ev.id] : form.events.filter((x) => x !== ev.id) })}
-                      />
-                      {ev.label}
-                    </label>
-                  ))}
+        {channels.length > 0 && <DeliveryHistory deliveries={deliveries} channels={channels} isAdmin={isAdmin} />}
+      </PageBody>
+    </>
+  );
+}
+
+function DeliveryHistory({ deliveries, channels, isAdmin }: { deliveries: DeliveryRow[]; channels: ChannelCard[]; isAdmin: boolean }) {
+  const [filter, setFilter] = React.useState("all");
+  const [retrying, setRetrying] = React.useState<string | null>(null);
+  const retry = useAction(retryNotificationDelivery, { success: "Sent" });
+  const rows = deliveries.filter((d) => (filter === "all" ? true : filter === "failed" ? d.status === "failed" : d.channelId === filter));
+  const byId = new Map(channels.map((c) => [c.id, c]));
+  return (
+    <Card>
+      <CardHeader
+        title="Delivery history"
+        description="The last 100 notifications of this organization. History is kept for 30 days."
+        actions={
+          <Select
+            size="sm"
+            className="w-48"
+            value={filter}
+            onValueChange={setFilter}
+            options={[
+              { value: "all", label: "All deliveries" },
+              { value: "failed", label: "Failed only" },
+              ...channels.map((c) => ({ value: c.id, label: c.name, icon: <ProviderIcon kind={c.kind} size="sm" className="size-4 rounded [&_svg]:size-2.5" /> })),
+            ]}
+          />
+        }
+      />
+      {rows.length === 0 ? (
+        <EmptyState icon={<History />} title={filter === "all" ? "Nothing sent yet" : "No matching deliveries"} description="Notifications appear here as they are sent." />
+      ) : (
+        <ul className="divide-y divide-line">
+          {rows.map((d) => {
+            const channel = byId.get(d.channelId);
+            const tone = statusTone[d.status] ?? statusTone.pending;
+            return (
+              <li key={d.id} className="flex items-start gap-3 px-5 py-3">
+                {channel && <ProviderIcon kind={channel.kind} size="sm" className="mt-0.5" />}
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="min-w-0 truncate text-[13px] font-medium text-fg">{d.title}</span>
+                    <Badge tone={tone.tone}>{tone.label}</Badge>
+                    {d.test && <Badge>Test</Badge>}
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-muted">
+                    {d.event === "test" ? "Test" : d.event === "digest" ? "Quiet hours summary" : (eventInfo(d.event)?.label ?? d.event)} · {channel?.name ?? "Removed channel"} ·{" "}
+                    <TimeAgo date={d.createdAt} />
+                    {d.attempts > 1 && ` · ${d.attempts} attempts`}
+                  </p>
+                  {d.error && (
+                    <p className={cn("mt-1 text-xs break-words", d.status === "failed" ? "text-bad" : "text-muted")}>
+                      {d.error}
+                      {d.status === "failed" && d.nextAttemptAt && <span className="text-muted"> · Serve tries again automatically.</span>}
+                    </p>
+                  )}
+                  {d.status === "held" && <p className="mt-1 text-xs text-muted">Waiting for quiet hours to end.</p>}
                 </div>
-              </Field>
-            </DialogBody>
-            <DialogFooter>
-              <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
-              <Button type="submit" variant="primary" size="sm" loading={save.pending}>
-                Save channel
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
+                {isAdmin && d.status === "failed" && !d.test && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    loading={retrying === d.id}
+                    onClick={async () => {
+                      setRetrying(d.id);
+                      await retry.run(d.id);
+                      setRetrying(null);
+                    }}
+                  >
+                    <RotateCw /> Retry
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }

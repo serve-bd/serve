@@ -39,6 +39,7 @@ export function ProxyView({
   container,
   defaultImage,
   definition,
+  portsCard,
 }: {
   serverId: string;
   status: { running: boolean; exists: boolean; image: string; kind: ProxyKind | null; startedAt: string | null; container: string; ports: { http: number; https: number } };
@@ -57,6 +58,8 @@ export function ProxyView({
   settings: { nginx: NginxSettings; caddy: CaddySettings; traefik: TraefikSettingsView };
   acmeEmail: string | null;
   cloudflareAccounts: { id: string; name: string }[];
+  /** Host ports card, rendered under the status. */
+  portsCard?: React.ReactNode;
 }) {
   const confirm = useConfirm();
   const [live, setLive] = React.useState<ProxySwitchState | null>(switchState);
@@ -227,6 +230,7 @@ export function ProxyView({
 
       {kind !== "none" && !switching && (
         <>
+          {portsCard}
           {kind === "nginx" && <NginxSettingsCard serverId={serverId} initial={settings.nginx} defaultBodySize={maxBodySize} />}
           {kind === "caddy" && <CaddySettingsCard serverId={serverId} initial={settings.caddy} acmeEmail={acmeEmail} />}
           {kind === "traefik" && <TraefikSettingsCard serverId={serverId} initial={settings.traefik} cloudflareAccounts={cloudflareAccounts} />}

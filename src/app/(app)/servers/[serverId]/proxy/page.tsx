@@ -5,6 +5,7 @@ import { listSiteFiles, proxyDefinition, proxyStatus, testProxyConfig } from "@/
 import { defaultsOf, proxyImages, type ProxyKind, type RunningKind } from "@/server/proxy/config";
 import { EmptyState, Card } from "@/components/ui/misc";
 import { ProxyView } from "./proxy-view";
+import { ProxyPortsCard } from "./proxy-ports";
 import { loadServer, withTimeout } from "../_lib/load";
 
 export const metadata = { title: "Proxy" };
@@ -55,6 +56,7 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
   return (
     <ProxyView
       serverId={serverId}
+      portsCard={<ProxyPortsCard serverId={serverId} isLocal={row.isLocal} ports={{ proxyHttpPort: data.ctx.proxyHttpPort, proxyHttpsPort: data.ctx.proxyHttpsPort }} />}
       status={{
         running: data.status.running,
         exists: data.status.exists,

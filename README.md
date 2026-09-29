@@ -153,7 +153,7 @@ Most settings (server IP, domains, Let's Encrypt, proxy, build limits) live in t
 | `SERVE_PROXY_CONTAINER` | `serve-proxy` | Name of the proxy container |
 | `SERVE_DASHBOARD_UPSTREAM` | `serve:3000` | How the proxy reaches the dashboard |
 | `SERVE_WEBHOOK_BASE_URL` | dashboard URL | Address Git providers send webhooks to, if different |
-| `SERVE_PROXY_IMAGE` / `SERVE_CADDY_IMAGE` / `SERVE_TRAEFIK_IMAGE` | `nginx:stable-alpine` / `caddy:2-alpine` / `traefik:v3.5` | Proxy images |
+| `SERVE_PROXY_IMAGE` / `SERVE_CADDY_IMAGE` / `SERVE_TRAEFIK_IMAGE` | `nginx:stable-alpine` / `caddy:2-alpine` / `traefik:v3.7` | Proxy images |
 | `SERVE_TUNNEL_IMAGE` | `cloudflare/cloudflared:latest` | Cloudflare Tunnel connector image |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket of the local server |
 | `DATABASE_POOL_SIZE` | `10` | PostgreSQL connections per process |

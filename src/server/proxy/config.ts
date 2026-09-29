@@ -80,7 +80,7 @@ export type ProxySwitchState = {
 export const proxyImages: Record<RunningKind, string> = {
   nginx: process.env.SERVE_PROXY_IMAGE ?? "nginx:stable-alpine",
   caddy: process.env.SERVE_CADDY_IMAGE ?? "caddy:2-alpine",
-  traefik: process.env.SERVE_TRAEFIK_IMAGE ?? "traefik:v3.5",
+  traefik: process.env.SERVE_TRAEFIK_IMAGE ?? "traefik:v3.7",
 };
 
 export const proxyLabels: Record<ProxyKind, string> = { nginx: "nginx", caddy: "Caddy", traefik: "Traefik", none: "No proxy" };

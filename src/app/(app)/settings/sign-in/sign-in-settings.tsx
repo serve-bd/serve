@@ -1,9 +1,11 @@
 "use client";
 
-import type * as React from "react";
-import { AlertTriangle, CircleCheck, Trash2 } from "lucide-react";
+import * as React from "react";
+import { AlertTriangle, ArrowUpRight, Trash2 } from "lucide-react";
 import { SsoMark } from "@/components/sso-mark";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/confirm";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -14,7 +16,6 @@ import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
 import { removeSsoProvider, saveSsoProvider, setPasswordLogin, testOidcIssuer } from "@/server/actions/sign-in";
 import type { ProviderView, SsoProviderId } from "@/server/sso/config";
-import { SettingsCard } from "../_components/settings-card";
 
 type ProviderRow = { id: SsoProviderId; callbackUrl: string; config: ProviderView | null };
 
@@ -97,19 +98,81 @@ export function SignInSettingsView({
         </CardBody>
       </Card>
 
-      {providers.map((p) => (
-        <ProviderCard key={p.id} row={p} organizations={organizations} />
-      ))}
+      <Card>
+        <CardHeader title="Providers" description="Let people sign in with an account they already have." />
+        <div className="divide-y divide-line">
+          {providers.map((p) => (
+            <ProviderItem key={p.id} row={p} organizations={organizations} />
+          ))}
+        </div>
+      </Card>
     </>
   );
 }
 
-function ProviderCard({ row, organizations }: { row: ProviderRow; organizations: { id: string; name: string }[] }) {
+const consoles: Partial<Record<SsoProviderId, { label: string; href: string }>> = {
+  github: { label: "Open GitHub", href: "https://github.com/settings/applications/new" },
+  google: { label: "Open Google Cloud", href: "https://console.cloud.google.com/apis/credentials" },
+};
+
+const blurb: Record<SsoProviderId, string> = {
+  github: "Sign in with a GitHub account.",
+  google: "Sign in with a Google or Workspace account.",
+  oidc: "Your company login, over OpenID Connect.",
+};
+
+/** One provider in the list: logo, status and a button that opens its setup. */
+function ProviderItem({ row, organizations }: { row: ProviderRow; organizations: { id: string; name: string }[] }) {
+  const [open, setOpen] = React.useState(false);
+  const c = row.config;
+  const on = !!c?.enabled && !!c.hasSecret;
+  const sub = !c ? blurb[row.id] : on ? (c.allowSignUp ? "On · new accounts allowed" : "On · existing accounts only") : "Off";
+  return (
+    <div className="flex items-center gap-3.5 px-5 py-4">
+      <span className="flex size-10 flex-none items-center justify-center rounded-xl border border-line bg-surface-2">
+        <SsoMark provider={row.id} className="size-5" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex items-center gap-2">
+          <span className="text-[14px] font-medium text-fg">{row.id === "oidc" && c?.label ? c.label : titles[row.id]}</span>
+          {on ? <Badge tone="ok">On</Badge> : c ? <Badge>Off</Badge> : null}
+        </span>
+        <span className="truncate text-[13px] text-muted">{sub}</span>
+      </div>
+      <Button size="sm" variant={c ? "secondary" : "primary"} onClick={() => setOpen(true)}>
+        {c ? "Configure" : "Set up"}
+      </Button>
+      <ProviderDialog key={`${open}:${JSON.stringify(c)}`} row={row} organizations={organizations} open={open} onOpenChange={setOpen} />
+    </div>
+  );
+}
+
+function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+  return (
+    <section className="flex gap-3">
+      <span className="flex size-6 flex-none items-center justify-center rounded-full bg-accent-soft text-[12px] font-semibold text-accent">{n}</span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2.5 pb-1">
+        <h3 className="text-[13px] font-medium text-fg">{title}</h3>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function ProviderDialog({
+  row,
+  organizations,
+  open,
+  onOpenChange,
+}: {
+  row: ProviderRow;
+  organizations: { id: string; name: string }[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const confirm = useConfirm();
   const c = row.config;
-  const remove = useAction(() => removeSsoProvider(row.id), { success: `${titles[row.id]} sign-in removed` });
-  const test = useAction(testOidcIssuer, { refresh: false });
-  const initial = {
+  const [v, setV] = React.useState({
     enabled: c?.enabled ?? true,
     clientId: c?.clientId ?? "",
     clientSecret: "",
@@ -120,147 +183,174 @@ function ProviderCard({ row, organizations }: { row: ProviderRow; organizations:
     issuer: c?.issuer ?? "",
     scopes: (c?.scopes ?? []).join(" "),
     label: c?.label ?? "",
-  };
-  const status = !c ? <Badge>Not set up</Badge> : c.enabled ? <Badge tone="ok">On</Badge> : <Badge>Off</Badge>;
+  });
+  const set =
+    <K extends keyof typeof v>(k: K) =>
+    (value: (typeof v)[K]) =>
+      setV((s) => ({ ...s, [k]: value }));
+  const save = useAction(
+    () =>
+      saveSsoProvider(row.id, {
+        enabled: v.enabled,
+        clientId: v.clientId,
+        clientSecret: v.clientSecret || undefined,
+        allowSignUp: v.allowSignUp,
+        allowedDomains: list(v.allowedDomains),
+        defaultOrganizationId: v.defaultOrganizationId || null,
+        defaultRole: v.defaultRole as "member" | "admin",
+        ...(row.id === "oidc" ? { issuer: v.issuer, scopes: list(v.scopes), label: v.label } : {}),
+      }),
+    { success: `${titles[row.id]} sign-in saved`, onSuccess: () => onOpenChange(false) },
+  );
+  const remove = useAction(() => removeSsoProvider(row.id), { success: `${titles[row.id]} sign-in removed`, onSuccess: () => onOpenChange(false) });
+  const test = useAction(testOidcIssuer, { refresh: false });
+  const ready = !!v.clientId.trim() && (!!v.clientSecret || !!c?.hasSecret) && (row.id !== "oidc" || !!v.issuer.trim());
+  const where = consoles[row.id];
 
   return (
-    <SettingsCard
-      key={JSON.stringify(c)}
-      title={titles[row.id]}
-      description={help[row.id]}
-      initial={initial}
-      actions={
-        <span className="flex items-center gap-2">
-          <SsoMark provider={row.id} className="size-5" />
-          {status}
-        </span>
-      }
-      footerNote={
-        c ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="danger-ghost"
-            loading={remove.pending}
-            onClick={async () => {
-              if (
-                await confirm({
-                  title: `Remove ${titles[row.id]} sign-in?`,
-                  description: "People who only sign in with it lose access until they use another method. Linked accounts stay, so turning it on again restores them.",
-                  confirmLabel: "Remove",
-                  danger: true,
-                })
-              )
-                remove.run();
-            }}
-          >
-            <Trash2 /> Remove
-          </Button>
-        ) : undefined
-      }
-      onSave={(v) =>
-        saveSsoProvider(row.id, {
-          enabled: v.enabled,
-          clientId: v.clientId,
-          clientSecret: v.clientSecret || undefined,
-          allowSignUp: v.allowSignUp,
-          allowedDomains: list(v.allowedDomains),
-          defaultOrganizationId: v.defaultOrganizationId || null,
-          defaultRole: v.defaultRole as "member" | "admin",
-          ...(row.id === "oidc" ? { issuer: v.issuer, scopes: list(v.scopes), label: v.label } : {}),
-        })
-      }
-    >
-      {(v, set) => (
-        <>
-          <Field label="Callback URL" description="Register this exact address with the provider.">
-            <CopyField value={row.callbackUrl} />
-          </Field>
-          {row.id === "oidc" && (
-            <>
-              <Field label="Issuer URL" description="Serve reads its /.well-known/openid-configuration.">
-                <div className="flex gap-2">
-                  <Input value={v.issuer} onChange={(e) => set("issuer")(e.target.value)} placeholder="https://login.example.com" className="font-mono text-[13px]" />
-                  <Button
-                    type="button"
-                    size="md"
-                    loading={test.pending}
-                    disabled={!v.issuer.trim()}
-                    onClick={async () => {
-                      const res = await test.run(v.issuer);
-                      if (res) toast.success("Issuer found", res.issuer);
-                    }}
-                  >
-                    Test
-                  </Button>
-                </div>
-              </Field>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Button text" optional>
-                  <Input value={v.label} onChange={(e) => set("label")(e.target.value)} placeholder="Sign in with SSO" maxLength={60} />
-                </Field>
-                <Field label="Scopes" optional description="Default: openid email profile.">
-                  <Input value={v.scopes} onChange={(e) => set("scopes")(e.target.value)} placeholder="openid email profile" className="font-mono text-[13px]" />
-                </Field>
-              </div>
-            </>
-          )}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Client ID">
-              <Input value={v.clientId} onChange={(e) => set("clientId")(e.target.value)} className="font-mono text-[13px]" autoComplete="off" />
-            </Field>
-            <Field label="Client secret" description={c?.hasSecret ? "Saved. Leave empty to keep it." : undefined}>
-              <Input
-                type="password"
-                value={v.clientSecret}
-                onChange={(e) => set("clientSecret")(e.target.value)}
-                placeholder={c?.hasSecret ? "••••••••" : ""}
-                className="font-mono text-[13px]"
-                autoComplete="new-password"
-              />
-            </Field>
-          </div>
-          <SwitchRow title="Show on the sign-in page" description="People with a linked account can sign in with it." checked={v.enabled} onCheckedChange={set("enabled")} />
-          <SwitchRow
-            title="Allow new accounts"
-            description="Off: only people who already have an account (or were invited) can sign in. Existing users are linked by their verified email."
-            checked={v.allowSignUp}
-            onCheckedChange={set("allowSignUp")}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save.run();
+          }}
+        >
+          <DialogHeader
+            title={
+              <span className="flex items-center gap-2.5">
+                <SsoMark provider={row.id} className="size-5" /> {titles[row.id]} sign-in
+              </span>
+            }
+            description={help[row.id]}
           />
-          {v.allowSignUp && (
-            <div className="flex flex-col gap-4 rounded-xl border border-line bg-surface-2 p-4">
-              <Field label="Allowed email domains" optional description="Comma separated, like example.com. Empty allows any email.">
-                <Input value={v.allowedDomains} onChange={(e) => set("allowedDomains")(e.target.value)} placeholder="example.com" className="font-mono text-[13px]" />
-              </Field>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
-                <Field label="New accounts join" description="Without one, new people see an empty dashboard until someone invites them.">
-                  <Select
-                    value={v.defaultOrganizationId || "none"}
-                    onValueChange={(x) => set("defaultOrganizationId")(x === "none" ? "" : x)}
-                    options={[{ value: "none", label: "No organization" }, ...organizations.map((o) => ({ value: o.id, label: o.name }))]}
-                  />
+          <DialogBody className="max-h-[65vh] gap-6 overflow-y-auto">
+            <Step n={1} title={row.id === "oidc" ? "Create a web application at your provider" : `Create an OAuth app on ${titles[row.id]}`}>
+              {where && (
+                <a href={where.href} target="_blank" rel="noreferrer" className={cn(buttonVariants({ size: "sm" }), "w-fit")}>
+                  {where.label} <ArrowUpRight />
+                </a>
+              )}
+            </Step>
+            <Step n={2} title="Add this callback URL">
+              <CopyField value={row.callbackUrl} />
+            </Step>
+            <Step n={3} title="Paste the app's details">
+              {row.id === "oidc" && (
+                <Field label="Issuer URL" description="Serve reads its /.well-known/openid-configuration.">
+                  <div className="flex gap-2">
+                    <Input value={v.issuer} onChange={(e) => set("issuer")(e.target.value)} placeholder="https://login.example.com" className="font-mono text-[13px]" />
+                    <Button
+                      type="button"
+                      loading={test.pending}
+                      disabled={!v.issuer.trim()}
+                      onClick={async () => {
+                        const res = await test.run(v.issuer);
+                        if (res) toast.success("Issuer found", res.issuer);
+                      }}
+                    >
+                      Test
+                    </Button>
+                  </div>
                 </Field>
-                <Field label="As">
-                  <Select
-                    value={v.defaultRole}
-                    onValueChange={set("defaultRole")}
-                    disabled={!v.defaultOrganizationId}
-                    options={[
-                      { value: "member", label: "Member" },
-                      { value: "admin", label: "Admin" },
-                    ]}
+              )}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Client ID">
+                  <Input value={v.clientId} onChange={(e) => set("clientId")(e.target.value)} className="font-mono text-[13px]" autoComplete="off" />
+                </Field>
+                <Field label="Client secret" description={c?.hasSecret ? "Saved. Leave empty to keep it." : undefined}>
+                  <Input
+                    type="password"
+                    value={v.clientSecret}
+                    onChange={(e) => set("clientSecret")(e.target.value)}
+                    placeholder={c?.hasSecret ? "••••••••" : ""}
+                    className="font-mono text-[13px]"
+                    autoComplete="new-password"
                   />
                 </Field>
               </div>
+            </Step>
+
+            <div className="flex flex-col gap-4 border-t border-line pt-5">
+              <SwitchRow title="Show on the sign-in page" description="People with a linked account can sign in with it." checked={v.enabled} onCheckedChange={set("enabled")} />
+              <SwitchRow
+                title="Allow new accounts"
+                description="Off: only people who already have an account, or were invited, can sign in."
+                checked={v.allowSignUp}
+                onCheckedChange={set("allowSignUp")}
+              />
+              {v.allowSignUp && (
+                <div className="flex flex-col gap-4 rounded-xl border border-line bg-surface-2 p-4">
+                  <Field label="Allowed email domains" optional description="Comma separated, like example.com. Empty allows any email.">
+                    <Input value={v.allowedDomains} onChange={(e) => set("allowedDomains")(e.target.value)} placeholder="example.com" className="font-mono text-[13px]" />
+                  </Field>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+                    <Field label="New accounts join">
+                      <Select
+                        value={v.defaultOrganizationId || "none"}
+                        onValueChange={(x) => set("defaultOrganizationId")(x === "none" ? "" : x)}
+                        options={[{ value: "none", label: "No organization" }, ...organizations.map((o) => ({ value: o.id, label: o.name }))]}
+                      />
+                    </Field>
+                    <Field label="As">
+                      <Select
+                        value={v.defaultRole}
+                        onValueChange={set("defaultRole")}
+                        disabled={!v.defaultOrganizationId}
+                        options={[
+                          { value: "member", label: "Member" },
+                          { value: "admin", label: "Admin" },
+                        ]}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              )}
+              {row.id === "oidc" && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="Button text" optional>
+                    <Input value={v.label} onChange={(e) => set("label")(e.target.value)} placeholder="Sign in with SSO" maxLength={60} />
+                  </Field>
+                  <Field label="Scopes" optional description="Default: openid email profile.">
+                    <Input value={v.scopes} onChange={(e) => set("scopes")(e.target.value)} placeholder="openid email profile" className="font-mono text-[13px]" />
+                  </Field>
+                </div>
+              )}
             </div>
-          )}
-          {c?.enabled && c.hasSecret && (
-            <p className="flex items-center gap-1.5 text-xs text-muted">
-              <CircleCheck className="size-3.5 text-ok" /> To test, open the sign-in page in a private window and use the {titles[row.id]} button.
-            </p>
-          )}
-        </>
-      )}
-    </SettingsCard>
+          </DialogBody>
+          <DialogFooter className="sm:justify-between">
+            {c ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="danger-ghost"
+                loading={remove.pending}
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: `Remove ${titles[row.id]} sign-in?`,
+                      description: "People who only sign in with it lose access until they use another method. Linked accounts stay, so setting it up again restores them.",
+                      confirmLabel: "Remove",
+                      danger: true,
+                    })
+                  )
+                    remove.run();
+                }}
+              >
+                <Trash2 /> Remove
+              </Button>
+            ) : (
+              <span />
+            )}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <DialogClose render={<Button type="button" variant="ghost" size="sm" />}>Cancel</DialogClose>
+              <Button type="submit" variant="primary" size="sm" loading={save.pending} disabled={!ready}>
+                Save
+              </Button>
+            </div>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

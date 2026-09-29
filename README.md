@@ -1,8 +1,62 @@
 # Serve
 
-Serve is a self-hosted platform for deploying apps, databases and services on your own servers — the push-to-deploy experience of Vercel, Railway and Render, on hardware you control.
+Serve is a self-hosted platform for deploying apps, databases and services on your own servers. Push to deploy, get a domain with HTTPS, attach a database with backups, and run it all on hardware you control from one dashboard.
 
-It runs everything in Docker, routes traffic through nginx, issues TLS certificates automatically, and manages Cloudflare DNS for you, all from one dashboard.
+Everything runs in Docker. A reverse proxy of your choice (nginx, Caddy or Traefik) routes traffic, certificates are issued and renewed automatically, and Cloudflare DNS and Tunnels are managed for you.
+
+## Contents
+
+- [Features](#features)
+- [Install](#install)
+- [Updating](#updating)
+- [Configuration](#configuration)
+- [How it works](#how-it-works)
+- [Guides](#guides)
+- [REST API](#rest-api)
+- [Development](#development)
+- [Security](#security)
+- [License](#license)
+
+## Features
+
+**Deploy anything**
+- **Git repositories.** Connect GitHub in one click through a GitHub App Serve creates for you. GitLab, Gitea/Forgejo and Bitbucket connect through OAuth or an access token, and Serve registers the push and pull request webhooks on the repository itself. Any Git URL works with an SSH deploy key.
+- **Builds.** Dockerfile, Nixpacks, or built-in detection for Node.js, Bun, Next.js, Vite and other static sites, Python, Go, Rust and PHP.
+- **Docker images** from any registry, including private ones.
+- **Docker Compose stacks**, inline (with a code editor) or from a repository. A stack can reach the rest of its environment or keep to itself.
+- **Service catalog.** 62 ready-made services (n8n, Uptime Kuma, Umami, Plausible, Ghost, WordPress, Nextcloud, Gitea, Vaultwarden, Grafana, MinIO, Immich, Open WebUI and more), plus your organization's own templates built from any compose file.
+- Creating a service never deploys it: review variables, domains and storage, then deploy.
+
+**Databases**
+- PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey and ClickHouse, or a custom image of the same engine (for example pgvector).
+- Generated credentials with a live password change inside the running database, TLS with a per-database CA, custom configuration files, initialization scripts, health check tuning, resource limits and an optional public port.
+- Scheduled backups with separate local and S3 retention (AWS S3, Cloudflare R2, Backblaze B2, MinIO…), one-click restore, and import from an upload, a URL or S3, with a safety backup first.
+
+**Deployments**
+- Zero-downtime deploys with health checks, instant rollbacks to any previous image, and cancellable builds with live logs.
+- Pull request preview deployments with their own URL, removed when the pull request closes.
+- Deploy hooks for CI and a REST API with scoped, expiring tokens.
+- Replicas, resource limits, persistent storage (volumes, files Serve writes, host paths) and published ports.
+
+**Domains and HTTPS**
+- Switch each server's proxy between nginx, Caddy, Traefik or none at any time, with per-proxy settings, dynamic configuration files and per-service overrides.
+- Generated domains through a wildcard domain or sslip.io, a primary domain per service, redirect domains and forced HTTPS.
+- Certificates from Let's Encrypt (HTTP or Cloudflare DNS validation, wildcards), Cloudflare Origin CA or uploads, renewed automatically.
+
+**Cloudflare**
+- DNS records created when you add a domain, plus DNS, SSL/TLS mode and cache management in the dashboard.
+- Cloudflare Tunnels for servers without a public IP or open ports. Switch a domain between the server IP and a tunnel at any time.
+
+**Servers**
+- Deploy to any number of Linux servers over SSH, next to the machine Serve runs on. Serve installs Docker and the proxy when needed.
+- Per-server proxy, certificates, domains, metrics, Docker cleanup and a root terminal. Move services between servers.
+
+**Operate**
+- Projects with environments (production, staging…), and shared variables at organization, project and environment level.
+- References between services, such as `${{postgres.DATABASE_URL}}` or `${{SERVE_PUBLIC_URL}}`, resolved at deploy time.
+- Browser terminal into containers, scheduled tasks (cron) with run history, and CPU, memory, network and request metrics.
+- Notifications to Discord, Slack, Telegram or any webhook.
+- Organizations with owners, admins and members, invite links, an activity log, two-factor authentication and API tokens.
 
 ## Install
 
@@ -12,155 +66,103 @@ On a fresh Linux server (Ubuntu, Debian, Fedora, Rocky…) with ports 80, 443 an
 curl -fsSL https://raw.githubusercontent.com/shahriyardx/serve/main/install.sh | sudo bash
 ```
 
-Then open `http://<server-ip>:8000`, create the owner account, and follow the setup guide.
+Then open `http://<server-ip>:8000`, create the owner account and follow the setup guide.
 
-The installer installs Docker if needed, gives Docker larger network address pools, writes secrets to `/data/serve/.env`, and starts three containers: the dashboard, the worker and Serve's own PostgreSQL database. The worker starts the nginx proxy.
+The installer:
 
-Upgrade:
+1. Installs Docker if it is missing (Docker Compose v2 is required).
+2. Gives Docker larger network address pools and log rotation in `/etc/docker/daemon.json`.
+3. Writes generated secrets to `/data/serve/.env` (kept on later runs).
+4. Downloads the stack definition to `/data/serve/docker-compose.yml` and starts three containers: the dashboard (`serve`), the worker (`serve-worker`) and Serve's own PostgreSQL (`serve-db`). The worker then starts the proxy.
+
+Installer options, set as environment variables before running it:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `SERVE_IMAGE` | `ghcr.io/shahriyardx/serve:latest` | Image to run |
+| `SERVE_DASHBOARD_PORT` | `8000` | Host port of the dashboard |
+
+The data directory must stay `/data/serve`: the worker creates bind mounts with host paths, so the path is the same inside and outside its container.
+
+## Updating
 
 ```bash
 cd /data/serve && docker compose pull && docker compose up -d
 ```
 
-## Features
+Database migrations run when the new version starts.
 
-**Deploy anything**
-- Git repositories: connect GitHub in one click through a GitHub App Serve creates for you (no tokens or webhooks to set up), or use GitLab, Gitea, Bitbucket, any Git URL and SSH deploy keys
-- Automatic builds: Dockerfile, Nixpacks, or built-in detection for Node.js, Bun, Next.js, Vite and other static sites, Python, Go, Rust and PHP
-- Docker images from any registry, including private ones
-- Docker Compose stacks, inline or from a repository
-- One-click services: n8n, Uptime Kuma, Umami, Plausible, Ghost, WordPress, MinIO, Gitea, Vaultwarden, Metabase, Grafana, pgAdmin, Adminer, code-server
+## Configuration
 
-**Servers**
-- Deploy to any number of Linux servers over SSH, next to the machine Serve runs on
-- Add a server in three steps: address, SSH key (generated or imported), connect; Serve installs Docker and its proxy when needed
-- Per-server proxy, certificates, domains, metrics, resources, Docker cleanup and a root terminal
-- Move services between servers; limit servers to certain organizations
+Most settings (server IP, domains, Let's Encrypt, proxy, build limits) live in the dashboard under **Settings** and **Servers**, editable by admins of the Root organization. The rest comes from environment variables in `/data/serve/.env`:
 
-**Databases**
-- PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey and ClickHouse
-- Generated credentials, private networking, optional public port
-- Scheduled backups with retention, stored locally or in S3-compatible storage (S3, R2, B2, MinIO), one-click restore and download
-
-**Deployments**
-- Zero-downtime deploys with health checks and graceful traffic switching
-- Instant rollbacks to any previous image
-- Push-to-deploy webhooks, deploy hooks for CI, and a REST API with scoped, expiring tokens
-- Pull request preview deployments with their own URL, removed when the PR closes
-- Live build logs, streaming runtime logs, and cancellable builds
-- Replicas with load balancing, resource limits, volumes and published ports
-
-**Domains and TLS**
-- nginx reverse proxy with WebSockets, HTTP/2 and graceful reloads
-- Automatic domains through a wildcard domain or sslip.io
-- Let's Encrypt certificates over HTTP or Cloudflare DNS (wildcards), Cloudflare Origin CA certificates, or uploaded certificates, all renewed automatically
-- Redirect domains, force HTTPS and DNS checks
-
-**Cloudflare**
-- Connect accounts with an API token
-- Create DNS records automatically when adding domains, with proxy toggle
-- Manage DNS records, SSL/TLS mode, Always Use HTTPS and cache purges in the dashboard
-- Cloudflare Tunnels: serve domains from servers without a public IP or open ports (home labs, NAT, closed firewalls); Cloudflare handles HTTPS
-
-**Operate**
-- Project environments (production, staging…) with shared variables
-- Variable references between services, such as `${{postgres.DATABASE_URL}}`
-- Console for one-off commands and scheduled tasks (cron jobs) with run history
-- CPU, memory, network and request metrics (requests, status codes, latency)
-- Notifications to Discord, Slack, Telegram or any webhook
-- Organizations with owners, admins and members, invite links, audit log, two-factor authentication and API tokens
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | required | PostgreSQL connection string for Serve's own data |
+| `BETTER_AUTH_SECRET` | required | Session signing secret |
+| `SERVE_ENCRYPTION_KEY` | `BETTER_AUTH_SECRET` | Key that encrypts secrets at rest |
+| `BETTER_AUTH_URL` | `http://localhost:3000` | Default public URL of the dashboard |
+| `SERVE_DATA_DIR` | `/data/serve` | Data directory |
+| `SERVE_NETWORK` | `serve` | Docker network shared by the dashboard, worker and proxy |
+| `SERVE_NETWORK_SUBNET` | `10.209.0.0/16` | Subnet of that network in the production stack |
+| `SERVE_PROXY_HTTP_PORT` / `SERVE_PROXY_HTTPS_PORT` | `80` / `443` | Proxy host ports of the local server (editable per server later) |
+| `SERVE_PROXY_CONTAINER` | `serve-proxy` | Name of the proxy container |
+| `SERVE_DASHBOARD_UPSTREAM` | `serve:3000` | How the proxy reaches the dashboard |
+| `SERVE_WEBHOOK_BASE_URL` | dashboard URL | Address Git providers send webhooks to, if different |
+| `SERVE_PROXY_IMAGE` / `SERVE_CADDY_IMAGE` / `SERVE_TRAEFIK_IMAGE` | `nginx:stable-alpine` / `caddy:2-alpine` / `traefik:v3.5` | Proxy images |
+| `SERVE_TUNNEL_IMAGE` | `cloudflare/cloudflared:latest` | Cloudflare Tunnel connector image |
+| `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket of the local server |
+| `DATABASE_POOL_SIZE` | `10` | PostgreSQL connections per process |
 
 ## How it works
 
 ```
-Browser ──> nginx proxy (serve-proxy) ──> app containers on per-environment networks
+Browser ──> proxy (serve-proxy: nginx, Caddy or Traefik) ──> app containers on per-environment networks
                  │
 Dashboard (Next.js) ── server actions ──> PostgreSQL (state + job queue)
                                               │
-                               Worker ── Docker socket ──> builds, containers,
-                                         certbot, compose, backups, metrics
+                               Worker ── Docker (local socket or SSH) ──> builds, containers,
+                                         compose, certificates, backups, metrics
 ```
 
-- **Dashboard** — Next.js App Router, Tailwind CSS, Base UI, better-auth. Server actions write to PostgreSQL through Drizzle.
-- **Worker** — a long-running Node process that claims jobs from a PostgreSQL queue (`FOR UPDATE SKIP LOCKED`, woken by `LISTEN/NOTIFY`), runs builds with the Docker CLI, manages containers with the Docker API, writes nginx configs, runs certbot, collects metrics and executes schedules.
-- **Proxy** — an nginx container on the shared network. Each service gets a site file; upstreams use Docker DNS with `resolve`, and every change is validated with `nginx -t` before a graceful reload, rolling back on failure.
-- **Isolation** — every project environment gets its own Docker network. Services reach each other by name inside an environment; other organizations, other environments and Serve's own database are unreachable. Only the proxy joins every environment network.
-- **Data** — everything lives in `/data/serve` (repositories, proxy config, certificates, backups). The same path is mounted into the worker so bind mounts line up with the host.
+- **Dashboard.** Next.js App Router with Tailwind CSS, Base UI and better-auth. Server actions write to PostgreSQL through Drizzle.
+- **Worker.** A long-running Node process that claims jobs from a PostgreSQL queue (`FOR UPDATE SKIP LOCKED`, woken by `LISTEN/NOTIFY`). It builds images, manages containers and compose stacks, writes proxy configuration, issues certificates, runs backups, collects metrics and executes schedules. Remote servers are reached over SSH.
+- **Proxy.** One container per server on the shared network. Each change is validated before a graceful reload and rolled back on failure. Switching proxy kinds is a job with health checks and rollback to the previous proxy.
+- **Isolation.** Every project environment gets its own Docker network. Services reach each other by name inside an environment. Other organizations, other environments and Serve's own database are unreachable. The proxy joins each environment network, and the network of each isolated compose stack.
+- **Data.** Everything lives in `/data/serve`: repositories, proxy configuration, certificates, backups and service files.
 
-## Development
+## Guides
 
-Requirements: Node.js 22+, pnpm, Docker.
-
-```bash
-pnpm install
-docker compose -f dev/docker-compose.yml up -d   # PostgreSQL on :5436
-cp .env.example .env                             # fill in secrets (openssl rand -hex 32)
-pnpm db:migrate
-pnpm dev          # dashboard on http://localhost:3000
-pnpm dev:worker   # worker, starts the proxy on SERVE_PROXY_HTTP_PORT
-```
-
-Useful scripts:
-
-| Command | What it does |
-| --- | --- |
-| `pnpm typecheck` | TypeScript checks |
-| `pnpm lint` | ESLint |
-| `pnpm test` | Unit tests (Vitest) |
-| `pnpm db:generate` | Create a migration after editing `src/server/db/schema.ts` |
-| `pnpm build` | Production build of the dashboard and the bundled worker |
-| `scripts/e2e/run.sh` | Isolated end-to-end instance on :3001 (see `.env.e2e`) |
-
-### Project layout
-
-```
-src/app/            Pages, layouts and API routes
-src/components/     UI kit (Base UI) and app shell
-src/server/         Server-only code
-  actions/          Server actions used by the UI
-  db/               Drizzle schema, client and migrations runner
-  deploy/           Build and deploy pipeline (git, builders, containers, compose)
-  proxy/            nginx config generation and reloads
-  ssl/              Certificates (certbot, Cloudflare Origin, uploads)
-  cloudflare/       Cloudflare API client
-  backups/          Database backups and S3 uploads
-  services/         Variables, templates, previews, tasks and access checks
-src/worker/         Worker entry point
-drizzle/            SQL migrations
-docker/             Production compose file and entrypoint
-```
-
-## Adding a server
+### Adding a server
 
 Servers → **Add server**:
 
 1. Enter the server's address, SSH port and user (root, or a user with passwordless sudo).
 2. Generate an SSH key in Serve (or import one) and run the shown command on the server to authorize it.
-3. Connect. Serve pins the server's host key, checks Docker (and installs it if you ask), prepares `/data/serve` and starts the nginx proxy.
+3. Connect. Serve pins the server's host key, checks Docker (and installs it if you ask), prepares `/data/serve` and starts the proxy.
 
-Serve talks to remote Docker over SSH, so only port 22 needs to be reachable from the Serve machine. Open ports 80 and 443 on the server for its apps. Services on different servers cannot reach each other over the private network; use public domains or published ports between them.
+Only SSH needs to be reachable from the Serve machine. Open ports 80 and 443 on the server for its apps, or use a Cloudflare Tunnel. Services on different servers cannot reach each other over the private network; use public domains or published ports between them.
 
-## Cloudflare Tunnels
+### Cloudflare Tunnels
 
-For servers without a public IP (or with ports 80/443 closed):
+For servers without a public IP, or with ports 80 and 443 closed:
 
 1. Connect Cloudflare with a token that also has **Account · Cloudflare Tunnel · Edit**.
 2. Integrations → Cloudflare → your account → **Tunnels** → **Create tunnel** next to the server. Serve creates the tunnel and runs a `cloudflared` container beside the proxy.
-3. Add a domain from that account's zones and choose **Route traffic through: Cloudflare Tunnel**. Serve creates the DNS record and the tunnel route; Cloudflare serves it over HTTPS.
+3. Add a domain from that account's zones and choose **Cloudflare Tunnel** in the connection step. Serve creates the DNS record and the tunnel route; Cloudflare serves it over HTTPS.
 
-## Connecting GitHub
+Disconnecting the account shows which sites go offline, then stops and deletes its tunnels.
 
-Git providers → **Connect GitHub** uses GitHub's app manifest flow:
+### Git providers
 
-1. Serve sends GitHub a manifest for a private app with read access to code, write access to pull requests (for preview comments) and `push` / `pull_request` events.
-2. You confirm the app on GitHub, then choose which repositories it may access.
-3. Serve stores the app's private key encrypted, mints one-hour installation tokens to clone and list repositories, and receives webhooks at `/api/webhooks/github/<id>`, verified with the app's webhook secret.
+- **GitHub** (Git providers → Add provider → GitHub) uses GitHub's app manifest flow. Serve creates a private app, you choose which repositories it may access, and push and pull request events arrive automatically.
+- **GitLab, Gitea/Forgejo and Bitbucket** connect with OAuth (create an OAuth application once, following the redirect address and scopes Serve shows) or with an access token. Serve adds the repository webhook when a service is created and removes it when the service is deleted.
 
-Push events need GitHub to reach the dashboard, so set a public dashboard domain in Server settings. Each GitHub account or organization can have its own app.
+Webhooks need the providers to reach the dashboard, so set a public dashboard domain in **Settings → Dashboard & TLS**.
 
 ## REST API
 
-Create tokens in **Organization → API tokens** and send them as `Authorization: Bearer srv_…`. Each token has scopes, an optional expiry and an optional list of projects.
+Create tokens in **Keys & tokens → API tokens** and send them as `Authorization: Bearer srv_…`. Each token has scopes, an optional expiry and an optional list of projects.
 
 | Scope | Allows |
 | --- | --- |
@@ -172,29 +174,66 @@ Create tokens in **Organization → API tokens** and send them as `Authorization
 
 Missing scopes return `403`, expired tokens `401`, and services outside the token's projects `404`.
 
-## Configuration
+## Development
 
-Settings that belong to the server (IP, domains, Let's Encrypt, build limits) are edited in **Server settings** by admins of the Root organization. Environment variables:
+Requirements: Node.js 22+, pnpm and Docker.
 
-| Variable | Description |
+```bash
+pnpm install
+docker compose -f dev/docker-compose.yml up -d   # PostgreSQL on :5436
+cp .env.example .env                             # fill in secrets (openssl rand -hex 32)
+pnpm db:migrate
+pnpm dev          # dashboard on http://localhost:3000
+pnpm dev:worker   # worker; starts the proxy on SERVE_PROXY_HTTP_PORT
+```
+
+When the dashboard is opened through another domain during development (for example the dashboard domain through a tunnel), list it in `SERVE_DEV_ORIGINS` so the dev server serves its scripts there.
+
+| Command | What it does |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string for Serve's own data |
-| `BETTER_AUTH_SECRET` | Session signing secret |
-| `SERVE_ENCRYPTION_KEY` | Key for encrypting secrets at rest (variables, tokens, keys) |
-| `BETTER_AUTH_URL` | Default public URL of the dashboard |
-| `SERVE_DATA_DIR` | Data directory, `/data/serve` in production |
-| `SERVE_PROXY_HTTP_PORT` / `SERVE_PROXY_HTTPS_PORT` | Host ports for the proxy |
-| `SERVE_DASHBOARD_UPSTREAM` | How the proxy reaches the dashboard (`serve:3000`) |
-| `SERVE_NETWORK` | Shared Docker network name (`serve`) |
-| `SERVE_NETWORK_SUBNET` | Subnet of the shared network in the production stack |
+| `pnpm typecheck` | TypeScript checks |
+| `pnpm lint` | Lint and format check with Biome |
+| `pnpm check` | Apply Biome's safe fixes and formatting |
+| `pnpm format` | Format with Biome |
+| `pnpm test` | Unit tests (Vitest) |
+| `pnpm db:generate` | Create a migration after editing `src/server/db/schema.ts` |
+| `pnpm db:migrate` | Apply migrations |
+| `pnpm build` | Production build of the dashboard and the bundled worker |
+| `scripts/e2e/run.sh` | Isolated end-to-end instance on :3001 with its own database, data directory and proxy (see `.env.e2e`) |
+
+The scripts in `scripts/e2e/` drive that instance with Playwright (`shot.mjs` takes screenshots, the others exercise deploys, proxies, databases and more).
+
+### Project layout
+
+```
+src/app/            Pages, layouts and API routes
+src/components/     UI kit (Base UI) and app shell
+src/server/         Server-only code
+  actions/          Server actions used by the UI
+  db/               Drizzle schema, client and migrations runner
+  deploy/           Build and deploy pipeline (git, builders, containers, compose)
+  proxy/            nginx, Caddy and Traefik configuration, switching and reloads
+  servers/          SSH connections, remote Docker and server setup
+  ssl/              Certificates (Let's Encrypt, Cloudflare Origin, uploads)
+  cloudflare/       Cloudflare API client and tunnels
+  git/              Git providers, OAuth and repository webhooks
+  databases/        Database engines and their options
+  backups/          Backups, restores, imports and S3
+  services/         Variables, templates, previews, tasks and access checks
+src/worker/         Worker entry point
+drizzle/            SQL migrations
+docker/             Production compose file and entrypoint
+tests/              Unit tests
+```
 
 ## Security
 
-- Secrets (environment variables, tokens, SSH keys, registry and S3 credentials) are encrypted with AES-256-GCM before they are stored.
-- Every page, action and API route checks organization membership; server settings require Root admin access.
-- Webhooks are verified with HMAC signatures or tokens. API tokens are stored as SHA-256 hashes.
-- The worker needs the Docker socket, which is equivalent to root on the host. Run Serve on a server dedicated to it.
+- Secrets (variables, tokens, SSH keys, registry and S3 credentials, OAuth tokens) are encrypted with AES-256-GCM before they are stored. API tokens are stored as SHA-256 hashes.
+- Every page, action and API route checks organization membership. Server-level settings, servers and host access (privileged containers, host mounts, the Docker socket) require admins of the Root organization.
+- Webhooks are verified with HMAC signatures or tokens.
+- The worker uses the Docker socket, which is equivalent to root on the host. Run Serve on a server dedicated to it.
+- `SERVE_DEV_ORIGINS` is for development only; production builds do not serve development assets.
 
 ## License
 
-MIT
+[MIT](LICENSE)

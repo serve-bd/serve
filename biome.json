@@ -16,7 +16,8 @@
       "!**/public/templates",
       "!**/next-env.d.ts",
       "!**/tsconfig.tsbuildinfo",
-      "!**/pnpm-lock.yaml"
+      "!**/pnpm-lock.yaml",
+      "!.claude"
     ]
   },
   "formatter": {

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUpRight, Cloud, Globe, Lock, LockOpen, MoreHorizontal, Plus, RefreshCw, Sparkles, Trash2, CornerDownRight } from "lucide-react";
+import { ArrowUpRight, Cloud, Globe, Lock, LockOpen, MoreHorizontal, Plus, RefreshCw, Sparkles, Trash2, CornerDownRight, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -31,6 +31,8 @@ type DomainRow = {
   generated: boolean;
   cloudflare: boolean;
   managedRecord: boolean;
+  /** Routed through a Cloudflare Tunnel; HTTPS is handled by Cloudflare. */
+  tunnel: boolean;
   certificate: { id: string; status: string; provider: string; error: string | null; expiresAt: string | null } | null;
 };
 
@@ -44,11 +46,14 @@ type Props = {
   hasAcme: boolean;
   serverIp: string | null;
   canGenerate: boolean;
+  /** Tunnels from this service's server (one per Cloudflare account). */
+  tunnels: { id: string; accountId: string; accountName: string; status: string }[];
   certificates: { id: string; name: string; domains: string[]; status: string; provider: string }[];
   domains: DomainRow[];
 };
 
 function HttpsState({ d, hasAcme }: { d: DomainRow; hasAcme: boolean }) {
+  if (d.tunnel) return <span className="inline-flex items-center gap-1.5 text-xs text-ok"><Lock className="size-3.5" /> HTTPS by Cloudflare</span>;
   if (!d.https) return <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LockOpen className="size-3.5" /> HTTP only</span>;
   const c = d.certificate;
   if (!c) {
@@ -108,6 +113,10 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
     return res.ok ? res.data : null;
   });
   const zone = props.hasCloudflare && /\.[a-z]{2,}$/i.test(hostname) ? (zoneData ?? null) : null;
+  const tunnel = zone ? props.tunnels.find((t) => t.accountId === zone.accountId) : undefined;
+  // Without a public IP the tunnel is the only way in, so it is the default.
+  const [route, setRoute] = React.useState<"ip" | "tunnel">(props.serverIp ? "ip" : "tunnel");
+  const viaTunnel = !!tunnel && route === "tunnel" && mode === "route";
 
   const { run, pending } = useAction(
     () =>
@@ -118,7 +127,8 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
         port: port ? Number(port) : null,
         composeService: props.type === "compose" ? composeService : null,
         redirectTo: mode === "redirect" ? redirect : null,
-        cloudflare: zone ? { accountId: zone.accountId, zoneId: zone.zoneId, proxied, createRecord } : null,
+        cloudflare: zone && !viaTunnel ? { accountId: zone.accountId, zoneId: zone.zoneId, proxied, createRecord } : null,
+        tunnelId: viaTunnel ? tunnel!.id : null,
       }),
     {
       onSuccess: (d) => {
@@ -167,8 +177,35 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                 </Field>
               </div>
             )}
-            <SwitchRow title="HTTPS" description={props.hasAcme ? "Get a free certificate and redirect HTTP to HTTPS." : "Add a Let's Encrypt email in Server settings to enable automatic certificates."} checked={https} onCheckedChange={setHttps} />
-            {zone && (
+            {tunnel && mode === "route" && (
+              <Field label="Route traffic through">
+                <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
+                  {(["tunnel", "ip"] as const).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRoute(r)}
+                      className={`flex h-8 items-center justify-center gap-1.5 rounded-lg text-[13px] font-medium transition-all ${route === r ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"}`}
+                    >
+                      {r === "tunnel" ? <Waypoints className="size-3.5 text-[#f38020]" /> : <Globe className="size-3.5" />}
+                      {r === "tunnel" ? "Cloudflare Tunnel" : "Server IP"}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
+            {viaTunnel ? (
+              <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
+                <Waypoints className="mt-0.5 size-4 flex-none text-[#f38020]" />
+                <p>
+                  Serve points <span className="font-mono text-fg">{hostname}</span> at the tunnel in {tunnel!.accountName}. Cloudflare serves it over HTTPS, so no
+                  certificate or open port is needed.
+                </p>
+              </div>
+            ) : (
+              <SwitchRow title="HTTPS" description={props.hasAcme ? "Get a free certificate and redirect HTTP to HTTPS." : "Add a Let's Encrypt email in Server settings to enable automatic certificates."} checked={https} onCheckedChange={setHttps} />
+            )}
+            {zone && !viaTunnel && (
               <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4">
                 <div className="flex items-center gap-2 text-[13px] font-medium text-fg">
                   <Cloud className="size-4 text-[#f38020]" /> Found {zone.zoneName} in Cloudflare ({zone.accountName})
@@ -177,6 +214,11 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                 <SwitchRow title="Proxy through Cloudflare" description="Orange cloud. Hides your server IP and adds Cloudflare's CDN and DDoS protection." checked={proxied} onCheckedChange={setProxied} />
                 {https && <p className="text-xs text-muted">The certificate is validated through Cloudflare DNS, so it works even when proxied.</p>}
               </div>
+            )}
+            {!zone && hostname && props.tunnels.length > 0 && (
+              <p className="text-xs leading-relaxed text-muted">
+                Domains in {props.tunnels.map((t) => t.accountName).join(" or ")} can use the Cloudflare Tunnel of this server.
+              </p>
             )}
             {!zone && hostname && props.serverIp && (
               <p className="text-xs leading-relaxed text-muted">
@@ -231,12 +273,12 @@ export function DomainsManager(props: Props) {
             <div key={d.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <div className="flex min-w-0 items-center gap-2">
-                  <a href={`${d.https ? "https" : "http"}://${d.hostname}`} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1 text-[14px] font-medium text-fg hover:text-accent">
+                  <a href={`${d.https || d.tunnel ? "https" : "http"}://${d.hostname}`} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1 text-[14px] font-medium text-fg hover:text-accent">
                     <span className="truncate">{d.hostname}</span>
                     <ArrowUpRight className="size-3.5 shrink-0 text-faint" />
                   </a>
                   {d.generated && <Badge>Generated</Badge>}
-                  {d.cloudflare && <Badge tone="warn"><Cloud /> Cloudflare</Badge>}
+                  {d.tunnel ? <Badge tone="warn"><Waypoints /> Tunnel</Badge> : d.cloudflare && <Badge tone="warn"><Cloud /> Cloudflare</Badge>}
                 </div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                   {d.redirectTo ? (

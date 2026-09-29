@@ -399,3 +399,50 @@ export async function githubAppInstallUrl(credentialId: string) {
     return `${secret.htmlUrl}/installations/new?state=${encodeURIComponent(state)}`;
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/*                             Cloudflare Tunnels                             */
+/* -------------------------------------------------------------------------- */
+
+/** Create a tunnel from a server to a connected Cloudflare account. */
+export async function enableTunnel(cloudflareAccountId: string, serverId: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const [account] = await db
+      .select()
+      .from(schema.cloudflareAccount)
+      .where(and(eq(schema.cloudflareAccount.id, cloudflareAccountId), eq(schema.cloudflareAccount.organizationId, ctx.org.id)));
+    if (!account) throw new UserError("Cloudflare account not found.");
+    const [server] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
+    const { serverAllowsOrg } = await import("@/server/servers/access");
+    if (!server || !serverAllowsOrg(server, ctx.org.id)) throw new UserError("Server not found.");
+    if (!server.isLocal && server.status !== "ready") throw new UserError(`${server.name} is not ready. Validate it first.`);
+    const { createTunnel } = await import("@/server/cloudflare/tunnels");
+    try {
+      const tunnel = await createTunnel({ organizationId: ctx.org.id, cloudflareAccountId, serverId });
+      await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "tunnel.create", message: `Created a Cloudflare Tunnel from ${server.name} to ${account.name}` });
+      return { id: tunnel.id };
+    } catch (e) {
+      throw new UserError((e as Error).message);
+    }
+  });
+}
+
+export async function disableTunnel(tunnelId: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const [tunnel] = await db
+      .select()
+      .from(schema.cloudflareTunnel)
+      .where(and(eq(schema.cloudflareTunnel.id, tunnelId), eq(schema.cloudflareTunnel.organizationId, ctx.org.id)));
+    if (!tunnel) throw new UserError("Tunnel not found.");
+    const { deleteTunnel, tunnelDomains } = await import("@/server/cloudflare/tunnels");
+    const domains = await tunnelDomains(tunnelId);
+    if (domains.length) {
+      throw new UserError(`${domains.map((d) => d.hostname).join(", ")} ${domains.length === 1 ? "uses" : "use"} this tunnel. Remove ${domains.length === 1 ? "it" : "them"} first.`);
+    }
+    await deleteTunnel(tunnelId);
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "tunnel.delete", message: `Removed the Cloudflare Tunnel ${tunnel.name}` });
+    return null;
+  });
+}

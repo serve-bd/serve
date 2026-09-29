@@ -20,6 +20,7 @@ import { runCleanup, scheduleCleanup } from "@/server/cleanup";
 import { probeServer, setupServer } from "@/server/servers/setup";
 import { getServer, serverOf } from "@/server/servers/context";
 import { SCHEMA_VERSION } from "@/server/version";
+import { checkTunnels } from "@/server/cloudflare/tunnels";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -307,6 +308,7 @@ async function main() {
   every(15_000, "heartbeat", () => updateSettings({ workerHeartbeat: new Date().toISOString(), workerSchemaVersion: SCHEMA_VERSION }), true);
   every(15_000, "monitor", monitorServices, true);
   every(60_000, "servers", probeRemoteServers, true);
+  every(60_000, "tunnels", checkTunnels, true);
   every(30_000, "metrics", collectMetrics, true);
   every(60_000, "backups", scheduleBackups);
   every(60_000, "tasks", scheduleTasks);

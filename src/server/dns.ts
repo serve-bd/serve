@@ -34,11 +34,13 @@ export function isCloudflareIp(ip: string) {
 
 export type DnsStatus = "ok" | "proxied" | "wrong" | "missing" | "unknown";
 
-export async function domainDnsStatus(hostname: string, serverIp: string | null) {
+export async function domainDnsStatus(hostname: string, serverIp: string | null, opts: { tunnel?: boolean } = {}) {
   if (hostname.endsWith(".sslip.io") || hostname.endsWith(".nip.io")) return { status: "ok" as DnsStatus, records: [] as string[] };
   const records = await resolveA(hostname);
   if (!records.length) return { status: "missing" as DnsStatus, records };
   if (serverIp && records.includes(serverIp)) return { status: "ok" as DnsStatus, records };
+  // Tunnel domains always resolve to Cloudflare's edge; that is the correct setup for them.
+  if (opts.tunnel && records.every(isCloudflareIp)) return { status: "ok" as DnsStatus, records };
   if (records.every(isCloudflareIp)) return { status: "proxied" as DnsStatus, records };
   return { status: (serverIp ? "wrong" : "unknown") as DnsStatus, records };
 }

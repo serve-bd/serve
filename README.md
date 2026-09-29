@@ -60,6 +60,7 @@ cd /data/serve && docker compose pull && docker compose up -d
 - Connect accounts with an API token
 - Create DNS records automatically when adding domains, with proxy toggle
 - Manage DNS records, SSL/TLS mode, Always Use HTTPS and cache purges in the dashboard
+- Cloudflare Tunnels: serve domains from servers without a public IP or open ports (home labs, NAT, closed firewalls); Cloudflare handles HTTPS
 
 **Operate**
 - Project environments (production, staging…) with shared variables
@@ -138,6 +139,14 @@ Servers → **Add server**:
 3. Connect. Serve pins the server's host key, checks Docker (and installs it if you ask), prepares `/data/serve` and starts the nginx proxy.
 
 Serve talks to remote Docker over SSH, so only port 22 needs to be reachable from the Serve machine. Open ports 80 and 443 on the server for its apps. Services on different servers cannot reach each other over the private network; use public domains or published ports between them.
+
+## Cloudflare Tunnels
+
+For servers without a public IP (or with ports 80/443 closed):
+
+1. Connect Cloudflare with a token that also has **Account · Cloudflare Tunnel · Edit**.
+2. Integrations → Cloudflare → your account → **Tunnels** → **Create tunnel** next to the server. Serve creates the tunnel and runs a `cloudflared` container beside the proxy.
+3. Add a domain from that account's zones and choose **Route traffic through: Cloudflare Tunnel**. Serve creates the DNS record and the tunnel route; Cloudflare serves it over HTTPS.
 
 ## Connecting GitHub
 

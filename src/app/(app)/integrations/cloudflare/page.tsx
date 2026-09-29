@@ -1,4 +1,5 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { serversForOrg } from "@/server/servers/access";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decrypt } from "@/server/crypto";
@@ -20,8 +21,24 @@ export default async function CloudflarePage() {
       }
     }),
   );
+  const [servers, tunnels] = await Promise.all([
+    serversForOrg(ctx.org.id),
+    db
+      .select({
+        id: schema.cloudflareTunnel.id,
+        accountId: schema.cloudflareTunnel.cloudflareAccountId,
+        serverId: schema.cloudflareTunnel.serverId,
+        status: schema.cloudflareTunnel.status,
+        statusMessage: schema.cloudflareTunnel.statusMessage,
+        domains: sql<number>`(select count(*)::int from domain d where d.tunnel_id = ${schema.cloudflareTunnel.id})`,
+      })
+      .from(schema.cloudflareTunnel)
+      .where(eq(schema.cloudflareTunnel.organizationId, ctx.org.id)),
+  ]);
   return (
     <CloudflareAccounts
+      servers={servers.map((s) => ({ id: s.id, name: s.name, isLocal: s.isLocal, status: s.status }))}
+      tunnels={tunnels}
       title="Cloudflare"
       description="Manage DNS records, SSL modes and certificates for your Cloudflare zones without leaving Serve."
       accounts={withZones}

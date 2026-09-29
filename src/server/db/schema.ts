@@ -446,6 +446,8 @@ export const domain = pgTable(
     ),
     cloudflareZoneId: text("cloudflare_zone_id"),
     cloudflareRecordId: text("cloudflare_record_id"),
+    /** Routed through a Cloudflare Tunnel instead of the server's public IP. HTTPS terminates at Cloudflare. */
+    tunnelId: text("tunnel_id").references((): AnyPgColumn => cloudflareTunnel.id, { onDelete: "set null" }),
     /** Auto-generated domain (sslip.io or wildcard). */
     generated: boolean("generated").notNull().default(false),
     createdAt: createdAt(),
@@ -507,6 +509,37 @@ export const cloudflareAccount = pgTable("cloudflare_account", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
+
+export type TunnelStatus = "pending" | "healthy" | "degraded" | "down" | "error";
+
+/**
+ * A Cloudflare Tunnel from one server to one Cloudflare account. Domains in
+ * that account's zones can route through it, so servers without a public IP
+ * (or with closed ports) can serve traffic. Runs as a cloudflared container.
+ */
+export const cloudflareTunnel = pgTable(
+  "cloudflare_tunnel",
+  {
+    id: id(),
+    organizationId: orgRef(),
+    cloudflareAccountId: text("cloudflare_account_id")
+      .notNull()
+      .references(() => cloudflareAccount.id, { onDelete: "cascade" }),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => server.id, { onDelete: "cascade" }),
+    /** Tunnel id on Cloudflare. */
+    cfTunnelId: text("cf_tunnel_id").notNull(),
+    name: text("name").notNull(),
+    /** Encrypted connector token. */
+    token: text("token").notNull(),
+    status: text("status").$type<TunnelStatus>().notNull().default("pending"),
+    statusMessage: text("status_message"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("cloudflare_tunnel_server_account_idx").on(t.serverId, t.cloudflareAccountId)],
+);
 
 export type GitProviderType = "github-app" | "github" | "gitlab" | "bitbucket" | "gitea" | "ssh";
 

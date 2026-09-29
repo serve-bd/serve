@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -21,13 +21,18 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   if (service.type === "database") redirect(`/projects/${projectId}/services/${serviceId}`);
-  const [domains, certs, cfAccounts, settings, addressing, server] = await Promise.all([
+  const [domains, certs, cfAccounts, settings, addressing, server, tunnels] = await Promise.all([
     db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId)).orderBy(asc(schema.domain.createdAt)),
     db.select().from(schema.certificate).where(eq(schema.certificate.organizationId, ctx.org.id)),
     db.select({ id: schema.cloudflareAccount.id }).from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, ctx.org.id)),
     getSettings(),
     serverAddressing(service.serverId),
     getServerRow(service.serverId),
+    db
+      .select({ id: schema.cloudflareTunnel.id, accountId: schema.cloudflareTunnel.cloudflareAccountId, accountName: schema.cloudflareAccount.name, status: schema.cloudflareTunnel.status })
+      .from(schema.cloudflareTunnel)
+      .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
+      .where(and(eq(schema.cloudflareTunnel.organizationId, ctx.org.id), eq(schema.cloudflareTunnel.serverId, service.serverId))),
   ]);
   const hasPorts = service.type === "app" || service.type === "compose";
   const [published, busy] = hasPorts ? await Promise.all([publishedPorts(service, server), busyHostPorts(service)]) : [[], []];
@@ -50,6 +55,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
         hasCloudflare={cfAccounts.length > 0}
         hasAcme={!!settings.acmeEmail}
         serverIp={addressing.publicIp}
+        tunnels={tunnels}
         canGenerate={!!addressing.wildcardDomain || (addressing.sslipFallback && !!addressing.publicIp)}
         certificates={certs.map((c) => ({ id: c.id, name: c.name, domains: c.domains, status: c.status, provider: c.provider }))}
         domains={domains.map((d) => {
@@ -67,6 +73,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
             generated: d.generated,
             cloudflare: !!d.cloudflareZoneId,
             managedRecord: !!d.cloudflareRecordId,
+            tunnel: !!d.tunnelId,
             certificate: cert ? { id: cert.id, status: cert.status, provider: cert.provider, error: cert.lastError, expiresAt: cert.expiresAt?.toISOString() ?? null } : null,
           };
         })}

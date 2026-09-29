@@ -16,7 +16,8 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
   const primary = domains.find((d) => !d.redirectTo) ?? null;
   if (primary) {
     vars.SERVE_PUBLIC_DOMAIN = primary.hostname;
-    vars.SERVE_PUBLIC_URL = `${primary.https ? "https" : "http"}://${primary.hostname}`;
+    // Tunnel domains are HTTPS at Cloudflare even though the proxy serves them over HTTP.
+    vars.SERVE_PUBLIC_URL = `${primary.https || primary.tunnelId ? "https" : "http"}://${primary.hostname}`;
   }
   if (service.type === "app" && service.runtime.port) {
     vars.PORT = String(service.runtime.port);

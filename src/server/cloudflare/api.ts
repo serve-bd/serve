@@ -45,6 +45,15 @@ export type CfDnsRecord = {
 
 export type CfSslMode = "off" | "flexible" | "full" | "strict";
 
+export type CfTunnel = {
+  id: string;
+  name: string;
+  /** healthy | degraded | down | inactive */
+  status: string;
+  connections?: { colo_name: string; is_pending_reconnect: boolean; origin_ip?: string }[];
+  token?: string;
+};
+
 export class Cloudflare {
   constructor(
     private token: string,
@@ -164,6 +173,49 @@ export class Cloudflare {
     const a = existing.find((r) => r.type === "A");
     if (a) return this.updateDnsRecord(zoneId, a.id, { content: ip, proxied, comment });
     return this.createDnsRecord(zoneId, { type: "A", name: hostname, content: ip, proxied, comment });
+  }
+
+  /**
+   * Point a hostname at a Cloudflare Tunnel (proxied CNAME to <id>.cfargotunnel.com).
+   * Replaces records Serve created earlier (like an A record from before the tunnel); never foreign ones.
+   */
+  async upsertTunnelRecord(zoneId: string, hostname: string, tunnelId: string, comment = "Managed by Serve") {
+    const target = `${tunnelId}.cfargotunnel.com`;
+    const existing = (await this.dnsRecords(zoneId, { name: hostname })).filter((r) => ["A", "AAAA", "CNAME"].includes(r.type));
+    const foreign = existing.filter((r) => r.comment !== comment && !(r.type === "CNAME" && r.content === target));
+    if (foreign.length) {
+      throw new CloudflareError(`${hostname} already has a ${foreign[0].type} record (${foreign[0].content}). Remove it in Cloudflare first.`, 409);
+    }
+    const cname = existing.find((r) => r.type === "CNAME");
+    for (const r of existing) if (r !== cname) await this.deleteDnsRecord(zoneId, r.id);
+    if (cname) return this.updateDnsRecord(zoneId, cname.id, { content: target, proxied: true, comment });
+    return this.createDnsRecord(zoneId, { type: "CNAME", name: hostname, content: target, proxied: true, comment });
+  }
+
+  /* ------------------------------ Tunnels ------------------------------ */
+
+  async createTunnel(accountId: string, name: string) {
+    const secret = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
+    return (await this.request<CfTunnel>("POST", `/accounts/${accountId}/cfd_tunnel`, { name, config_src: "cloudflare", tunnel_secret: secret })).result;
+  }
+
+  async tunnel(accountId: string, tunnelId: string) {
+    return (await this.request<CfTunnel>("GET", `/accounts/${accountId}/cfd_tunnel/${tunnelId}`)).result;
+  }
+
+  async tunnelToken(accountId: string, tunnelId: string) {
+    return (await this.request<string>("GET", `/accounts/${accountId}/cfd_tunnel/${tunnelId}/token`)).result;
+  }
+
+  /** Replace the tunnel's routes (remotely managed configuration). */
+  async setTunnelIngress(accountId: string, tunnelId: string, ingress: { hostname?: string; service: string; originRequest?: Record<string, unknown> }[]) {
+    await this.request("PUT", `/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`, { config: { ingress } });
+  }
+
+  async deleteTunnel(accountId: string, tunnelId: string) {
+    // Drop lingering connector connections first; deletion fails while any exist.
+    await this.request("DELETE", `/accounts/${accountId}/cfd_tunnel/${tunnelId}/connections`).catch(() => {});
+    await this.request("DELETE", `/accounts/${accountId}/cfd_tunnel/${tunnelId}`);
   }
 
   async sslMode(zoneId: string): Promise<CfSslMode> {

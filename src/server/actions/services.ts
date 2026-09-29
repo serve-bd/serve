@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, isNotNull, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requireOrg, requireOrgAdmin } from "@/server/auth";
@@ -617,6 +617,32 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
       if (!taken) await db.update(schema.domain).set({ hostname: next.hostname, https: next.https, forceHttps: next.https }).where(eq(schema.domain.id, d.id));
     }
 
+    // Tunnel domains follow the service when the new server has a tunnel to the same Cloudflare account.
+    const tunneled = await db.select().from(schema.domain).where(and(eq(schema.domain.serviceId, serviceId), isNotNull(schema.domain.tunnelId)));
+    if (tunneled.length) {
+      const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+      const touched = new Set<string>();
+      for (const d of tunneled) {
+        const [old] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, d.tunnelId!));
+        const [next] = old
+          ? await db
+              .select()
+              .from(schema.cloudflareTunnel)
+              .where(and(eq(schema.cloudflareTunnel.serverId, target.id), eq(schema.cloudflareTunnel.cloudflareAccountId, old.cloudflareAccountId)))
+          : [];
+        if (old) touched.add(old.id);
+        if (next && d.cloudflareZoneId) {
+          const cf = await Cloudflare.forAccount(next.cloudflareAccountId);
+          await cf.upsertTunnelRecord(d.cloudflareZoneId, d.hostname, next.cfTunnelId).catch(() => {});
+          await db.update(schema.domain).set({ tunnelId: next.id }).where(eq(schema.domain.id, d.id));
+          touched.add(next.id);
+        } else {
+          await db.update(schema.domain).set({ tunnelId: null }).where(eq(schema.domain.id, d.id));
+        }
+      }
+      for (const id of touched) await syncTunnelIngress(id).catch(() => {});
+    }
+
     const deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
     await logActivity({
       userId: ctx.user.id,
@@ -706,6 +732,8 @@ const domainSchema = z.object({
     .object({ accountId: z.string(), zoneId: z.string(), proxied: z.boolean(), createRecord: z.boolean() })
     .nullable()
     .optional(),
+  /** Route through this Cloudflare Tunnel instead of the server's public IP. */
+  tunnelId: z.string().nullable().optional(),
 });
 
 export async function addDomain(serviceId: string, input: z.input<typeof domainSchema>) {
@@ -728,6 +756,31 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
 
     let recordId: string | null = null;
     let warning: string | null = null;
+    let tunnel: typeof schema.cloudflareTunnel.$inferSelect | null = null;
+    let tunnelZoneId: string | null = null;
+    if (data.tunnelId) {
+      if (!ctx.isAdmin) throw new UserError("Only organization admins can route domains through a tunnel.");
+      [tunnel] = await db
+        .select()
+        .from(schema.cloudflareTunnel)
+        .where(and(eq(schema.cloudflareTunnel.id, data.tunnelId), eq(schema.cloudflareTunnel.organizationId, ctx.org.id)));
+      if (!tunnel) throw new UserError("Tunnel not found.");
+      if (tunnel.serverId !== service.serverId) throw new UserError("That tunnel belongs to another server than this service.");
+      if (data.hostname.startsWith("*.")) throw new UserError("Wildcard domains cannot route through a tunnel. Add each hostname.");
+      const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+      const zone = await cf.zoneFor(data.hostname).catch(() => null);
+      if (!zone) throw new UserError(`${data.hostname} is not in a zone of the tunnel's Cloudflare account.`);
+      try {
+        recordId = (await cf.upsertTunnelRecord(zone.id, data.hostname, tunnel.cfTunnelId)).id;
+        tunnelZoneId = zone.id;
+      } catch (e) {
+        throw new UserError(`Could not point ${data.hostname} at the tunnel: ${(e as Error).message}`);
+      }
+      // Cloudflare terminates HTTPS; the tunnel reaches the proxy over plain HTTP.
+      data.https = false;
+      data.forceHttps = false;
+      data.cloudflare = null;
+    }
     if (data.cloudflare) {
       const [account] = await db
         .select({ id: schema.cloudflareAccount.id })
@@ -765,11 +818,18 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
         forceHttps: data.https && data.forceHttps,
         redirectTo: data.redirectTo ?? null,
         certificateId: data.certificateId ?? null,
-        cloudflareAccountId: data.cloudflare?.accountId ?? null,
-        cloudflareZoneId: data.cloudflare?.zoneId ?? null,
+        cloudflareAccountId: tunnel?.cloudflareAccountId ?? data.cloudflare?.accountId ?? null,
+        cloudflareZoneId: tunnelZoneId ?? data.cloudflare?.zoneId ?? null,
         cloudflareRecordId: recordId,
+        tunnelId: tunnel?.id ?? null,
       })
       .returning();
+    if (tunnel) {
+      const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+      await syncTunnelIngress(tunnel.id).catch((e) => {
+        warning = `Tunnel route not updated: ${(e as Error).message}`;
+      });
+    }
     if (domain.https && !data.certificateId) await ensureCertificateFor(domain, ctx.org.id);
     await syncServiceProxy(serviceId).catch((e) => {
       warning = `Proxy not updated: ${(e as Error).message}`;
@@ -803,6 +863,11 @@ export async function updateDomain(domainId: string, input: z.input<typeof domai
         .where(and(eq(schema.certificate.id, data.certificateId), eq(schema.certificate.organizationId, ctx.org.id)));
       if (!cert) throw new UserError("Certificate not found.");
     }
+    // Tunnel domains get HTTPS from Cloudflare; a certificate at the proxy is never needed.
+    if (domain.tunnelId) {
+      data.https = false;
+      data.forceHttps = false;
+    }
     const [updated] = await db.update(schema.domain).set(data).where(eq(schema.domain.id, domainId)).returning();
     if (updated.https && !updated.certificateId) await ensureCertificateFor(updated, ctx.org.id);
     await syncServiceProxy(domain.serviceId);
@@ -821,6 +886,10 @@ export async function removeDomain(domainId: string, deleteDns: boolean) {
       await cf.deleteDnsRecord(domain.cloudflareZoneId, domain.cloudflareRecordId).catch(() => {});
     }
     await db.delete(schema.domain).where(eq(schema.domain.id, domainId));
+    if (domain.tunnelId) {
+      const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+      await syncTunnelIngress(domain.tunnelId).catch(() => {});
+    }
     await syncServiceProxy(domain.serviceId).catch(() => {});
     return null;
   });
@@ -926,7 +995,7 @@ export async function checkDomainDns(domainId: string) {
     if (!domain) throw new UserError("Domain not found.");
     const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
     const { domainDnsStatus } = await import("@/server/dns");
-    return domainDnsStatus(domain.hostname, await serverPublicIp(service.serverId));
+    return domainDnsStatus(domain.hostname, await serverPublicIp(service.serverId), { tunnel: !!domain.tunnelId });
   });
 }
 

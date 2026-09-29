@@ -17,7 +17,9 @@ export type JobType =
   | "cleanup"
   | "task.run"
   | "server.setup"
-  | "proxy.switch";
+  | "proxy.switch"
+  | "instance.backup"
+  | "instance.update";
 
 export type JobPayloads = {
   deploy: { deploymentId: string };
@@ -35,6 +37,8 @@ export type JobPayloads = {
   "server.setup": { serverId: string; installDocker?: boolean };
   "proxy.switch": { serverId: string; to: "nginx" | "caddy" | "traefik" | "none" };
   "task.run": { runId: string };
+  "instance.backup": { backupId: string };
+  "instance.update": { to: string };
 };
 
 export type Job<T extends JobType = JobType> = Omit<typeof schema.job.$inferSelect, "payload" | "type"> & {

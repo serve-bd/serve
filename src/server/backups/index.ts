@@ -16,7 +16,7 @@ import { paths } from "@/server/paths";
 import { notify, orgOfService } from "@/server/notify";
 import { s3Delete, s3Download, s3Stream, s3Upload, type S3Config } from "./s3";
 
-async function s3For(id: string | null | undefined): Promise<(S3Config & { prefix: string; id: string }) | null> {
+export async function s3For(id: string | null | undefined): Promise<(S3Config & { prefix: string; id: string }) | null> {
   if (!id) return null;
   const [row] = await db.select().from(schema.s3Destination).where(eq(schema.s3Destination.id, id));
   if (!row) return null;

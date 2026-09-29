@@ -24,6 +24,8 @@ export default async function SettingsLayout({ children }: LayoutProps<"/setting
                 { href: "/settings/dashboard", label: "Dashboard & TLS", icon: "Globe" },
                 { href: "/settings/email", label: "Email", icon: "Mail" },
                 { href: "/settings/advanced", label: "Advanced", icon: "SlidersHorizontal" },
+                { href: "/settings/backups", label: "Backups", icon: "HardDriveDownload" },
+                { href: "/settings/updates", label: "Updates", icon: "Download" },
               ],
             },
             {

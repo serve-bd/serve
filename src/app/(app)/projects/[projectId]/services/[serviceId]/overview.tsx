@@ -81,8 +81,9 @@ function Stat({ icon, label, value, sub, children }: { icon: React.ReactNode; la
         {label}
       </span>
       <span className="text-[18px] font-semibold tabular-nums text-fg">{value}</span>
-      {sub && <span className="truncate text-[11px] text-faint">{sub}</span>}
-      <div className="mt-1">{children}</div>
+      {/* The line is always there, so every tile's chart starts at the same height. */}
+      <span className="truncate text-[11px] text-faint">{sub || "\u00a0"}</span>
+      <div className="mt-auto pt-1">{children}</div>
     </div>
   );
 }
@@ -270,14 +271,19 @@ export function ServiceOverview(data: OverviewData) {
               <Stat icon={<Globe />} label="Requests" value={req ? compact(req.totals.requests) : "—"} sub={req ? `${formatBytes(req.totals.bytes)} sent` : undefined}>
                 <AreaChart data={(req?.series ?? []).map((p) => ({ t: p.t, v: p.requests }))} format={(v) => compact(v)} height={44} />
               </Stat>
-              <Stat icon={<Timer />} label="Avg response" value={req?.totals.requests ? `${Math.round(req.totals.avgMs)} ms` : "—"}>
+              <Stat
+                icon={<Timer />}
+                label="Avg response"
+                value={req?.totals.requests ? `${Math.round(req.totals.avgMs)} ms` : "—"}
+                sub={req?.totals.requests ? "Average time per request" : "No requests yet"}
+              >
                 <AreaChart data={(req?.series ?? []).map((p) => ({ t: p.t, v: p.avgMs }))} color="var(--accent)" format={(v) => `${Math.round(v)} ms`} height={44} />
               </Stat>
               <Stat
                 icon={<Box />}
                 label="Server errors"
                 value={req ? compact(req.totals.errors) : "—"}
-                sub={req?.totals.requests ? `${((req.totals.errors / req.totals.requests) * 100).toFixed(2)}% of requests` : undefined}
+                sub={req?.totals.requests ? `${((req.totals.errors / req.totals.requests) * 100).toFixed(2)}% of requests` : "5xx answers from the app"}
               >
                 <AreaChart data={(req?.series ?? []).map((p) => ({ t: p.t, v: p.s5xx }))} color="var(--bad)" format={(v) => compact(v)} height={44} />
               </Stat>

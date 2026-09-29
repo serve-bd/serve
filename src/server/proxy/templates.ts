@@ -173,9 +173,21 @@ export type SiteServer = {
   allow?: string[];
 };
 
+/**
+ * Whether nginx should re-resolve a server through Docker DNS. Container names
+ * need it (they change IP across restarts); IP literals and names that only
+ * exist in /etc/hosts (host.docker.internal via ExtraHosts) must not use it,
+ * or nginx logs "could not be resolved" forever.
+ */
+export function usesDockerDns(server: string) {
+  const host = server.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":")) return false;
+  return !["localhost", "host.docker.internal", "gateway.docker.internal"].includes(host);
+}
+
 export function upstreamBlock(u: SiteUpstream) {
   const servers = u.servers.length
-    ? u.servers.map((s) => `    server ${s} resolve max_fails=0;`).join("\n")
+    ? u.servers.map((s) => `    server ${s}${usesDockerDns(s) ? " resolve" : ""} max_fails=0;`).join("\n")
     : // No running container: keep a placeholder so nginx loads, requests get the 502 page.
       `    server 127.0.0.1:1 down;`;
   return `upstream ${u.name} {

@@ -206,3 +206,12 @@ describe("transformCompose ports", () => {
     expect(out.services.db.ports).toBeUndefined();
   });
 });
+
+describe("upstreamBlock", () => {
+  it("re-resolves container names but not host aliases or IPs", () => {
+    const out = upstreamBlock({ name: "u", servers: ["app-1:3000", "host.docker.internal:3000", "10.0.0.5:80"] });
+    expect(out).toContain("server app-1:3000 resolve max_fails=0;");
+    expect(out).toContain("server host.docker.internal:3000 max_fails=0;");
+    expect(out).toContain("server 10.0.0.5:80 max_fails=0;");
+  });
+});

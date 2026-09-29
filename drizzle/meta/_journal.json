@@ -127,6 +127,13 @@
       "when": 1790691073729,
       "tag": "0017_domain_wants_tunnel",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790699512534,
+      "tag": "0018_monitoring",
+      "breakpoints": true
     }
   ]
 }

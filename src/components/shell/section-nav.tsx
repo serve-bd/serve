@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Boxes, Brush, Globe, KeyRound, LockKeyhole, Mail, Network, Settings2, ShieldCheck, SlidersHorizontal, SquareTerminal } from "lucide-react";
+import { Activity, BellRing, Boxes, Brush, Globe, KeyRound, LockKeyhole, Mail, Network, Settings2, ShieldCheck, SlidersHorizontal, SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** Icons by name, so server layouts can describe navigation without passing components. */
-const icons = { Activity, Boxes, Brush, Globe, KeyRound, LockKeyhole, Mail, Network, Settings2, ShieldCheck, SlidersHorizontal, SquareTerminal };
+const icons = { Activity, BellRing, Boxes, Brush, Globe, KeyRound, LockKeyhole, Mail, Network, Settings2, ShieldCheck, SlidersHorizontal, SquareTerminal };
 
 export type SectionNavItem = { href: string; label: string; icon: keyof typeof icons; warn?: boolean; exact?: boolean };
 export type SectionNavGroup = { title: string; items: SectionNavItem[] };

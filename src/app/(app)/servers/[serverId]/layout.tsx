@@ -1,3 +1,5 @@
+import { and, eq, isNull } from "drizzle-orm";
+import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { serverHealth } from "@/server/system";
 import { PageHeader } from "@/components/shell/page-header";
@@ -16,6 +18,10 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
   const issues = health ? health.issues : row.status === "ready" ? ["The server did not answer in time"] : [row.statusMessage ?? statusText(row.status, "server")];
   const ready = issues.length === 0;
   const base = `/servers/${serverId}`;
+  const openAlerts = await db
+    .select({ id: schema.incident.id })
+    .from(schema.incident)
+    .where(and(eq(schema.incident.serverId, serverId), isNull(schema.incident.resolvedAt)));
 
   return (
     <>
@@ -64,6 +70,7 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
                 { href: `${base}/terminal`, label: "Terminal", icon: "SquareTerminal" },
                 { href: `${base}/cleanup`, label: "Docker cleanup", icon: "Brush", warn: !!health && health.diskPercent >= settings.cleanupDiskThreshold },
                 { href: `${base}/metrics`, label: "Metrics", icon: "Activity" },
+                { href: `${base}/alerts`, label: "Alerts", icon: "BellRing", warn: openAlerts.length > 0 },
               ],
             },
           ]}

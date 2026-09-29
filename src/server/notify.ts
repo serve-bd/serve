@@ -12,7 +12,11 @@ export type NotifyEvent =
   | "certificate.failed"
   | "certificate.renewed"
   | "task.failed"
-  | "server.disk";
+  | "server.disk"
+  | "service.down"
+  | "service.recovered"
+  | "container.crashloop"
+  | "server.resource";
 
 export const notifyEvents: { id: NotifyEvent; label: string }[] = [
   { id: "deploy.success", label: "Deployment succeeded" },
@@ -24,6 +28,10 @@ export const notifyEvents: { id: NotifyEvent; label: string }[] = [
   { id: "certificate.failed", label: "Certificate failed" },
   { id: "task.failed", label: "Scheduled task failed" },
   { id: "server.disk", label: "Server disk almost full" },
+  { id: "service.down", label: "Uptime check failing" },
+  { id: "service.recovered", label: "Uptime check recovered" },
+  { id: "container.crashloop", label: "Container restarting repeatedly" },
+  { id: "server.resource", label: "Server CPU, memory or disk high" },
 ];
 
 type Message = { title: string; body: string; url?: string; ok: boolean };

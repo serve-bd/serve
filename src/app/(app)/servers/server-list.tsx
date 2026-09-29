@@ -24,6 +24,8 @@ type Row = {
   lastSeenAt: string | null;
   services: number;
   running: number;
+  /** Open resource alerts (disk, memory, CPU). */
+  alerts: number;
 };
 
 export function ServerList({ servers }: { servers: Row[] }) {
@@ -116,7 +118,14 @@ function ServerCard({ server: s }: { server: Row }) {
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-xs text-muted">
         <span>{s.services === 0 ? "No services" : `${s.running}/${s.services} service${s.services === 1 ? "" : "s"} running`}</span>
-        {s.info.docker && <span className="font-mono text-[11px] text-faint">Docker {s.info.docker}</span>}
+        {s.alerts > 0 ? (
+          <span className="inline-flex items-center gap-1.5 font-medium text-warn">
+            <span className="size-1.5 rounded-full bg-warn" />
+            {s.alerts} alert{s.alerts === 1 ? "" : "s"}
+          </span>
+        ) : (
+          s.info.docker && <span className="font-mono text-[11px] text-faint">Docker {s.info.docker}</span>
+        )}
       </div>
     </Link>
   );

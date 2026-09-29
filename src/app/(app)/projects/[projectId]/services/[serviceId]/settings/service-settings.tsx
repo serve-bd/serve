@@ -24,6 +24,8 @@ import { ApplyBar, DatabaseSections, type DatabaseSettingsProps } from "./databa
 import type { SettingsNavItem } from "./settings-nav";
 import { addPendingApply, clearPendingApply, usePendingApply } from "./pending-apply";
 import { StorageSection } from "./storage-section";
+import { MonitoringSection } from "./monitoring-section";
+import type { MonitorSummary } from "@/server/monitoring/queries";
 import { updateDatabaseSettings } from "@/server/actions/databases";
 
 type Source =
@@ -67,6 +69,8 @@ type Props = {
   /** The settings sub-page shown, and all of them for the nav. */
   section: string;
   nav: SettingsNavItem[];
+  /** Uptime check (only loaded for the Monitoring page). */
+  monitoring?: { monitor: MonitorSummary["monitor"]; defaultUrl: string | null };
 };
 
 function ServerCard({ service, server, servers }: { service: Props["service"]; server: Props["server"]; servers: Props["servers"] }) {
@@ -484,6 +488,10 @@ export function ServiceSettings(props: Props) {
               </Field>
             </CardBody>
           </Card>
+        )}
+
+        {show("monitoring") && props.monitoring && (
+          <MonitoringSection serviceId={service.id} type={service.type} monitor={props.monitoring.monitor} defaultUrl={props.monitoring.defaultUrl} />
         )}
 
         {show("danger") && (

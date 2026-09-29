@@ -32,6 +32,7 @@ import { useAction } from "@/hooks/use-action";
 import { deployService } from "@/server/actions/services";
 import { cn, formatBytes } from "@/lib/utils";
 import type { OverviewData } from "./overview-data";
+import { UptimeCard } from "./uptime-card";
 
 type Series = { t: number; cpu: number; memory: number; memoryLimit: number; netRx: number | null; netTx: number | null }[];
 type Req = { series: { t: number; requests: number; avgMs: number; s5xx: number }[]; totals: { requests: number; errors: number; bytes: number; avgMs: number } };
@@ -248,6 +249,8 @@ export function ServiceOverview(data: OverviewData) {
             </div>
           )}
         </Card>
+
+        <UptimeCard summary={data.monitoring} settingsHref={`${base}/settings/monitoring`} />
 
         {/* Traffic */}
         {data.domains.length > 0 && (

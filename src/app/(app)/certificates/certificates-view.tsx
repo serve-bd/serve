@@ -371,6 +371,7 @@ export function CertificatesView({
   isAdmin,
   hasAcme,
   staging,
+  proxyManaged = [],
   serverIp,
   servers,
 }: {
@@ -380,6 +381,8 @@ export function CertificatesView({
   isAdmin: boolean;
   hasAcme: boolean;
   staging: boolean;
+  /** Servers whose proxy (Caddy or Traefik) manages certificates itself. */
+  proxyManaged?: { name: string; proxy: string }[];
   serverIp: string | null;
 }) {
   const router = useRouter();
@@ -398,6 +401,14 @@ export function CertificatesView({
 
   return (
     <div className="flex flex-col gap-4">
+      {proxyManaged.length > 0 && (
+        <p className="flex items-start gap-2 rounded-xl bg-info-soft px-4 py-2.5 text-[13px] text-fg-2">
+          <ShieldCheck className="mt-0.5 size-4 flex-none text-info" />
+          <span>
+            {proxyManaged.map((s) => `${s.name} (${s.proxy})`).join(", ")} {proxyManaged.length === 1 ? "gets" : "get"} HTTPS certificates from the proxy itself. They are managed by the proxy, renew automatically and are not listed here.
+          </span>
+        </p>
+      )}
       {staging && (
         <p className="flex items-center gap-2 rounded-xl bg-warn-soft px-4 py-2.5 text-[13px] text-warn">
           <AlertTriangle className="size-4" /> Let&apos;s Encrypt staging is on. New certificates will not be trusted by browsers.

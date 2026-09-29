@@ -3,7 +3,52 @@ import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 
 export const PROXY_IMAGE = process.env.SERVE_PROXY_IMAGE ?? "nginx:stable-alpine";
 
-export function mainConfig(opts: { maxBodySize: string }) {
+/** Trust the visitor IP from Cloudflare Tunnels, but only from the proxy's own Docker network. */
+export function realIpConfig(subnets: string[]) {
+  if (!subnets.length) return null;
+  return `# Managed by Serve — visitor IPs for Cloudflare Tunnel traffic (cloudflared runs on this network).
+${subnets.map((s) => `set_real_ip_from ${s};`).join("\n")}
+real_ip_header CF-Connecting-IP;
+`;
+}
+
+/** nginx config of the error-page server used by Traefik (it cannot serve files itself). */
+export const pagesServerConfig = `# Managed by Serve — error pages for Traefik.
+server {
+    listen 80 default_server;
+    server_name _;
+    root /usr/share/serve-pages;
+
+    location = /__serve/health {
+        access_log off;
+        return 200 "ok";
+    }
+    location = /__unavailable {
+        return 503;
+    }
+    location = /not-found.html { internal; }
+    location = /unavailable.html { internal; }
+    location / {
+        return 404;
+    }
+    error_page 404 /not-found.html;
+    error_page 502 503 504 /unavailable.html;
+}
+`;
+
+export type NginxMainOptions = {
+  maxBodySize: string;
+  workerConnections?: number | null;
+  keepaliveTimeout?: number | null;
+  proxyConnectTimeout?: number | null;
+  proxyReadTimeout?: number | null;
+  gzipLevel?: number | null;
+  serverTokens?: boolean;
+  /** Serve's default server with the 404 page for unknown hosts (default on). */
+  catchAll?: boolean;
+};
+
+export function mainConfig(opts: NginxMainOptions) {
   return `# Managed by Serve. Changes will be overwritten.
 worker_processes auto;
 worker_rlimit_nofile 65535;
@@ -11,7 +56,7 @@ error_log /dev/stderr warn;
 pid /var/run/nginx.pid;
 
 events {
-    worker_connections 8192;
+    worker_connections ${opts.workerConnections ?? 8192};
     multi_accept on;
 }
 
@@ -23,11 +68,11 @@ http {
     resolver 127.0.0.11 valid=5s ipv6=off;
     resolver_timeout 3s;
 
-    server_tokens off;
+    server_tokens ${opts.serverTokens ? "on" : "off"};
     sendfile on;
     tcp_nopush on;
     tcp_nodelay on;
-    keepalive_timeout 65;
+    keepalive_timeout ${opts.keepaliveTimeout ?? 65};
     types_hash_max_size 4096;
     server_names_hash_bucket_size 128;
     server_names_hash_max_size 4096;
@@ -40,7 +85,7 @@ http {
     gzip on;
     gzip_vary on;
     gzip_proxied any;
-    gzip_comp_level 5;
+    gzip_comp_level ${opts.gzipLevel ?? 5};
     gzip_min_length 1024;
     gzip_types text/plain text/css text/xml application/json application/javascript application/xml
                application/rss+xml application/atom+xml image/svg+xml font/ttf font/otf;
@@ -65,13 +110,13 @@ http {
     proxy_buffering on;
     proxy_buffers 16 16k;
     proxy_buffer_size 16k;
-    proxy_connect_timeout 10s;
-    proxy_send_timeout 300s;
-    proxy_read_timeout 300s;
+    proxy_connect_timeout ${opts.proxyConnectTimeout ?? 10}s;
+    proxy_send_timeout ${opts.proxyReadTimeout ?? 300}s;
+    proxy_read_timeout ${opts.proxyReadTimeout ?? 300}s;
     proxy_next_upstream error timeout http_502 http_503;
     proxy_next_upstream_tries 3;
 
-    # Fallback for unknown hosts.
+${opts.catchAll === false ? "    # Unknown hosts: handled by custom files (Serve's 404 page is off).\n\n" : `    # Fallback for unknown hosts.
     server {
         listen 80 default_server;
         server_name _;
@@ -104,11 +149,27 @@ http {
         ssl_reject_handshake on;
     }
 
-    # Custom directives from Server → Proxy (not globbed by the sites include).
+`}    # Custom directives from Server → Proxy (not globbed by the sites include).
     include ${proxyPaths.sites}/custom/*.conf;
 
     include ${proxyPaths.sites}/*.conf;
-}
+${opts.catchAll === false ? `
+    # Health check and ACME challenges for Serve (not the default server).
+    server {
+        listen 80;
+        server_name localhost 127.0.0.1;
+
+        location ^~ /.well-known/acme-challenge/ {
+            root ${proxyPaths.acme};
+            default_type text/plain;
+        }
+
+        location = /__serve/health {
+            access_log off;
+            return 200 "ok";
+        }
+    }
+` : ""}}
 `;
 }
 
@@ -174,6 +235,8 @@ export type SiteServer = {
   allow?: string[];
   /** Per-service HTTP options. */
   options?: SiteOptions | null;
+  /** Serve's 503 page for stopped or unreachable apps (default on). */
+  errorPages?: boolean;
 };
 
 /** Service HTTP options as the templates need them (auth as a file path, not a hash). */
@@ -260,7 +323,7 @@ function indent(lines: string[], depth: number) {
     .join("\n");
 }
 
-function proxyLocation(target: string, o: SiteOptions | null | undefined, tls: boolean) {
+function proxyLocation(target: string, o: SiteOptions | null | undefined, tls: boolean, errorPages = true) {
   const inner: string[] = [];
   // Basic auth lives in the location so the ACME challenge and error pages stay open.
   if (o?.authFile) {
@@ -287,9 +350,11 @@ function proxyLocation(target: string, o: SiteOptions | null | undefined, tls: b
     );
   }
   if (o?.customDirectives) inner.push("# Custom directives", o.customDirectives);
-  return `    location / {
+  const main = `    location / {
 ${indent(inner, 2)}
-    }
+    }`;
+  if (!errorPages) return main;
+  return `${main}
 
     error_page 502 503 504 /__serve_unavailable.html;
     location = /__serve_unavailable.html {
@@ -307,6 +372,7 @@ function body(s: SiteServer) {
   }
   const target = s.upstream ?? s.directTarget;
   if (!target) {
+    if (s.errorPages === false) return `    location / {\n        return 503;\n    }`;
     return `    location / {
         return 503;
     }
@@ -318,7 +384,7 @@ function body(s: SiteServer) {
         try_files /unavailable.html =503;
     }`;
   }
-  return proxyLocation(target, s.options, !!s.tls);
+  return proxyLocation(target, s.options, !!s.tls, s.errorPages !== false);
 }
 
 function acmeLocation(restricted: boolean) {

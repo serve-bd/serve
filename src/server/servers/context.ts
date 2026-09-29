@@ -106,8 +106,9 @@ function buildLocal(row: ServerRow): ServerCtx {
     paths: pathsFor(env.dataDir),
     network: env.network,
     proxyContainer: env.proxyContainer,
-    proxyHttpPort: env.proxyHttpPort,
-    proxyHttpsPort: env.proxyHttpsPort,
+    // Ports saved in Serve win; until then the install's environment decides.
+    proxyHttpPort: row.proxyPortsCustomized ? row.proxyHttpPort : env.proxyHttpPort,
+    proxyHttpsPort: row.proxyPortsCustomized ? row.proxyHttpsPort : env.proxyHttpsPort,
     exec: localExec,
     cliEnv: async () => ({}),
     ssh: null,
@@ -139,7 +140,7 @@ const cache = (store.__serveServers ??= new Map());
 
 function stamp(row: ServerRow) {
   // Only fields that change how we connect. Status/lastSeenAt updates must not rebuild clients.
-  return JSON.stringify([row.host, row.port, row.username, row.privateKeyId, row.hostKey, row.dataDir, row.proxyHttpPort, row.proxyHttpsPort, row.name, row.isLocal]);
+  return JSON.stringify([row.host, row.port, row.username, row.privateKeyId, row.hostKey, row.dataDir, row.proxyHttpPort, row.proxyHttpsPort, row.proxyPortsCustomized, row.name, row.isLocal]);
 }
 
 export async function getServerRow(id: string) {

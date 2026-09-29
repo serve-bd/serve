@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup } from "@/components/ui/input";
 import { SwitchRow } from "@/components/ui/switch";
@@ -90,40 +89,31 @@ export function DomainSettings({
         )}
       </SettingsCard>
 
-      {isLocal ? (
-        <Card>
-          <CardHeader title="Proxy ports" description="Host ports of the nginx proxy on this server, set with SERVE_PROXY_HTTP_PORT and SERVE_PROXY_HTTPS_PORT." />
-          <dl className="grid grid-cols-2 divide-x divide-line">
-            {[
-              ["HTTP", ports.proxyHttpPort],
-              ["HTTPS", ports.proxyHttpsPort],
-            ].map(([label, value]) => (
-              <div key={label} className="flex flex-col gap-1 px-5 py-4">
-                <dt className="text-xs text-muted">{label}</dt>
-                <dd className="font-mono text-[15px] text-fg">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </Card>
-      ) : (
-        <SettingsCard
+      {        <SettingsCard
           title="Proxy ports"
-          description="Host ports the proxy listens on. Keep 80 and 443 unless another web server already uses them; Let's Encrypt needs port 80."
+          description={`Host ports the proxy listens on. Saving recreates the proxy on the new ports; if a port is taken, nothing changes.${isLocal ? " This overrides SERVE_PROXY_HTTP_PORT and SERVE_PROXY_HTTPS_PORT." : ""}`}
           initial={{ http: String(ports.proxyHttpPort), https: String(ports.proxyHttpsPort) }}
           onSave={(v) => updateServer(serverId, { proxyHttpPort: port(v.http), proxyHttpsPort: port(v.https) })}
         >
           {(v, set) => (
-            <div className="grid grid-cols-2 gap-4 sm:max-w-sm">
-              <Field label="HTTP">
-                <Input value={v.http} onChange={(e) => set("http")(e.target.value.replace(/\D/g, "").slice(0, 5))} inputMode="numeric" className="font-mono" />
-              </Field>
-              <Field label="HTTPS">
-                <Input value={v.https} onChange={(e) => set("https")(e.target.value.replace(/\D/g, "").slice(0, 5))} inputMode="numeric" className="font-mono" />
-              </Field>
-            </div>
+            <>
+              <div className="grid grid-cols-2 gap-4 sm:max-w-sm">
+                <Field label="HTTP" error={v.http && v.http === v.https ? "Use different ports" : undefined}>
+                  <Input value={v.http} onChange={(e) => set("http")(e.target.value.replace(/\D/g, "").slice(0, 5))} inputMode="numeric" className="font-mono" />
+                </Field>
+                <Field label="HTTPS">
+                  <Input value={v.https} onChange={(e) => set("https")(e.target.value.replace(/\D/g, "").slice(0, 5))} inputMode="numeric" className="font-mono" />
+                </Field>
+              </div>
+              {(v.http !== "80" || v.https !== "443") && (
+                <p className="text-xs leading-relaxed text-warn">
+                  Let&apos;s Encrypt only checks ports 80 and 443. With other ports, HTTPS certificates need the Cloudflare DNS check or a Cloudflare Tunnel.
+                </p>
+              )}
+            </>
           )}
         </SettingsCard>
-      )}
+      }
     </>
   );
 }

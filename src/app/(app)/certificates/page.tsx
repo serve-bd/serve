@@ -15,7 +15,7 @@ export default async function CertificatesPage() {
     certificatesWithServers(ctx.org.id).then((r) => r.reverse()),
     db.select({ id: schema.cloudflareAccount.id, name: schema.cloudflareAccount.name }).from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, ctx.org.id)),
     getSettings(),
-    db.select({ id: schema.server.id, publicIp: schema.server.publicIp }).from(schema.server),
+    db.select({ id: schema.server.id, publicIp: schema.server.publicIp, name: schema.server.name, proxyKind: schema.server.proxyKind }).from(schema.server),
   ]);
   const orgServers = await serversForOrg(ctx.org.id);
   const ipOf = new Map(servers.map((s) => [s.id, s.publicIp]));
@@ -28,6 +28,9 @@ export default async function CertificatesPage() {
           isAdmin={ctx.isAdmin}
           hasAcme={!!settings.acmeEmail}
           staging={settings.acmeStaging}
+          proxyManaged={servers
+            .filter((s) => s.proxyKind !== "nginx" && orgServers.some((o) => o.id === s.id))
+            .map((s) => ({ name: s.name, proxy: s.proxyKind === "caddy" ? "Caddy" : "Traefik" }))}
           serverIp={ipOf.get("local") ?? settings.serverIp}
           servers={orgServers}
           accounts={accounts}

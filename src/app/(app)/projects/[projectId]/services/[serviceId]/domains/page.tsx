@@ -14,6 +14,10 @@ import { DomainsManager } from "./domains-manager";
 import { PortsCard } from "./ports-card";
 import { ProxyOptionsCard } from "./proxy-options-card";
 import { getTemplate } from "@/server/services/templates";
+import { ProxyConfigCard } from "./proxy-config-card";
+import { generatedSite } from "@/server/proxy/nginx";
+import { getServer } from "@/server/servers/context";
+import type { RunningKind } from "@/server/proxy/config";
 
 export const metadata = { title: "Domains & ports" };
 
@@ -37,7 +41,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
   ]);
   // Never send the password hash to the browser.
   const proxyInitial = service.proxy
-    ? (({ basicAuth, ...rest }) => ({ ...rest, basicAuthUser: basicAuth?.username ?? null }))(service.proxy)
+    ? (({ basicAuth, ...rest }) => ({ ...rest, basicAuthUser: basicAuth?.username ?? null, basicAuthHasBcrypt: !!basicAuth?.bcryptHash }))(service.proxy)
     : null;
   const hasPorts = service.type === "app" || service.type === "compose";
   const [published, busy] = hasPorts ? await Promise.all([publishedPorts(service, server), busyHostPorts(service)]) : [[], []];
@@ -49,10 +53,18 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
   const composeServices = main ? [main, ...names.filter((n) => n !== main)] : names;
   const composePorts = composeServicePorts(content);
   if (template?.expose && main === template.expose.service && !composePorts[main]?.length) composePorts[main] = [template.expose.port];
+  const kind = server.proxyKind as RunningKind | "none";
+  // The generated site is only shown to Root admins, who may replace it.
+  const serverCtx = await getServer(service.serverId).catch(() => null);
+  const generated = ctx.isInstanceAdmin && kind !== "none" && domains.length > 0 && serverCtx ? await generatedSite(kind, service.id, serverCtx).catch(() => null) : null;
+  const appPort = service.type === "app" ? service.runtime.port : null;
   return (
     <PageBody className="flex flex-col gap-6">
       <DomainsManager
         serviceId={service.id}
+        proxyKind={server.proxyKind}
+        proxyPorts={serverCtx ? { http: serverCtx.proxyHttpPort, https: serverCtx.proxyHttpsPort } : undefined}
+        acmeChallenge={server.proxyConfig?.traefik?.acmeChallenge ?? "http"}
         type={service.type}
         defaultPort={service.runtime.port}
         composeServices={names}
@@ -98,14 +110,29 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           busy={busy}
         />
       )}
-      <ProxyOptionsCard
-        key={JSON.stringify(service.proxy ?? null)}
-        serviceId={service.id}
-        initial={proxyInitial}
-        isAdmin={ctx.isAdmin}
-        isInstanceAdmin={ctx.isInstanceAdmin}
-        hasTls={domains.some((d) => d.https)}
-      />
+      {kind !== "none" && (
+        <ProxyOptionsCard
+          key={JSON.stringify(service.proxy ?? null)}
+          serviceId={service.id}
+          initial={proxyInitial}
+          isAdmin={ctx.isAdmin}
+          isInstanceAdmin={ctx.isInstanceAdmin}
+          hasTls={domains.some((d) => d.https)}
+          proxyKind={server.proxyKind as "nginx" | "caddy" | "traefik"}
+        />
+      )}
+      {ctx.isInstanceAdmin && kind !== "none" && (
+        <ProxyConfigCard
+          key={`${kind}:${service.proxyCustom?.[kind] ?? ""}:${generated ?? ""}`}
+          serviceId={service.id}
+          kind={kind}
+          generated={generated}
+          custom={service.proxyCustom?.[kind] ?? null}
+          otherCustom={(["nginx", "caddy", "traefik"] as const).filter((k) => k !== kind && !!service.proxyCustom?.[k])}
+          hasDomains={domains.length > 0}
+          alias={appPort ? `${service.slug}:${appPort}` : null}
+        />
+      )}
     </PageBody>
   );
 }

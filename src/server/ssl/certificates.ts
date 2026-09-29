@@ -331,6 +331,9 @@ export async function ensureCertificateFor(domain: typeof schema.domain.$inferSe
   // Certificates live on the server whose proxy serves the domain.
   const [svc] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, domain.serviceId));
   const serverId = svc?.serverId ?? LOCAL_SERVER_ID;
+  // Caddy and Traefik obtain and renew certificates themselves.
+  const [server] = await db.select({ kind: schema.server.proxyKind }).from(schema.server).where(eq(schema.server.id, serverId));
+  if (server && server.kind !== "nginx") return null;
   const certs = await db
     .select()
     .from(schema.certificate)

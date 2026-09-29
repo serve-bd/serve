@@ -12,7 +12,7 @@ import { useAction } from "@/hooks/use-action";
 import { updateServiceProxy } from "@/server/actions/service-proxy";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 
-type Initial = Omit<ServiceProxyConfig, "basicAuth"> & { basicAuthUser: string | null };
+type Initial = Omit<ServiceProxyConfig, "basicAuth"> & { basicAuthUser: string | null; basicAuthHasBcrypt?: boolean };
 
 type Form = {
   maxBodySize: string;
@@ -32,6 +32,8 @@ type Form = {
   gzip: boolean;
   cacheStatic: boolean;
   customDirectives: string;
+  caddyDirectives: string;
+  traefikMiddlewares: string;
 };
 
 function toForm(c: Initial | null): Form {
@@ -53,6 +55,8 @@ function toForm(c: Initial | null): Form {
     gzip: c?.gzip ?? true,
     cacheStatic: c?.cacheStatic ?? false,
     customDirectives: c?.customDirectives ?? "",
+    caddyDirectives: c?.caddyDirectives ?? "",
+    traefikMiddlewares: c?.traefikMiddlewares ?? "",
   };
 }
 
@@ -75,20 +79,25 @@ function Group({ title, description, children }: { title: string; description?: 
   );
 }
 
-/** Per-service HTTP options (limits, access control, headers, performance, raw nginx). */
+const KIND_LABEL = { nginx: "nginx", caddy: "Caddy", traefik: "Traefik" } as const;
+
+/** Per-service HTTP options (limits, access control, headers, performance, raw directives for the server's proxy). */
 export function ProxyOptionsCard({
   serviceId,
   initial,
   isAdmin,
   isInstanceAdmin,
   hasTls,
+  proxyKind = "nginx",
 }: {
   serviceId: string;
   initial: Initial | null;
   isAdmin: boolean;
   isInstanceAdmin: boolean;
   hasTls: boolean;
+  proxyKind?: "nginx" | "caddy" | "traefik";
 }) {
+  const proxyLabel = KIND_LABEL[proxyKind];
   const [form, setForm] = React.useState<Form>(() => toForm(initial));
   const [saved, setSaved] = React.useState(() => JSON.stringify(toForm(initial)));
   const [error, setError] = React.useState<string | null>(null);
@@ -114,6 +123,8 @@ export function ProxyOptionsCard({
         gzip: form.gzip,
         cacheStatic: form.cacheStatic,
         customDirectives: form.customDirectives.trim() || null,
+        caddyDirectives: form.caddyDirectives.trim() || null,
+        traefikMiddlewares: form.traefikMiddlewares.trim() || null,
       });
       if (!res.ok) setError(res.error);
       return res;
@@ -171,7 +182,11 @@ export function ProxyOptionsCard({
                 <Field label="User name">
                   <Input value={form.authUser} onChange={(e) => set("authUser", e.target.value)} placeholder="admin" />
                 </Field>
-                <Field label="Password" description={initial?.basicAuthUser ? "Leave empty to keep the current password." : undefined}>
+                <Field
+                  label="Password"
+                  error={proxyKind === "caddy" && initial?.basicAuthUser && !initial.basicAuthHasBcrypt && !form.authPassword ? "Enter the password again: Caddy needs a new hash. Until then the site answers 503." : undefined}
+                  description={initial?.basicAuthUser ? "Leave empty to keep the current password." : undefined}
+                >
                   <Input type="password" value={form.authPassword} onChange={(e) => set("authPassword", e.target.value)} placeholder={initial?.basicAuthUser ? "••••••••" : "At least 6 characters"} />
                 </Field>
               </div>
@@ -180,7 +195,11 @@ export function ProxyOptionsCard({
               <Field label="Allow only" optional description="One IP or CIDR per line. Everyone else gets 403.">
                 <Textarea value={form.allow} onChange={(e) => set("allow", e.target.value)} placeholder={"203.0.113.10\n10.0.0.0/8"} rows={3} className="min-h-20 font-mono text-[12.5px]" />
               </Field>
-              <Field label="Block" optional description="One IP or CIDR per line.">
+              <Field
+                label="Block"
+                optional
+                description={proxyKind === "traefik" ? "One IP or CIDR per line. Traefik has no block list: blocked visitors get the 404 page, and visitors through a Cloudflare Tunnel cannot be blocked here." : "One IP or CIDR per line."}
+              >
                 <Textarea value={form.deny} onChange={(e) => set("deny", e.target.value)} placeholder="198.51.100.0/24" rows={3} className="min-h-20 font-mono text-[12.5px]" />
               </Field>
             </div>
@@ -242,20 +261,39 @@ export function ProxyOptionsCard({
             </Field>
           </Group>
 
-          <Group title="Advanced" description="Raw nginx directives inside this service's location block. Tested before they apply.">
+          <Group
+            title="Advanced"
+            description={
+              proxyKind === "nginx"
+                ? "Raw nginx directives inside this service's location block. Tested before they apply."
+                : proxyKind === "caddy"
+                  ? "Raw Caddyfile directives inside this service's route, before the request reaches the app. Tested before they apply."
+                  : "Extra Traefik middlewares as YAML (name: definition). They run after Serve's own. Checked against Traefik before they apply."
+            }
+          >
             <Textarea
-              value={form.customDirectives}
-              onChange={(e) => set("customDirectives", e.target.value)}
+              value={proxyKind === "nginx" ? form.customDirectives : proxyKind === "caddy" ? form.caddyDirectives : form.traefikMiddlewares}
+              onChange={(e) => set(proxyKind === "nginx" ? "customDirectives" : proxyKind === "caddy" ? "caddyDirectives" : "traefikMiddlewares", e.target.value)}
               disabled={!isInstanceAdmin}
-              placeholder={isInstanceAdmin ? "# Example\nproxy_set_header X-Custom value;" : "Only Root organization admins can add custom directives."}
-              rows={4}
-              className="min-h-24 font-mono text-[12.5px]"
+              placeholder={
+                !isInstanceAdmin
+                  ? "Only Root organization admins can add custom directives."
+                  : proxyKind === "nginx"
+                    ? "# Example\nproxy_set_header X-Custom value;"
+                    : proxyKind === "caddy"
+                      ? "# Example\nheader_up X-Custom value"
+                      : "ratelimit:\n  rateLimit:\n    average: 100\n    burst: 50"
+              }
+              rows={5}
+              spellCheck={false}
+              className="font-mono text-[12.5px]"
             />
+            <p className="text-xs text-muted">Directives for the other proxies are kept and used if this server switches proxy.</p>
           </Group>
         </fieldset>
         {error && <p className="border-t border-line bg-bad-soft/50 px-5 py-3 font-mono text-[12px] leading-relaxed break-words text-bad">{error}</p>}
         <CardFooter>
-          <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : "nginx checks the configuration before applying it"}</span>
+          <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : `${proxyLabel} checks the configuration before applying it`}</span>
           <div className="flex flex-none gap-2">
             {dirty && (
               <Button type="button" variant="ghost" size="sm" onClick={() => setForm(JSON.parse(saved))}>

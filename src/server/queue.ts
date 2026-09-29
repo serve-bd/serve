@@ -15,7 +15,8 @@ export type JobType =
   | "proxy.sync"
   | "cleanup"
   | "task.run"
-  | "server.setup";
+  | "server.setup"
+  | "proxy.switch";
 
 export type JobPayloads = {
   deploy: { deploymentId: string };
@@ -30,6 +31,7 @@ export type JobPayloads = {
   "proxy.sync": Record<string, never>;
   cleanup: { full?: boolean; serverId?: string };
   "server.setup": { serverId: string; installDocker?: boolean };
+  "proxy.switch": { serverId: string; to: "nginx" | "caddy" | "traefik" | "none" };
   "task.run": { runId: string };
 };
 

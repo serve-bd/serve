@@ -46,12 +46,8 @@ async function ingestServerLog(ctx: ServerCtx) {
   let count = 0;
   for (const line of text.slice(0, lastNewline).split("\n")) {
     if (!line) continue;
-    let entry: { t: string; h: string; s: number; b: number; rt: number; u?: string };
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
+    const entry = normalizeAccessLine(line);
+    if (!entry) continue;
     if (!entry.h || entry.h === "_" || entry.u?.startsWith("/.well-known/acme-challenge/") || entry.u === "/__serve/health") continue;
     const minute = new Date(entry.t);
     minute.setSeconds(0, 0);
@@ -102,6 +98,46 @@ async function ingestServerLog(ctx: ServerCtx) {
     }
   }
   return count;
+}
+
+export type AccessEntry = { t: string; h: string; s: number; b: number; rt: number; u?: string; ip?: string };
+
+/**
+ * One access-log line from any proxy, in the fields analytics needs:
+ * nginx (Serve's own JSON format), Caddy (JSON access log) or Traefik (JSON access log).
+ */
+export function normalizeAccessLine(line: string): AccessEntry | null {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (typeof raw.h === "string") return raw as unknown as AccessEntry;
+  if (raw.request && typeof raw.request === "object") {
+    const req = raw.request as { host?: string; uri?: string; client_ip?: string; remote_ip?: string };
+    return {
+      t: new Date(Number(raw.ts) * 1000).toISOString(),
+      h: String(req.host ?? "").replace(/:\d+$/, ""),
+      u: req.uri,
+      s: Number(raw.status) || 0,
+      b: Number(raw.size) || 0,
+      rt: Number(raw.duration) || 0,
+      ip: req.client_ip ?? req.remote_ip,
+    };
+  }
+  if (typeof raw.RequestHost === "string") {
+    return {
+      t: String(raw.StartUTC ?? raw.time ?? new Date().toISOString()),
+      h: raw.RequestHost.replace(/:\d+$/, ""),
+      u: typeof raw.RequestPath === "string" ? raw.RequestPath : undefined,
+      s: Number(raw.DownstreamStatus) || 0,
+      b: Number(raw.DownstreamContentSize) || 0,
+      rt: (Number(raw.Duration) || 0) / 1e9,
+      ip: typeof raw.ClientHost === "string" ? raw.ClientHost : undefined,
+    };
+  }
+  return null;
 }
 
 export async function pruneRequestMetrics() {

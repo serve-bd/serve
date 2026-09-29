@@ -5,7 +5,7 @@ import { act, UserError } from "@/server/action";
 import { requireInstanceAdmin } from "@/server/auth";
 import { logActivity } from "@/server/activity";
 import { updateSettings } from "@/server/settings";
-import { applyCustomConfig, ProxyConfigError, proxyLogs, readSiteFile, reloadProxy, restartProxy, syncServerProxy, testProxyConfig } from "@/server/proxy/nginx";
+import { applyCustomConfig, ProxyConfigError, proxyLogs, readSiteFile, reloadProxy, restartProxy, startProxy, stopProxy, syncServerProxy, testProxyConfig } from "@/server/proxy/nginx";
 import { getServer } from "@/server/servers/context";
 
 async function serverCtx(serverId: string) {
@@ -61,7 +61,7 @@ export async function reloadProxyNow(serverId: string) {
     try {
       await reloadProxy(server);
     } catch (error) {
-      if (error instanceof ProxyConfigError) throw new UserError(`nginx rejected the configuration.\n${cleanNginxError(error.message)}`);
+      if (error instanceof ProxyConfigError) throw new UserError(`The proxy rejected the configuration.\n${cleanNginxError(error.message)}`);
       throw error;
     }
     await audit(ctx.user.id, ctx.org.id, "server.proxy.reload", `Reloaded the proxy on ${server.name}`);
@@ -87,7 +87,7 @@ export async function rebuildProxyNow(serverId: string) {
     try {
       await syncServerProxy(server);
     } catch (error) {
-      if (error instanceof ProxyConfigError) throw new UserError(`nginx rejected the configuration.\n${cleanNginxError(error.message)}`);
+      if (error instanceof ProxyConfigError) throw new UserError(`The proxy rejected the configuration.\n${cleanNginxError(error.message)}`);
       throw error;
     }
     await audit(ctx.user.id, ctx.org.id, "server.proxy.rebuild", `Rebuilt the proxy configuration on ${server.name}`);
@@ -118,5 +118,30 @@ export async function getProxyLogs(serverId: string) {
   return act(async () => {
     await requireInstanceAdmin();
     return proxyLogs(await serverCtx(serverId), 300);
+  });
+}
+
+/** Stop the proxy; every site on the server goes offline until it is started again. */
+export async function stopProxyNow(serverId: string) {
+  return act(async () => {
+    const ctx = await requireInstanceAdmin();
+    const server = await serverCtx(serverId);
+    await stopProxy(server);
+    await audit(ctx.user.id, ctx.org.id, "server.proxy.stop", `Stopped the proxy on ${server.name}`);
+    return null;
+  });
+}
+
+export async function startProxyNow(serverId: string) {
+  return act(async () => {
+    const ctx = await requireInstanceAdmin();
+    const server = await serverCtx(serverId);
+    try {
+      await startProxy(server);
+    } catch (error) {
+      throw new UserError((error as Error).message);
+    }
+    await audit(ctx.user.id, ctx.org.id, "server.proxy.start", `Started the proxy on ${server.name}`);
+    return null;
   });
 }

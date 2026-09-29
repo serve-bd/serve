@@ -1,6 +1,7 @@
+import { proxyLabels } from "@/server/proxy/config";
 import os from "node:os";
 import { docker } from "@/server/docker/client";
-import { proxyStatus } from "@/server/proxy/nginx";
+import { proxyStateOf, proxyStatus } from "@/server/proxy/nginx";
 import { commandExists, run } from "@/server/process";
 import { serverSnapshot } from "@/server/metrics";
 import { getServer, LOCAL_SERVER_ID, type ServerCtx } from "@/server/servers/context";
@@ -129,6 +130,8 @@ export type ServerHealth = { docker: boolean; proxy: boolean; worker: boolean; r
 type HealthSettings = { workerHeartbeat: string | null; cleanupDiskThreshold: number };
 
 async function proxyRunning(ctx: ServerCtx) {
+  // "None": Serve runs no proxy on this server, so there is nothing to be missing.
+  if ((await proxyStateOf(ctx.id)).kind === "none") return true;
   const info = await ctx.docker.getContainer(ctx.proxyContainer).inspect().catch(() => null);
   return !!info?.State.Running;
 }
@@ -159,7 +162,10 @@ export async function serverHealth(a: ServerCtx | HealthSettings | null | undefi
   const issues: string[] = [];
   if (!reachable) issues.push(ctx.row.statusMessage ? `Unreachable: ${ctx.row.statusMessage}` : "The server is unreachable");
   else if (!dockerOk) issues.push("Docker is not reachable");
-  if (reachable && !proxy) issues.push("The nginx proxy is not running");
+  if (reachable && !proxy) {
+    const state = await proxyStateOf(ctx.id).catch(() => null);
+    issues.push(state?.stopped ? "The proxy was stopped by an admin" : `The ${state ? proxyLabels[state.kind] : "nginx"} proxy is not running`);
+  }
   if (!worker) issues.push("The worker is not running");
   if (diskPercent >= settings.cleanupDiskThreshold) issues.push(`Disk is ${Math.round(diskPercent)}% full`);
   return { docker: dockerOk, proxy, worker, reachable, diskPercent, issues };

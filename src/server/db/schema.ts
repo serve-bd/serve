@@ -19,6 +19,7 @@ import type {
   SourceConfig,
 } from "@/server/services/types";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
+import type { ProxyKind, RunningKind, ProxySwitchState, ServerProxyConfig } from "@/server/proxy/config";
 
 const id = () => text("id").primaryKey();
 const createdAt = () =>
@@ -238,6 +239,16 @@ export const server = pgTable("server", {
   /** Wildcard base domain for generated app domains on this server. */
   wildcardDomain: text("wildcard_domain"),
   sslipFallback: boolean("sslip_fallback").notNull().default(true),
+  /** Reverse proxy running on this server. */
+  proxyKind: text("proxy_kind").$type<ProxyKind>().notNull().default("nginx"),
+  /** Global settings of each proxy kind (kept for all kinds so switching back restores them). */
+  proxyConfig: jsonb("proxy_config").$type<ServerProxyConfig>().notNull().default({}),
+  /** Progress of the last proxy switch. */
+  proxySwitch: jsonb("proxy_switch").$type<ProxySwitchState | null>(),
+  /** Stopped by an admin: Serve must not start the proxy again on its own. */
+  proxyStopped: boolean("proxy_stopped").notNull().default(false),
+  /** Ports were saved in Serve (the local server otherwise uses SERVE_PROXY_HTTP(S)_PORT). */
+  proxyPortsCustomized: boolean("proxy_ports_customized").notNull().default(false),
   /** Organizations allowed to deploy here; null means every organization. */
   organizationIds: text("organization_ids").array(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
@@ -317,6 +328,8 @@ export const service = pgTable(
     compose: jsonb("compose").$type<ComposeConfig>(),
     /** Per-service HTTP options for the nginx site (limits, auth, headers…). */
     proxy: jsonb("proxy").$type<ServiceProxyConfig>(),
+    /** Full site configuration written instead of the generated one, per proxy kind. Root admins only. */
+    proxyCustom: jsonb("proxy_custom").$type<Partial<Record<RunningKind, string>>>(),
     autoDeploy: boolean("auto_deploy").notNull().default(true),
     /** Deploy pull requests as temporary preview services. */
     previewsEnabled: boolean("previews_enabled").notNull().default(false),

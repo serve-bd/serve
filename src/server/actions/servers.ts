@@ -10,7 +10,7 @@ import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { generateKeyPair, parsePrivateKey } from "@/server/servers/keys";
-import { forgetServer } from "@/server/servers/context";
+import { forgetServer, getServer } from "@/server/servers/context";
 
 /* -------------------------------------------------------------------------- */
 /*                                Private keys                                */
@@ -124,8 +124,15 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     if (before.isLocal && (data.host || data.port || data.username || data.privateKeyId || data.dataDir)) {
       throw new UserError("The connection of this server cannot change: Serve runs on it.");
     }
+    // Current effective ports (the local server uses its environment until ports are saved here).
+    const current = await getServer(id).catch(() => null);
+    const httpPort = data.proxyHttpPort ?? current?.proxyHttpPort ?? before.proxyHttpPort;
+    const httpsPort = data.proxyHttpsPort ?? current?.proxyHttpsPort ?? before.proxyHttpsPort;
+    const portsChanged = (data.proxyHttpPort !== undefined || data.proxyHttpsPort !== undefined) && (httpPort !== current?.proxyHttpPort || httpsPort !== current?.proxyHttpsPort);
+    if (portsChanged && httpPort === httpsPort) throw new UserError("HTTP and HTTPS need different ports.");
     const patch: Partial<typeof schema.server.$inferInsert> = {
       ...data,
+      ...(portsChanged ? { proxyHttpPort: httpPort, proxyHttpsPort: httpsPort, proxyPortsCustomized: true } : { proxyHttpPort: undefined, proxyHttpsPort: undefined }),
       description: data.description === undefined ? undefined : empty(data.description),
       publicIp: data.publicIp === undefined ? undefined : empty(data.publicIp),
       wildcardDomain: data.wildcardDomain === undefined ? undefined : empty(data.wildcardDomain),
@@ -137,8 +144,19 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
 
     const connectionChanged = ["host", "port", "username", "privateKeyId", "dataDir"].some((k) => k in data && data[k as keyof typeof data] !== before[k as keyof typeof before]);
     if (connectionChanged && !before.isLocal) await enqueue("server.setup", { serverId: id }, { concurrencyKey: `server:${id}` });
-    if ((data.proxyHttpPort && data.proxyHttpPort !== before.proxyHttpPort) || (data.proxyHttpsPort && data.proxyHttpsPort !== before.proxyHttpsPort)) {
-      await enqueue("proxy.sync", {});
+    if (portsChanged && (before.isLocal || before.status === "ready")) {
+      // Recreate the proxy on the new ports now, so a busy port is reported here and nothing changes.
+      const { ensureServerProxy } = await import("@/server/proxy/nginx");
+      try {
+        await ensureServerProxy(await getServer(id));
+      } catch (error) {
+        await db
+          .update(schema.server)
+          .set({ proxyHttpPort: before.proxyHttpPort, proxyHttpsPort: before.proxyHttpsPort, proxyPortsCustomized: before.proxyPortsCustomized })
+          .where(eq(schema.server.id, id));
+        forgetServer(id);
+        throw new UserError((error as Error).message);
+      }
     }
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.update", message: `Updated server ${data.name ?? before.name}` });
     return null;

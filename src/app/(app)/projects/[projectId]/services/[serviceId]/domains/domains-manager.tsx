@@ -38,6 +38,12 @@ type DomainRow = {
 
 type Props = {
   serviceId: string;
+  /** Reverse proxy of the service's server. */
+  proxyKind?: string;
+  /** Host ports of the server's proxy. */
+  proxyPorts?: { http: number; https: number };
+  /** How Traefik's ACME resolver validates domains. */
+  acmeChallenge?: "http" | "tls" | "dns-cloudflare";
   type: string;
   defaultPort: number | null;
   composeServices: string[];
@@ -52,10 +58,15 @@ type Props = {
   domains: DomainRow[];
 };
 
-function HttpsState({ d, hasAcme }: { d: DomainRow; hasAcme: boolean }) {
+function HttpsState({ d, hasAcme, proxyKind = "nginx" }: { d: DomainRow; hasAcme: boolean; proxyKind?: string }) {
   if (d.tunnel) return <span className="inline-flex items-center gap-1.5 text-xs text-ok"><Lock className="size-3.5" /> HTTPS by Cloudflare</span>;
   if (!d.https) return <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LockOpen className="size-3.5" /> HTTP only</span>;
   const c = d.certificate;
+  if (proxyKind === "none") return <span className="inline-flex items-center gap-1.5 text-xs text-muted"><LockOpen className="size-3.5" /> No proxy</span>;
+  // Caddy and Traefik obtain certificates themselves.
+  if (!c && proxyKind !== "nginx") {
+    return <span className="inline-flex items-center gap-1.5 text-xs text-ok"><Lock className="size-3.5" /> Certificate by {proxyKind === "caddy" ? "Caddy" : "Traefik"}</span>;
+  }
   if (!c) {
     return (
       <Tooltip content={hasAcme ? "A certificate will be requested" : "Add a Let's Encrypt email in Server settings"}>
@@ -96,6 +107,39 @@ function DnsBadge({ domainId }: { domainId: string }) {
   );
 }
 
+const CHALLENGE: Record<string, string> = { http: "HTTP challenge", tls: "TLS-ALPN challenge", "dns-cloudflare": "Cloudflare DNS" };
+
+/** Card subtitle for the server's proxy. */
+function proxySubtitle(kind = "nginx") {
+  if (kind === "none") return "No proxy on this server — use published ports or your own proxy.";
+  if (kind === "caddy") return "Traffic reaches your service through Caddy, which handles HTTPS automatically.";
+  if (kind === "traefik") return "Traffic reaches your service through Traefik.";
+  return "Traffic reaches your service through the built-in nginx proxy.";
+}
+
+function httpsDescription(props: Props) {
+  if (props.proxyKind === "caddy") return "Caddy obtains and renews the certificate automatically and redirects HTTP to HTTPS.";
+  if (props.proxyKind === "traefik") {
+    return props.hasAcme
+      ? `Traefik's ACME resolver (${CHALLENGE[props.acmeChallenge ?? "http"]}) issues the certificate and HTTP redirects to HTTPS.`
+      : "Add a Let's Encrypt email in Server settings so Traefik can request certificates.";
+  }
+  return props.hasAcme ? "Get a free certificate and redirect HTTP to HTTPS." : "Add a Let's Encrypt email in Server settings to enable automatic certificates.";
+}
+
+/** Why Let's Encrypt cannot validate the domain over the network, or null when it can. */
+function challengeProblem(props: Props, viaDns: boolean) {
+  const kind = props.proxyKind ?? "nginx";
+  if (kind === "none" || viaDns) return null;
+  const tls = kind === "traefik" && props.acmeChallenge === "tls";
+  if (kind === "traefik" && props.acmeChallenge === "dns-cloudflare") return null;
+  const port = tls ? 443 : 80;
+  const actual = tls ? props.proxyPorts?.https : props.proxyPorts?.http;
+  if (!props.serverIp) return "This server has no public IP, so Let's Encrypt cannot reach it to validate the domain.";
+  if (actual && actual !== port) return `The proxy listens on port ${actual} instead of ${port}, so Let's Encrypt cannot validate the domain.`;
+  return null;
+}
+
 function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: boolean; onOpenChange: (o: boolean) => void }) {
   const [hostname, setHostname] = React.useState("");
   const [https, setHttps] = React.useState(true);
@@ -103,7 +147,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
   const [composeService, setComposeService] = React.useState(props.composeServices[0] ?? "");
   const defaultPortFor = (svc: string) => String(props.composePorts[svc]?.[0] ?? "");
   const [createRecord, setCreateRecord] = React.useState(true);
-  const [proxied, setProxied] = React.useState(false);
+  const [proxied, setProxied] = React.useState(true);
   const [redirect, setRedirect] = React.useState("");
   const [mode, setMode] = React.useState<"route" | "redirect">("route");
 
@@ -149,7 +193,16 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
             void run();
           }}
         >
-          <DialogHeader title="Add domain" description="Point a domain at this service. HTTPS certificates are issued automatically." />
+          <DialogHeader title="Add domain" description={
+              props.proxyKind === "none"
+                ? "Point a domain at this service. This server runs no proxy, so the domain is saved but not served."
+                : props.proxyKind === "caddy"
+                  ? "Point a domain at this service. Caddy obtains and renews the certificate automatically."
+                  : props.proxyKind === "traefik"
+                    ? "Point a domain at this service. Traefik issues and renews the certificate."
+                    : "Point a domain at this service. HTTPS certificates are issued automatically."
+            }
+          />
           <DialogBody>
             <Field label="Domain">
               <Input value={hostname} onChange={(e) => setHostname(e.target.value.trim().toLowerCase())} placeholder="app.example.com" autoFocus required className="font-mono text-[13px]" />
@@ -202,8 +255,21 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                   certificate or open port is needed.
                 </p>
               </div>
+            ) : props.proxyKind === "none" ? (
+              <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
+                <Globe className="mt-0.5 size-4 flex-none text-muted" />
+                <p>No proxy on this server — use published ports or your own proxy. Serve saves the domain and serves it again when a proxy runs.</p>
+              </div>
             ) : (
-              <SwitchRow title="HTTPS" description={props.hasAcme ? "Get a free certificate and redirect HTTP to HTTPS." : "Add a Let's Encrypt email in Server settings to enable automatic certificates."} checked={https} onCheckedChange={setHttps} />
+              <>
+                <SwitchRow title="HTTPS" description={httpsDescription(props)} checked={https} onCheckedChange={setHttps} />
+                {https && !!hostname && challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx") && (
+                  <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
+                    {challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx")} Route the domain through a Cloudflare Tunnel
+                    {props.proxyKind === "traefik" ? " or use the Cloudflare DNS challenge (Server → Proxy)" : props.proxyKind === "caddy" ? "" : " or add it from a Cloudflare zone for DNS validation"}.
+                  </p>
+                )}
+              </>
             )}
             {zone && !viaTunnel && (
               <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4">
@@ -212,7 +278,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                 </div>
                 <SwitchRow title="Create the DNS record" description={props.serverIp ? `A record → ${props.serverIp}` : "Set the server IP in Server settings first."} checked={createRecord} onCheckedChange={setCreateRecord} />
                 <SwitchRow title="Proxy through Cloudflare" description="Orange cloud. Hides your server IP and adds Cloudflare's CDN and DDoS protection." checked={proxied} onCheckedChange={setProxied} />
-                {https && <p className="text-xs text-muted">The certificate is validated through Cloudflare DNS, so it works even when proxied.</p>}
+                {https && (props.proxyKind ?? "nginx") === "nginx" && <p className="text-xs text-muted">The certificate is validated through Cloudflare DNS, so it works even when proxied.</p>}
               </div>
             )}
             {!zone && hostname && props.tunnels.length > 0 && (
@@ -251,7 +317,7 @@ export function DomainsManager(props: Props) {
     <Card className="overflow-hidden">
       <CardHeader
         title="Domains"
-        description="Traffic reaches your service through the built-in nginx proxy."
+        description={proxySubtitle(props.proxyKind)}
         actions={
           <>
             {props.canGenerate && (
@@ -289,7 +355,7 @@ export function DomainsManager(props: Props) {
                       {d.port ?? props.defaultPort ?? 80}
                     </span>
                   )}
-                  <HttpsState d={d} hasAcme={props.hasAcme} />
+                  <HttpsState d={d} hasAcme={props.hasAcme} proxyKind={props.proxyKind} />
                 </div>
               </div>
               <DnsBadge domainId={d.id} />

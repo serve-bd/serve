@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 import net from "node:net";
+import bcrypt from "bcryptjs";
+import YAML from "yaml";
 import { z } from "zod";
 
 /**
@@ -17,8 +19,11 @@ export type ServiceProxyConfig = {
   websockets?: boolean;
   /** Buffer responses (default on). Turn off for streaming and server-sent events. */
   buffering?: boolean;
-  /** HTTP Basic Auth. The password is stored as an apr1 hash. */
-  basicAuth?: { username: string; passwordHash: string } | null;
+  /**
+   * HTTP Basic Auth. nginx and Traefik verify the apr1 hash; Caddy needs bcrypt,
+   * which is stored too whenever a password is set (older configs lack it).
+   */
+  basicAuth?: { username: string; passwordHash: string; bcryptHash?: string | null } | null;
   /** Only these IPs / CIDR ranges may connect. */
   allow?: string[];
   /** These IPs / CIDR ranges are refused. */
@@ -37,6 +42,10 @@ export type ServiceProxyConfig = {
   cacheStatic?: boolean;
   /** Raw nginx directives inside the service's location block. Root admins only. */
   customDirectives?: string | null;
+  /** Raw Caddyfile directives inside the service's route block. Root admins only. */
+  caddyDirectives?: string | null;
+  /** Extra Traefik middlewares (YAML map of name → middleware) attached to the service's routers. Root admins only. */
+  traefikMiddlewares?: string | null;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -120,7 +129,30 @@ export const proxyInputSchema = z.object({
     .refine(balanced, "Braces { } must be balanced")
     .nullable()
     .optional(),
+  caddyDirectives: z
+    .string()
+    .max(10_000)
+    .refine(balanced, "Braces { } must be balanced")
+    .nullable()
+    .optional(),
+  traefikMiddlewares: z.string().max(20_000).refine(isMiddlewareYaml, "Use a YAML map of middleware names to Traefik middleware definitions").nullable().optional(),
 });
+
+/** A YAML mapping of middleware names (letters, digits, dashes) to objects. */
+export function isMiddlewareYaml(text: string) {
+  if (!text.trim()) return true;
+  try {
+    const doc = YAML.parse(text);
+    return (
+      !!doc &&
+      typeof doc === "object" &&
+      !Array.isArray(doc) &&
+      Object.entries(doc).every(([k, v]) => /^[A-Za-z0-9-]{1,40}$/.test(k) && !!v && typeof v === "object" && !Array.isArray(v))
+    );
+  } catch {
+    return false;
+  }
+}
 
 export type ProxyInput = z.input<typeof proxyInputSchema>;
 
@@ -132,7 +164,9 @@ export function buildProxyConfig(input: z.output<typeof proxyInputSchema>, previ
     if (!username) throw new Error("Enter a user name for basic auth.");
     const keep = previous?.basicAuth && previous.basicAuth.username === username && !input.basicAuth.password;
     if (!input.basicAuth.password && !keep) throw new Error("Enter a password for basic auth.");
-    basicAuth = { username, passwordHash: keep ? previous!.basicAuth!.passwordHash : apr1(input.basicAuth.password!) };
+    basicAuth = keep
+      ? { ...previous!.basicAuth! }
+      : { username, passwordHash: apr1(input.basicAuth.password!), bcryptHash: bcrypt.hashSync(input.basicAuth.password!, 10) };
   }
   const headers = (input.headers ?? []).filter((h) => h.name);
   const names = new Set<string>();
@@ -157,6 +191,8 @@ export function buildProxyConfig(input: z.output<typeof proxyInputSchema>, previ
     gzip: input.gzip ?? true,
     cacheStatic: input.cacheStatic ?? false,
     customDirectives: input.customDirectives?.trim() || null,
+    caddyDirectives: input.caddyDirectives === undefined ? (previous?.caddyDirectives ?? null) : input.caddyDirectives?.trim() || null,
+    traefikMiddlewares: input.traefikMiddlewares === undefined ? (previous?.traefikMiddlewares ?? null) : input.traefikMiddlewares?.trim() || null,
   };
 }
 

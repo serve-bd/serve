@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import type { ProxyKind } from "@/server/proxy/config";
 import { CronExpressionParser } from "cron-parser";
 import { db, schema, sql } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
@@ -60,6 +61,10 @@ async function handle(job: Job, signal: AbortSignal) {
       return runTask(p.runId);
     case "server.setup":
       return setupServer(p.serverId, { installDocker: (job.payload as { installDocker?: boolean }).installDocker === true });
+    case "proxy.switch": {
+      const { switchProxy } = await import("@/server/proxy/switch");
+      return switchProxy(p.serverId, p.to as ProxyKind);
+    }
   }
 }
 

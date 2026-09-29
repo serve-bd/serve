@@ -71,6 +71,13 @@
       "when": 1790671508477,
       "tag": "0009_service_proxy_options",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790673808309,
+      "tag": "0010_proxy_kind",
+      "breakpoints": true
     }
   ]
 }

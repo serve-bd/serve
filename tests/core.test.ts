@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import YAML from "yaml";
 import { certificateCovers } from "@/server/ssl/match";
 import { parseEnv } from "@/lib/env";
+import { explainCertError } from "@/lib/cert-errors";
 import { isCloudflareIp } from "@/server/dns";
 import { composeServiceNames, composeServicePorts, transformCompose } from "@/server/deploy/compose";
 import { serverBlocks, upstreamBlock } from "@/server/proxy/templates";
@@ -163,5 +164,23 @@ describe("compose build contexts", () => {
     build: https://github.com/org/repo.git
 `);
     expect(issues).toHaveLength(2);
+  });
+});
+
+describe("explainCertError", () => {
+  it("explains missing DNS records with the server IP", () => {
+    const r = explainCertError(
+      "DNS problem: NXDOMAIN looking up A for local.serve.bd - check that a DNS record exists for this domain; DNS problem: NXDOMAIN looking up AAAA for local.serve.bd",
+      { serverIp: "1.2.3.4", provider: "letsencrypt-http" },
+    );
+    expect(r.title).toBe("No DNS record for local.serve.bd");
+    expect(r.hint).toContain("1.2.3.4");
+  });
+  it("detects rate limits and unreachable servers", () => {
+    expect(explainCertError("too many certificates already issued", { provider: "letsencrypt-http" }).title).toMatch(/rate limit/);
+    expect(explainCertError("Timeout during connect (likely firewall problem)", { provider: "letsencrypt-http" }).title).toMatch(/could not reach/);
+  });
+  it("falls back to a generic message", () => {
+    expect(explainCertError("something odd", { provider: "custom" }).title).toBe("The certificate could not be issued");
   });
 });

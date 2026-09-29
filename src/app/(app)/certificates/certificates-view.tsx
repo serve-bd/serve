@@ -3,9 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Cloud, FileKey2, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldCheck, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, ChevronRight, Cloud, FileKey2, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldAlert, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, EmptyState } from "@/components/ui/misc";
+import { Card, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
@@ -15,6 +15,8 @@ import { Switch } from "@/components/ui/switch";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
 import { LogViewer } from "@/components/log-viewer";
+import { Tooltip } from "@/components/ui/tooltip";
+import { explainCertError } from "@/lib/cert-errors";
 import { useAction } from "@/hooks/use-action";
 import { certificateLogs, deleteCertificate, renewCertificate, requestCertificate, setCertificateAutoRenew, uploadCertificate } from "@/server/actions/certificates";
 import { cn } from "@/lib/utils";
@@ -185,7 +187,164 @@ function LogsDialog({ certId, onClose }: { certId: string | null; onClose: () =>
   );
 }
 
-export function CertificatesView({ certificates, accounts, isAdmin, hasAcme, staging }: { certificates: Cert[]; accounts: { id: string; name: string }[]; isAdmin: boolean; hasAcme: boolean; staging: boolean }) {
+function CertificateRow({
+  cert: c,
+  isAdmin,
+  serverIp,
+  onRenew,
+  onLogs,
+  onUpload,
+  onAutoRenew,
+  onDelete,
+}: {
+  cert: Cert;
+  isAdmin: boolean;
+  serverIp: string | null;
+  onRenew: () => void;
+  onLogs: () => void;
+  onUpload: () => void;
+  onAutoRenew: (on: boolean) => void;
+  onDelete: () => void;
+}) {
+  const [details, setDetails] = React.useState(false);
+  const days = daysLeft(c.expiresAt);
+  const failed = c.status === "failed";
+  const managed = c.provider !== "custom";
+  const problem = failed && c.lastError ? explainCertError(c.lastError, { serverIp, provider: c.provider }) : null;
+
+  return (
+    <div className="flex flex-col gap-3 px-5 py-4">
+      <div className="flex items-start gap-3.5 sm:items-center">
+        <span
+          className={cn(
+            "flex size-9 flex-none items-center justify-center rounded-[10px] border",
+            failed ? "border-bad/20 bg-bad-soft text-bad" : "border-line bg-surface-2 text-fg-2",
+          )}
+        >
+          {failed ? (
+            <ShieldAlert className="size-4" />
+          ) : c.provider === "custom" ? (
+            <FileKey2 className="size-4" />
+          ) : c.provider.includes("cloudflare") ? (
+            <Cloud className="size-4 text-[#f38020]" />
+          ) : (
+            <ShieldCheck className="size-4 text-ok" />
+          )}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span className="truncate text-[14px] font-medium text-fg">{c.name}</span>
+            <StatusLabel status={c.status} kind="certificate" className="text-xs" />
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+            {c.domains.slice(0, 4).map((d) => (
+              <span key={d} className="max-w-full truncate font-mono text-[11.5px] text-fg-2">
+                {d}
+              </span>
+            ))}
+            {c.domains.length > 4 && <span className="text-xs text-faint">+{c.domains.length - 4} more</span>}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted">
+            <span>{providerLabel[c.provider]}</span>
+            {days !== null && !failed && (
+              <>
+                <span className="text-faint">·</span>
+                <span className={cn(days < 0 ? "text-bad" : days < 14 ? "text-warn" : undefined)}>
+                  {days < 0 ? "Expired" : `Expires in ${days} day${days === 1 ? "" : "s"}`}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+        {isAdmin && (
+          <div className="flex flex-none items-center gap-3">
+            {managed && (
+              <Tooltip content={c.autoRenew ? "Renews automatically" : "Automatic renewal is off"}>
+                <label className="hidden items-center gap-2 text-xs text-muted sm:flex">
+                  Auto-renew
+                  <Switch checked={c.autoRenew} onCheckedChange={onAutoRenew} />
+                </label>
+              </Tooltip>
+            )}
+            <Menu>
+              <MenuTrigger className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-fg" aria-label="Certificate actions">
+                <MoreHorizontal className="size-4" />
+              </MenuTrigger>
+              <MenuContent>
+                {managed && (
+                  <MenuItem onClick={onRenew}>
+                    <RefreshCw /> {c.status === "active" ? "Renew now" : "Retry"}
+                  </MenuItem>
+                )}
+                {managed && (
+                  <MenuItem onClick={onLogs}>
+                    <ScrollText /> View log
+                  </MenuItem>
+                )}
+                {managed && (
+                  <MenuItem className="sm:hidden" onClick={() => onAutoRenew(!c.autoRenew)}>
+                    <RefreshCw /> {c.autoRenew ? "Turn off auto-renew" : "Turn on auto-renew"}
+                  </MenuItem>
+                )}
+                {!managed && (
+                  <MenuItem onClick={onUpload}>
+                    <Upload /> Upload replacement
+                  </MenuItem>
+                )}
+                <MenuSeparator />
+                <MenuItem danger onClick={onDelete}>
+                  <Trash2 /> Delete
+                </MenuItem>
+              </MenuContent>
+            </Menu>
+          </div>
+        )}
+      </div>
+
+      {problem && (
+        <div className="rounded-xl border border-bad/15 bg-bad-soft/60 px-3.5 py-3 sm:ml-[50px]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <p className="text-[13px] font-medium text-fg">{problem.title}</p>
+              <p className="text-[12.5px] leading-relaxed text-fg-2">{problem.hint}</p>
+            </div>
+            {isAdmin && managed && (
+              <div className="flex flex-none gap-2">
+                <Button size="xs" onClick={onLogs}>
+                  <ScrollText /> Log
+                </Button>
+                <Button size="xs" variant="primary" onClick={onRenew}>
+                  <RefreshCw /> Retry
+                </Button>
+              </div>
+            )}
+          </div>
+          <button type="button" onClick={() => setDetails((d) => !d)} className="mt-2 flex items-center gap-1 text-[11.5px] font-medium text-muted hover:text-fg">
+            <ChevronRight className={cn("size-3 transition-transform", details && "rotate-90")} />
+            {details ? "Hide details" : "Show details"}
+          </button>
+          {details && <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-sunken p-2.5 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-muted">{c.lastError}</pre>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function CertificatesView({
+  certificates,
+  accounts,
+  isAdmin,
+  hasAcme,
+  staging,
+  serverIp,
+}: {
+  certificates: Cert[];
+  accounts: { id: string; name: string }[];
+  isAdmin: boolean;
+  hasAcme: boolean;
+  staging: boolean;
+  serverIp: string | null;
+}) {
   const router = useRouter();
   const confirm = useConfirm();
   const [open, setOpen] = React.useState(false);
@@ -220,77 +379,22 @@ export function CertificatesView({ certificates, accounts, isAdmin, hasAcme, sta
           <EmptyState icon={<ShieldCheck />} title="No certificates yet" description="Certificates are requested automatically when you add an HTTPS domain. You can also request wildcard or origin certificates here." />
         ) : (
           <div className="divide-y divide-line">
-            {certificates.map((c) => {
-              const days = daysLeft(c.expiresAt);
-              return (
-                <div key={c.id} className="flex flex-wrap items-center gap-4 px-5 py-4">
-                  <span className="flex size-9 items-center justify-center rounded-[10px] border border-line bg-surface-2 text-fg-2">
-                    {c.provider === "custom" ? <FileKey2 className="size-4" /> : c.provider.includes("cloudflare") ? <Cloud className="size-4 text-[#f38020]" /> : <ShieldCheck className="size-4 text-ok" />}
-                  </span>
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-[14px] font-medium text-fg">{c.name}</span>
-                      <StatusLabel status={c.status} kind="certificate" className="text-xs" />
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {c.domains.slice(0, 5).map((d) => (
-                        <span key={d} className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-muted ring-1 ring-line">{d}</span>
-                      ))}
-                      {c.domains.length > 5 && <span className="text-[11px] text-faint">+{c.domains.length - 5}</span>}
-                    </div>
-                    {c.status === "failed" && c.lastError && <p className="text-xs text-bad">{c.lastError}</p>}
-                  </div>
-                  <div className="flex flex-col items-end gap-1 text-right">
-                    <span className="text-xs text-muted">{providerLabel[c.provider]}</span>
-                    {days !== null && (
-                      <Badge tone={days < 0 ? "bad" : days < 14 ? "warn" : "neutral"}>{days < 0 ? "Expired" : `${days} days left`}</Badge>
-                    )}
-                  </div>
-                  {isAdmin && (
-                    <div className="flex items-center gap-2">
-                      {c.provider !== "custom" && (
-                        <label className="flex items-center gap-2 text-xs text-muted" title="Renew automatically">
-                          Auto
-                          <Switch checked={c.autoRenew} onCheckedChange={(on) => auto.run(c.id, on)} />
-                        </label>
-                      )}
-                      <Menu>
-                        <MenuTrigger className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-fg" aria-label="Certificate actions">
-                          <MoreHorizontal className="size-4" />
-                        </MenuTrigger>
-                        <MenuContent>
-                          {c.provider !== "custom" && (
-                            <MenuItem onClick={() => renew.run(c.id)}>
-                              <RefreshCw /> {c.status === "active" ? "Renew now" : "Retry"}
-                            </MenuItem>
-                          )}
-                          {c.provider !== "custom" && (
-                            <MenuItem onClick={() => setLogsFor(c.id)}>
-                              <ScrollText /> View log
-                            </MenuItem>
-                          )}
-                          {c.provider === "custom" && (
-                            <MenuItem onClick={() => setOpen(true)}>
-                              <Upload /> Upload replacement
-                            </MenuItem>
-                          )}
-                          <MenuSeparator />
-                          <MenuItem
-                            danger
-                            onClick={async () => {
-                              if (await confirm({ title: `Delete ${c.name}?`, description: "Domains using it fall back to HTTP until another certificate covers them.", confirmLabel: "Delete certificate", danger: true }))
-                                remove.run(c.id);
-                            }}
-                          >
-                            <Trash2 /> Delete
-                          </MenuItem>
-                        </MenuContent>
-                      </Menu>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {certificates.map((c) => (
+                <CertificateRow
+                  key={c.id}
+                  cert={c}
+                  isAdmin={isAdmin}
+                  serverIp={serverIp}
+                  onRenew={() => renew.run(c.id)}
+                  onLogs={() => setLogsFor(c.id)}
+                  onUpload={() => setOpen(true)}
+                  onAutoRenew={(on) => auto.run(c.id, on)}
+                  onDelete={async () => {
+                    if (await confirm({ title: `Delete ${c.name}?`, description: "Domains using it fall back to HTTP until another certificate covers them.", confirmLabel: "Delete certificate", danger: true }))
+                      remove.run(c.id);
+                  }}
+                />
+            ))}
           </div>
         )}
       </Card>

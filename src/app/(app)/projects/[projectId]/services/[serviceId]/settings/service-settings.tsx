@@ -52,6 +52,7 @@ function Section<T>({
   onSave,
   children,
   footerNote,
+  footerAction,
 }: {
   title: string;
   description?: string;
@@ -59,6 +60,8 @@ function Section<T>({
   onSave: (value: T) => Promise<unknown>;
   children: (value: T, set: (patch: Partial<T>) => void) => React.ReactNode;
   footerNote?: React.ReactNode;
+  /** Secondary action shown at the start of the footer, like "Add volume". */
+  footerAction?: (value: T, set: (patch: Partial<T>) => void) => React.ReactNode;
 }) {
   const [value, setValue] = React.useState<T>(initial);
   const [saved, setSaved] = React.useState(JSON.stringify(initial));
@@ -79,8 +82,11 @@ function Section<T>({
         <CardHeader title={title} description={description} />
         <CardBody className="flex flex-col gap-4 py-5">{children(value, set)}</CardBody>
         <CardFooter>
-          <span className="text-xs text-muted">{dirty ? "Unsaved changes" : footerNote}</span>
-          <div className="flex gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            {footerAction?.(value, set)}
+            <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : footerNote}</span>
+          </div>
+          <div className="flex flex-none gap-2">
             {dirty && (
               <Button type="button" variant="ghost" size="sm" onClick={() => setValue(JSON.parse(saved))}>
                 Discard
@@ -364,13 +370,18 @@ export function ServiceSettings(props: Props) {
           description="Persistent storage that survives deploys. Named volumes are managed by Serve."
           initial={{ volumes: service.runtime.volumes }}
           onSave={(v) => save.run({ runtime: { volumes: v.volumes.filter((x) => x.source && x.mountPath) } })}
+          footerAction={(v, set) => (
+            <Button size="sm" onClick={() => set({ volumes: [...v.volumes, { kind: "volume", source: "", mountPath: "" }] })}>
+              <Plus /> Add volume
+            </Button>
+          )}
         >
           {(v, set) => (
             <div className="flex flex-col gap-2">
               {v.volumes.map((vol, i) => {
                 const update = (patch: Partial<VolumeMount>) => set({ volumes: v.volumes.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
                 return (
-                  <div key={i} className="grid grid-cols-[110px_1fr_1fr_32px] gap-2">
+                  <div key={i} className="grid grid-cols-[96px_minmax(0,1fr)_minmax(0,1fr)_32px] gap-2">
                     <Select size="sm" value={vol.kind} onValueChange={(k) => update({ kind: k as VolumeMount["kind"] })} options={[{ value: "volume", label: "Volume" }, { value: "bind", label: "Host path" }]} />
                     <Input value={vol.source} onChange={(e) => update({ source: e.target.value })} placeholder={vol.kind === "volume" ? "data" : "/srv/data"} className="h-8 font-mono text-[12.5px]" />
                     <Input value={vol.mountPath} onChange={(e) => update({ mountPath: e.target.value })} placeholder="/app/data" className="h-8 font-mono text-[12.5px]" />
@@ -380,9 +391,7 @@ export function ServiceSettings(props: Props) {
                   </div>
                 );
               })}
-              <Button size="sm" variant="ghost" className="w-fit" onClick={() => set({ volumes: [...v.volumes, { kind: "volume", source: "", mountPath: "" }] })}>
-                <Plus /> Add volume
-              </Button>
+              {v.volumes.length === 0 && <p className="text-[13px] text-muted">No volumes. Data written inside the container is lost on every deploy.</p>}
             </div>
           )}
         </Section>
@@ -394,6 +403,11 @@ export function ServiceSettings(props: Props) {
           description="Expose TCP/UDP ports directly on the server, for non-HTTP traffic. Only works with one replica."
           initial={{ ports: service.runtime.ports }}
           onSave={(v) => save.run({ runtime: { ports: v.ports.filter((p) => p.host && p.container) } })}
+          footerAction={(v, set) => (
+            <Button size="sm" onClick={() => set({ ports: [...v.ports, { host: 0, container: 0, protocol: "tcp" }] })}>
+              <Plus /> Add port
+            </Button>
+          )}
         >
           {(v, set) => (
             <div className="flex flex-col gap-2">
@@ -410,9 +424,7 @@ export function ServiceSettings(props: Props) {
                   </div>
                 );
               })}
-              <Button size="sm" variant="ghost" className="w-fit" onClick={() => set({ ports: [...v.ports, { host: 0, container: 0, protocol: "tcp" }] })}>
-                <Plus /> Add port
-              </Button>
+              {v.ports.length === 0 && <p className="text-[13px] text-muted">No published ports. HTTP traffic goes through your domains.</p>}
             </div>
           )}
         </Section>

@@ -22,6 +22,7 @@ export default async function CertificatesPage() {
           isAdmin={ctx.isAdmin}
           hasAcme={!!settings.acmeEmail}
           staging={settings.acmeStaging}
+          serverIp={settings.serverIp}
           accounts={accounts}
           certificates={certs.map((c) => ({
             id: c.id,

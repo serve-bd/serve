@@ -10,6 +10,7 @@ import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
 import { parseCompose } from "@/server/deploy/compose";
+import { isPrivateAddress } from "@/server/net/public-fetch";
 import { composeSecurityIssues } from "@/server/security";
 import { composeVariables } from "@/lib/compose-vars";
 
@@ -111,18 +112,6 @@ export async function deleteCustomTemplate(id: string) {
 /* ------------------------------ Import by URL ----------------------------- */
 
 const MAX_BYTES = 256 * 1024;
-
-function isPrivateAddress(address: string) {
-  const ip = address.startsWith("::ffff:") ? address.slice(7) : address;
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number);
-    return (
-      a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || a >= 224
-    );
-  }
-  const v6 = ip.toLowerCase();
-  return v6 === "::" || v6 === "::1" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe80");
-}
 
 async function assertPublicUrl(raw: string) {
   let url: URL;

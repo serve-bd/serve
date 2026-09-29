@@ -308,20 +308,25 @@ export async function importBackup(backupId: string, opts: { backupFirst?: boole
   try {
     if (opts.url) {
       await logLine(backupId, `Downloading ${new URL(opts.url).host}`);
-      const res = await fetch(opts.url, { redirect: "follow", signal: AbortSignal.timeout(60 * 60_000) });
-      if (!res.ok || !res.body) throw new Error(`Download failed: HTTP ${res.status}`);
-      const declared = Number(res.headers.get("content-length") ?? 0);
+      // Every hop and the connected address are checked, not only the URL the user typed.
+      const { publicGet } = await import("@/server/net/public-fetch");
+      const res = await publicGet(opts.url, { timeoutMs: 60_000 });
+      if (res.status < 200 || res.status >= 300) {
+        res.body.resume();
+        throw new Error(`Download failed: HTTP ${res.status}`);
+      }
+      const declared = Number(res.headers["content-length"] ?? 0);
       if (declared > MAX_IMPORT_BYTES) throw new Error("The file is larger than 20 GB.");
       await fs.promises.mkdir(path.dirname(file), { recursive: true });
       let size = 0;
-      const { Readable, Transform } = await import("node:stream");
+      const { Transform } = await import("node:stream");
       const limit = new Transform({
         transform(chunk: Buffer, _enc, cb) {
           size += chunk.length;
           cb(size > MAX_IMPORT_BYTES ? new Error("The file is larger than 20 GB.") : null, chunk);
         },
       });
-      await pipeline(Readable.fromWeb(res.body as never), limit, fs.createWriteStream(file));
+      await pipeline(res.body, limit, fs.createWriteStream(file));
     } else if (opts.s3) {
       const s3 = await s3For(opts.s3.destinationId);
       if (!s3) throw new Error("Backup storage not found.");

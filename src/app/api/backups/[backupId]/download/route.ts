@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { serviceInOrg } from "@/server/services/access";
-import { backupFile } from "@/server/backups";
+import { backupFile, openS3Backup } from "@/server/backups";
 
 export async function GET(_req: Request, ctx: RouteContext<"/api/backups/[backupId]/download">) {
   const { backupId } = await ctx.params;
@@ -17,7 +17,18 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/backups/[backup
     return new Response("Not found", { status: 404 });
   }
   const file = backupFile(b.serviceId, b.filename);
-  if (!fs.existsSync(file)) return new Response("The backup file is only stored remotely.", { status: 404 });
+  if (!fs.existsSync(file)) {
+    // Only in S3 (local copy removed by retention): stream it through.
+    const remote = await openS3Backup(b).catch(() => null);
+    if (!remote) return new Response("The backup file is no longer stored.", { status: 404 });
+    return new Response(remote.body as ReadableStream, {
+      headers: {
+        "content-type": "application/octet-stream",
+        ...(remote.size ? { "content-length": String(remote.size) } : {}),
+        "content-disposition": `attachment; filename="${b.filename}"`,
+      },
+    });
+  }
   const stat = fs.statSync(file);
   return new Response(Readable.toWeb(fs.createReadStream(file)) as ReadableStream, {
     headers: {

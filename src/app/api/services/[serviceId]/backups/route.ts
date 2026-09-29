@@ -13,5 +13,6 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/services/[servi
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const backups = await db.select().from(schema.backup).where(eq(schema.backup.serviceId, serviceId)).orderBy(desc(schema.backup.createdAt)).limit(100);
-  return NextResponse.json({ backups });
+  const { hasLocalCopy } = await import("@/server/backups");
+  return NextResponse.json({ backups: backups.map((b) => ({ ...b, local: hasLocalCopy(b) })) });
 }

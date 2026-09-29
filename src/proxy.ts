@@ -17,5 +17,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|ico|webp)$).*)"],
+  // Backup uploads skip the proxy: it would buffer (and cut off) large bodies. The route checks the session itself.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/services/[^/]+/backups/import|.*\\.(?:svg|png|jpg|ico|webp)$).*)"],
 };

@@ -61,25 +61,27 @@ export function ScheduleCard(props: {
   serviceId: string;
   schedule: string | null;
   retention: number;
+  retentionS3: number | null;
   s3DestinationId: string | null;
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
   canEdit: boolean;
 }) {
   const initial = React.useMemo(
-    () => ({ enabled: !!props.schedule, plan: fromCron(props.schedule), retention: String(props.retention), dest: props.s3DestinationId ?? "local" }),
-    [props.schedule, props.retention, props.s3DestinationId],
+    () => ({ enabled: !!props.schedule, plan: fromCron(props.schedule), retention: String(props.retention), retentionS3: String(props.retentionS3 ?? props.retention), dest: props.s3DestinationId ?? "local" }),
+    [props.schedule, props.retention, props.retentionS3, props.s3DestinationId],
   );
   const [enabled, setEnabled] = React.useState(initial.enabled);
   const [plan, setPlan] = React.useState<Plan>(initial.plan);
   const [retention, setRetention] = React.useState(initial.retention);
+  const [retentionS3, setRetentionS3] = React.useState(initial.retentionS3);
   const [dest, setDest] = React.useState(initial.dest);
   const [saved, setSaved] = React.useState(() => JSON.stringify(initial));
 
   const cron = toCron(plan);
   const runs = enabled ? nextRuns(cron, props.timezone) : null;
   const invalid = enabled && (!cron || !runs);
-  const snapshot = JSON.stringify({ enabled, plan: enabled ? plan : initial.plan, retention, dest });
+  const snapshot = JSON.stringify({ enabled, plan: enabled ? plan : initial.plan, retention, retentionS3, dest });
   const dirty = snapshot !== saved;
   const set = (patch: Partial<Plan>) => setPlan((p) => ({ ...p, ...patch }));
 
@@ -89,6 +91,7 @@ export function ScheduleCard(props: {
         database: {
           backupSchedule: enabled ? cron : null,
           backupRetention: Math.max(1, Math.min(365, Number(retention) || 7)),
+          backupRetentionS3: dest === "local" ? null : Math.max(1, Math.min(3650, Number(retentionS3) || Number(retention) || 7)),
           s3DestinationId: dest === "local" ? null : dest,
         },
       }),
@@ -184,11 +187,20 @@ export function ScheduleCard(props: {
               </div>
             )}
 
-            <Field label="Keep the latest" description="Older backups are deleted automatically.">
-              <InputGroup suffix="backups" className="w-40">
-                <Input value={retention} onChange={(e) => setRetention(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" className="font-mono" />
-              </InputGroup>
-            </Field>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label={dest === "local" ? "Keep the latest" : "Keep on this server"} description="Older copies are deleted automatically.">
+                <InputGroup suffix="backups">
+                  <Input value={retention} onChange={(e) => setRetention(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" className="font-mono" />
+                </InputGroup>
+              </Field>
+              {dest !== "local" && (
+                <Field label="Keep in S3" description="Usually longer: off-site history.">
+                  <InputGroup suffix="backups">
+                    <Input value={retentionS3} onChange={(e) => setRetentionS3(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" className="font-mono" />
+                  </InputGroup>
+                </Field>
+              )}
+            </div>
           </>
         )}
 
@@ -243,6 +255,7 @@ export function ScheduleCard(props: {
                   setEnabled(initial.enabled);
                   setPlan(initial.plan);
                   setRetention(initial.retention);
+                  setRetentionS3(initial.retentionS3);
                   setDest(initial.dest);
                 }}
               >

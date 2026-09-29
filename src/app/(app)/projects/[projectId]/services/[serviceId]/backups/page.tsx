@@ -6,6 +6,8 @@ import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
 import { BackupsManager } from "./backups-manager";
 import { getSettings } from "@/server/settings";
+import { engines } from "@/server/databases/engines";
+import { IMPORT_EXTENSIONS } from "@/server/backups";
 
 export const metadata = { title: "Backups" };
 
@@ -18,16 +20,22 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
     .select({ id: schema.s3Destination.id, name: schema.s3Destination.name, bucket: schema.s3Destination.bucket })
     .from(schema.s3Destination)
     .where(eq(schema.s3Destination.organizationId, ctx.org.id));
+  const settings = await getSettings();
   return (
     <PageBody>
       <BackupsManager
         serviceId={service.id}
         isAdmin={ctx.isAdmin}
+        running={service.status === "running"}
+        engineLabel={engines[service.database.engine].label}
+        extensions={IMPORT_EXTENSIONS[service.database.engine]}
+        maxUpload={settings.dashboardDomain ? settings.proxyMaxBodySize : null}
         schedule={service.database.backupSchedule ?? null}
         retention={service.database.backupRetention}
+        retentionS3={service.database.backupRetentionS3 ?? null}
         s3DestinationId={service.database.s3DestinationId ?? null}
         destinations={destinations}
-        timezone={(await getSettings()).timezone}
+        timezone={settings.timezone}
       />
     </PageBody>
   );

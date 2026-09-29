@@ -33,6 +33,14 @@ const settingsSchema = z
     buildConcurrency: z.number().int().min(1).max(16),
     proxyMaxBodySize: z.string().regex(/^\d+[kmg]?$/i, "Use a size like 100m"),
     allowOrganizationCreation: z.boolean(),
+    timezone: z.string().refine((tz) => Intl.supportedValuesOf("timeZone").includes(tz) || tz === "UTC", "Choose a valid timezone"),
+    proxyCustomConfig: z.string().max(20_000),
+    dashboardAllowlist: z.array(z.string().trim().regex(/^[0-9a-f:.]+(\/\d{1,3})?$/i, "Use an IP or CIDR range like 203.0.113.0/24")).max(100),
+    cleanupEnabled: z.boolean(),
+    cleanupIntervalHours: z.number().int().min(1).max(24 * 7),
+    cleanupDiskThreshold: z.number().int().min(50).max(99),
+    cleanupBuildCacheDays: z.number().int().min(0).max(90),
+    cleanupUnusedImages: z.boolean(),
   })
   .partial();
 
@@ -48,8 +56,8 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
     await updateSettings(patch);
     const after = await getSettings();
 
-    const proxyRelevant: (keyof Settings)[] = ["dashboardDomain", "dashboardHttps", "proxyMaxBodySize"];
-    if (proxyRelevant.some((k) => before[k] !== after[k])) await enqueue("proxy.sync", {});
+    const proxyRelevant: (keyof Settings)[] = ["dashboardDomain", "dashboardHttps", "proxyMaxBodySize", "proxyCustomConfig", "dashboardAllowlist"];
+    if (proxyRelevant.some((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]))) await enqueue("proxy.sync", {});
 
     // Dashboard HTTPS: request a certificate from the Root organization.
     if (after.dashboardDomain && after.dashboardHttps && after.acmeEmail && after.rootOrganizationId) {

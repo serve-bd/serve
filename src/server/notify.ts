@@ -11,7 +11,8 @@ export type NotifyEvent =
   | "backup.success"
   | "certificate.failed"
   | "certificate.renewed"
-  | "task.failed";
+  | "task.failed"
+  | "server.disk";
 
 export const notifyEvents: { id: NotifyEvent; label: string }[] = [
   { id: "deploy.success", label: "Deployment succeeded" },
@@ -22,6 +23,7 @@ export const notifyEvents: { id: NotifyEvent; label: string }[] = [
   { id: "certificate.renewed", label: "Certificate issued or renewed" },
   { id: "certificate.failed", label: "Certificate failed" },
   { id: "task.failed", label: "Scheduled task failed" },
+  { id: "server.disk", label: "Server disk almost full" },
 ];
 
 type Message = { title: string; body: string; url?: string; ok: boolean };

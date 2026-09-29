@@ -177,3 +177,20 @@ export async function metricSeries(scope: string, hours = 6, buckets = 72) {
     diskTotal: r.disk_total === null ? null : Number(r.disk_total),
   }));
 }
+
+/** Most recent sample per service from the last few minutes (excludes the server scope). */
+export async function latestServiceSamples(maxAgeSeconds = 180) {
+  const rows = await db.execute<{ scope: string; cpu: number; memory: number; memory_limit: number | null; created_at: string }>(dsql`
+    SELECT DISTINCT ON (scope) scope, cpu, memory, memory_limit, created_at
+    FROM metric
+    WHERE scope <> 'server' AND created_at >= now() - make_interval(secs => ${maxAgeSeconds}::int)
+    ORDER BY scope, created_at DESC
+  `);
+  return [...rows].map((r) => ({
+    serviceId: r.scope,
+    cpu: Number(r.cpu) / 100,
+    memory: Number(r.memory),
+    memoryLimit: r.memory_limit === null ? null : Number(r.memory_limit),
+    at: new Date(r.created_at).toISOString(),
+  }));
+}

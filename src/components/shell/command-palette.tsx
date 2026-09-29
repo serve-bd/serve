@@ -146,7 +146,7 @@ export function CommandPalette({
                     </Command.Item>
                     {isInstanceAdmin && (
                       <Command.Item onSelect={() => go("/server")} className={itemClass}>
-                        <Server /> Server settings
+                        <Server /> Server
                       </Command.Item>
                     )}
                   </Command.Group>

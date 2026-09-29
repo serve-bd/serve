@@ -50,14 +50,16 @@ function decode(base64: string) {
  * Remount (change `key`) to start a new session.
  */
 export function Terminal({
-  serviceId,
-  target,
+  endpoint,
+  target = null,
   onStatus,
   ref,
   className,
 }: {
-  serviceId: string;
-  target: string | null;
+  /** Session API base, like `/api/services/<id>/terminal` or `/api/server/terminal`. */
+  endpoint: string;
+  /** Container to open the shell in, for services with several. */
+  target?: string | null;
   onStatus?: (status: TerminalStatus, detail?: string) => void;
   ref?: React.Ref<TerminalHandle>;
   className?: string;
@@ -128,14 +130,14 @@ export function Terminal({
       xterm.focus();
 
       report("connecting");
-      const res = await fetch(`/api/services/${serviceId}/terminal`, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ target, cols: xterm.cols, rows: xterm.rows }),
       }).catch(() => null);
       if (disposed) {
         const body = await res?.json().catch(() => null);
-        if (body?.id) void fetch(`/api/services/${serviceId}/terminal/${body.id}`, { method: "DELETE", keepalive: true });
+        if (body?.id) void fetch(`${endpoint}/${body.id}`, { method: "DELETE", keepalive: true });
         return;
       }
       const body = (await res?.json().catch(() => null)) as { id?: string; error?: string } | null;
@@ -145,7 +147,7 @@ export function Terminal({
         report("error", message);
         return;
       }
-      sessionUrl = `/api/services/${serviceId}/terminal/${body.id}`;
+      sessionUrl = `${endpoint}/${body.id}`;
       void flush();
 
       events = new EventSource(sessionUrl);
@@ -186,7 +188,7 @@ export function Terminal({
       term.current?.dispose();
       term.current = null;
     };
-  }, [serviceId, target]);
+  }, [endpoint, target]);
 
   // Padding lives on the wrapper so the fit addon measures the exact drawing area.
   return (

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { Duplex } from "node:stream";
 import type Docker from "dockerode";
-import { docker } from "@/server/docker/client";
+import { docker, imageExists, LABEL, pullImage, removeContainer } from "@/server/docker/client";
 
 /**
  * Interactive shells inside containers (docker exec with a TTY).
@@ -17,8 +17,10 @@ type Listener = (event: { type: "data"; seq: number; data: Buffer } | { type: "e
 type Session = {
   id: string;
   userId: string;
-  serviceId: string;
+  /** Who the session belongs to, like `service:<id>` or `host`. */
+  scope: string;
   containerName: string;
+  onClose?: () => void;
   exec: Docker.Exec;
   stream: Duplex;
   chunks: { seq: number; data: Buffer }[];
@@ -68,13 +70,24 @@ async function finish(session: Session) {
   scheduleIdle(session);
 }
 
-export async function openSession(opts: { userId: string; serviceId: string; containerId: string; containerName: string; cols: number; rows: number }) {
+export async function openSession(opts: {
+  userId: string;
+  scope: string;
+  containerId: string;
+  containerName: string;
+  cols: number;
+  rows: number;
+  /** Command to run with a TTY. Defaults to a login shell inside the container. */
+  cmd?: string[];
+  /** Called once when the session is closed and removed. */
+  onClose?: () => void;
+}) {
   const owned = [...sessions.values()].filter((s) => s.userId === opts.userId).sort((a, b) => a.createdAt - b.createdAt);
   // Oldest sessions make room instead of refusing a new tab.
   while (owned.length >= MAX_PER_USER) closeSession(owned.shift()!.id);
 
   const exec = await docker.getContainer(opts.containerId).exec({
-    Cmd: ["sh", "-c", SHELL],
+    Cmd: opts.cmd ?? ["sh", "-c", SHELL],
     AttachStdin: true,
     AttachStdout: true,
     AttachStderr: true,
@@ -86,8 +99,9 @@ export async function openSession(opts: { userId: string; serviceId: string; con
   const session: Session = {
     id: crypto.randomBytes(16).toString("hex"),
     userId: opts.userId,
-    serviceId: opts.serviceId,
+    scope: opts.scope,
     containerName: opts.containerName,
+    onClose: opts.onClose,
     exec,
     stream,
     chunks: [],
@@ -159,4 +173,88 @@ export function closeSession(id: string) {
   }
   emit(session, { type: "exit", code: session.exitCode });
   session.listeners.clear();
+  session.onClose?.();
+}
+
+/** Number of open sessions in a scope. */
+export function countSessions(scope: string) {
+  let n = 0;
+  for (const s of sessions.values()) if (s.scope === scope) n++;
+  return n;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 Host shell                                 */
+/* -------------------------------------------------------------------------- */
+
+export const HOST_SCOPE = "host";
+const HOST_CONTAINER = "serve-host-shell";
+const HOST_IMAGE = "alpine:3.22";
+const HOST_IDLE_MS = 30_000;
+
+const hostStore = globalThis as unknown as { __serveHostShellTimer?: NodeJS.Timeout | null; __serveHostShellReady?: Promise<string> | null };
+
+/**
+ * A privileged helper sharing the host's PID namespace. `nsenter -t 1` from it
+ * enters every namespace of the host's init process, which gives a real host shell.
+ */
+async function ensureHostContainer(): Promise<string> {
+  const info = await docker.getContainer(HOST_CONTAINER).inspect().catch(() => null);
+  if (info?.State.Running) return info.Id;
+  if (info) await removeContainer(HOST_CONTAINER, 1);
+  if (!(await imageExists(HOST_IMAGE))) await pullImage(HOST_IMAGE);
+  const container = await docker.createContainer({
+    name: HOST_CONTAINER,
+    Image: HOST_IMAGE,
+    Cmd: ["sleep", "infinity"],
+    Labels: { [LABEL.managed]: "true", [LABEL.kind]: "host-shell" },
+    HostConfig: {
+      Privileged: true,
+      PidMode: "host",
+      NetworkMode: "host",
+      AutoRemove: false,
+      RestartPolicy: { Name: "no" },
+      // Allocate TTYs from the host's devpts so the shell's terminal exists inside the host mount namespace.
+      Binds: ["/dev/pts:/dev/pts"],
+    },
+  });
+  await container.start();
+  return container.id;
+}
+
+function scheduleHostCleanup() {
+  if (hostStore.__serveHostShellTimer) clearTimeout(hostStore.__serveHostShellTimer);
+  hostStore.__serveHostShellTimer = setTimeout(() => {
+    hostStore.__serveHostShellTimer = null;
+    if (countSessions(HOST_SCOPE) === 0) void removeContainer(HOST_CONTAINER, 1);
+  }, HOST_IDLE_MS);
+}
+
+const HOST_SHELL = [
+  "export TERM=xterm-256color COLORTERM=truecolor",
+  "cd ~ 2>/dev/null || cd /",
+  "if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi",
+].join("; ");
+
+/** Open a root shell on the host. */
+export async function openHostSession(opts: { userId: string; cols: number; rows: number }) {
+  if (hostStore.__serveHostShellTimer) {
+    clearTimeout(hostStore.__serveHostShellTimer);
+    hostStore.__serveHostShellTimer = null;
+  }
+  // Concurrent opens share one container start.
+  hostStore.__serveHostShellReady ??= ensureHostContainer().finally(() => {
+    hostStore.__serveHostShellReady = null;
+  });
+  const containerId = await hostStore.__serveHostShellReady;
+  return openSession({
+    userId: opts.userId,
+    scope: HOST_SCOPE,
+    containerId,
+    containerName: HOST_CONTAINER,
+    cols: opts.cols,
+    rows: opts.rows,
+    cmd: ["nsenter", "-t", "1", "-m", "-u", "-i", "-n", "-p", "--", "sh", "-c", HOST_SHELL],
+    onClose: scheduleHostCleanup,
+  });
 }

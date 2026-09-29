@@ -103,6 +103,9 @@ http {
         ssl_reject_handshake on;
     }
 
+    # Custom directives from Server → Proxy (not globbed by the sites include).
+    include ${proxyPaths.sites}/custom/*.conf;
+
     include ${proxyPaths.sites}/*.conf;
 }
 `;
@@ -166,6 +169,8 @@ export type SiteServer = {
   forceHttps: boolean;
   /** Raw target, e.g. host.docker.internal:3000 (used for the dashboard). */
   directTarget?: string | null;
+  /** Only these IPs or CIDR ranges may connect. Empty or missing allows everyone. */
+  allow?: string[];
 };
 
 export function upstreamBlock(u: SiteUpstream) {
@@ -217,19 +222,33 @@ function body(s: SiteServer) {
   return proxyLocation(target);
 }
 
-const acmeLocation = `    location ^~ /.well-known/acme-challenge/ {
-        root ${proxyPaths.acme};
+function acmeLocation(restricted: boolean) {
+  // Let's Encrypt must reach the challenge even when an allowlist is active.
+  return `    location ^~ /.well-known/acme-challenge/ {
+${restricted ? "        allow all;\n" : ""}        root ${proxyPaths.acme};
         default_type text/plain;
     }`;
+}
+
+/** Only allow valid IPs / CIDR ranges into the config. */
+const safeCidr = (v: string) => /^[0-9a-f:.]+(\/\d{1,3})?$/i.test(v);
+
+function accessRules(allow: string[] | undefined) {
+  const list = (allow ?? []).filter(safeCidr);
+  if (!list.length) return "";
+  return `${list.map((a) => `    allow ${a};`).join("\n")}\n    deny all;\n\n`;
+}
 
 export function serverBlocks(s: SiteServer) {
   const blocks: string[] = [];
   const redirectHttp = s.tls && s.forceHttps;
+  const rules = accessRules(s.allow);
+  const acme = acmeLocation(!!rules);
   blocks.push(`server {
     listen 80;
     server_name ${s.hostname};
 
-${acmeLocation}
+${rules}${acme}
 
 ${redirectHttp ? `    location / {\n        return 301 https://$host$request_uri;\n    }` : body(s)}
 }
@@ -244,7 +263,7 @@ ${redirectHttp ? `    location / {\n        return 301 https://$host$request_uri
     ssl_certificate_key ${s.tls.key};
     add_header Strict-Transport-Security "max-age=31536000" always;
 
-${acmeLocation}
+${rules}${acme}
 
 ${body(s)}
 }

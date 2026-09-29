@@ -1,7 +1,8 @@
 import os from "node:os";
 import { docker } from "@/server/docker/client";
 import { proxyStatus } from "@/server/proxy/nginx";
-import { commandExists } from "@/server/process";
+import { commandExists, run } from "@/server/process";
+import { serverSnapshot } from "@/server/metrics";
 
 export async function detectPublicIp(): Promise<string | null> {
   for (const url of ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]) {
@@ -63,4 +64,62 @@ export async function dockerDiskUsage() {
   } catch {
     return null;
   }
+}
+
+/** Host details from the Docker daemon (the dashboard itself may run in a container). */
+export async function hostInfo() {
+  const [info, compose, buildx] = await Promise.all([
+    docker.info().catch(() => null) as Promise<{
+      Name?: string;
+      OperatingSystem?: string;
+      KernelVersion?: string;
+      Architecture?: string;
+      NCPU?: number;
+      MemTotal?: number;
+      ServerVersion?: string;
+      Containers?: number;
+      ContainersRunning?: number;
+      Images?: number;
+      DockerRootDir?: string;
+      Driver?: string;
+    } | null>,
+    run("docker", ["compose", "version", "--short"]).then((r) => r.trim() || null).catch(() => null),
+    run("docker", ["buildx", "version"]).then((r) => r.trim().split(" ")[1] ?? null).catch(() => null),
+  ]);
+  return {
+    name: info?.Name ?? os.hostname(),
+    os: info?.OperatingSystem ?? `${os.type()} ${os.release()}`,
+    kernel: info?.KernelVersion ?? os.release(),
+    arch: info?.Architecture ?? os.arch(),
+    cpus: info?.NCPU ?? os.cpus().length,
+    memory: info?.MemTotal ?? os.totalmem(),
+    docker: info?.ServerVersion ?? null,
+    compose,
+    buildx,
+    storageDriver: info?.Driver ?? null,
+    dockerRoot: info?.DockerRootDir ?? null,
+    containers: { total: info?.Containers ?? 0, running: info?.ContainersRunning ?? 0 },
+    images: info?.Images ?? 0,
+    // /proc/uptime is the host's, even inside a container.
+    upSince: new Date(Date.now() - os.uptime() * 1000).toISOString(),
+  };
+}
+
+export type ServerHealth = { docker: boolean; proxy: boolean; worker: boolean; diskPercent: number; issues: string[] };
+
+/** Quick health summary for the server header. */
+export async function serverHealth(settings: { workerHeartbeat: string | null; cleanupDiskThreshold: number }): Promise<ServerHealth> {
+  const [dockerOk, proxy, snap] = await Promise.all([
+    docker.ping().then(() => true).catch(() => false),
+    proxyStatus().catch(() => null),
+    serverSnapshot().catch(() => null),
+  ]);
+  const worker = !!settings.workerHeartbeat && Date.now() - new Date(settings.workerHeartbeat).getTime() < 60_000;
+  const diskPercent = snap && snap.disk.total ? (snap.disk.used / snap.disk.total) * 100 : 0;
+  const issues: string[] = [];
+  if (!dockerOk) issues.push("Docker is not reachable");
+  if (!proxy?.running) issues.push("The nginx proxy is not running");
+  if (!worker) issues.push("The worker is not running");
+  if (diskPercent >= settings.cleanupDiskThreshold) issues.push(`Disk is ${Math.round(diskPercent)}% full`);
+  return { docker: dockerOk, proxy: !!proxy?.running, worker, diskPercent, issues };
 }

@@ -5,6 +5,7 @@ import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { notify, orgOfService } from "@/server/notify";
 import { execCommand, getService, pickContainer } from "./exec";
+import { getSetting } from "@/server/settings";
 
 /** Execute one task run (called by the worker). */
 export async function runTask(runId: string) {
@@ -87,9 +88,10 @@ const lastFired = new Map<string, number>();
 export async function scheduleTasks() {
   const tasks = await db.select().from(schema.scheduledTask).where(eq(schema.scheduledTask.enabled, true));
   const now = new Date();
+  const tz = await getSetting("timezone");
   for (const t of tasks) {
     try {
-      const prev = CronExpressionParser.parse(t.schedule, { currentDate: now }).prev().toDate().getTime();
+      const prev = CronExpressionParser.parse(t.schedule, { currentDate: now, tz }).prev().toDate().getTime();
       if (now.getTime() - prev < 60_000 && lastFired.get(t.id) !== prev) {
         lastFired.set(t.id, prev);
         await startTaskRun({ serviceId: t.serviceId, taskId: t.id, command: t.command, trigger: "schedule" });

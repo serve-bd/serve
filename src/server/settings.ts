@@ -30,7 +30,26 @@ export type Settings = {
   allowOrganizationCreation: boolean;
   /** Last time the worker reported in (ISO timestamp). */
   workerHeartbeat: string | null;
+  /** IANA timezone used for backup and task schedules. */
+  timezone: string;
+  /** Extra nginx directives included in the proxy's http block. */
+  proxyCustomConfig: string | null;
+  /** IPs or CIDR ranges allowed to open the dashboard through its domain. Empty allows everyone. */
+  dashboardAllowlist: string[];
+  /** Automatic Docker cleanup. */
+  cleanupEnabled: boolean;
+  cleanupIntervalHours: number;
+  /** Disk usage (percent) that triggers an aggressive cleanup. */
+  cleanupDiskThreshold: number;
+  cleanupBuildCacheDays: number;
+  /** Also remove images no container uses, not only dangling ones. */
+  cleanupUnusedImages: boolean;
+  lastCleanup: CleanupRun | null;
+  /** Most recent cleanup runs, newest first (max 10). */
+  cleanupHistory: CleanupRun[];
 };
+
+export type CleanupRun = { at: string; trigger: "schedule" | "manual" | "disk"; reclaimed: number; durationMs: number; error?: string | null };
 
 export const defaultSettings: Settings = {
   instanceName: "Serve",
@@ -49,6 +68,16 @@ export const defaultSettings: Settings = {
   rootOrganizationId: null,
   allowOrganizationCreation: false,
   workerHeartbeat: null,
+  timezone: "UTC",
+  proxyCustomConfig: null,
+  dashboardAllowlist: [],
+  cleanupEnabled: true,
+  cleanupIntervalHours: 24,
+  cleanupDiskThreshold: 80,
+  cleanupBuildCacheDays: 7,
+  cleanupUnusedImages: false,
+  lastCleanup: null,
+  cleanupHistory: [],
 };
 
 export async function getSettings(): Promise<Settings> {

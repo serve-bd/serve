@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/service
   try {
     const session = await openSession({
       userId: org.user.id,
-      serviceId: service.id,
+      scope: `service:${service.id}`,
       containerId: container.id,
       containerName: container.name,
       cols: parsed.data.cols,

@@ -87,7 +87,7 @@ export function Console({ serviceId, suggestions }: { serviceId: string; suggest
             <Terminal
               key={`${selected}:${session}`}
               ref={terminal}
-              serviceId={serviceId}
+              endpoint={`/api/services/${serviceId}/terminal`}
               target={selected}
               onStatus={setStatus}
               className="h-[min(62vh,580px)] min-h-72 py-2 pl-3"

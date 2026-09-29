@@ -1,22 +1,22 @@
 import "dotenv/config";
-import { and, eq, inArray, isNotNull, sql as dsql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { CronExpressionParser } from "cron-parser";
 import { db, schema, sql } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
 import { newId } from "@/server/id";
 import { docker, ensureNetwork, LABEL, listServiceContainers } from "@/server/docker/client";
 import { ensureProxy, syncAllProxy } from "@/server/proxy/nginx";
-import { CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, pruneJobs, recoverStaleJobs, type Job } from "@/server/queue";
+import { CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job } from "@/server/queue";
 import { runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
 import { issueCertificate, renewDueCertificates } from "@/server/ssl/certificates";
 import { restoreBackup, runBackup } from "@/server/backups";
-import { collectMetrics, pruneMetrics } from "@/server/metrics";
+import { collectMetrics } from "@/server/metrics";
 import { getSettings, updateSettings } from "@/server/settings";
 import { notify, orgOfService } from "@/server/notify";
-import { run } from "@/server/process";
 import { runTask, scheduleTasks } from "@/server/services/tasks";
-import { ingestAccessLog, pruneRequestMetrics } from "@/server/analytics";
+import { ingestAccessLog } from "@/server/analytics";
+import { runCleanup, scheduleCleanup } from "@/server/cleanup";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -49,7 +49,7 @@ async function handle(job: Job, signal: AbortSignal) {
       await ensureProxy();
       return syncAllProxy();
     case "cleanup":
-      return cleanup((job.payload as { full?: boolean }).full === true);
+      return void (await runCleanup((job.payload as { full?: boolean }).full === true ? "manual" : "schedule"));
     case "task.run":
       return runTask(p.runId);
   }
@@ -177,11 +177,12 @@ async function scheduleBackups() {
     .from(schema.service)
     .where(and(eq(schema.service.type, "database"), isNotNull(schema.service.database)));
   const now = new Date();
+  const tz = (await getSettings()).timezone;
   for (const s of services) {
     const cron = s.database?.backupSchedule;
     if (!cron) continue;
     try {
-      const prev = CronExpressionParser.parse(cron, { currentDate: now }).prev().toDate().getTime();
+      const prev = CronExpressionParser.parse(cron, { currentDate: now, tz }).prev().toDate().getTime();
       // Fire if the previous occurrence happened within the last minute and was not handled yet.
       if (now.getTime() - prev < 60_000 && lastBackupRun.get(s.id) !== prev) {
         lastBackupRun.set(s.id, prev);
@@ -192,23 +193,6 @@ async function scheduleBackups() {
     } catch {
       // invalid cron, ignore
     }
-  }
-}
-
-/**
- * Routine housekeeping. Only touches Serve's own data and images, so it is safe
- * on hosts that also run other Docker workloads.
- */
-async function cleanup(full = false) {
-  await pruneJobs();
-  await pruneMetrics();
-  await pruneRequestMetrics();
-  await db.execute(dsql`DELETE FROM activity WHERE created_at < now() - interval '90 days'`);
-  await run("docker", ["image", "prune", "-f", "--filter", `label=${LABEL.managed}=true`]).catch(() => {});
-  if (full) {
-    // Requested explicitly by an admin: reclaim host-wide build cache and dangling images.
-    await run("docker", ["builder", "prune", "-f", "--filter", "until=168h"]).catch(() => {});
-    await run("docker", ["image", "prune", "-f"]).catch(() => {});
   }
 }
 
@@ -283,7 +267,7 @@ async function main() {
   every(60_000, "tasks", scheduleTasks);
   every(20_000, "analytics", ingestAccessLog, true);
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
-  every(12 * 3600_000, "cleanup", () => cleanup(false));
+  every(5 * 60_000, "cleanup", scheduleCleanup, true);
   every(5 * 60_000, "proxy-health", async () => {
     const info = await docker.getContainer(process.env.SERVE_PROXY_CONTAINER ?? "serve-proxy").inspect().catch(() => null);
     if (!info?.State.Running) await ensureProxy((l) => log(l));

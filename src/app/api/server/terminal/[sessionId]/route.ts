@@ -1,17 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { requireOrg } from "@/server/auth";
-import { closeSession, getSession, resizeSession, subscribe, writeSession } from "@/server/services/terminal";
+import { requireInstanceAdmin } from "@/server/auth";
+import { closeSession, getSession, HOST_SCOPE, resizeSession, subscribe, writeSession } from "@/server/services/terminal";
 
 export const dynamic = "force-dynamic";
 
-type Ctx = RouteContext<"/api/services/[serviceId]/terminal/[sessionId]">;
+type Ctx = RouteContext<"/api/server/terminal/[sessionId]">;
 
 async function load(ctx: Ctx) {
-  const { serviceId, sessionId } = await ctx.params;
-  const org = await requireOrg();
-  const session = getSession(sessionId, org.user.id);
-  return session && session.scope === `service:${serviceId}` ? session : null;
+  const { sessionId } = await ctx.params;
+  const admin = await requireInstanceAdmin().catch(() => null);
+  if (!admin) return null;
+  const session = getSession(sessionId, admin.user.id);
+  return session && session.scope === HOST_SCOPE ? session : null;
 }
 
 /** Terminal output as Server-Sent Events. `?since=<seq>` replays missed output after a reconnect. */

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { docker, ensureNetwork, execInContainer, imageExists, LABEL, pullImage } from "@/server/docker/client";
+import { demuxDockerBuffer, docker, ensureNetwork, execInContainer, imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { env } from "@/server/env";
 import { paths, proxyPaths } from "@/server/paths";
 import { getSettings } from "@/server/settings";
@@ -39,6 +39,24 @@ function serialized<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
+const customFile = () => path.join(paths.proxyCustom, "custom.conf");
+
+function customContent(config: string | null) {
+  return config?.trim() ? `# Managed by Serve — custom directives from Server → Proxy.\n${config.trim()}\n` : null;
+}
+
+/** Write (or remove) the custom http-level config file. Returns true when it changed. */
+async function writeCustomConfig(config: string | null) {
+  const content = customContent(config);
+  if (content) return writeIfChanged(customFile(), content);
+  try {
+    await fs.rm(customFile());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function writeStaticFiles() {
   const settings = await getSettings();
   let changed = false;
@@ -48,6 +66,7 @@ async function writeStaticFiles() {
     changed = (await writeIfChanged(path.join(paths.proxy, "pages", name), html)) || changed;
   }
   await fs.mkdir(paths.proxySites, { recursive: true });
+  changed = (await writeCustomConfig(settings.proxyCustomConfig)) || changed;
   await fs.mkdir(paths.proxyLogs, { recursive: true });
   await fs.mkdir(paths.acme, { recursive: true });
   await fs.mkdir(paths.letsencrypt, { recursive: true });
@@ -225,6 +244,7 @@ async function renderDashboardSite(): Promise<string | null> {
       upstream: upstream.name,
       forceHttps: true,
       tls: settings.dashboardHttps ? tlsFor(settings.dashboardDomain, null, certs) : null,
+      allow: settings.dashboardAllowlist,
     }),
   ].join("\n");
 }
@@ -282,7 +302,7 @@ export function removeServiceProxy(serviceId: string) {
 /** Regenerate every site file, removing stale ones. */
 export function syncAllProxy() {
   return serialized(async () => {
-    await writeStaticFiles();
+    const staticChanged = await writeStaticFiles();
     const changes = new Map<string, string | null>();
     const existing = await fs.readdir(paths.proxySites).catch(() => [] as string[]);
     for (const f of existing) if (f.endsWith(".conf")) changes.set(path.join(paths.proxySites, f), null);
@@ -295,7 +315,8 @@ export function syncAllProxy() {
       changes.set(siteFile(`svc-${s.id}`), await renderServiceSite(s.id));
     }
     changes.set(siteFile("_dashboard"), await renderDashboardSite());
-    await applySites(changes);
+    const reloaded = await applySites(changes);
+    if (staticChanged && !reloaded && (await getProxyContainer())?.State.Running) await reloadProxy();
   });
 }
 
@@ -332,4 +353,90 @@ export async function proxyStatus() {
     image: info?.Config.Image ?? null,
     startedAt: info?.State.StartedAt ?? null,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              Admin inspection                              */
+/* -------------------------------------------------------------------------- */
+
+/** Run `nginx -t` in the proxy container. */
+export async function testProxyConfig() {
+  if (!(await getProxyContainer())?.State.Running) return { ok: false, output: "The proxy is not running." };
+  const res = await execInContainer(env.proxyContainer, ["nginx", "-t"]).catch((e: Error) => ({ exitCode: 1, output: e.message }));
+  return { ok: res.exitCode === 0, output: res.output.trim() };
+}
+
+/**
+ * Validate and apply custom http-level directives. On failure the previous file is
+ * restored and the nginx error is thrown, so nothing changes.
+ */
+export function applyCustomConfig(config: string | null) {
+  return serialized(async () => {
+    let previous: string | null = null;
+    try {
+      previous = await fs.readFile(customFile(), "utf8");
+    } catch {
+      previous = null;
+    }
+    const content = customContent(config);
+    if (content === previous) return;
+    if (content) {
+      await fs.mkdir(paths.proxyCustom, { recursive: true });
+      await fs.writeFile(customFile(), content);
+    } else await fs.rm(customFile(), { force: true });
+    if (!(await getProxyContainer())?.State.Running) return;
+    try {
+      await reloadProxy();
+    } catch (error) {
+      if (previous === null) await fs.rm(customFile(), { force: true });
+      else await fs.writeFile(customFile(), previous);
+      throw error;
+    }
+  });
+}
+
+export type SiteFileInfo = { file: string; kind: "dashboard" | "service" | "custom" | "other"; serviceId: string | null; size: number; updatedAt: string };
+
+/** Generated site files, newest first. */
+export async function listSiteFiles(): Promise<SiteFileInfo[]> {
+  const out: SiteFileInfo[] = [];
+  const entries = await fs.readdir(paths.proxySites).catch(() => [] as string[]);
+  for (const f of entries.filter((e) => e.endsWith(".conf"))) {
+    const stat = await fs.stat(path.join(paths.proxySites, f)).catch(() => null);
+    if (!stat?.isFile()) continue;
+    const svc = /^svc-(.+)\.conf$/.exec(f);
+    out.push({
+      file: f,
+      kind: f === "_dashboard.conf" ? "dashboard" : svc ? "service" : "other",
+      serviceId: svc?.[1] ?? null,
+      size: stat.size,
+      updatedAt: stat.mtime.toISOString(),
+    });
+  }
+  const custom = await fs.stat(customFile()).catch(() => null);
+  if (custom) out.push({ file: "custom/custom.conf", kind: "custom", serviceId: null, size: custom.size, updatedAt: custom.mtime.toISOString() });
+  return out.sort((a, b) => (a.kind === "dashboard" ? -1 : b.kind === "dashboard" ? 1 : b.updatedAt.localeCompare(a.updatedAt)));
+}
+
+/** Read one site file by the name `listSiteFiles` returned. */
+export async function readSiteFile(file: string) {
+  if (file === "custom/custom.conf") return fs.readFile(customFile(), "utf8");
+  if (!/^[a-zA-Z0-9_.-]+\.conf$/.test(file)) throw new Error("Invalid file name");
+  return fs.readFile(path.join(paths.proxySites, file), "utf8");
+}
+
+/** Last lines of the proxy container's output (nginx errors go to stderr). */
+export async function proxyLogs(tail = 300) {
+  const buffer = (await docker.getContainer(env.proxyContainer).logs({ stdout: true, stderr: true, tail, timestamps: true })) as unknown as Buffer;
+  return demuxDockerBuffer(Buffer.isBuffer(buffer) ? buffer : Buffer.from(String(buffer)))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const m = /^(\d{4}-\d{2}-\d{2}T\S+)\s(.*)$/.exec(line);
+      return m ? { time: m[1], text: m[2] } : { text: line };
+    });
+}
+
+export async function restartProxy() {
+  await docker.getContainer(env.proxyContainer).restart({ t: 5 });
 }

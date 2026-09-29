@@ -172,7 +172,7 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
 
         {props.isInstanceAdmin && (
           <NavGroup title="Server">
-            <NavLink item={{ href: "/server", label: "Server settings", icon: Server }} pathname={pathname} onNavigate={onNavigate} />
+            <NavLink item={{ href: "/server", label: "Server", icon: Server }} pathname={pathname} onNavigate={onNavigate} />
           </NavGroup>
         )}
       </nav>

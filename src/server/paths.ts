@@ -18,6 +18,10 @@ export const paths = {
   get proxySites() {
     return path.join(env.dataDir, "proxy", "sites");
   },
+  /** Custom http-level directives, inside the mounted sites dir but not globbed by it. */
+  get proxyCustom() {
+    return path.join(env.dataDir, "proxy", "sites", "custom");
+  },
   get proxyLogs() {
     return path.join(env.dataDir, "proxy", "logs");
   },

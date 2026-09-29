@@ -17,7 +17,21 @@ export type RunOptions = {
 };
 
 /** Variables tools need to run and reach Docker; nothing of Serve's configuration. */
-const SAFE_ENV = ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "XDG_RUNTIME_DIR", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY", "DOCKER_CONTEXT", "SSH_AUTH_SOCK"];
+const SAFE_ENV = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LANG",
+  "LC_ALL",
+  "TMPDIR",
+  "XDG_RUNTIME_DIR",
+  "DOCKER_HOST",
+  "DOCKER_CONFIG",
+  "DOCKER_CERT_PATH",
+  "DOCKER_TLS_VERIFY",
+  "DOCKER_CONTEXT",
+  "SSH_AUTH_SOCK",
+];
 
 function baseEnv(isolated?: boolean): Record<string, string | undefined> {
   if (!isolated) return process.env;

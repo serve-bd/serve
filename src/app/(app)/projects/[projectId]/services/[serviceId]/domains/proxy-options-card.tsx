@@ -1,5 +1,7 @@
 "use client";
 
+import { cn } from "@/lib/utils";
+import { ReadOnlyFooter } from "@/components/read-only";
 import * as React from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -149,7 +151,7 @@ export function ProxyOptionsCard({
         }}
       >
         <CardHeader title="HTTP options" description="How the proxy handles requests for this service's domains. Defaults suit most apps." />
-        <fieldset disabled={disabled} className="min-w-0">
+        <fieldset disabled={disabled} className={cn("min-w-0", disabled && "opacity-70")}>
           <Group title="Limits and timeouts" description="Raise these for large uploads, long requests or streaming.">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Max request body" optional description="Like 10m or 1g. Server default otherwise.">
@@ -348,19 +350,23 @@ export function ProxyOptionsCard({
           </Group>
         </fieldset>
         {error && <p className="border-t border-line bg-bad-soft/50 px-5 py-3 font-mono text-[12px] leading-relaxed break-words text-bad">{error}</p>}
-        <CardFooter>
-          <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : `${proxyLabel} checks the configuration before applying it`}</span>
-          <div className="flex flex-none gap-2">
-            {dirty && (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setForm(JSON.parse(saved))}>
-                Discard
+        {disabled ? (
+          <ReadOnlyFooter message="Only organization admins can change HTTP options." />
+        ) : (
+          <CardFooter>
+            <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : `${proxyLabel} checks the configuration before applying it`}</span>
+            <div className="flex flex-none gap-2">
+              {dirty && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setForm(JSON.parse(saved))}>
+                  Discard
+                </Button>
+              )}
+              <Button type="submit" size="sm" variant="primary" disabled={!dirty || disabled} loading={save.pending}>
+                Apply
               </Button>
-            )}
-            <Button type="submit" size="sm" variant="primary" disabled={!dirty || disabled} loading={save.pending}>
-              Apply
-            </Button>
-          </div>
-        </CardFooter>
+            </div>
+          </CardFooter>
+        )}
       </form>
     </Card>
   );

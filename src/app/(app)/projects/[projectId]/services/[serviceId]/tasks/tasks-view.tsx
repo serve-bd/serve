@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/components/permissions";
 import * as React from "react";
 import useSWR from "swr";
 import { CalendarClock, Pencil, Play, Plus, Trash2 } from "lucide-react";
@@ -133,6 +134,9 @@ export function TasksView({ serviceId, composeServices }: { serviceId: string; c
   const { data, mutate } = useSWR<{ tasks: Task[]; runs: Run[] }>(`/api/services/${serviceId}/tasks`, {
     refreshInterval: (d) => (d?.runs.some((r) => r.status === "running") ? 1500 : 10000),
   });
+  const can = useCan();
+  const canManage = can("services.manage");
+  const canRun = can("services.deploy");
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Task | null>(null);
   const [dialogKey, setDialogKey] = React.useState(0);
@@ -171,9 +175,11 @@ export function TasksView({ serviceId, composeServices }: { serviceId: string; c
             title="Scheduled tasks"
             description="Cron jobs that run commands inside this service."
             actions={
-              <Button size="sm" variant="primary" onClick={() => openDialog(null)}>
-                <Plus /> New task
-              </Button>
+              canManage && (
+                <Button size="sm" variant="primary" onClick={() => openDialog(null)}>
+                  <Plus /> New task
+                </Button>
+              )
             }
           />
           {tasks.length === 0 ? (
@@ -197,23 +203,29 @@ export function TasksView({ serviceId, composeServices }: { serviceId: string; c
                       )}
                     </span>
                   </div>
-                  <Button size="icon-sm" variant="ghost" aria-label="Run now" onClick={() => runNow.run(t.id)}>
-                    <Play />
-                  </Button>
-                  <Button size="icon-sm" variant="ghost" aria-label="Edit" onClick={() => openDialog(t)}>
-                    <Pencil />
-                  </Button>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="Delete"
-                    onClick={async () => {
-                      if (await confirm({ title: `Delete ${t.name}?`, confirmLabel: "Delete task", danger: true })) remove.run(t.id);
-                    }}
-                  >
-                    <Trash2 />
-                  </Button>
-                  <Switch checked={t.enabled} onCheckedChange={(on) => toggle.run(t.id, on)} />
+                  {canRun && (
+                    <Button size="icon-sm" variant="ghost" aria-label="Run now" onClick={() => runNow.run(t.id)}>
+                      <Play />
+                    </Button>
+                  )}
+                  {canManage && (
+                    <>
+                      <Button size="icon-sm" variant="ghost" aria-label="Edit" onClick={() => openDialog(t)}>
+                        <Pencil />
+                      </Button>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label="Delete"
+                        onClick={async () => {
+                          if (await confirm({ title: `Delete ${t.name}?`, confirmLabel: "Delete task", danger: true })) remove.run(t.id);
+                        }}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </>
+                  )}
+                  <Switch checked={t.enabled} onCheckedChange={(on) => toggle.run(t.id, on)} disabled={!canManage} />
                 </div>
               ))}
             </div>

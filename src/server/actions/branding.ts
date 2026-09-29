@@ -36,6 +36,8 @@ export async function saveBranding(input: z.input<typeof brandingInput>) {
     const config = await currentConfig();
     await updateSettings({ instanceName: name, branding: { ...config, showName: v.showName, accent } });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "branding.update", message: `Updated branding (${name})` });
+    // The proxy's error pages carry the product name too.
+    void import("@/server/proxy/nginx").then((m) => m.refreshErrorPages()).catch(() => {});
     return null;
   });
 }
@@ -78,6 +80,7 @@ export async function resetBranding() {
     await Promise.all(brandAssetKinds.map((k) => writeBrandAsset(k, null)));
     await updateSettings({ branding: null, instanceName: null as never });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "branding.update", message: "Reset branding to the defaults" });
+    void import("@/server/proxy/nginx").then((m) => m.refreshErrorPages()).catch(() => {});
     return null;
   });
 }

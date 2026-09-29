@@ -13,7 +13,7 @@ import {
   mainConfig,
   maintenanceGeo,
   maintenanceVar,
-  pages,
+  errorPages,
   pagesServerConfig,
   PROXY_IMAGE,
   proxyParams,
@@ -120,7 +120,8 @@ async function writeCustomConfig(ctx: ServerCtx, config: string | null) {
 
 async function writePages(ctx: ServerCtx) {
   let changed = false;
-  for (const [name, html] of Object.entries(pages)) {
+  const { productName } = await import("@/server/branding");
+  for (const [name, html] of Object.entries(errorPages(await productName().catch(() => "Serve")))) {
     changed = (await ctx.fs.writeIfChanged(path.posix.join(ctx.paths.proxy, "pages", name), html)) || changed;
   }
   return changed;
@@ -1273,4 +1274,9 @@ export async function startProxy(ctx: ServerCtx, log?: Log) {
     await db.update(schema.server).set({ proxyStopped: true }).where(eq(schema.server.id, ctx.id));
     throw error;
   }
+}
+
+/** Rewrite the error pages on every server, for example after the product name changed. Files only; no reload needed. */
+export async function refreshErrorPages() {
+  for (const ctx of await activeServers()) await writePages(ctx).catch(() => {});
 }

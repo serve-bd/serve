@@ -200,7 +200,7 @@ proxy_set_header Upgrade $http_upgrade;
 proxy_set_header Connection $connection_upgrade;
 `;
 
-function page(title: string, message: string) {
+function page(title: string, message: string, brand: string) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -220,21 +220,29 @@ function page(title: string, message: string) {
   footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
 </style>
 </head>
-<body><main>${message}<footer>Served by Serve</footer></main></body>
+<body><main>${message}<footer>Served by ${brand}</footer></main></body>
 </html>
 `;
 }
 
-export const pages = {
-  "not-found.html": page(
-    "No app here",
-    `<div class="code">404</div><h1>Nothing is deployed here</h1><p>This domain points to a Serve server, but no app is connected to it yet.</p>`,
-  ),
-  "unavailable.html": page(
-    "App unavailable",
-    `<div class="code">502</div><h1>This app is not running</h1><p>The app behind this domain is stopped, starting, or crashed. Try again in a moment.</p>`,
-  ),
-};
+const escapeHtml = (v: string) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c);
+
+/** Error pages the proxy serves, with the instance's product name (white-label). */
+export function errorPages(productName = "Serve") {
+  const brand = escapeHtml(productName);
+  return {
+    "not-found.html": page(
+      "No app here",
+      `<div class="code">404</div><h1>Nothing is deployed here</h1><p>This domain points to a ${brand} server, but no app is connected to it yet.</p>`,
+      brand,
+    ),
+    "unavailable.html": page(
+      "App unavailable",
+      `<div class="code">502</div><h1>This app is not running</h1><p>The app behind this domain is stopped, starting, or crashed. Try again in a moment.</p>`,
+      brand,
+    ),
+  };
+}
 
 export type SiteUpstream = { name: string; servers: string[] };
 

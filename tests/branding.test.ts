@@ -121,3 +121,13 @@ describe("brandFromConfig", () => {
     expect(cleanProductName("  Acme\n<b>Cloud</b>  ")).toBe("Acme b Cloud /b");
   });
 });
+
+describe("proxy error pages", () => {
+  it("carry the product name, escaped", async () => {
+    const { errorPages } = await import("@/server/proxy/templates");
+    const pages = errorPages("Acme <Cloud>");
+    expect(pages["unavailable.html"]).toContain("Served by Acme &lt;Cloud&gt;");
+    expect(pages["not-found.html"]).toContain("points to a Acme &lt;Cloud&gt; server");
+    expect(errorPages()["unavailable.html"]).toContain("Served by Serve");
+  });
+});

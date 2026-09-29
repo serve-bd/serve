@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { auth, isInstanceAdmin, requireOrg, requireOrgAdmin, requireUser } from "@/server/auth";
@@ -11,6 +11,7 @@ import { getSetting } from "@/server/settings";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
 import type { MemberRole } from "@/server/db/schema";
+import { normalizeScopes } from "@/lib/api-scopes";
 
 export async function switchOrganization(organizationId: string) {
   return act(async () => {
@@ -154,20 +155,40 @@ export async function removeMember(memberId: string) {
   });
 }
 
-export async function createApiToken(name: string) {
+const tokenSchema = z.object({
+  name: z.string().trim().min(1, "Enter a name").max(60),
+  scopes: z.array(z.string()).transform(normalizeScopes).refine((s) => s.length > 0, "Choose at least one permission"),
+  expiresInDays: z.number().int().min(1).max(3650).nullable(),
+  projectIds: z.array(z.string()).max(200).nullable(),
+});
+
+export async function createApiToken(input: z.input<typeof tokenSchema>) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
-    const clean = z.string().trim().min(1, "Enter a name").max(60).parse(name);
+    const data = tokenSchema.parse(input);
+    let projectIds: string[] | null = null;
+    if (data.projectIds?.length) {
+      const owned = await db
+        .select({ id: schema.project.id })
+        .from(schema.project)
+        .where(and(eq(schema.project.organizationId, ctx.org.id), inArray(schema.project.id, data.projectIds)));
+      if (owned.length !== new Set(data.projectIds).size) throw new UserError("One of the selected projects was not found.");
+      projectIds = owned.map((p) => p.id);
+    }
     const { randomSecret, sha256 } = await import("@/server/crypto");
     const token = `srv_${randomSecret(30)}`;
     await db.insert(schema.apiToken).values({
       id: newId(),
       organizationId: ctx.org.id,
       userId: ctx.user.id,
-      name: clean,
+      name: data.name,
       tokenHash: sha256(token),
       prefix: token.slice(0, 10),
+      scopes: data.scopes,
+      projectIds,
+      expiresAt: data.expiresInDays ? new Date(Date.now() + data.expiresInDays * 86_400_000) : null,
     });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "token.created", message: `Created API token "${data.name}" (${data.scopes.join(", ")})` });
     return { token };
   });
 }
@@ -175,7 +196,11 @@ export async function createApiToken(name: string) {
 export async function revokeApiToken(id: string) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
-    await db.delete(schema.apiToken).where(and(eq(schema.apiToken.id, id), eq(schema.apiToken.organizationId, ctx.org.id)));
+    const [row] = await db
+      .delete(schema.apiToken)
+      .where(and(eq(schema.apiToken.id, id), eq(schema.apiToken.organizationId, ctx.org.id)))
+      .returning({ name: schema.apiToken.name });
+    if (row) await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "token.revoked", message: `Revoked API token "${row.name}"` });
     return null;
   });
 }

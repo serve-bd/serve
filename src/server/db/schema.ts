@@ -471,7 +471,13 @@ export const apiToken = pgTable("api_token", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
+  /** Granted scopes (see src/lib/api-scopes.ts). */
+  scopes: text("scopes").array().notNull().default(sql`'{read,deploy}'::text[]`),
+  /** Projects the token may touch. Null means every project. */
+  projectIds: text("project_ids").array(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  lastUsedIp: text("last_used_ip"),
   createdAt: createdAt(),
 });
 

@@ -1,10 +1,11 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { apiAuth, unauthorized } from "@/server/api-auth";
+import { requireToken } from "@/server/api-auth";
 
+/** Services in the token's organization (and allowed projects). Scope: read. */
 export async function GET(request: Request) {
-  const auth = await apiAuth(request);
-  if (!auth) return unauthorized();
+  const { auth, error } = await requireToken(request, "read");
+  if (error) return error;
   const rows = await db
     .select({
       id: schema.service.id,
@@ -18,7 +19,12 @@ export async function GET(request: Request) {
     })
     .from(schema.service)
     .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
-    .where(eq(schema.project.organizationId, auth.organizationId))
+    .where(
+      and(
+        eq(schema.project.organizationId, auth.organizationId),
+        auth.projectIds ? inArray(schema.project.id, auth.projectIds) : undefined,
+      ),
+    )
     .orderBy(asc(schema.project.name), asc(schema.service.name));
   return Response.json({ services: rows });
 }

@@ -1,16 +1,13 @@
-import { apiAuth, unauthorized } from "@/server/api-auth";
-import { serviceInOrg } from "@/server/services/access";
+import { notFound, requireToken, tokenService } from "@/server/api-auth";
 import { queueDeployment } from "@/server/services/create";
 
+/** Deploy the latest commit or image. Scope: deploy. */
 export async function POST(request: Request, ctx: RouteContext<"/api/v1/services/[serviceId]/deploy">) {
-  const auth = await apiAuth(request);
-  if (!auth) return unauthorized();
+  const { auth, error } = await requireToken(request, "deploy");
+  if (error) return error;
   const { serviceId } = await ctx.params;
-  try {
-    await serviceInOrg(serviceId, auth.organizationId);
-  } catch {
-    return Response.json({ error: "Service not found" }, { status: 404 });
-  }
+  const row = await tokenService(auth, serviceId);
+  if (!row) return notFound("Service not found");
   const id = await queueDeployment(serviceId, "api", { userId: auth.userId });
   return Response.json({ deploymentId: id }, { status: 202 });
 }

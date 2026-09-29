@@ -23,6 +23,7 @@ import { getSettings } from "@/server/settings";
 import { teardownServices } from "@/server/services/teardown";
 import { composeSecurityIssues, safeRedirectUrl } from "@/server/security";
 import type { OrgContext } from "@/server/auth";
+import { requestServiceControl } from "@/server/services/control";
 
 async function assertEnvironment(projectId: string, environmentId: string) {
   const [env] = await db
@@ -513,19 +514,7 @@ export async function serviceControl(serviceId: string, command: "stop" | "start
   return act(async () => {
     const ctx = await requireOrg();
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
-    if (command === "start") {
-      const hasContainers = service.currentDeploymentId || service.type === "database";
-      if (!hasContainers) {
-        await queueDeployment(serviceId, "manual", { userId: ctx.user.id });
-        return null;
-      }
-    }
-    await db
-      .update(schema.service)
-      .set({ status: command === "stop" ? "stopped" : command === "restart" ? "restarting" : "deploying" })
-      .where(eq(schema.service.id, serviceId));
-    await enqueue(`service.${command}`, { serviceId }, { concurrencyKey: `service:${serviceId}` });
-    await logActivity({ userId: ctx.user.id, projectId: service.projectId, action: `service.${command}`, targetType: "service", targetId: service.id, message: `${command === "stop" ? "Stopped" : command === "start" ? "Started" : "Restarted"} ${service.name}` });
+    await requestServiceControl(service, command, ctx.user.id);
     return null;
   });
 }

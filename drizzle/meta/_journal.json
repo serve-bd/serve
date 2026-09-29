@@ -36,6 +36,13 @@
       "when": 1790639157187,
       "tag": "0004_two_factor",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790664097719,
+      "tag": "0005_api_token_scopes",
+      "breakpoints": true
     }
   ]
 }

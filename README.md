@@ -39,7 +39,7 @@ cd /data/serve && docker compose pull && docker compose up -d
 **Deployments**
 - Zero-downtime deploys with health checks and graceful traffic switching
 - Instant rollbacks to any previous image
-- Push-to-deploy webhooks, deploy hooks for CI, and a REST API with tokens
+- Push-to-deploy webhooks, deploy hooks for CI, and a REST API with scoped, expiring tokens
 - Pull request preview deployments with their own URL, removed when the PR closes
 - Live build logs, streaming runtime logs, and cancellable builds
 - Replicas with load balancing, resource limits, volumes and published ports
@@ -132,6 +132,20 @@ Git providers → **Connect GitHub** uses GitHub's app manifest flow:
 3. Serve stores the app's private key encrypted, mints one-hour installation tokens to clone and list repositories, and receives webhooks at `/api/webhooks/github/<id>`, verified with the app's webhook secret.
 
 Push events need GitHub to reach the dashboard, so set a public dashboard domain in Server settings. Each GitHub account or organization can have its own app.
+
+## REST API
+
+Create tokens in **Organization → API tokens** and send them as `Authorization: Bearer srv_…`. Each token has scopes, an optional expiry and an optional list of projects.
+
+| Scope | Allows |
+| --- | --- |
+| `read` | List services and deployments, read status and logs |
+| `read:sensitive` | Read variable values (`GET /api/v1/services/:id/env`) |
+| `deploy` | `POST /api/v1/services/:id/deploy`, `/start`, `/stop`, `/restart` |
+| `write` | `PATCH /api/v1/services/:id/env` (includes `read` and `deploy`) |
+| `admin` | Everything |
+
+Missing scopes return `403`, expired tokens `401`, and services outside the token's projects `404`.
 
 ## Configuration
 

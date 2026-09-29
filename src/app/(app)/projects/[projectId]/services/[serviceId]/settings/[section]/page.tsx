@@ -118,7 +118,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
             : null,
           build: service.build,
           runtime: service.runtime,
-          compose: service.compose ? { mode: service.compose.mode, content: service.compose.content, path: service.compose.path } : null,
+          compose: service.compose ? { mode: service.compose.mode, content: service.compose.content, path: service.compose.path, isolated: !!service.compose.isolated } : null,
           database: service.database ? { engine: service.database.engine, version: service.database.version } : null,
           status: service.status,
         }}

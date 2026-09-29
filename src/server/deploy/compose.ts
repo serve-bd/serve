@@ -69,6 +69,7 @@ export function transformCompose(
   subnet?: string | null,
   network: string = env.network,
   extraPorts: ComposePort[] = [],
+  isolated = false,
 ): string {
   const doc = parseCompose(content);
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
@@ -96,7 +97,13 @@ export function transformCompose(
     }
     const nets = (svc.networks as Record<string, { aliases?: string[] } | null>) ?? { default: null };
     if (!Object.keys(nets).length) nets.default = null;
-    nets[network] = { aliases: [alias] };
+    if (isolated) {
+      // Only the stack's own network, where the proxy joins too; the alias keeps proxy names unique.
+      const own = nets.default ?? {};
+      nets.default = { ...own, aliases: [...new Set([...(own.aliases ?? []), alias])] };
+    } else {
+      nets[network] = { aliases: [alias] };
+    }
     svc.networks = nets;
 
     const labels = { [LABEL.managed]: "true", [LABEL.service]: serviceId, [LABEL.slug]: slug, [LABEL.kind]: "compose" };
@@ -106,11 +113,13 @@ export function transformCompose(
       svc.labels = { ...(svc.labels ?? {}), ...labels };
     }
   }
-  doc.networks = { ...(doc.networks ?? {}), [network]: { external: true, name: network } };
+  if (!isolated) doc.networks = { ...(doc.networks ?? {}), [network]: { external: true, name: network } };
+  else doc.networks = { ...(doc.networks ?? {}) };
+  const nets = doc.networks as Record<string, Record<string, unknown> | null>;
   // Use a Serve-assigned subnet so stacks never exhaust Docker's default address pools.
-  if (subnet && !(doc.networks as Record<string, unknown>).default) {
-    (doc.networks as Record<string, unknown>).default = { ipam: { config: [{ subnet }] } };
-  }
+  if (subnet && !nets.default) nets.default = { ipam: { config: [{ subnet }] } };
+  // Marks the stack network the proxy must join (also after the proxy is recreated).
+  if (isolated) nets.default = { ...(nets.default ?? {}), labels: { ...((nets.default?.labels as Record<string, string>) ?? {}), [STACK_NETWORK_LABEL]: serviceId } };
   return YAML.stringify(doc);
 }
 
@@ -217,11 +226,20 @@ export async function composeCommand(
   return run("docker", [...composeArgs(opts), ...args], { cwd: opts.dir, onLine: log });
 }
 
+/** Label on an isolated stack's own network; the proxy joins every network carrying it. */
+export const STACK_NETWORK_LABEL = "serve.stack-network";
+
+/** The network compose creates for a stack when the file does not name its default network. */
+export const stackNetworkName = (projectName: string) => `${projectName}_default`;
+
 /** `docker compose down` using only the project name (works without files). */
 export async function composeDownByProject(projectName: string, removeVolumes: boolean, server?: ServerCtx) {
   const args = ["compose", "-p", projectName, "down", "--remove-orphans"];
   if (removeVolumes) args.push("-v");
   const env = server ? await server.cliEnv().catch(() => null) : {};
   if (env === null) return;
+  // The proxy joins isolated stacks' networks; a network with a member cannot be removed.
+  const { disconnectProxy } = await import("@/server/docker/networks");
+  await disconnectProxy(stackNetworkName(projectName), server).catch(() => {});
   await run("docker", args, { env }).catch(() => {});
 }

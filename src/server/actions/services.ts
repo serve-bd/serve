@@ -424,6 +424,8 @@ const updateSchema = z.object({
     .object({
       content: z.string().optional(),
       path: z.string().optional(),
+      /** Stack reaches only its own services, not the rest of the environment. */
+      isolated: z.boolean().optional(),
       ports: z
         .array(
           z.object({

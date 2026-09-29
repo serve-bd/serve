@@ -44,7 +44,7 @@ type Props = {
     source: Source | null;
     build: BuildConfig | null;
     runtime: RuntimeConfig;
-    compose: { mode: "inline" | "git"; content: string; path: string } | null;
+    compose: { mode: "inline" | "git"; content: string; path: string; isolated: boolean } | null;
     database: { engine: string; version: string } | null;
     status: string;
   };
@@ -332,6 +332,37 @@ export function ServiceSettings(props: Props) {
       )}
 
       {show("build") && service.build && service.source?.type === "git" && <BuildSection serviceId={service.id} build={service.build} nixpacks={props.nixpacks} save={save.run} />}
+
+      {show("networking") && service.compose && (
+        <Section
+          id="networking"
+          title="Network"
+          description="Who the services of this stack can reach on the private network."
+          initial={{ reach: !service.compose.isolated }}
+          onSave={(v) => save.run({ compose: { isolated: !v.reach } })}
+          footerNote="Applies on the next deploy."
+        >
+          {(v, set) => (
+            <>
+              <SwitchRow
+                title="Reach other services in this environment"
+                description={
+                  v.reach
+                    ? "The stack's services can connect to databases and apps of this environment, and they can connect to it."
+                    : "The stack keeps to itself: its services reach only each other. Domains still work; the proxy joins the stack's own network."
+                }
+                checked={v.reach}
+                onCheckedChange={(c) => set({ reach: c })}
+              />
+              {!v.reach && (
+                <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
+                  References like <span className="font-mono">{"${{postgres.DATABASE_URL}}"}</span> still resolve, but the address is not reachable from this stack. Add the database to the compose file instead.
+                </p>
+              )}
+            </>
+          )}
+        </Section>
+      )}
 
       {show("compose") && service.compose && (
         <Section

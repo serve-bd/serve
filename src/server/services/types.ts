@@ -213,6 +213,11 @@ export type ComposeConfig = {
   subnet?: string | null;
   /** Host ports Serve publishes for services of the stack, on top of the compose file's own. */
   ports?: ComposePort[];
+  /**
+   * Keep the stack to itself: its services reach only each other, not the other services
+   * of the environment. The proxy still reaches it through the stack's own network.
+   */
+  isolated?: boolean;
 };
 
 export type ComposePort = PortMapping & { service: string };

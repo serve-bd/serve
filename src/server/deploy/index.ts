@@ -24,10 +24,10 @@ import { createSpec, startContainer, volumeName, waitHealthy } from "./container
 import { prepareMounts } from "@/server/services/mounts";
 import { databasePlan } from "@/server/databases/options";
 import { ensureDatabaseTls } from "@/server/databases/tls";
-import { allocateSubnet, composeServiceNames, composeUp, transformCompose, writeComposeFiles } from "./compose";
+import { allocateSubnet, composeServiceNames, composeUp, stackNetworkName, transformCompose, writeComposeFiles } from "./compose";
 import type { ServiceStatus } from "@/server/db/schema";
 import { composeSecurityIssues, containedPath } from "@/server/security";
-import { ensureEnvNetwork } from "@/server/docker/networks";
+import { connectProxy, disconnectProxy, ensureEnvNetwork } from "@/server/docker/networks";
 import { getSetting } from "@/server/settings";
 
 type Service = typeof schema.service.$inferSelect;
@@ -516,6 +516,15 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   }
 
   let subnet = cfg.subnet ?? null;
+  // A stored subnet may have been taken by another network while this stack was down.
+  if (subnet) {
+    const own = stackNetworkName(service.slug);
+    const nets = await server.docker.listNetworks().catch(() => []);
+    if (nets.some((n) => n.Name !== own && (n.IPAM?.Config ?? []).some((c) => c.Subnet === subnet))) {
+      log.line(`Subnet ${subnet} is now used by another network; choosing a new one`);
+      subnet = null;
+    }
+  }
   if (!subnet) {
     const others = await db.select({ compose: schema.service.compose }).from(schema.service).where(eq(schema.service.type, "compose"));
     subnet = await allocateSubnet(others.map((o) => o.compose?.subnet).filter(Boolean) as string[], server);
@@ -524,7 +533,10 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   }
   const network = await ensureEnvNetwork(service.environmentId, server);
   await assertPortsFree(server.docker, server.name, service.compose?.ports ?? [], service.id);
-  const transformed = transformCompose(content, service.slug, service.id, subnet, network, service.compose?.ports ?? []);
+  const isolated = !!service.compose?.isolated;
+  const transformed = transformCompose(content, service.slug, service.id, subnet, network, service.compose?.ports ?? [], isolated);
+  // Compose may recreate the stack network; the proxy must not hold it while that happens.
+  await disconnectProxy(stackNetworkName(service.slug), server).catch(() => {});
   const run = { projectName: service.slug, dir, file: ".serve-compose.yml", vars: env.runtime, log: log.line, signal, redact: env.secrets };
   await writeComposeFiles({ ...run, content: transformed });
   await setDeployment(dep.id, { status: "deploying" });
@@ -543,6 +555,8 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   }
   log.step(`Starting ${composeServiceNames(content).length} compose services`);
   await composeUp(target);
+  // Isolated stacks are not on the environment network; the proxy joins the stack's own one.
+  if (isolated) await connectProxy(stackNetworkName(service.slug), server);
   await db
     .update(schema.service)
     .set({ currentDeploymentId: dep.id, status: "running" })

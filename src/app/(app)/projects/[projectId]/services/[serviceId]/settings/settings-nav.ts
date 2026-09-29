@@ -32,7 +32,7 @@ export function settingsNav(s: SettingsNavInput): SettingsNavItem[] {
     { id: "server", label: "Server" },
     ...(s.hasSource ? [{ id: "source", label: "Source" }] : []),
     ...(s.hasBuild && s.gitSource ? [{ id: "build", label: "Build" }] : []),
-    ...(s.hasCompose ? [{ id: "compose", label: "Compose file" }] : []),
+    ...(s.hasCompose ? [{ id: "compose", label: "Compose file" }, { id: "networking", label: "Network" }] : []),
     ...(s.type === "app"
       ? [
           { id: "deploy", label: "Deploy" },

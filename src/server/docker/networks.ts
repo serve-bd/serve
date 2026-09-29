@@ -64,10 +64,19 @@ export async function connectProxy(network: string, target: NetworkTarget = loca
   }
 }
 
-/** Attach the proxy to every environment network (used when the proxy is created). */
+export async function disconnectProxy(network: string, target: NetworkTarget = localTarget()) {
+  const d = target.docker;
+  const info = await d.getContainer(target.proxyContainer).inspect().catch(() => null);
+  if (info?.NetworkSettings.Networks?.[network]) await d.getNetwork(network).disconnect({ Container: target.proxyContainer, Force: true });
+}
+
+/** Attach the proxy to every environment network and isolated stack network (used when the proxy is created). */
 export async function connectProxyToAll(target: NetworkTarget = localTarget()) {
-  const networks = await target.docker.listNetworks({ filters: { label: [ENV_LABEL] } });
-  for (const n of networks) await connectProxy(n.Name, target).catch(() => {});
+  const [envs, stacks] = await Promise.all([
+    target.docker.listNetworks({ filters: { label: [ENV_LABEL] } }),
+    target.docker.listNetworks({ filters: { label: ["serve.stack-network"] } }),
+  ]);
+  for (const n of [...envs, ...stacks]) await connectProxy(n.Name, target).catch(() => {});
 }
 
 /** Remove an environment network once nothing but the proxy uses it. */

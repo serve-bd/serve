@@ -63,7 +63,7 @@ export async function deleteProject(projectId: string) {
     const { teardownServices } = await import("@/server/services/teardown");
     await teardownServices(services, true);
     await db.delete(schema.project).where(eq(schema.project.id, projectId));
-    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "project.deleted", message: `Deleted project ${project.name}` });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, projectId: project.id, action: "project.deleted", message: `Deleted project ${project.name}` });
     return null;
   });
 }

@@ -7,6 +7,7 @@ import { serviceInOrg } from "@/server/services/access";
 export async function GET(_req: Request, ctx: RouteContext<"/api/services/[serviceId]/backups">) {
   const { serviceId } = await ctx.params;
   const org = await requireOrg();
+  if (!org.can("databases.backups")) return NextResponse.json({ error: "Your role cannot manage backups." }, { status: 403 });
   try {
     await serviceInOrg(serviceId, org.org.id);
   } catch {

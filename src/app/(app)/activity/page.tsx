@@ -20,8 +20,15 @@ export default async function ActivityPage() {
           ) : (
             <ol className="divide-y divide-line">
               {items.map((a) => {
+                // A deleted project has nothing left to open.
                 const href =
-                  a.targetType === "service" && a.projectId && a.targetId ? `/projects/${a.projectId}/services/${a.targetId}` : a.projectId ? `/projects/${a.projectId}` : null;
+                  a.action === "project.deleted"
+                    ? null
+                    : a.targetType === "service" && a.projectId && a.targetId
+                      ? `/projects/${a.projectId}/services/${a.targetId}`
+                      : a.projectId
+                        ? `/projects/${a.projectId}`
+                        : null;
                 const body = (
                   <div className="flex items-center gap-3 px-5 py-3">
                     <Avatar name={a.userName ?? "System"} />

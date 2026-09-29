@@ -59,7 +59,7 @@ export async function saveProjectSharedVars(projectId: string, vars: z.input<typ
     if (!ctx.can("variables.view-secrets")) throw new UserError(cannotMessage("variables.view-secrets"));
     const project = await projectInOrg(projectId, ctx.org.id);
     await replaceVars({ projectId }, parseVars(vars));
-    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "variables.shared", message: `Updated shared variables of ${project.name}` });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, projectId, action: "variables.shared", message: `Updated shared variables of ${project.name}` });
     return null;
   });
 }

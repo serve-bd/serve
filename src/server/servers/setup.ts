@@ -3,7 +3,7 @@ import { db, schema } from "@/server/db";
 import type { ServerInfo, ServerStatus } from "@/server/db/schema";
 import { ensureNetwork } from "@/server/docker/client";
 import { forgetServer, getServer, getServerRow, LOCAL_SERVER_ID, sshTargetFor } from "./context";
-import { connect, HostKeyMismatchError, sh, sshExec, type SshTarget } from "./ssh";
+import { closeConnection, connect, HostKeyMismatchError, sh, sshExec, type SshTarget } from "./ssh";
 
 type Log = (line: string) => void;
 
@@ -71,13 +71,30 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
     log("Connected");
 
     const whoami = (await run(target, "id -u", log, { quiet: true })).stdout.trim();
+    let canSudo = whoami === "0";
     if (whoami !== "0") {
       const sudo = await run(target, "sudo -n true", log, { quiet: true });
-      if (sudo.code !== 0) log(`The user ${target.username} is not root and has no passwordless sudo. Docker must already be usable by this user.`);
+      canSudo = sudo.code === 0;
+      if (!canSudo) log(`The user ${target.username} is not root and has no passwordless sudo. Docker must already be usable by this user.`);
     }
+    const dockerVersion = () => run(target, "docker version --format '{{.Server.Version}}'", log, { quiet: true });
+    /**
+     * A non-root user needs the docker group to talk to the Docker socket (a fresh install only
+     * lets root in). Group changes apply to new logins, so the SSH connections are reopened.
+     */
+    const grantDockerAccess = async () => {
+      if (whoami === "0" || !canSudo) return false;
+      log(`Adding ${target.username} to the docker group so it can use Docker`);
+      const added = await run(target, `getent group docker >/dev/null || groupadd docker; usermod -aG docker ${sh(target.username)}`, log, { sudo: true });
+      if (added.code !== 0) return false;
+      closeConnection(target.id);
+      return true;
+    };
+    const permissionDenied = (stderr: string) => /permission denied/i.test(stderr);
 
     log("==> Checking Docker");
-    let docker = await run(target, "docker version --format '{{.Server.Version}}'", log, { quiet: true });
+    let docker = await dockerVersion();
+    if (docker.code !== 0 && permissionDenied(docker.stderr) && (await grantDockerAccess())) docker = await dockerVersion();
     if (docker.code !== 0) {
       if (!/command not found|not found/i.test(docker.stderr) && !opts.installDocker) {
         throw new Error(`Docker is installed but not usable: ${docker.stderr.trim().split("\n").pop()}`);
@@ -88,7 +105,8 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
       if (install.code !== 0) throw new Error("Installing Docker failed. See the log above.");
       await run(target, `mkdir -p /etc/docker && [ -f /etc/docker/daemon.json ] || printf '%s\\n' ${sh(DAEMON_JSON)} > /etc/docker/daemon.json`, log, { sudo: true });
       await run(target, "systemctl enable --now docker >/dev/null 2>&1 || service docker start", log, { sudo: true });
-      docker = await run(target, "docker version --format '{{.Server.Version}}'", log, { quiet: true });
+      docker = await dockerVersion();
+      if (docker.code !== 0 && permissionDenied(docker.stderr) && (await grantDockerAccess())) docker = await dockerVersion();
       if (docker.code !== 0) throw new Error(`Docker was installed but does not answer: ${docker.stderr.trim()}`);
     }
     log(`Docker ${docker.stdout.trim()}`);

@@ -12,6 +12,7 @@ import { syncServiceProxy } from "@/server/proxy/nginx";
 import { getSettings } from "@/server/settings";
 import { resolveEnv } from "@/server/services/variables";
 import { composeVariables } from "@/lib/compose-vars";
+import { parseCompose } from "@/server/deploy/compose";
 import { engines } from "@/server/databases/engines";
 import { logActivity } from "@/server/activity";
 import { notify, orgOfService } from "@/server/notify";
@@ -502,6 +503,15 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   if (unset.length) {
     const names = unset.map((v) => v.name).join(", ");
     throw new Error(`The compose file uses ${unset.length === 1 ? "a variable that is" : "variables that are"} not set: ${names}. Add ${unset.length === 1 ? "it" : "them"} in Variables (an empty value is fine if that is intended), then deploy again.`);
+  }
+  // postgres:18+ keeps its data in /var/lib/postgresql and refuses to start with the old mount.
+  for (const [name, svc] of Object.entries(parseCompose(content).services ?? {})) {
+    const image = String((svc as { image?: string }).image ?? "");
+    const major = Number(/^(?:docker\.io\/)?(?:library\/)?postgres:(\d+)/.exec(image)?.[1] ?? (/^(?:docker\.io\/)?(?:library\/)?postgres(:latest|:alpine)?$/.test(image) ? 99 : 0));
+    const mounts = ((svc as { volumes?: unknown[] }).volumes ?? []).map((v) => (typeof v === "string" ? v.split(":")[1] : (v as { target?: string })?.target));
+    if (major >= 18 && mounts.includes("/var/lib/postgresql/data")) {
+      throw new Error(`Service ${name} runs ${image}, which stores its data in /var/lib/postgresql. Change the volume target from /var/lib/postgresql/data to /var/lib/postgresql, then deploy again.`);
+    }
   }
 
   let subnet = cfg.subnet ?? null;

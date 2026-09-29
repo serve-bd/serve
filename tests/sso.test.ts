@@ -170,3 +170,37 @@ describe("GitHub organization rule", () => {
     expect(parsed.success && parsed.data.allowedOrgs).toEqual(["acme", "team-x"]);
   });
 });
+
+describe("GitHub organization rules", () => {
+  it("keeps older settings working as one rule per organization", async () => {
+    const { githubRules } = await import("@/server/sso/config");
+    expect(githubRules(provider({ allowedOrgs: ["acme"], defaultOrganizationId: "org1", defaultRole: "member", defaultRoleId: "viewer" }))).toEqual([
+      { org: "acme", organizationId: "org1", role: "member", roleId: "viewer" },
+    ]);
+    const rules = [{ org: "acme", organizationId: "org2", role: "admin" as const, roleId: null }];
+    expect(githubRules(provider({ allowedOrgs: ["acme"], githubOrgs: rules }))).toEqual(rules);
+  });
+
+  it("records which organizations matched", async () => {
+    const { githubMembersOnly } = await import("@/server/sso/github-orgs");
+    const { withSignInGuard, matchedGithubOrgs } = await import("@/server/sso/domain-guard");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/user")) return Response.json({ id: 1, login: "sam", name: null, email: "sam@x.io", avatar_url: "" });
+        if (url.endsWith("/user/emails")) return Response.json([{ email: "sam@x.io", primary: true, verified: true }]);
+        if (url.includes("/user/memberships/orgs/one")) return Response.json({ state: "active" });
+        if (url.includes("/public_members/")) return new Response(null, { status: 404 });
+        return new Response("{}", { status: 404, headers: { "x-oauth-scopes": "read:org" } });
+      }),
+    );
+    let matched: string[] = [];
+    await withSignInGuard(async () => {
+      await githubMembersOnly(["one", "two"], [])({ accessToken: "t" });
+      matched = matchedGithubOrgs();
+      return new Response(null);
+    });
+    expect(matched).toEqual(["one"]);
+    vi.unstubAllGlobals();
+  });
+});

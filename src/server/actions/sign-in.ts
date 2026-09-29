@@ -89,24 +89,34 @@ export async function saveSsoProvider(id: string, input: ProviderInput) {
       if (!v.issuer) throw new UserError("Enter the issuer URL.");
       await checkIssuer(v.issuer);
     }
-    let defaultRoleId: string | null = null;
-    if (v.defaultOrganizationId) {
-      const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, v.defaultOrganizationId));
+    const { organizationRoles } = await import("@/server/permissions");
+    /** Checks an organization and role pick; returns the role id to store (null for Admin or none). */
+    const checkRole = async (organizationId: string | null, role: "member" | "admin", roleId: string | null) => {
+      if (!organizationId) return null;
+      const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, organizationId));
       if (!org) throw new UserError("That organization no longer exists.");
-      if (v.defaultRole === "member" && v.defaultRoleId) {
-        const { organizationRoles } = await import("@/server/permissions");
-        const roles = await organizationRoles(org.id);
-        if (!roles.some((r) => r.id === v.defaultRoleId && r.id !== "owner" && r.id !== "admin")) throw new UserError("That role does not exist in the organization.");
-        defaultRoleId = v.defaultRoleId;
-      }
-    }
+      if (role === "admin" || !roleId) return null;
+      const roles = await organizationRoles(org.id);
+      if (!roles.some((r) => r.id === roleId && r.id !== "owner" && r.id !== "admin")) throw new UserError("That role does not exist in the organization.");
+      return roleId;
+    };
+    const defaultRoleId = await checkRole(v.defaultOrganizationId, v.defaultRole, v.defaultRoleId);
+    // GitHub: one rule per GitHub organization; the allow-list is their names.
+    const rules =
+      id === "github"
+        ? await Promise.all(
+            [...new Map((v.githubOrgs ?? v.allowedOrgs.map((org) => ({ org, organizationId: null, role: "member" as const, roleId: null }))).map((r) => [r.org, r])).values()].map(
+              async (r) => ({ org: r.org, organizationId: r.organizationId, role: r.role, roleId: await checkRole(r.organizationId, r.role, r.roleId) }),
+            ),
+          )
+        : [];
     const provider: SsoProvider = {
       enabled: v.enabled,
       clientId: v.clientId,
       clientSecret,
       allowSignUp: v.allowSignUp,
       allowedDomains: [...new Set(v.allowedDomains)],
-      ...(id === "github" && v.allowedOrgs.length ? { allowedOrgs: [...new Set(v.allowedOrgs)] } : {}),
+      ...(rules.length ? { allowedOrgs: rules.map((r) => r.org), githubOrgs: rules } : {}),
       defaultOrganizationId: v.defaultOrganizationId,
       defaultRole: v.defaultRole,
       defaultRoleId,

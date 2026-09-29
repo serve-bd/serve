@@ -22,6 +22,8 @@ export type SsoProvider = {
   allowedDomains: string[];
   /** GitHub only: only active members of these GitHub organizations may sign in, and they may sign up. */
   allowedOrgs?: string[];
+  /** GitHub only: per GitHub organization, the organization and role its members get. */
+  githubOrgs?: GithubOrgRule[];
   /** New accounts join this organization with `defaultRole`; null: no organization until invited. */
   defaultOrganizationId: string | null;
   defaultRole: SsoRole;
@@ -33,6 +35,15 @@ export type SsoProvider = {
   /** Button text, like "Sign in with Acme". */
   label?: string;
 };
+
+/** Members of a GitHub organization join `organizationId` (if set) with this role. */
+export type GithubOrgRule = { org: string; organizationId: string | null; role: SsoRole; roleId: string | null };
+
+/** The GitHub organization rules, also for settings saved before rules had their own organization. */
+export function githubRules(p: Pick<SsoProvider, "allowedOrgs" | "githubOrgs" | "defaultOrganizationId" | "defaultRole" | "defaultRoleId">): GithubOrgRule[] {
+  if (p.githubOrgs?.length) return p.githubOrgs;
+  return (p.allowedOrgs ?? []).map((org) => ({ org, organizationId: p.defaultOrganizationId, role: p.defaultRole, roleId: p.defaultRoleId ?? null }));
+}
 
 export type SignInSettings = {
   /** Email and password sign-in. Can only be turned off while a provider works for an admin. */
@@ -115,6 +126,18 @@ const domain = z
   .transform((d) => d.replace(/^\*?@/, "").replace(/^\*\./, ""))
   .pipe(z.string().regex(/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "Enter domains like example.com"));
 
+const githubOrgName = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .transform((o) =>
+    o
+      .replace(/^https?:\/\/github\.com\//, "")
+      .replace(/^@/, "")
+      .replace(/\/$/, ""),
+  )
+  .pipe(z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38})$/, "Enter GitHub organization names like acme"));
+
 export const providerInput = z
   .object({
     enabled: z.boolean(),
@@ -123,22 +146,18 @@ export const providerInput = z
     clientSecret: z.string().trim().max(1000).optional(),
     allowSignUp: z.boolean(),
     allowedDomains: z.array(domain).max(50).default([]),
-    allowedOrgs: z
+    allowedOrgs: z.array(githubOrgName).max(20).default([]),
+    githubOrgs: z
       .array(
-        z
-          .string()
-          .trim()
-          .toLowerCase()
-          .transform((o) =>
-            o
-              .replace(/^https?:\/\/github\.com\//, "")
-              .replace(/^@/, "")
-              .replace(/\/$/, ""),
-          )
-          .pipe(z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38})$/, "Enter GitHub organization names like acme")),
+        z.object({
+          org: githubOrgName,
+          organizationId: z.string().trim().min(1).nullable().default(null),
+          role: z.enum(["member", "admin"]).default("member"),
+          roleId: z.string().trim().min(1).max(64).nullable().default(null),
+        }),
       )
       .max(20)
-      .default([]),
+      .optional(),
     defaultOrganizationId: z.string().trim().min(1).nullable().default(null),
     defaultRole: z.enum(["member", "admin"]).default("member"),
     defaultRoleId: z.string().trim().min(1).max(64).nullable().default(null),

@@ -2,11 +2,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { emailDomainAllowed } from "./config";
 
 /** Per auth request: why a provider's profile was refused (an email domain, a GitHub organization). */
-const refused = new AsyncLocalStorage<{ code: string | null }>();
+const refused = new AsyncLocalStorage<{ code: string | null; githubOrgs: string[] }>();
 
 /** Runs an auth request so a refused profile is reported with its own error code. */
 export async function withSignInGuard(run: () => Promise<Response>) {
-  const state = { code: null as string | null };
+  const state = { code: null as string | null, githubOrgs: [] as string[] };
   const res = await refused.run(state, run);
   if (!state.code) return res;
   // The callback turned the blanked email into its own error; say what really happened.
@@ -44,4 +44,15 @@ export function guardProfileEmail(allowedDomains: string[]) {
     refuse("email_domain_not_allowed");
     return { email: "" };
   };
+}
+
+/** Records the GitHub organizations the signing-in person is a member of (for per-organization rules). */
+export function rememberGithubOrgs(orgs: string[]) {
+  const state = refused.getStore();
+  if (state) state.githubOrgs = orgs;
+}
+
+/** GitHub organizations found during this auth request. */
+export function matchedGithubOrgs() {
+  return refused.getStore()?.githubOrgs ?? [];
 }

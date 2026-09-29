@@ -13,9 +13,20 @@ import { env } from "@/server/env";
 import type { MemberRole } from "@/server/db/schema";
 import { newId } from "@/server/id";
 import { getSetting } from "@/server/settings";
-import { guardProfileEmail, signInRefused } from "@/server/sso/domain-guard";
+import { guardProfileEmail, matchedGithubOrgs, signInRefused } from "@/server/sso/domain-guard";
 import { githubMembersOnly } from "@/server/sso/github-orgs";
-import { activeProviders, callbackUrl, configHash, discoveryUrl, providerIdOf, providerNames, type SignInSettings, type SsoProvider, signUpAllowed } from "@/server/sso/config";
+import {
+  activeProviders,
+  callbackUrl,
+  configHash,
+  discoveryUrl,
+  providerIdOf,
+  providerNames,
+  githubRules,
+  type SignInSettings,
+  type SsoProvider,
+  signUpAllowed,
+} from "@/server/sso/config";
 import { cannotMessage, type Permission } from "@/lib/permissions";
 import { accessFrom, organizationRoles } from "@/server/permissions";
 
@@ -94,23 +105,30 @@ function ssoRuntime(settings: SignInSettings, base: string): SsoRuntime {
   return out;
 }
 
-/** Adds the user to the provider's default organization with its role, unless already a member. */
-async function joinDefaultOrganization(provider: SsoProvider, userId: string) {
-  if (!provider.defaultOrganizationId) return;
-  const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, provider.defaultOrganizationId));
+/** Adds the user to an organization with a role, unless already a member. */
+async function joinOrganization(userId: string, organizationId: string, role: SsoProvider["defaultRole"], roleId: string | null) {
+  const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, organizationId));
   if (!org) return;
   const [existing] = await db
     .select({ id: schema.member.id })
     .from(schema.member)
     .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, userId)));
   if (existing) return;
-  await db.insert(schema.member).values({
-    id: newId(),
-    organizationId: org.id,
-    userId,
-    role: provider.defaultRole,
-    roleId: provider.defaultRole === "member" ? (provider.defaultRoleId ?? null) : null,
-  });
+  await db.insert(schema.member).values({ id: newId(), organizationId: org.id, userId, role, roleId: role === "member" ? roleId : null });
+}
+
+/**
+ * Organizations a provider sign-in adds the user to: per matched GitHub organization rule,
+ * or the provider's default organization.
+ */
+async function joinProviderOrganizations(provider: SsoProvider, userId: string) {
+  const rules = githubRules(provider);
+  if (rules.length) {
+    const matched = new Set(matchedGithubOrgs());
+    for (const r of rules) if (matched.has(r.org) && r.organizationId) await joinOrganization(userId, r.organizationId, r.role, r.roleId);
+    return;
+  }
+  if (provider.defaultOrganizationId) await joinOrganization(userId, provider.defaultOrganizationId, provider.defaultRole, provider.defaultRoleId ?? null);
 }
 
 /** The provider an OAuth callback came from, with its settings. */
@@ -206,7 +224,7 @@ function createAuth(sso: SsoRuntime) {
           // New provider accounts can join a default organization.
           after: async (user, ctx) => {
             const provider = await callbackProvider(ctx);
-            if (provider) await joinDefaultOrganization(provider, user.id);
+            if (provider) await joinProviderOrganizations(provider, user.id);
           },
         },
       },
@@ -224,7 +242,7 @@ function createAuth(sso: SsoRuntime) {
             // With the GitHub organization rule, membership there is the source of truth:
             // members join the chosen organization on every sign-in, not only the first.
             const provider = await callbackProvider(ctx);
-            if (provider?.allowedOrgs?.length && !signInRefused()) await joinDefaultOrganization(provider, session.userId);
+            if (provider?.allowedOrgs?.length && !signInRefused()) await joinProviderOrganizations(provider, session.userId);
             return {
               data: { ...session, activeOrganizationId: await firstOrganizationFor(session.userId) },
             };

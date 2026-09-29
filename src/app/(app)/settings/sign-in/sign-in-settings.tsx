@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, ArrowUpRight, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Plus, Trash2 } from "lucide-react";
 import { SsoMark } from "@/components/sso-mark";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -129,7 +129,7 @@ function ProviderItem({ row, organizations }: { row: ProviderRow; organizations:
   const c = row.config;
   const on = !!c?.enabled && !!c.hasSecret;
   const domains = c?.allowedOrgs?.length
-    ? ` · members of ${c.allowedOrgs.join(", ")}`
+    ? ` · members of ${c.allowedOrgs.join(", ")} only`
     : c?.allowedDomains.length
       ? ` · ${c.allowedDomains.map((d) => `@${d}`).join(", ")} only`
       : "";
@@ -175,7 +175,11 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
     clientSecret: "",
     allowSignUp: c?.allowSignUp ?? false,
     allowedDomains: (c?.allowedDomains ?? []).join(", "),
-    allowedOrgs: (c?.allowedOrgs ?? []).join(", "),
+    // One row per GitHub organization: its members join an organization with a role.
+    githubOrgs: (c?.githubOrgs?.length
+      ? c.githubOrgs
+      : (c?.allowedOrgs ?? []).map((org) => ({ org, organizationId: c?.defaultOrganizationId ?? null, role: c?.defaultRole ?? "member", roleId: c?.defaultRoleId ?? null }))
+    ).map((r) => ({ org: r.org, organizationId: r.organizationId ?? "", role: r.role === "admin" ? "admin" : (r.roleId ?? "developer") })),
     defaultOrganizationId: c?.defaultOrganizationId ?? "",
     // One choice for the role: "admin", or a member role (developer, viewer, custom).
     role: c?.defaultRole === "admin" ? "admin" : (c?.defaultRoleId ?? (c?.defaultOrganizationId ? "developer" : "viewer")),
@@ -187,6 +191,9 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
     <K extends keyof typeof v>(k: K) =>
     (value: (typeof v)[K]) =>
       setV((s) => ({ ...s, [k]: value }));
+  const rules = v.githubOrgs.filter((r) => r.org.trim());
+  const hasRules = row.id === "github" && rules.length > 0;
+  const setRule = (i: number, patch: Partial<(typeof v.githubOrgs)[number]>) => setV((s) => ({ ...s, githubOrgs: s.githubOrgs.map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
   const save = useAction(
     () =>
       saveSsoProvider(row.id, {
@@ -195,7 +202,16 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
         clientSecret: v.clientSecret || undefined,
         allowSignUp: v.allowSignUp,
         allowedDomains: list(v.allowedDomains),
-        allowedOrgs: row.id === "github" ? list(v.allowedOrgs) : [],
+        allowedOrgs: [],
+        githubOrgs:
+          row.id === "github"
+            ? rules.map((r) => ({
+                org: r.org,
+                organizationId: r.organizationId || null,
+                role: r.role === "admin" ? ("admin" as const) : ("member" as const),
+                roleId: r.role === "admin" ? null : r.role,
+              }))
+            : undefined,
         defaultOrganizationId: v.defaultOrganizationId || null,
         defaultRole: v.role === "admin" ? "admin" : "member",
         defaultRoleId: v.role === "admin" ? null : v.role,
@@ -275,13 +291,62 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
             <div className="flex flex-col gap-4 border-t border-line pt-5">
               <SwitchRow title="Show on the sign-in page" description="People with a linked account can sign in with it." checked={v.enabled} onCheckedChange={set("enabled")} />
               {row.id === "github" && (
-                <Field
-                  label="Only members of these GitHub organizations"
-                  optional
-                  description="Comma separated, like acme. Checked on every sign-in; members may also sign up. GitHub asks each person to share their organizations, and an organization with app access restrictions must approve this app first."
-                >
-                  <Input value={v.allowedOrgs} onChange={(e) => set("allowedOrgs")(e.target.value)} placeholder="acme" className="font-mono text-[13px]" />
-                </Field>
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[13px] font-medium text-fg">GitHub organizations</p>
+                      <p className="text-xs leading-relaxed text-muted">
+                        Only their members can sign in, and they get an account on first sign-in. Each sign-in adds them to the organization you pick, with its role. None: anyone
+                        with an account here can sign in.
+                      </p>
+                    </div>
+                    <Button type="button" size="xs" onClick={() => setV((s) => ({ ...s, githubOrgs: [...s.githubOrgs, { org: "", organizationId: "", role: "viewer" }] }))}>
+                      <Plus /> Add
+                    </Button>
+                  </div>
+                  {v.githubOrgs.map((r, i) => (
+                    <div
+                      key={i}
+                      className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-xl border border-line bg-surface-2 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem_auto]"
+                    >
+                      <Input
+                        value={r.org}
+                        onChange={(e) => setRule(i, { org: e.target.value })}
+                        placeholder="GitHub organization, like acme"
+                        className="font-mono text-[13px]"
+                        aria-label="GitHub organization"
+                        autoFocus={!r.org && i === v.githubOrgs.length - 1}
+                      />
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="danger-ghost"
+                        className="sm:order-last"
+                        aria-label="Remove GitHub organization"
+                        onClick={() => setV((s) => ({ ...s, githubOrgs: s.githubOrgs.filter((_, j) => j !== i) }))}
+                      >
+                        <Trash2 />
+                      </Button>
+                      <Select
+                        value={r.organizationId || "none"}
+                        onValueChange={(x) => setRule(i, { organizationId: x === "none" ? "" : x, role: "viewer" })}
+                        options={[{ value: "none", label: "Sign in only" }, ...organizations.map((o) => ({ value: o.id, label: `Join ${o.name}` }))]}
+                        aria-label="Organization in this dashboard"
+                      />
+                      <Select
+                        value={r.role}
+                        onValueChange={(x) => setRule(i, { role: x })}
+                        disabled={!r.organizationId}
+                        options={(organizations.find((o) => o.id === r.organizationId)?.roles ?? [{ id: "viewer", name: "Viewer" }]).map((x) => ({ value: x.id, label: x.name }))}
+                        aria-label="Role"
+                      />
+                    </div>
+                  ))}
+                  <p className="text-xs leading-relaxed text-muted">
+                    GitHub asks each person to share their organizations. Private members of an organization that restricts third-party apps are only seen once an owner approves
+                    this app; public members always are.
+                  </p>
+                </div>
               )}
               <Field
                 label="Only allow emails from"
@@ -290,12 +355,7 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
               >
                 <Input value={v.allowedDomains} onChange={(e) => set("allowedDomains")(e.target.value)} placeholder="example.com" className="font-mono text-[13px]" />
               </Field>
-              {row.id === "github" && list(v.allowedOrgs).length > 0 ? (
-                <p className="text-xs leading-relaxed text-muted">
-                  Members of {list(v.allowedOrgs).join(", ")} get an account on their first sign-in, and are added to the organization below on every sign-in (also people who
-                  signed in before).
-                </p>
-              ) : (
+              {!hasRules && (
                 <SwitchRow
                   title="Allow new accounts"
                   description="Off: only people who already have an account, or were invited, can sign in."
@@ -303,10 +363,10 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
                   onCheckedChange={set("allowSignUp")}
                 />
               )}
-              {(v.allowSignUp || (row.id === "github" && list(v.allowedOrgs).length > 0)) && (
+              {v.allowSignUp && !hasRules && (
                 <div className="flex flex-col gap-4 rounded-xl border border-line bg-surface-2 p-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
-                    <Field label={row.id === "github" && list(v.allowedOrgs).length > 0 ? "Members join" : "New accounts join"}>
+                    <Field label="New accounts join">
                       <Select
                         value={v.defaultOrganizationId || "none"}
                         onValueChange={(x) => setV((s) => ({ ...s, defaultOrganizationId: x === "none" ? "" : x, role: "viewer" }))}

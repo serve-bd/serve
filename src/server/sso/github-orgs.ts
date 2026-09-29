@@ -1,5 +1,5 @@
 import { emailDomainAllowed } from "./config";
-import { refuse } from "./domain-guard";
+import { refuse, rememberGithubOrgs } from "./domain-guard";
 
 type Token = { accessToken?: string };
 type GithubUser = { id: number; login: string; name: string | null; email: string | null; avatar_url: string };
@@ -63,6 +63,7 @@ export function githubMembersOnly(allowedOrgs: string[], allowedDomains: string[
           return (await isPublicMember(org, profile.login).catch(() => false)) ? "member" : r;
         }),
       );
+      rememberGithubOrgs(allowedOrgs.filter((_, i) => results[i] === "member"));
       if (!results.includes("member")) {
         // The most useful reason: a fixable setup problem beats "not a member".
         refuse(results.includes("restricted") ? "github_org_restricted" : results.includes("no-scope") ? "github_org_no_scope" : "github_org_not_allowed");

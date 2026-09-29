@@ -176,6 +176,13 @@
       "when": 1790716533675,
       "tag": "0024_live_events",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790718274963,
+      "tag": "0025_per_server_limits",
+      "breakpoints": true
     }
   ]
 }

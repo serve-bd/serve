@@ -2,7 +2,7 @@ import { eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { listSiteFiles, proxyDefinition, proxyStatus, testProxyConfig } from "@/server/proxy/nginx";
-import { defaultsOf, proxyImages, type ProxyKind, type RunningKind } from "@/server/proxy/config";
+import { DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type ProxyKind, type RunningKind } from "@/server/proxy/config";
 import { EmptyState, Card } from "@/components/ui/misc";
 import { ProxyView } from "./proxy-view";
 import { ProxyPortsCard } from "./proxy-ports";
@@ -96,7 +96,7 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
       }}
       defaultImage={proxyImages[running]}
       definition={data.definition}
-      maxBodySize={settings.proxyMaxBodySize}
+      maxBodySize={DEFAULT_MAX_BODY_SIZE}
       files={data.files.map((f) => {
         const svc = f.serviceId ? byId.get(f.serviceId) : undefined;
         return {

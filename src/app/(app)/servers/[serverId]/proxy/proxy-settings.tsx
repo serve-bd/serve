@@ -116,7 +116,7 @@ export function NginxSettingsCard({ serverId, initial, defaultBodySize }: { serv
   return (
     <FormCard title="nginx settings" description="Global settings for nginx on this server. Empty fields keep nginx's defaults." form={form as never}>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Max upload size" description={`Default ${defaultBodySize} (Settings → Advanced).`}>
+        <Field label="Max upload size" description={`Largest request body this server's proxy accepts, like 100m or 1g. Default ${defaultBodySize}.`}>
           <Input value={v.maxBodySize} onChange={(e) => form.set({ maxBodySize: e.target.value })} placeholder={defaultBodySize} className="font-mono" />
         </Field>
         <Field label="Worker connections">

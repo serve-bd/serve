@@ -9,6 +9,8 @@ import { NoAccess } from "@/components/no-access";
 import { getSettings } from "@/server/settings";
 import { engines } from "@/server/databases/engines";
 import { IMPORT_EXTENSIONS } from "@/server/backups";
+import { DEFAULT_MAX_BODY_SIZE } from "@/server/proxy/config";
+import { LOCAL_SERVER_ID } from "@/server/servers/context";
 
 export const metadata = { title: "Backups" };
 
@@ -24,6 +26,9 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
     .from(schema.s3Destination)
     .where(eq(schema.s3Destination.organizationId, ctx.org.id));
   const settings = await getSettings();
+  // Uploads go through the dashboard's proxy on the server Serve runs on, with its limit.
+  const [local] = settings.dashboardDomain ? await db.select({ proxyConfig: schema.server.proxyConfig }).from(schema.server).where(eq(schema.server.id, LOCAL_SERVER_ID)) : [];
+  const maxUpload = settings.dashboardDomain ? local?.proxyConfig?.nginx?.maxBodySize || DEFAULT_MAX_BODY_SIZE : null;
   return (
     <PageBody>
       <BackupsManager
@@ -32,7 +37,7 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
         running={service.status === "running"}
         engineLabel={engines[service.database.engine].label}
         extensions={IMPORT_EXTENSIONS[service.database.engine]}
-        maxUpload={settings.dashboardDomain ? settings.proxyMaxBodySize : null}
+        maxUpload={maxUpload}
         schedule={service.database.backupSchedule ?? null}
         retention={service.database.backupRetention}
         retentionS3={service.database.backupRetentionS3 ?? null}

@@ -6,7 +6,7 @@ import { proxyStatus } from "@/server/proxy/nginx";
 import { commandExists } from "@/server/process";
 import { fingerprint } from "@/server/servers/ssh";
 import { ServerOverview } from "./general";
-import { AccessCard, ConnectionSettings, DangerZone, ValidationCard, type ServerDetails } from "./server-settings";
+import { AccessCard, BuildsLimitsCard, ConnectionSettings, DangerZone, ValidationCard, type ServerDetails } from "./server-settings";
 import { loadServer, withTimeout } from "./_lib/load";
 
 export const metadata = { title: "Server" };
@@ -65,6 +65,10 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
       {overview && <ServerOverview host={overview.host} health={overview.health} extra={overview.extra} />}
       {!row.isLocal && <ValidationCard server={details} />}
       <ConnectionSettings server={details} keys={keys} />
+      <BuildsLimitsCard
+        serverId={row.id}
+        limits={{ buildConcurrency: row.buildConcurrency, imageRetention: row.imageRetention, metricsRetentionHours: row.metricsRetentionHours }}
+      />
       <AccessCard server={details} organizations={orgs} />
       {!row.isLocal && <DangerZone server={details} />}
     </>

@@ -7,7 +7,7 @@ import { Fingerprint, PlugZap, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, TimeAgo } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { Input, InputGroup } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SwitchRow } from "@/components/ui/switch";
@@ -207,6 +207,36 @@ export function ValidationCard({ server }: { server: ServerDetails }) {
         )}
       </CardBody>
     </Card>
+  );
+}
+
+const count = (value: string, fallback = 1) => Number(value.replace(/\D/g, "").slice(0, 4)) || fallback;
+
+/** How much this server builds at once, and how long it keeps images and metrics. */
+export function BuildsLimitsCard({ serverId, limits }: { serverId: string; limits: { buildConcurrency: number; imageRetention: number; metricsRetentionHours: number } }) {
+  return (
+    <SettingsCard
+      title="Builds and limits"
+      description="For this server: builds it runs at once, and how long it keeps images and metrics. Max upload size is on the Proxy page."
+      initial={{ builds: String(limits.buildConcurrency), images: String(limits.imageRetention), hours: String(limits.metricsRetentionHours) }}
+      onSave={(v) => updateServer(serverId, { buildConcurrency: count(v.builds), imageRetention: count(v.images), metricsRetentionHours: count(v.hours) })}
+    >
+      {(v, set) => (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Field label="Concurrent builds" description="Builds this server runs at once. More need more CPU and memory; the rest wait.">
+            <Input value={v.builds} onChange={(e) => set("builds")(e.target.value.replace(/\D/g, ""))} inputMode="numeric" />
+          </Field>
+          <Field label="Images kept per service" description="Older images are removed. Each kept one allows an instant rollback.">
+            <Input value={v.images} onChange={(e) => set("images")(e.target.value.replace(/\D/g, ""))} inputMode="numeric" />
+          </Field>
+          <Field label="Metrics history" description="CPU, memory and request metrics of this server and its services.">
+            <InputGroup suffix="hours">
+              <Input value={v.hours} onChange={(e) => set("hours")(e.target.value.replace(/\D/g, ""))} inputMode="numeric" />
+            </InputGroup>
+          </Field>
+        </div>
+      )}
+    </SettingsCard>
   );
 }
 

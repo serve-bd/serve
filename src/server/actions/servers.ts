@@ -106,6 +106,13 @@ const serverSchema = z.object({
   proxyHttpPort: z.number().int().min(1).max(65535),
   proxyHttpsPort: z.number().int().min(1).max(65535),
   organizationIds: z.array(z.string()).nullable(),
+  buildConcurrency: z.number().int().min(1, "At least 1 build").max(16, "At most 16 builds"),
+  imageRetention: z.number().int().min(1, "Keep at least 1 image").max(50),
+  metricsRetentionHours: z
+    .number()
+    .int()
+    .min(1, "Keep at least 1 hour")
+    .max(24 * 30, "At most 30 days"),
 });
 
 const empty = (v: string | null | undefined) => (v ? v : null);

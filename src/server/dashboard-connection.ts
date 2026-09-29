@@ -292,8 +292,10 @@ export async function dashboardConnectionReport(): Promise<ConnectionReport> {
   const s = await getSettings();
   const domain = s.dashboardDomain;
   const tunnel = s.dashboardTunnelId ? await loadTunnel(s.dashboardTunnelId) : null;
+  // Meant for a tunnel but none is there (removed, or its Cloudflare account was disconnected).
+  const waiting = !tunnel && (s.dashboardWantsTunnel || !!s.dashboardTunnelId);
   const route = tunnel ? "tunnel" : "ip";
-  const report: ConnectionReport = { domain, route, checkedAt: new Date().toISOString(), steps: [] };
+  const report: ConnectionReport = { domain, route: waiting ? "tunnel" : route, checkedAt: new Date().toISOString(), steps: [] };
   if (!domain) return report;
   const [local] = await db.select({ publicIp: schema.server.publicIp }).from(schema.server).where(eq(schema.server.id, LOCAL_SERVER_ID));
   const ctx = await getServer(LOCAL_SERVER_ID);
@@ -308,6 +310,21 @@ export async function dashboardConnectionReport(): Promise<ConnectionReport> {
     ? await upstreamStep(ctx)
     : { id: "upstream", title: "Dashboard reachable from the proxy", state: "skip", summary: "Waiting for the proxy" };
   const https = await httpsStep(domain, route, s.dashboardHttps, s.rootOrganizationId);
+  if (waiting) {
+    report.steps = [
+      {
+        id: "tunnel",
+        title: "Cloudflare Tunnel",
+        state: "fail",
+        summary: "Waiting for a tunnel",
+        detail:
+          "The dashboard domain is set to use a Cloudflare Tunnel, but this server has none. Create one in Integrations → Cloudflare and Serve reconnects the domain automatically, or switch the route to Server IP above.",
+      },
+      proxyRest,
+      upstream,
+    ];
+    return report;
+  }
   report.steps = [dns, ...(tun ? [tun] : []), proxyRest, upstream, https];
   return report;
 }

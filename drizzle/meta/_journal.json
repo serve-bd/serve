@@ -120,6 +120,13 @@
       "when": 1790690210680,
       "tag": "0016_service_hostname",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790691073729,
+      "tag": "0017_domain_wants_tunnel",
+      "breakpoints": true
     }
   ]
 }

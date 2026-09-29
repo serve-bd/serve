@@ -455,6 +455,13 @@ export const domain = pgTable(
     generated: boolean("generated").notNull().default(false),
     /** Chosen as the service's main domain (SERVE_PUBLIC_URL). At most one per service. */
     primary: boolean("is_primary").notNull().default(false),
+    /**
+     * Meant to go through a Cloudflare Tunnel. Kept when the tunnel disappears (tunnel_id is
+     * cleared), so Serve can reconnect the domain once a tunnel runs on its server again.
+     */
+    wantsTunnel: boolean("wants_tunnel").notNull().default(false),
+    /** Why the last automatic reconnect to a tunnel failed. */
+    tunnelError: text("tunnel_error"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

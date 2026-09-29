@@ -36,6 +36,10 @@ export type Settings = {
   workerHeartbeat: string | null;
   /** Cloudflare Tunnel (on the local server) that serves the dashboard domain; HTTPS by Cloudflare. */
   dashboardTunnelId: string | null;
+  /** The dashboard domain is meant to use a tunnel; kept when the tunnel goes away so it can be reconnected. */
+  dashboardWantsTunnel: boolean;
+  /** Stable id of this Serve instance, stamped on containers it manages that another instance could see. */
+  instanceId: string | null;
   /** Latest migration the running worker was built with. */
   workerSchemaVersion: string | null;
   /** IANA timezone used for backup and task schedules. */
@@ -87,6 +91,8 @@ export const defaultSettings: Settings = {
   workerHeartbeat: null,
   workerSchemaVersion: null,
   dashboardTunnelId: null,
+  dashboardWantsTunnel: false,
+  instanceId: null,
   timezone: "UTC",
   proxyCustomConfig: null,
   dashboardAllowlist: [],

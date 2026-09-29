@@ -16,10 +16,17 @@ export default async function DashboardSettingsPage() {
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
       .where(eq(schema.cloudflareTunnel.serverId, LOCAL_SERVER_ID)),
   ]);
+  // A tunnel id whose tunnel is gone means "waiting for a tunnel", not a usable choice.
+  const tunnelId = s.dashboardTunnelId && tunnels.some((t) => t.id === s.dashboardTunnelId) ? s.dashboardTunnelId : null;
   return (
     <DashboardSettings
       serverIp={local?.publicIp ?? s.serverIp}
-      dashboard={{ dashboardDomain: s.dashboardDomain ?? "", dashboardHttps: s.dashboardHttps, dashboardTunnelId: s.dashboardTunnelId }}
+      dashboard={{
+        dashboardDomain: s.dashboardDomain ?? "",
+        dashboardHttps: s.dashboardHttps,
+        dashboardTunnelId: tunnelId,
+        dashboardWantsTunnel: !!s.dashboardDomain && (s.dashboardWantsTunnel || !!s.dashboardTunnelId),
+      }}
       tunnels={tunnels.map((t) => ({ id: t.id, label: `${t.account} · ${t.status === "healthy" ? "connected" : t.status}` }))}
       acme={{ acmeEmail: s.acmeEmail ?? "", acmeStaging: s.acmeStaging }}
     />

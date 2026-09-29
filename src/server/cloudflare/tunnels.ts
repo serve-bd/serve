@@ -1,11 +1,11 @@
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { getServer } from "@/server/servers/context";
 import { Cloudflare } from "./api";
-import { getSettings } from "@/server/settings";
+import { getSettings, updateSettings } from "@/server/settings";
 
 /**
  * Cloudflare Tunnels: a cloudflared container on a server keeps an outbound
@@ -19,6 +19,17 @@ type Tunnel = typeof schema.cloudflareTunnel.$inferSelect;
 
 export function tunnelContainerName(tunnel: Pick<Tunnel, "id">) {
   return `serve-tunnel-${tunnel.id}`;
+}
+
+const INSTANCE_LABEL = "serve.instance";
+
+/** This instance's id (created once). Tunnel containers carry it so cleanup never touches another instance's. */
+async function instanceId() {
+  const s = await getSettings();
+  if (s.instanceId) return s.instanceId;
+  const id = newId();
+  await updateSettings({ instanceId: id });
+  return id;
 }
 
 /** Cloudflare's account id for a connected account (looked up once, then stored). */
@@ -67,7 +78,7 @@ export async function ensureTunnelContainer(tunnel: Tunnel) {
     // The token stays out of the command line (and `docker ps`).
     Env: [`TUNNEL_TOKEN=${decrypt(tunnel.token)}`],
     Cmd: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "run"],
-    Labels: { [LABEL.managed]: "true", [LABEL.kind]: "tunnel", "serve.tunnel": tunnel.id },
+    Labels: { [LABEL.managed]: "true", [LABEL.kind]: "tunnel", "serve.tunnel": tunnel.id, [INSTANCE_LABEL]: await instanceId() },
     HostConfig: {
       RestartPolicy: { Name: "unless-stopped" },
       NetworkMode: ctx.network,
@@ -167,6 +178,13 @@ export async function deleteTunnel(tunnelId: string) {
     // Already gone on Cloudflare, or the account was disconnected.
   }
   await db.delete(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
+  // Domains keep wants_tunnel (the foreign key only clears tunnel_id); the dashboard keeps its intent too.
+  const settings = await getSettings();
+  if (settings.dashboardTunnelId === tunnelId) {
+    await updateSettings({ dashboardTunnelId: null, dashboardWantsTunnel: true });
+    const { enqueue } = await import("@/server/queue");
+    await enqueue("proxy.sync", {}).catch(() => {});
+  }
 }
 
 /** Read one tunnel's status from Cloudflare and store it. */
@@ -202,8 +220,146 @@ export async function checkTunnels() {
       continue;
     }
     await refreshTunnelStatus(tunnel);
+    // Domains waiting for a tunnel on this server (its tunnel was removed, or the service moved here).
+    // Ones that failed before are left for a manual Reconnect, so a broken record is not retried every minute.
+    if (await hasReattachCandidates(tunnel.serverId)) await reattachTunnelDomains(tunnel, { skipFailed: true }).catch(() => {});
   }
-  await removeOrphanTunnelContainers(new Set(tunnels.map((t) => t.id)));
+  await removeOrphanTunnelContainers();
+}
+
+/* ------------------------------ Reconnecting ------------------------------ */
+
+type DomainRow = typeof schema.domain.$inferSelect;
+
+/** Domains of a server that want a tunnel but have none: the ones a new tunnel should pick up. */
+export function reattachCandidates<D extends Pick<DomainRow, "id" | "wantsTunnel" | "tunnelId" | "hostname" | "tunnelError"> & { serverId: string }>(
+  domains: D[],
+  serverId: string,
+  opts: { skipFailed?: boolean; domainId?: string } = {},
+): D[] {
+  return domains.filter(
+    (d) =>
+      d.wantsTunnel && !d.tunnelId && d.serverId === serverId && !d.hostname.startsWith("*.") && !(opts.skipFailed && d.tunnelError) && (!opts.domainId || d.id === opts.domainId),
+  );
+}
+
+async function waitingDomains(serverId: string) {
+  return db
+    .select({ domain: schema.domain, serverId: schema.service.serverId })
+    .from(schema.domain)
+    .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
+    .where(and(eq(schema.domain.wantsTunnel, true), isNull(schema.domain.tunnelId), eq(schema.service.serverId, serverId)));
+}
+
+/** The dashboard wants a tunnel on the local server but has none (or its tunnel is gone). */
+async function dashboardWaiting() {
+  const s = await getSettings();
+  if (!s.dashboardDomain || !(s.dashboardWantsTunnel || s.dashboardTunnelId)) return null;
+  if (s.dashboardTunnelId) {
+    const [t] = await db.select({ id: schema.cloudflareTunnel.id }).from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, s.dashboardTunnelId));
+    if (t) return null;
+  }
+  return s.dashboardDomain;
+}
+
+async function hasReattachCandidates(serverId: string) {
+  const rows = await waitingDomains(serverId);
+  if (
+    reattachCandidates(
+      rows.map((r) => ({ ...r.domain, serverId: r.serverId })),
+      serverId,
+      { skipFailed: true },
+    ).length
+  )
+    return true;
+  const [server] = await db.select({ isLocal: schema.server.isLocal }).from(schema.server).where(eq(schema.server.id, serverId));
+  return !!server?.isLocal && !!(await dashboardWaiting());
+}
+
+export type ReattachResult = { reconnected: string[]; failed: { hostname: string; error: string }[]; notInAccount: string[] };
+
+/**
+ * Point waiting domains of the tunnel's server at the tunnel: DNS record, route and proxy.
+ * Domains outside the tunnel's Cloudflare account are left alone (another tunnel may own them).
+ * One domain failing never stops the others; its error is stored and shown.
+ */
+export async function reattachTunnelDomains(tunnel: Tunnel, opts: { skipFailed?: boolean; domainId?: string } = {}): Promise<ReattachResult> {
+  const result: ReattachResult = { reconnected: [], failed: [], notInAccount: [] };
+  const rows = await waitingDomains(tunnel.serverId);
+  const candidates = reattachCandidates(
+    rows.map((r) => ({ ...r.domain, serverId: r.serverId })),
+    tunnel.serverId,
+    opts,
+  );
+  const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+  const services = new Set<string>();
+  for (const d of candidates) {
+    const zone = await cf.zoneFor(d.hostname).catch(() => null);
+    if (!zone) {
+      result.notInAccount.push(d.hostname);
+      continue;
+    }
+    try {
+      const record = await cf.upsertTunnelRecord(zone.id, d.hostname, tunnel.cfTunnelId);
+      await db
+        .update(schema.domain)
+        .set({
+          tunnelId: tunnel.id,
+          https: false,
+          forceHttps: false,
+          cloudflareAccountId: tunnel.cloudflareAccountId,
+          cloudflareZoneId: zone.id,
+          cloudflareRecordId: record.id,
+          tunnelError: null,
+        })
+        .where(eq(schema.domain.id, d.id));
+      result.reconnected.push(d.hostname);
+      services.add(d.serviceId);
+    } catch (error) {
+      const message = (error as Error).message.slice(0, 300);
+      await db.update(schema.domain).set({ tunnelError: message }).where(eq(schema.domain.id, d.id));
+      result.failed.push({ hostname: d.hostname, error: message });
+    }
+  }
+
+  const [server] = await db.select({ isLocal: schema.server.isLocal }).from(schema.server).where(eq(schema.server.id, tunnel.serverId));
+  const dashboard = !opts.domainId && server?.isLocal ? await dashboardWaiting() : null;
+  if (dashboard) {
+    const zone = await cf.zoneFor(dashboard).catch(() => null);
+    if (zone) {
+      try {
+        await cf.upsertTunnelRecord(zone.id, dashboard, tunnel.cfTunnelId);
+        await updateSettings({ dashboardTunnelId: tunnel.id, dashboardWantsTunnel: true, dashboardHttps: false });
+        result.reconnected.push(`${dashboard} (dashboard)`);
+        const { enqueue } = await import("@/server/queue");
+        await enqueue("proxy.sync", {}).catch(() => {});
+      } catch (error) {
+        result.failed.push({ hostname: `${dashboard} (dashboard)`, error: (error as Error).message.slice(0, 300) });
+      }
+    }
+  }
+
+  if (result.reconnected.length) {
+    await syncTunnelIngress(tunnel.id);
+    const { syncServiceProxy } = await import("@/server/proxy/nginx");
+    for (const id of services) await syncServiceProxy(id).catch(() => {});
+  }
+  return result;
+}
+
+/** Try every tunnel of a server (a domain belongs to whichever tunnel's account owns its zone). */
+export async function reattachOnServer(serverId: string, opts: { domainId?: string } = {}) {
+  const tunnels = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serverId, serverId));
+  const total: ReattachResult = { reconnected: [], failed: [], notInAccount: [] };
+  for (const t of tunnels) {
+    const r = await reattachTunnelDomains(t, opts);
+    total.reconnected.push(...r.reconnected);
+    total.failed.push(...r.failed);
+    total.notInAccount.push(...r.notInAccount);
+  }
+  // Only "not in any account" once no tunnel took the domain.
+  total.notInAccount = [...new Set(total.notInAccount)].filter((h) => !total.reconnected.includes(h));
+  return { ...total, tunnels: tunnels.length };
 }
 
 /**
@@ -211,15 +367,21 @@ export async function checkTunnels() {
  * disconnected) would keep serving traffic. Only containers on this instance's network are
  * touched, so a second Serve instance on the same Docker engine keeps its own.
  */
-async function removeOrphanTunnelContainers(known: Set<string>) {
+async function removeOrphanTunnelContainers() {
+  const me = await instanceId();
   const servers = await db.select({ id: schema.server.id }).from(schema.server);
   for (const { id } of servers) {
     const ctx = await getServer(id).catch(() => null);
     if (!ctx) continue;
     const containers = await ctx.docker.listContainers({ all: true, filters: { label: [`${LABEL.kind}=tunnel`] } }).catch(() => []);
+    // Read the tunnels right before deciding: one created while this loop ran is not an orphan.
+    const known = new Set((await db.select({ id: schema.cloudflareTunnel.id }).from(schema.cloudflareTunnel)).map((t) => t.id));
     for (const c of containers) {
       const tunnelId = c.Labels["serve.tunnel"];
-      if (!tunnelId || known.has(tunnelId) || c.HostConfig?.NetworkMode !== ctx.network) continue;
+      if (!tunnelId || known.has(tunnelId)) continue;
+      const owner = c.Labels[INSTANCE_LABEL];
+      // Ours by label; containers from before the label only when they sit on this instance's network.
+      if (owner ? owner !== me : c.HostConfig?.NetworkMode !== ctx.network) continue;
       await ctx.docker
         .getContainer(c.Id)
         .remove({ force: true })

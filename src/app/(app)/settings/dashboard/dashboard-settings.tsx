@@ -17,7 +17,7 @@ export function DashboardSettings({
   tunnels,
 }: {
   serverIp: string | null;
-  dashboard: { dashboardDomain: string; dashboardHttps: boolean; dashboardTunnelId: string | null };
+  dashboard: { dashboardDomain: string; dashboardHttps: boolean; dashboardTunnelId: string | null; dashboardWantsTunnel: boolean };
   /** Tunnels on the server Serve runs on. */
   tunnels: { id: string; label: string }[];
   acme: { acmeEmail: string; acmeStaging: boolean };
@@ -29,25 +29,28 @@ export function DashboardSettings({
           <>
             <Field
               label="Domain"
-              optional={!v.dashboardTunnelId}
+              optional={!v.dashboardWantsTunnel}
               description={
-                v.dashboardTunnelId && !v.dashboardDomain
+                v.dashboardWantsTunnel && !v.dashboardDomain
                   ? "Enter a domain to route it through the tunnel. Without one, the tunnel choice is cleared on save."
                   : "GitHub webhooks and invite links use this address."
               }
             >
               <Input value={v.dashboardDomain} onChange={(e) => set("dashboardDomain")(e.target.value)} placeholder="serve.example.com" />
             </Field>
-            {tunnels.length > 0 && (
+            {(tunnels.length > 0 || v.dashboardWantsTunnel) && (
               <Field label="Route traffic through">
                 <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
                   {(["ip", "tunnel"] as const).map((r) => {
-                    const active = r === "tunnel" ? !!v.dashboardTunnelId : !v.dashboardTunnelId;
+                    const active = r === "tunnel" ? v.dashboardWantsTunnel : !v.dashboardWantsTunnel;
                     return (
                       <button
                         key={r}
                         type="button"
-                        onClick={() => set("dashboardTunnelId")(r === "tunnel" ? (v.dashboardTunnelId ?? tunnels[0].id) : null)}
+                        onClick={() => {
+                          set("dashboardWantsTunnel")(r === "tunnel");
+                          set("dashboardTunnelId")(r === "tunnel" ? (v.dashboardTunnelId ?? tunnels[0]?.id ?? null) : null);
+                        }}
                         className={`flex h-8 items-center justify-center gap-1.5 rounded-lg text-[13px] font-medium transition-all ${active ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"}`}
                       >
                         {r === "tunnel" ? <Waypoints className="size-3.5 text-[#f38020]" /> : <Globe className="size-3.5" />}
@@ -58,7 +61,18 @@ export function DashboardSettings({
                 </div>
               </Field>
             )}
-            {v.dashboardTunnelId ? (
+            {v.dashboardWantsTunnel && !v.dashboardTunnelId ? (
+              <p className="flex gap-2.5 rounded-xl border border-warn/30 bg-warn-soft p-3.5 text-[13px] leading-relaxed text-fg-2">
+                <Waypoints className="mt-0.5 size-4 flex-none text-warn" />
+                <span>
+                  Waiting for a tunnel. This server has no Cloudflare Tunnel right now, so the dashboard domain does not answer. Create one in{" "}
+                  <Link href="/integrations/cloudflare" className="text-accent hover:underline">
+                    Integrations → Cloudflare
+                  </Link>{" "}
+                  and Serve reconnects the domain automatically, or switch to Server IP.
+                </span>
+              </p>
+            ) : v.dashboardTunnelId ? (
               <>
                 {tunnels.length > 1 && (
                   <Field label="Tunnel">
@@ -95,7 +109,7 @@ export function DashboardSettings({
         )}
       </SettingsCard>
 
-      {dashboard.dashboardDomain && <ConnectionCheck domain={dashboard.dashboardDomain} tunnel={!!dashboard.dashboardTunnelId} />}
+      {dashboard.dashboardDomain && <ConnectionCheck domain={dashboard.dashboardDomain} tunnel={dashboard.dashboardWantsTunnel} />}
 
       <SettingsCard title="Let's Encrypt" description="Free certificates for every server, renewed automatically." initial={acme}>
         {(v, set) => (

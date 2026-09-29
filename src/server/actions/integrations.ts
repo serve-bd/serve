@@ -107,7 +107,8 @@ export async function disconnectCloudflare(accountId: string) {
     }
     const settings = await getSettings();
     if (settings.dashboardTunnelId && tunnelIds.includes(settings.dashboardTunnelId)) {
-      await updateSettings({ dashboardTunnelId: null });
+      // Remember the choice so the dashboard reconnects when a tunnel runs again.
+      await updateSettings({ dashboardTunnelId: null, dashboardWantsTunnel: true });
       await enqueue("proxy.sync", {});
     }
     await db.delete(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, accountId));
@@ -595,19 +596,22 @@ export async function enableTunnel(cloudflareAccountId: string, serverId: string
     const { serverAllowsOrg } = await import("@/server/servers/access");
     if (!server || !serverAllowsOrg(server, ctx.org.id)) throw new UserError("Server not found.");
     if (!server.isLocal && server.status !== "ready") throw new UserError(`${server.name} is not ready. Validate it first.`);
-    const { createTunnel } = await import("@/server/cloudflare/tunnels");
+    const { createTunnel, reattachTunnelDomains } = await import("@/server/cloudflare/tunnels");
+    let tunnel: Awaited<ReturnType<typeof createTunnel>>;
     try {
-      const tunnel = await createTunnel({ organizationId: ctx.org.id, cloudflareAccountId, serverId });
-      await logActivity({
-        userId: ctx.user.id,
-        organizationId: ctx.org.id,
-        action: "tunnel.create",
-        message: `Created a Cloudflare Tunnel from ${server.name} to ${account.name}`,
-      });
-      return { id: tunnel.id };
+      tunnel = await createTunnel({ organizationId: ctx.org.id, cloudflareAccountId, serverId });
     } catch (e) {
       throw new UserError((e as Error).message);
     }
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      action: "tunnel.create",
+      message: `Created a Cloudflare Tunnel from ${server.name} to ${account.name}`,
+    });
+    // Domains that used a tunnel on this server before (account reconnected, tunnel recreated) come back.
+    const revived = await reattachTunnelDomains(tunnel).catch(() => null);
+    return { id: tunnel.id, reconnected: revived?.reconnected ?? [], failed: revived?.failed ?? [] };
   });
 }
 
@@ -619,16 +623,27 @@ export async function disableTunnel(tunnelId: string) {
       .from(schema.cloudflareTunnel)
       .where(and(eq(schema.cloudflareTunnel.id, tunnelId), eq(schema.cloudflareTunnel.organizationId, ctx.org.id)));
     if (!tunnel) throw new UserError("Tunnel not found.");
-    const { deleteTunnel, tunnelDomains } = await import("@/server/cloudflare/tunnels");
-    const domains = await tunnelDomains(tunnelId);
-    if (domains.length) {
-      throw new UserError(
-        `${domains.map((d) => d.hostname).join(", ")} ${domains.length === 1 ? "uses" : "use"} this tunnel. Remove ${domains.length === 1 ? "it" : "them"} first.`,
-      );
-    }
+    const { deleteTunnel } = await import("@/server/cloudflare/tunnels");
+    // Domains on it stop working but keep wanting a tunnel: they reconnect when one runs on the server again.
+    const routed = await db.select({ serviceId: schema.domain.serviceId }).from(schema.domain).where(eq(schema.domain.tunnelId, tunnelId));
     await deleteTunnel(tunnelId);
+    for (const serviceId of new Set(routed.map((d) => d.serviceId))) await syncServiceProxy(serviceId).catch(() => {});
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "tunnel.delete", message: `Removed the Cloudflare Tunnel ${tunnel.name}` });
     return null;
+  });
+}
+
+/** Domains (and the dashboard) that stop working when a tunnel is removed. */
+export async function tunnelImpact(tunnelId: string) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const [tunnel] = await db
+      .select({ id: schema.cloudflareTunnel.id })
+      .from(schema.cloudflareTunnel)
+      .where(and(eq(schema.cloudflareTunnel.id, tunnelId), eq(schema.cloudflareTunnel.organizationId, ctx.org.id)));
+    if (!tunnel) throw new UserError("Tunnel not found.");
+    const { tunnelDomains } = await import("@/server/cloudflare/tunnels");
+    return (await tunnelDomains(tunnelId)).map((d) => d.hostname);
   });
 }
 

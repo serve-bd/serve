@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { toast } from "@/components/ui/toast";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import { ChevronRight, Cloud, Plus, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
@@ -11,7 +12,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { cloudflareDisconnectImpact, connectCloudflare, disableTunnel, disconnectCloudflare, enableTunnel, refreshTunnels } from "@/server/actions/integrations";
+import { cloudflareDisconnectImpact, connectCloudflare, disableTunnel, disconnectCloudflare, enableTunnel, refreshTunnels, tunnelImpact } from "@/server/actions/integrations";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 
 type Account = { id: string; name: string; zones: { id: string; name: string; status: string; plan: string | null }[]; error: string | null };
@@ -43,7 +44,17 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
     }, 4000);
     return () => clearInterval(timer);
   }, [starting, router]);
-  const enable = useAction(enableTunnel, { success: "Tunnel created. It connects within a minute." });
+  const enable = useAction(enableTunnel, {
+    onSuccess: (r) => {
+      const n = r.reconnected.length;
+      if (r.failed.length)
+        toast.warning(
+          n ? `Tunnel created. ${n} domain${n === 1 ? "" : "s"} reconnected` : "Tunnel created",
+          `Could not reconnect ${r.failed.map((f) => f.hostname).join(", ")}. See Domains & ports for the reason.`,
+        );
+      else toast.success(n ? `Tunnel created. ${n} domain${n === 1 ? "" : "s"} reconnected to the tunnel.` : "Tunnel created. It connects within a minute.");
+    },
+  });
   const disable = useAction(disableTunnel, { success: "Tunnel removed" });
   return (
     <div className="border-t border-line">
@@ -85,12 +96,23 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
                     variant="ghost"
                     loading={busy === server.id && disable.pending}
                     onClick={async () => {
+                      const impact = await tunnelImpact(tunnel.id);
+                      const offline = impact.ok ? impact.data : [];
                       if (
                         !(await confirm({
                           title: `Remove the tunnel from ${server.name}?`,
-                          description: "The connector stops and the tunnel is deleted in Cloudflare.",
-                          confirmLabel: "Remove tunnel",
+                          description: offline.length
+                            ? "The connector stops and the tunnel is deleted in Cloudflare. These domains stop working until a tunnel runs on this server again; Serve then reconnects them automatically."
+                            : "The connector stops and the tunnel is deleted in Cloudflare.",
+                          confirmLabel: offline.length ? "Remove tunnel anyway" : "Remove tunnel",
                           danger: true,
+                          children: offline.length ? (
+                            <ul className="flex flex-col gap-0.5 rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-3 font-mono text-[12.5px] text-fg-2">
+                              {offline.map((h) => (
+                                <li key={h}>{h}</li>
+                              ))}
+                            </ul>
+                          ) : undefined,
                         }))
                       )
                         return;

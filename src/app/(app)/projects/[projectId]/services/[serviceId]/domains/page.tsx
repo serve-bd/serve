@@ -41,6 +41,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
         accountId: schema.cloudflareTunnel.cloudflareAccountId,
         accountName: schema.cloudflareAccount.name,
         status: schema.cloudflareTunnel.status,
+        statusMessage: schema.cloudflareTunnel.statusMessage,
       })
       .from(schema.cloudflareTunnel)
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
@@ -87,6 +88,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
         hasAcme={!!settings.acmeEmail}
         serverIp={addressing.publicIp}
         tunnels={tunnels}
+        serverName={server.name}
         canGenerate={!!addressing.wildcardDomain || (addressing.sslipFallback && !!addressing.publicIp)}
         certificates={certs.map((c) => ({ id: c.id, name: c.name, domains: c.domains, status: c.status, provider: c.provider }))}
         domains={[...domains]
@@ -106,6 +108,10 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
               cloudflare: !!d.cloudflareZoneId,
               managedRecord: !!d.cloudflareRecordId,
               tunnel: !!d.tunnelId,
+              tunnelId: d.tunnelId,
+              wantsTunnel: d.wantsTunnel,
+              tunnelError: d.tunnelError,
+              cloudflareAccountId: d.cloudflareAccountId,
               certificate: cert ? { id: cert.id, status: cert.status, provider: cert.provider, error: cert.lastError, expiresAt: cert.expiresAt?.toISOString() ?? null } : null,
             };
           })}

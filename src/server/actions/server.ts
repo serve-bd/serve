@@ -40,6 +40,8 @@ const settingsSchema = z
     proxyMaxBodySize: z.string().regex(/^\d+[kmg]?$/i, "Use a size like 100m"),
     allowOrganizationCreation: z.boolean(),
     dashboardTunnelId: z.string().nullable(),
+    /** The dashboard should use a tunnel, even while none is available (it reconnects later). */
+    dashboardWantsTunnel: z.boolean(),
     timezone: z.string().refine((tz) => Intl.supportedValuesOf("timeZone").includes(tz) || tz === "UTC", "Choose a valid timezone"),
     proxyCustomConfig: z.string().max(20_000),
     dashboardAllowlist: z
@@ -79,6 +81,9 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
       tunnelId = null;
       patch.dashboardTunnelId = null;
     }
+    // The route choice: a chosen tunnel implies the wish; without a domain there is nothing to keep.
+    if (data.dashboardWantsTunnel === undefined && data.dashboardTunnelId !== undefined) patch.dashboardWantsTunnel = !!tunnelId;
+    if (!domain) patch.dashboardWantsTunnel = false;
     if (tunnelId && domain && (data.dashboardTunnelId !== undefined || data.dashboardDomain !== undefined)) {
       const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
       if (tunnel?.serverId !== "local") throw new UserError("Choose a tunnel on the server Serve runs on.");

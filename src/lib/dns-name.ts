@@ -1,0 +1,58 @@
+/** Two-label public suffixes where the registrable domain has three labels (example.co.uk). */
+const TWO_LABEL_SUFFIXES = new Set([
+  "co.uk",
+  "org.uk",
+  "me.uk",
+  "ac.uk",
+  "gov.uk",
+  "ltd.uk",
+  "plc.uk",
+  "net.uk",
+  "com.au",
+  "net.au",
+  "org.au",
+  "edu.au",
+  "gov.au",
+  "co.nz",
+  "org.nz",
+  "net.nz",
+  "co.jp",
+  "ne.jp",
+  "or.jp",
+  "com.br",
+  "net.br",
+  "org.br",
+  "co.in",
+  "net.in",
+  "org.in",
+  "firm.in",
+  "co.za",
+  "org.za",
+  "com.mx",
+  "com.ar",
+  "com.tr",
+  "com.cn",
+  "net.cn",
+  "org.cn",
+  "com.hk",
+  "com.sg",
+  "com.my",
+  "com.ph",
+  "com.pk",
+  "com.bd",
+  "net.bd",
+  "org.bd",
+  "co.id",
+  "or.id",
+  "co.kr",
+  "or.kr",
+  "co.il",
+  "co.th",
+]);
+
+/** The record name relative to its zone ("@" for the apex), using a small public-suffix list. */
+export function relativeRecordName(hostname: string) {
+  const labels = hostname.split(".");
+  const zoneLabels = labels.length >= 3 && TWO_LABEL_SUFFIXES.has(labels.slice(-2).join(".")) ? 3 : 2;
+  return labels.length > zoneLabels ? labels.slice(0, -zoneLabels).join(".") : "@";
+}

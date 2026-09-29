@@ -15,9 +15,20 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
-import { addDomain, checkDomainDns, generateDomain, removeDomain, retryCertificate, setDomainRoute, setPrimaryDomain, updateDomain } from "@/server/actions/services";
+import {
+  addDomain,
+  checkDomainDns,
+  generateDomain,
+  removeDomain,
+  reconnectDomainTunnel,
+  retryCertificate,
+  setDomainRoute,
+  setPrimaryDomain,
+  updateDomain,
+} from "@/server/actions/services";
 import { findCloudflareZone } from "@/server/actions/integrations";
 import useSWR from "swr";
+import { relativeRecordName } from "@/lib/dns-name";
 import { cn } from "@/lib/utils";
 import { useDebounced } from "@/hooks/use-client";
 
@@ -36,6 +47,13 @@ type DomainRow = {
   managedRecord: boolean;
   /** Routed through a Cloudflare Tunnel; HTTPS is handled by Cloudflare. */
   tunnel: boolean;
+  tunnelId: string | null;
+  /** Meant for a tunnel; with no tunnelId it waits for one to run on the server. */
+  wantsTunnel: boolean;
+  /** Why the last reconnect to a tunnel failed. */
+  tunnelError: string | null;
+  /** Cloudflare account that manages the domain's DNS, when known. */
+  cloudflareAccountId: string | null;
   certificate: { id: string; status: string; provider: string; error: string | null; expiresAt: string | null } | null;
 };
 
@@ -56,12 +74,63 @@ type Props = {
   serverIp: string | null;
   canGenerate: boolean;
   /** Tunnels from this service's server (one per Cloudflare account). */
-  tunnels: { id: string; accountId: string; accountName: string; status: string }[];
+  tunnels: { id: string; accountId: string; accountName: string; status: string; statusMessage: string | null }[];
+  /** Name of the service's server, for messages. */
+  serverName: string;
   certificates: { id: string; name: string; domains: string[]; status: string; provider: string }[];
   domains: DomainRow[];
 };
 
+type TunnelInfo = Props["tunnels"][number];
+
+/** Live state of the tunnel a domain uses (or waits for). */
+function TunnelBadge({ d, tunnels }: { d: DomainRow; tunnels: TunnelInfo[] }) {
+  const t = tunnels.find((x) => x.id === d.tunnelId);
+  if (!d.tunnel || !t)
+    return (
+      <Badge tone="bad">
+        <Waypoints /> Waiting for a tunnel
+      </Badge>
+    );
+  const state =
+    t.status === "healthy"
+      ? { tone: "warn" as const, label: "Tunnel" }
+      : t.status === "degraded"
+        ? { tone: "warn" as const, label: "Tunnel degraded" }
+        : t.status === "pending"
+          ? { tone: "warn" as const, label: "Tunnel starting" }
+          : { tone: "bad" as const, label: "Tunnel down" };
+  return (
+    <Badge tone={state.tone} title={t.statusMessage ?? undefined}>
+      <Waypoints /> {state.label}
+    </Badge>
+  );
+}
+
+/** Why a tunnel domain does not answer, and what brings it back. */
+function TunnelNotice({ d, tunnels, serverName }: { d: DomainRow; tunnels: TunnelInfo[]; serverName: string }) {
+  const t = tunnels.find((x) => x.id === d.tunnelId);
+  let text: string | null = null;
+  if (d.tunnel && t && (t.status === "down" || t.status === "error"))
+    text = `The tunnel is ${t.status === "error" ? "failing" : "down"}${t.statusMessage ? `: ${t.statusMessage}` : ""}. Serve restarts its connector; check Integrations → Cloudflare.`;
+  else if (d.wantsTunnel && !d.tunnel) {
+    text = d.tunnelError
+      ? `Reconnecting failed: ${d.tunnelError}. Fix it, then use Reconnect to tunnel.`
+      : tunnels.length
+        ? `No tunnel on ${serverName} belongs to the Cloudflare account that manages ${d.hostname}. Connect that account and create a tunnel; Serve reconnects this domain automatically.`
+        : `${serverName} has no Cloudflare Tunnel. Connect Cloudflare and create a tunnel for this server; Serve reconnects this domain automatically.`;
+  }
+  if (!text) return null;
+  return <p className="mt-1 max-w-2xl rounded-lg bg-bad-soft px-2.5 py-1.5 text-xs leading-relaxed text-fg-2">{text}</p>;
+}
+
 function HttpsState({ d, hasAcme, proxyKind = "nginx" }: { d: DomainRow; hasAcme: boolean; proxyKind?: string }) {
+  if (d.wantsTunnel && !d.tunnel)
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-bad">
+        <LockOpen className="size-3.5" /> Offline until a tunnel runs
+      </span>
+    );
   if (d.tunnel)
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-ok">
@@ -185,9 +254,8 @@ function challengeProblem(props: Props, viaDns: boolean) {
 
 /** The record to add at the DNS provider, with copy buttons. */
 function DnsRecordTable({ hostname, ip }: { hostname: string; ip: string }) {
-  const labels = hostname.split(".");
   // Most providers want the name relative to the zone: "app" for app.example.com, "@" for the apex.
-  const relative = labels.length > 2 ? labels.slice(0, -2).join(".") : "@";
+  const relative = relativeRecordName(hostname);
   const cell = "flex min-w-0 items-center gap-1.5 px-3 py-2.5";
   return (
     <div className="flex flex-col gap-2">
@@ -497,16 +565,34 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
   });
   const submit = async () => {
     const wantTunnel = route === "tunnel";
-    if (wantTunnel !== domain.tunnel && props.tunnels.length) {
+    const usesTunnel = domain.tunnel || domain.wantsTunnel;
+    if (wantTunnel && !domain.tunnel) {
+      if (!tunnel) {
+        // Still waiting for a tunnel: nothing to change; otherwise there is no tunnel to switch to.
+        if (!domain.wantsTunnel)
+          return void toast.error("No tunnel can serve this domain", `Create a Cloudflare Tunnel on ${props.serverName} for the account that manages ${domain.hostname}.`);
+      } else if ((await reroute.run(tunnel.id)) === undefined) return;
+    } else if (!wantTunnel && usesTunnel) {
       // run() resolves to undefined when the action failed (the error is already shown).
-      if ((await reroute.run(wantTunnel ? tunnel.id : null)) === undefined) return;
+      if ((await reroute.run(null)) === undefined) return;
     }
     await save.run();
   };
   const detected = compose ? (props.composePorts[composeService] ?? []) : [];
-  const [route, setRoute] = React.useState<"ip" | "tunnel">(domain.tunnel ? "tunnel" : "ip");
-  const tunnel = props.tunnels[0];
-  const reroute = useAction((to: string | null) => setDomainRoute(domain.id, to), { success: "Route updated. DNS points to the new target." });
+  const [route, setRoute] = React.useState<"ip" | "tunnel">(domain.tunnel || domain.wantsTunnel ? "tunnel" : "ip");
+  // The tunnel of the Cloudflare account that manages this domain: known account first, else a zone lookup.
+  const known = props.tunnels.find((t) => t.id === domain.tunnelId) ?? props.tunnels.find((t) => t.accountId === domain.cloudflareAccountId);
+  const { data: zone } = useSWR(!known && props.tunnels.length ? ["cf-zone", domain.hostname] : null, async () => {
+    const res = await findCloudflareZone(domain.hostname);
+    return res.ok ? res.data : null;
+  });
+  const tunnel = known ?? (zone ? props.tunnels.find((t) => t.accountId === zone.accountId) : undefined);
+  const reroute = useAction((to: string | null) => setDomainRoute(domain.id, to), {
+    onSuccess: (r) => {
+      if (r?.warning) toast.warning("Route updated", r.warning);
+      else toast.success("Route updated. DNS points to the new target.");
+    },
+  });
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
@@ -518,7 +604,7 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
         >
           <DialogHeader title={`Edit ${domain.hostname}`} description="Where traffic for this domain goes. Applies right away; no redeploy needed." />
           <DialogBody>
-            {props.tunnels.length > 0 && (
+            {(props.tunnels.length > 0 || domain.wantsTunnel) && (
               <Field
                 label="Route traffic through"
                 description={
@@ -602,6 +688,7 @@ export function DomainsManager(props: Props) {
   const remove = useAction((id: string, dns: boolean) => removeDomain(id, dns), { success: "Domain removed" });
   const toggleHttps = useAction((id: string, https: boolean) => updateDomain(id, { https, forceHttps: https }), { success: "Domain updated" });
   const retry = useAction(retryCertificate, { success: "Requesting a new certificate" });
+  const reconnect = useAction(reconnectDomainTunnel, { success: "Reconnected to the tunnel" });
   const makePrimary = useAction(setPrimaryDomain, { success: "Primary domain set. Redeploy so SERVE_PUBLIC_URL uses it." });
 
   return (
@@ -645,10 +732,8 @@ export function DomainsManager(props: Props) {
                     </Badge>
                   )}
                   {d.generated && <Badge>Generated</Badge>}
-                  {d.tunnel ? (
-                    <Badge tone="warn">
-                      <Waypoints /> Tunnel
-                    </Badge>
+                  {d.tunnel || d.wantsTunnel ? (
+                    <TunnelBadge d={d} tunnels={props.tunnels} />
                   ) : (
                     d.cloudflare && (
                       <Badge tone="warn">
@@ -670,6 +755,7 @@ export function DomainsManager(props: Props) {
                   )}
                   <HttpsState d={d} hasAcme={props.hasAcme} proxyKind={props.proxyKind} />
                 </div>
+                <TunnelNotice d={d} tunnels={props.tunnels} serverName={props.serverName} />
               </div>
               <DnsBadge domainId={d.id} />
               <Menu>
@@ -677,6 +763,14 @@ export function DomainsManager(props: Props) {
                   <MoreHorizontal className="size-4" />
                 </MenuTrigger>
                 <MenuContent>
+                  {d.wantsTunnel && !d.tunnel && (
+                    <>
+                      <MenuItem onClick={() => reconnect.run(d.id)}>
+                        <RefreshCw /> Reconnect to tunnel
+                      </MenuItem>
+                      <MenuSeparator />
+                    </>
+                  )}
                   {!d.redirectTo && (
                     <MenuItem onClick={() => setEditing(d)}>
                       <Pencil /> Edit
@@ -691,7 +785,7 @@ export function DomainsManager(props: Props) {
                     </>
                   )}
                   {/* Tunnel domains get HTTPS from Cloudflare; there is nothing to toggle. */}
-                  {!d.tunnel && (
+                  {!d.tunnel && !d.wantsTunnel && (
                     <>
                       <MenuItem onClick={() => toggleHttps.run(d.id, !d.https)}>
                         {d.https ? <LockOpen /> : <Lock />} {d.https ? "Use HTTP only" : "Enable HTTPS"}

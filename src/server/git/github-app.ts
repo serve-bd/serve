@@ -35,7 +35,7 @@ export async function writeAppSecret(credentialId: string, secret: GithubAppSecr
 /** Public base URL GitHub redirects and delivers webhooks to. */
 export async function publicBaseUrl() {
   const settings = await getSettings();
-  if (settings.dashboardDomain) return `${settings.dashboardHttps ? "https" : "http"}://${settings.dashboardDomain}`;
+  if (settings.dashboardDomain) return `${settings.dashboardHttps || settings.dashboardTunnelId ? "https" : "http"}://${settings.dashboardDomain}`;
   return env.appUrl.replace(/\/$/, "");
 }
 

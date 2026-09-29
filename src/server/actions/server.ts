@@ -35,6 +35,7 @@ const settingsSchema = z
     buildConcurrency: z.number().int().min(1).max(16),
     proxyMaxBodySize: z.string().regex(/^\d+[kmg]?$/i, "Use a size like 100m"),
     allowOrganizationCreation: z.boolean(),
+    dashboardTunnelId: z.string().nullable(),
     timezone: z.string().refine((tz) => Intl.supportedValuesOf("timeZone").includes(tz) || tz === "UTC", "Choose a valid timezone"),
     proxyCustomConfig: z.string().max(20_000),
     dashboardAllowlist: z.array(z.string().trim().regex(/^[0-9a-f:.]+(\/\d{1,3})?$/i, "Use an IP or CIDR range like 203.0.113.0/24")).max(100),
@@ -55,17 +56,39 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
       (patch as Record<string, unknown>)[k] = v === "" ? null : v;
     }
     const before = await getSettings();
+    // Routing the dashboard through a tunnel: Cloudflare serves HTTPS, so no certificate here.
+    const tunnelId = data.dashboardTunnelId === undefined ? before.dashboardTunnelId : data.dashboardTunnelId;
+    const domain = data.dashboardDomain === undefined ? before.dashboardDomain : data.dashboardDomain || null;
+    if (tunnelId && (data.dashboardTunnelId !== undefined || data.dashboardDomain !== undefined)) {
+      const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
+      if (!tunnel || tunnel.serverId !== "local") throw new UserError("Choose a tunnel on the server Serve runs on.");
+      if (!domain) throw new UserError("Enter the dashboard domain first.");
+      const { Cloudflare } = await import("@/server/cloudflare/api");
+      const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+      const zone = await cf.zoneFor(domain).catch(() => null);
+      if (!zone) throw new UserError(`${domain} is not in a zone of the tunnel's Cloudflare account.`);
+      try {
+        await cf.upsertTunnelRecord(zone.id, domain, tunnel.cfTunnelId);
+      } catch (e) {
+        throw new UserError(`Could not point ${domain} at the tunnel: ${(e as Error).message}`);
+      }
+      patch.dashboardHttps = false;
+    }
     // Addressing belongs to the local server row; the settings keys are deprecated.
     const { serverIp, wildcardDomain, sslipFallback, ...rest } = patch;
     await updateLocalAddressing({ publicIp: serverIp, wildcardDomain, sslipFallback });
     await updateSettings(rest);
     const after = await getSettings();
+    if (before.dashboardTunnelId !== after.dashboardTunnelId || before.dashboardDomain !== after.dashboardDomain) {
+      const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+      for (const id of new Set([before.dashboardTunnelId, after.dashboardTunnelId].filter(Boolean) as string[])) await syncTunnelIngress(id).catch(() => {});
+    }
 
-    const proxyRelevant: (keyof Settings)[] = ["dashboardDomain", "dashboardHttps", "proxyMaxBodySize", "proxyCustomConfig", "dashboardAllowlist"];
+    const proxyRelevant: (keyof Settings)[] = ["dashboardDomain", "dashboardHttps", "dashboardTunnelId", "proxyMaxBodySize", "proxyCustomConfig", "dashboardAllowlist"];
     if (proxyRelevant.some((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]))) await enqueue("proxy.sync", {});
 
     // Dashboard HTTPS: request a certificate from the Root organization.
-    if (after.dashboardDomain && after.dashboardHttps && after.acmeEmail && after.rootOrganizationId) {
+    if (after.dashboardDomain && after.dashboardHttps && !after.dashboardTunnelId && after.acmeEmail && after.rootOrganizationId) {
       const certs = await db.select().from(schema.certificate).where(eq(schema.certificate.organizationId, after.rootOrganizationId));
       if (!certs.some((c) => certificateCovers(c.domains, after.dashboardDomain!))) {
         const id = newId();

@@ -5,6 +5,7 @@ import { newId } from "@/server/id";
 import { imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { getServer } from "@/server/servers/context";
 import { Cloudflare } from "./api";
+import { getSettings } from "@/server/settings";
 
 /**
  * Cloudflare Tunnels: a cloudflared container on a server keeps an outbound
@@ -82,6 +83,9 @@ export async function syncTunnelIngress(tunnelId: string) {
   if (!tunnel) return;
   const ctx = await getServer(tunnel.serverId);
   const domains = await db.select({ hostname: schema.domain.hostname }).from(schema.domain).where(eq(schema.domain.tunnelId, tunnelId));
+  // The dashboard can use a tunnel of the server Serve runs on, like any service domain.
+  const settings = await getSettings();
+  if (settings.dashboardTunnelId === tunnelId && settings.dashboardDomain) domains.push({ hostname: settings.dashboardDomain });
   const origin = `http://${ctx.proxyContainer}:80`;
   const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
   try {
@@ -174,8 +178,11 @@ export async function checkTunnels() {
 
 /** Domains currently routed through tunnels (for warnings when a tunnel is removed). */
 export async function tunnelDomains(tunnelId: string) {
-  return db
+  const settings = await getSettings();
+  const dashboard = settings.dashboardTunnelId === tunnelId && settings.dashboardDomain ? [{ id: "dashboard", hostname: `${settings.dashboardDomain} (dashboard)` }] : [];
+  const rows = await db
     .select({ id: schema.domain.id, hostname: schema.domain.hostname })
     .from(schema.domain)
     .where(and(eq(schema.domain.tunnelId, tunnelId), isNotNull(schema.domain.tunnelId)));
+  return [...dashboard, ...rows];
 }

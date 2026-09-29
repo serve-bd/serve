@@ -34,6 +34,8 @@ export type Settings = {
   allowOrganizationCreation: boolean;
   /** Last time the worker reported in (ISO timestamp). */
   workerHeartbeat: string | null;
+  /** Cloudflare Tunnel (on the local server) that serves the dashboard domain; HTTPS by Cloudflare. */
+  dashboardTunnelId: string | null;
   /** Latest migration the running worker was built with. */
   workerSchemaVersion: string | null;
   /** IANA timezone used for backup and task schedules. */
@@ -84,6 +86,7 @@ export const defaultSettings: Settings = {
   allowOrganizationCreation: false,
   workerHeartbeat: null,
   workerSchemaVersion: null,
+  dashboardTunnelId: null,
   timezone: "UTC",
   proxyCustomConfig: null,
   dashboardAllowlist: [],

@@ -90,6 +90,7 @@ describe("repository webhooks", () => {
     const bb = createHookRequest("bitbucket", "https://api.bitbucket.org/2.0", "ws/app", url, secret);
     expect(bb.url).toBe("https://api.bitbucket.org/2.0/repositories/ws/app/hooks");
     expect(bb.body).toMatchObject({ secret, events: expect.arrayContaining(["repo:push", "pullrequest:created"]) });
+    expect(createHookRequest("bitbucket", "https://api.bitbucket.org/2.0", "ws/app", url, secret, "Acme Cloud").body).toMatchObject({ description: "Acme Cloud" });
     const gh = createHookRequest("github", "https://api.github.com", "o/r", url, secret);
     expect(gh.body).toMatchObject({ name: "web", config: { url, secret } });
     expect(deleteHookRequest("bitbucket", "https://api.bitbucket.org/2.0", "ws/app", "{abc}").url).toBe("https://api.bitbucket.org/2.0/repositories/ws/app/hooks/%7Babc%7D");

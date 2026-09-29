@@ -41,7 +41,7 @@ export function repoPath(repository: string, baseUrl?: string | null) {
 export type HookRequest = { method: "POST" | "DELETE"; url: string; body?: unknown };
 
 /** Provider API request that creates a push + pull request webhook. */
-export function createHookRequest(provider: HookProvider, api: string, path: string, url: string, secret: string): HookRequest {
+export function createHookRequest(provider: HookProvider, api: string, path: string, url: string, secret: string, label = "Serve"): HookRequest {
   switch (provider) {
     case "gitlab":
       return {
@@ -60,7 +60,7 @@ export function createHookRequest(provider: HookProvider, api: string, path: str
         method: "POST",
         url: `${api}/repositories/${path}/hooks`,
         body: {
-          description: "Serve",
+          description: label,
           url,
           active: true,
           secret,
@@ -166,7 +166,8 @@ export async function registerRepoWebhook(serviceId: string): Promise<RepoWebhoo
   try {
     // Replace an earlier hook so a changed dashboard address never leaves a stale one behind.
     if (source.webhook?.id) await removeRepoWebhook(source);
-    const req = createHookRequest(provider, apiBase(provider, cred.baseUrl), repoPath(source.repository, cred.baseUrl), url, service.webhookSecret);
+    const { productName } = await import("@/server/branding");
+    const req = createHookRequest(provider, apiBase(provider, cred.baseUrl), repoPath(source.repository, cred.baseUrl), url, service.webhookSecret, await productName());
     const res = await withCredentialToken(cred, (token) => send(req, authHeaders(provider, token, { oauth: !!cred.oauthAppId })));
     webhook = { provider, id: hookId(provider, res), url, createdAt: now, error: null };
   } catch (e) {

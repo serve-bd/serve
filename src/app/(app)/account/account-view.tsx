@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import useSWR from "swr";
 import { authClient } from "@/lib/auth-client";
+import { useProductName } from "@/components/brand";
 
 type SessionRow = { id: string; token: string; userAgent?: string | null; ipAddress?: string | null; createdAt: Date; updatedAt: Date };
 
@@ -156,6 +157,7 @@ export function AccountView({ user }: { user: { name: string; email: string; two
 function TwoFactorCard({ enabled }: { enabled: boolean }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
+  const productName = useProductName();
   const [step, setStep] = React.useState<"password" | "scan">("password");
   const [password, setPassword] = React.useState("");
   const [code, setCode] = React.useState("");
@@ -182,7 +184,8 @@ function TwoFactorCard({ enabled }: { enabled: boolean }) {
         setOpen(false);
         router.refresh();
       } else if (step === "password") {
-        const { data, error } = await authClient.twoFactor.enable({ password });
+        // The authenticator app lists the account under the white-label name.
+        const { data, error } = await authClient.twoFactor.enable({ password, issuer: productName });
         if (error || !data || !("totpURI" in data)) return toast.error(error?.message ?? "Wrong password");
         setQr(await QRCode.toDataURL(data.totpURI, { margin: 1, width: 200 }));
         setBackupCodes(data.backupCodes);

@@ -20,7 +20,7 @@ export function Section<T>({
   /** Anchor for the settings navigation. */
   id?: string;
   title: string;
-  description?: string;
+  description?: React.ReactNode;
   initial: T;
   onSave: (value: T) => Promise<unknown>;
   children: (value: T, set: (patch: Partial<T>) => void) => React.ReactNode;

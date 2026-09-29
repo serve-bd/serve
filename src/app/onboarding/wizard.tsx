@@ -16,6 +16,7 @@ import { postManifest } from "@/lib/github";
 import { GithubMark } from "@/components/github-mark";
 import { createProject } from "@/server/actions/projects";
 import { cn, formatBytes } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 type Initial = {
   instanceName: string;
@@ -331,7 +332,9 @@ export function OnboardingWizard({
                         <CopyField value={`${values.dashboardDomain}  →  ${values.serverIp}`} />
                       </div>
                     )}
-                    <p className="text-xs text-muted">Using Cloudflare? Connect it in the next steps and Serve creates records for you.</p>
+                    <p className="text-xs text-muted">
+                      Using Cloudflare? Connect it in the next steps and <ProductName /> creates records for you.
+                    </p>
                   </div>
                 )}
               </>
@@ -349,7 +352,7 @@ export function OnboardingWizard({
                   onCheckedChange={(v) => set("acmeStaging", v)}
                 />
                 <div className="rounded-lg border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-muted">
-                  Serve supports three ways to get certificates: <span className="text-fg-2">HTTP validation</span> (port 80 must be open),{" "}
+                  <ProductName /> supports three ways to get certificates: <span className="text-fg-2">HTTP validation</span> (port 80 must be open),{" "}
                   <span className="text-fg-2">Cloudflare DNS validation</span> (works for wildcards and servers behind firewalls), and{" "}
                   <span className="text-fg-2">Cloudflare Origin certificates</span> (valid up to 15 years for proxied domains).
                 </div>
@@ -388,7 +391,7 @@ export function OnboardingWizard({
                     <div className="flex flex-col gap-1">
                       <p className="text-[14px] font-medium text-fg">Connect GitHub with a GitHub App</p>
                       <p className="text-[13px] leading-relaxed text-muted">
-                        Serve creates a private app for this server. You choose the repositories it can read, and pushes and pull requests deploy automatically.
+                        <ProductName /> creates a private app for this server. You choose the repositories it can read, and pushes and pull requests deploy automatically.
                       </p>
                     </div>
                   </div>
@@ -466,10 +469,10 @@ function stepTitle(step: StepId) {
 
 function stepDescription(step: StepId) {
   return {
-    server: "Serve runs everything in Docker on this machine.",
+    server: "Everything runs in Docker on this machine.",
     domains: "Give apps a URL the moment they deploy.",
     ssl: "Certificates are issued by Let's Encrypt and renewed for you.",
-    cloudflare: "Manage DNS records and certificates without leaving Serve.",
+    cloudflare: "Manage DNS records and certificates from this dashboard.",
     git: "Deploy private repositories and get push-to-deploy.",
     project: "You're almost done.",
   }[step];

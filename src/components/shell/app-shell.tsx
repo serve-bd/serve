@@ -120,7 +120,7 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-14 items-center justify-between px-4">
-        <Link href="/" onClick={onNavigate}>
+        <Link href="/" onClick={onNavigate} className="flex min-w-0">
           <Logo />
         </Link>
       </div>

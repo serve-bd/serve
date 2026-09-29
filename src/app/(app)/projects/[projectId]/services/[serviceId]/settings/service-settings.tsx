@@ -33,6 +33,7 @@ import type { MaintenanceConfig, PreviewDatabaseConfig } from "@/server/services
 import { DistributionSection } from "./distribution-section";
 import type { MonitorSummary } from "@/server/monitoring/queries";
 import { updateDatabaseSettings } from "@/server/actions/databases";
+import { ProductName } from "@/components/brand";
 
 type Source =
   | { type: "git"; repository: string; branch: string; credentialId?: string | null; webhook?: RepoWebhook | null }
@@ -108,7 +109,7 @@ function ServerCard({ service, server, servers }: { service: Props["service"]; s
           </span>
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-[14px] font-medium text-fg">{server.name}</span>
-            <span className="truncate font-mono text-[12px] text-muted">{server.isLocal ? "The server Serve runs on" : server.host}</span>
+            <span className="truncate font-mono text-[12px] text-muted">{server.isLocal ? "The server this dashboard runs on" : server.host}</span>
           </div>
         </div>
         {!service.isPreview && others.length > 0 && (
@@ -121,7 +122,7 @@ function ServerCard({ service, server, servers }: { service: Props["service"]; s
                 options={others.map((s) => ({
                   value: s.id,
                   label: s.isLocal ? `${s.name} (this server)` : s.name,
-                  description: s.isLocal ? "Where Serve runs" : s.host,
+                  description: s.isLocal ? "Where this dashboard runs" : s.host,
                   disabled: !s.isLocal && s.status !== "ready",
                 }))}
               />
@@ -136,7 +137,7 @@ function ServerCard({ service, server, servers }: { service: Props["service"]; s
                   title: `Move ${service.name} to ${to.name}?`,
                   description: isDb
                     ? `The database starts empty on ${to.name}. Its data stays in a volume on ${server.name}. Back it up first and restore the backup after the move.`
-                    : `Serve stops the containers on ${server.name} and deploys again on ${to.name}. Expect a short downtime. Volumes are not copied, and domains pointing at ${server.name} must be pointed at ${to.name}.`,
+                    : `The containers on ${server.name} stop and deploy again on ${to.name}. Expect a short downtime. Volumes are not copied, and domains pointing at ${server.name} must be pointed at ${to.name}.`,
                   confirmLabel: isDb ? "Move without data" : "Move service",
                   danger: isDb,
                 });
@@ -271,7 +272,11 @@ export function ServiceSettings(props: Props) {
           <Section
             id="source"
             title="Source"
-            description="The repository and branch Serve builds from."
+            description={
+              <>
+                The repository and branch <ProductName /> builds from.
+              </>
+            }
             initial={{
               repository: service.source.repository,
               branch: service.source.branch,
@@ -477,7 +482,7 @@ export function ServiceSettings(props: Props) {
                     label="Git webhook URL"
                     description={
                       props.managedWebhook
-                        ? "Serve adds this to the repository for you. Add it yourself only if automatic setup is not possible."
+                        ? "This is added to the repository for you. Add it yourself only if automatic setup is not possible."
                         : "Add to GitHub, GitLab, Gitea or Bitbucket as a push webhook. Use the secret below. Content type: application/json."
                     }
                   >

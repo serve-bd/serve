@@ -24,6 +24,8 @@ export type OutgoingMessage = {
   server: { id: string; name: string } | null;
   deployment: { id: string } | null;
   data: Record<string, unknown>;
+  /** Product name the message comes from (white-label). */
+  brand?: string;
 };
 
 export type HttpRequest = {
@@ -44,6 +46,11 @@ const hex = (m: OutgoingMessage) => `#${color(m).toString(16).padStart(6, "0")}`
 const icon = (m: OutgoingMessage) => (m.ok ? "✅" : m.severity === "critical" ? "🚨" : m.severity === "warning" ? "⚠️" : "ℹ️");
 
 /** Where it happened, like "Shop / production / api". */
+/** The sender name shown on messages. */
+export function brandOf(m: OutgoingMessage) {
+  return m.brand || "Serve";
+}
+
 export function where(m: OutgoingMessage) {
   return [m.project?.name, m.environment?.name, m.service?.name].filter(Boolean).join(" / ") || m.server?.name || m.organization.name;
 }
@@ -161,7 +168,7 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
                 { type: "section", text: { type: "mrkdwn", text: m.body ? `${text}\n${escapeSlack(m.body).slice(0, 2900)}` : text } },
                 {
                   type: "context",
-                  elements: [{ type: "mrkdwn", text: `${escapeSlack(m.eventLabel)} · ${escapeSlack(where(m))}${m.url ? ` · <${m.url}|Open in Serve>` : ""}` }],
+                  elements: [{ type: "mrkdwn", text: `${escapeSlack(m.eventLabel)} · ${escapeSlack(where(m))}${m.url ? ` · <${m.url}|Open in ${brandOf(m)}>` : ""}` }],
                 },
               ],
             }),
@@ -181,7 +188,7 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
             headers: json,
             trusted: false,
             body: JSON.stringify({
-              ...(kind === "mattermost" ? { username: c("username") || undefined } : { alias: "Serve" }),
+              ...(kind === "mattermost" ? { username: c("username") || undefined } : { alias: brandOf(m) }),
               channel: c("channel") || undefined,
               text: `${icon(m)} **${m.title}**`,
               attachments: [
@@ -229,7 +236,7 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
                       ...(m.body ? [{ type: "TextBlock", wrap: true, text: m.body }] : []),
                       { type: "TextBlock", wrap: true, isSubtle: true, spacing: "Small", text: `${m.eventLabel} · ${where(m)}` },
                     ],
-                    actions: m.url ? [{ type: "Action.OpenUrl", title: "Open in Serve", url: m.url }] : [],
+                    actions: m.url ? [{ type: "Action.OpenUrl", title: `Open in ${brandOf(m)}`, url: m.url }] : [],
                   },
                 },
               ],
@@ -248,7 +255,7 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
             headers: { "content-type": "application/json; charset=UTF-8" },
             trusted: false,
             body: JSON.stringify({
-              text: [`${icon(m)} *${m.title}*`, m.body, `_${m.eventLabel} · ${where(m)}_`, m.url ? `<${m.url}|Open in Serve>` : ""].filter(Boolean).join("\n"),
+              text: [`${icon(m)} *${m.title}*`, m.body, `_${m.eventLabel} · ${where(m)}_`, m.url ? `<${m.url}|Open in ${brandOf(m)}>` : ""].filter(Boolean).join("\n"),
             }),
           },
         ],
@@ -259,7 +266,7 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
         `${icon(m)} <b>${escapeHtml(m.title)}</b>`,
         m.body && escapeHtml(m.body),
         `<i>${escapeHtml(`${m.eventLabel} · ${where(m)}`)}</i>`,
-        m.url && `<a href="${escapeHtml(m.url)}">Open in Serve</a>`,
+        m.url && `<a href="${escapeHtml(m.url)}">Open in ${escapeHtml(brandOf(m))}</a>`,
       ]
         .filter(Boolean)
         .join("\n");
@@ -284,7 +291,11 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
     }
 
     case "matrix": {
-      const html = [`${icon(m)} <b>${escapeHtml(m.title)}</b>`, m.body && escapeHtml(m.body).replace(/\n/g, "<br>"), m.url && `<a href="${escapeHtml(m.url)}">Open in Serve</a>`]
+      const html = [
+        `${icon(m)} <b>${escapeHtml(m.title)}</b>`,
+        m.body && escapeHtml(m.body).replace(/\n/g, "<br>"),
+        m.url && `<a href="${escapeHtml(m.url)}">Open in ${escapeHtml(brandOf(m))}</a>`,
+      ]
         .filter(Boolean)
         .join("<br>");
       return {
@@ -359,7 +370,7 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
               title: m.title.slice(0, 250),
               message: (m.body || m.eventLabel).slice(0, 1024),
               url: m.url ?? undefined,
-              url_title: m.url ? "Open in Serve" : undefined,
+              url_title: m.url ? `Open in ${brandOf(m)}` : undefined,
               priority: m.ok || m.severity === "info" ? 0 : 1,
               timestamp: Math.floor(new Date(m.occurredAt).getTime() / 1000),
             }),
@@ -427,9 +438,9 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
                 class: m.event,
                 custom_details: { body: m.body, error: m.error, environment: m.environment?.name, organization: m.organization.name },
               },
-              client: "Serve",
+              client: brandOf(m),
               client_url: m.url ?? undefined,
-              links: m.url ? [{ href: m.url, text: "Open in Serve" }] : [],
+              links: m.url ? [{ href: m.url, text: `Open in ${brandOf(m)}` }] : [],
             }),
           },
         ],
@@ -450,7 +461,7 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
               method: "POST",
               headers,
               trusted: true,
-              body: JSON.stringify({ source: "Serve", note: m.title }),
+              body: JSON.stringify({ source: brandOf(m), note: m.title }),
             },
           ],
         };
@@ -468,7 +479,7 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
               alias,
               description: [m.body, m.url].filter(Boolean).join("\n\n").slice(0, 15_000),
               priority: m.severity === "critical" ? "P1" : m.severity === "warning" ? "P3" : "P5",
-              source: "Serve",
+              source: brandOf(m),
               entity: m.service?.name ?? m.server?.name,
               tags: [m.event, m.environment?.name].filter(Boolean),
               responders: c("responders") ? [{ name: c("responders"), type: "team" }] : undefined,

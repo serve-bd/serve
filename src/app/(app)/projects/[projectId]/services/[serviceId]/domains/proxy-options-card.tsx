@@ -324,7 +324,7 @@ export function ProxyOptionsCard({
                 ? "Raw nginx directives inside this service's location block. Tested before they apply."
                 : proxyKind === "caddy"
                   ? "Raw Caddyfile directives inside this service's route, before the request reaches the app. Tested before they apply."
-                  : "Extra Traefik middlewares as YAML (name: definition). They run after Serve's own. Checked against Traefik before they apply."
+                  : "Extra Traefik middlewares as YAML (name: definition). They run after the built-in ones. Checked against Traefik before they apply."
             }
           >
             <Textarea

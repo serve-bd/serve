@@ -8,6 +8,7 @@ import { Badge, Card, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
 import type { ServerInfo, ServerStatus } from "@/server/db/schema";
 import { cn, formatBytes } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 type Row = {
   id: string;
@@ -51,7 +52,11 @@ export function ServerList({ servers }: { servers: Row[] }) {
           <EmptyState
             icon={<Server />}
             title="Run services on more machines"
-            description="Add a Linux server with SSH access. Serve installs Docker if needed, starts its proxy there, and lets you deploy to it like this one."
+            description={
+              <>
+                Add a Linux server with SSH access. <ProductName /> installs Docker if needed, starts its proxy there, and lets you deploy to it like this one.
+              </>
+            }
           />
         </Card>
       </div>
@@ -113,7 +118,9 @@ function ServerCard({ server: s }: { server: Row }) {
         {s.statusMessage && s.status !== "ready" ? (
           <p className={cn("line-clamp-2 text-xs leading-relaxed", problem ? "text-bad" : "text-muted")}>{s.statusMessage}</p>
         ) : (
-          <p className="truncate text-xs text-muted">{facts.length ? facts.join(" · ") : s.description || (s.isLocal ? "Runs Serve itself" : "Validate to read system details")}</p>
+          <p className="truncate text-xs text-muted">
+            {facts.length ? facts.join(" · ") : s.description || (s.isLocal ? "Runs this dashboard" : "Validate to read system details")}
+          </p>
         )}
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-xs text-muted">

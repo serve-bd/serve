@@ -12,6 +12,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { cn } from "@/lib/utils";
 import { createGitOAuthApp, deleteGitOAuthApp, startGitOAuth } from "@/server/actions/integrations";
+import { ProductName } from "@/components/brand";
 
 export type OAuthProvider = "gitlab" | "gitea" | "bitbucket";
 
@@ -248,7 +249,10 @@ export function OAuthSetupDialog({ provider, base, onClose }: { provider: OAuthP
                   )}{" "}
                   {provider === "gitlab" && <span className="text-muted">(older versions: Preferences → Applications)</span>}
                 </li>
-                <li>Create an application named Serve{provider === "gitlab" ? ", keep Confidential checked" : ""}.</li>
+                <li>
+                  Create an application named <ProductName />
+                  {provider === "gitlab" ? ", keep Confidential checked" : ""}.
+                </li>
                 <li>Use this {provider === "bitbucket" ? "callback URL" : "redirect URI"}:</li>
               </ol>
               <CopyField value={redirect} />

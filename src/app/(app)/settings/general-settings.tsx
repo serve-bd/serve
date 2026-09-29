@@ -1,7 +1,6 @@
 "use client";
 
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { Combobox } from "@/components/ui/combobox";
 import { SettingsCard } from "./_components/settings-card";
 
@@ -17,14 +16,11 @@ function timezoneOptions() {
   return zones;
 }
 
-export function GeneralSettings({ initial }: { initial: { instanceName: string; timezone: string } }) {
+export function GeneralSettings({ initial }: { initial: { timezone: string } }) {
   return (
-    <SettingsCard title="General" description="How this Serve instance is named and when schedules run." initial={initial}>
+    <SettingsCard title="General" description="When schedules run. The product name, logo and colours are under Branding." initial={initial}>
       {(v, set) => (
         <>
-          <Field label="Instance name" description="Shown in the browser tab and in emails.">
-            <Input value={v.instanceName} onChange={(e) => set("instanceName")(e.target.value)} className="sm:max-w-sm" />
-          </Field>
           <Field label="Timezone" description="Backup schedules and scheduled tasks run in this timezone.">
             <Combobox value={v.timezone} onValueChange={set("timezone")} options={timezoneOptions()} placeholder="Search timezones" className="sm:max-w-sm" />
           </Field>

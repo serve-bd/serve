@@ -31,6 +31,7 @@ import useSWR from "swr";
 import { relativeRecordName } from "@/lib/dns-name";
 import { cn } from "@/lib/utils";
 import { useDebounced } from "@/hooks/use-client";
+import { ProductName } from "@/components/brand";
 
 type DomainRow = {
   id: string;
@@ -112,13 +113,13 @@ function TunnelNotice({ d, tunnels, serverName }: { d: DomainRow; tunnels: Tunne
   const t = tunnels.find((x) => x.id === d.tunnelId);
   let text: string | null = null;
   if (d.tunnel && t && (t.status === "down" || t.status === "error"))
-    text = `The tunnel is ${t.status === "error" ? "failing" : "down"}${t.statusMessage ? `: ${t.statusMessage}` : ""}. Serve restarts its connector; check Integrations → Cloudflare.`;
+    text = `The tunnel is ${t.status === "error" ? "failing" : "down"}${t.statusMessage ? `: ${t.statusMessage}` : ""}. The connector restarts automatically; check Integrations → Cloudflare.`;
   else if (d.wantsTunnel && !d.tunnel) {
     text = d.tunnelError
       ? `Reconnecting failed: ${d.tunnelError}. Fix it, then use Reconnect to tunnel.`
       : tunnels.length
-        ? `No tunnel on ${serverName} belongs to the Cloudflare account that manages ${d.hostname}. Connect that account and create a tunnel; Serve reconnects this domain automatically.`
-        : `${serverName} has no Cloudflare Tunnel. Connect Cloudflare and create a tunnel for this server; Serve reconnects this domain automatically.`;
+        ? `No tunnel on ${serverName} belongs to the Cloudflare account that manages ${d.hostname}. Connect that account and create a tunnel; this domain reconnects automatically.`
+        : `${serverName} has no Cloudflare Tunnel. Connect Cloudflare and create a tunnel for this server; this domain reconnects automatically.`;
   }
   if (!text) return null;
   return <p className="mt-1 max-w-2xl rounded-lg bg-bad-soft px-2.5 py-1.5 text-xs leading-relaxed text-fg-2">{text}</p>;
@@ -545,14 +546,16 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                   <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
                     <Waypoints className="mt-0.5 size-4 flex-none text-[#f38020]" />
                     <p>
-                      Serve points <span className="font-mono text-fg">{hostname}</span> at the tunnel in {tunnel!.accountName}. Cloudflare serves it over HTTPS, so no certificate
-                      or open port is needed.
+                      <ProductName /> points <span className="font-mono text-fg">{hostname}</span> at the tunnel in {tunnel!.accountName}. Cloudflare serves it over HTTPS, so no
+                      certificate or open port is needed.
                     </p>
                   </div>
                 ) : props.proxyKind === "none" ? (
                   <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
                     <Globe className="mt-0.5 size-4 flex-none text-muted" />
-                    <p>No proxy on this server — use published ports or your own proxy. Serve saves the domain and serves it again when a proxy runs.</p>
+                    <p>
+                      No proxy on this server — use published ports or your own proxy. <ProductName /> saves the domain and serves it again when a proxy runs.
+                    </p>
                   </div>
                 ) : (
                   <>
@@ -877,7 +880,7 @@ export function DomainsManager(props: Props) {
                         if (
                           await confirm({
                             title: `Remove ${d.hostname}?`,
-                            description: d.managedRecord ? "The DNS record Serve created in Cloudflare is deleted too." : "The domain stops routing to this service.",
+                            description: d.managedRecord ? "The DNS record created in Cloudflare is deleted too." : "The domain stops routing to this service.",
                             confirmLabel: "Remove domain",
                             danger: true,
                           })

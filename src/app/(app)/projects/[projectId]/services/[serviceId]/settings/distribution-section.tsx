@@ -17,6 +17,7 @@ import { DEFAULT_TAG, defaultRepository, renderTag } from "@/server/registries/r
 import type { Distribution } from "@/server/deploy/distribution";
 import type { DeploymentTarget } from "@/server/services/types";
 import { cn } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 type ServerOption = { id: string; name: string; status: string; isLocal: boolean };
 type RegistryOption = { id: string; name: string; host: string; namespace: string | null; username: string };
@@ -117,7 +118,7 @@ export function DistributionSection(props: {
           title="Registry"
           description={
             props.gitSource
-              ? "After each build, Serve pushes the image here. Every server pulls exactly that image, and rollbacks pull it again without rebuilding."
+              ? "After each build, the image is pushed here. Every server pulls exactly that image, and rollbacks pull it again without rebuilding."
               : "This app runs a prebuilt image, so each server pulls it from its own registry. A registry here is not needed."
           }
         />
@@ -169,7 +170,11 @@ export function DistributionSection(props: {
               </Field>
               <SwitchRow
                 title="Also tag as latest"
-                description="Moves the latest tag to every new image, for tools outside Serve."
+                description={
+                  <>
+                    Moves the latest tag to every new image, for tools outside <ProductName />.
+                  </>
+                }
                 checked={value.tagLatest}
                 onCheckedChange={(c) => set({ tagLatest: c })}
                 disabled={!props.canEdit}

@@ -21,6 +21,7 @@ import { postManifest } from "@/lib/github";
 import { GithubMark } from "@/components/github-mark";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { MethodDialog, OAuthApps, OAuthSetupDialog, type OAuthAppRow, type OAuthBase, type OAuthProvider } from "./oauth-apps";
+import { ProductName } from "@/components/brand";
 
 type Cred = {
   id: string;
@@ -41,8 +42,8 @@ const providerNames: Record<string, string> = {
 };
 
 const tokenHelp: Record<string, string> = {
-  github: "Classic token with repo and admin:repo_hook, so Serve can add the deploy webhook.",
-  gitlab: "Preferences → Access tokens with the api scope, so Serve can read repositories and add the deploy webhook.",
+  github: "Classic token with repo and admin:repo_hook, so the deploy webhook can be added automatically.",
+  gitlab: "Preferences → Access tokens with the api scope, so repositories can be read and the deploy webhook added.",
   gitea: "Settings → Applications → Generate token with read:user and write:repository.",
   bitbucket: "Repository or workspace access token with Repositories: read and Webhooks: read and write.",
 };
@@ -94,7 +95,7 @@ function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: bo
         <div className="flex min-w-0 flex-col gap-1">
           <h3 className="text-[15px] font-semibold text-fg">Connect GitHub</h3>
           <p className="max-w-xl text-[13px] leading-relaxed text-muted">
-            Serve creates a private GitHub App for this server. You choose which repositories it can read, and pushes and pull requests deploy automatically.
+            <ProductName /> creates a private GitHub App for this server. You choose which repositories it can read, and pushes and pull requests deploy automatically.
           </p>
         </div>
       </div>
@@ -214,7 +215,14 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
               void add.run();
             }}
           >
-            <DialogHeader title="Add access token" description="Serve verifies the token and lists the repositories it can read." />
+            <DialogHeader
+              title="Add access token"
+              description={
+                <>
+                  <ProductName /> verifies the token and lists the repositories it can read.
+                </>
+              }
+            />
             <DialogBody>
               <Field label="Provider">
                 <Select
@@ -314,7 +322,7 @@ export function GitProviders({
     const error = params.get("error");
     if ((!connected && !error) || announced.current) return;
     announced.current = true;
-    if (connected) toast.success("Connected", `Serve can now deploy repositories from ${connected}.`);
+    if (connected) toast.success("Connected", `You can now deploy repositories from ${connected}.`);
     if (error) toast.error("GitHub setup did not finish", error);
     router.replace("/integrations/git");
   }, [params, router]);

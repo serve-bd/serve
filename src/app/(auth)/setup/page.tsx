@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { userCount } from "@/server/accounts";
 import { SetupForm } from "./setup-form";
 
-export const metadata = { title: "Set up Serve" };
+export const metadata = { title: "Set up" };
 
 export default async function SetupPage() {
   await connection();

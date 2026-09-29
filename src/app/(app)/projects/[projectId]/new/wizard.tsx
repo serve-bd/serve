@@ -22,6 +22,7 @@ import { GithubMark } from "@/components/github-mark";
 import { PageBody, PageHeader, type Crumb } from "@/components/shell/page-header";
 import useSWR from "swr";
 import type { DbEngine } from "@/server/services/types";
+import { ProductName } from "@/components/brand";
 
 type Kind = "git" | "image" | "database" | "compose";
 
@@ -90,7 +91,7 @@ function repoName(url: string) {
 /** Right-hand guide shown next to every create form. */
 function NextSteps() {
   const steps = [
-    ["Create", "Serve saves the service. Nothing runs yet."],
+    ["Create", "The service is saved. Nothing runs yet."],
     ["Configure", "Add variables, domains, ports and storage if you need them."],
     ["Deploy", "Start it from the service page when you are ready."],
   ];
@@ -125,7 +126,7 @@ function FormShell({
   onSubmit,
 }: {
   title: string;
-  description: string;
+  description: React.ReactNode;
   onBack: () => void;
   children: React.ReactNode;
   footer: React.ReactNode;
@@ -225,7 +226,11 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
   return (
     <FormShell
       title="Add a Git repository"
-      description="Serve clones the repository, builds an image and deploys it with zero downtime."
+      description={
+        <>
+          <ProductName /> clones the repository, builds an image and deploys it with zero downtime.
+        </>
+      }
       onBack={onBack}
       onSubmit={() =>
         run({
@@ -410,7 +415,11 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
   return (
     <FormShell
       title="Add a Docker image"
-      description="Serve pulls the image and runs it. Redeploy to pull the newest version of a tag."
+      description={
+        <>
+          <ProductName /> pulls the image and runs it. Redeploy to pull the newest version of a tag.
+        </>
+      }
       onBack={onBack}
       onSubmit={() =>
         run({
@@ -888,7 +897,7 @@ function ServerBar({ servers, value, onChange }: { servers: Props["servers"]; va
         options={servers.map((s) => ({
           value: s.id,
           label: s.isLocal ? `${s.name} (this server)` : s.name,
-          description: s.isLocal ? "Where Serve runs" : s.host,
+          description: s.isLocal ? "Where this dashboard runs" : s.host,
           disabled: !s.isLocal && s.status !== "ready" && s.status !== "unreachable",
         }))}
       />

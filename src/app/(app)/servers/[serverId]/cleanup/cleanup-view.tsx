@@ -12,6 +12,7 @@ import { useAction } from "@/hooks/use-action";
 import { runCleanup } from "@/server/actions/server";
 import type { CleanupRun } from "@/server/settings";
 import { cn, formatBytes } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 type Usage = {
   images: { count: number; size: number; unused: number };
@@ -95,7 +96,12 @@ export function CleanupView({
       <Card>
         <CardHeader
           title="Storage"
-          description="Disk usage of Serve's data directory and Docker on this server."
+          description={
+            <>
+              Disk usage of <ProductName />
+              's data directory and Docker on this server.
+            </>
+          }
           actions={
             <Button
               size="sm"
@@ -109,7 +115,9 @@ export function CleanupView({
                     <span className="flex flex-col gap-2">
                       <span>This removes:</span>
                       <span className="flex flex-col gap-1 pl-3 text-fg-2">
-                        <span>• Dangling images and stopped containers from old Serve deployments</span>
+                        <span>
+                          • Dangling images and stopped containers from old <ProductName /> deployments
+                        </span>
                         <span>
                           • Build cache
                           {settings.cleanupBuildCacheDays > 0
@@ -117,7 +125,12 @@ export function CleanupView({
                             : " (skipped: set to keep)"}
                         </span>
                         <span>• Dangling images on the whole host</span>
-                        {settings.cleanupUnusedImages && <span>• Images no container uses (except Serve&apos;s rollback images)</span>}
+                        {settings.cleanupUnusedImages && (
+                          <span>
+                            • Images no container uses (except <ProductName />
+                            &apos;s rollback images)
+                          </span>
+                        )}
                         <span>• Old jobs, metrics and activity records</span>
                       </span>
                       <span>Volumes and running containers are never touched.</span>

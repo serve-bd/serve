@@ -11,6 +11,7 @@ import { useRouter } from "@/hooks/use-router";
 import { disableTunnel, restartTunnelConnector, tunnelDetails, tunnelImpact, updateTunnelConnector } from "@/server/actions/integrations";
 import type { TunnelDetails } from "@/server/cloudflare/tunnels";
 import { cn } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 export type TunnelDomain = { hostname: string; service: { name: string; href: string } | null };
 export type TunnelInfo = {
@@ -215,7 +216,9 @@ export function TunnelRow({
                 ) : (
                   <>
                     <p className="text-[13px] font-medium text-bad">Missing</p>
-                    <p className="text-xs text-muted">Serve starts it again within a minute, or restart it now.</p>
+                    <p className="text-xs text-muted">
+                      <ProductName /> starts it again within a minute, or restart it now.
+                    </p>
                   </>
                 )
               ) : (
@@ -304,7 +307,7 @@ export function TunnelRow({
                     !(await confirm({
                       title: `Remove the tunnel from ${server.name}?`,
                       description: offline.length
-                        ? "The connector stops and the tunnel is deleted in Cloudflare. These domains stop working until a tunnel runs on this server again; Serve then reconnects them automatically."
+                        ? "The connector stops and the tunnel is deleted in Cloudflare. These domains stop working until a tunnel runs on this server again; they then reconnect automatically."
                         : "The connector stops and the tunnel is deleted in Cloudflare.",
                       confirmLabel: offline.length ? "Remove tunnel anyway" : "Remove tunnel",
                       danger: true,

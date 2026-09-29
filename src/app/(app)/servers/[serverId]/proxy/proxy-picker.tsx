@@ -13,10 +13,10 @@ import { proxyLabels, type ProxyKind, type ProxySwitchState } from "@/server/pro
 import { cn } from "@/lib/utils";
 
 const OPTIONS: { kind: ProxyKind; name: string; tagline: string; points: string[] }[] = [
-  { kind: "nginx", name: "nginx", tagline: "Fast and predictable", points: ["Serve issues and renews certificates", "Raw nginx directives per service"] },
+  { kind: "nginx", name: "nginx", tagline: "Fast and predictable", points: ["Certificates issued and renewed for you", "Raw nginx directives per service"] },
   { kind: "caddy", name: "Caddy", tagline: "Automatic HTTPS", points: ["Caddy gets and renews certificates itself", "Simple Caddyfile snippets, HTTP/3"] },
   { kind: "traefik", name: "Traefik", tagline: "Dynamic configuration", points: ["Built-in ACME, including Cloudflare DNS", "Middlewares, metrics and a dashboard"] },
-  { kind: "none", name: "None", tagline: "No proxy", points: ["Serve runs no proxy on this server", "Use published ports or your own proxy"] },
+  { kind: "none", name: "None", tagline: "No proxy", points: ["No proxy runs on this server", "Use published ports or your own proxy"] },
 ];
 
 export function ProxyPicker({
@@ -63,10 +63,10 @@ export function ProxyPicker({
       title: to === "none" ? "Remove the proxy?" : `Switch to ${target.name}?`,
       description:
         to === "none"
-          ? "Serve removes the proxy container from this server. Every domain stops answering; services stay reachable only on their published ports. Certificates are no longer requested."
+          ? "The proxy container is removed from this server. Every domain stops answering; services stay reachable only on their published ports. Certificates are no longer requested."
           : stopped
-            ? `Serve writes the ${target.name} configuration for every site. The proxy stays stopped until you start it.`
-            : `Serve writes the ${target.name} configuration for every site, then replaces the proxy container. Every site on this server is unreachable for a few seconds. If ${target.name} does not start, the current proxy comes back.`,
+            ? `The ${target.name} configuration is written for every site. The proxy stays stopped until you start it.`
+            : `The ${target.name} configuration is written for every site, then the proxy container is replaced. Every site on this server is unreachable for a few seconds. If ${target.name} does not start, the current proxy comes back.`,
       confirmLabel: to === "none" ? "Remove the proxy" : `Switch to ${target.name}`,
       danger: to === "none",
     });

@@ -5,6 +5,7 @@ import { Field } from "@/components/ui/field";
 import { Input, InputGroup } from "@/components/ui/input";
 import { SwitchRow } from "@/components/ui/switch";
 import { SettingsCard } from "../_components/settings-card";
+import { ProductName } from "@/components/brand";
 
 const digits = (value: string, fallback = 1) => Number(value.replace(/\D/g, "")) || fallback;
 
@@ -19,7 +20,15 @@ export function AdvancedSettings({
 }) {
   return (
     <>
-      <SettingsCard title="Builds and limits" description="Resources Serve itself may use." initial={limits}>
+      <SettingsCard
+        title="Builds and limits"
+        description={
+          <>
+            Resources <ProductName /> itself may use.
+          </>
+        }
+        initial={limits}
+      >
         {(v, set) => (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Concurrent builds" description="More builds at once need more CPU and memory.">
@@ -40,7 +49,15 @@ export function AdvancedSettings({
         )}
       </SettingsCard>
 
-      <SettingsCard title="Organizations" description="Every organization on this Serve instance." initial={orgSettings}>
+      <SettingsCard
+        title="Organizations"
+        description={
+          <>
+            Every organization on this <ProductName /> instance.
+          </>
+        }
+        initial={orgSettings}
+      >
         {(v, set) => (
           <>
             <SwitchRow

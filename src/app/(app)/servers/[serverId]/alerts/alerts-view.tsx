@@ -12,6 +12,7 @@ import { useAction } from "@/hooks/use-action";
 import { saveServerAlerts } from "@/server/actions/monitoring";
 import type { ServerAlertConfig } from "@/server/db/schema";
 import { cn } from "@/lib/utils";
+import { ProductName } from "@/components/brand";
 
 type Incident = { id: string; title: string; detail: string | null; severity: "warning" | "critical"; startedAt: string; resolvedAt: string | null };
 
@@ -60,7 +61,11 @@ export function AlertsView({ serverId, serverName, config, incidents }: { server
         >
           <CardHeader
             title="Thresholds"
-            description="Serve compares the samples it collects every 30 seconds with these limits and alerts your notification channels. An alert clears 5 points below its limit."
+            description={
+              <>
+                <ProductName /> compares the samples it collects every 30 seconds with these limits and alerts your notification channels. An alert clears 5 points below its limit.
+              </>
+            }
           />
           <CardBody className="flex flex-col gap-5">
             <SwitchRow title="Resource alerts" description={`Watch disk, memory and CPU on ${serverName}.`} checked={v.enabled} onCheckedChange={(enabled) => set({ enabled })} />

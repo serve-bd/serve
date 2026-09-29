@@ -5,6 +5,12 @@ export function explainCertError(error: string, ctx: { serverIp?: string | null;
   const which = domains.length ? domains.join(", ") : "the domain";
   const ip = ctx.serverIp ? ` pointing to ${ctx.serverIp}` : " pointing to this server";
 
+  // Let's Encrypt reached a Cloudflare edge address: the orange-cloud proxy is on.
+  if (ctx.provider === "letsencrypt-http" && /2606:4700:|2a06:98c[01]:|\b(104\.(1[6-9]|2[0-7])|172\.(6[4-9]|7[01])|162\.15[89]|188\.114\.9[6-9]|141\.101\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\./.test(e))
+    return {
+      title: `${which} is behind Cloudflare's proxy`,
+      hint: "The HTTP check cannot pass through it here. Connect the Cloudflare account in Integrations and retry: Serve then uses the DNS check automatically.",
+    };
   if (/nxdomain|no valid ip addresses found|dns problem: servfail/.test(e))
     return { title: `No DNS record for ${which}`, hint: `Add an A record${ip}, wait for it to propagate, then retry.` };
   if (/rate ?limit|too many (certificates|failed authorizations)/.test(e))

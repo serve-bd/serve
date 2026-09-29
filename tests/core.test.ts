@@ -215,3 +215,13 @@ describe("upstreamBlock", () => {
     expect(out).toContain("server 10.0.0.5:80 max_fails=0;");
   });
 });
+
+describe("explainCertError Cloudflare", () => {
+  it("recognises validation against a Cloudflare edge address", () => {
+    const r = explainCertError(
+      "Validation failed: 2606:4700:3034::6815:55ac: Invalid response from https://testing.shahriyar.dev/.well-known/acme-challenge/x: 404",
+      { provider: "letsencrypt-http" },
+    );
+    expect(r.title).toContain("behind Cloudflare");
+  });
+});

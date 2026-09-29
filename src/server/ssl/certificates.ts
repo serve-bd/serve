@@ -183,9 +183,36 @@ export async function applyCertificate(cert: Cert) {
   }
 }
 
+/** A connected Cloudflare account whose zones contain every domain, if any. */
+async function cloudflareAccountFor(domains: string[], organizationId: string) {
+  const accounts = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, organizationId));
+  for (const account of accounts) {
+    try {
+      const cf = new Cloudflare(decrypt(account.apiToken));
+      const zones = await Promise.all(domains.map((d) => cf.zoneFor(d.replace(/^\*\./, ""))));
+      if (zones.every(Boolean)) return account.id;
+    } catch {
+      // try the next account
+    }
+  }
+  return null;
+}
+
 export async function issueCertificate(certificateId: string) {
-  const [cert] = await db.select().from(schema.certificate).where(eq(schema.certificate.id, certificateId));
+  let [cert] = await db.select().from(schema.certificate).where(eq(schema.certificate.id, certificateId));
   if (!cert || cert.provider === "custom") return;
+  // The DNS challenge works behind Cloudflare's proxy, NAT and non-standard ports;
+  // the HTTP challenge does not. Prefer it whenever Cloudflare manages the domain.
+  if (cert.provider === "letsencrypt-http") {
+    const accountId = await cloudflareAccountFor(cert.domains, cert.organizationId);
+    if (accountId) {
+      [cert] = await db
+        .update(schema.certificate)
+        .set({ provider: "letsencrypt-cloudflare", cloudflareAccountId: accountId })
+        .where(eq(schema.certificate.id, cert.id))
+        .returning();
+    }
+  }
   const wasActive = cert.status === "active";
   await db
     .update(schema.certificate)
@@ -235,7 +262,8 @@ export async function issueCertificate(certificateId: string) {
       body: `${cert.domains.join(", ")}: ${hint(output ?? message).slice(0, 300)}`,
       url: "/certificates",
     });
-    throw error;
+    // Report the reason, not "docker run exited with code 1", in the job and worker log.
+    throw new Error(`${cert.domains.join(", ")}: ${hint(output ?? message).split("\n")[0].slice(0, 500)}`);
   }
 }
 
@@ -290,7 +318,8 @@ export async function ensureCertificateFor(domain: typeof schema.domain.$inferSe
   }
   const settings = await getSettings();
   if (!settings.acmeEmail) return null;
-  const useDns = !!domain.cloudflareAccountId;
+  const cloudflareAccountId = domain.cloudflareAccountId ?? (await cloudflareAccountFor([domain.hostname], organizationId));
+  const useDns = !!cloudflareAccountId;
   const id = newId();
   const [cert] = await db
     .insert(schema.certificate)
@@ -301,7 +330,7 @@ export async function ensureCertificateFor(domain: typeof schema.domain.$inferSe
       name: domain.hostname,
       domains: [domain.hostname],
       provider: useDns ? "letsencrypt-cloudflare" : "letsencrypt-http",
-      cloudflareAccountId: domain.cloudflareAccountId,
+      cloudflareAccountId,
       status: "pending",
     })
     .returning();

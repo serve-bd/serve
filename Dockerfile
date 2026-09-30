@@ -32,6 +32,9 @@ COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
 COPY --from=build /app/dist/worker.cjs ./worker.cjs
 COPY --from=build /app/drizzle ./drizzle
+# The updater installs these from the new image, so the stack definition always matches the code.
+COPY docker/compose.yml /app/deploy/compose.yml
+COPY scripts/restore-instance.sh /app/deploy/restore-instance.sh
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 EXPOSE 3000

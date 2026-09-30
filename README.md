@@ -77,13 +77,14 @@ The installer:
 1. Installs Docker if it is missing (Docker Compose v2 is required).
 2. Gives Docker larger network address pools and log rotation in `/etc/docker/daemon.json`.
 3. Writes generated secrets to `/data/serve/.env` (kept on later runs).
-4. Downloads the stack definition to `/data/serve/docker-compose.yml` and starts three containers: the dashboard (`serve`), the worker (`serve-worker`) and Serve's own PostgreSQL (`serve-db`). The worker then starts the proxy.
+4. Pulls the newest release as an exact version (like `ghcr.io/shahriyardx/serve:0.2.0`), copies the stack definition from that image to `/data/serve/docker-compose.yml` and starts three containers: the dashboard (`serve`), the worker (`serve-worker`) and Serve's own PostgreSQL (`serve-db`). The worker then starts the proxy.
 
 Installer options, set as environment variables before running it:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SERVE_IMAGE` | `ghcr.io/shahriyardx/serve:latest` | Image to run |
+| `SERVE_VERSION` | newest release | Release to install, like `0.2.0` |
+| `SERVE_IMAGE` | | Exact image to run (overrides `SERVE_VERSION`); `:edge` follows the main branch |
 | `SERVE_DASHBOARD_PORT` | `8000` | Host port of the dashboard |
 
 The data directory must stay `/data/serve`: the worker creates bind mounts with host paths, so the path is the same inside and outside its container.
@@ -92,17 +93,16 @@ The data directory must stay `/data/serve`: the worker creates bind mounts with 
 
 **Settings → Updates** shows the running version and commit and checks GitHub releases every few hours (turn it off on the same page; nothing about the instance is sent). When a newer release exists, **Update now**:
 
-1. takes a backup of the instance (see below),
-2. moves `SERVE_IMAGE` in `/data/serve/.env` to the new version if it is pinned to one (`:latest` is kept and pulled again),
-3. starts a short-lived `serve-updater` container that runs `docker compose pull` and `docker compose up -d` for `serve` and `serve-worker`.
+1. checks that at least 2 GB is free and takes a backup of the instance (see below),
+2. pulls the new image, pinned to the exact version,
+3. starts a short-lived `serve-updater` container from the new image. It installs the new stack definition (keeping the old one as `docker-compose.previous.yml`), moves `SERVE_IMAGE` in `/data/serve/.env`, pulls the other images and restarts the stack,
+4. waits until the new dashboard is healthy and the new worker stays up. If not, it puts the previous stack definition and image back and starts them again ("Rolled back").
 
-The dashboard is unavailable for about a minute; deployed services keep running. Progress and the updater's output stay on the page, and database migrations run when the new version starts.
+The dashboard is unavailable for a minute or two; deployed services keep running. Progress and the updater's output stay on the page, and database migrations run when the new version starts. Migrations only add to the schema, so a rolled-back version still runs on the database; the backup from step 1 restores everything as it was.
 
-To update by hand instead:
+One update moves every part Serve runs to the versions tested with that release: the dashboard, the worker, Serve's PostgreSQL (patch versions of 17), the proxy on every server and the private network agent (its WireGuard tools). All of them are pinned to exact versions, so every server runs the same thing; the page lists what each part runs now. A server can still pin its own proxy image in its proxy settings. The WireGuard module itself is part of each server's Linux kernel and updates with the operating system.
 
-```bash
-cd /data/serve && docker compose pull && docker compose up -d
-```
+To update by hand instead, run the installer again: it keeps `.env` and moves the install to the newest release (or `SERVE_VERSION`).
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -155,7 +155,7 @@ Most settings (server IP, domains, Let's Encrypt, proxy, build limits) live in t
 | `SERVE_PROXY_CONTAINER` | `serve-proxy` | Name of the proxy container |
 | `SERVE_DASHBOARD_UPSTREAM` | `serve:3000` | How the proxy reaches the dashboard |
 | `SERVE_WEBHOOK_BASE_URL` | dashboard URL | Address Git providers send webhooks to, if different |
-| `SERVE_PROXY_IMAGE` / `SERVE_CADDY_IMAGE` / `SERVE_TRAEFIK_IMAGE` | `nginx:stable-alpine` / `caddy:2-alpine` / `traefik:v3.7` | Proxy images |
+| `SERVE_PROXY_IMAGE` / `SERVE_CADDY_IMAGE` / `SERVE_TRAEFIK_IMAGE` | `nginx:1.30.5-alpine` / `caddy:2.11.4-alpine` / `traefik:v3.7.13` | Proxy images |
 | `SERVE_TUNNEL_IMAGE` | `cloudflare/cloudflared:latest` | Cloudflare Tunnel connector image |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket of the local server |
 | `DATABASE_POOL_SIZE` | `10` | PostgreSQL connections per process |
@@ -283,6 +283,15 @@ When the dashboard is opened through another domain during development (for exam
 | `scripts/e2e/run.sh` | Isolated end-to-end instance on :3001 with its own database, data directory and proxy (see `.env.e2e`) |
 
 The scripts in `scripts/e2e/` drive that instance with Playwright (`shot.mjs` takes screenshots, the others exercise deploys, proxies, databases and more).
+
+### Releasing
+
+1. Set the new version in `package.json` and commit.
+2. Tag it: `git tag v0.2.0 && git push origin v0.2.0`.
+
+The image workflow checks that the tag matches `package.json`, pushes `:0.2.0`, `:0.2` and `:latest` for both architectures, then publishes the GitHub release that installs see under Settings → Updates. A tag with a suffix (`v0.3.0-rc.1`) becomes a pre-release: it gets no `:latest` and is not offered as an update. Every push to `main` builds `:edge`.
+
+Migrations must only add (new tables, new nullable or defaulted columns), so the previous release keeps working if an update rolls back. Remove old columns one release later. To move a pinned image (proxy, agent base, PostgreSQL), change it in the code and release.
 
 ### Project layout
 

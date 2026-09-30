@@ -211,7 +211,7 @@ export function hostScope(serverId: string) {
 }
 
 const HOST_CONTAINER = "serve-host-shell";
-const HOST_IMAGE = "alpine:3.22";
+const HOST_IMAGE = "alpine:3.22.6";
 const HOST_IDLE_MS = 30_000;
 
 const hostStore = globalThis as unknown as { __serveHostShellTimer?: NodeJS.Timeout | null; __serveHostShellReady?: Promise<string> | null };

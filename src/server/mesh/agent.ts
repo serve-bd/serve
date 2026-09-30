@@ -239,7 +239,11 @@ export const LINKS_JQ = `.imports[] | . as $i
     NetworkingConfig: { EndpointsConfig: { ($i.network): { Aliases: $i.aliases } } } } }
 `;
 
-export const AGENT_DOCKERFILE = `FROM alpine:3.22
+// Pinned base: WireGuard tools come from its package repository when the agent is built. The
+// agent is rebuilt on every server when this file changes, so a release that moves the base
+// also brings newer WireGuard tools. The WireGuard module itself is part of the host's kernel.
+export const AGENT_BASE = "alpine:3.22.6";
+export const AGENT_DOCKERFILE = `FROM ${AGENT_BASE}
 RUN apk add --no-cache wireguard-tools-wg wireguard-go iproute2 iptables iptables-legacy jq curl
 COPY agent.sh /usr/local/bin/serve-mesh
 COPY wg.jq rules.jq links.jq /usr/local/share/serve-mesh/

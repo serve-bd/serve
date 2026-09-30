@@ -2,14 +2,18 @@
 # Serve installer.
 #   curl -fsSL https://raw.githubusercontent.com/shahriyardx/serve/main/install.sh | sudo bash
 #
+# Running it again on an installed server updates Serve to the newest release (keeping .env).
+#
 # Environment overrides:
-#   SERVE_IMAGE           image to run (default ghcr.io/shahriyardx/serve:latest)
+#   SERVE_VERSION         release to install, like 0.2.0 (default: the newest release)
+#   SERVE_IMAGE           exact image to run (overrides SERVE_VERSION)
 #   SERVE_DASHBOARD_PORT  host port for the dashboard (default 8000)
 #   SERVE_DATA_DIR        must stay /data/serve (bind-mount paths are shared with Docker)
 set -euo pipefail
 
 DATA_DIR=/data/serve
-IMAGE="${SERVE_IMAGE:-ghcr.io/shahriyardx/serve:latest}"
+REPO="${SERVE_REPO:-shahriyardx/serve}"
+IMAGE_REPO="${SERVE_IMAGE_REPO:-ghcr.io/$REPO}"
 PORT="${SERVE_DASHBOARD_PORT:-8000}"
 REPO_RAW="${SERVE_REPO_RAW:-https://raw.githubusercontent.com/shahriyardx/serve/main}"
 
@@ -63,12 +67,29 @@ JSON
   ok "Docker configured"
 fi
 
-# 3. Data directory and secrets ------------------------------------------------
+# 3. Which release ----------------------------------------------------------------
+# An exact version, never a moving tag: updates and rollbacks then know what runs.
+if [ -z "${SERVE_IMAGE:-}" ]; then
+  VERSION="${SERVE_VERSION:-}"
+  if [ -z "$VERSION" ]; then
+    VERSION="$(curl -fsSL --max-time 10 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+      | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -n1 || true)"
+  fi
+  VERSION="${VERSION#v}"
+  if [ -n "$VERSION" ]; then IMAGE="$IMAGE_REPO:$VERSION"; else IMAGE="$IMAGE_REPO:edge"; fi
+else
+  IMAGE="$SERVE_IMAGE"
+fi
+ok "Serve image $IMAGE"
+
+# 4. Data directory and secrets ------------------------------------------------
 mkdir -p "$DATA_DIR"
 chmod 700 "$DATA_DIR"
 IP="$(curl -fsS -4 --max-time 5 https://api.ipify.org || hostname -I | awk '{print $1}')"
 
+FIRST_INSTALL=0
 if [ ! -f "$DATA_DIR/.env" ]; then
+  FIRST_INSTALL=1
   info "Generating secrets"
   rand() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c "$1"; }
   DB_PASSWORD="$(rand 32)"
@@ -91,14 +112,31 @@ ENV
   ok "Secrets written to $DATA_DIR/.env"
 else
   ok "Keeping existing $DATA_DIR/.env"
+  # Running the installer again moves the install to the chosen release.
+  if grep -q '^SERVE_IMAGE=' "$DATA_DIR/.env"; then
+    awk -v img="$IMAGE" '/^SERVE_IMAGE=/ { print "SERVE_IMAGE=" img; next } { print }' "$DATA_DIR/.env" > "$DATA_DIR/.env.next"
+    cat "$DATA_DIR/.env.next" > "$DATA_DIR/.env" && rm -f "$DATA_DIR/.env.next"
+  else
+    echo "SERVE_IMAGE=$IMAGE" >> "$DATA_DIR/.env"
+  fi
 fi
 
-# 4. Compose file ------------------------------------------------------------------
-info "Downloading the stack definition"
-curl -fsSL "$REPO_RAW/docker/compose.yml" -o "$DATA_DIR/docker-compose.yml"
-curl -fsSL "$REPO_RAW/scripts/restore-instance.sh" -o "$DATA_DIR/restore-instance.sh" && chmod 700 "$DATA_DIR/restore-instance.sh"
+# 5. Image and compose file -----------------------------------------------------------
+# The stack definition comes from the image itself, so it always matches the code it runs.
+info "Pulling $IMAGE"
+docker pull --quiet "$IMAGE" >/dev/null || fail "Could not pull $IMAGE."
+from_image() { docker run --rm --entrypoint cat "$IMAGE" "/app/deploy/$1" > "$2.next" 2>/dev/null && [ -s "$2.next" ] && mv "$2.next" "$2"; }
+if ! from_image compose.yml "$DATA_DIR/docker-compose.yml"; then
+  rm -f "$DATA_DIR/docker-compose.yml.next"
+  curl -fsSL "$REPO_RAW/docker/compose.yml" -o "$DATA_DIR/docker-compose.yml"
+fi
+if ! from_image restore-instance.sh "$DATA_DIR/restore-instance.sh"; then
+  rm -f "$DATA_DIR/restore-instance.sh.next"
+  curl -fsSL "$REPO_RAW/scripts/restore-instance.sh" -o "$DATA_DIR/restore-instance.sh"
+fi
+chmod 700 "$DATA_DIR/restore-instance.sh"
 
-# 5. Ports ---------------------------------------------------------------------------
+# 6. Ports ---------------------------------------------------------------------------
 for p in 80 443 "$PORT"; do
   if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$p\$"; then
     if ! docker ps --format '{{.Names}}' | grep -qE '^(serve|serve-proxy)$'; then
@@ -107,7 +145,7 @@ for p in 80 443 "$PORT"; do
   fi
 done
 
-# 6. Start ------------------------------------------------------------------------------
+# 7. Start ------------------------------------------------------------------------------
 info "Starting Serve"
 cd "$DATA_DIR"
 docker compose pull --quiet
@@ -118,8 +156,9 @@ for _ in $(seq 1 60); do
   if curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
     ok "Serve is running"
     echo
-    bold "Open http://$IP:$PORT to create your owner account."
-    echo "  Data lives in $DATA_DIR. Upgrade later with: cd $DATA_DIR && docker compose pull && docker compose up -d"
+    if [ "$FIRST_INSTALL" = 1 ]; then bold "Open http://$IP:$PORT to create your owner account."; else bold "Serve runs $IMAGE."; fi
+    echo "  Data lives in $DATA_DIR. Update from Settings → Updates in the dashboard,"
+    echo "  or run this installer again to move to the newest release."
     exit 0
   fi
   sleep 3

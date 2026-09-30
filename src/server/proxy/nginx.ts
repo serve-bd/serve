@@ -348,6 +348,12 @@ async function ensurePagesServer(ctx: ServerCtx, log?: Log) {
     .getContainer(name)
     .inspect()
     .catch(() => null);
+  // A release that moves the pinned image replaces it (pull first, so the pages stay up meanwhile).
+  if (info && info.Config.Image !== PROXY_IMAGE) {
+    await ensureImage(ctx, PROXY_IMAGE, log);
+    await removeContainer(ctx, name);
+    return ensurePagesServer(ctx, log);
+  }
   if (info?.State.Running) return;
   if (info) {
     await ctx.docker
@@ -542,6 +548,8 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
     );
     const busy = await busyProxyPorts(ctx, hostPorts);
     if (busy.size) throw portError(ctx, busy);
+    // Pull before the old proxy stops, so sites are down only for the swap.
+    await ensureImage(ctx, spec.Image, log);
     await replaceProxy(ctx, create, log);
     return getProxyContainer(ctx);
   }

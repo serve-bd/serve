@@ -18,7 +18,10 @@ const runLabel: Record<UpdateRun["state"], { label: string; tone: "info" | "ok" 
   running: { label: "Updating", tone: "info" },
   success: { label: "Updated", tone: "ok" },
   failed: { label: "Failed", tone: "bad" },
+  "rolled-back": { label: "Rolled back", tone: "bad" },
 };
+
+export type Component = { name: string; value: string; note: string; ok: boolean };
 
 export function UpdatesView({
   version,
@@ -29,6 +32,7 @@ export function UpdatesView({
   check,
   available,
   run: initialRun,
+  components,
 }: {
   version: string;
   commit: string | null;
@@ -38,6 +42,7 @@ export function UpdatesView({
   check: UpdateCheck | null;
   available: boolean;
   run: UpdateRun | null;
+  components: Component[];
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -161,7 +166,7 @@ export function UpdatesView({
                       if (
                         await confirm({
                           title: `Update to v${check.latest}?`,
-                          description: `${productName} backs itself up first, then pulls the new image and restarts. The dashboard is unavailable for a minute; deployed services keep running.`,
+                          description: `${productName} backs itself up, pulls the new version and restarts the dashboard, the worker and the database. If the new version does not start correctly, it goes back to v${version} by itself. The dashboard is unavailable for a minute or two; deployed services keep running.`,
                           confirmLabel: "Back up and update",
                         })
                       )
@@ -185,6 +190,24 @@ export function UpdatesView({
             onCheckedChange={(c) => toggle.run(c)}
           />
         </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="What an update changes" description={`One update moves every part below to the versions tested with that release of ${productName}.`} />
+        <div className="divide-y divide-line">
+          {components.map((c, i) => (
+            <div key={`${c.name}-${i}`} className="flex flex-col gap-1 px-5 py-3 sm:flex-row sm:items-center sm:gap-4">
+              <div className="flex min-w-0 flex-col gap-0.5 sm:flex-1">
+                <span className="text-[13px] font-medium text-fg">{c.name}</span>
+                <span className="text-xs text-muted">{c.note}</span>
+              </div>
+              <span className={cn("min-w-0 break-all font-mono text-[12px] sm:max-w-[45%] sm:text-right", c.ok ? "text-fg-2" : "text-warn")}>
+                {c.value}
+                {!c.ok && c.name === "Worker" && <span className="font-sans"> · restart it to match</span>}
+              </span>
+            </div>
+          ))}
+        </div>
       </Card>
 
       {run && (

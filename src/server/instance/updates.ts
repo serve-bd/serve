@@ -1,12 +1,12 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { docker, demuxDockerBuffer } from "@/server/docker/client";
+import { docker, demuxDockerBuffer, pullImage } from "@/server/docker/client";
 import { env } from "@/server/env";
 import { newId } from "@/server/id";
 import { getSettings, type UpdateCheck, type UpdateRun, updateSettings } from "@/server/settings";
 import { queueInstanceBackupRecord, runInstanceBackup } from "./backups";
-import { compareVersions, nextImage } from "./manifest";
+import { compareVersions, imageRepository, nextImage } from "./manifest";
+import { ROLLED_BACK_EXIT, updaterScript } from "./updater-script";
 import { currentVersion, updateRepository } from "./version";
 import { notify } from "@/server/notify";
 
@@ -93,27 +93,19 @@ const appendLog = async (line: string) => {
   if (run) await updateSettings({ updateRun: { ...run, log: `${run.log}${line}\n`.slice(-20_000) } });
 };
 
-/** Image of the container this process runs in (web or worker). */
-async function ownImage(): Promise<string | null> {
-  const info = await docker
-    .getContainer(os.hostname())
-    .inspect()
-    .catch(() => null);
-  return info?.Config.Image ?? null;
+/** SERVE_IMAGE from the install's .env: the image the stack runs now. */
+async function installedImage(): Promise<string> {
+  const text = await fs.promises.readFile(path.join(env.dataDir, ".env"), "utf8").catch(() => "");
+  const line = text.split("\n").find((l) => l.startsWith("SERVE_IMAGE="));
+  return line ? line.slice("SERVE_IMAGE=".length).trim() || DEFAULT_IMAGE : DEFAULT_IMAGE;
 }
 
-/** Pins SERVE_IMAGE in the install's .env to the new version (unless it tracks :latest). */
-async function pinImage(version: string): Promise<string> {
-  const file = path.join(env.dataDir, ".env");
-  const text = await fs.promises.readFile(file, "utf8").catch(() => "");
-  const line = text.split("\n").find((l) => l.startsWith("SERVE_IMAGE="));
-  const current = line ? line.slice("SERVE_IMAGE=".length).trim() : DEFAULT_IMAGE;
-  const next = nextImage(current, version);
-  if (next !== current) {
-    const updated = line ? text.replace(line, `SERVE_IMAGE=${next}`) : `${text.replace(/\n?$/, "\n")}SERVE_IMAGE=${next}\n`;
-    await fs.promises.writeFile(file, updated, { mode: 0o600 });
-  }
-  return next;
+/** Free space an update needs: a new image, a backup and room to spare. */
+const MIN_FREE_BYTES = 2 * 1024 ** 3;
+
+async function freeBytes(dir: string) {
+  const s = await fs.promises.statfs(dir).catch(() => null);
+  return s ? s.bavail * s.bsize : Number.POSITIVE_INFINITY;
 }
 
 /** Records the start of an update; the worker's instance.update job carries it out. */
@@ -124,31 +116,49 @@ export async function beginUpdate(to: string): Promise<UpdateRun> {
 }
 
 /**
- * Backs up the instance, then starts a one-shot container that pulls the new image and
- * recreates the stack. It has to be a separate container: `up -d` replaces this worker.
+ * Checks the disk, backs up the instance, pulls the new image, then starts a one-shot container
+ * from it that installs the new stack definition and restarts everything, rolling back if the
+ * new version does not come up healthy. It has to be a separate container: `up -d` replaces
+ * this worker.
  */
 export async function runUpdate(to: string) {
   if (installMode() !== "compose") throw new Error("This installation is not managed by Docker Compose; update it by hand.");
+  // A job left over from before a restart must not start a second update.
+  const started = (await getSettings()).updateRun;
+  if (started?.state !== "backing-up" || started.to !== to) return;
   try {
+    const free = await freeBytes(env.dataDir);
+    if (free < MIN_FREE_BYTES)
+      throw new Error(`Only ${(free / 1024 ** 3).toFixed(1)} GB is free on ${env.dataDir}; an update needs at least 2 GB. Free some space (Servers → Clean up) and try again.`);
+
     await appendLog("==> Backing up this instance first");
     const backupId = await queueInstanceBackupRecord("update");
     await runInstanceBackup(backupId, (l) => void appendLog(l));
     await appendLog("Backup finished");
 
-    const image = await pinImage(to);
-    await appendLog(`==> Updating to ${image}`);
-    const runner = (await ownImage()) ?? image;
+    const previousImage = await installedImage();
+    const image = nextImage(previousImage, to);
+    await setRun({ previousImage, image });
+    await appendLog(`==> Pulling ${image}`);
+    let last = 0;
+    await pullImage(image, (line) => {
+      // Layer progress is noisy: keep one line every few seconds.
+      if (Date.now() - last < 3000) return;
+      last = Date.now();
+      void appendLog(line);
+    });
+    await appendLog("Image pulled");
+
     await docker
       .getContainer(UPDATER_CONTAINER)
       .remove({ force: true })
       .catch(() => {});
     const dir = env.dataDir;
-    const compose = `docker compose --project-directory '${dir}' -f '${dir}/docker-compose.yml'`;
     const container = await docker.createContainer({
       name: UPDATER_CONTAINER,
-      Image: runner,
+      Image: image,
       Entrypoint: ["sh", "-c"],
-      Cmd: [`set -e\n${compose} pull serve serve-worker\n${compose} up -d serve serve-worker\necho "Serve restarted on the new version."`],
+      Cmd: [updaterScript({ dir, previousImage, image })],
       Labels: { "serve.managed": "true", "serve.kind": "updater" },
       HostConfig: { Binds: [`${env.dockerSocket}:/var/run/docker.sock`, `${dir}:${dir}`], RestartPolicy: { Name: "no" } },
     });
@@ -173,7 +183,7 @@ export async function updaterLogs(): Promise<string | null> {
 
 /**
  * Worker tick (and boot, since the update restarts the worker): once the update container
- * has exited, record the outcome with its output and remove it.
+ * has exited, record the outcome with its output, remove it and the images no longer needed.
  */
 export async function reconcileUpdate() {
   const run = (await getSettings()).updateRun;
@@ -186,27 +196,43 @@ export async function reconcileUpdate() {
   const output = (await updaterLogs()) ?? "";
   const exitCode = info?.State.ExitCode ?? null;
   const onNewVersion = compareVersions(currentVersion(), run.to) >= 0;
-  const ok = exitCode === 0 || (info === null && onNewVersion);
-  await updateSettings({
-    updateRun: {
-      ...run,
-      state: ok ? "success" : "failed",
-      finishedAt: new Date().toISOString(),
-      log: `${run.log}${output}${ok ? "" : `\nThe update container exited with code ${exitCode ?? "unknown"}.\n`}`.slice(-20_000),
-    },
-  });
+  const state: UpdateRun["state"] = exitCode === 0 || (info === null && onNewVersion) ? "success" : exitCode === ROLLED_BACK_EXIT ? "rolled-back" : "failed";
+  const tail = state !== "failed" ? "" : `\nThe update container exited with code ${exitCode ?? "unknown"}.\n`;
+  await updateSettings({ updateRun: { ...run, state, finishedAt: new Date().toISOString(), log: `${run.log}${output}${tail}`.slice(-20_000) } });
   await docker
     .getContainer(run.container)
     .remove({ force: true })
     .catch(() => {});
+  if (state === "success") await removeOldImages(run).catch(() => {});
   const s = await getSettings();
+  const ok = state === "success";
   await notify(s.rootOrganizationId, ok ? "instance.update.success" : "instance.update.failed", {
     ok,
-    title: ok ? `Serve updated to ${run.to}` : `Serve update to ${run.to} failed`,
-    body: ok ? `Updated from ${run.from}.` : `The update container exited with code ${exitCode ?? "unknown"}. Serve keeps running ${currentVersion()}.`,
+    title: ok ? `Serve updated to ${run.to}` : state === "rolled-back" ? `Serve update to ${run.to} was rolled back` : `Serve update to ${run.to} failed`,
+    body: ok
+      ? `Updated from ${run.from}.`
+      : state === "rolled-back"
+        ? `The new version did not start correctly, so Serve went back to ${run.from}. Open Settings → Updates for the log.`
+        : `The update container exited with code ${exitCode ?? "unknown"}. Serve keeps running ${currentVersion()}.`,
     url: "/settings/updates",
     status: ok ? "updated" : "failed",
     dedupKey: `instance-update:${run.to}`,
     data: { from: run.from, to: run.to, exitCode },
   });
+}
+
+/** After a successful update: images of this repository other than the new and the previous one. */
+async function removeOldImages(run: UpdateRun) {
+  if (!run.image) return;
+  const repository = imageRepository(run.image);
+  const keep = new Set([run.image, run.previousImage].filter(Boolean));
+  const images = await docker.listImages({ filters: { reference: [repository] } });
+  for (const img of images) {
+    const tags = img.RepoTags ?? [];
+    if (!tags.length || tags.some((t) => keep.has(t))) continue;
+    await docker
+      .getImage(img.Id)
+      .remove()
+      .catch(() => {});
+  }
 }

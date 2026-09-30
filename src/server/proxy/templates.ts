@@ -2,7 +2,11 @@ import { proxyPaths } from "@/server/paths";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import type { ProxyMaintenance } from "@/server/services/maintenance";
 
-export const PROXY_IMAGE = process.env.SERVE_PROXY_IMAGE ?? "nginx:stable-alpine";
+/**
+ * Proxy images are pinned to exact versions. A Serve release moves them, and the proxy on every
+ * server is recreated when its image changes; a server can still set its own image.
+ */
+export const PROXY_IMAGE = process.env.SERVE_PROXY_IMAGE ?? "nginx:1.30.5-alpine";
 
 /** Trust the visitor IP from Cloudflare Tunnels, but only from the proxy's own Docker network. */
 export function realIpConfig(subnets: string[]) {

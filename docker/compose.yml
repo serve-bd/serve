@@ -37,7 +37,8 @@ services:
     networks: [serve]
 
   serve-db:
-    image: postgres:17-alpine
+    # Pinned; a release moves it to newer 17.x patches. A new major version needs a dump and restore.
+    image: postgres:17.11-alpine
     container_name: serve-db
     restart: unless-stopped
     environment:

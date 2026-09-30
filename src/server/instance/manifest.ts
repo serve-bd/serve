@@ -101,14 +101,17 @@ export function compareVersions(a: string, b: string): number {
 }
 
 /**
- * The image reference to run after an update. A pinned tag moves to the new version;
- * `latest` (or no tag) stays as it is and is pulled again.
+ * The image reference to run after an update: the same repository, pinned to the new version.
+ * A floating tag (`latest`, `edge`) or a digest is replaced too, so every install runs an exact
+ * release and a rollback has a tag to return to.
  */
 export function nextImage(current: string, version: string): string {
-  const at = current.lastIndexOf(":");
-  const slash = current.lastIndexOf("/");
-  if (at <= slash) return current;
-  const tag = current.slice(at + 1);
-  if (tag === "latest") return current;
-  return `${current.slice(0, at)}:${version.replace(/^v/i, "")}`;
+  return `${imageRepository(current)}:${version.replace(/^v/i, "")}`;
+}
+
+/** The repository part of an image reference: without its tag or digest. */
+export function imageRepository(ref: string): string {
+  const noDigest = ref.split("@")[0];
+  const at = noDigest.lastIndexOf(":");
+  return at > noDigest.lastIndexOf("/") ? noDigest.slice(0, at) : noDigest;
 }

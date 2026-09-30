@@ -23,7 +23,7 @@ const store = globalThis as unknown as { __serveTunnels?: { listener: net.Server
 const state = (store.__serveTunnels ??= { listener: null, live: new Map(), starting: null });
 
 const GATEWAY = "serve-tunnel-gateway";
-const GATEWAY_IMAGE = "alpine/socat:latest";
+const GATEWAY_IMAGE = "alpine/socat:1.8.1.3";
 
 /** Change some tunnel fields in one statement, so a concurrent change of other fields is kept. */
 async function setTunnel(serverId: string, patch: Partial<ServerTunnel>) {
@@ -282,7 +282,8 @@ async function ensureGateway(on: boolean) {
   }
   const port = String(tunnelPort());
   const bound = info?.HostConfig.PortBindings?.[`${port}/tcp`]?.[0]?.HostPort === port;
-  if (info?.State.Running && bound) return;
+  // A release that moves the pinned image recreates the gateway.
+  if (info?.State.Running && bound && info.Config.Image === GATEWAY_IMAGE) return;
   if (info) await container.remove({ force: true }).catch(() => {});
   if (!(await imageExists(GATEWAY_IMAGE))) await pullImage(GATEWAY_IMAGE);
   const created = await docker.createContainer({

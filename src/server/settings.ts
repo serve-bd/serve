@@ -42,6 +42,8 @@ export type Settings = {
   instanceId: string | null;
   /** Latest migration the running worker was built with. */
   workerSchemaVersion: string | null;
+  /** Release the running worker was built from. */
+  workerVersion: string | null;
   /** IANA timezone used for backup and task schedules. */
   timezone: string;
   /** Extra nginx directives included in the proxy's http block. */
@@ -111,7 +113,8 @@ export type UpdateCheck = {
 
 export type UpdateRun = {
   id: string;
-  state: "backing-up" | "running" | "success" | "failed";
+  /** "rolled-back": the new version did not come up healthy and the previous one runs again. */
+  state: "backing-up" | "running" | "success" | "failed" | "rolled-back";
   from: string;
   to: string;
   startedAt: string;
@@ -119,6 +122,9 @@ export type UpdateRun = {
   /** Container that pulls the new image and restarts the stack. */
   container: string | null;
   log: string;
+  /** Image references before and after, so a rollback and the clean-up know what to keep. */
+  previousImage?: string | null;
+  image?: string | null;
 };
 
 export type CleanupRun = {
@@ -148,6 +154,7 @@ export const defaultSettings: Settings = {
   defaultOrgLimits: {},
   workerHeartbeat: null,
   workerSchemaVersion: null,
+  workerVersion: null,
   dashboardTunnelId: null,
   dashboardWantsTunnel: false,
   instanceId: null,

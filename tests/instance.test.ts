@@ -71,9 +71,11 @@ describe("versions", () => {
     expect(compareVersions("v1.2.0", "1.2")).toBe(0);
     expect(compareVersions("1.0.0-rc.1", "1.0.0")).toBe(-1);
   });
-  it("moves pinned image tags but keeps latest", () => {
+  it("pins the image to the new version", () => {
     expect(nextImage("ghcr.io/shahriyardx/serve:0.1.0", "v0.2.0")).toBe("ghcr.io/shahriyardx/serve:0.2.0");
-    expect(nextImage("ghcr.io/shahriyardx/serve:latest", "0.2.0")).toBe("ghcr.io/shahriyardx/serve:latest");
-    expect(nextImage("localhost:5000/serve", "0.2.0")).toBe("localhost:5000/serve");
+    expect(nextImage("ghcr.io/shahriyardx/serve:latest", "0.2.0")).toBe("ghcr.io/shahriyardx/serve:0.2.0");
+    expect(nextImage("ghcr.io/shahriyardx/serve:edge", "0.2.0")).toBe("ghcr.io/shahriyardx/serve:0.2.0");
+    expect(nextImage("localhost:5000/serve", "0.2.0")).toBe("localhost:5000/serve:0.2.0");
+    expect(nextImage("ghcr.io/shahriyardx/serve@sha256:abc", "0.2.0")).toBe("ghcr.io/shahriyardx/serve:0.2.0");
   });
 });

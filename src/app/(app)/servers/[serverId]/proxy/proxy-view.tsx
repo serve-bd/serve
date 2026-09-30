@@ -45,7 +45,7 @@ export function ProxyView({
   serverId: string;
   status: { running: boolean; exists: boolean; image: string; kind: ProxyKind | null; startedAt: string | null; container: string; ports: { http: number; https: number } };
   test: { ok: boolean; output: string; state: "ok" | "failed" | "unavailable" };
-  customConfig: string;
+  customConfig: string | null;
   maxBodySize: string;
   files: ManagedFile[];
   customFiles: ProxyFile[];
@@ -242,7 +242,7 @@ export function ProxyView({
           {kind === "traefik" && <TraefikSettingsCard serverId={serverId} initial={settings.traefik} cloudflareAccounts={cloudflareAccounts} />}
           <DynamicConfigsCard serverId={serverId} kind={kind} managed={files} custom={customFiles} disabled={switching} running={status.running} />
           <BuiltInDefaultsCard key={JSON.stringify(defaults)} serverId={serverId} kind={kind} initial={defaults} disabled={switching} />
-          {kind === "nginx" && <CustomConfigCard initial={customConfig} />}
+          {kind === "nginx" && customConfig !== null && <CustomConfigCard initial={customConfig} />}
           <ProxyContainerCard
             key={JSON.stringify(container)}
             serverId={serverId}

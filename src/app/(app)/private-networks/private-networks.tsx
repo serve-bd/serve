@@ -45,11 +45,14 @@ export function PrivateNetworks({
   servers,
   view,
   positions,
+  canArrange,
 }: {
   networks: Omit<MeshNetworkView, "member">[];
   servers: ServerRow[];
   view: View;
   positions: Record<string, { x: number; y: number }>;
+  /** Root admins: the layout is shared by every organization, so only they reset it. */
+  canArrange: boolean;
 }) {
   const router = useRouter();
   const setView = React.useCallback(
@@ -102,7 +105,7 @@ export function PrivateNetworks({
 
       {view === "canvas" && servers.length > 0 ? (
         <div className="h-[70dvh] min-h-[380px] overflow-hidden rounded-2xl border border-line bg-sunken sm:h-[calc(100dvh-17rem)] sm:min-h-[460px]">
-          <NetworkCanvas networks={networks} servers={servers} saved={positions} />
+          <NetworkCanvas networks={networks} servers={servers} saved={positions} canArrange={canArrange} />
         </div>
       ) : networks.length === 0 ? (
         <Card>

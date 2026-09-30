@@ -85,7 +85,8 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
             : null,
         },
       }}
-      customConfig={settings.proxyCustomConfig ?? ""}
+      // Root's instance-wide directives: not applied to (or shown on) an organization's own server.
+      customConfig={row.ownerOrganizationId ? null : (settings.proxyCustomConfig ?? "")}
       customFiles={own.files ?? []}
       defaults={defaultsOf(own.defaults)}
       container={{

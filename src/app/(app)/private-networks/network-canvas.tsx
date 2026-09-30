@@ -157,9 +157,9 @@ const nodeId = (kind: "network" | "server", id: string) => `${kind}:${id}`;
 const nodeTypes: NodeTypes = { network: NetworkNodeView, server: ServerNodeView };
 const edgeTypes: EdgeTypes = { member: MemberEdgeView };
 
-type Props = { networks: Networks; servers: CanvasServer[]; saved: Record<string, Pos> };
+type Props = { networks: Networks; servers: CanvasServer[]; saved: Record<string, Pos>; canArrange: boolean };
 
-function Canvas({ networks, servers, saved }: Props) {
+function Canvas({ networks, servers, saved, canArrange }: Props) {
   const router = useRouter();
   const confirm = useConfirm();
   const meshConfirm = useMeshConfirm();
@@ -356,14 +356,16 @@ function Canvas({ networks, servers, saved }: Props) {
         <ToolButton label={fs.full ? "Exit full screen" : "Full screen"} onClick={fs.toggle}>
           {fs.full ? <Minimize2 /> : <Maximize2 />}
         </ToolButton>
-        <ToolButton
-          label="Arrange automatically"
-          onClick={async () => {
-            if (await confirm({ title: "Arrange automatically?", description: "Servers and networks go back to automatic places.", confirmLabel: "Arrange" })) void reset.run();
-          }}
-        >
-          <LayoutGrid />
-        </ToolButton>
+        {canArrange && (
+          <ToolButton
+            label="Arrange automatically"
+            onClick={async () => {
+              if (await confirm({ title: "Arrange automatically?", description: "Servers and networks go back to automatic places.", confirmLabel: "Arrange" })) void reset.run();
+            }}
+          >
+            <LayoutGrid />
+          </ToolButton>
+        )}
       </div>
       <p className="absolute right-4 bottom-4 hidden max-w-xs rounded-xl border border-line bg-surface/95 px-3 py-2 text-[11px] leading-relaxed text-muted shadow-sm backdrop-blur sm:block">
         Draw a line from a network to a server (or drop the server on the network) to add it. Press × on a line to take it out.

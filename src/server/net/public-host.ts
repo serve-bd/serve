@@ -14,5 +14,6 @@ export async function publicAddress(host: string) {
   const bare = host.replace(/^\[|\]$/g, "");
   const addrs = net.isIP(bare) ? [{ address: bare }] : await dns.lookup(bare, { all: true }).catch(() => []);
   if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address))) return null;
-  return addrs[0]!.address;
+  // IPv4 first: a worker without IPv6 still reaches a host that also has AAAA records.
+  return (addrs.find((a) => net.isIPv4(a.address)) ?? addrs[0]!).address;
 }

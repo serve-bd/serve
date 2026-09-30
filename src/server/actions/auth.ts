@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { auth } from "@/server/auth";
@@ -24,6 +24,11 @@ export async function setupInstance(input: z.infer<typeof setupSchema>) {
     const user = await createAccount(data);
     const org = await createOrganization("Root", user.id);
     await updateSettings({ rootOrganizationId: org.id });
+    // Instance servers (the local one on a fresh install) start shared with Root only.
+    await db
+      .update(schema.server)
+      .set({ organizationIds: sql`array_append(coalesce(${schema.server.organizationIds}, '{}'), ${org.id})` })
+      .where(and(isNull(schema.server.ownerOrganizationId), sql`not (${org.id} = any(coalesce(${schema.server.organizationIds}, '{}')))`));
     await logActivity({ userId: user.id, organizationId: org.id, action: "instance.setup", message: "Set up Serve" });
     await auth.api.signInEmail({ body: { email: data.email, password: data.password }, headers: await headers() });
     return null;

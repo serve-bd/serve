@@ -1,3 +1,4 @@
+import net from "node:net";
 import http from "node:http";
 import { spawn } from "node:child_process";
 import Docker from "dockerode";
@@ -159,7 +160,10 @@ async function buildRemote(row: ServerRow): Promise<ServerCtx> {
   };
 }
 
-const store = globalThis as unknown as { __serveServers?: Map<string, { stamp: string; ctx: Promise<ServerCtx> }> };
+const store = globalThis as unknown as { __serveServers?: Map<string, { stamp: string; ctx: Promise<ServerCtx>; at: number }> };
+
+/** How long an organization server's vetted address is used before its host name is looked up again. */
+const PINNED_TTL = 10 * 60_000;
 const cache = (store.__serveServers ??= new Map());
 
 function stamp(row: ServerRow) {
@@ -177,6 +181,8 @@ function stamp(row: ServerRow) {
     row.proxyPortsCustomized,
     row.name,
     row.isLocal,
+    // An organization's server is dialled at its vetted public address.
+    row.ownerOrganizationId,
   ]);
 }
 
@@ -190,9 +196,16 @@ export async function getServerRow(id: string) {
 export async function getServer(id: string | null | undefined = LOCAL_SERVER_ID): Promise<ServerCtx> {
   const row = await getServerRow(id || LOCAL_SERVER_ID);
   const cached = cache.get(row.id);
-  if (cached && cached.stamp === stamp(row)) return cached.ctx;
+  const pinned = !!row.ownerOrganizationId && !row.tunnel && !net.isIP(row.host.replace(/^\[|\]$/g, ""));
+  if (cached && cached.stamp === stamp(row) && !(pinned && Date.now() - cached.at > PINNED_TTL)) return cached.ctx;
   const ctx = row.isLocal ? Promise.resolve(buildLocal(row)) : buildRemote(row);
-  cache.set(row.id, { stamp: stamp(row), ctx });
+  if (cached && pinned) {
+    // The host name now points elsewhere: new connections go to the new address.
+    void Promise.all([cached.ctx, ctx])
+      .then(([a, b]) => a.ssh?.host !== b.ssh?.host && closeConnection(row.id))
+      .catch(() => {});
+  }
+  cache.set(row.id, { stamp: stamp(row), ctx, at: Date.now() });
   ctx.catch(() => cache.delete(row.id));
   return ctx;
 }

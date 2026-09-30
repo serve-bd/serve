@@ -180,7 +180,9 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     if ((data.organizationIds !== undefined || data.ownerOrganizationId !== undefined) && !ctx.isInstanceAdmin) {
       throw new ForbiddenError("Only admins of the Root organization can share a server or change its owner.");
     }
-    if (data.ownerOrganizationId !== undefined && data.ownerOrganizationId !== before.ownerOrganizationId) {
+    const ownerChanged = data.ownerOrganizationId !== undefined && data.ownerOrganizationId !== before.ownerOrganizationId;
+    let moveKey: string | null = null;
+    if (ownerChanged) {
       if (before.isLocal && data.ownerOrganizationId) throw new UserError("The server Serve runs on stays with the instance.");
       if (data.ownerOrganizationId) {
         const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, data.ownerOrganizationId));
@@ -188,6 +190,7 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
         // The new owner gets root on the machine: nothing of another organization may stay on it.
         const foreign = await foreignWorkOn(id, data.ownerOrganizationId);
         if (foreign.length) throw new UserError(`Move these off the server first; they belong to other organizations: ${foreign.join(", ")}.`);
+        if (!before.tunnel) await assertPublicHost(data.host ?? before.host);
       }
       // Its key moves with it, so the new owner can manage it; a key other servers use must stay.
       const keyId = data.privateKeyId ?? before.privateKeyId;
@@ -199,14 +202,14 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
             .from(schema.server)
             .where(and(eq(schema.server.privateKeyId, keyId), ne(schema.server.id, id)));
           if (others.length) throw new UserError(`Its SSH key is also used by ${others.map((o) => o.name).join(", ")}. Give this server its own key first.`);
-          await db.update(schema.privateKey).set({ organizationId: data.ownerOrganizationId }).where(eq(schema.privateKey.id, keyId));
+          moveKey = keyId;
         }
       }
     }
     if (data.privateKeyId && data.privateKeyId !== before.privateKeyId) {
       await usableKey(ctx, data.privateKeyId, data.ownerOrganizationId === undefined ? before.ownerOrganizationId : data.ownerOrganizationId);
     }
-    if (data.host && data.host !== before.host && (data.ownerOrganizationId === undefined ? before.ownerOrganizationId : data.ownerOrganizationId) && !before.tunnel) {
+    if (data.host && data.host !== before.host && !ownerChanged && before.ownerOrganizationId && !before.tunnel) {
       await assertPublicHost(data.host);
     }
     if (before.isLocal && (data.host || data.port || data.username || data.privateKeyId || data.dataDir)) {
@@ -225,17 +228,34 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
       publicIp: data.publicIp === undefined ? undefined : empty(data.publicIp),
       wildcardDomain: data.wildcardDomain === undefined ? undefined : empty(data.wildcardDomain),
     };
-    const ownerChanged = data.ownerOrganizationId !== undefined && data.ownerOrganizationId !== before.ownerOrganizationId;
+    const dnsAccount = before.proxyConfig?.traefik?.acmeChallenge === "dns-cloudflare" && !!before.proxyConfig.traefik.cloudflareAccountId;
     if (ownerChanged) {
-      // An organization's server is shared with nobody; back with the instance, its old owner keeps deploying to it.
-      patch.organizationIds = data.ownerOrganizationId
-        ? []
-        : [...new Set([...(data.organizationIds ?? before.organizationIds ?? []), ...(before.ownerOrganizationId ? [before.ownerOrganizationId] : [])])];
+      // An organization's server is shared with nobody; back with the instance, it is shared as chosen and its old owner keeps deploying to it.
+      if (data.ownerOrganizationId) patch.organizationIds = [];
+      else {
+        const chosen = data.organizationIds !== undefined ? data.organizationIds : before.organizationIds;
+        patch.organizationIds = chosen === null ? null : [...new Set([...chosen, ...(before.ownerOrganizationId ? [before.ownerOrganizationId] : [])])];
+      }
+      // The old owner's Cloudflare account no longer issues its certificates.
+      if (dnsAccount) patch.proxyConfig = { ...before.proxyConfig, traefik: { ...before.proxyConfig!.traefik, acmeChallenge: "http", cloudflareAccountId: null } };
     }
     // A different machine means a different host key.
     if ((data.host && data.host !== before.host) || (data.port && data.port !== before.port)) patch.hostKey = null;
-    await db.update(schema.server).set(patch).where(eq(schema.server.id, id));
+    await db.transaction(async (tx) => {
+      await tx.update(schema.server).set(patch).where(eq(schema.server.id, id));
+      // Its key moves with it, so the new owner can manage it.
+      if (moveKey)
+        await tx
+          .update(schema.privateKey)
+          .set({ organizationId: data.ownerOrganizationId ?? null })
+          .where(eq(schema.privateKey.id, moveKey));
+    });
     forgetServer(id);
+    if (ownerChanged && dnsAccount && before.status === "ready") {
+      // The running proxy still holds the old owner's token: recreate it without.
+      const { ensureServerProxy } = await import("@/server/proxy/nginx");
+      await ensureServerProxy(await getServer(id)).catch(() => {});
+    }
     if (ownerChanged) {
       // It leaves private networks of its old owner, so it no longer reaches their servers.
       const left = await db

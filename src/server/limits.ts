@@ -214,7 +214,9 @@ async function usedServerIds(organizationId: string) {
     .selectDistinct({ serverId: schema.service.serverId })
     .from(schema.service)
     .innerJoin(schema.project, eq(schema.project.id, schema.service.projectId))
-    .where(eq(schema.project.organizationId, organizationId));
+    .innerJoin(schema.server, eq(schema.server.id, schema.service.serverId))
+    // Its own servers do not count toward the servers limit.
+    .where(and(eq(schema.project.organizationId, organizationId), sql`${schema.server.ownerOrganizationId} is distinct from ${organizationId}`));
   return new Set(rows.map((r) => r.serverId));
 }
 

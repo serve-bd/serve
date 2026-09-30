@@ -259,6 +259,8 @@ const INSTANCE = "instance";
 export function AccessCard({ server, organizations }: { server: ServerDetails; organizations: { id: string; name: string }[] }) {
   return (
     <SettingsCard
+      // The server may save other values than chosen (an owner change resets sharing): start over from what it saved.
+      key={JSON.stringify([server.ownerOrganizationId, server.organizationIds])}
       title="Owner and sharing"
       description="Who manages this server, and which organizations may deploy to it. Only Root admins change this."
       initial={{ owner: server.ownerOrganizationId ?? INSTANCE, all: server.organizationIds === null, ids: server.organizationIds ?? [] }}

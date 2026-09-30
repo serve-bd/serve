@@ -46,6 +46,7 @@ export default async function PrivateNetworksPage(props: { searchParams: Promise
         <PrivateNetworks
           view={view === "canvas" ? "canvas" : "list"}
           positions={settings.networkCanvas}
+          canArrange={ctx.isInstanceAdmin}
           networks={networks}
           servers={servers.map((s) => ({
             id: s.id,

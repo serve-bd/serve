@@ -189,16 +189,17 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
   const fs = useCanvasFullscreen(flow);
   const auto = React.useMemo(() => autoLayout(services), [services]);
   // Where each service sits: dragged here, saved before, or placed automatically.
-  const place = React.useCallback((s: ServiceCardData, current?: Pos): Pos => current ?? saved[s.id] ?? auto[s.id], [saved, auto]);
+  // A refresh hands over an equal but new object: only a real change of the saved places counts.
+  const savedKey = JSON.stringify(saved);
+  const stored = React.useMemo(() => JSON.parse(savedKey) as Record<string, Pos>, [savedKey]);
+  const place = React.useCallback((s: ServiceCardData, current?: Pos): Pos => current ?? stored[s.id] ?? auto[s.id], [stored, auto]);
   const build = React.useCallback(
     (prev: ServiceNode[]): ServiceNode[] =>
-      services.map((s) => ({
-        id: s.id,
-        type: "service",
-        position: place(s, prev.find((n) => n.id === s.id)?.position),
-        data: { s, projectId },
-        draggable: canManage,
-      })),
+      services.map((s) => {
+        // New data keeps what React Flow knows about a card (its place, size, selection).
+        const old = prev.find((n) => n.id === s.id);
+        return { ...old, id: s.id, type: "service" as const, position: place(s, old?.position), data: { s, projectId }, draggable: canManage };
+      }),
     [services, place, projectId, canManage],
   );
   const [nodes, setNodes, onNodesChange] = useNodesState<ServiceNode>(build([]));
@@ -208,7 +209,8 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
   }, [build, setNodes]);
   const edges = React.useMemo(() => edgesOf(services), [services]);
 
-  const save = useAction((positions: Record<string, Pos>) => saveCanvasPositions(environmentId, positions), { refresh: false });
+  // Refreshed after saving, so the page cache (used by Back) knows the new places.
+  const save = useAction((positions: Record<string, Pos>) => saveCanvasPositions(environmentId, positions));
   const reset = useAction(() => resetCanvasLayout(environmentId), {
     success: "Layout reset",
     onSuccess: () => {

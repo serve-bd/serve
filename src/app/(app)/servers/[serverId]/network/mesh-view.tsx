@@ -13,7 +13,7 @@ import { useMeshConfirm } from "@/components/mesh-confirm";
 import { useAction } from "@/hooks/use-action";
 import { useNow } from "@/hooks/use-client";
 import { meshAddressOptions, resyncMesh, saveMesh } from "@/server/actions/mesh";
-import { handshakeAge, MESH_DEFAULT_PORT, MESH_LINK_TIMEOUT, meshEndpointProblem } from "@/lib/mesh";
+import { handshakeAge, MESH_DEFAULT_PORT, MESH_LINK_TIMEOUT, meshEndpoint, meshEndpointProblem } from "@/lib/mesh";
 import type { MeshOverview, MeshPeerView } from "@/server/mesh";
 import { cn, formatBytes } from "@/lib/utils";
 import { Networks } from "./networks";
@@ -392,7 +392,11 @@ function Joined({ mesh, serverId, serverName, onEdit, refresh }: { mesh: MeshOve
             </span>
           </Fact>
           <Fact label="Reached at">
-            {mesh.endpoint ? <span className="font-mono break-all">{`${mesh.endpoint}:${mesh.port}`}</span> : <span className="text-fg-2">No public address · connects out</span>}
+            {mesh.endpoint ? (
+              <span className="font-mono break-all">{meshEndpoint(mesh.endpoint, mesh.port ?? MESH_DEFAULT_PORT)}</span>
+            ) : (
+              <span className="text-fg-2">No public address · connects out</span>
+            )}
           </Fact>
           <Fact label="Link">
             {mesh.agent ? (

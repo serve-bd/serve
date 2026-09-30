@@ -22,12 +22,17 @@ export const REF = /\$\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g;
 /** Variables that hold private names: they only work on the same server or across a shared private network. */
 export const PRIVATE_VARS = /^(HOST|PORT|DATABASE_URL|REDIS_URL|MONGO_URL|POSTGRES_URL|MYSQL_URL|SERVE_PRIVATE_DOMAIN)$/;
 
+/** Names that mean shared variables, not a service: they win over services with the same name. */
+export const SCOPE_NAMES = new Set(["shared", "environment", "project", "org", "team"]);
+
 /**
  * The sibling service a `${{name.KEY}}` reference points at, matched like variable resolution does:
- * by slug always, by name (as typed or dashed) only when no other service shares it.
+ * by slug first, by name (as typed or dashed) only when no other service shares it. Scope names
+ * (`shared`, `environment`, `project`, `org`, `team`) never mean a service.
  */
 export function referencedService<T extends { id: string; name: string; slug: string }>(siblings: T[], name: string): T | undefined {
   const n = name.toLowerCase();
+  if (SCOPE_NAMES.has(n)) return undefined;
   const bySlug = siblings.find((s) => s.slug.toLowerCase() === n);
   if (bySlug) return bySlug;
   const byName = siblings.filter((s) => s.name.toLowerCase() === n || referenceName(s.name) === n);
@@ -36,7 +41,7 @@ export function referencedService<T extends { id: string; name: string; slug: st
   return siblings.filter((s) => referenceName(s.name) === referenceName(byName[0].name)).length === 1 ? byName[0] : undefined;
 }
 
-/** Services a set of variable values points at: `${{name.KEY}}` → the service and the keys used. */
+/** Service references in values: `${{name.KEY}}` (scope references included). */
 export function referencesIn(values: string[]): { name: string; key: string }[] {
   const out: { name: string; key: string }[] = [];
   for (const value of values)
@@ -45,4 +50,32 @@ export function referencesIn(values: string[]): { name: string; key: string }[] 
       if (dot > 0) out.push({ name: ref.slice(0, dot), key: ref.slice(dot + 1) });
     }
   return out;
+}
+
+/**
+ * Service references a variable ends up using, following references like variable resolution
+ * does (5 levels): `${{KEY}}` to the service's own variables, `${{environment.KEY}}` and the other
+ * scopes to shared variables. `own` and `scope` return the raw value, or undefined.
+ */
+export function serviceReferencesIn(
+  value: string,
+  own: (key: string) => string | undefined,
+  scope: (scope: string, key: string) => string | undefined,
+): { name: string; key: string }[] {
+  const out: { name: string; key: string }[] = [];
+  const walk = (v: string, depth: number) => {
+    for (const [, ref] of v.matchAll(REF)) {
+      const dot = ref.indexOf(".");
+      const inner = dot === -1 ? own(ref) : SCOPE_NAMES.has(ref.slice(0, dot).toLowerCase()) ? scope(ref.slice(0, dot).toLowerCase(), ref.slice(dot + 1)) : null;
+      if (inner === null) out.push({ name: ref.slice(0, dot), key: ref.slice(dot + 1) });
+      else if (inner !== undefined && depth < 5) walk(inner, depth + 1);
+    }
+  };
+  walk(value, 0);
+  return out;
+}
+
+/** Shared variables as `serviceReferencesIn` reads them: environment (also "shared"), project, organization (also "team"). */
+export function scopeReader(maps: { environment: Record<string, string>; project: Record<string, string>; org: Record<string, string> }) {
+  return (scope: string, key: string) => (scope === "shared" || scope === "environment" ? maps.environment[key] : scope === "project" ? maps.project[key] : maps.org[key]);
 }

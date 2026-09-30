@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requireInstanceAdmin } from "@/server/auth";
@@ -272,28 +272,58 @@ export async function meshChangeImpact(
     const ids = [...before.keys()];
     for (const a of ids) for (const b of ids) if (a < b && privatelyConnected(before, a, b) && !privatelyConnected(after, a, b)) losing.add(a).add(b);
     if (!losing.size) return [];
-    const services = await db
+    const { runServerIds } = await import("@/server/deploy/distribution");
+    const { scopeReader } = await import("@/lib/refs");
+    const rows = await db
       .select({
         id: schema.service.id,
         name: schema.service.name,
         slug: schema.service.slug,
+        type: schema.service.type,
         serverId: schema.service.serverId,
+        distribution: schema.service.distribution,
         environmentId: schema.service.environmentId,
         projectId: schema.service.projectId,
       })
       .from(schema.service);
-    const envs = new Set(services.filter((s) => losing.has(s.serverId)).map((s) => s.environmentId));
+    const services = rows.map((s) => ({ ...s, servers: runServerIds(s.serverId, s.type === "app" ? s.distribution : null) }));
+    const envs = new Set(services.filter((s) => s.servers.some((id) => losing.has(id))).map((s) => s.environmentId));
     const relevant = services.filter((s) => envs.has(s.environmentId));
-    const consumers = relevant.filter((s) => losing.has(s.serverId)).map((s) => s.id);
-    const vars = consumers.length
-      ? (
-          await db
-            .select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value })
-            .from(schema.envVar)
-            .where(inArray(schema.envVar.serviceId, consumers))
-        ).map((v) => ({ ...v, value: decryptOrNull(v.value) ?? "" }))
-      : [];
-    const links = lostLinks(before, after, relevant, vars);
+    if (!relevant.length) return [];
+    const projectIds = [...new Set(relevant.map((s) => s.projectId))];
+    const [vars, projectRows] = await Promise.all([
+      db
+        .select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value })
+        .from(schema.envVar)
+        .where(
+          inArray(
+            schema.envVar.serviceId,
+            relevant.map((s) => s.id),
+          ),
+        )
+        .then((list) => list.map((v) => ({ ...v, value: decryptOrNull(v.value) ?? "" }))),
+      db.select({ id: schema.project.id, organizationId: schema.project.organizationId }).from(schema.project).where(inArray(schema.project.id, projectIds)),
+    ]);
+    // Shared variables, for references that go through them (like variable resolution does).
+    const orgOf = new Map(projectRows.map((p) => [p.id, p.organizationId]));
+    const sharedRows = await db
+      .select()
+      .from(schema.sharedVar)
+      .where(
+        or(
+          inArray(schema.sharedVar.environmentId, [...envs]),
+          inArray(schema.sharedVar.projectId, projectIds),
+          inArray(schema.sharedVar.organizationId, [...new Set(orgOf.values())]),
+        ),
+      );
+    const mapOf = (pick: (v: (typeof sharedRows)[number]) => boolean) => Object.fromEntries(sharedRows.filter(pick).map((v) => [v.key, decryptOrNull(v.value) ?? ""]));
+    const scope = (c: { environmentId: string; projectId: string }) =>
+      scopeReader({
+        environment: mapOf((v) => v.environmentId === c.environmentId),
+        project: mapOf((v) => !v.environmentId && v.projectId === c.projectId),
+        org: mapOf((v) => !v.environmentId && !v.projectId && v.organizationId === orgOf.get(c.projectId)),
+      });
+    const links = lostLinks(before, after, relevant, vars, scope);
     if (!links.length) return [];
     const [servers, projects] = await Promise.all([
       db.select({ id: schema.server.id, name: schema.server.name }).from(schema.server),

@@ -1,31 +1,49 @@
-import { PRIVATE_VARS, referencedService, referencesIn } from "@/lib/refs";
-import { privatelyConnected } from "./plan";
+import { PRIVATE_VARS, referencedService, serviceReferencesIn } from "@/lib/refs";
+import { type MeshMembers, reachesPrivately } from "./plan";
 
-export type ImpactService = { id: string; name: string; slug: string; serverId: string; environmentId: string; projectId: string };
+export type ImpactService = {
+  id: string;
+  name: string;
+  slug: string;
+  serverId: string;
+  /** Every server it runs on (its own and extra servers). */
+  servers: string[];
+  environmentId: string;
+  projectId: string;
+};
 export type ImpactVar = { serviceId: string; key: string; value: string };
 
 /** A service that uses another one's private name across servers that stop sharing a network. */
 export type LostLink = { consumerId: string; providerId: string; variables: string[] };
 
 /**
- * Services that reference another service's private variables (`${{postgres.DATABASE_URL}}`)
- * where the two servers share a network now but no longer would after the change.
+ * Services whose variables use a private variable of another service (directly, through their own
+ * variables or through shared variables, like variable resolution does) that they reach now but
+ * would no longer reach after the change.
  */
-export function lostLinks(before: Map<string, string[]>, after: Map<string, string[]>, services: ImpactService[], vars: ImpactVar[]): LostLink[] {
-  const lost = (a: string, b: string) => privatelyConnected(before, a, b) && !privatelyConnected(after, a, b);
+export function lostLinks(
+  before: MeshMembers,
+  after: MeshMembers,
+  services: ImpactService[],
+  vars: ImpactVar[],
+  scope: (service: ImpactService) => (scope: string, key: string) => string | undefined,
+): LostLink[] {
   const byEnv = new Map<string, ImpactService[]>();
   for (const s of services) byEnv.set(s.environmentId, [...(byEnv.get(s.environmentId) ?? []), s]);
   const byId = new Map(services.map((s) => [s.id, s]));
+  const varsOf = new Map<string, ImpactVar[]>();
+  for (const v of vars) varsOf.set(v.serviceId, [...(varsOf.get(v.serviceId) ?? []), v]);
   const found = new Map<string, LostLink>();
   for (const v of vars) {
     const consumer = byId.get(v.serviceId);
     if (!consumer) continue;
     const siblings = byEnv.get(consumer.environmentId) ?? [];
-    for (const ref of referencesIn([v.value])) {
+    const own = (key: string) => varsOf.get(consumer.id)?.find((x) => x.key === key)?.value;
+    for (const ref of serviceReferencesIn(v.value, own, scope(consumer))) {
       if (!PRIVATE_VARS.test(ref.key)) continue;
       const provider = referencedService(siblings, ref.name);
-      if (provider?.id === consumer.id) continue;
-      if (!provider || !lost(consumer.serverId, provider.serverId)) continue;
+      if (!provider || provider.id === consumer.id) continue;
+      if (!reachesPrivately(before, consumer.servers, provider) || reachesPrivately(after, consumer.servers, provider)) continue;
       const key = `${consumer.id}|${provider.id}`;
       const link = found.get(key) ?? { consumerId: consumer.id, providerId: provider.id, variables: [] };
       if (!link.variables.includes(v.key)) link.variables.push(v.key);
@@ -37,21 +55,14 @@ export function lostLinks(before: Map<string, string[]>, after: Map<string, stri
 
 /** Memberships after a change: a server out of a network, a network gone, or a server leaving. */
 export function membersAfter(
-  before: Map<string, string[]>,
+  before: MeshMembers,
   change: { kind: "remove"; networkId: string; serverId: string } | { kind: "delete"; networkId: string } | { kind: "leave"; serverId: string },
-) {
-  const after = new Map([...before].map(([id, nets]) => [id, [...nets]]));
+): MeshMembers {
+  const after: MeshMembers = new Map([...before].map(([id, m]) => [id, { ...m, networks: [...m.networks] }]));
   if (change.kind === "leave") after.delete(change.serverId);
-  else if (change.kind === "remove")
-    after.set(
-      change.serverId,
-      (after.get(change.serverId) ?? []).filter((n) => n !== change.networkId),
-    );
-  else
-    for (const [id, nets] of after)
-      after.set(
-        id,
-        nets.filter((n) => n !== change.networkId),
-      );
+  else if (change.kind === "remove") {
+    const m = after.get(change.serverId);
+    if (m) m.networks = m.networks.filter((n) => n !== change.networkId);
+  } else for (const m of after.values()) m.networks = m.networks.filter((n) => n !== change.networkId);
   return after;
 }

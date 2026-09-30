@@ -113,7 +113,7 @@ mkdir -p "$DIR"; chmod 700 "$DIR"
 say "Registering with Serve"
 CODE=$(curl -sS -o "$DIR/join.txt" -w '%{http_code}' -X POST --data-urlencode "publicKey=$(cat "$DIR/key.pub")" --data-urlencode "hostname=$(hostname)" "$JOIN_URL") \\
   || fail "Could not reach Serve at $JOIN_URL."
-[ "$CODE" = 200 ] || fail "Serve refused this command ($CODE): $(head -c 300 "$DIR/join.txt"). A command works once and for 24 hours: create a new one on the server's page."
+[ "$CODE" = 200 ] || fail "$(head -c 300 "$DIR/join.txt" | tr -d '\n') (HTTP $CODE)"
 RESPONSE=$(cat "$DIR/join.txt"); rm -f "$DIR/join.txt"
 SERVE_KEY=""; SSH_USER=""; SSH_PORT=""; TUNNEL_HOST=""; TUNNEL_PORT=""; KNOWN_HOSTS=""
 while IFS= read -r line; do
@@ -164,6 +164,7 @@ while true; do $SSH_BIN $ARGS; sleep 5; done
 RUN
   chmod 700 "$DIR/run.sh"
   pkill -f "$DIR/run.sh" 2>/dev/null || true
+  pkill -f "$DIR/key" 2>/dev/null || true
   nohup "$DIR/run.sh" >/var/log/serve-tunnel.log 2>&1 &
   say "Connected. Without systemd the tunnel does not start again after a reboot: run $DIR/run.sh then."
 fi

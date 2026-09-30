@@ -306,7 +306,7 @@ export function DangerZone({ server }: { server: ServerDetails }) {
                   <span className="flex flex-col gap-2">
                     <span>This cannot be undone. The server&apos;s tunnel can no longer sign in; to remove it from the machine, run there:</span>
                     <code className="rounded-lg bg-sunken px-2.5 py-2 font-mono text-[11.5px] break-all text-fg select-all">
-                      sudo systemctl disable --now serve-tunnel; sudo pkill -f /etc/serve-tunnel/run.sh; sudo rm -rf /etc/serve-tunnel /etc/systemd/system/serve-tunnel.service
+                      sudo systemctl disable --now serve-tunnel; sudo pkill -f /etc/serve-tunnel/; sudo rm -rf /etc/serve-tunnel /etc/systemd/system/serve-tunnel.service
                     </code>
                   </span>
                 ) : (

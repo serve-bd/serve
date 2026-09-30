@@ -14,6 +14,8 @@ describe("references in variables", () => {
     expect(referencedService(list, "redis-cache")?.id).toBe("cache");
     expect(referencedService(list, "Redis Cache")?.id).toBe("cache");
     expect(referencedService(list, "nope")).toBeUndefined();
+    // Scope names never mean a service.
+    expect(referencedService([...list, svc("sh", "environment")], "environment")).toBeUndefined();
   });
 
   it("answers to a shared name with neither service, only to slugs", () => {
@@ -40,7 +42,12 @@ describe("what each service uses", () => {
   ];
 
   it("lists uses with their variables, private or not, and broken across unconnected servers", () => {
-    const uses = serviceUses(services, vars, () => false);
+    const uses = serviceUses(
+      services,
+      vars,
+      () => undefined,
+      () => false,
+    );
     expect(uses.get("web")).toEqual([
       { id: "pg", variables: ["DATABASE_URL", "DB_HOST"], private: true, broken: true },
       { id: "api", variables: ["API_URL"], private: false, broken: false },
@@ -49,8 +56,28 @@ describe("what each service uses", () => {
     expect(uses.get("api")).toBeUndefined();
   });
 
+  it("follows shared variables and ignores scope names", () => {
+    const list = [...services, svc("shared", "shared", "s1")];
+    const viaShared = [
+      { serviceId: "web", key: "DB", value: "${{environment.DB}}" },
+      { serviceId: "web", key: "S", value: "${{shared.X}}" },
+    ];
+    const uses = serviceUses(
+      list,
+      viaShared,
+      (sc, key) => (sc === "environment" && key === "DB" ? "${{postgres.HOST}}" : undefined),
+      () => true,
+    );
+    expect(uses.get("web")).toEqual([{ id: "pg", variables: ["DB"], private: true, broken: false }]);
+  });
+
   it("is not broken when the servers share a private network", () => {
-    const uses = serviceUses(services, vars, () => true);
+    const uses = serviceUses(
+      services,
+      vars,
+      () => undefined,
+      () => true,
+    );
     expect(uses.get("web")?.find((u) => u.id === "pg")?.broken).toBe(false);
   });
 });

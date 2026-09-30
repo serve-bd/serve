@@ -77,7 +77,7 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
             joined: !!row.tunnel.clientKey,
             address: row.tunnel.address,
             port: row.tunnel.port,
-            listenerError: settings.tunnelListener && !settings.tunnelListener.listening ? settings.tunnelListener.error : null,
+            listenerError: settings.tunnelListener?.error ?? null,
           }}
         />
       ) : (

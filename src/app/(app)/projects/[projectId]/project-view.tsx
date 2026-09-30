@@ -256,7 +256,7 @@ export function ProjectView({ project, environments, environment, initialService
       {view === "canvas" && services.length > 0 ? (
         <div className="mx-auto w-full max-w-[1200px] px-4 pt-6 pb-8 sm:px-8">
           <div className="h-[70dvh] min-h-[380px] overflow-hidden rounded-2xl border border-line bg-sunken sm:h-[calc(100dvh-16rem)] sm:min-h-[460px]">
-            <ProjectCanvas projectId={project.id} environmentId={environment.id} services={services} saved={positions} canManage={can("services.manage")} />
+            <ProjectCanvas key={environment.id} projectId={project.id} environmentId={environment.id} services={services} saved={positions} canManage={can("services.manage")} />
           </div>
         </div>
       ) : (

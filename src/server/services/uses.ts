@@ -1,28 +1,31 @@
-import { PRIVATE_VARS, referencedService, referencesIn } from "@/lib/refs";
+import { PRIVATE_VARS, referencedService, serviceReferencesIn } from "@/lib/refs";
 
 export type ServiceUse = {
   id: string;
   variables: string[];
   /** Uses a private name (host, port, connection URL) rather than a public one. */
   private: boolean;
-  /** Private names across servers that share no private network: they do not resolve. */
+  /** Private names this service cannot reach from every server it runs on: they do not resolve. */
   broken: boolean;
 };
 
 /**
- * What each service uses, from the references in its variables. Pure: the caller passes the
- * services, their decrypted variables and which servers reach each other privately.
+ * What each service uses, from the references in its variables (followed through its own and
+ * shared variables like variable resolution does). Pure: the caller passes the services, their
+ * decrypted variables, shared variables and whether one service reaches another's private names.
  */
-export function serviceUses(
-  services: { id: string; name: string; slug: string; serverId: string }[],
+export function serviceUses<S extends { id: string; name: string; slug: string }>(
+  services: S[],
   vars: { serviceId: string; key: string; value: string }[],
-  connected: (a: string, b: string) => boolean,
+  scope: (scope: string, key: string) => string | undefined,
+  reaches: (consumer: S, provider: S) => boolean,
 ): Map<string, ServiceUse[]> {
   const out = new Map<string, ServiceUse[]>();
   for (const v of vars) {
     const consumer = services.find((s) => s.id === v.serviceId);
     if (!consumer) continue;
-    for (const ref of referencesIn([v.value])) {
+    const own = (key: string) => vars.find((x) => x.serviceId === consumer.id && x.key === key)?.value;
+    for (const ref of serviceReferencesIn(v.value, own, scope)) {
       const provider = referencedService(services, ref.name);
       if (!provider || provider.id === consumer.id) continue;
       const list = out.get(consumer.id) ?? [];
@@ -34,7 +37,7 @@ export function serviceUses(
       if (!use.variables.includes(v.key)) use.variables.push(v.key);
       if (PRIVATE_VARS.test(ref.key)) {
         use.private = true;
-        if (!connected(consumer.serverId, provider.serverId)) use.broken = true;
+        if (!reaches(consumer, provider)) use.broken = true;
       }
       out.set(consumer.id, list);
     }

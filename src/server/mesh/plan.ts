@@ -17,12 +17,27 @@ export type PlanServer = {
   networks: string[];
 };
 
-/** Two servers reach each other's private names: the same server, or both joined and sharing a private network. */
-export function privatelyConnected(members: Map<string, string[]>, a: string, b: string) {
+/** Joined servers: the private networks each is in, and whether it has no public address. */
+export type MeshMembers = Map<string, { networks: string[]; nat: boolean }>;
+
+/**
+ * Two servers reach each other's private names: the same server, or both joined, sharing a
+ * private network, and at least one of them with a public address (two behind NAT cannot connect).
+ */
+export function privatelyConnected(members: MeshMembers, a: string, b: string) {
   if (a === b) return true;
-  const na = members.get(a);
-  const nb = members.get(b);
-  return !!na && !!nb && na.some((n) => nb.includes(n));
+  const ma = members.get(a);
+  const mb = members.get(b);
+  return !!ma && !!mb && !(ma.nat && mb.nat) && ma.networks.some((n) => mb.networks.includes(n));
+}
+
+/**
+ * A service running on `from` (its server and extra servers) can use the private names of
+ * `provider` when every one of those servers can: the provider also runs there, or that server
+ * is privately connected to the provider's own server (the only one that exposes it).
+ */
+export function reachesPrivately(members: MeshMembers, from: string[], provider: { serverId: string; servers: string[] }) {
+  return from.every((x) => provider.servers.includes(x) || privatelyConnected(members, x, provider.serverId));
 }
 
 /** Two servers of the mesh that share a private network. */

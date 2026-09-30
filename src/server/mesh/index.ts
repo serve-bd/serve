@@ -312,6 +312,10 @@ async function runSync(scope: Set<string> | null, kicks: Set<string>) {
       try {
         await teardownMesh(await reachable(row.id));
         await setMesh(row.id, { state: "off", message: null, configHash: null, agent: null, syncedAt: new Date().toISOString() });
+        // Its slot (and the environment addresses in it) are free for another server; joining
+        // again takes a new one. Service addresses stay: they belong to the services.
+        await db.delete(schema.meshAddress).where(sql`${schema.meshAddress.serverId} = ${row.id} and ${schema.meshAddress.key} like 'env:%'`);
+        await db.update(schema.server).set({ meshIndex: null }).where(eq(schema.server.id, row.id));
       } catch (error) {
         await setMesh(row.id, { message: `Could not remove the private network: ${(error as Error).message}` });
       }
@@ -524,7 +528,7 @@ export async function meshNetworks(): Promise<Omit<MeshNetworkView, "member">[]>
 
 /** Everything the server page shows about the private network. */
 export async function meshOverview(serverId: string, readStatus = true): Promise<MeshOverview> {
-  const { meshServerAddress } = await import("@/lib/mesh");
+  const { meshEndpoint, meshServerAddress } = await import("@/lib/mesh");
   const [row] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
   const members = await meshMembers();
   const self = members.find((m) => m.id === serverId) ?? null;
@@ -548,7 +552,7 @@ export async function meshOverview(serverId: string, readStatus = true): Promise
         serverId: m.id,
         name: m.name,
         address: meshServerAddress(m.meshIndex),
-        endpoint: seen?.endpoint ?? (m.mesh.endpoint ? `${m.mesh.endpoint}:${m.mesh.port}` : null),
+        endpoint: seen?.endpoint ?? (m.mesh.endpoint ? meshEndpoint(m.mesh.endpoint, m.mesh.port) : null),
         latestHandshake: seen?.latestHandshake ?? 0,
         rx: seen?.rx ?? 0,
         tx: seen?.tx ?? 0,

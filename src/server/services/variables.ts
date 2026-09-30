@@ -6,7 +6,8 @@ import { databaseUrl } from "@/server/databases/options";
 import { PRIVATE_VARS, REF, referenceName } from "@/lib/refs";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { privateHost } from "@/lib/hostname";
-import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
+import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
+import { runServerIds } from "@/server/deploy/distribution";
 
 type Service = typeof schema.service.$inferSelect;
 type Domain = typeof schema.domain.$inferSelect;
@@ -109,11 +110,16 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const nameCount = new Map<string, number>();
   for (const s of siblings) nameCount.set(referenceName(s.name), (nameCount.get(referenceName(s.name)) ?? 0) + 1);
   const ambiguous = new Set([...nameCount].filter(([, n]) => n > 1).map(([k]) => k));
-  // Private hostnames only resolve on the same server, or between servers in the private network.
+  // Private hostnames only resolve where the service runs too, or across a shared private network,
+  // from every server this service runs on (extra servers get the same variables).
+  const runsOn = (x: Service) => runServerIds(x.serverId, x.type === "app" ? x.distribution : null);
+  const mine = runsOn(service);
   const remoteOnly = new Map<string, Set<string>>();
+  // Slugs are unique and always win over a name that happens to match one.
+  const slugs = new Set(siblings.map((s) => s.slug.toLowerCase()));
   for (const s of siblings) {
     let provided = providedVars(s, domainsBy.get(s.id) ?? []);
-    if (s.id !== service.id && !privatelyConnected(mesh, s.serverId, service.serverId)) {
+    if (s.id !== service.id && !reachesPrivately(mesh, mine, { serverId: s.serverId, servers: runsOn(s) })) {
       const hidden = new Set(Object.keys(provided).filter((k) => PRIVATE_VARS.test(k)));
       provided = Object.fromEntries(Object.entries(provided).filter(([k]) => !hidden.has(k)));
       for (const name of [s.slug, s.name, referenceName(s.name)]) remoteOnly.set(name.toLowerCase(), hidden);
@@ -121,9 +127,9 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     lookup.set(s.slug.toLowerCase(), provided);
     // Two services with the same name: neither answers to it, only to its unique slug.
     if (ambiguous.has(referenceName(s.name))) continue;
-    lookup.set(s.name.toLowerCase(), provided);
+    if (!slugs.has(s.name.toLowerCase())) lookup.set(s.name.toLowerCase(), provided);
     // Preferred form: names with spaces or symbols become dashed ("postgresql-sd").
-    if (!lookup.has(referenceName(s.name))) lookup.set(referenceName(s.name), provided);
+    if (!lookup.has(referenceName(s.name)) && !slugs.has(referenceName(s.name))) lookup.set(referenceName(s.name), provided);
   }
   // Scope names win over services with the same name.
   lookup.set("shared", sharedMap);
@@ -148,7 +154,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
         const scope = lookup.get(ref.slice(0, dot).toLowerCase());
         result = scope?.[ref.slice(dot + 1)];
         if (result === undefined && remoteOnly.get(ref.slice(0, dot).toLowerCase())?.has(ref.slice(dot + 1))) {
-          missing.add(`${ref} (runs on another server; turn on the private network on both servers, or use its public domain or port)`);
+          missing.add(`${ref} (runs on another server: put both servers in the same private network, or use its public domain or port)`);
           return "";
         }
       }

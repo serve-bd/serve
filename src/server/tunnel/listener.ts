@@ -2,7 +2,7 @@ import dns from "node:dns/promises";
 import net from "node:net";
 import os from "node:os";
 import { timingSafeEqual } from "node:crypto";
-import { isNotNull, eq } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { type Connection, Server, utils } from "ssh2";
 import { db, schema } from "@/server/db";
 import type { ServerTunnel } from "@/server/db/schema";
@@ -18,7 +18,7 @@ import { tunnelHostKey } from "./host-key";
  * connections into Serve's network). Each connected server gets a relay port that leads to its sshd.
  */
 
-type Live = { serverId: string; conn: Connection; relay: net.Server | null; remote: string };
+type Live = { serverId: string; conn: Connection; relay: net.Server | null; remote: string | null; clientKey: string };
 
 const store = globalThis as unknown as { __serveTunnels?: { listener: Server | null; live: Map<string, Live>; starting: Promise<void> | null } };
 const state = (store.__serveTunnels ??= { listener: null, live: new Map(), starting: null });
@@ -26,13 +26,13 @@ const state = (store.__serveTunnels ??= { listener: null, live: new Map(), start
 const GATEWAY = "serve-tunnel-gateway";
 const GATEWAY_IMAGE = "alpine/socat:latest";
 
+/** Change some tunnel fields in one statement, so a concurrent change of other fields is kept. */
 async function setTunnel(serverId: string, patch: Partial<ServerTunnel>) {
-  const [row] = await db.select({ tunnel: schema.server.tunnel }).from(schema.server).where(eq(schema.server.id, serverId));
-  if (!row?.tunnel) return;
   await db
     .update(schema.server)
-    .set({ tunnel: { ...row.tunnel, ...patch } })
-    .where(eq(schema.server.id, serverId));
+    .set({ tunnel: sql`${schema.server.tunnel} || ${JSON.stringify(patch)}::jsonb` })
+    .where(and(eq(schema.server.id, serverId), isNotNull(schema.server.tunnel)))
+    .catch((error) => console.error(`[tunnel] ${(error as Error).message}`));
 }
 
 /** The server whose registered key this is, if any. */
@@ -43,7 +43,7 @@ async function serverForKey(blob: Buffer) {
     const key = utils.parseKey(r.tunnel.clientKey);
     if (key instanceof Error || Array.isArray(key)) continue;
     const pub = key.getPublicSSH();
-    if (pub.length === blob.length && timingSafeEqual(pub, blob)) return { id: r.id, key, tunnel: r.tunnel };
+    if (pub.length === blob.length && timingSafeEqual(pub, blob)) return { id: r.id, key, tunnel: r.tunnel, clientKey: r.tunnel.clientKey };
   }
   return null;
 }
@@ -83,7 +83,9 @@ async function allowedPeer(address: string | undefined) {
 /** Relay: connections to it go through the tunnel to the server's sshd. */
 function openRelay(live: Live, relayPort: number, bindAddr: string, bindPort: number) {
   const relay = net.createServer(async (sock) => {
-    if (!(await allowedPeer(sock.remoteAddress))) {
+    // A reset while the checks below run must not become an uncaught error.
+    sock.on("error", () => sock.destroy());
+    if (!(await allowedPeer(sock.remoteAddress).catch(() => false))) {
       sock.destroy();
       return;
     }
@@ -126,25 +128,41 @@ function onClient(conn: Connection, info: { ip: string }) {
     if (found.key.verify(ctx.blob as Buffer, ctx.signature, ctx.hashAlgo) !== true) return ctx.reject(["publickey"]);
     // A server connects once: a newer connection replaces an older one (after a network change).
     drop(found.id, undefined, true);
-    live = { serverId: found.id, conn, relay: null, remote: info.ip };
+    // With Docker Compose every connection comes through the gateway container: its address says nothing.
+    live = { serverId: found.id, conn, relay: null, remote: process.env.SERVE_ROLE ? null : info.ip, clientKey: found.clientKey };
     state.live.set(found.id, live);
     ctx.accept();
   });
   conn.on("ready", () => {
     if (!live) return conn.end();
     const current = live;
-    conn.on("request", async (accept, reject, name, reqInfo) => {
+    conn.on("request", (accept, reject, name, reqInfo) => {
       if (name !== "tcpip-forward" || current.relay) return reject?.();
-      const [row] = await db.select({ tunnel: schema.server.tunnel, status: schema.server.status }).from(schema.server).where(eq(schema.server.id, current.serverId));
-      if (!row?.tunnel) return reject?.();
-      const { bindAddr, bindPort } = reqInfo as { bindAddr: string; bindPort: number };
-      current.relay = openRelay(current, row.tunnel.relayPort, bindAddr, bindPort);
-      accept?.(bindPort || 22);
-      await setTunnel(current.serverId, { connectedAt: new Date().toISOString(), remote: current.remote });
-      // A new server is set up now; a known one is checked right away instead of within a minute.
-      const { enqueue } = await import("@/server/queue");
-      if (row.status === "pending") await enqueue("server.setup", { serverId: current.serverId }, { concurrencyKey: `server:${current.serverId}` }).catch(() => {});
-      else void import("@/server/servers/setup").then((m) => m.probeServer(current.serverId)).catch(() => {});
+      void (async () => {
+        const [row] = await db
+          .select({ tunnel: schema.server.tunnel, status: schema.server.status, hostKey: schema.server.hostKey })
+          .from(schema.server)
+          .where(eq(schema.server.id, current.serverId));
+        if (!row?.tunnel || state.live.get(current.serverId) !== current) return reject?.();
+        const { bindAddr, bindPort } = reqInfo as { bindAddr: string; bindPort: number };
+        current.relay = openRelay(current, row.tunnel.relayPort, bindAddr, bindPort);
+        accept?.(bindPort || 22);
+        await setTunnel(current.serverId, { connectedAt: new Date().toISOString(), remote: current.remote });
+        // New or rejoined (its host key is not pinned yet): set it up, which pins the key. A known
+        // one is checked right away instead of within a minute.
+        if (row.status === "pending" || !row.hostKey) {
+          const { enqueue } = await import("@/server/queue");
+          await enqueue("server.setup", { serverId: current.serverId }, { concurrencyKey: `server:${current.serverId}` });
+        } else await import("@/server/servers/setup").then((m) => m.probeServer(current.serverId));
+      })().catch((error) => {
+        console.error(`[tunnel] ${(error as Error).message}`);
+        // Refused if not answered yet; once accepted, the connection just goes on.
+        if (!current.relay) {
+          try {
+            reject?.();
+          } catch {}
+        }
+      });
     });
     // No shell, no commands, no connections into Serve's own network.
     conn.on("session", (_accept, reject) => reject());
@@ -154,7 +172,9 @@ function onClient(conn: Connection, info: { ip: string }) {
   conn.on("error", () => live && drop(live.serverId, conn));
 }
 
+let reported: string | null = null;
 async function report(listening: boolean, error: string | null) {
+  reported = error;
   await updateSettings({ tunnelListener: { port: tunnelPort(), listening, error, at: new Date().toISOString() } }).catch(() => {});
 }
 
@@ -232,11 +252,13 @@ export async function syncTunnels() {
     }
     try {
       await ensureGateway(true);
+      if (reported) await report(true, null);
     } catch (error) {
       await report(true, `Could not publish port ${tunnelPort()}: ${(error as Error).message}`);
     }
-    const known = new Set(rows.map((r) => r.id));
-    for (const id of [...state.live.keys()]) if (!known.has(id)) drop(id);
+    // Servers that were removed, or that joined again with a new key, lose their old connection.
+    const keyOf = new Map(rows.map((r) => [r.id, r.tunnel?.clientKey ?? null]));
+    for (const [id, live] of [...state.live]) if (keyOf.get(id) !== live.clientKey) drop(id);
     // A server marked connected here but not live (the worker restarted) is not connected.
     for (const r of rows) if (r.tunnel?.connectedAt && !state.live.has(r.id)) await setTunnel(r.id, { connectedAt: null, remote: null });
   })().finally(() => {

@@ -17,6 +17,7 @@ import {
   neededAddresses,
   type PlanAddress,
   privatelyConnected,
+  reachesPrivately,
   type PlanServer,
   type PlanService,
   serviceKey,
@@ -48,6 +49,10 @@ const svc = (id: string, patch: Partial<PlanService> = {}): PlanService => ({
 const A = server("a", 1);
 const B = server("b", 2);
 const C = server("c", 3);
+
+/** Joined servers by id: their networks, and "nat" for the ones with no public address. */
+const members = (list: Record<string, string[] | { networks: string[]; nat: boolean }>) =>
+  new Map(Object.entries(list).map(([id, v]) => [id, Array.isArray(v) ? { networks: v, nat: false } : v]));
 
 describe("several private networks", () => {
   // n1: a, b. n2: c, d. b is in both, so it talks to everyone; a and c never talk.
@@ -113,17 +118,27 @@ describe("several private networks", () => {
   });
 
   it("says which servers reach each other's private names", () => {
-    const members = new Map([
-      ["a", ["n1"]],
-      ["b", ["n1", "n2"]],
-      ["c", ["n2"]],
-      ["e", []],
-    ]);
-    expect(privatelyConnected(members, "a", "b")).toBe(true);
-    expect(privatelyConnected(members, "a", "c")).toBe(false);
-    expect(privatelyConnected(members, "e", "a")).toBe(false);
-    expect(privatelyConnected(members, "e", "e")).toBe(true);
-    expect(privatelyConnected(members, "a", "zzz")).toBe(false);
+    const m = members({ a: ["n1"], b: ["n1", "n2"], c: ["n2"], e: [] });
+    expect(privatelyConnected(m, "a", "b")).toBe(true);
+    expect(privatelyConnected(m, "a", "c")).toBe(false);
+    expect(privatelyConnected(m, "e", "a")).toBe(false);
+    expect(privatelyConnected(m, "e", "e")).toBe(true);
+    expect(privatelyConnected(m, "a", "zzz")).toBe(false);
+  });
+
+  it("does not connect two servers that both have no public address", () => {
+    const m = members({ home1: { networks: ["n1"], nat: true }, home2: { networks: ["n1"], nat: true }, vps: ["n1"] });
+    expect(privatelyConnected(m, "home1", "home2")).toBe(false);
+    expect(privatelyConnected(m, "home1", "vps")).toBe(true);
+  });
+
+  it("needs every server a service runs on to reach the other service", () => {
+    const m = members({ c: ["n1"], p: ["n1"], x: ["n2"] });
+    // web runs on c and on extra server x; postgres on p. x shares nothing with p.
+    expect(reachesPrivately(m, ["c"], { serverId: "p", servers: ["p"] })).toBe(true);
+    expect(reachesPrivately(m, ["c", "x"], { serverId: "p", servers: ["p"] })).toBe(false);
+    // A replica of the provider on the consumer's server is reached there directly.
+    expect(reachesPrivately(new Map(), ["x"], { serverId: "p", servers: ["p", "x"] })).toBe(true);
   });
 });
 
@@ -382,17 +397,23 @@ describe.runIf(!!process.env.PATH && fs.existsSync("/usr/bin/jq"))("private netw
 });
 
 describe("what a private network change breaks", () => {
-  const before = new Map([
-    ["a", ["n1"]],
-    ["b", ["n1", "n2"]],
-    ["c", ["n2"]],
-  ]);
+  const before = members({ a: ["n1"], b: ["n1", "n2"], c: ["n2"] });
+  const on = (id: string, name: string, slug: string, serverId: string, environmentId = "e1"): ImpactService => ({
+    id,
+    name,
+    slug,
+    serverId,
+    servers: [serverId],
+    environmentId,
+    projectId: "p",
+  });
   const services: ImpactService[] = [
-    { id: "pg", name: "Postgres", slug: "postgres-ab12", serverId: "a", environmentId: "e1", projectId: "p" },
-    { id: "api", name: "api", slug: "api-cd34", serverId: "b", environmentId: "e1", projectId: "p" },
-    { id: "web", name: "web", slug: "web-ef56", serverId: "c", environmentId: "e1", projectId: "p" },
-    { id: "other", name: "Postgres", slug: "postgres-zz99", serverId: "a", environmentId: "e2", projectId: "p" },
+    on("pg", "Postgres", "postgres-ab12", "a"),
+    on("api", "api", "api-cd34", "b"),
+    on("web", "web", "web-ef56", "c"),
+    on("other", "Postgres", "postgres-zz99", "a", "e2"),
   ];
+  const noShared = () => () => undefined;
   const vars: ImpactVar[] = [
     { serviceId: "api", key: "DATABASE_URL", value: "${{postgres.DATABASE_URL}}" },
     { serviceId: "api", key: "DB_HOST", value: "${{ postgres-ab12.HOST }}:${{postgres.PORT}}" },
@@ -402,30 +423,58 @@ describe("what a private network change breaks", () => {
   ];
 
   it("works out memberships after each kind of change", () => {
-    expect(membersAfter(before, { kind: "remove", networkId: "n1", serverId: "b" }).get("b")).toEqual(["n2"]);
-    expect(membersAfter(before, { kind: "delete", networkId: "n2" }).get("c")).toEqual([]);
+    expect(membersAfter(before, { kind: "remove", networkId: "n1", serverId: "b" }).get("b")?.networks).toEqual(["n2"]);
+    expect(membersAfter(before, { kind: "delete", networkId: "n2" }).get("c")?.networks).toEqual([]);
     expect(membersAfter(before, { kind: "leave", serverId: "a" }).has("a")).toBe(false);
     // The original is left alone.
-    expect(before.get("b")).toEqual(["n1", "n2"]);
+    expect(before.get("b")?.networks).toEqual(["n1", "n2"]);
   });
 
   it("lists services that use a private name across a link that goes away", () => {
     const after = membersAfter(before, { kind: "remove", networkId: "n1", serverId: "b" });
-    expect(lostLinks(before, after, services, vars)).toEqual([{ consumerId: "api", providerId: "pg", variables: ["DATABASE_URL", "DB_HOST"] }]);
+    expect(lostLinks(before, after, services, vars, noShared)).toEqual([{ consumerId: "api", providerId: "pg", variables: ["DATABASE_URL", "DB_HOST"] }]);
     const gone = membersAfter(before, { kind: "delete", networkId: "n2" });
-    expect(lostLinks(before, gone, services, vars)).toEqual([{ consumerId: "web", providerId: "api", variables: ["API"] }]);
+    expect(lostLinks(before, gone, services, vars, noShared)).toEqual([{ consumerId: "web", providerId: "api", variables: ["API"] }]);
   });
 
   it("finds nothing when the servers still share another network or nothing uses the link", () => {
-    const twice = new Map([
-      ["a", ["n1", "n3"]],
-      ["b", ["n1", "n3"]],
-    ]);
-    expect(lostLinks(twice, membersAfter(twice, { kind: "delete", networkId: "n1" }), services, vars)).toEqual([]);
+    const twice = members({ a: ["n1", "n3"], b: ["n1", "n3"] });
+    expect(lostLinks(twice, membersAfter(twice, { kind: "delete", networkId: "n1" }), services, vars, noShared)).toEqual([]);
     // c leaving breaks nothing: nothing uses a service on c.
-    expect(lostLinks(before, membersAfter(before, { kind: "leave", serverId: "c" }), services, vars.slice(0, 3))).toEqual([]);
+    expect(lostLinks(before, membersAfter(before, { kind: "leave", serverId: "c" }), services, vars.slice(0, 3), noShared)).toEqual([]);
     // Same server: never affected.
     const local: ImpactVar[] = [{ serviceId: "other", key: "X", value: "${{postgres.HOST}}" }];
-    expect(lostLinks(before, membersAfter(before, { kind: "leave", serverId: "a" }), services, local)).toEqual([]);
+    expect(lostLinks(before, membersAfter(before, { kind: "leave", serverId: "a" }), services, local, noShared)).toEqual([]);
+  });
+
+  it("follows references through the service's own and shared variables", () => {
+    const after = membersAfter(before, { kind: "remove", networkId: "n1", serverId: "b" });
+    const viaShared: ImpactVar[] = [{ serviceId: "api", key: "DB", value: "${{environment.DB_URL}}" }];
+    const scope = () => (sc: string, key: string) => (sc === "environment" && key === "DB_URL" ? "${{postgres.DATABASE_URL}}" : undefined);
+    expect(lostLinks(before, after, services, viaShared, scope)).toEqual([{ consumerId: "api", providerId: "pg", variables: ["DB"] }]);
+    const viaOwn: ImpactVar[] = [
+      { serviceId: "api", key: "RAW", value: "${{postgres.HOST}}" },
+      { serviceId: "api", key: "URL", value: "pg://${{RAW}}" },
+    ];
+    expect(lostLinks(before, after, services, viaOwn, noShared)).toEqual([{ consumerId: "api", providerId: "pg", variables: ["RAW", "URL"] }]);
+  });
+
+  it("does not take scope names for services", () => {
+    const after = membersAfter(before, { kind: "remove", networkId: "n1", serverId: "b" });
+    const list = [...services, on("sh", "shared", "shared-aa11", "a")];
+    const vars: ImpactVar[] = [{ serviceId: "api", key: "X", value: "${{shared.HOST}}" }];
+    expect(lostLinks(before, after, list, vars, noShared)).toEqual([]);
+  });
+
+  it("counts extra servers: losing the link from one of them breaks the use", () => {
+    const m = members({ a: ["n1"], b: ["n1"], x: ["n2"], y: ["n2"] });
+    const list = [on("pg", "postgres", "pg-1", "a"), { ...on("app", "app", "app-1", "b"), servers: ["b", "x"] }];
+    const vars: ImpactVar[] = [{ serviceId: "app", key: "DATABASE_URL", value: "${{postgres.DATABASE_URL}}" }];
+    // Today app on x cannot reach a anyway: nothing to lose.
+    expect(lostLinks(m, membersAfter(m, { kind: "remove", networkId: "n1", serverId: "b" }), list, vars, noShared)).toEqual([]);
+    const both = members({ a: ["n1", "n2"], b: ["n1"], x: ["n2"] });
+    expect(lostLinks(both, membersAfter(both, { kind: "remove", networkId: "n2", serverId: "x" }), list, vars, noShared)).toEqual([
+      { consumerId: "app", providerId: "pg", variables: ["DATABASE_URL"] },
+    ]);
   });
 });

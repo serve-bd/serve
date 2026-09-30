@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, isNotNull } from "drizzle-orm";
+import { eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requireInstanceAdmin } from "@/server/auth";
@@ -43,6 +43,8 @@ export async function createTunnelServer(input: z.input<typeof tunnelInput>) {
     const id = newId();
     const token = newJoinToken();
     await db.transaction(async (tx) => {
+      // One at a time, so two new servers never get the same relay port.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('serve-tunnel-relay'))`);
       const taken = new Set((await tx.select({ tunnel: schema.server.tunnel }).from(schema.server).where(isNotNull(schema.server.tunnel))).map((r) => r.tunnel!.relayPort));
       const relayPort = allocateRelayPort(taken);
       if (!relayPort) throw new UserError("No more servers can connect out.");
@@ -93,9 +95,10 @@ export async function newJoinCommand(serverId: string, origin: string, address?:
     const next = address !== undefined ? tunnelInput.shape.address.parse(address) : row.tunnel.address;
     if (!/^https?:$/.test(new URL(z.string().url().parse(origin)).protocol)) throw new UserError("Open Serve over http or https.");
     const token = newJoinToken();
+    // Only these fields: the worker may be writing the connection state at the same moment.
     await db
       .update(schema.server)
-      .set({ tunnel: { ...row.tunnel, tokenHash: token.hash, tokenExpiresAt: token.expiresAt, address: next, port: tunnelPort() } })
+      .set({ tunnel: sql`${schema.server.tunnel} || ${JSON.stringify({ tokenHash: token.hash, tokenExpiresAt: token.expiresAt, address: next, port: tunnelPort() })}::jsonb` })
       .where(eq(schema.server.id, serverId));
     forgetServer(serverId);
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.update", message: `Created a new join command for ${row.name}` });

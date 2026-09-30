@@ -1,10 +1,12 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { type ServiceIssue, serviceIssues } from "@/server/services/issues";
 import { type ServiceUse, serviceUses } from "@/server/services/uses";
 import { decryptOrNull } from "@/server/crypto";
-import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
+import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
+import { scopeReader } from "@/lib/refs";
+import { runServerIds } from "@/server/deploy/distribution";
 
 export type { ServiceUse };
 
@@ -32,7 +34,7 @@ export async function environmentServices(environmentId: string): Promise<Servic
   const services = await db.select().from(schema.service).where(eq(schema.service.environmentId, environmentId)).orderBy(asc(schema.service.createdAt));
   if (!services.length) return [];
   const ids = services.map((s) => s.id);
-  const [domains, deployments, issues, vars, servers, mesh] = await Promise.all([
+  const [domains, deployments, issues, vars, servers, mesh, [scopeRow]] = await Promise.all([
     db.select().from(schema.domain).where(inArray(schema.domain.serviceId, ids)).orderBy(asc(schema.domain.createdAt)),
     db
       .selectDistinctOn([schema.deployment.serviceId], {
@@ -57,11 +59,32 @@ export async function environmentServices(environmentId: string): Promise<Servic
         ),
       ),
     meshMemberIds(),
+    db
+      .select({ projectId: schema.project.id, organizationId: schema.project.organizationId })
+      .from(schema.environment)
+      .innerJoin(schema.project, eq(schema.environment.projectId, schema.project.id))
+      .where(eq(schema.environment.id, environmentId)),
   ]);
+  // Shared variables, for references that go through them (like variable resolution does).
+  const shared = scopeRow
+    ? await db
+        .select()
+        .from(schema.sharedVar)
+        .where(
+          or(
+            eq(schema.sharedVar.environmentId, environmentId),
+            and(isNull(schema.sharedVar.environmentId), eq(schema.sharedVar.projectId, scopeRow.projectId)),
+            and(isNull(schema.sharedVar.environmentId), isNull(schema.sharedVar.projectId), eq(schema.sharedVar.organizationId, scopeRow.organizationId)),
+          ),
+        )
+    : [];
+  const mapOf = (pick: (v: (typeof shared)[number]) => boolean) => Object.fromEntries(shared.filter(pick).map((v) => [v.key, decryptOrNull(v.value) ?? ""]));
+  const runsOn = new Map(services.map((s) => [s.id, runServerIds(s.serverId, s.type === "app" ? s.distribution : null)]));
   const uses = serviceUses(
     services,
     vars.map((v) => ({ ...v, value: decryptOrNull(v.value) ?? "" })),
-    (a, b) => privatelyConnected(mesh, a, b),
+    scopeReader({ environment: mapOf((v) => !!v.environmentId), project: mapOf((v) => !v.environmentId && !!v.projectId), org: mapOf((v) => !v.environmentId && !v.projectId) }),
+    (consumer, provider) => reachesPrivately(mesh, runsOn.get(consumer.id)!, { serverId: provider.serverId, servers: runsOn.get(provider.id)! }),
   );
   return services.map((s) => {
     const primary = pickPrimaryDomain(domains.filter((x) => x.serviceId === s.id));

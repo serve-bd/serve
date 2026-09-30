@@ -4,7 +4,8 @@ import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import { pageService } from "@/server/services/access";
 import { providedVars } from "@/server/services/variables";
-import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
+import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
+import { runServerIds } from "@/server/deploy/distribution";
 import { PageBody } from "@/components/shell/page-header";
 import { composeVariables } from "@/lib/compose-vars";
 import { referenceName } from "@/lib/refs";
@@ -40,17 +41,22 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
       .map((s) => {
         // Names two services share do not resolve; point at the unique slug instead.
         const shared = siblings.filter((x) => referenceName(x.name) === referenceName(s.name)).length > 1;
-        const elsewhere = s.serverId !== service.serverId;
+        const reachable = reachesPrivately(mesh, runServerIds(service.serverId, service.type === "app" ? service.distribution : null), {
+          serverId: s.serverId,
+          servers: runServerIds(s.serverId, s.type === "app" ? s.distribution : null),
+        });
+        // On another server, or reachable from this service's main server but not from one of its extra servers.
+        const elsewhere = s.serverId !== service.serverId || !reachable;
         return {
           name: shared ? s.slug : s.name,
           label: shared ? `${s.name} (${s.slug})` : undefined,
           keys: Object.keys(providedVars(s)).filter((k) => !k.startsWith("SERVE_SERVICE")),
           note: elsewhere
-            ? privatelyConnected(mesh, s.serverId, service.serverId)
+            ? reachable
               ? `On ${serverName.get(s.serverId) ?? "another server"}, over the private network`
-              : `On ${serverName.get(s.serverId) ?? "another server"}: private names need the private network on both servers`
+              : `On ${serverName.get(s.serverId) ?? "another server"}: private names need both servers in the same private network`
             : undefined,
-          warn: elsewhere && !privatelyConnected(mesh, s.serverId, service.serverId),
+          warn: elsewhere && !reachable,
         };
       }),
     ...(projectKeys.length ? [{ name: "project", label: "Project variables", keys: projectKeys }] : []),

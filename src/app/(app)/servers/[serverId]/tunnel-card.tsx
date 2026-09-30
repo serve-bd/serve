@@ -50,7 +50,7 @@ export function TunnelCard({ serverId, user, sshPort, tunnel }: { serverId: stri
         {tunnel.listenerError && (
           <p className="flex items-start gap-2 rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-3 text-[13px] leading-relaxed text-bad">
             <AlertTriangle className="mt-0.5 size-4 flex-none" />
-            <span>The tunnel listener is not running: {tunnel.listenerError}</span>
+            <span>Servers cannot connect: {tunnel.listenerError}</span>
           </p>
         )}
         <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-3">

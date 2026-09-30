@@ -171,12 +171,18 @@ function Canvas({ networks, servers, saved }: Props) {
     [networks, servers],
   );
   const auto = React.useMemo(() => networkLayout(input), [input]);
+  // A refresh hands over an equal but new object: only a real change of the saved places counts.
+  const savedKey = JSON.stringify(saved);
+  const stored = React.useMemo(() => JSON.parse(savedKey) as Record<string, Pos>, [savedKey]);
   const build = React.useCallback(
     (prev: Node[]): Node[] => {
-      const at = (id: string) => prev.find((n) => n.id === id)?.position ?? saved[id] ?? auto[id];
+      const at = (id: string) => prev.find((n) => n.id === id)?.position ?? stored[id] ?? auto[id];
+      // New data keeps what React Flow knows about a card (its size, selection).
+      const keep = (id: string) => prev.find((n) => n.id === id);
       return [
         ...networks.map(
           (n): NetworkNode => ({
+            ...(keep(nodeId("network", n.id)) as NetworkNode | undefined),
             id: nodeId("network", n.id),
             type: "network",
             position: at(nodeId("network", n.id)),
@@ -185,6 +191,7 @@ function Canvas({ networks, servers, saved }: Props) {
         ),
         ...servers.map(
           (s): ServerNode => ({
+            ...(keep(nodeId("server", s.id)) as ServerNode | undefined),
             id: nodeId("server", s.id),
             type: "server",
             position: at(nodeId("server", s.id)),
@@ -193,7 +200,7 @@ function Canvas({ networks, servers, saved }: Props) {
         ),
       ];
     },
-    [networks, servers, saved, auto, colorOf],
+    [networks, servers, stored, auto, colorOf],
   );
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(build([]));
   const dragFrom = React.useRef<{ id: string; position: Pos } | null>(null);
@@ -206,7 +213,8 @@ function Canvas({ networks, servers, saved }: Props) {
   const member = useAction((networkId: string, serverId: string, on: boolean) => setNetworkMember(networkId, serverId, on), {
     success: "Saved. Servers pick up the change within seconds.",
   });
-  const save = useAction((positions: Record<string, Pos>) => saveNetworkCanvas(positions), { refresh: false });
+  // Refreshed after saving, so the page cache (used by Back) knows the new places.
+  const save = useAction((positions: Record<string, Pos>) => saveNetworkCanvas(positions));
   /** Put a server in a network, from a drop or a drawn line. */
   const add = (networkId: string, serverId: string) => {
     const network = networks.find((n) => n.id === networkId);
@@ -295,7 +303,10 @@ function Canvas({ networks, servers, saved }: Props) {
             return;
           }
           // Dropped on a network: it goes in (or not), and the card slides back to where it was.
+          // Other cards dragged along stay where they were dropped.
           setNodes((prev) => prev.map((n) => (n.id === node.id ? { ...n, position: from } : n)));
+          const others = dragged.filter((n) => n.id !== node.id);
+          if (others.length) void save.run(Object.fromEntries(others.map((n) => [n.id, n.position])));
           add(target.id.slice("network:".length), node.id.slice("server:".length));
         }}
         connectionMode={ConnectionMode.Loose}

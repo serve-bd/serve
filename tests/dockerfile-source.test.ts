@@ -54,3 +54,15 @@ describe("declareBuildArgs", async () => {
     expect(declareBuildArgs("FROM a", [])).toBe("FROM a");
   });
 });
+
+describe("usesServices", async () => {
+  const { usesServices } = await import("@/server/deploy/builders");
+  const hosts = { "postgresql-z8et3w": "10.0.0.2", redis: "10.0.0.3" };
+  it("is true only when a build variable names a service of the environment", () => {
+    expect(usesServices({ DATABASE_URL: "postgresql://u:p@postgresql-z8et3w:5432/db" }, hosts)).toBe(true);
+    expect(usesServices({ REDIS_URL: "redis://redis:6379" }, hosts)).toBe(true);
+    expect(usesServices({ API: "https://redis-cloud.example.com" }, hosts)).toBe(false);
+    expect(usesServices({ NEXT_PUBLIC_URL: "https://example.com" }, hosts)).toBe(false);
+    expect(usesServices({ DATABASE_URL: "postgresql://u:p@postgresql-z8et3w:5432/db" }, {})).toBe(false);
+  });
+});

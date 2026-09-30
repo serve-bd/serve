@@ -48,7 +48,7 @@ export class CommandError extends Error {
   }
 }
 
-function redactor(secrets: string[] = []) {
+export function redactor(secrets: string[] = []) {
   const list = secrets.filter((s) => s && s.length >= 4);
   return (line: string) => list.reduce((acc, s) => acc.split(s).join("********"), line);
 }

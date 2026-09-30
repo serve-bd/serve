@@ -1,11 +1,15 @@
+import { spawn } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { commandExists, run } from "@/server/process";
+import { commandExists, redactor, run } from "@/server/process";
+import { sh } from "@/server/servers/ssh";
+import type { ServerCtx } from "@/server/servers/context";
 import type { BuildConfig } from "@/server/services/types";
 import { scopeCacheMounts } from "@/server/security";
 import { buildArgFlags } from "./options";
 import { declareBuildArgs } from "@/lib/dockerfile";
-import { type BuildNetwork, builderFlags, builderName, ensureBuilder } from "./build-network";
+import { type BuildNetwork, builderFlags, builderName, ensureBuilder, serverCli } from "./build-network";
 
 export type BuildContext = {
   /** Absolute path of the build context (repo + rootDir). */
@@ -25,6 +29,12 @@ export type BuildContext = {
   platform?: string | null;
   /** The environment network the build may reach, with its services' names (Dockerfile builds). */
   network?: BuildNetwork | null;
+  /**
+   * Another server to build on: the files go there as one archive over SSH and the build runs on the
+   * server itself. Docker's own transfer of a build context sends many small messages, each waiting
+   * for an answer, which is very slow over a long SSH path (a machine behind a tunnel).
+   */
+  remote?: { server: Pick<ServerCtx, "local" | "exec">; buildsDir: string } | null;
 };
 
 export type BuildResult = {
@@ -308,9 +318,10 @@ async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileCont
     );
   args.push(...extra);
   for (const [k, v] of Object.entries(ctx.labels)) args.push("--label", `${k}=${v}`);
-  if (ctx.network) {
-    const name = builderName(ctx.network.name, ctx.dockerEnv);
-    if (await ensureBuilder(name, ctx.network.name, { ...ctx.dockerEnv }, ctx.log)) {
+  if (ctx.network && usesServices(ctx.buildEnv, ctx.network.hosts)) {
+    const name = builderName(ctx.network.name, ctx.remote ? {} : ctx.dockerEnv);
+    const cli = ctx.remote ? serverCli(ctx.remote.server) : (a: string[]) => run("docker", a, { env: { ...ctx.dockerEnv } });
+    if (await ensureBuilder(name, ctx.network.name, cli, ctx.log)) {
       const count = Object.keys(ctx.network.hosts).length;
       ctx.log(count ? `Build steps can reach this environment's services (${count} names)` : "Build steps can reach this environment's network");
       args.push(...builderFlags(name, ctx.network.hosts));
@@ -320,14 +331,56 @@ async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileCont
   if (ctx.build.noCache) args.push("--no-cache", "--pull");
   args.push(ctx.contextDir);
   try {
-    await run("docker", args, {
-      onLine: ctx.log,
-      signal: ctx.signal,
-      redact: ctx.redact,
-      env: { DOCKER_BUILDKIT: "1", ...ctx.dockerEnv },
-    });
+    if (ctx.remote) await buildOnServer(ctx, ctx.remote, args);
+    else
+      await run("docker", args, {
+        onLine: ctx.log,
+        signal: ctx.signal,
+        redact: ctx.redact,
+        env: { DOCKER_BUILDKIT: "1", ...ctx.dockerEnv },
+      });
   } finally {
     if (tempDockerfile) await fs.rm(tempDockerfile, { force: true });
+  }
+}
+
+/**
+ * Whether a build variable names one of the environment's services (DATABASE_URL pointing at the
+ * database). Only then does the build run in the environment's builder: other builds keep Docker's
+ * own builder and its warm cache.
+ */
+export function usesServices(buildEnv: Record<string, string>, hosts: Record<string, string>) {
+  const names = Object.keys(hosts);
+  if (!names.length) return false;
+  const edge = "[^A-Za-z0-9_.-]";
+  return Object.values(buildEnv).some((value) => names.some((host) => new RegExp(`(^|${edge})${host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(${edge}|$)`).test(value)));
+}
+
+/** Copies the build context to the server as one archive, then runs `docker build` there. */
+async function buildOnServer(ctx: BuildContext, remote: NonNullable<BuildContext["remote"]>, args: string[]) {
+  const dir = path.posix.join(remote.buildsDir, `context-${crypto.randomBytes(6).toString("hex")}`);
+  const local = ctx.contextDir;
+  // Paths in the arguments (context, Dockerfile) point into the copy on the server.
+  const mapped = args.map((a) => (a === local ? dir : a.startsWith(`${local}/`) ? path.posix.join(dir, path.relative(local, a).split(path.sep).join("/")) : a));
+  const redact = redactor(ctx.redact);
+  const started = Date.now();
+  const upload = await remote.server.exec(`rm -rf ${sh(dir)} && mkdir -p ${sh(dir)} && tar -xzf - -C ${sh(dir)}`, {
+    stdin: () => spawn("tar", ["-czf", "-", "-C", local, "."], { stdio: ["ignore", "pipe", "ignore"] }).stdout,
+    signal: ctx.signal,
+  });
+  if (upload.code !== 0) throw new Error(`Could not copy the build files to the server: ${(upload.stderr || upload.stdout).trim() || `exit code ${upload.code}`}`);
+  ctx.log(`Sent the build files to the server in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  try {
+    const res = await remote.server.exec(`cd ${sh(dir)} && DOCKER_BUILDKIT=1 docker ${mapped.map(sh).join(" ")}`, {
+      onLine: (line) => ctx.log(redact(line)),
+      signal: ctx.signal,
+    });
+    if (ctx.signal?.aborted) throw new Error("Build cancelled");
+    if (res.code !== 0) throw new Error(`docker build exited with code ${res.code}`);
+  } finally {
+    // A cancelled build keeps running on the server after its SSH channel closes: stop it by its directory.
+    if (ctx.signal?.aborted) await remote.server.exec(`pkill -f ${sh(`docker build.*${dir}`)} || true`).catch(() => {});
+    await remote.server.exec(`rm -rf ${sh(dir)}`).catch(() => {});
   }
 }
 

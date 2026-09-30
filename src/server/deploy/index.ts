@@ -207,6 +207,7 @@ async function prepareAppImage(
       cacheScope: buildCacheScope(await orgIdOf(service)),
       platform,
       network: buildNetwork,
+      remote: server.local ? null : { server, buildsDir: server.paths.builds },
     });
     log.line(`Build finished in ${((Date.now() - started) / 1000).toFixed(1)}s`);
     return { image: target, detectedPort: result.detectedPort ?? (await imagePort(target, d)), registryImage: null, rollback: false };

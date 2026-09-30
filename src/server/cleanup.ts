@@ -3,7 +3,7 @@ import { db, schema } from "@/server/db";
 import { LABEL, removeContainer } from "@/server/docker/client";
 import { getServer, LOCAL_SERVER_ID, type ServerCtx } from "@/server/servers/context";
 import { pruneJobs } from "@/server/queue";
-import { pruneBuilders } from "@/server/deploy/build-network";
+import { pruneBuilders, serverCli } from "@/server/deploy/build-network";
 import { pruneMetrics, serverSnapshot } from "@/server/metrics";
 import { pruneRequestMetrics } from "@/server/analytics";
 import { getSettings, updateSettings, type CleanupRun } from "@/server/settings";
@@ -124,7 +124,7 @@ async function doCleanup(trigger: Trigger, serverId: string): Promise<CleanupRun
     const cacheDays = trigger === "disk" ? 1 : settings.cleanupBuildCacheDays;
     if (cacheDays > 0) reclaimed += await docker_(ctx, ["builder", "prune", "-f", "--filter", `until=${cacheDays * 24}h`]);
     // Environment builders (builds that reach their environment's services) keep their own cache.
-    if (cacheDays > 0) for (const out of await pruneBuilders(ctx.docker, await ctx.cliEnv(), cacheDays * 24).catch(() => [])) reclaimed += parseReclaimed(out);
+    if (cacheDays > 0) for (const out of await pruneBuilders(ctx.docker, serverCli(ctx), cacheDays * 24).catch(() => [])) reclaimed += parseReclaimed(out);
 
     if (trigger !== "schedule") reclaimed += await docker_(ctx, ["image", "prune", "-f"]);
 

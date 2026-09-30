@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import type Docker from "dockerode";
 import { run } from "@/server/process";
+import { sh } from "@/server/servers/ssh";
+import type { ServerCtx } from "@/server/servers/context";
 
 /*
  * Builds that reach the environment's services. A BuildKit container joined to the environment
@@ -14,6 +16,22 @@ export const BUILDKIT_IMAGE = "moby/buildkit:v0.29.0";
 const PREFIX = "serve-build-";
 
 export type BuildNetwork = { name: string; hosts: Record<string, string> };
+
+/** Runs the docker CLI with these arguments and returns its output; throws when it fails. */
+export type DockerCli = (args: string[]) => Promise<string>;
+
+/**
+ * The docker CLI of a server, run on that server: builders are known to the CLI that created them,
+ * and a build container's image export then stays on the machine instead of crossing SSH twice.
+ */
+export function serverCli(server: Pick<ServerCtx, "local" | "exec">): DockerCli {
+  if (server.local) return (args) => run("docker", args);
+  return async (args) => {
+    const res = await server.exec(`docker ${args.map(sh).join(" ")}`);
+    if (res.code !== 0) throw new Error((res.stderr || res.stdout).trim() || `docker exited with code ${res.code}`);
+    return res.stdout;
+  };
+}
 
 /** One builder per environment network and Docker host: the CLI keeps builders by name. */
 export function builderName(network: string, dockerEnv: Record<string, string> = {}) {
@@ -45,18 +63,16 @@ export async function networkHosts(d: Docker, network: string): Promise<Record<s
 }
 
 /** Creates the builder when this worker does not know it yet. False when buildx cannot run one. */
-export async function ensureBuilder(name: string, network: string, env: Record<string, string>, log: (line: string) => void) {
+export async function ensureBuilder(name: string, network: string, docker: DockerCli, log: (line: string) => void) {
   try {
-    await run("docker", ["buildx", "inspect", "--bootstrap", name], { env });
+    await docker(["buildx", "inspect", "--bootstrap", name]);
     return true;
   } catch {
     // Not created yet, or created by a worker that has since restarted.
   }
   try {
-    await run("docker", ["buildx", "create", "--name", name, "--driver", "docker-container", "--driver-opt", `network=${network}`, "--driver-opt", `image=${BUILDKIT_IMAGE}`], {
-      env,
-    });
-    await run("docker", ["buildx", "inspect", "--bootstrap", name], { env });
+    await docker(["buildx", "create", "--name", name, "--driver", "docker-container", "--driver-opt", `network=${network}`, "--driver-opt", `image=${BUILDKIT_IMAGE}`]);
+    await docker(["buildx", "inspect", "--bootstrap", name]);
     return true;
   } catch (error) {
     log(`Could not start a build container on the environment network (${(error as Error).message.trim().split("\n").pop()}); building without access to its services.`);
@@ -73,7 +89,7 @@ export function builderFlags(name: string, hosts: Record<string, string>) {
  * Cleanup: prunes the build cache of every environment builder on a server and removes builders
  * whose environment network is gone. Returns the output of each prune, for the space reclaimed.
  */
-export async function pruneBuilders(d: Docker, env: Record<string, string>, untilHours: number): Promise<string[]> {
+export async function pruneBuilders(d: Docker, docker: DockerCli, untilHours: number): Promise<string[]> {
   const output: string[] = [];
   const containers = await d.listContainers({ all: true, filters: { name: [`buildx_buildkit_${PREFIX}`] } });
   const networks = new Set((await d.listNetworks()).map((n) => n.Name));
@@ -83,7 +99,7 @@ export async function pruneBuilders(d: Docker, env: Record<string, string>, unti
     if (!name.startsWith(PREFIX)) continue;
     const network = Object.keys(c.NetworkSettings?.Networks ?? {}).find((n) => n.startsWith("serve-env-"));
     if (!network || !networks.has(network)) {
-      await run("docker", ["buildx", "rm", name], { env }).catch(async () => {
+      await docker(["buildx", "rm", name]).catch(async () => {
         // The CLI no longer knows it (a restarted worker): remove its container and state by hand.
         await d
           .getContainer(c.Id)
@@ -96,8 +112,8 @@ export async function pruneBuilders(d: Docker, env: Record<string, string>, unti
       });
       continue;
     }
-    if (!(await ensureBuilder(name, network, env, () => {}))) continue;
-    output.push(await run("docker", ["buildx", "prune", "--builder", name, "-f", "--filter", `until=${untilHours}h`], { env }).catch(() => ""));
+    if (!(await ensureBuilder(name, network, docker, () => {}))) continue;
+    output.push(await docker(["buildx", "prune", "--builder", name, "-f", "--filter", `until=${untilHours}h`]).catch(() => ""));
   }
   return output;
 }

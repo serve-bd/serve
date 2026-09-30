@@ -3,7 +3,7 @@
 import { useCan } from "@/components/permissions";
 import { ReadOnlyFooter } from "@/components/read-only";
 import * as React from "react";
-import { ArrowUpRight, Check, Laptop, Plus, Trash2 } from "lucide-react";
+import { ArrowUpRight, Check, ChevronRight, Laptop, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Input } from "@/components/ui/input";
@@ -94,7 +94,8 @@ export function PortsCard({
       { ...(service ? { service } : {}), host: hostFor(l.port), container: l.port, protocol: l.protocol, bindAddress: isLocalServer ? "127.0.0.1" : "0.0.0.0" },
     ]);
   };
-  const taken = busy.filter((p) => p > 0).slice(0, 14);
+  const taken = busy.filter((p) => p > 0);
+  const busyCount = taken.length;
 
   const save = useAction(
     async () => {
@@ -163,37 +164,60 @@ export function PortsCard({
             )}
 
             {canEdit && available.length > 0 && (
-              <div className="flex flex-col gap-2 rounded-xl bg-surface-2/60 px-3.5 py-3">
-                {available.map((g) => (
-                  <div key={g.name} className="flex flex-wrap items-center gap-1.5">
-                    <span className="mr-1 text-xs text-muted">{compose ? <>Ports {g.name} listens on</> : "Ports the app listens on"}</span>
-                    {g.ports.map((l) => {
-                      const done = mapped(g.name, l);
-                      return (
-                        <button
-                          key={`${l.port}/${l.protocol}`}
-                          type="button"
-                          disabled={done}
-                          onClick={() => expose(g.name, l)}
-                          title={done ? "Already published" : `Publish ${l.port}/${l.protocol}`}
-                          className={cn(
-                            "inline-flex h-7 items-center gap-1 rounded-lg px-2 font-mono text-[12px] ring-1 transition-colors",
-                            done ? "cursor-default bg-accent-soft text-accent ring-transparent" : "bg-surface text-fg ring-line hover:ring-line-strong",
-                          )}
-                        >
-                          {done ? <Check className="size-3" /> : <Plus className="size-3 text-muted" />}
-                          {l.port}
-                          {l.protocol === "udp" && <span className="text-muted">/udp</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
+              <div className="overflow-hidden rounded-xl border border-line">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-line bg-surface-2/50 px-4 py-2.5">
+                  <span className="text-[13px] font-medium text-fg">Detected ports</span>
+                  <span className="text-xs text-muted">Click a port to publish it</span>
+                </div>
+                <div className="flex flex-col divide-y divide-line">
+                  {available.map((g) => (
+                    <div key={g.name} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
+                      {compose && (
+                        <span className="w-28 flex-none truncate text-xs font-medium text-fg-2" title={g.name}>
+                          {g.name}
+                        </span>
+                      )}
+                      <div className="flex flex-wrap gap-1.5">
+                        {g.ports.map((l) => {
+                          const done = mapped(g.name, l);
+                          return (
+                            <button
+                              key={`${l.port}/${l.protocol}`}
+                              type="button"
+                              disabled={done}
+                              onClick={() => expose(g.name, l)}
+                              title={done ? "Already published" : `Publish ${l.port}/${l.protocol}`}
+                              className={cn(
+                                "inline-flex h-7 items-center gap-1 rounded-md border px-2 font-mono text-[12px] transition-colors",
+                                done ? "cursor-default border-transparent bg-accent-soft text-accent" : "border-line bg-surface text-fg hover:border-line-strong hover:bg-hover",
+                              )}
+                            >
+                              {done ? <Check className="size-3" /> : <Plus className="size-3 text-muted" />}
+                              {l.port}
+                              {l.protocol === "udp" && <span className="text-muted">/udp</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
                 {taken.length > 0 && (
-                  <p className="text-[11px] text-faint">
-                    Already taken on {isLocalServer ? "this machine" : serverName}: <span className="font-mono">{taken.join(", ")}</span>
-                    {busy.length > taken.length && ` and ${busy.length - taken.length} more`}
-                  </p>
+                  <details className="group border-t border-line bg-surface-2/30 px-4 py-2.5 text-xs text-muted">
+                    <summary className="flex cursor-pointer list-none items-center gap-1.5 select-none hover:text-fg-2 [&::-webkit-details-marker]:hidden">
+                      <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
+                      {busyCount} {busyCount === 1 ? "port is" : "ports are"} already used on {isLocalServer ? "this machine" : serverName}; new ports skip them
+                    </summary>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {busy
+                        .filter((p) => p > 0)
+                        .map((p) => (
+                          <span key={p} className="rounded bg-fg/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-fg-2">
+                            {p}
+                          </span>
+                        ))}
+                    </div>
+                  </details>
                 )}
               </div>
             )}

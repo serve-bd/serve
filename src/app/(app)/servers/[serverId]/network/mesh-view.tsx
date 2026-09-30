@@ -3,10 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { ArrowRight, Cable, Check, EyeOff, KeyRound, LogOut, Pencil, Plus, RefreshCw, Waypoints } from "lucide-react";
+import { ArrowRight, Cable, EyeOff, KeyRound, LogOut, Pencil, Plus, RefreshCw, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge, Card, CardBody, CardFooter, CardHeader, CopyButton, EmptyState } from "@/components/ui/misc";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
@@ -124,16 +125,23 @@ function JoinForm({
     success: joined ? "Private network updated" : "Joining the private network",
     onSuccess: onDone,
   });
-  const [options, setOptions] = React.useState<{ address: string; label: string }[]>([]);
+  // The server's own addresses, to pick from; null while they load. "Custom" types one instead.
+  const [options, setOptions] = React.useState<{ address: string; label: string }[] | null>(null);
+  const [custom, setCustom] = React.useState(false);
   React.useEffect(() => {
     let alive = true;
     void meshAddressOptions(serverId).then((r) => {
-      if (alive && r.ok) setOptions(r.data);
+      if (!alive) return;
+      const list = r.ok ? r.data : [];
+      setOptions(list);
+      // A saved or suggested address that is not one of them stays editable.
+      if (initialEndpoint && !list.some((o) => o.address === initialEndpoint)) setCustom(true);
+      else if (!initialEndpoint && list[0]) setEndpoint(list[0].address);
     });
     return () => {
       alive = false;
     };
-  }, [serverId]);
+  }, [serverId, initialEndpoint]);
   const problem = meshEndpointProblem(endpoint);
   const portNumber = Number(port);
   const portProblem = !port || portNumber < 1 || portNumber > 65535 ? "Enter a port from 1 to 65535" : null;
@@ -146,123 +154,150 @@ function JoinForm({
         if (!problem && !portProblem && !networkProblem) void save.run();
       }}
     >
-      <CardBody className="flex flex-col gap-5 py-5">
-        {!joined && (
-          <ul className="grid gap-3 sm:grid-cols-3">
-            <Benefit icon={<Waypoints />} title="Same names everywhere">
-              <code className="font-mono">{"${{postgres.DATABASE_URL}}"}</code> works when the database runs on another server.
-            </Benefit>
-            <Benefit icon={<KeyRound />} title="Encrypted">
-              Traffic between servers goes through WireGuard, with keys only these servers hold.
-            </Benefit>
-            <Benefit icon={<EyeOff />} title="Nothing public">
-              Databases stay private. Only services of the same environment reach each other.
-            </Benefit>
-          </ul>
-        )}
-        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
-          <Field
-            label="Address other servers use"
-            description="This server's public IP or host name. Use a private IP when all servers share a private network."
-            error={touched ? problem : null}
-          >
-            <Input value={endpoint} onChange={(e) => setEndpoint(e.target.value.trim())} placeholder="203.0.113.10" className="font-mono" autoComplete="off" />
-            {options.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                <span className="text-xs text-muted">This server has:</span>
-                {options.map((o) => (
-                  <button
-                    key={o.address}
-                    type="button"
-                    onClick={() => setEndpoint(o.address)}
-                    className={cn(
-                      "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-xs ring-1 transition-colors",
-                      endpoint === o.address ? "bg-accent-soft text-accent-strong ring-accent/30" : "bg-surface-2 text-fg-2 ring-line hover:bg-hover",
+      {!joined && (
+        <ul className="grid gap-x-6 gap-y-4 border-b border-line bg-surface-2/40 px-5 py-4 sm:grid-cols-3">
+          <Benefit icon={<Waypoints />} title="Same names everywhere">
+            <code className="font-mono text-[11px]">{"${{postgres.DATABASE_URL}}"}</code> works across servers.
+          </Benefit>
+          <Benefit icon={<KeyRound />} title="Encrypted">
+            WireGuard, with keys only your servers hold.
+          </Benefit>
+          <Benefit icon={<EyeOff />} title="Nothing public">
+            Only the same environment gets in.
+          </Benefit>
+        </ul>
+      )}
+      <CardBody className="flex flex-col gap-7 py-6">
+        <Section title="Connection" description="The address other servers use to reach this one: its public IP, or a private IP when all servers share a LAN.">
+          <Field label="Address" error={touched ? problem : null}>
+            {options === null ? (
+              <div className="h-[42px] animate-pulse rounded-xl bg-surface-2" />
+            ) : (
+              <div role="radiogroup" aria-label="Address" className="flex flex-col gap-2">
+                {options.length > 0 && (
+                  <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+                    {options.map((o) => (
+                      <Choice
+                        key={o.address}
+                        checked={!custom && endpoint === o.address}
+                        onSelect={() => {
+                          setCustom(false);
+                          setEndpoint(o.address);
+                        }}
+                      >
+                        <span className="font-mono text-[13px] text-fg">{o.address}</span>
+                        <span className="text-xs text-muted">{o.label}</span>
+                      </Choice>
+                    ))}
+                    <Choice
+                      checked={custom}
+                      onSelect={() => {
+                        if (!custom) setEndpoint("");
+                        setCustom(true);
+                      }}
+                    >
+                      <span className="text-[13px] text-fg">Another address</span>
+                      <span className="text-xs text-muted">host name or IP</span>
+                    </Choice>
+                    {custom && (
+                      <div className="bg-accent-soft/60 px-4 pt-0.5 pb-3 pl-11">
+                        <Input
+                          value={endpoint}
+                          onChange={(e) => setEndpoint(e.target.value.trim())}
+                          placeholder="203.0.113.10 or node1.example.com"
+                          className="h-9 font-mono"
+                          autoComplete="off"
+                          autoFocus
+                          aria-label="Address"
+                        />
+                      </div>
                     )}
-                  >
-                    <span className="font-mono">{o.address}</span>
-                    <span className="text-faint">{o.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </Field>
-          <Field label="UDP port" error={touched ? portProblem : null}>
-            <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, "").slice(0, 5))} inputMode="numeric" className="font-mono" />
-          </Field>
-        </div>
-        {!joined && (
-          <Field
-            label="Networks"
-            description="Servers reach each other only when they share a network. Pick one or more, or create a new one."
-            error={touched ? networkProblem : null}
-          >
-            <div className="flex flex-wrap items-center gap-1.5">
-              {networks.map((n) => {
-                const on = picked.includes(n.id);
-                const others = n.servers.filter((x) => x.id !== serverId).length;
-                return (
-                  <button
-                    key={n.id}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => setPicked((p) => (on ? p.filter((id) => id !== n.id) : [...p, n.id]))}
-                    className={cn(
-                      "inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-xs ring-1 transition-colors",
-                      on ? "bg-accent-soft text-accent-strong ring-accent/30" : "bg-surface-2 text-fg-2 ring-line hover:bg-hover",
-                    )}
-                  >
-                    {on && <Check className="size-3" />}
-                    {n.name}
-                    <span className="text-faint">
-                      {others} server{others === 1 ? "" : "s"}
-                    </span>
-                  </button>
-                );
-              })}
-              {!adding && (
-                <button
-                  type="button"
-                  onClick={() => setAdding(true)}
-                  className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-line px-3 text-xs text-muted transition-colors hover:bg-hover hover:text-fg"
-                >
-                  <Plus className="size-3" /> New network
-                </button>
-              )}
-            </div>
-            {adding && (
-              <div className="flex items-center gap-2 pt-1.5">
-                <Input
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value.slice(0, 40))}
-                  placeholder="New network name"
-                  className="max-w-xs"
-                  autoComplete="off"
-                  aria-label="New network name"
-                />
-                {networks.length > 0 && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setAdding(false);
-                      setNewName("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
+                  </div>
+                )}
+                {options.length === 0 && (
+                  <Input
+                    value={endpoint}
+                    onChange={(e) => setEndpoint(e.target.value.trim())}
+                    placeholder="203.0.113.10 or node1.example.com"
+                    className="font-mono"
+                    autoComplete="off"
+                    aria-label="Address"
+                  />
                 )}
               </div>
             )}
           </Field>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+            <Field label="UDP port" error={touched ? portProblem : null} className="sm:w-32 sm:flex-none">
+              <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, "").slice(0, 5))} inputMode="numeric" className="font-mono" />
+            </Field>
+            <p className="flex items-start gap-2 text-xs leading-relaxed text-muted sm:pt-8">
+              <Cable className="mt-px size-3.5 flex-none text-faint" />
+              <span>Opens on this server&apos;s firewall automatically. If your provider has a cloud firewall, allow this UDP port there too.</span>
+            </p>
+          </div>
+        </Section>
+        {!joined && (
+          <Section title="Networks" description="Servers reach each other only when they share a network. Pick one or more.">
+            <ul className={cn("divide-y divide-line overflow-hidden rounded-xl border", touched && networkProblem ? "border-bad/50" : "border-line")}>
+              {networks.map((n) => {
+                const on = picked.includes(n.id);
+                const others = n.servers.filter((x) => x.id !== serverId);
+                return (
+                  <li key={n.id}>
+                    <label className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-hover/50">
+                      <Checkbox checked={on} onCheckedChange={(c) => setPicked((p) => (c ? [...p, n.id] : p.filter((id) => id !== n.id)))} />
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-[13px] font-medium text-fg">{n.name}</span>
+                        <span className="truncate text-xs text-muted">{others.length ? others.map((x) => x.name).join(", ") : "No servers yet"}</span>
+                      </span>
+                      <span className="flex-none text-xs text-faint tabular-nums">
+                        {others.length} server{others.length === 1 ? "" : "s"}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+              <li>
+                {adding ? (
+                  <div className="flex items-center gap-3 px-4 py-2.5">
+                    <Plus className="size-4 flex-none text-muted" />
+                    <Input
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value.slice(0, 40))}
+                      placeholder="New network name"
+                      className="h-8 flex-1"
+                      autoComplete="off"
+                      aria-label="New network name"
+                      autoFocus={networks.length > 0}
+                    />
+                    {networks.length > 0 && (
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => {
+                          setAdding(false);
+                          setNewName("");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAdding(true)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-[13px] text-muted transition-colors hover:bg-hover/50 hover:text-fg"
+                  >
+                    <Plus className="size-4 flex-none" /> New network
+                  </button>
+                )}
+              </li>
+            </ul>
+            {touched && networkProblem && <p className="text-xs text-bad">{networkProblem}</p>}
+          </Section>
         )}
-        <p className="flex items-start gap-2 rounded-xl bg-surface-2 px-3.5 py-3 text-xs leading-relaxed text-muted">
-          <Cable className="mt-px size-3.5 flex-none text-faint" />
-          <span>
-            Servers connect to each other on UDP port <span className="font-mono text-fg-2">{port || MESH_DEFAULT_PORT}</span>. The server&apos;s own firewall is opened
-            automatically; if your provider has a cloud firewall, allow that port there too.
-          </span>
-        </p>
       </CardBody>
       <CardFooter>
         <span className="truncate text-xs text-muted">{ready ? (joined ? "Changes apply to every server in the network." : "") : "Finish setting up this server first."}</span>
@@ -283,13 +318,42 @@ function JoinForm({
 
 function Benefit({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
-    <li className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface-2/60 p-3.5">
-      <span className="flex items-center gap-2 text-[13px] font-medium text-fg [&_svg]:size-4 [&_svg]:text-accent">
-        {icon}
-        {title}
+    <li className="flex min-w-0 items-start gap-3">
+      <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-accent-soft text-accent [&_svg]:size-4">{icon}</span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[13px] font-medium text-fg">{title}</span>
+        <span className="text-xs leading-relaxed text-muted">{children}</span>
       </span>
-      <span className="text-xs leading-relaxed text-muted">{children}</span>
     </li>
+  );
+}
+
+function Choice({ checked, onSelect, children }: { checked: boolean; onSelect: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={checked}
+      onClick={onSelect}
+      className={cn("flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors", checked ? "bg-accent-soft/60" : "hover:bg-hover/50")}
+    >
+      <span className={cn("flex size-4 flex-none items-center justify-center rounded-full border", checked ? "border-accent bg-accent" : "border-line-strong bg-surface")}>
+        {checked && <span className="size-1.5 rounded-full bg-accent-fg" />}
+      </span>
+      <span className="flex min-w-0 flex-1 items-baseline justify-between gap-3">{children}</span>
+    </button>
+  );
+}
+
+function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-col gap-0.5">
+        <h3 className="text-[13px] font-semibold text-fg">{title}</h3>
+        <p className="text-xs text-muted">{description}</p>
+      </div>
+      {children}
+    </section>
   );
 }
 

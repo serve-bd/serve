@@ -16,9 +16,14 @@ for (const [id, endpoint] of pairs) {
   const join = page.getByRole("button", { name: "Join private network" });
   if (await join.isVisible().catch(() => false)) {
     await page.screenshot({ path: `${out}/mesh-join-${id}.png`, fullPage: true });
-    const input = page.getByLabel("Address other servers use");
-    await input.click();
-    await input.fill(endpoint);
+    // A detected address is picked from the list; anything else goes in "Another address".
+    const detected = page.getByRole("radio", { name: new RegExp(`^${endpoint.replaceAll(".", "\\.")}\\b`) });
+    if (await detected.isVisible().catch(() => false)) await detected.click();
+    else {
+      const other = page.getByRole("radio", { name: /Another address/ });
+      if (await other.isVisible().catch(() => false)) await other.click();
+      await page.getByRole("textbox", { name: "Address" }).fill(endpoint);
+    }
     await join.click();
     await page.getByText("Private address", { exact: true }).waitFor({ timeout: 15000 });
     console.log(`${id}: joined with ${endpoint}`);

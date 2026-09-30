@@ -100,6 +100,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
         hasDatabase: e.hasDatabase,
         defaultUser: e.defaultUser,
         defaultDatabase: e.defaultDatabase,
+        imagePattern: e.imagePattern.source,
       }))}
     />
   );

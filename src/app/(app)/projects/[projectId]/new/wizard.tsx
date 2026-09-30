@@ -4,7 +4,23 @@ import { typedServiceName } from "@/lib/service-name";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { ArrowLeft, ArrowUpRight, ChevronRight, Container, Database, GitBranch, Layers, Lock, Search, Server, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  ChevronRight,
+  Container,
+  Database,
+  GitBranch,
+  Layers,
+  Lock,
+  Plus,
+  Search,
+  Server,
+  ShieldAlert,
+  Sparkles,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup, Textarea } from "@/components/ui/input";
@@ -24,6 +40,7 @@ import { PageBody, PageHeader, type Crumb } from "@/components/shell/page-header
 import useSWR from "swr";
 import type { DbEngine } from "@/server/services/types";
 import { NixpacksHint } from "@/components/nixpacks-hint";
+import { toVolumes, type VolumeRow, volumeName, volumeRowsIssue } from "./volume-rows";
 
 type Kind = "git" | "image" | "database" | "compose";
 
@@ -73,6 +90,8 @@ type Props = {
     hasDatabase: boolean;
     defaultUser: string;
     defaultDatabase: string;
+    /** Source of a case-insensitive pattern matching the engine's images (see EngineInfo.imagePattern). */
+    imagePattern: string;
   }[];
 };
 
@@ -476,7 +495,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
   );
 }
 
-function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
+function ImageForm({ props, onBack, onDatabase }: { props: Props; onBack: () => void; onDatabase: (engine: DbEngine) => void }) {
   const router = useRouter();
   const [image, setImage] = React.useState("");
   const [name, setName] = React.useState("");
@@ -485,12 +504,18 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const [priv, setPriv] = React.useState(false);
   const [user, setUser] = React.useState("");
   const [pass, setPass] = React.useState("");
+  const [storage, setStorage] = React.useState(false);
+  const [volumes, setVolumes] = React.useState<VolumeRow[]>([{ mountPath: "", name: "" }]);
+  const volumesIssue = storage ? volumeRowsIssue(volumes) : null;
+  const setVolume = (i: number, patch: Partial<VolumeRow>) => setVolumes((all) => all.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   const { run, pending } = useAction(createAppService, {
     refresh: false,
     success: "Service created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
   const guessName = image.split("/").pop()?.split(":")[0] ?? "";
+  // A database image: the Database type runs the same engine with backups, credentials and upgrades.
+  const dbEngine = image.trim() ? props.engines.find((e) => new RegExp(e.imagePattern, "i").test(image.trim())) : undefined;
   return (
     <FormShell
       title="Add a Docker image"
@@ -505,10 +530,11 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
           source: { type: "image", image, registryUsername: priv ? user : null, registryPassword: priv ? pass : null },
           port: port ? Number(port) : null,
           envVars: parseEnv(env),
+          volumes: storage ? toVolumes(volumes) : [],
         })
       }
       footer={
-        <Button type="submit" variant="primary" size="sm" loading={pending} disabled={!image.trim()}>
+        <Button type="submit" variant="primary" size="sm" loading={pending} disabled={!image.trim() || !!volumesIssue}>
           Create service
         </Button>
       }
@@ -516,6 +542,17 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
       <Field label="Image" description="For example nginx:alpine, ghcr.io/owner/app:latest">
         <Input value={image} onChange={(e) => setImage(e.target.value)} placeholder="traefik/whoami:latest" required autoFocus className="font-mono text-[13px]" />
       </Field>
+      {dbEngine && (
+        <div className="flex animate-rise flex-col gap-3 rounded-xl border border-accent/40 bg-accent-soft/30 px-3.5 py-3 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <ServiceIcon type="database" engine={dbEngine.engine} size="sm" />
+            <p className="min-w-0 text-[13px] text-fg-2">For databases, the Database type adds backups, credentials and upgrades.</p>
+          </div>
+          <Button type="button" size="sm" className="w-full flex-none sm:w-auto" onClick={() => onDatabase(dbEngine.engine)}>
+            <Database /> Use {dbEngine.label}
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Service name">
           <Input value={name} onChange={(e) => setName(typedServiceName(e.target.value))} placeholder={guessName || "web"} />
@@ -536,6 +573,54 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
           <Field label="Password or token">
             <Input type="password" value={pass} onChange={(e) => setPass(e.target.value)} />
           </Field>
+        </div>
+      )}
+      <button type="button" onClick={() => setStorage((s) => !s)} className="flex w-fit items-center gap-1 text-[13px] font-medium text-accent" aria-expanded={storage}>
+        <ChevronRight className={cn("size-3.5 transition-transform", storage && "rotate-90")} /> Persistent storage
+      </button>
+      {storage && (
+        <div className="flex animate-rise flex-col gap-3">
+          <p className="text-[12.5px] text-muted">Paths the image stores data in are kept automatically.</p>
+          {volumes.map((v, i) => (
+            <div key={i} className="flex items-end gap-2">
+              <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
+                <Field label={i === 0 ? "Container path" : undefined}>
+                  <Input
+                    value={v.mountPath}
+                    onChange={(e) => setVolume(i, { mountPath: e.target.value })}
+                    placeholder="/data"
+                    aria-label="Container path"
+                    className="font-mono text-[13px]"
+                  />
+                </Field>
+                <Field label={i === 0 ? "Volume name" : undefined} optional={i === 0}>
+                  <Input
+                    value={v.name}
+                    onChange={(e) => setVolume(i, { name: e.target.value })}
+                    placeholder={v.mountPath.trim() ? volumeName(v.mountPath.trim()) : "data"}
+                    aria-label="Volume name"
+                    className="font-mono text-[13px]"
+                  />
+                </Field>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-9 flex-none"
+                aria-label="Remove"
+                onClick={() => setVolumes((all) => (all.length > 1 ? all.filter((_, j) => j !== i) : [{ mountPath: "", name: "" }]))}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" size="sm" onClick={() => setVolumes((all) => [...all, { mountPath: "", name: "" }])}>
+              <Plus /> Add path
+            </Button>
+            {volumesIssue && <span className="text-xs text-bad">{volumesIssue}</span>}
+          </div>
         </div>
       )}
       <EnvTextarea value={env} onChange={setEnv} />
@@ -1009,7 +1094,7 @@ function WizardSteps({ props }: { props: Props }) {
   if (!step) return <Catalog props={props} onStart={(kind, engine) => setStep({ kind, engine })} onTemplate={(id) => setStep({ template: id })} />;
   if ("template" in step) return <TemplateConfigure props={props} template={props.templates.find((t) => t.id === step.template)!} onBack={back} />;
   if (step.kind === "git") return <GitForm props={props} onBack={back} />;
-  if (step.kind === "image") return <ImageForm props={props} onBack={back} />;
+  if (step.kind === "image") return <ImageForm props={props} onBack={back} onDatabase={(engine) => setStep({ kind: "database", engine })} />;
   if (step.kind === "database") return <DatabaseForm props={props} onBack={back} initialEngine={step.engine} />;
   return <ComposeForm props={props} onBack={back} />;
 }

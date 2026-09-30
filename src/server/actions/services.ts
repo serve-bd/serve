@@ -167,6 +167,12 @@ const appSchema = z.object({
     .optional(),
   port: z.number().int().min(1).max(65535).nullable().optional(),
   envVars: envVarInput,
+  /** Persistent storage set up front: named Docker volumes only (host paths need the root admin, in settings). */
+  volumes: z
+    .array(volumeSchema)
+    .max(50)
+    .refine((list) => list.every((v) => v.kind === "volume"), "Add host paths and files in the service settings.")
+    .optional(),
   /** Services are never deployed on creation unless the caller asks (e.g. the API). */
   deploy: z.boolean().default(false),
   /** Server to run on; defaults to the server Serve runs on. */
@@ -207,7 +213,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
       type: "app",
       source,
       build: data.source.type === "git" ? { ...defaultBuild(), ...(data.build as Partial<BuildConfig>) } : null,
-      runtime: withReservation(defaultRuntime(data.port ?? null), reserved),
+      runtime: withReservation({ ...defaultRuntime(data.port ?? null), volumes: data.volumes ?? [] }, reserved),
       webhookSecret: newWebhookSecret(),
     });
     await writeEnvVars(

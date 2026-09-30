@@ -30,7 +30,8 @@ import { databasePlan } from "@/server/databases/options";
 import { ensureDatabaseTls } from "@/server/databases/tls";
 import { allocateSubnet, composeServiceNames, composeUp, stackNetworkName, transformCompose, writeComposeFiles } from "./compose";
 import type { ServiceStatus } from "@/server/db/schema";
-import { composeLocalPaths, composeNameClashes, composeSecurityIssues, containedPath, pathsOutside } from "@/server/security";
+import { composeDockerfiles, composeLocalPaths, composeNameClashes, composeSecurityIssues, containedPath, pathsOutside, scopeCacheMounts } from "@/server/security";
+import { buildCacheScope, scopeDockerfiles } from "./build-cache";
 import { connectProxy, disconnectProxy, ensureEnvNetwork } from "@/server/docker/networks";
 import { getSetting } from "@/server/settings";
 import { meshAfterStart, meshBeforeStart } from "@/server/mesh";
@@ -171,6 +172,7 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
       signal: buildSignal,
       redact: env.secrets,
       dockerEnv: await server.cliEnv(),
+      cacheScope: buildCacheScope(await orgIdOf(service)),
     });
     log.line(`Build finished in ${((Date.now() - started) / 1000).toFixed(1)}s`);
     return { image: target, detectedPort: result.detectedPort ?? (await imagePort(target, d)), registryImage: null, rollback: false };
@@ -739,6 +741,8 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     if (escaping.length) {
       throw new Error(`The compose file uses paths that lead outside the repository: ${escaping.map((p) => path.relative(repoDir, p)).join(", ")}`);
     }
+    // BuildKit cache mounts are shared by every build on the server: give this organization's its own ids.
+    await scopeDockerfiles(composeDockerfiles(content, dir), buildCacheScope(await orgIdOf(service)));
     // Remember the file so the UI can show services and ports.
     await db
       .update(schema.service)
@@ -811,7 +815,8 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   // Compose may recreate the stack network; the proxy must not hold it while that happens.
   await disconnectProxy(stackNet, server).catch(() => {});
   const run = { projectName: service.slug, dir, file: ".serve-compose.yml", vars: env.runtime, log: log.line, signal, redact: env.secrets };
-  await writeComposeFiles({ ...run, content: transformed });
+  // dockerfile_inline builds too.
+  await writeComposeFiles({ ...run, content: transformed.includes("type=cache") ? scopeCacheMounts(transformed, buildCacheScope(await orgIdOf(service))) : transformed });
   await setDeployment(dep.id, { status: "deploying" });
   await setServiceStatus(service.id, "deploying");
   await ensureNetwork(server.docker, server.network);

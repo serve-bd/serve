@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isPrivateAddress } from "@/server/net/public-fetch";
-import { composeNameClashes, composeSecurityIssues, maskCommand } from "@/server/security";
+import { composeDockerfiles, composeNameClashes, composeSecurityIssues, maskCommand, scopeCacheMounts } from "@/server/security";
 
 describe("security fixes", () => {
   it("treats every spelling of a private address as private", () => {
@@ -38,5 +38,26 @@ describe("security fixes", () => {
   it("flags host ports in a compose file", () => {
     expect(composeSecurityIssues("services:\n  a:\n    image: x\n    ports: ['8080:80']\n").join()).toMatch(/ports/);
     expect(composeSecurityIssues("services:\n  a:\n    image: x\n    expose: ['80']\n")).toEqual([]);
+  });
+
+  it("gives build cache mounts the organization's prefix", () => {
+    const file = `FROM golang
+RUN --mount=type=cache,target=/go/pkg/mod go build
+RUN --mount=type=cache,id=serve-victim-x,target=/root/.cache true
+RUN --mount=type=bind,source=.,target=/src true
+RUN --mount="type=cache,dst=/var/cache/apt" apt-get update
+`;
+    const out = scopeCacheMounts(file, "serve-abc");
+    expect(out).toContain("--mount=type=cache,target=/go/pkg/mod,id=serve-abc-/go/pkg/mod");
+    // An id aimed at someone else's prefix stays under this organization's.
+    expect(out).toContain("id=serve-abc-serve-victim-x");
+    expect(out).toContain("--mount=type=bind,source=.,target=/src");
+    expect(out).toContain('--mount="type=cache,dst=/var/cache/apt,id=serve-abc-/var/cache/apt"');
+  });
+
+  it("finds the Dockerfiles a compose file builds", () => {
+    const file =
+      "services:\n  a:\n    build: ./api\n  b:\n    build:\n      context: web\n      dockerfile: prod.Dockerfile\n  c:\n    build: https://github.com/x/y.git\n  d:\n    image: nginx\n";
+    expect(composeDockerfiles(file, "/r")).toEqual(["/r/api/Dockerfile", "/r/web/prod.Dockerfile"]);
   });
 });

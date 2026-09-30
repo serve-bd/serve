@@ -33,7 +33,7 @@ describe("instance backup manifest", () => {
     expect(m.database.file).toBe("database.dump");
   });
   it("names bundles sortably", () => {
-    expect(bundleName(new Date("2026-01-02T03:04:05.678Z"), "0.2.0")).toBe("serve-2026-01-02T03-04-05-v0.2.0.tar.gz");
+    expect(bundleName(new Date("2026-01-02T03:04:05.678Z"), "0.2.0")).toBe("serve-2026-01-02T03-04-05-v0.2.0.tar.gz.enc");
   });
 });
 

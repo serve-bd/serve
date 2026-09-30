@@ -51,7 +51,7 @@ export function buildManifest(input: {
 /** File name of a bundle: sortable, no characters that need quoting. */
 export function bundleName(createdAt: Date, version: string) {
   const stamp = createdAt.toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  return `serve-${stamp}-v${version.replace(/[^0-9a-z.-]/gi, "")}.tar.gz`;
+  return `serve-${stamp}-v${version.replace(/[^0-9a-z.-]/gi, "")}.tar.gz.enc`;
 }
 
 /**

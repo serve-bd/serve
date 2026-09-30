@@ -259,3 +259,35 @@ export function maskCommand(parts: string[]): string[] {
     return eq ? `${eq[1]}=********` : part;
   });
 }
+
+/**
+ * Gives every BuildKit cache mount (`RUN --mount=type=cache`) an id under `scope`. Cache mounts
+ * are shared by every build on a server, keyed only by id (the target path when unset): without
+ * this, one organization could fill a cache another organization's build then trusts.
+ */
+export function scopeCacheMounts(text: string, scope: string): string {
+  return text.replace(/--mount=("[^"]*"|\S+)/g, (whole, raw: string) => {
+    const quoted = raw.startsWith('"');
+    const parts = (quoted ? raw.slice(1, -1) : raw).split(",");
+    const get = (k: string) => parts.find((p) => p.startsWith(`${k}=`))?.slice(k.length + 1);
+    if (get("type") !== "cache") return whole;
+    const base = get("id") ?? get("target") ?? get("dst") ?? get("destination") ?? "";
+    const next = [...parts.filter((p) => !p.startsWith("id=")), `id=${scope}-${base}`].join(",");
+    return `--mount=${quoted ? `"${next}"` : next}`;
+  });
+}
+
+/** Local Dockerfiles a compose file builds from (default `Dockerfile` in each local build context). */
+export function composeDockerfiles(content: string, composeDir: string): string[] {
+  const doc = parseCompose(content) as { services?: Record<string, { build?: unknown }> } | null;
+  const out: string[] = [];
+  for (const svc of Object.values(doc?.services ?? {})) {
+    const build = svc?.build;
+    if (!build) continue;
+    const context = typeof build === "string" ? build : ((build as { context?: string }).context ?? ".");
+    if (/^[a-z][a-z0-9+.-]*:/i.test(context)) continue;
+    const dockerfile = typeof build === "object" ? (build as { dockerfile?: unknown }).dockerfile : undefined;
+    out.push(path.resolve(composeDir, context, typeof dockerfile === "string" && dockerfile ? dockerfile : "Dockerfile"));
+  }
+  return [...new Set(out)];
+}

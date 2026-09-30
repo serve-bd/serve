@@ -14,7 +14,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/instance/backup
   const settings = await getSettings();
   const b = settings.instanceBackups.find((x) => x.id === backupId);
   if (!b?.filename || b.status !== "success") return new Response("Not found", { status: 404 });
-  const headers = { "content-type": "application/gzip", "content-disposition": `attachment; filename="${b.filename}"` };
+  const headers = { "content-type": b.filename.endsWith(".enc") ? "application/octet-stream" : "application/gzip", "content-disposition": `attachment; filename="${b.filename}"` };
   const file = instanceBackupFile(b.filename);
   if (fs.existsSync(file)) {
     const { size } = fs.statSync(file);

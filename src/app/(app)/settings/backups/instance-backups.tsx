@@ -109,7 +109,7 @@ export function InstanceBackups({
       <Card>
         <CardHeader
           title="Backups"
-          description="Each backup is one .tar.gz file: a database dump, certificates, proxy configuration, SSH keys and service files."
+          description="Each backup is one encrypted file: a database dump, certificates, proxy configuration, SSH keys and service files. Restoring it needs this instance's encryption key."
           actions={
             <Button size="sm" variant="primary" onClick={() => run.run()} loading={run.pending} disabled={running}>
               <Play /> Back up now
@@ -170,7 +170,7 @@ export function InstanceBackups({
         />
         <CardBody className="flex flex-col gap-3 py-5 text-[13px] leading-relaxed text-fg-2">
           <p>Copy the backup to the server, keep the same encryption key in /data/serve/.env, then run:</p>
-          <CopyField value="sudo bash /data/serve/restore-instance.sh serve-….tar.gz" />
+          <CopyField value="sudo bash /data/serve/restore-instance.sh serve-….tar.gz.enc" />
           <p className="text-xs text-muted">
             The script stops <ProductName />, restores the database and files, and starts it again. It is included in the repository as scripts/restore-instance.sh; the README
             describes each step.

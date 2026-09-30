@@ -9,6 +9,7 @@ import { s3Delete, s3Upload } from "@/server/backups/s3";
 import { s3For } from "@/server/backups";
 import { getSettings, type InstanceBackup, type Settings } from "@/server/settings";
 import { SCHEMA_VERSION } from "@/server/version";
+import { encryptBundle } from "./bundle-crypto";
 import { buildManifest, bundleName, expiredBackups, INSTANCE_BACKUP_EXCLUDES, INSTANCE_BACKUP_PATHS, scheduleDue } from "./manifest";
 import { currentCommit, currentVersion } from "./version";
 import { notify } from "@/server/notify";
@@ -76,7 +77,7 @@ async function postgresMajor(): Promise<{ major: number; version: string | null 
 }
 
 /**
- * Dumps the database and packs it with the instance files into one .tar.gz. Both run in a
+ * Dumps the database and packs it with the instance files into one encrypted .tar.gz. Both run in a
  * short-lived Postgres client container: pg_dump must match the server's major version,
  * and root inside the container can read the certificate keys the proxy writes.
  */
@@ -131,7 +132,7 @@ async function writeBundle(id: string, log: (line: string) => void): Promise<{ f
     await container.remove({ force: true }).catch(() => {});
   }
   const file = path.join(dir, filename);
-  await fs.promises.rename(path.join(tmp, "bundle.tar.gz"), file);
+  await encryptBundle(path.join(tmp, "bundle.tar.gz"), file, env.encryptionKey);
   await fs.promises.rm(tmp, { recursive: true, force: true });
   return { filename, size: (await fs.promises.stat(file)).size };
 }

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { commandExists, run } from "@/server/process";
 import type { BuildConfig } from "@/server/services/types";
+import { scopeCacheMounts } from "@/server/security";
 import { buildArgFlags } from "./options";
 
 export type BuildContext = {
@@ -16,6 +17,8 @@ export type BuildContext = {
   redact: string[];
   /** Points the docker CLI (and nixpacks) at the target server; empty for the local server. */
   dockerEnv?: Record<string, string>;
+  /** Prefix for BuildKit cache mount ids and the nixpacks cache key (per organization). */
+  cacheScope: string;
 };
 
 export type BuildResult = {
@@ -267,7 +270,15 @@ ${staticStage("source", build.publishDir || ".")}`,
 async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileContent?: string) {
   const args = ["build", "--progress=plain", "-t", ctx.image];
   let tempDockerfile: string | null = null;
+  // Cache mounts get the organization's prefix; the file is rewritten only when it has any.
+  const own = dockerfileContent ? null : await fs.readFile(path.join(ctx.contextDir, dockerfile), "utf8").catch(() => null);
+  if (own?.includes("type=cache")) {
+    const ignore = path.join(ctx.contextDir, `${dockerfile}.dockerignore`);
+    if (await exists(ignore)) await fs.copyFile(ignore, path.join(ctx.contextDir, ".serve.Dockerfile.dockerignore"));
+    dockerfileContent = own;
+  }
   if (dockerfileContent) {
+    dockerfileContent = scopeCacheMounts(dockerfileContent, ctx.cacheScope);
     tempDockerfile = path.join(ctx.contextDir, ".serve.Dockerfile");
     await fs.writeFile(tempDockerfile, dockerfileContent);
     if (dockerfileContent.includes(".serve.nginx.conf")) {
@@ -324,7 +335,7 @@ export async function buildImage(ctx: BuildContext): Promise<BuildResult> {
   if (builder === "nixpacks") {
     if (!(await commandExists("nixpacks"))) throw new Error("Nixpacks is not installed on this server.");
     ctx.log("Building with Nixpacks");
-    const args = ["build", ctx.contextDir, "--name", ctx.image];
+    const args = ["build", ctx.contextDir, "--name", ctx.image, "--cache-key", ctx.cacheScope];
     if (build.installCommand) args.push("--install-cmd", build.installCommand);
     if (build.buildCommand) args.push("--build-cmd", build.buildCommand);
     if (build.startCommand) args.push("--start-cmd", build.startCommand);

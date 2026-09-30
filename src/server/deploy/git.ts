@@ -12,14 +12,23 @@ export type CloneResult = {
   commitAuthor: string;
 };
 
-/** Clone URL carrying a token: GitHub x-access-token, Bitbucket x-token-auth, GitLab/Gitea oauth2 (token as password). */
-export function withToken(url: string, provider: string, token: string) {
-  const u = new URL(url);
+/**
+ * Git config (through the environment) that sends a token to the repository's host only.
+ * Kept out of the clone URL, so it never lands in .git/config or in an image built from the repo.
+ * GitHub x-access-token, Bitbucket x-token-auth, GitLab/Gitea oauth2 (token as password).
+ */
+export function tokenConfig(url: string, provider: string, token: string): Record<string, string> {
   const user = provider === "github" ? "x-access-token" : provider === "bitbucket" ? "x-token-auth" : "oauth2";
-  u.username = user;
-  u.password = token;
-  return u.toString();
+  const basic = Buffer.from(`${user}:${token}`).toString("base64");
+  return {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: `http.${new URL(url).origin}/.extraHeader`,
+    GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
+  };
 }
+
+export { repoUrlProblem } from "@/lib/repo-url";
+import { repoUrlProblem } from "@/lib/repo-url";
 
 export function normalizeRepoUrl(input: string) {
   const value = input.trim();
@@ -31,11 +40,16 @@ export function normalizeRepoUrl(input: string) {
 /** Build the clone URL and git environment for a source. */
 export async function gitAccess(source: GitSource, workDir: string, organizationId?: string | null) {
   const url = normalizeRepoUrl(source.repository);
+  const problem = repoUrlProblem(url);
+  if (problem) throw new Error(problem);
   const gitEnv: Record<string, string> = {
     GIT_TERMINAL_PROMPT: "0",
+    // Submodules and redirects included: only network transports, never local files or helpers.
+    GIT_ALLOW_PROTOCOL: "http:https:ssh:git",
+    GIT_PROTOCOL_FROM_USER: "0",
     GIT_SSH_COMMAND: "ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR",
   };
-  let cloneUrl = url;
+  const cloneUrl = url;
   const redact: string[] = [];
 
   if (source.credentialId) {
@@ -52,7 +66,7 @@ export async function gitAccess(source: GitSource, workDir: string, organization
       const { installationToken } = await import("@/server/git/github-app");
       const token = await installationToken(cred);
       redact.push(token);
-      return { url, cloneUrl: withToken(url, "github", token), gitEnv, redact };
+      return { url, cloneUrl: url, gitEnv: { ...gitEnv, ...tokenConfig(url, "github", token) }, redact };
     }
     // OAuth credentials hold a token set and refresh the access token when needed.
     const { credentialToken } = await import("@/server/git/oauth");
@@ -64,7 +78,7 @@ export async function gitAccess(source: GitSource, workDir: string, organization
       await fs.writeFile(keyFile, secret.trim() + "\n", { mode: 0o600 });
       gitEnv.GIT_SSH_COMMAND = `ssh -i ${keyFile} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
     } else {
-      cloneUrl = withToken(url, cred.provider, secret);
+      Object.assign(gitEnv, tokenConfig(url, cred.provider, secret));
     }
   }
   return { url, cloneUrl, gitEnv, redact };
@@ -95,6 +109,7 @@ export async function cloneRepository(
         source.branch,
         "--single-branch",
         ...(opts.submodules === false ? [] : ["--recurse-submodules", "--shallow-submodules"]),
+        "--",
         access.cloneUrl,
         dir,
       ],
@@ -115,7 +130,7 @@ export async function listRemoteBranches(source: GitSource, organizationId?: str
   const tmp = path.join((await import("node:os")).tmpdir(), `serve-ls-${Date.now()}`);
   const access = await gitAccess(source, tmp, organizationId);
   try {
-    const out = await run("git", ["ls-remote", "--heads", access.cloneUrl], {
+    const out = await run("git", ["ls-remote", "--heads", "--", access.cloneUrl], {
       env: access.gitEnv,
       redact: access.redact,
     });

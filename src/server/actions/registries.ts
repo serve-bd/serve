@@ -3,7 +3,8 @@
 import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requirePermission } from "@/server/auth";
+import { type OrgContext, requirePermission } from "@/server/auth";
+import { hostIsPrivate } from "@/server/net/public-host";
 import { db, schema } from "@/server/db";
 import { encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
@@ -42,6 +43,11 @@ function parseRegistry(input: z.input<typeof registrySchema>) {
   return { ...data, host, namespace };
 }
 
+/** A registry on a private address is for the Root organization only: Docker on the server would log in to it. */
+async function assertRegistryHost(ctx: OrgContext, host: string) {
+  if (!ctx.isRoot && (await hostIsPrivate(host))) throw new UserError("That registry is on a private network or does not resolve.");
+}
+
 async function assertLogin(host: string, username: string, password: string) {
   try {
     await checkRegistryLogin({ username, password, serveraddress: authServer(host) });
@@ -55,6 +61,7 @@ export async function addRegistry(input: z.input<typeof registrySchema>) {
     const ctx = await requirePermission("integrations.manage");
     const data = parseRegistry(input);
     if (!data.password) throw new UserError("Enter a password or access token.");
+    await assertRegistryHost(ctx, data.host);
     await assertLogin(data.host, data.username, data.password);
     const id = newId();
     await db.insert(schema.containerRegistry).values({ id, organizationId: ctx.org.id, ...data, password: encrypt(data.password) });
@@ -78,6 +85,7 @@ export async function updateRegistry(id: string, input: z.input<typeof registryS
     if (!row) throw new UserError("Registry not found.");
     const data = parseRegistry(input);
     const password = data.password || registryAuth(row).password;
+    await assertRegistryHost(ctx, data.host);
     await assertLogin(data.host, data.username, password);
     await db
       .update(schema.containerRegistry)

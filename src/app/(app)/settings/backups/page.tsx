@@ -1,3 +1,4 @@
+import { instanceAdminPage } from "@/server/auth";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
@@ -6,6 +7,7 @@ import { InstanceBackups } from "./instance-backups";
 export const metadata = { title: "Backups" };
 
 export default async function InstanceBackupsPage() {
+  await instanceAdminPage();
   const s = await getSettings();
   const destinations = s.rootOrganizationId
     ? await db

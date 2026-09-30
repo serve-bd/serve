@@ -7,6 +7,8 @@ import { serviceInOrg } from "@/server/services/access";
 export async function GET(_req: Request, ctx: RouteContext<"/api/services/[serviceId]/tasks">) {
   const { serviceId } = await ctx.params;
   const org = await requireOrg();
+  // Task runs carry command output, like logs.
+  if (!org.can("logs.view")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   try {
     await serviceInOrg(serviceId, org.org.id);
   } catch {

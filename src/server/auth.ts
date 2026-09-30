@@ -12,7 +12,7 @@ import { db, schema } from "@/server/db";
 import { env } from "@/server/env";
 import type { MemberRole } from "@/server/db/schema";
 import { newId } from "@/server/id";
-import { getSetting } from "@/server/settings";
+import { getSetting, getSettings } from "@/server/settings";
 import { guardProfileEmail, matchedGithubOrgs, signInRefused } from "@/server/sso/domain-guard";
 import { githubMembersOnly } from "@/server/sso/github-orgs";
 import {
@@ -137,11 +137,46 @@ async function callbackProvider(ctx: { path?: string; params?: unknown } | null 
   return id ? ((await getSetting("signIn")).providers[id] ?? null) : undefined;
 }
 
-function createAuth(sso: SsoRuntime) {
+/**
+ * The addresses the dashboard answers on: the install address, the dashboard domain and the
+ * server's public IP. Only these count as the dashboard's own: links in emails are built for one
+ * of them, and redirects after sign-in or a password reset may only go to them.
+ */
+export type DashboardAddresses = { hosts: string[]; origins: string[] };
+
+export async function dashboardAddresses(): Promise<DashboardAddresses> {
+  const app = new URL(env.appUrl);
+  const hosts = new Set([app.host]);
+  const origins = new Set([app.origin]);
+  const settings = await getSettings().catch(() => null);
+  if (settings?.dashboardDomain) {
+    hosts.add(settings.dashboardDomain);
+    for (const scheme of ["https", "http"]) origins.add(`${scheme}://${settings.dashboardDomain}`);
+  }
+  const [local] = await db
+    .select({ publicIp: schema.server.publicIp })
+    .from(schema.server)
+    .where(eq(schema.server.isLocal, true))
+    .catch(() => []);
+  if (local?.publicIp) {
+    const host = `${local.publicIp}${app.port ? `:${app.port}` : ""}`;
+    hosts.add(host);
+    origins.add(`${app.protocol}//${host}`);
+  }
+  return { hosts: [...hosts].sort(), origins: [...origins].sort() };
+}
+
+const appOnly: DashboardAddresses = (() => {
+  const app = new URL(env.appUrl);
+  return { hosts: [app.host], origins: [app.origin] };
+})();
+
+function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly) {
   return betterAuth({
     secret: env.authSecret,
-    // The dashboard can be reached through several hostnames (server IP, custom domain).
-    baseURL: { allowedHosts: ["*"], fallback: env.appUrl },
+    // Never "*": that would make every website a trusted redirect target (a password reset link
+    // could then send its token anywhere).
+    baseURL: { allowedHosts: addresses.hosts, fallback: env.appUrl },
     advanced: { trustedProxyHeaders: true },
     database: drizzleAdapter(db, {
       provider: "pg",
@@ -191,6 +226,15 @@ function createAuth(sso: SsoRuntime) {
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        // The IP limits above trust X-Forwarded-For, which a client can set; these do not.
+        if (ctx.path === "/sign-in/email") {
+          const email = String((ctx.body as { email?: unknown } | undefined)?.email ?? "").toLowerCase();
+          if (tooManyAttempts(`email:${email}`, 10, 15 * 60_000)) throw new APIError("TOO_MANY_REQUESTS", { message: "Too many sign-in attempts. Try again in 15 minutes." });
+        }
+        if (ctx.path.startsWith("/two-factor/verify-")) {
+          const pending = ctx.headers?.get("cookie")?.match(/two_factor=([^;]+)/)?.[1] ?? "none";
+          if (tooManyAttempts(`2fa:${pending}`, 10, 15 * 60_000)) throw new APIError("TOO_MANY_REQUESTS", { message: "Too many codes tried. Sign in again in 15 minutes." });
+        }
         if (ctx.path === "/sign-in/email" && !(await passwordLoginAllowed())) {
           throw new APIError("FORBIDDEN", { message: "Password sign-in is turned off. Use single sign-on instead." });
         }
@@ -250,10 +294,8 @@ function createAuth(sso: SsoRuntime) {
         },
       },
     },
-    trustedOrigins: (request) => {
-      const origin = request?.headers.get("origin");
-      return origin ? [env.appUrl, origin] : [env.appUrl];
-    },
+    // Exactly the dashboard's own addresses; a request's Origin header is never taken on trust.
+    trustedOrigins: addresses.origins,
     plugins: [
       organization({
         allowUserToCreateOrganization: async (user) => (await getSetting("allowOrganizationCreation")) || (await isInstanceAdmin(user.id)),
@@ -273,6 +315,18 @@ function createAuth(sso: SsoRuntime) {
   });
 }
 
+const attempts = new Map<string, number[]>();
+
+/** Counts an attempt for `key`; true once more than `max` fall within the window. In memory: the dashboard is one process. */
+function tooManyAttempts(key: string, max: number, windowMs: number) {
+  const now = Date.now();
+  if (attempts.size > 10_000) for (const [k, v] of attempts) if (v.at(-1)! < now - windowMs) attempts.delete(k);
+  const recent = (attempts.get(key) ?? []).filter((t) => t > now - windowMs);
+  recent.push(now);
+  attempts.set(key, recent);
+  return recent.length > max;
+}
+
 /** The auth instance without sign-in providers: sessions, password sign-in and organizations. */
 export const auth = createAuth(noSso);
 
@@ -284,11 +338,12 @@ let current: { key: string; instance: ReturnType<typeof createAuth> } | null = n
  */
 export async function getAuth() {
   const settings = await getSetting("signIn");
-  if (!activeProviders(settings).length) return auth;
+  const addresses = await dashboardAddresses();
+  const sso = activeProviders(settings).length > 0;
   const { publicBaseUrl } = await import("@/server/git/github-app");
-  const base = await publicBaseUrl();
-  const key = `${base}|${configHash(settings)}`;
-  if (current?.key !== key) current = { key, instance: createAuth(ssoRuntime(settings, base)) };
+  const base = sso ? await publicBaseUrl() : "";
+  const key = `${base}|${sso ? configHash(settings) : "-"}|${addresses.hosts.join(",")}`;
+  if (current?.key !== key) current = { key, instance: createAuth(sso ? ssoRuntime(settings, base) : noSso, addresses) };
   return current.instance;
 }
 
@@ -396,6 +451,13 @@ export async function sessionOrgContext(): Promise<OrgContext | null> {
   } catch {
     return null;
   }
+}
+
+/** For pages under /settings: the layout's check alone does not run on every client navigation. */
+export async function instanceAdminPage() {
+  const ctx = await requireOrg();
+  if (!ctx.isInstanceAdmin) redirect("/");
+  return ctx;
 }
 
 export async function requireInstanceAdmin() {

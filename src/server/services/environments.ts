@@ -25,6 +25,8 @@ export type CloneOptions = {
   sourceEnvironmentId: string;
   name: string;
   userId?: string | null;
+  /** Made by an admin of the Root organization: stacks keep permission for host-level options. */
+  hostAccess?: boolean;
   /** Give apps and stacks that had a generated domain a new generated domain. */
   generatedDomains: boolean;
   /** Copy the data of database services (starts the new databases to load it). */
@@ -101,7 +103,7 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
       build: s.build ? { ...s.build, noCacheOnce: false } : null,
       runtime: { ...s.runtime, ports: [] },
       database,
-      compose: s.compose ? { ...s.compose, subnet: null, ports: [] } : null,
+      compose: s.compose ? { ...s.compose, subnet: null, ports: [], hostAccess: !!opts.hostAccess && !!s.compose.hostAccess } : null,
       proxy: s.proxy,
       proxyCustom: s.proxyCustom,
       autoDeploy: false,
@@ -225,7 +227,7 @@ export function scrubCommand(cfg: DatabaseConfig, password: string): string | nu
   const creds = databaseCreds(cfg, password);
   switch (cfg.engine) {
     case "postgres":
-      return `PGPASSWORD=${q(creds.password)} psql -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(creds.database)}`;
+      return `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(creds.database)}`;
     case "mysql":
       return `mysql -uroot -p${q(creds.password)} ${q(creds.database)}`;
     case "mariadb":

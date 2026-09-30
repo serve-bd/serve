@@ -7,6 +7,8 @@ export type S3Config = {
   bucket: string;
   accessKeyId: string;
   secretAccessKey: string;
+  /** Refuse endpoints that resolve to a private address. */
+  publicOnly?: boolean;
 };
 
 const hmac = (key: Buffer | string, data: string) => crypto.createHmac("sha256", key).update(data).digest();
@@ -22,6 +24,10 @@ function encodeKey(key: string) {
 /** Minimal AWS SigV4 signed request (path-style), works with S3, R2, MinIO, B2. */
 async function signedFetch(cfg: S3Config, method: string, key: string, body?: Buffer | fs.ReadStream, size?: number, query = "") {
   const endpoint = new URL(cfg.endpoint.includes("://") ? cfg.endpoint : `https://${cfg.endpoint}`);
+  if (cfg.publicOnly) {
+    const { hostIsPrivate } = await import("@/server/net/public-host");
+    if (await hostIsPrivate(endpoint.href)) throw new Error("The storage address is on a private network.");
+  }
   const region = cfg.region || "auto";
   const pathname = `/${cfg.bucket}${key ? `/${encodeKey(key)}` : ""}`;
   const now = new Date();

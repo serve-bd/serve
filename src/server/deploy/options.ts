@@ -69,7 +69,7 @@ export function userLabels(labels: { key: string; value: string }[] | undefined)
   const out: Record<string, string> = {};
   for (const l of labels ?? []) {
     const key = l.key.trim();
-    if (!key || key.startsWith("serve.") || !/^[a-zA-Z0-9._/-]+$/.test(key)) continue;
+    if (!key || /^(serve\.|com\.docker\.)/.test(key) || !/^[a-zA-Z0-9._/-]+$/.test(key)) continue;
     out[key] = l.value;
   }
   return out;

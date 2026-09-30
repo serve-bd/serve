@@ -4,17 +4,41 @@ import https from "node:https";
 import net from "node:net";
 import type { Readable } from "node:stream";
 
-/** Loopback, private, link-local (cloud metadata), CGNAT, multicast and reserved ranges. */
+const blocked = new net.BlockList();
+for (const [a, bits] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["224.0.0.0", 3],
+] as const)
+  blocked.addSubnet(a, bits, "ipv4");
+for (const [a, bits] of [
+  ["::", 96], // unspecified, loopback and the old IPv4-compatible form
+  ["64:ff9b::", 96], // NAT64: carries an IPv4 address
+  ["64:ff9b:1::", 48],
+  ["2002::", 16], // 6to4: carries an IPv4 address
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["fec0::", 10],
+  ["ff00::", 8],
+] as const)
+  blocked.addSubnet(a, bits, "ipv6");
+
+/**
+ * Loopback, private, link-local (cloud metadata), CGNAT, multicast and reserved ranges, in any
+ * spelling: IPv4-mapped IPv6 (::ffff:7f00:1) is checked against the IPv4 ranges.
+ */
 export function isPrivateAddress(address: string) {
-  const ip = address.startsWith("::ffff:") ? address.slice(7) : address;
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number);
-    return (
-      a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || a >= 224
-    );
-  }
-  const v6 = ip.toLowerCase();
-  return v6 === "::" || v6 === "::1" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe80");
+  const ip = address.replace(/^\[|\]$/g, "").replace(/%.*$/, "");
+  const family = net.isIP(ip);
+  if (!family) return true;
+  return blocked.check(ip, family === 4 ? "ipv4" : "ipv6");
 }
 
 export class PublicFetchError extends Error {}

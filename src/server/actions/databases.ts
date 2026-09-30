@@ -1,5 +1,6 @@
 "use server";
 
+import { databaseContainer } from "@/server/databases/container";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
@@ -134,6 +135,7 @@ export async function changeDatabasePassword(serviceId: string, password?: strin
       const server = await serverOf(service);
       let result: { exitCode: number; output: string };
       try {
+        await databaseContainer(server.docker, service);
         result = await execInContainer(service.slug, ["sh", "-c", command], {}, server.docker);
       } catch (e) {
         throw new UserError(`Could not reach the database container: ${(e as Error).message}`);
@@ -207,13 +209,9 @@ export async function deleteVolumeData(serviceId: string, source: string) {
 /** True when the host is (or resolves to) a loopback, private or link-local address. */
 async function resolvesToPrivate(host: string) {
   const { lookup } = await import("node:dns/promises");
+  const { isPrivateAddress } = await import("@/server/net/public-fetch");
   const addrs = await lookup(host.replace(/^\[|\]$/g, ""), { all: true }).catch(() => []);
-  if (!addrs.length) return true;
-  return addrs.some(
-    ({ address: a }) =>
-      /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(a) ||
-      /^(::1$|::$|f[cd]|fe[89ab]|::ffff:(127|10|192\.168)\.)/i.test(a),
-  );
+  return !addrs.length || addrs.some((a) => isPrivateAddress(a.address));
 }
 
 const remoteImportSchema = z.union([

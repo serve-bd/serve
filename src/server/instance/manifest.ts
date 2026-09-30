@@ -9,7 +9,8 @@ import type { InstanceBackup } from "@/server/settings";
 export const INSTANCE_BACKUP_PATHS = ["certs", "letsencrypt", "proxy", "ssh", "services", "docker-compose.yml"] as const;
 
 /** Excluded inside the included paths (tar --exclude patterns, relative to the data dir). */
-export const INSTANCE_BACKUP_EXCLUDES = ["proxy/logs", "services/*/repo", "services/*/builds", ".env"] as const;
+// services/*/.env and services/*/*/.env: decrypted variables, written again at every deploy.
+export const INSTANCE_BACKUP_EXCLUDES = ["proxy/logs", "services/*/repo", "services/*/builds", ".env", "services/*/.env", "services/*/*/.env"] as const;
 
 export type InstanceManifest = {
   format: 1;

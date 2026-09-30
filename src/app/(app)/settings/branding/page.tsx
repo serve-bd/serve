@@ -1,3 +1,4 @@
+import { instanceAdminPage } from "@/server/auth";
 import { getSettings } from "@/server/settings";
 import { brandFromConfig } from "@/server/branding";
 import { BrandingSettings } from "./branding-settings";
@@ -5,6 +6,7 @@ import { BrandingSettings } from "./branding-settings";
 export const metadata = { title: "Branding" };
 
 export default async function BrandingPage() {
+  await instanceAdminPage();
   const settings = await getSettings();
   const config = settings.branding;
   return (

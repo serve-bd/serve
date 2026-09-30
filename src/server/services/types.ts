@@ -239,6 +239,11 @@ export type ComposeConfig = {
    * of the environment. The proxy still reaches it through the stack's own network.
    */
   isolated?: boolean;
+  /**
+   * Set up (file, repository or branch) by an admin of the Root organization: its host-level
+   * options may deploy. Any change by someone else clears it.
+   */
+  hostAccess?: boolean;
 };
 
 export type ComposePort = PortMapping & { service: string };

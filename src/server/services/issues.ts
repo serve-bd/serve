@@ -59,12 +59,12 @@ export async function serviceIssues(serviceIds: string[]): Promise<Map<string, S
 
   // A compose file that breaks a rule made after it was saved: say so before the next deploy fails.
   for (const s of services) {
-    if (!s.compose?.content || s.organizationId === rootId) continue;
+    if (!s.compose?.content || (s.organizationId === rootId && s.compose.hostAccess)) continue;
     const found = composeSecurityIssues(s.compose.content);
     if (found.length) {
       add(s.id, {
         tone: "bad",
-        text: `The next deploy will fail: the compose file uses options only the Root organization may use (${found.slice(0, 2).join("; ")})`,
+        text: `The next deploy will fail: the compose file uses options only admins of the Root organization may set up (${found.slice(0, 2).join("; ")})`,
         tab: "deployments",
       });
     }

@@ -43,6 +43,7 @@ export async function cloneEnvironmentAction(environmentId: string, input: { nam
       sourceEnvironmentId: env.id,
       name,
       userId: ctx.user.id,
+      hostAccess: ctx.isInstanceAdmin && ctx.isRoot,
       generatedDomains: input.generatedDomains !== false,
       copyData: input.copyData === true,
     });

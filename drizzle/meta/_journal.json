@@ -239,6 +239,13 @@
       "when": 1790764513313,
       "tag": "0033_tunnel_state_events",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790766156191,
+      "tag": "0034_compose_host_access",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,20 @@ const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: ["dockerode", "ssh2", "cpu-features", "postgres"],
   poweredByHeader: false,
+  // No other site may frame the dashboard (clickjacking).
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+    ];
+  },
   // Keep the dev tools badge away from the account menu in the sidebar.
   // Bottom right holds the deployments pill and toasts.
   devIndicators: { position: "bottom-left" },

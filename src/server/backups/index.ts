@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { databaseContainer } from "@/server/databases/container";
 import { PassThrough } from "node:stream";
 import zlib from "node:zlib";
 import { pipeline } from "node:stream/promises";
@@ -20,8 +21,11 @@ export async function s3For(id: string | null | undefined): Promise<(S3Config & 
   if (!id) return null;
   const [row] = await db.select().from(schema.s3Destination).where(eq(schema.s3Destination.id, id));
   if (!row) return null;
+  const { getSetting } = await import("@/server/settings");
   return {
     id: row.id,
+    // Only the Root organization may keep storage on a private address.
+    publicOnly: row.organizationId !== (await getSetting("rootOrganizationId")),
     endpoint: row.endpoint,
     region: row.region,
     bucket: row.bucket,
@@ -55,7 +59,7 @@ export async function dumpDatabase(service: ServiceRow, file: string) {
   const engine = engines[cfg.engine];
   const creds = databaseCreds(cfg, decrypt(cfg.password));
   const { docker } = await serverOf(service);
-  const exec = await docker.getContainer(service.slug).exec({
+  const exec = await (await databaseContainer(docker, service)).exec({
     Cmd: ["sh", "-c", engine.backupCommand(creds)],
     AttachStdout: true,
     AttachStderr: true,
@@ -81,7 +85,7 @@ export async function dumpDatabase(service: ServiceRow, file: string) {
 /** Run a shell command in a database container with `input` on stdin. Returns its output with the password masked. */
 export async function runWithInput(service: ServiceRow, command: string, input: NodeJS.ReadableStream, gz: boolean, password: string) {
   const { docker } = await serverOf(service);
-  const exec = await docker.getContainer(service.slug).exec({
+  const exec = await (await databaseContainer(docker, service)).exec({
     Cmd: ["sh", "-c", command],
     AttachStdin: true,
     AttachStdout: true,
@@ -112,7 +116,7 @@ export async function restoreDumpFile(service: ServiceRow, file: string) {
   const out = await runWithInput(service, command, fs.createReadStream(file), gz, creds.password);
   if (cfg.engine === "redis" || cfg.engine === "valkey") {
     const { docker } = await serverOf(service);
-    await docker.getContainer(service.slug).restart();
+    await (await databaseContainer(docker, service)).restart();
   }
   return out;
 }
@@ -261,7 +265,7 @@ async function restoreCommandFor(cfg: DatabaseConfig, creds: EngineCreds, file: 
     const head = await peek(file, gz, 5);
     if (head.toString("latin1") !== "PGDMP") {
       const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-      return { command: `PGPASSWORD=${q(creds.password)} psql -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(creds.database)}`, format: "plain SQL" };
+      return { command: `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(creds.database)}`, format: "plain SQL" };
     }
     return { command: engine.restoreCommand(creds), format: "pg_dump custom format" };
   }
@@ -293,7 +297,7 @@ export async function restoreBackup(backupId: string) {
     if (cfg.engine === "redis" || cfg.engine === "valkey") {
       await logLine(backupId, "Restarting to load the dump");
       const { docker } = await serverOf(service);
-      await docker.getContainer(service.slug).restart();
+      await (await databaseContainer(docker, service)).restart();
     }
     if (clean) await logLine(backupId, clean.slice(-2000));
     await db.update(schema.backup).set({ restoreStatus: "success", restoredAt: new Date() }).where(eq(schema.backup.id, backupId));

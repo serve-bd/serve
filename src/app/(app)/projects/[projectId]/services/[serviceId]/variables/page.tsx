@@ -71,8 +71,9 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
         status={service.status}
         initial={vars.map((v) => {
           const value = decryptOrNull(v.value) ?? "";
-          // References are not secret; everything else stays on the server for roles without secret access.
-          return canSeeSecrets || value.includes("${{")
+          // A value made only of references is not secret; anything with literal text (a password
+          // next to a reference) stays on the server for roles without secret access.
+          return canSeeSecrets || /^(\$\{\{[^}]+\}\})+$/.test(value.trim())
             ? { key: v.key, value, buildTime: v.buildTime, runtime: v.runtime }
             : { key: v.key, value: "", buildTime: v.buildTime, runtime: v.runtime, hidden: true, from: v.key };
         })}

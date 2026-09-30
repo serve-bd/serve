@@ -3,10 +3,11 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requirePermission } from "@/server/auth";
+import { type OrgContext, requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
+import { hostIsPrivate } from "@/server/net/public-host";
 import { Cloudflare, type CfDnsRecord, type CfSslMode } from "@/server/cloudflare/api";
 import { generateSshKey, listRepositories, tokenScopeWarning, verifyGitToken, type RemoteRepo } from "@/server/git/providers";
 import { listRemoteBranches, normalizeRepoUrl } from "@/server/deploy/git";
@@ -198,6 +199,7 @@ export async function addGitToken(input: { provider: GitProviderType; name: stri
     const ctx = await requirePermission("integrations.manage");
     const token = z.string().trim().min(8, "Paste an access token").parse(input.token);
     const baseUrl = input.baseUrl?.trim() || null;
+    await assertGitBase(ctx, baseUrl);
     let login: string;
     try {
       login = await verifyGitToken(input.provider, token, baseUrl);
@@ -234,6 +236,7 @@ export async function createGitOAuthApp(input: z.input<typeof oauthAppSchema>) {
     const ctx = await requirePermission("integrations.manage");
     const data = oauthAppSchema.parse(input);
     if (data.provider === "gitea" && !data.baseUrl) throw new UserError("Enter the address of your Gitea or Forgejo server.");
+    await assertGitBase(ctx, data.baseUrl);
     const id = newId();
     await db.insert(schema.gitOAuthApp).values({
       id,
@@ -379,18 +382,62 @@ export async function fetchBranches(repository: string, credentialId: string | n
 
 const s3Schema = z.object({
   name: z.string().trim().min(1).max(60),
-  endpoint: z.string().trim().min(3),
-  region: z.string().trim().default("auto"),
-  bucket: z.string().trim().min(1),
+  endpoint: z
+    .string()
+    .trim()
+    .min(3)
+    .refine((v) => {
+      try {
+        const u = new URL(v.includes("://") ? v : `https://${v}`);
+        return (u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password;
+      } catch {
+        return false;
+      }
+    }, "Enter an http or https address like https://s3.eu-central-1.amazonaws.com"),
+  region: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9-]*$/i, "Use letters, digits and dashes")
+    .default("auto"),
+  bucket: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/, "Use a bucket name: letters, digits, dots, dashes and underscores"),
   accessKeyId: z.string().trim().min(1),
   secretAccessKey: z.string().trim().min(1),
-  pathPrefix: z.string().trim().default(""),
+  pathPrefix: z
+    .string()
+    .trim()
+    .refine((v) => !v.split("/").includes(".."), "The path prefix cannot contain ..")
+    .default(""),
 });
+
+/**
+ * Storage on a private address (a MinIO next to Serve) is for the Root organization only:
+ * for others the dashboard would be sending requests into the server's own network.
+ */
+async function assertS3Endpoint(ctx: OrgContext, endpoint: string) {
+  if (!ctx.isRoot && (await hostIsPrivate(endpoint))) throw new UserError("That storage address is on a private network or does not resolve. Use a public endpoint.");
+}
+
+/** Self-hosted git servers on a private address are for the Root organization only (same reason as storage). */
+async function assertGitBase(ctx: OrgContext, baseUrl: string | null | undefined) {
+  if (!baseUrl) return;
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new UserError("Enter a URL like https://git.example.com");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new UserError("Enter an http or https URL.");
+  if (!ctx.isRoot && (await hostIsPrivate(baseUrl))) throw new UserError("That git server is on a private network or does not resolve.");
+}
 
 export async function addS3Destination(input: z.input<typeof s3Schema>) {
   return act(async () => {
     const ctx = await requirePermission("integrations.manage");
     const data = s3Schema.parse(input);
+    await assertS3Endpoint(ctx, data.endpoint);
     try {
       await s3Test(data);
     } catch (e) {
@@ -422,6 +469,7 @@ export async function updateS3Destination(
     // Empty key fields keep the stored credentials.
     const secret = input.secretAccessKey?.trim() || decrypt(row.secretAccessKey);
     const data = s3Schema.parse({ ...input, accessKeyId: input.accessKeyId?.trim() || row.accessKeyId, secretAccessKey: secret });
+    await assertS3Endpoint(ctx, data.endpoint);
     try {
       await s3Test(data);
     } catch (e) {
@@ -451,6 +499,7 @@ export async function testS3Destination(id: string) {
       .from(schema.s3Destination)
       .where(and(eq(schema.s3Destination.id, id), eq(schema.s3Destination.organizationId, ctx.org.id)));
     if (!row) throw new UserError("Destination not found.");
+    await assertS3Endpoint(ctx, row.endpoint);
     try {
       await s3Test({ ...row, secretAccessKey: decrypt(row.secretAccessKey) });
     } catch (e) {

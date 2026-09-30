@@ -16,7 +16,7 @@ export function changePasswordCommand(cfg: DatabaseConfig, current: EngineCreds,
   const user = cfg.username;
   switch (cfg.engine) {
     case "postgres":
-      return `PGPASSWORD=${sh(current.password)} psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U ${sh(user)} -d ${sh(cfg.database)} -c ${sh(`ALTER USER "${user.replace(/"/g, '""')}" WITH PASSWORD ${sqlString(next)}`)}`;
+      return `PGPASSWORD=${sh(current.password)} psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U ${sh(user)} -d ${sh(cfg.database)} -c ${sh(`ALTER USER "${user.replace(/"/g, '""')}" WITH PASSWORD ${sqlString(next)}`)}`;
     case "mysql":
     case "mariadb": {
       const bin = cfg.engine === "mariadb" ? "mariadb" : "mysql";

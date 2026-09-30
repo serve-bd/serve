@@ -164,18 +164,19 @@ async function proxyProbe(
   accept: (status: number) => boolean = (s) => s > 0 && s < 500,
 ): Promise<boolean | null> {
   const { execInContainer } = await import("@/server/docker/client");
-  const cmd = pathName ? `wget -S -q -T 4 -O /dev/null "http://${host}:${port}${pathName}" 2>&1 | awk '/HTTP//{print $2}' | tail -1` : `nc -z -w 2 ${host} ${port} && echo open`;
+  // No shell: the path comes from the service's settings and must never be run as code.
+  const cmd = pathName ? ["wget", "-S", "-q", "-T", "4", "-O", "/dev/null", `http://${host}:${port}${pathName}`] : ["nc", "-z", "-w", "2", host, String(port)];
   let res: { exitCode: number; output: string };
   try {
-    res = await execInContainer(target.proxyContainer, ["sh", "-c", cmd], {}, target.docker);
+    res = await execInContainer(target.proxyContainer, cmd, {}, target.docker);
   } catch (error) {
     if (/No such container|404|is not running|409/i.test((error as Error).message)) return null;
     return false;
   }
-  const out = res.output.trim();
-  if (!pathName) return out.includes("open");
-  const status = Number(out.split(/\s+/).pop());
-  return accept(status);
+  if (!pathName) return res.exitCode === 0;
+  // wget -S prints the response headers: the last status line counts (after redirects).
+  const statuses = [...res.output.matchAll(/HTTP\/[\d.]+\s+(\d{3})/g)].map((m) => Number(m[1]));
+  return accept(statuses.at(-1) ?? 0);
 }
 
 async function httpCheck(url: string, accept: (status: number) => boolean) {

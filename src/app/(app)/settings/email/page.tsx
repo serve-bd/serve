@@ -1,3 +1,4 @@
+import { instanceAdminPage } from "@/server/auth";
 import { inArray, or, sql } from "drizzle-orm";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { db, schema } from "@/server/db";
@@ -30,6 +31,7 @@ async function mailroomServices() {
 }
 
 export default async function EmailSettingsPage() {
+  await instanceAdminPage();
   const [email, mailrooms] = await Promise.all([getSetting("email"), mailroomServices()]);
   return (
     <EmailSettingsForm

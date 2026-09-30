@@ -1,3 +1,4 @@
+import { instanceAdminPage } from "@/server/auth";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
@@ -7,6 +8,7 @@ import { DashboardSettings } from "./dashboard-settings";
 export const metadata = { title: "Dashboard & TLS" };
 
 export default async function DashboardSettingsPage() {
+  await instanceAdminPage();
   const [s, [local], tunnels] = await Promise.all([
     getSettings(),
     db.select({ publicIp: schema.server.publicIp }).from(schema.server).where(eq(schema.server.id, LOCAL_SERVER_ID)),

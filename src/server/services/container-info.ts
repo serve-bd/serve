@@ -1,6 +1,7 @@
 import { LABEL } from "@/server/docker/client";
 import { type Stats, statsToSample } from "@/server/metrics";
 import { serverOf } from "@/server/servers/context";
+import { maskCommand } from "@/server/security";
 
 type Service = Parameters<typeof serverOf>[0] & { id: string };
 
@@ -45,7 +46,7 @@ export async function containerDetails(service: Service, containerId: string) {
           last: health.Log?.at(-1) ? { exitCode: health.Log.at(-1)!.ExitCode, output: health.Log.at(-1)!.Output.trim().slice(-600), at: health.Log.at(-1)!.End } : null,
         }
       : null,
-    command: [...(info.Config.Entrypoint ?? []), ...(info.Config.Cmd ?? [])].join(" ") || null,
+    command: maskCommand([...(info.Config.Entrypoint ?? []), ...(info.Config.Cmd ?? [])]).join(" ") || null,
     workingDir: info.Config.WorkingDir || null,
     user: info.Config.User || null,
     envKeys: (info.Config.Env ?? []).map((e) => e.split("=")[0]).sort(),

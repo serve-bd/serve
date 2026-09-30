@@ -1,3 +1,4 @@
+import { instanceAdminPage } from "@/server/auth";
 import { asc } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { publicBaseUrl } from "@/server/git/github-app";
@@ -9,6 +10,7 @@ import { SignInSettingsView } from "./sign-in-settings";
 export const metadata = { title: "Sign-in" };
 
 export default async function SignInSettingsPage() {
+  await instanceAdminPage();
   const [settings, base, orgs] = await Promise.all([
     getSetting("signIn"),
     publicBaseUrl(),

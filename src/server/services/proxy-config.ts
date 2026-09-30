@@ -79,7 +79,8 @@ const headerValue = z
   .string()
   .max(512)
   .regex(/^[\x20-\x7e]*$/, "Header values must be plain text on one line")
-  .refine((v) => !/["\\$]/.test(v), 'Header values cannot contain ", \\ or $');
+  // Braces and backticks: Caddy placeholders ({env.X}, {file.…}) and Traefik templates would run.
+  .refine((v) => !/["\\${}`]/.test(v), 'Header values cannot contain ", \\, $, braces or backticks');
 
 const origin = z
   .string()

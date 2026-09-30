@@ -14,15 +14,17 @@ import { generatedHostname, newWebhookSecret, queueDeployment, serviceNameTaken,
 import { defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig } from "@/server/services/types";
 import { engines } from "@/server/databases/engines";
 import { resolveTemplate, templateVarValue } from "@/server/services/custom-templates";
-import { normalizeRepoUrl } from "@/server/deploy/git";
+import { normalizeRepoUrl, repoUrlProblem } from "@/server/deploy/git";
 import { registerRepoWebhook, syncRepoWebhook } from "@/server/git/repo-webhooks";
 import { composeServiceNames, parseCompose } from "@/server/deploy/compose";
 import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { getSettings } from "@/server/settings";
+import { env } from "@/server/env";
+import { composeVariables } from "@/lib/compose-vars";
 import { teardownServices } from "@/server/services/teardown";
-import { composeSecurityIssues, safeRedirectUrl } from "@/server/security";
+import { composeNameClashes, composeSecurityIssues, safeRedirectUrl } from "@/server/security";
 import type { OrgContext } from "@/server/auth";
 import { requestServiceControl } from "@/server/services/control";
 import { hasRoom, requireNotOver, requireResourceChange, requireRoom, withReservation } from "@/server/limits";
@@ -52,8 +54,18 @@ async function assertCredential(credentialId: string | null | undefined, orgId: 
 }
 
 /** Host-level options (bind mounts, host ports, privileged compose keys) are reserved for server admins. */
+/** A repository address git may fetch (see repoUrlProblem): owner/repo, https or ssh. */
+const repositoryField = z
+  .string()
+  .trim()
+  .min(3, "Enter a repository URL")
+  .superRefine((v, ctx) => {
+    const problem = repoUrlProblem(normalizeRepoUrl(v));
+    if (problem) ctx.addIssue({ code: "custom", message: problem });
+  });
+
 function assertHostAccess(ctx: OrgContext, what: string) {
-  if (!ctx.isInstanceAdmin) throw new UserError(`${what} is only available to admins of the Root organization.`);
+  if (!ctx.isInstanceAdmin || !ctx.isRoot) throw new UserError(`${what} is only available to admins of the Root organization, for its own services.`);
 }
 
 /**
@@ -61,12 +73,16 @@ function assertHostAccess(ctx: OrgContext, what: string) {
  * its admins), the same rule every deploy checks: an instance admin working in another
  * organization gets the answer now, not on every deploy.
  */
-function assertSafeCompose(ctx: OrgContext, content: string) {
+async function assertSafeCompose(ctx: OrgContext, content: string, serviceId: string | null = null) {
   const issues = composeSecurityIssues(content);
   if (issues.length && !(ctx.isInstanceAdmin && ctx.isRoot)) {
     const who = ctx.isRoot ? "only admins of the Root organization may use" : "only services of the Root organization may use";
     throw new UserError(`This compose file uses options ${who}: ${issues.slice(0, 3).join("; ")}.`);
   }
+  // Nobody's file may take a name another service answers to (the proxy would send it that traffic).
+  const others = (await db.select({ id: schema.service.id, slug: schema.service.slug }).from(schema.service)).filter((s) => s.id !== serviceId).map((s) => s.slug);
+  const clashes = composeNameClashes(content, others);
+  if (clashes.length) throw new UserError(`This compose file uses names of other services: ${clashes.slice(0, 3).join("; ")}.`);
 }
 
 async function addGeneratedDomain(serviceId: string, slug: string, organizationId: string, port?: number | null, composeService?: string | null, serverId?: string) {
@@ -112,7 +128,7 @@ const appSchema = z.object({
   source: z.discriminatedUnion("type", [
     z.object({
       type: z.literal("git"),
-      repository: z.string().trim().min(3, "Enter a repository URL"),
+      repository: repositoryField,
       branch: z.string().trim().min(1).default("main"),
       credentialId: z.string().nullable().optional(),
     }),
@@ -269,7 +285,7 @@ const composeSchema = z.object({
   mode: z.enum(["inline", "git"]),
   content: z.string().optional(),
   path: z.string().optional(),
-  source: z.object({ repository: z.string().trim().min(3), branch: z.string().trim().default("main"), credentialId: z.string().nullable().optional() }).optional(),
+  source: z.object({ repository: repositoryField, branch: z.string().trim().default("main"), credentialId: z.string().nullable().optional() }).optional(),
   template: z.string().optional(),
   /** Values chosen on the configure step; anything missing is generated from the template. */
   vars: z.record(z.string(), z.string().max(4000)).optional(),
@@ -293,7 +309,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
         throw new UserError(`The compose file is not valid: ${(e as Error).message}`);
       }
       // Built-in templates are reviewed; only those that touch the host need the Root organization.
-      if (!template || template.custom || template.hostAccess) assertSafeCompose(ctx, content);
+      if (!template || template.custom || template.hostAccess) await assertSafeCompose(ctx, content);
     } else if (!data.source) throw new UserError("Enter a repository.");
     await assertCredential(data.source?.credentialId, ctx.org.id);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
@@ -320,7 +336,14 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
           ? { type: "git", repository: normalizeRepoUrl(data.source.repository), branch: data.source.branch, credentialId: data.source.credentialId ?? null }
           : null,
       runtime: withReservation(defaultRuntime(null), reserved),
-      compose: { mode: data.mode, content, path: data.path || "docker-compose.yml", template: template?.id ?? null },
+      compose: {
+        mode: data.mode,
+        content,
+        path: data.path || "docker-compose.yml",
+        template: template?.id ?? null,
+        // Host-level options (from git they are only seen at deploy) need an admin of the Root organization.
+        hostAccess: ctx.isInstanceAdmin && ctx.isRoot,
+      },
       webhookSecret: newWebhookSecret(),
     });
 
@@ -375,7 +398,7 @@ const updateSchema = z.object({
   previewsEnabled: z.boolean().optional(),
   source: z
     .discriminatedUnion("type", [
-      z.object({ type: z.literal("git"), repository: z.string().trim().min(3), branch: z.string().trim().min(1), credentialId: z.string().nullable().optional() }),
+      z.object({ type: z.literal("git"), repository: repositoryField, branch: z.string().trim().min(1), credentialId: z.string().nullable().optional() }),
       z.object({
         type: z.literal("image"),
         image: z.string().trim().min(1),
@@ -407,7 +430,13 @@ const updateSchema = z.object({
       port: z.number().int().min(1).max(65535).nullable(),
       replicas: z.number().int().min(1).max(20),
       command: z.string().nullable(),
-      healthcheckPath: z.string().nullable(),
+      // A URL path only: it is requested by the proxy and must not carry anything else.
+      healthcheckPath: z
+        .string()
+        .trim()
+        .max(300)
+        .regex(/^\/?[A-Za-z0-9._~%/?=&+,:@!*()-]*$/, "Use a path like /health")
+        .nullable(),
       healthcheckTimeout: z.number().int().min(10).max(1800).nullable(),
       restartPolicy: z.enum(["always", "unless-stopped", "on-failure", "no"]),
       cpuLimit: z.number().min(0.05).max(256).nullable(),
@@ -567,7 +596,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       if (runtime.replicas > 1 && runtime.ports.length) throw new UserError("Published host ports only work with a single replica.");
       const grantsHost = (data.runtime.privileged === true && !service.runtime.privileged) || data.runtime.capAdd?.some((c) => !(service.runtime.capAdd ?? []).includes(c));
       if (grantsHost) assertHostAccess(ctx, "Privileged mode and extra capabilities");
-      if (data.runtime.labels?.some((l) => l.key.startsWith("serve."))) throw new UserError("Labels starting with serve. are reserved.");
+      if (data.runtime.labels?.some((l) => /^(serve\.|com\.docker\.)/.test(l.key))) throw new UserError("Labels starting with serve. or com.docker. are reserved.");
       if (data.runtime.restartSchedule) {
         const { CronExpressionParser } = await import("cron-parser");
         try {
@@ -606,7 +635,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         } catch (e) {
           throw new UserError(`The compose file is not valid: ${(e as Error).message}`);
         }
-        assertSafeCompose(ctx, data.compose.content);
+        await assertSafeCompose(ctx, data.compose.content, serviceId);
       }
       if (data.compose.ports) {
         const ports = data.compose.ports;
@@ -620,6 +649,10 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         }
       }
       patch.compose = { ...service.compose, ...data.compose };
+    }
+    // Who last set up a stack's file, repository or branch decides whether its host-level options may deploy.
+    if (service.type === "compose" && service.compose && (data.compose || data.source)) {
+      patch.compose = { ...(patch.compose ?? service.compose), hostAccess: ctx.isInstanceAdmin && ctx.isRoot };
     }
     await db.update(schema.service).set(patch).where(eq(schema.service.id, serviceId));
     if (data.source) await syncRepoWebhook(service.source, serviceId);
@@ -911,17 +944,24 @@ export async function saveEnvVars(serviceId: string, vars: VarInput[], redeploy:
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const stored = await db.select({ key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId));
     const { decryptOrNull } = await import("@/server/crypto");
-    await writeEnvVars(
-      serviceId,
-      vars
-        .map((v) => {
-          if (v.keep === undefined) return { key: v.key.trim(), value: v.value, buildTime: v.buildTime, runtime: v.runtime };
-          const kept = stored.find((s) => s.key === v.keep);
-          if (!kept) throw new UserError(`${v.keep} no longer exists. Reload the page.`);
-          return { key: v.key.trim(), value: decryptOrNull(kept.value) ?? "", buildTime: v.buildTime, runtime: v.runtime };
-        })
-        .filter((v) => v.key),
-    );
+    const next = vars
+      .map((v) => {
+        if (v.keep === undefined) return { key: v.key.trim(), value: v.value, buildTime: v.buildTime, runtime: v.runtime };
+        const kept = stored.find((s) => s.key === v.keep);
+        if (!kept) throw new UserError(`${v.keep} no longer exists. Reload the page.`);
+        return { key: v.key.trim(), value: decryptOrNull(kept.value) ?? "", buildTime: v.buildTime, runtime: v.runtime };
+      })
+      .filter((v) => v.key);
+    // A compose file a Root admin allowed host options for: its variables can point those options
+    // anywhere (a bind source of ${DATA_DIR}), so only Root admins change the ones it uses.
+    if (service.compose?.hostAccess && !(ctx.isInstanceAdmin && ctx.isRoot) && composeSecurityIssues(service.compose.content).length) {
+      const used = new Set(composeVariables(service.compose.content).map((v) => v.name));
+      const before = new Map(stored.map((v) => [v.key, decryptOrNull(v.value) ?? ""]));
+      const after = new Map(next.map((v) => [v.key, v.value]));
+      const changed = [...used].filter((k) => before.get(k) !== after.get(k));
+      if (changed.length) throw new UserError(`This compose file uses host options, so only admins of the Root organization can change ${changed.slice(0, 3).join(", ")}.`);
+    }
+    await writeEnvVars(serviceId, next);
     let deploymentId: string | null = null;
     if (redeploy && service.status !== "idle") deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
     return { deploymentId };
@@ -952,6 +992,17 @@ const domainSchema = z.object({
   tunnelId: z.string().nullable().optional(),
 });
 
+/** The dashboard's own hostnames belong to it; a wildcard over them only to the Root organization. */
+async function assertNotDashboardHost(ctx: OrgContext, hostname: string) {
+  const settings = await getSettings();
+  const reserved = [settings.dashboardDomain, new URL(env.appUrl).hostname].filter((h): h is string => !!h).map((h) => h.toLowerCase());
+  if (reserved.includes(hostname)) throw new UserError("That is the dashboard's own domain.");
+  if (hostname.startsWith("*.") && !ctx.isRoot) {
+    const suffix = hostname.slice(1);
+    if (reserved.some((h) => h.endsWith(suffix) && !h.slice(0, -suffix.length).includes("."))) throw new UserError("That wildcard would cover the dashboard's domain.");
+  }
+}
+
 export async function addDomain(serviceId: string, input: z.input<typeof domainSchema>) {
   return act(async () => {
     const ctx = await requirePermission("domains.manage");
@@ -962,6 +1013,7 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
     if (service.type === "compose" && !data.composeService && !data.redirectTo) throw new UserError("Pick which compose service receives traffic.");
     const [taken] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, data.hostname));
     if (taken) throw new UserError("That domain is already connected to a service.");
+    await assertNotDashboardHost(ctx, data.hostname);
     await requireRoom(ctx.org.id, { domains: 1 });
     if (data.certificateId) {
       const [cert] = await db

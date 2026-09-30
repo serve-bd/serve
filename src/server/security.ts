@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { UserError } from "@/server/action";
@@ -91,12 +92,23 @@ export function composeSecurityIssues(content: string): string[] {
   const doc = parseCompose(content) as {
     services?: Record<string, Record<string, unknown>>;
     volumes?: Record<string, { driver_opts?: Record<string, unknown>; external?: unknown; name?: unknown } | null>;
+    secrets?: Record<string, { file?: unknown } | null>;
+    configs?: Record<string, { file?: unknown } | null>;
     include?: unknown;
   } | null;
   if (!doc) return [];
   const issues: string[] = [];
   // Other files are not checked here, so they cannot be pulled in.
   if (doc.include) issues.push(`"include" is not allowed`);
+  // Secrets and configs from files are mounted into containers: a file outside the stack is a host file.
+  for (const kind of ["secrets", "configs"] as const) {
+    for (const [name, def] of Object.entries(doc[kind] ?? {})) {
+      const file = def && typeof def === "object" ? def.file : undefined;
+      if (typeof file === "string" && (file.startsWith("/") || file.startsWith("~") || file.split(/[\\/]/).includes("..") || interpolated(file))) {
+        issues.push(`${kind} ${name}: file "${file}" is not allowed`);
+      }
+    }
+  }
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
     if (!svc || typeof svc !== "object") continue;
     for (const key of DANGEROUS_KEYS) if (svc[key]) issues.push(`${name}: "${key}" is not allowed`);
@@ -109,10 +121,28 @@ export function composeSecurityIssues(content: string): string[] {
     }
     const ext = svc.extends;
     if (ext && typeof ext === "object" && (ext as { file?: unknown }).file) issues.push(`${name}: "extends" from another file is not allowed`);
+    // Another container's volumes (Serve's database among them), the host's cgroups.
+    if (svc.volumes_from) issues.push(`${name}: "volumes_from" is not allowed`);
+    // Host ports: the file's own, like the ones Serve publishes, are for the Root organization.
+    if (Array.isArray(svc.ports) ? svc.ports.length : svc.ports) issues.push(`${name}: publishing host ports ("ports") is not allowed; use Domains & ports`);
+    if (svc.cgroup === "host" || interpolated(svc.cgroup)) issues.push(`${name}: "cgroup: ${svc.cgroup}" is not allowed`);
     const outside = (p: string) => p.startsWith("/") || p.startsWith("~") || p.split(/[\\/]/).includes("..");
     const build = svc.build;
     const context = typeof build === "string" ? build : (build as { context?: string } | undefined)?.context;
-    if (context && !/^[a-z]+:\/\//i.test(context) && outside(context)) issues.push(`${name}: build context "${context}" is not allowed`);
+    if (context && !/^[a-z]+:\/\//i.test(context) && (outside(context) || interpolated(context))) issues.push(`${name}: build context "${context}" is not allowed`);
+    if (build && typeof build === "object") {
+      const b = build as { additional_contexts?: unknown; ssh?: unknown; secrets?: unknown; dockerfile?: unknown };
+      // Extra contexts are build contexts too; ssh would hand the build Serve's own SSH agent.
+      const extra = Array.isArray(b.additional_contexts)
+        ? b.additional_contexts.map((e) => String(e).split("=").slice(1).join("="))
+        : Object.values((b.additional_contexts as Record<string, unknown>) ?? {}).map(String);
+      for (const c of extra) {
+        if (!/^(docker-image|service|oci-layout|https?|git):/i.test(c) && (outside(c) || interpolated(c))) issues.push(`${name}: build context "${c}" is not allowed`);
+      }
+      if (b.ssh) issues.push(`${name}: "build.ssh" is not allowed`);
+      if (b.secrets) issues.push(`${name}: "build.secrets" is not allowed`);
+      if (typeof b.dockerfile === "string" && (outside(b.dockerfile) || interpolated(b.dockerfile))) issues.push(`${name}: dockerfile "${b.dockerfile}" is not allowed`);
+    }
     const envFiles = typeof svc.env_file === "string" ? [svc.env_file] : Array.isArray(svc.env_file) ? svc.env_file : [];
     for (const f of envFiles) {
       const file = typeof f === "string" ? f : ((f as { path?: string })?.path ?? "");
@@ -138,4 +168,94 @@ export function composeSecurityIssues(content: string): string[] {
     else if (v?.name !== undefined) issues.push(`volume ${name}: a custom volume name is not allowed`);
   }
   return [...issues, ...composeNetworkIssues(content)];
+}
+
+/**
+ * Host paths a compose file reads relative to its own folder: bind-mount sources, env files,
+ * build contexts and Dockerfiles, secret and config files. Docker follows symlinks in these, so
+ * each is checked on disk (see pathsOutside) once the repository is cloned.
+ */
+export function composeLocalPaths(content: string, composeDir: string): string[] {
+  const doc = parseCompose(content) as {
+    services?: Record<string, Record<string, unknown>>;
+    secrets?: Record<string, { file?: unknown } | null>;
+    configs?: Record<string, { file?: unknown } | null>;
+  } | null;
+  if (!doc) return [];
+  const out: string[] = [];
+  const add = (p: unknown, base = composeDir) => {
+    if (typeof p === "string" && p && !/^[a-z][a-z0-9+.-]*:/i.test(p)) out.push(path.resolve(base, p));
+  };
+  for (const svc of Object.values(doc.services ?? {})) {
+    if (!svc || typeof svc !== "object") continue;
+    for (const v of Array.isArray(svc.volumes) ? svc.volumes : []) {
+      if (typeof v === "string") {
+        const source = v.split(":")[0];
+        if (source.startsWith(".")) add(source);
+      } else if ((v as { type?: string })?.type === "bind") add((v as { source?: string }).source);
+    }
+    const envFiles = typeof svc.env_file === "string" ? [svc.env_file] : Array.isArray(svc.env_file) ? svc.env_file : [];
+    for (const f of envFiles) add(typeof f === "string" ? f : (f as { path?: string })?.path);
+    const build = svc.build;
+    const context = typeof build === "string" ? build : (build as { context?: string } | undefined)?.context;
+    const contextDir = context && !/^[a-z]+:\/\//i.test(context) ? path.resolve(composeDir, context) : composeDir;
+    if (context) add(context);
+    if (build && typeof build === "object") {
+      const b = build as { dockerfile?: unknown; additional_contexts?: unknown };
+      add(b.dockerfile, contextDir);
+      const extra = Array.isArray(b.additional_contexts)
+        ? b.additional_contexts.map((e) => String(e).split("=").slice(1).join("="))
+        : Object.values((b.additional_contexts as Record<string, unknown>) ?? {}).map(String);
+      for (const c of extra) add(c);
+    }
+  }
+  for (const kind of ["secrets", "configs"] as const) for (const def of Object.values(doc[kind] ?? {})) add(def && typeof def === "object" ? def.file : undefined);
+  return out;
+}
+
+/** Paths that lead outside `root` once symlinks are followed (paths that do not exist are fine). */
+export async function pathsOutside(root: string, paths: string[]): Promise<string[]> {
+  const realRoot = await fs.realpath(root);
+  const out: string[] = [];
+  for (const p of paths) {
+    const real = await fs.realpath(p).catch(() => null);
+    if (real !== null && real !== realRoot && !real.startsWith(realRoot + path.sep)) out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Names in a compose file that another service answers to on the networks the proxy shares with
+ * it (its slug, or "<slug>-<name>" for stack services): taking one would receive that service's
+ * traffic. `otherSlugs`: the slugs of every other service.
+ */
+export function composeNameClashes(content: string, otherSlugs: string[]): string[] {
+  const doc = parseCompose(content) as { services?: Record<string, Record<string, unknown>> } | null;
+  if (!doc || !otherSlugs.length) return [];
+  const slugs = otherSlugs.map((s) => s.toLowerCase());
+  const taken = (name: unknown) => typeof name === "string" && slugs.some((slug) => name.toLowerCase() === slug || name.toLowerCase().startsWith(`${slug}-`));
+  const issues: string[] = [];
+  for (const [name, svc] of Object.entries(doc.services ?? {})) {
+    if (taken(name)) issues.push(`service ${name}: the name belongs to another service`);
+    if (!svc || typeof svc !== "object") continue;
+    for (const key of ["container_name", "hostname"] as const) if (taken(svc[key])) issues.push(`${name}: ${key} "${svc[key]}" belongs to another service`);
+    const nets = svc.networks;
+    if (nets && typeof nets === "object" && !Array.isArray(nets)) {
+      for (const cfg of Object.values(nets as Record<string, { aliases?: unknown } | null>)) {
+        for (const a of Array.isArray(cfg?.aliases) ? cfg.aliases : []) if (taken(a)) issues.push(`${name}: alias "${a}" belongs to another service`);
+      }
+    }
+  }
+  return issues;
+}
+
+const SECRET_FLAGS = /^(--requirepass|--masterauth|--password|--pass|--passwd|--token|--secret|-a)$/i;
+
+/** A container's command as shown to anyone who can see the service: secret flag values hidden. */
+export function maskCommand(parts: string[]): string[] {
+  return parts.map((part, i) => {
+    if (i > 0 && SECRET_FLAGS.test(parts[i - 1])) return "********";
+    const eq = part.match(/^(--(?:requirepass|masterauth|password|pass|passwd|token|secret))=/i);
+    return eq ? `${eq[1]}=********` : part;
+  });
 }

@@ -9,7 +9,7 @@ const { parsePullRequest, parsePush } = await import("@/server/git/events");
 const { createHookRequest, deleteHookRequest, repoPath } = await import("@/server/git/repo-webhooks");
 const { authorizeUrl, exchangeCode, refreshTokens, redirectUri, signOAuthState, verifyOAuthState } = await import("@/server/git/oauth");
 const { authHeaders } = await import("@/server/git/providers");
-const { withToken } = await import("@/server/deploy/git");
+const { tokenConfig } = await import("@/server/deploy/git");
 const { encrypt } = await import("@/server/crypto");
 
 const secret = "s3cret";
@@ -165,8 +165,13 @@ describe("oauth", () => {
   });
 
   it("puts tokens in clone URLs", () => {
-    expect(withToken("https://gitlab.com/g/a.git", "gitlab", "tok")).toBe("https://oauth2:tok@gitlab.com/g/a.git");
-    expect(withToken("https://bitbucket.org/w/a.git", "bitbucket", "tok")).toBe("https://x-token-auth:tok@bitbucket.org/w/a.git");
-    expect(withToken("https://git.x/t/a.git", "gitea", "tok")).toBe("https://oauth2:tok@git.x/t/a.git");
+    const basic = (v: string) => `Authorization: Basic ${Buffer.from(v).toString("base64")}`;
+    expect(tokenConfig("https://gitlab.com/g/a.git", "gitlab", "tok")).toEqual({
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "http.https://gitlab.com/.extraHeader",
+      GIT_CONFIG_VALUE_0: basic("oauth2:tok"),
+    });
+    expect(tokenConfig("https://bitbucket.org/w/a.git", "bitbucket", "tok").GIT_CONFIG_VALUE_0).toBe(basic("x-token-auth:tok"));
+    expect(tokenConfig("https://git.x:8443/t/a.git", "gitea", "tok").GIT_CONFIG_KEY_0).toBe("http.https://git.x:8443/.extraHeader");
   });
 });

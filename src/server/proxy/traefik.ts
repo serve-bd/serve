@@ -218,7 +218,10 @@ export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; tr
       mws = [`${p}-maintenance-headers`, `${p}-maintenance`];
     }
     const add = (name: string, entryPoints: string[], extra: Obj, middlewareList: string[], r = rule, svc = service) => {
-      routers[name] = { rule: r, entryPoints, service: svc, ...(middlewareList.length ? { middlewares: middlewareList } : {}), ...extra };
+      // The dashboard outranks every service router: Traefik ranks by rule length, so a longer
+      // service rule (a wildcard with a path) would otherwise win on the dashboard's hostname.
+      const priority = site.name === "_dashboard" ? { priority: 100_000 + r.length } : {};
+      routers[name] = { rule: r, entryPoints, service: svc, ...(middlewareList.length ? { middlewares: middlewareList } : {}), ...priority, ...extra };
     };
     if (allowed) {
       const allowRule = `${rule} && (${m!.allow.map((a) => `ClientIP(\`${a}\`)`).join(" || ")})`;

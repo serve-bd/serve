@@ -10,7 +10,7 @@ import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
 import { parseCompose } from "@/server/deploy/compose";
-import { isPrivateAddress } from "@/server/net/public-fetch";
+import { isPrivateAddress, publicGet } from "@/server/net/public-fetch";
 import { composeSecurityIssues } from "@/server/security";
 import { composeVariables } from "@/lib/compose-vars";
 
@@ -138,26 +138,24 @@ export async function fetchComposeFromUrl(raw: string) {
     // GitHub page links → raw file.
     const gh = url.hostname === "github.com" && url.pathname.match(/^\/([^/]+)\/([^/]+)\/blob\/(.+)$/);
     if (gh) url = new URL(`https://raw.githubusercontent.com/${gh[1]}/${gh[2]}/${gh[3]}`);
-    let res: Response | null = null;
-    for (let hop = 0; hop < 4; hop++) {
-      res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(8000), headers: { accept: "text/plain, application/yaml, */*" } }).catch((e) => {
-        throw new UserError(`Could not fetch the file: ${(e as Error).message}`);
-      });
-      const next = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
-      if (!next) break;
-      url = await assertPublicUrl(new URL(next, url).href);
+    // publicGet checks every redirect and the address actually connected to (no DNS rebinding).
+    const res = await publicGet(url.href, { maxRedirects: 3, timeoutMs: 8000 }).catch((e) => {
+      throw new UserError(`Could not fetch the file: ${(e as Error).message}`);
+    });
+    if (res.status < 200 || res.status >= 300) {
+      res.body.resume();
+      throw new UserError(`The server answered ${res.status}.`);
     }
-    if (!res?.ok) throw new UserError(`The server answered ${res?.status ?? "nothing"}.`);
-    if (Number(res.headers.get("content-length") ?? 0) > MAX_BYTES) throw new UserError("The file is larger than 256 KB.");
-    const reader = res.body?.getReader();
-    const chunks: Uint8Array[] = [];
+    if (Number(res.headers["content-length"] ?? 0) > MAX_BYTES) {
+      res.body.destroy();
+      throw new UserError("The file is larger than 256 KB.");
+    }
+    const chunks: Buffer[] = [];
     let size = 0;
-    while (reader) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    for await (const value of res.body as AsyncIterable<Buffer>) {
       size += value.byteLength;
       if (size > MAX_BYTES) {
-        await reader.cancel();
+        res.body.destroy();
         throw new UserError("The file is larger than 256 KB.");
       }
       chunks.push(value);

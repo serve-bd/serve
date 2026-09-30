@@ -1,3 +1,4 @@
+import { instanceAdminPage } from "@/server/auth";
 import { asc, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
@@ -7,6 +8,7 @@ import { CleanupPolicy } from "./cleanup-policy";
 export const metadata = { title: "Advanced" };
 
 export default async function AdvancedSettingsPage() {
+  await instanceAdminPage();
   const [s, orgs] = await Promise.all([
     getSettings(),
     db

@@ -30,7 +30,7 @@ import { databasePlan } from "@/server/databases/options";
 import { ensureDatabaseTls } from "@/server/databases/tls";
 import { allocateSubnet, composeServiceNames, composeUp, stackNetworkName, transformCompose, writeComposeFiles } from "./compose";
 import type { ServiceStatus } from "@/server/db/schema";
-import { composeSecurityIssues, containedPath } from "@/server/security";
+import { composeLocalPaths, composeNameClashes, composeSecurityIssues, containedPath, pathsOutside } from "@/server/security";
 import { connectProxy, disconnectProxy, ensureEnvNetwork } from "@/server/docker/networks";
 import { getSetting } from "@/server/settings";
 import { meshAfterStart, meshBeforeStart } from "@/server/mesh";
@@ -150,7 +150,11 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
     checkCancelled(signal);
 
     const contextDir = containedPath(workDir, build.rootDir || "/", "Root directory");
-    containedPath(contextDir, build.dockerfile || "Dockerfile", "Dockerfile path");
+    const dockerfilePath = containedPath(contextDir, build.dockerfile || "Dockerfile", "Dockerfile path");
+    // The build follows a symlinked root directory or Dockerfile: they must stay inside the repository.
+    if ((await pathsOutside(workDir, [contextDir, dockerfilePath])).length) {
+      throw new Error("The root directory or Dockerfile path leads outside the repository.");
+    }
     await fs.access(contextDir).catch(() => {
       throw new Error(`Root directory "${build.rootDir}" does not exist in the repository.`);
     });
@@ -296,6 +300,16 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   const sourceType = service.source?.type;
   const problem = distributionProblem(dist, sourceType);
   if (problem) throw new Error(problem);
+  // Host paths, host ports and extra privileges: saved only by Root admins, and checked again
+  // here, so a service copied or moved into another organization cannot keep them.
+  const hostUses = [
+    service.runtime.volumes.some((v) => v.kind === "bind") && "host path mounts",
+    service.runtime.ports.length > 0 && "published host ports",
+    (service.runtime.privileged || !!service.runtime.capAdd?.length) && "privileged mode or extra capabilities",
+  ].filter(Boolean);
+  if (hostUses.length && (await orgIdOf(service)) !== (await getSetting("rootOrganizationId"))) {
+    throw new Error(`Only services of the Root organization may use ${hostUses.join(", ")}. Remove them in the service settings.`);
+  }
   const registry = dist.registryId ? await getRegistry(dist.registryId) : null;
   if (dist.registryId && !registry) throw new Error("The registry of this service was removed. Choose another one in Settings → Servers & registry.");
 
@@ -719,17 +733,30 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
       throw new Error(`Compose file ${cfg.path} not found in the repository.`);
     });
     dir = path.dirname(composePath);
+    // Bind mounts, env files, build contexts and secret files are read on the host: a symlink in the
+    // repository must not lead them to files outside it.
+    const escaping = await pathsOutside(repoDir, composeLocalPaths(content, dir));
+    if (escaping.length) {
+      throw new Error(`The compose file uses paths that lead outside the repository: ${escaping.map((p) => path.relative(repoDir, p)).join(", ")}`);
+    }
     // Remember the file so the UI can show services and ports.
     await db
       .update(schema.service)
       .set({ compose: { ...cfg, content } })
       .where(eq(schema.service.id, service.id));
   }
+  // A name another service answers to would take its traffic: refused for everyone.
+  const otherSlugs = (await db.select({ id: schema.service.id, slug: schema.service.slug }).from(schema.service)).filter((s) => s.id !== service.id).map((s) => s.slug);
+  const clashes = composeNameClashes(content, otherSlugs);
+  if (clashes.length) throw new Error(`The compose file uses names of other services: ${clashes.slice(0, 3).join("; ")}`);
   // Checked at every deploy, for files from git and files saved before a rule existed: only the
   // Root organization may use host-level options or reach into Serve's own networks.
   const issues = composeSecurityIssues(content);
-  if (issues.length && (await orgIdOf(service)) !== (await getSetting("rootOrganizationId"))) {
-    throw new Error(`The compose file uses options only services of the Root organization may use: ${issues.slice(0, 3).join("; ")}`);
+  // Only for stacks of the Root organization that one of its admins set up (not any of its members).
+  if (issues.length && !(cfg.hostAccess && (await orgIdOf(service)) === (await getSetting("rootOrganizationId")))) {
+    throw new Error(
+      `The compose file uses options only admins of the Root organization may set up: ${issues.slice(0, 3).join("; ")}. An admin of the Root organization can save the stack's compose settings to allow them.`,
+    );
   }
   checkCancelled(signal);
 

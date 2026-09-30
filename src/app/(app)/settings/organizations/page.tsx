@@ -1,3 +1,4 @@
+import { instanceAdminPage } from "@/server/auth";
 import { asc, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { effectiveLimits, orgUsage } from "@/server/limits";
@@ -7,6 +8,7 @@ import { OrgLimitsView } from "./org-limits";
 export const metadata = { title: "Organizations" };
 
 export default async function OrganizationsSettingsPage() {
+  await instanceAdminPage();
   const [settings, orgs, rows, servers] = await Promise.all([
     getSettings(),
     db

@@ -1,7 +1,7 @@
-import { cannotMessage } from "@/lib/permissions";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { requireOrg } from "@/server/auth";
+import { serviceInOrg } from "@/server/services/access";
 import { closeSession, getSession, resizeSession, subscribe, writeSession } from "@/server/services/terminal";
 
 export const dynamic = "force-dynamic";
@@ -11,9 +11,19 @@ type Ctx = RouteContext<"/api/services/[serviceId]/terminal/[sessionId]">;
 async function load(ctx: Ctx) {
   const { serviceId, sessionId } = await ctx.params;
   const org = await requireOrg();
-  if (!org.can("console.access")) return new Response(cannotMessage("console.access"), { status: 403 });
+  if (!org.can("console.access")) return null;
   const session = getSession(sessionId, org.user.id);
-  return session && session.scope === `service:${serviceId}` ? session : null;
+  if (!session || session.scope !== `service:${serviceId}`) return null;
+  // Checked on every call: access to the project can be taken away while the shell is open.
+  const allowed = await serviceInOrg(serviceId, org.org.id).then(
+    () => true,
+    () => false,
+  );
+  if (!allowed) {
+    closeSession(session.id);
+    return null;
+  }
+  return session;
 }
 
 /** Terminal output as Server-Sent Events. `?since=<seq>` replays missed output after a reconnect. */

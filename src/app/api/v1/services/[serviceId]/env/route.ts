@@ -53,7 +53,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
         .filter(([, v]) => v !== null)
         .map(([key, value]) => {
           const prev = existing.find((e) => e.key === key);
-          return { id: newId(), serviceId, key, value: encrypt(value!), buildTime: prev?.buildTime ?? false, runtime: prev?.runtime ?? true };
+          return { id: newId(), serviceId, key, value: encrypt(value!), buildTime: prev?.buildTime ?? true, runtime: prev?.runtime ?? true };
         });
       if (values.length) await tx.insert(schema.envVar).values(values);
     });

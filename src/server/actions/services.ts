@@ -199,7 +199,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
     });
     await writeEnvVars(
       id,
-      (data.envVars ?? []).filter((v) => v.key.trim()).map((v) => ({ ...v, buildTime: false, runtime: true })),
+      (data.envVars ?? []).filter((v) => v.key.trim()).map((v) => ({ ...v, buildTime: true, runtime: true })),
     );
     await addGeneratedDomain(id, slug, ctx.org.id, null, null, server.id);
     // Deploy on push: add the repository webhook when the credential can (failures are recorded, not thrown).
@@ -378,7 +378,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
     } else if (data.envVars?.length) {
       await writeEnvVars(
         id,
-        data.envVars.filter((v) => v.key.trim()).map((v) => ({ key: v.key.trim(), value: v.value, buildTime: false, runtime: true })),
+        data.envVars.filter((v) => v.key.trim()).map((v) => ({ key: v.key.trim(), value: v.value, buildTime: true, runtime: true })),
       );
     }
     // Deploy on push, like apps from git.

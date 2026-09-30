@@ -18,6 +18,9 @@ import { referenceOf } from "@/lib/refs";
 /** `hidden`: the value is kept on the server and not sent here (the role cannot see secrets); `from` is its stored key. */
 type Var = { key: string; value: string; buildTime: boolean; runtime: boolean; id?: number; hidden?: boolean; from?: string };
 
+/** A group of values to reference. `addAs` names the variable Add creates (default: the key). */
+type Reference = { name: string; keys: string[]; label?: string; note?: string; warn?: boolean; addAs?: Record<string, string> };
+
 let seq = 0;
 const withId = (v: Omit<Var, "id">): Var => ({ ...v, id: ++seq });
 
@@ -42,7 +45,7 @@ export function VariablesEditor({
   type: string;
   status: string;
   initial: Omit<Var, "id">[];
-  references: { name: string; keys: string[]; label?: string; note?: string; warn?: boolean }[];
+  references: Reference[];
   /** ${VARIABLES} the compose file uses without a default. */
   composeVars?: string[];
   canEdit?: boolean;
@@ -61,7 +64,7 @@ export function VariablesEditor({
 
   const current =
     raw !== null
-      ? parseEnv(raw).map((v) => ({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? false, runtime: vars.find((x) => x.key === v.key)?.runtime ?? true }))
+      ? parseEnv(raw).map((v) => ({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? true, runtime: vars.find((x) => x.key === v.key)?.runtime ?? true }))
       : vars.map((v) => ({ key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime, ...(v.hidden ? { keep: v.from ?? v.key } : {}) }));
   const dirty = JSON.stringify(current.filter((v) => v.key)) !== baseline;
 
@@ -79,7 +82,7 @@ export function VariablesEditor({
 
   const addVar = (key: string, value: string) => {
     if (raw !== null) setRaw(`${raw.replace(/\n*$/, "")}\n${key}=${value}\n`);
-    else setVars((prev) => [...prev.filter((v) => v.key || v.value), withId({ key, value, buildTime: false, runtime: true })]);
+    else setVars((prev) => [...prev.filter((v) => v.key || v.value), withId({ key, value, buildTime: true, runtime: true })]);
   };
   const taken = new Set(current.map((v) => v.key));
   const update = (id: number, patch: Partial<Var>) => setVars((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
@@ -101,7 +104,7 @@ export function VariablesEditor({
               size="sm"
               onClick={() => {
                 setRaw(null);
-                setVars((prev) => [...prev, ...missing.map((key) => withId({ key, value: "", buildTime: false, runtime: true }))]);
+                setVars((prev) => [...prev, ...missing.map((key) => withId({ key, value: "", buildTime: true, runtime: true }))]);
               }}
             >
               <Plus /> Add {missing.length === 1 ? "it" : "all"}
@@ -121,7 +124,7 @@ export function VariablesEditor({
                   onClick={() => {
                     if (raw === null) setRaw(toRaw(vars));
                     else {
-                      setVars(parseEnv(raw).map((v) => withId({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? false, runtime: true })));
+                      setVars(parseEnv(raw).map((v) => withId({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? true, runtime: true })));
                       setRaw(null);
                     }
                   }}
@@ -149,7 +152,7 @@ export function VariablesEditor({
               action={
                 canEdit && (
                   <div className="flex flex-wrap justify-center gap-2">
-                    <Button size="sm" onClick={() => setVars([withId({ key: "", value: "", buildTime: false, runtime: true })])}>
+                    <Button size="sm" onClick={() => setVars([withId({ key: "", value: "", buildTime: true, runtime: true })])}>
                       <Plus /> Add variable
                     </Button>
                     <AddReferenceMenu references={references} taken={taken} onAdd={addVar} />
@@ -243,7 +246,7 @@ export function VariablesEditor({
               })}
               {canEdit && (
                 <div className="flex flex-wrap gap-2 px-5 py-3">
-                  <Button size="sm" variant="ghost" onClick={() => setVars((prev) => [...prev, withId({ key: "", value: "", buildTime: false, runtime: true })])}>
+                  <Button size="sm" variant="ghost" onClick={() => setVars((prev) => [...prev, withId({ key: "", value: "", buildTime: true, runtime: true })])}>
                     <Plus /> Add variable
                   </Button>
                   <AddReferenceMenu references={references} taken={taken} onAdd={addVar} variant="ghost" />
@@ -309,17 +312,7 @@ export function VariablesEditor({
 }
 
 /** Values of other services to reference: one folding group per service, each value with Add and Copy. */
-function ReferencesCard({
-  references,
-  canEdit,
-  taken,
-  onAdd,
-}: {
-  references: { name: string; keys: string[]; label?: string; note?: string; warn?: boolean }[];
-  canEdit: boolean;
-  taken: Set<string>;
-  onAdd: (key: string, value: string) => void;
-}) {
+function ReferencesCard({ references, canEdit, taken, onAdd }: { references: Reference[]; canEdit: boolean; taken: Set<string>; onAdd: (key: string, value: string) => void }) {
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState<Set<string>>(() => new Set(references[0] ? [references[0].name] : []));
   const q = query.trim().toLowerCase();
@@ -375,15 +368,16 @@ function ReferencesCard({
                     <ul className="pb-2">
                       {r.keys.map((k) => {
                         const ref = referenceOf(r.name, k);
-                        const added = taken.has(k);
+                        const name = r.addAs?.[k] ?? k;
+                        const added = taken.has(name);
                         return (
                           <li key={k} className="group flex items-center gap-1 py-0.5 pr-2 pl-12">
                             <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-2" title={ref}>
                               {k}
                             </span>
                             {canEdit && (
-                              <Tooltip content={added ? `${k} is already a variable` : `Add ${k}=${ref}`}>
-                                <Button type="button" size="xs" variant="ghost" disabled={added} onClick={() => onAdd(k, ref)} className="opacity-70 group-hover:opacity-100">
+                              <Tooltip content={added ? `${name} is already a variable` : `Add ${name}=${ref}`}>
+                                <Button type="button" size="xs" variant="ghost" disabled={added} onClick={() => onAdd(name, ref)} className="opacity-70 group-hover:opacity-100">
                                   <Plus /> {added ? "Added" : "Add"}
                                 </Button>
                               </Tooltip>
@@ -411,7 +405,7 @@ function AddReferenceMenu({
   onAdd,
   variant = "secondary",
 }: {
-  references: { name: string; keys: string[]; label?: string; note?: string; warn?: boolean }[];
+  references: Reference[];
   taken: Set<string>;
   onAdd: (key: string, value: string) => void;
   variant?: "secondary" | "ghost";
@@ -428,9 +422,9 @@ function AddReferenceMenu({
             {i > 0 && <MenuSeparator />}
             <MenuLabel>{r.label ?? r.name}</MenuLabel>
             {r.keys.map((k) => (
-              <MenuItem key={k} disabled={taken.has(k)} onClick={() => onAdd(k, referenceOf(r.name, k))}>
+              <MenuItem key={k} disabled={taken.has(r.addAs?.[k] ?? k)} onClick={() => onAdd(r.addAs?.[k] ?? k, referenceOf(r.name, k))}>
                 <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{k}</span>
-                {taken.has(k) && <span className="text-[11px] text-faint">Added</span>}
+                {taken.has(r.addAs?.[k] ?? k) && <span className="text-[11px] text-faint">Added</span>}
               </MenuItem>
             ))}
           </React.Fragment>

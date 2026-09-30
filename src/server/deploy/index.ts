@@ -23,6 +23,7 @@ import { DeployLogger, type StepLog } from "./logger";
 import { distributionProblem, normalizeDistribution, type Distribution } from "./distribution";
 import { getRegistry, pushImage, registryAuth, type RegistryRow } from "@/server/registries";
 import { defaultRepository, imageRef, normalizeRepository, renderTag } from "@/server/registries/refs";
+import { replicaEnv } from "@/lib/refs";
 import type { DeploymentTarget } from "@/server/services/types";
 import { createSpec, startContainer, volumeName, waitHealthy } from "./containers";
 import { prepareMounts } from "@/server/services/mounts";
@@ -297,6 +298,8 @@ async function pushToRegistry(
   return ref;
 }
 
+const replicasOf = (runtime: Service["runtime"]) => Math.max(1, Math.min(runtime.replicas || 1, 20));
+
 async function deployApp(service: Service, dep: Deployment, log: DeployLogger, server: ServerCtx, signal?: AbortSignal) {
   const dist = normalizeDistribution(service.serverId, service.distribution);
   const sourceType = service.source?.type;
@@ -356,6 +359,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
 
   const env = await resolveEnv({ ...service, runtime });
   log.redact(env.secrets);
+  const replicaTotal = replicasOf(runtime) * (1 + dist.extraServerIds.length);
   if (env.missing.length) log.line(`Warning: unresolved variable references: ${env.missing.join(", ")}`);
 
   // The service's own server first: its failure fails the deployment and keeps the old version everywhere.
@@ -365,7 +369,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   try {
     if (multi) log.step(`Deploying to ${server.name}`);
     await ensureImageOn(server, service, prepared, registry, log);
-    await runOnServer({ service, dep, log, server, image, runtime, env, signal, primary: true });
+    await runOnServer({ service, dep, log, server, image, runtime, env, signal, primary: true, replicaOffset: 0, replicaTotal });
     primaryTarget.status = "success";
   } catch (error) {
     primaryTarget.status = "failed";
@@ -385,7 +389,9 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
       try {
         slog.step(`Deploying to ${extra.name}`);
         await ensureImageOn(extra, service, prepared, registry, slog);
-        await runOnServer({ service, dep, log: slog, server: extra, image, runtime, env, signal, primary: false });
+        // Replica numbers continue across servers, in the order the servers were added.
+        const replicaOffset = (dist.extraServerIds.indexOf(extra.id) + 1) * replicasOf(runtime);
+        await runOnServer({ service, dep, log: slog, server: extra, image, runtime, env, signal, primary: false, replicaOffset, replicaTotal });
         t.status = "success";
       } catch (error) {
         t.status = "failed";
@@ -417,11 +423,14 @@ async function runOnServer(opts: {
   signal?: AbortSignal;
   /** The service's own server: runs the pre-deploy command and marks the deployment current. */
   primary: boolean;
+  /** Index of this server's first replica, and replicas across all servers (SERVE_REPLICA_INDEX/COUNT). */
+  replicaOffset: number;
+  replicaTotal: number;
 }) {
-  const { service, dep, log, server, image, runtime, env, signal, primary } = opts;
+  const { service, dep, log, server, image, runtime, env, signal, primary, replicaOffset, replicaTotal } = opts;
   const d = server.docker;
   const old = (await listServiceContainers(service.id, true, d)).filter((c) => c.Labels[LABEL.deployment] !== dep.id);
-  const replicas = Math.max(1, Math.min(runtime.replicas || 1, 20));
+  const replicas = replicasOf(runtime);
   const recreate = runtime.deployStrategy === "recreate";
   const needsStopFirst = runtime.ports.length > 0 || recreate;
   if (runtime.ports.length) {
@@ -440,7 +449,7 @@ async function runOnServer(opts: {
   if (runtime.preDeployCommand && !dep.rollbackOf && primary) {
     // Runs before the old version stops, so a failing migration never takes the app down.
     log.step("Running the pre-deploy command");
-    await runPreDeploy({ service, dep, image, env: env.runtime, runtime, network, d, log, signal, serviceDir: server.paths.service(service.id) });
+    await runPreDeploy({ service, dep, image, env: replicaEnv(env.runtime, 0, replicaTotal), runtime, network, d, log, signal, serviceDir: server.paths.service(service.id) });
     checkCancelled(signal);
   }
 
@@ -467,7 +476,7 @@ async function runOnServer(opts: {
           serviceId: service.id,
           deploymentId: dep.id,
           kind: "app",
-          env: env.runtime,
+          env: replicaEnv(env.runtime, replicaOffset + i, replicaTotal),
           runtime,
           aliases: networkAliases(service),
           network,
@@ -705,6 +714,12 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
 /*                                  Compose                                   */
 /* -------------------------------------------------------------------------- */
 
+/** A compose stack is one copy: replica references mean the first and only one. */
+function composeVars(env: Record<string, string>) {
+  const { SERVE_REPLICA_INDEX: _i, SERVE_REPLICA_COUNT: _c, ...vars } = replicaEnv(env, 0, 1);
+  return vars;
+}
+
 async function deployCompose(service: Service, dep: Deployment, log: DeployLogger, server: ServerCtx, signal?: AbortSignal) {
   const cfg = service.compose!;
   const env = await resolveEnv(service);
@@ -829,7 +844,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   const stackNet = declared || stackNetworkName(service.slug);
   // Compose may recreate the stack network; the proxy must not hold it while that happens.
   await disconnectProxy(stackNet, server).catch(() => {});
-  const run = { projectName: service.slug, dir, file: ".serve-compose.yml", vars: env.runtime, log: log.line, signal, redact: env.secrets };
+  const run = { projectName: service.slug, dir, file: ".serve-compose.yml", vars: composeVars(env.runtime), log: log.line, signal, redact: env.secrets };
   // dockerfile_inline builds too.
   await writeComposeFiles({ ...run, content: transformed.includes("type=cache") ? scopeCacheMounts(transformed, buildCacheScope(await orgIdOf(service))) : transformed });
   await setDeployment(dep.id, { status: "deploying" });

@@ -3,7 +3,7 @@ import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull } from "@/server/crypto";
 import { engines } from "@/server/databases/engines";
 import { databaseUrl } from "@/server/databases/options";
-import { PRIVATE_VARS, REF, referenceName } from "@/lib/refs";
+import { PRIVATE_VARS, REF, referenceName, replicaEnv } from "@/lib/refs";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { privateHost } from "@/lib/hostname";
 import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
@@ -146,6 +146,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
 
   const expand = (value: string, depth = 0): string =>
     value.replace(REF, (_match, ref: string) => {
+      // Filled in per container when replicas start (replicaEnv).
+      if (/^replica\.(index|number|count)$/i.test(ref)) return _match;
       const dot = ref.indexOf(".");
       let result: string | undefined;
       if (dot === -1) {
@@ -174,6 +176,11 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     if (v.runtime) runtime[k] = value;
     if (v.build) build[k] = value;
   }
+
+  // Builds happen once: they see the first replica.
+  Object.assign(build, replicaEnv(build, 0, Math.max(1, service.type === "app" ? service.runtime.replicas || 1 : 1)));
+  delete build.SERVE_REPLICA_INDEX;
+  delete build.SERVE_REPLICA_COUNT;
 
   const secretKey = /SECRET|TOKEN|PASS|KEY|URL|DSN|AUTH|PRIVATE|CREDENTIAL/i;
   const values = Object.entries(runtime).concat(Object.entries(build));

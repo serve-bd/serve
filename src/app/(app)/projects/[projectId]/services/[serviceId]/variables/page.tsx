@@ -61,6 +61,18 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
       }),
     ...(projectKeys.length ? [{ name: "project", label: "Project variables", keys: projectKeys }] : []),
     ...(orgKeys.length ? [{ name: "org", label: "Organization variables", keys: orgKeys }] : []),
+    // Different in each replica: shard a bot or split work, e.g. SHARD_ID=${{replica.index}}.
+    ...(service.type === "app"
+      ? [
+          {
+            name: "replica",
+            label: "This replica",
+            note: "Different in each replica, like SHARD_ID",
+            keys: ["index", "number", "count"],
+            addAs: { index: "REPLICA_INDEX", number: "REPLICA_NUMBER", count: "REPLICA_COUNT" },
+          },
+        ]
+      : []),
   ];
 
   return (

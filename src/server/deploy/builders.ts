@@ -364,11 +364,27 @@ async function buildOnServer(ctx: BuildContext, remote: NonNullable<BuildContext
   const mapped = args.map((a) => (a === local ? dir : a.startsWith(`${local}/`) ? path.posix.join(dir, path.relative(local, a).split(path.sep).join("/")) : a));
   const redact = redactor(ctx.redact);
   const started = Date.now();
-  const upload = await remote.server.exec(`rm -rf ${sh(dir)} && mkdir -p ${sh(dir)} && tar -xzf - -C ${sh(dir)}`, {
-    stdin: () => spawn("tar", ["-czf", "-", "-C", local, "."], { stdio: ["ignore", "pipe", "ignore"] }).stdout,
-    signal: ctx.signal,
-  });
-  if (upload.code !== 0) throw new Error(`Could not copy the build files to the server: ${(upload.stderr || upload.stdout).trim() || `exit code ${upload.code}`}`);
+  // Copies left by builds whose connection dropped are removed after an hour.
+  await remote.server.exec(`find ${sh(remote.buildsDir)} -maxdepth 1 -name 'context-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true`).catch(() => {});
+  let upload = { code: 1, stdout: "", stderr: "" };
+  // A connection that drops (a server behind a tunnel whose link resets) ends without an exit
+  // status or a message: the upload is tried once more before the build fails.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    upload = await remote.server
+      .exec(`rm -rf ${sh(dir)} && mkdir -p ${sh(dir)} && tar -xzf - -C ${sh(dir)}`, {
+        stdin: () => spawn("tar", ["-czf", "-", "-C", local, "."], { stdio: ["ignore", "pipe", "ignore"] }).stdout,
+        signal: ctx.signal,
+      })
+      .catch((error: Error) => ({ code: 255, stdout: "", stderr: error.message }));
+    if (upload.code === 0 || ctx.signal?.aborted) break;
+    await remote.server.exec(`rm -rf ${sh(dir)}`).catch(() => {});
+    if (attempt === 1 && !upload.stderr.trim()) ctx.log("The connection to the server dropped while sending the build files; trying again");
+    else break;
+  }
+  if (upload.code !== 0) {
+    const detail = (upload.stderr || upload.stdout).trim();
+    throw new Error(`Could not copy the build files to the server: ${detail || "the connection dropped. Check that the server is online and try again."}`);
+  }
   ctx.log(`Sent the build files to the server in ${((Date.now() - started) / 1000).toFixed(1)}s`);
   try {
     const res = await remote.server.exec(`cd ${sh(dir)} && DOCKER_BUILDKIT=1 docker ${mapped.map(sh).join(" ")}`, {

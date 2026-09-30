@@ -225,7 +225,17 @@ export async function setNetworkMember(networkId: string, serverId: string, memb
     if (!network) throw new UserError("Private network not found.");
     const [server] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, serverId));
     if (!server) throw new UserError("Server not found.");
-    if (member) await db.insert(schema.privateNetworkMember).values({ networkId, serverId }).onConflictDoNothing();
+    if (member)
+      await db
+        .insert(schema.privateNetworkMember)
+        .values({ networkId, serverId })
+        .onConflictDoNothing()
+        .catch((error) => {
+          // The network or the server was deleted a moment ago.
+          throw [(error as { code?: string }).code, (error as { cause?: { code?: string } }).cause?.code].includes("23503")
+            ? new UserError("That network or server no longer exists. Reload the page.")
+            : error;
+        });
     else await db.delete(schema.privateNetworkMember).where(and(eq(schema.privateNetworkMember.networkId, networkId), eq(schema.privateNetworkMember.serverId, serverId)));
     await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });
     await logActivity({

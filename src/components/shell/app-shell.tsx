@@ -241,7 +241,7 @@ export function AppShell(props: ShellProps) {
             </div>
             {(!props.workerOnline || props.workerOutdated) && (
               <div role="status" className="border-b border-warn/20 bg-warn-soft">
-                <div className="mx-auto flex w-full max-w-[1200px] items-start gap-2.5 px-4 py-2.5 text-[13px] sm:items-center sm:px-8">
+                <div className="flex w-full items-start gap-2.5 px-4 py-2.5 text-[13px] sm:items-center sm:px-8">
                   <AlertTriangle className="mt-0.5 size-4 flex-none text-warn sm:mt-0" />
                   {props.workerOnline ? (
                     <p className="min-w-0 text-fg-2">

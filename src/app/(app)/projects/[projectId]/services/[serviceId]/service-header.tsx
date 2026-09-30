@@ -10,7 +10,7 @@ import { Breadcrumbs } from "@/components/shell/page-header";
 import { ServiceSwitcher, type SiblingService } from "./service-switcher";
 import { MoveServicesDialog } from "@/components/move-services-dialog";
 import { pickPrimaryDomain } from "@/lib/domains";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { StatusLabel } from "@/components/ui/status";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { ServiceIcon } from "@/components/service-icon";
@@ -203,7 +203,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 <MenuTrigger
                   disabled={!can("services.deploy")}
                   title={cannot("services.deploy")}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border sm:h-8 border-line-strong bg-surface px-3 text-[13px] font-medium text-fg shadow-sm hover:bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+                  className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "h-9 gap-1.5 sm:h-8 disabled:cursor-not-allowed")}
                 >
                   <Power className="size-3.5" /> Manage <ChevronDown className="size-3.5 text-muted" />
                 </MenuTrigger>

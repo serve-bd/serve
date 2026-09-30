@@ -227,7 +227,7 @@ export function ServiceSettings(props: Props) {
           );
         })}
       </nav>
-      <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
+      <div className="flex min-w-0 flex-1 flex-col gap-6">
         {isDb && <ApplyBar pending={pendingApply} running={running} applying={applyDb.pending} onApply={() => applyDb.run()} />}
         {show("general") && (
           <Section

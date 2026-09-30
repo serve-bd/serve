@@ -5,7 +5,7 @@ import { notify, type NotifyEvent } from "@/server/notify";
 
 type Incident = typeof schema.incident.$inferSelect;
 
-/** A problem that clears within this time is reopened quietly instead of paging again. */
+/** A problem that comes back within this time reopens its incident instead of starting a new one. */
 const FLAP_WINDOW_MS = 10 * 60_000;
 
 export type OpenIncident = {
@@ -33,8 +33,9 @@ export async function openIncidentFor(key: string) {
 
 /**
  * Open (or keep open) the incident for a key. Notifies once when it opens and again only
- * when a warning becomes critical. A problem that just cleared reopens its incident
- * without a second notification, so a flapping check does not flood channels.
+ * when a warning becomes critical. A problem that just cleared reopens its incident and
+ * notifies again: channels were told it recovered, so they must hear it is back. Channel
+ * throttling groups a flapping check.
  */
 export async function openIncident(input: OpenIncident): Promise<Incident> {
   const severity = input.severity ?? "critical";
@@ -56,6 +57,7 @@ export async function openIncident(input: OpenIncident): Promise<Incident> {
       .set({ resolvedAt: null, severity, title: input.title, detail: input.detail ?? recent.detail })
       .where(eq(schema.incident.id, recent.id))
       .returning();
+    await send(input, row);
     return row;
   }
   const [row] = await db

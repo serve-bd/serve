@@ -159,12 +159,12 @@ export async function execInContainer(
 
 /**
  * Exit code of an exec whose output ended. Docker may still report it running (exit code null)
- * for a moment after the stream closes, so it asks again for up to 3 seconds.
+ * for a moment after the stream closes, so it asks again for up to `waitMs` (3 seconds).
  */
-export async function execExitCode(exec: Docker.Exec): Promise<number | null> {
+export async function execExitCode(exec: Docker.Exec, waitMs = 3000): Promise<number | null> {
   for (let i = 0; ; i++) {
     const info = await exec.inspect();
-    if (!info.Running || i >= 30) return info.ExitCode ?? null;
+    if (!info.Running || i >= waitMs / 100) return info.ExitCode ?? null;
     await new Promise((r) => setTimeout(r, 100));
   }
 }

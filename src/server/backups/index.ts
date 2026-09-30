@@ -160,10 +160,12 @@ async function dumpWith(t: Commands, file: string) {
     stdout.end();
     stderr.end();
   });
+  stream.on("error", (e: Error) => stdout.destroy(e));
   await pipeline(stdout, fs.createWriteStream(file));
-  const exitCode = await execExitCode(exec);
+  // The output ended; a large dump may still take a moment to exit.
+  const exitCode = await execExitCode(exec, 60_000);
   const masked = t.password ? errText.replaceAll(t.password, "***") : errText;
-  if (exitCode !== 0) throw new Error(masked.trim() || `Backup command exited with ${exitCode}`);
+  if (exitCode !== 0) throw new Error(masked.trim() || (exitCode === null ? "The backup command did not finish" : `Backup command exited with ${exitCode}`));
   const { size } = await fs.promises.stat(file);
   if (size === 0) throw new Error(masked.trim() || "Backup produced an empty file");
   return size;
@@ -177,13 +179,22 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
   const sink = new PassThrough();
   sink.on("data", (c: Buffer) => (output += c.toString()));
   t.docker.modem.demuxStream(stream, sink, sink);
-  const done = new Promise<void>((resolve) => stream.on("end", resolve));
-  await pipeline(gz ? input.pipe(zlib.createGunzip()) : input, stream, { end: false }).catch(() => {});
+  const done = new Promise<void>((resolve) => {
+    stream.on("end", resolve);
+    stream.on("close", resolve);
+  });
+  // A file that cannot be read to the end (a corrupt gzip) fails the restore, even when the command accepted what it got.
+  const readError = await (gz ? pipeline(input, zlib.createGunzip(), stream, { end: false }) : pipeline(input, stream, { end: false })).then(
+    () => null,
+    (e: Error) => e,
+  );
   (stream as unknown as { end: () => void }).end();
   await done;
-  const exitCode = await execExitCode(exec);
+  const exitCode = await execExitCode(exec, 60_000);
   const clean = (t.password ? output.replaceAll(t.password, "***") : output).trim();
-  if (exitCode && exitCode !== 0) throw new Error(clean.slice(-1500) || `Command exited with ${exitCode}`);
+  if (exitCode !== null && exitCode !== 0) throw new Error(clean.slice(-1500) || `Command exited with ${exitCode}`);
+  if (readError) throw new Error(`Reading the file failed: ${readError.message}`);
+  if (exitCode === null) throw new Error(clean.slice(-1500) || "The command did not finish");
   return clean;
 }
 
@@ -372,12 +383,17 @@ async function applyRetention(serviceId: string, target: string | null, keepLoca
     if (!b.filename) continue;
     const dropLocal = i >= Math.max(1, keepLocal);
     const inS3 = b.destination !== "local";
-    const dropS3 = inS3 && i >= Math.max(1, keepS3);
+    let dropS3 = inS3 && i >= Math.max(1, keepS3);
     if (dropLocal) await fs.promises.rm(backupFile(serviceId, b.filename), { force: true });
     if (dropS3 && svc) {
       const s3 = await s3For(b.destination);
-      if (s3) await s3Delete(s3, s3Key(s3.prefix, svc.slug, b.filename)).catch(() => {});
-      await db.update(schema.backup).set({ s3Status: "deleted", destination: "local" }).where(eq(schema.backup.id, b.id));
+      // A failed delete keeps the S3 copy listed, so the next run tries again.
+      if (s3)
+        dropS3 = await s3Delete(s3, s3Key(s3.prefix, svc.slug, b.filename)).then(
+          () => true,
+          () => false,
+        );
+      if (dropS3) await db.update(schema.backup).set({ s3Status: "deleted", destination: "local" }).where(eq(schema.backup.id, b.id));
     }
     if (dropLocal && (!inS3 || dropS3)) await db.delete(schema.backup).where(eq(schema.backup.id, b.id));
   }

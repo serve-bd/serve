@@ -214,7 +214,7 @@ async function record(channel: Channel, m: OutgoingMessage, status: Delivery["st
 /** Last delivery that went out (or tried to) for this event on this channel. */
 async function lastSent(channelId: string, groupKey: string) {
   const [row] = await db
-    .select({ createdAt: schema.notificationDelivery.createdAt })
+    .select({ createdAt: schema.notificationDelivery.createdAt, status: sql<string | null>`${schema.notificationDelivery.message}->>'status'` })
     .from(schema.notificationDelivery)
     .where(
       and(
@@ -226,13 +226,15 @@ async function lastSent(channelId: string, groupKey: string) {
     )
     .orderBy(desc(schema.notificationDelivery.createdAt))
     .limit(1);
-  return row?.createdAt ?? null;
+  return row ?? null;
 }
 
 async function deliverToChannel(channel: Channel, base: OutgoingMessage) {
   const m = { ...applyTemplate(channel, base), id: newId() };
   const groupKey = groupKeyOf(m);
-  const since = channel.throttleMinutes > 0 ? await lastSent(channel.id, groupKey) : null;
+  const last = channel.throttleMinutes > 0 ? await lastSent(channel.id, groupKey) : null;
+  // A recovery is never held back, nor an alert right after one: the channel must end up in the real state.
+  const since = m.status === "recovered" || last?.status === "recovered" ? null : (last?.createdAt ?? null);
   const decision = decide({
     quietHours: providerInfo(channel.kind)?.alerting ? null : channel.quietHours,
     severity: m.severity,
@@ -243,7 +245,7 @@ async function deliverToChannel(channel: Channel, base: OutgoingMessage) {
   if (decision === "suppress") return record(channel, m, "suppressed", { error: "Quiet hours" });
   if (decision === "group") return record(channel, m, "grouped");
   // Repeats grouped since the last message are counted in this one.
-  if (channel.throttleMinutes > 0) {
+  if (channel.throttleMinutes > 0 && m.status !== "recovered") {
     const [{ n }] = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(schema.notificationDelivery)

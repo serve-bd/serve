@@ -236,6 +236,8 @@ const remoteImportSchema = z.union([
 export async function importBackupFromRemote(serviceId: string, input: z.input<typeof remoteImportSchema>, backupFirst: boolean) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
+    // Importing overwrites live data: admins only, like restoring.
+    if (!ctx.isAdmin) throw new UserError("Only organization admins can import backups.");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (!service.database) throw new UserError("Not a database.");
     if (service.status !== "running") throw new UserError("Start the database before importing.");

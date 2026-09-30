@@ -28,6 +28,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/services/[s
   } catch {
     return NextResponse.json({ error: "Your role cannot manage backups." }, { status: 403 });
   }
+  // Importing overwrites live data: admins only, like restoring.
+  if (!org.isAdmin) return NextResponse.json({ error: "Only organization admins can import backups." }, { status: 403 });
   let service;
   try {
     ({ service } = await serviceInOrg(serviceId, org.org.id));

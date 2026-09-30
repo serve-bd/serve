@@ -50,6 +50,33 @@ export type EngineCreds = {
 };
 
 const sh = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+const chClient = (c: EngineCreds) => `clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)}`;
+/** A table name as a ClickHouse identifier: `name`, with ` and \ escaped. */
+const chQuoted = "concat('`', replaceAll(replaceAll(name, '\\\\', '\\\\\\\\'), '`', '\\\\`'), '`')";
+/**
+ * ClickHouse dump as SQL: drops, then each table's CREATE and its rows as INSERT statements, then
+ * views and dictionaries (created last, so restoring rows does not feed old materialized views twice).
+ * Rows are dumped for tables that store them; other engines (Kafka, URL, Distributed…) keep only their schema.
+ */
+function clickhouseBackup(c: EngineCreds) {
+  const where = "database = currentDatabase() AND NOT is_temporary AND name NOT LIKE '.inner%'";
+  const late = "(engine = 'Dictionary' OR engine LIKE '%View')";
+  const stores = "(engine LIKE '%MergeTree' OR engine IN ('Log', 'TinyLog', 'StripeLog', 'Memory'))";
+  return [
+    "set -e",
+    `ch() { ${chClient(c)} "$@"; }`,
+    `ch -q ${sh(`SELECT concat('DROP ', if(engine = 'Dictionary', 'DICTIONARY', 'TABLE'), ' IF EXISTS ', ${chQuoted}, ';') FROM system.tables WHERE ${where} ORDER BY ${late} DESC, name FORMAT TSVRaw`)}`,
+    `list=$(ch -q ${sh(`SELECT name, ${chQuoted}, ${stores} AND NOT ${late} FROM system.tables WHERE ${where} ORDER BY ${late}, name FORMAT TSVRaw`)})`,
+    `printf '%s\\n' "$list" | while IFS="$(printf '\\t')" read -r name quoted rows; do`,
+    `  [ -n "$name" ] || continue`,
+    `  ch -q ${sh(`SELECT create_table_query FROM system.tables WHERE database = currentDatabase() AND name = {n:String} FORMAT TSVRaw`)} --param_n="$name" </dev/null`,
+    `  echo ";"`,
+    `  if [ "$rows" = 1 ]; then ch -q ${sh("SELECT * FROM {n:Identifier} FORMAT SQLInsert")} --param_n="$name" --output_format_sql_insert_table_name="$quoted" </dev/null; fi`,
+    "done",
+  ].join("\n");
+}
+
 /** redis-cli / valkey-cli with auth, over TLS when the server only speaks TLS. */
 const rcli = (bin: string, c: EngineCreds) => `${bin} -a ${sh(c.password)} --no-auth-warning${c.tlsRequired ? " --tls --insecure" : ""}`;
 const mongoTls = (c: EngineCreds) => (c.tlsRequired ? " --tls --tlsAllowInvalidCertificates" : "");
@@ -304,9 +331,8 @@ export const engines: Record<DbEngine, EngineInfo> = {
     }),
     healthcheck: () => ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"],
     url: (c) => `clickhouse://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
-    backupCommand: (c) =>
-      `for t in $(clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)} -q 'SHOW TABLES'); do echo "-- TABLE $t"; clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)} -q "SHOW CREATE TABLE $t FORMAT TSVRaw"; echo ";"; done`,
-    restoreCommand: (c) => `clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)} --multiquery`,
+    backupCommand: clickhouseBackup,
+    restoreCommand: (c) => `${chClient(c)} --multiquery`,
     backupExtension: "sql",
     runAs: "clickhouse",
     entrypoint: "/entrypoint.sh",

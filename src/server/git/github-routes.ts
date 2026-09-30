@@ -17,9 +17,7 @@ export async function authorizeState(state: AppState | null) {
 }
 
 export async function redirectToGitPage(base: string, params: Record<string, string>) {
-  const { getSetting } = await import("@/server/settings");
-  // During the setup guide, return to its Git step instead.
-  const url = new URL((await getSetting("onboardingDone")) ? "/integrations/git" : "/onboarding?step=git", base);
+  const url = new URL("/integrations/git", base);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   return Response.redirect(url, 303);
 }

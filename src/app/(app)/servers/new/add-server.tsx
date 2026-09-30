@@ -59,7 +59,8 @@ function Stepper({ step, steps: STEPS }: { step: Step; steps: { id: Step; label:
 
 type KeyMode = "existing" | "generate" | "import";
 
-export function AddServer({ keys: initialKeys, tunnel }: { keys: Key[]; tunnel: { address: string; port: number } }) {
+/** `onFinished`: shown as a Continue button once the server exists, in place of the link to its page (onboarding). */
+export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key[]; tunnel: { address: string; port: number }; onFinished?: () => void }) {
   const router = useRouter();
   const [step, setStep] = React.useState<Step>("connection");
   // Reachable over SSH, or without a public IP (it connects out through a tunnel).
@@ -343,7 +344,7 @@ export function AddServer({ keys: initialKeys, tunnel }: { keys: Key[]; tunnel: 
         </Card>
       )}
 
-      {step === "connect" && serverId && <ConnectStep serverId={serverId} name={conn.name} onBack={() => setStep("key")} />}
+      {step === "connect" && serverId && <ConnectStep serverId={serverId} name={conn.name} onBack={() => setStep("key")} onFinished={onFinished} />}
       {step === "join" && joined && (
         <JoinStep
           serverId={joined.id}
@@ -353,6 +354,7 @@ export function AddServer({ keys: initialKeys, tunnel }: { keys: Key[]; tunnel: 
           user={conn.username}
           address={tunnelForm.address}
           port={tunnel.port}
+          onFinished={onFinished}
         />
       )}
     </div>
@@ -475,7 +477,22 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
   );
 }
 
-function ConnectStep({ serverId, name, onBack }: { serverId: string; name: string; onBack: () => void }) {
+/** The way out of a finished step: Continue when a caller goes on (onboarding), else the server's page. */
+function FinishAction({ serverId, ready, onFinished }: { serverId: string; ready: boolean; onFinished?: () => void }) {
+  if (onFinished)
+    return (
+      <Button variant={ready ? "primary" : "secondary"} onClick={onFinished}>
+        {ready ? "Continue" : "Continue while it sets up"} <ArrowRight />
+      </Button>
+    );
+  return (
+    <Link href={`/servers/${serverId}`} className={buttonVariants({ variant: ready ? "primary" : "secondary" })}>
+      <Server /> {ready ? "Open server" : "Open server page"}
+    </Link>
+  );
+}
+
+function ConnectStep({ serverId, name, onBack, onFinished }: { serverId: string; name: string; onBack: () => void; onFinished?: () => void }) {
   const [ready, setReady] = React.useState(false);
   return (
     <Card>
@@ -487,16 +504,14 @@ function ConnectStep({ serverId, name, onBack }: { serverId: string; name: strin
         <Button variant="ghost" onClick={onBack} disabled={ready}>
           <ArrowLeft /> Change key or connection
         </Button>
-        <Link href={`/servers/${serverId}`} className={buttonVariants({ variant: ready ? "primary" : "secondary" })}>
-          <Server /> {ready ? "Open server" : "Open server page"}
-        </Link>
+        <FinishAction serverId={serverId} ready={ready} onFinished={onFinished} />
       </CardFooter>
     </Card>
   );
 }
 
 /** Waits for a server that connects out to run its join command, then follows its setup. */
-function JoinStep(props: { serverId: string; name: string; command: string; expiresAt: string; user: string; address: string; port: number }) {
+function JoinStep(props: { serverId: string; name: string; command: string; expiresAt: string; user: string; address: string; port: number; onFinished?: () => void }) {
   const router = useRouter();
   // A command works for 24 hours: after that the page offers a new one instead of waiting forever.
   const [join, setJoin] = React.useState({ command: props.command, expiresAt: props.expiresAt });
@@ -570,9 +585,7 @@ function JoinStep(props: { serverId: string; name: string; command: string; expi
         )}
       </CardBody>
       <CardFooter className="justify-end">
-        <Link href={`/servers/${props.serverId}`} className={buttonVariants({ variant: ready ? "primary" : "secondary" })}>
-          <Server /> {ready ? "Open server" : "Open server page"}
-        </Link>
+        <FinishAction serverId={props.serverId} ready={ready} onFinished={props.onFinished} />
       </CardFooter>
     </Card>
   );

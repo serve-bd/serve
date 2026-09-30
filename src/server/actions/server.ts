@@ -167,8 +167,10 @@ export async function checkDns(host: string) {
 
 export async function finishOnboarding() {
   return act(async () => {
-    await requireInstanceAdmin();
-    await updateSettings({ onboardingDone: true });
+    const ctx = await requireInstanceAdmin();
+    // Onboarding no longer asks for it: certificates go to the owner's address until it is changed in Settings.
+    const settings = await getSettings();
+    await updateSettings({ onboardingDone: true, ...(settings.acmeEmail ? {} : { acmeEmail: ctx.user.email }) });
     return null;
   });
 }

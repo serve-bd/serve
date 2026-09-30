@@ -42,6 +42,7 @@ export default async function PrivateNetworksPage() {
             state: s.mesh?.enabled ? s.mesh.state : null,
             message: s.mesh?.enabled ? (s.mesh.message ?? null) : null,
             address: s.mesh?.enabled && s.meshIndex !== null ? meshServerAddress(s.meshIndex) : null,
+            nat: !!s.mesh?.enabled && !s.mesh.endpoint,
           }))}
         />
       </PageBody>

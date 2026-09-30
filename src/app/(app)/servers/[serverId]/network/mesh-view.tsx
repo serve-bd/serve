@@ -56,7 +56,8 @@ export function MeshView({ serverId, serverName, ready, initial, suggestedEndpoi
             serverId={serverId}
             ready={ready}
             joined={joined}
-            initialEndpoint={mesh.endpoint ?? suggestedEndpoint}
+            initialEndpoint={mesh.endpoint ?? (mesh.enabled ? "" : suggestedEndpoint)}
+            initialNat={mesh.enabled && mesh.endpoint === null}
             initialPort={mesh.port ?? MESH_DEFAULT_PORT}
             networks={mesh.networks}
             onDone={() => {
@@ -68,7 +69,7 @@ export function MeshView({ serverId, serverName, ready, initial, suggestedEndpoi
         )}
       </Card>
       {joined && <Networks serverId={serverId} serverName={serverName} networks={mesh.networks} refresh={() => void mutate()} />}
-      {joined && <Peers peers={mesh.peers} outside={outside} inAny={mesh.networks.some((n) => n.member)} />}
+      {joined && <Peers peers={mesh.peers} outside={outside} inAny={mesh.networks.some((n) => n.member)} selfNat={mesh.endpoint === null} />}
       {joined && <Addresses mesh={mesh} services={services} />}
     </>
   );
@@ -94,6 +95,7 @@ function JoinForm({
   ready,
   joined,
   initialEndpoint,
+  initialNat,
   initialPort,
   networks,
   onDone,
@@ -103,6 +105,8 @@ function JoinForm({
   ready: boolean;
   joined: boolean;
   initialEndpoint: string;
+  /** Joined without a public address: it connects out to the others. */
+  initialNat: boolean;
   initialPort: number;
   networks: MeshOverview["networks"];
   onDone: () => void;
@@ -121,28 +125,40 @@ function JoinForm({
   const [adding, setAdding] = React.useState(networks.length === 0);
   const newNetwork = adding && newName.trim() ? newName.trim() : undefined;
   const networkProblem = !joined && !picked.length && !newNetwork ? "Choose a network, or create one" : null;
-  const save = useAction(() => saveMesh(serverId, { enabled: true, endpoint, port: Number(port) || MESH_DEFAULT_PORT, ...(joined ? {} : { networks: picked, newNetwork }) }), {
-    success: joined ? "Private network updated" : "Joining the private network",
-    onSuccess: onDone,
-  });
-  // The server's own addresses, to pick from; null while they load. "Custom" types one instead.
+  const save = useAction(
+    () =>
+      saveMesh(serverId, {
+        enabled: true,
+        ...(mode === "nat" ? { nat: true } : { endpoint }),
+        port: Number(port) || MESH_DEFAULT_PORT,
+        ...(joined ? {} : { networks: picked, newNetwork }),
+      }),
+    {
+      success: joined ? "Private network updated" : "Joining the private network",
+      onSuccess: onDone,
+    },
+  );
+  // The server's own addresses, to pick from; null while they load. "custom" types one instead,
+  // "nat" has none: the server connects out to servers that have one.
   const [options, setOptions] = React.useState<{ address: string; label: string }[] | null>(null);
-  const [custom, setCustom] = React.useState(false);
+  const [mode, setMode] = React.useState<"pick" | "custom" | "nat">(initialNat ? "nat" : "pick");
   React.useEffect(() => {
     let alive = true;
     void meshAddressOptions(serverId).then((r) => {
       if (!alive) return;
       const list = r.ok ? r.data : [];
       setOptions(list);
+      if (initialNat) return;
       // A saved or suggested address that is not one of them stays editable.
-      if (initialEndpoint && !list.some((o) => o.address === initialEndpoint)) setCustom(true);
+      if (initialEndpoint && !list.some((o) => o.address === initialEndpoint)) setMode("custom");
       else if (!initialEndpoint && list[0]) setEndpoint(list[0].address);
+      else if (!initialEndpoint) setMode("custom");
     });
     return () => {
       alive = false;
     };
-  }, [serverId, initialEndpoint]);
-  const problem = meshEndpointProblem(endpoint);
+  }, [serverId, initialEndpoint, initialNat]);
+  const problem = mode === "nat" ? null : meshEndpointProblem(endpoint);
   const portNumber = Number(port);
   const portProblem = !port || portNumber < 1 || portNumber > 65535 ? "Enter a port from 1 to 65535" : null;
 
@@ -173,56 +189,52 @@ function JoinForm({
             {options === null ? (
               <div className="h-[42px] animate-pulse rounded-xl bg-surface-2" />
             ) : (
-              <div role="radiogroup" aria-label="Address" className="flex flex-col gap-2">
-                {options.length > 0 && (
-                  <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
-                    {options.map((o) => (
-                      <Choice
-                        key={o.address}
-                        checked={!custom && endpoint === o.address}
-                        onSelect={() => {
-                          setCustom(false);
-                          setEndpoint(o.address);
-                        }}
-                      >
-                        <span className="font-mono text-[13px] text-fg">{o.address}</span>
-                        <span className="text-xs text-muted">{o.label}</span>
-                      </Choice>
-                    ))}
-                    <Choice
-                      checked={custom}
-                      onSelect={() => {
-                        if (!custom) setEndpoint("");
-                        setCustom(true);
-                      }}
-                    >
-                      <span className="text-[13px] text-fg">Another address</span>
-                      <span className="text-xs text-muted">host name or IP</span>
-                    </Choice>
-                    {custom && (
-                      <div className="bg-accent-soft/60 px-4 pt-0.5 pb-3 pl-11">
-                        <Input
-                          value={endpoint}
-                          onChange={(e) => setEndpoint(e.target.value.trim())}
-                          placeholder="203.0.113.10 or node1.example.com"
-                          className="h-9 font-mono"
-                          autoComplete="off"
-                          autoFocus
-                          aria-label="Address"
-                        />
-                      </div>
-                    )}
+              <div role="radiogroup" aria-label="Address" className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+                {options.map((o) => (
+                  <Choice
+                    key={o.address}
+                    checked={mode === "pick" && endpoint === o.address}
+                    onSelect={() => {
+                      setMode("pick");
+                      setEndpoint(o.address);
+                    }}
+                  >
+                    <span className="font-mono text-[13px] text-fg">{o.address}</span>
+                    <span className="text-xs text-muted">{o.label}</span>
+                  </Choice>
+                ))}
+                <Choice
+                  checked={mode === "custom"}
+                  onSelect={() => {
+                    if (mode !== "custom") setEndpoint(options.some((o) => o.address === endpoint) ? "" : endpoint);
+                    setMode("custom");
+                  }}
+                >
+                  <span className="text-[13px] text-fg">{options.length ? "Another address" : "Address"}</span>
+                  <span className="text-xs text-muted">host name or IP</span>
+                </Choice>
+                {mode === "custom" && (
+                  <div className="bg-accent-soft/60 px-4 pt-0.5 pb-3 pl-11">
+                    <Input
+                      value={endpoint}
+                      onChange={(e) => setEndpoint(e.target.value.trim())}
+                      placeholder="203.0.113.10 or node1.example.com"
+                      className="h-9 font-mono"
+                      autoComplete="off"
+                      autoFocus
+                      aria-label="Address"
+                    />
                   </div>
                 )}
-                {options.length === 0 && (
-                  <Input
-                    value={endpoint}
-                    onChange={(e) => setEndpoint(e.target.value.trim())}
-                    placeholder="203.0.113.10 or node1.example.com"
-                    className="font-mono"
-                    autoComplete="off"
-                    aria-label="Address"
-                  />
+                <Choice checked={mode === "nat"} onSelect={() => setMode("nat")}>
+                  <span className="text-[13px] text-fg">No public address</span>
+                  <span className="text-xs text-muted">home internet, shared IP, behind NAT</span>
+                </Choice>
+                {mode === "nat" && (
+                  <p className="bg-accent-soft/60 px-4 pt-0.5 pb-3 pl-11 text-xs leading-relaxed text-fg-2">
+                    This server connects out to the others, so nothing needs to be opened on your router. It reaches only servers that have a public address; two servers without
+                    one cannot connect to each other.
+                  </p>
                 )}
               </div>
             )}
@@ -233,7 +245,11 @@ function JoinForm({
             </Field>
             <p className="flex items-start gap-2 text-xs leading-relaxed text-muted sm:pt-8">
               <Cable className="mt-px size-3.5 flex-none text-faint" />
-              <span>Opens on this server&apos;s firewall automatically. If your provider has a cloud firewall, allow this UDP port there too.</span>
+              <span>
+                {mode === "nat"
+                  ? "Used by WireGuard on this server. Nothing to open on your router."
+                  : "Opens on this server's firewall automatically. If your provider has a cloud firewall, allow this UDP port there too."}
+              </span>
             </p>
           </div>
         </Section>
@@ -374,7 +390,7 @@ function Joined({ mesh, serverId, serverName, onEdit, refresh }: { mesh: MeshOve
             </span>
           </Fact>
           <Fact label="Reached at">
-            <span className="font-mono break-all">{mesh.endpoint ? `${mesh.endpoint}:${mesh.port}` : "—"}</span>
+            {mesh.endpoint ? <span className="font-mono break-all">{`${mesh.endpoint}:${mesh.port}`}</span> : <span className="text-fg-2">No public address · connects out</span>}
           </Fact>
           <Fact label="Link">
             {mesh.agent ? (
@@ -438,7 +454,7 @@ function linkState(p: MeshPeerView, now: number | null): "connected" | "waiting"
   return "waiting";
 }
 
-function Peers({ peers, outside, inAny }: { peers: MeshPeerView[]; outside: number; inAny: boolean }) {
+function Peers({ peers, outside, inAny, selfNat }: { peers: MeshPeerView[]; outside: number; inAny: boolean; selfNat: boolean }) {
   const now = useNow();
   return (
     <Card>
@@ -463,7 +479,9 @@ function Peers({ peers, outside, inAny }: { peers: MeshPeerView[]; outside: numb
       ) : (
         <ul className="divide-y divide-line">
           {peers.map((p) => {
-            const state = linkState(p, now);
+            // Neither side can be dialed: WireGuard never gets a first packet through.
+            const stuck = selfNat && p.nat && linkState(p, now) !== "connected";
+            const state = stuck ? "error" : linkState(p, now);
             return (
               <li key={p.serverId} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-5 py-3.5">
                 <span className={cn("size-2 flex-none rounded-full", state === "connected" ? "bg-ok" : state === "error" ? "bg-bad" : "animate-led bg-warn")} aria-hidden />
@@ -480,18 +498,22 @@ function Peers({ peers, outside, inAny }: { peers: MeshPeerView[]; outside: numb
                   <span className={cn(state === "connected" ? "text-ok" : state === "error" ? "text-bad" : "text-warn")}>
                     {state === "connected"
                       ? "Connected"
-                      : state === "error"
-                        ? "Not set up"
-                        : p.latestHandshake
-                          ? `No contact since ${handshakeAge(p.latestHandshake, (now ?? Date.now()) / 1000)}`
-                          : "Waiting for contact"}
+                      : stuck
+                        ? "Cannot connect"
+                        : state === "error"
+                          ? "Not set up"
+                          : p.latestHandshake
+                            ? `No contact since ${handshakeAge(p.latestHandshake, (now ?? Date.now()) / 1000)}`
+                            : "Waiting for contact"}
                   </span>
                   <span className="text-faint tabular-nums">
                     {state === "connected"
                       ? `${handshakeAge(p.latestHandshake, (now ?? Date.now()) / 1000)} · ↓ ${formatBytes(p.rx)} ↑ ${formatBytes(p.tx)}`
-                      : state === "error"
-                        ? (p.message ?? "")
-                        : "Check that UDP traffic between the servers is allowed"}
+                      : stuck
+                        ? "Neither server has a public address. Give one of them a public address."
+                        : state === "error"
+                          ? (p.message ?? "")
+                          : "Check that UDP traffic between the servers is allowed"}
                   </span>
                 </div>
               </li>

@@ -18,6 +18,8 @@ const networkName = z.string().trim().min(1, "Enter a name.").max(40, "Use 40 ch
 const meshInput = z.object({
   enabled: z.boolean(),
   endpoint: z.string().trim().max(253).optional(),
+  /** No public address (home internet, shared IP): the server connects out and others never dial it. */
+  nat: z.boolean().optional(),
   port: z.number().int().min(1).max(65535).optional(),
   /** On joining: private networks to put the server in (ids), and/or a new one to create for it. */
   networks: z.array(z.string()).optional(),
@@ -71,8 +73,9 @@ export async function saveMesh(serverId: string, input: z.input<typeof meshInput
         await tx.delete(schema.privateNetworkMember).where(eq(schema.privateNetworkMember.serverId, serverId));
         await tx.insert(schema.privateNetworkMember).values(ids.map((networkId) => ({ networkId, serverId })));
       }
-      const endpoint = data.endpoint ?? row.mesh?.endpoint ?? "";
-      const problem = meshEndpointProblem(endpoint);
+      // null: behind NAT. A new address replaces it; otherwise the saved choice stays.
+      const endpoint = data.nat ? null : data.endpoint !== undefined ? data.endpoint.trim() : row.mesh ? row.mesh.endpoint : "";
+      const problem = endpoint === null ? null : meshEndpointProblem(endpoint);
       if (problem) throw new UserError(problem);
       const port = data.port ?? row.mesh?.port ?? MESH_DEFAULT_PORT;
       let index = row.meshIndex;
@@ -82,7 +85,7 @@ export async function saveMesh(serverId: string, input: z.input<typeof meshInput
         if (index === null) throw new UserError(`The private network holds up to ${MESH_MAX_SERVERS} servers.`);
       }
       const keys = row.mesh?.publicKey ? null : generateMeshKeys();
-      const changed = !row.mesh?.enabled || row.mesh.endpoint !== endpoint.trim() || row.mesh.port !== port;
+      const changed = !row.mesh?.enabled || row.mesh.endpoint !== endpoint || row.mesh.port !== port;
       await tx
         .update(schema.server)
         .set({
@@ -90,7 +93,7 @@ export async function saveMesh(serverId: string, input: z.input<typeof meshInput
           mesh: {
             ...(row.mesh ?? {}),
             enabled: true,
-            endpoint: endpoint.trim(),
+            endpoint,
             port,
             publicKey: keys?.publicKey ?? row.mesh!.publicKey,
             privateKey: keys ? encrypt(keys.privateKey) : row.mesh!.privateKey,
@@ -140,7 +143,8 @@ export async function meshAddressOptions(serverId: string) {
     const add = (address: string | null | undefined, label: string) => {
       if (address && !meshEndpointProblem(address) && !options.some((o) => o.address === address)) options.push({ address, label });
     };
-    add(row.publicIp, "public IP");
+    // The address the internet sees; with a shared (CGNAT) connection nobody can dial it.
+    add(row.publicIp, "seen from the internet");
     if (!row.isLocal) {
       add(row.host, "SSH address");
       // The server's own interfaces, without Docker's bridges and the private network itself.

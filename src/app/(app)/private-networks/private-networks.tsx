@@ -14,7 +14,16 @@ import type { MeshNetworkView } from "@/server/mesh";
 import { NetworkNameDialog } from "../servers/[serverId]/network/networks";
 import { cn } from "@/lib/utils";
 
-type ServerRow = { id: string; name: string; joined: boolean; state: "starting" | "ready" | "error" | "off" | null; message: string | null; address: string | null };
+type ServerRow = {
+  id: string;
+  name: string;
+  joined: boolean;
+  state: "starting" | "ready" | "error" | "off" | null;
+  message: string | null;
+  address: string | null;
+  /** No public address: reaches only servers that have one. */
+  nat: boolean;
+};
 
 const stateOf = (s: ServerRow) =>
   !s.joined
@@ -136,7 +145,7 @@ export function PrivateNetworks({ networks, servers }: { networks: Omit<MeshNetw
                 ) : (
                   <ul className="divide-y divide-line">
                     {n.servers.map((m) => {
-                      const s = byId.get(m.id) ?? { ...m, state: null, message: null, address: null };
+                      const s = byId.get(m.id) ?? { ...m, state: null, message: null, address: null, nat: false };
                       const st = stateOf(s);
                       return (
                         <li key={m.id} className="flex items-center gap-3 px-5 py-3">
@@ -148,6 +157,7 @@ export function PrivateNetworks({ networks, servers }: { networks: Omit<MeshNetw
                             <span className={cn("truncate text-xs", st.tone)} title={s.message ?? undefined}>
                               {s.address ? <span className="font-mono text-muted">{s.address} · </span> : null}
                               {st.label}
+                              {s.nat && <span className="text-muted"> · no public address</span>}
                             </span>
                           </div>
                           <Tooltip content={`Remove from ${n.name}`}>

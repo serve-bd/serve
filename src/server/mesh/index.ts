@@ -461,6 +461,8 @@ export type MeshPeerView = {
   tx: number;
   state: "starting" | "ready" | "error" | "off";
   message: string | null;
+  /** It has no public address: it connects out and cannot be dialed. */
+  nat: boolean;
 };
 
 export type MeshNetworkView = {
@@ -552,6 +554,7 @@ export async function meshOverview(serverId: string, readStatus = true): Promise
         tx: seen?.tx ?? 0,
         state: m.mesh.state,
         message: m.mesh.message ?? null,
+        nat: !m.mesh.endpoint,
       };
     });
   const { peers: _p, ...agentRest } = agent ?? { peers: [] };

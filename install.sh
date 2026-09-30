@@ -76,7 +76,16 @@ if [ -z "${SERVE_IMAGE:-}" ]; then
       | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -n1 || true)"
   fi
   VERSION="${VERSION#v}"
-  if [ -n "$VERSION" ]; then IMAGE="$IMAGE_REPO:$VERSION"; else IMAGE="$IMAGE_REPO:edge"; fi
+  CURRENT="$(sed -n 's/^SERVE_IMAGE=//p' "$DATA_DIR/.env" 2>/dev/null | head -n1)"
+  if [ -n "$VERSION" ]; then
+    IMAGE="$IMAGE_REPO:$VERSION"
+  elif [ -n "$CURRENT" ]; then
+    # GitHub did not answer (rate limit, offline): keep what runs instead of switching channels.
+    IMAGE="$CURRENT"
+    printf '  \033[33m!\033[0m Could not look up the newest release; keeping %s.\n' "$IMAGE"
+  else
+    IMAGE="$IMAGE_REPO:edge"
+  fi
 else
   IMAGE="$SERVE_IMAGE"
 fi

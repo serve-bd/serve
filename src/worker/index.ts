@@ -31,6 +31,8 @@ import { checkContainerHealth, checkServerResources, pruneMonitoring, runUptimeC
 import { failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBackups } from "@/server/instance/backups";
 import { periodicUpdateCheck, reconcileUpdate, runUpdate } from "@/server/instance/updates";
 import { syncMesh } from "@/server/mesh";
+import { startStoppedContainers } from "@/server/backups/storage";
+import { parseBackupKey } from "@/server/backups/compose";
 import { currentVersion } from "@/server/instance/version";
 import { attemptDelivery, flushHeldNotifications, pruneDeliveries, retryDueDeliveries } from "@/server/notifications/deliver";
 
@@ -331,6 +333,27 @@ async function recover() {
     const up = server ? (await listServiceContainers(serviceId, false, server.docker).catch(() => [])).length > 0 : false;
     await setServiceStatus(serviceId, up ? "running" : "failed");
   }
+  // An update cut off while backing up or pulling (the job above is failed now) must not block the next one.
+  const run = (await getSettings()).updateRun;
+  if (run?.state === "backing-up")
+    await updateSettings({
+      updateRun: { ...run, state: "failed", finishedAt: new Date().toISOString(), log: `${run.log}==> The worker restarted before the update started. Nothing was changed.\n` },
+    });
+
+  // Restores cut off by a restart: mark them failed, and start containers a storage restore stopped.
+  const restores = await db
+    .update(schema.backup)
+    .set({ restoreStatus: "failed", restoredAt: new Date() })
+    .where(eq(schema.backup.restoreStatus, "running"))
+    .returning({ serviceId: schema.backup.serviceId, target: schema.backup.target });
+  for (const r of restores) {
+    const key = r.target ? parseBackupKey(r.target) : null;
+    if (!key || key.kind === "db") continue;
+    const [service] = await db.select().from(schema.service).where(eq(schema.service.id, r.serviceId));
+    const server = service ? await getServer(service.serverId).catch(() => null) : null;
+    if (server) await startStoppedContainers(server.docker, r.serviceId, { kind: key.kind, source: key.name }).catch(() => {});
+  }
+
   // Certificates interrupted mid-issue get another attempt.
   const certs = await db.update(schema.certificate).set({ status: "pending" }).where(eq(schema.certificate.status, "issuing")).returning({ id: schema.certificate.id });
   for (const c of certs) await enqueue("certificate.issue", { certificateId: c.id }, { concurrencyKey: `cert:${c.id}` });

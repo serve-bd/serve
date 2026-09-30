@@ -14,6 +14,8 @@ describe("compose backups", () => {
     expect(engineOfImage("valkey/valkey:8")).toBe("valkey");
     expect(engineOfImage("mattermost/mattermost-team-edition:10")).toBeNull();
     expect(engineOfImage("postgrest/postgrest")).toBeNull();
+    expect(engineOfImage("prometheuscommunity/postgres-exporter")).toBeNull();
+    expect(engineOfImage("prodrigestivill/postgres-backup-local:16")).toBeNull();
     expect(engineOfImage("redisinsight")).toBeNull();
   });
 

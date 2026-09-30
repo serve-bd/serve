@@ -1344,6 +1344,8 @@ export async function createBackup(serviceId: string, target?: string | null) {
 export async function restoreFromBackup(backupId: string, opts: { backupFirst?: boolean } = {}) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
+    // Restoring overwrites live data: admins only, like the button.
+    if (!ctx.isAdmin) throw new UserError("Only organization admins can restore backups.");
     const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
     if (b?.status !== "success") throw new UserError("Backup not found.");
     const { service } = await serviceInOrg(b.serviceId, ctx.org.id);

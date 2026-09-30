@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type Docker from "dockerode";
 import { imageExists, LABEL, pullImage } from "@/server/docker/client";
+import { env } from "@/server/env";
 
 /** Small image that packs and unpacks storage; pinned like every image Serve runs itself. */
 export const STORAGE_HELPER_IMAGE = "alpine:3.22.6";
@@ -10,8 +11,17 @@ export const STORAGE_HELPER_IMAGE = "alpine:3.22.6";
 /** A volume or a host directory that containers of a stack mount. */
 export type StorageSource = { kind: "volume" | "dir"; source: string; containers: string[]; destinations: string[] };
 
-/** Paths never offered for a storage backup: Docker's own socket and the like. */
-const SKIP = [/^\/(var\/)?run\/docker\.sock$/, /^\/(proc|sys|dev)(\/|$)/];
+/**
+ * Paths never offered for a storage backup: Docker's socket, the host's system folders and Serve's
+ * own data. Restoring one of them would replace the whole folder on the host.
+ */
+const SKIP = [/^\/(var\/)?run\/docker\.sock$/, /^\/$/, /^\/(proc|sys|dev|boot|etc|root|usr|bin|sbin|lib|lib64|var\/lib\/docker|run)(\/|$)/];
+
+/** Whether a host path is off limits: a system folder or Serve's own data directory. */
+export function blockedPath(p: string) {
+  const data = env.dataDir.replace(/\/+$/, "");
+  return SKIP.some((r) => r.test(p)) || p === data || p.startsWith(`${data}/`) || p === "/data/serve" || p.startsWith("/data/serve/");
+}
 
 /**
  * Volumes and host directories mounted by the stack's containers, from Docker itself: exact
@@ -26,7 +36,7 @@ export async function stackStorage(docker: Docker, serviceId: string): Promise<S
       const kind = m.Type === "volume" && m.Name ? "volume" : m.Type === "bind" && m.Source ? "dir" : null;
       if (!kind) continue;
       const source = kind === "volume" ? (m.Name as string) : m.Source;
-      if (kind === "dir" && SKIP.some((r) => r.test(source))) continue;
+      if (kind === "dir" && blockedPath(source)) continue;
       const key = `${kind}:${source}`;
       const entry = out.get(key) ?? { kind, source, containers: [], destinations: [] };
       if (!entry.containers.includes(name)) entry.containers.push(name);
@@ -86,11 +96,49 @@ export async function dumpStorage(docker: Docker, s: { kind: "volume" | "dir"; s
   }
 }
 
+/** Runs a helper to the end, feeding `input` on stdin when given. Throws with its output on failure. */
+async function runHelper(docker: Docker, cmd: string, binds: string[], input?: string) {
+  const c = await helper(docker, cmd, binds, !!input);
+  try {
+    const stream = await c.attach({ stream: true, hijack: !!input, stdin: !!input, stdout: true, stderr: true });
+    let output = "";
+    const sink = new PassThrough();
+    sink.on("data", (b: Buffer) => (output += b.toString()));
+    docker.modem.demuxStream(stream, sink, sink);
+    await c.start();
+    if (input) {
+      await pipeline(fs.createReadStream(input), stream, { end: false }).catch(() => {});
+      (stream as unknown as { end: () => void }).end();
+    }
+    const { StatusCode } = (await c.wait()) as { StatusCode: number };
+    if (StatusCode !== 0) throw new Error(output.trim().slice(-1500) || `The helper exited with ${StatusCode}`);
+    return output.trim();
+  } finally {
+    await c.remove({ force: true }).catch(() => {});
+  }
+}
+
+const STAGING = ".serve-restore";
+
 /**
- * Replaces the contents of a volume or directory with a .tar.gz made by dumpStorage. The stack's
- * containers that use it are stopped meanwhile and started again after, even when it fails.
+ * Replaces the contents of a volume or directory with a .tar.gz made by dumpStorage.
+ *   1. Unpack into a staging folder inside it while the app keeps running. A damaged or cut-off
+ *      archive fails here and nothing is touched.
+ *   2. Stop the stack's containers that use it, swap the staged files in, start them again (even
+ *      when the swap fails).
  */
 export async function restoreStorage(docker: Docker, serviceId: string, s: { kind: "volume" | "dir"; source: string }, file: string, log: (line: string) => void) {
+  if (!(await imageExists(STORAGE_HELPER_IMAGE, docker))) await pullImage(STORAGE_HELPER_IMAGE, undefined, null, docker);
+  log("Unpacking the backup");
+  await runHelper(
+    docker,
+    // Only a directory can be refilled; a mounted single file is left alone.
+    `[ -d /mnt/data ] || { echo "This mount is a single file; download the backup and copy it by hand." >&2; exit 3; }
+cd /mnt/data && rm -rf ${STAGING} && mkdir ${STAGING} || exit 1
+if ! tar xzf - -C ${STAGING} || [ ! -d ${STAGING}/data ]; then rm -rf ${STAGING}; echo "The backup is damaged or incomplete. Nothing was changed." >&2; exit 4; fi`,
+    [bind(s, false)],
+    file,
+  );
   const users = await containersUsing(docker, serviceId, s);
   for (const u of users) {
     log(`Stopping ${u.Labels?.["com.docker.compose.service"] ?? u.Names[0]}`);
@@ -99,28 +147,14 @@ export async function restoreStorage(docker: Docker, serviceId: string, s: { kin
       .stop({ t: 20 })
       .catch(() => {});
   }
-  const c = await helper(
-    docker,
-    // Only a directory can be emptied and refilled; a mounted single file is left alone.
-    `[ -d /mnt/data ] || { echo "This mount is a single file; download the backup and copy it by hand." >&2; exit 3; }
-cd /mnt && find data -mindepth 1 -delete && tar xzf - data`,
-    [bind(s, false)],
-    true,
-  );
   try {
-    const stream = await c.attach({ stream: true, hijack: true, stdin: true, stdout: true, stderr: true });
-    let output = "";
-    const sink = new PassThrough();
-    sink.on("data", (b: Buffer) => (output += b.toString()));
-    docker.modem.demuxStream(stream, sink, sink);
-    await c.start();
-    await pipeline(fs.createReadStream(file), stream, { end: false }).catch(() => {});
-    (stream as unknown as { end: () => void }).end();
-    const { StatusCode } = (await c.wait()) as { StatusCode: number };
-    if (StatusCode !== 0) throw new Error(output.trim().slice(-1500) || `tar exited with ${StatusCode}`);
-    return output.trim();
+    log("Replacing the files");
+    return await runHelper(
+      docker,
+      `cd /mnt/data && find . -mindepth 1 -maxdepth 1 ! -name ${STAGING} -exec rm -rf {} + && find ${STAGING}/data -mindepth 1 -maxdepth 1 -exec mv {} . \\; && rm -rf ${STAGING}`,
+      [bind(s, false)],
+    );
   } finally {
-    await c.remove({ force: true }).catch(() => {});
     for (const u of users) {
       log(`Starting ${u.Labels?.["com.docker.compose.service"] ?? u.Names[0]}`);
       await docker
@@ -129,4 +163,18 @@ cd /mnt && find data -mindepth 1 -delete && tar xzf - data`,
         .catch(() => {});
     }
   }
+}
+
+/**
+ * After a restore was cut off (the worker restarted): starts the stack's stopped containers that
+ * use that volume or folder. Others, like one-shot jobs that exited, are left alone.
+ */
+export async function startStoppedContainers(docker: Docker, serviceId: string, s: { kind: "volume" | "dir"; source: string }) {
+  const rows = await docker.listContainers({ all: true, filters: { label: [`${LABEL.service}=${serviceId}`], status: ["exited", "created"] } });
+  const users = rows.filter((r) => (r.Mounts ?? []).some((m) => (s.kind === "volume" ? m.Type === "volume" && m.Name === s.source : m.Type === "bind" && m.Source === s.source)));
+  for (const r of users)
+    await docker
+      .getContainer(r.Id)
+      .start()
+      .catch(() => {});
 }

@@ -10,7 +10,8 @@ export function engineOfImage(image: string): Engine | null {
     .split("@")[0]
     .replace(/:[^/]*$/, "");
   const last = name.split("/").at(-1) ?? "";
-  if (/^(postgres|postgresql|postgis|pgvector|timescaledb(-ha)?|supabase-postgres)$/.test(last) || /(^|-)postgres(ql)?($|-)/.test(last)) return "postgres";
+  // Exact names only: postgres-exporter, postgres-backup-local and friends are not databases.
+  if (/^(postgres|postgresql|postgis|pgvector|timescaledb(-ha)?|supabase-postgres|postgresql-repmgr)$/.test(last)) return "postgres";
   if (/^mariadb$/.test(last)) return "mariadb";
   if (/^(mysql|mysql-server|percona-server)$/.test(last)) return "mysql";
   if (/^(mongo|mongodb|mongodb-community-server)$/.test(last)) return "mongodb";

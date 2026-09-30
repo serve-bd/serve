@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { databaseContainer } from "@/server/databases/container";
@@ -220,6 +221,9 @@ const fileSafe = (s: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(-40) || "data";
 
+/** Short hash of a backup key: names that squash to the same text still get their own files. */
+const keyHash = (key: string) => crypto.createHash("sha256").update(key).digest("hex").slice(0, 6);
+
 /** The target of a backup row: a compose key when it has one, else the database service. */
 export async function targetOf(service: ServiceRow, key: string | null): Promise<Target> {
   if (!key) {
@@ -250,7 +254,7 @@ export async function targetOf(service: ServiceRow, key: string | null): Promise
     return {
       ...base,
       label: `${service.name} / ${parsed.name}`,
-      stem: `${service.slug}-${fileSafe(parsed.name)}`,
+      stem: `${service.slug}-${fileSafe(parsed.name)}-${keyHash(key)}`,
       extension: DUMP_EXTENSION[commands.engine],
       dump: (file) => dumpWith(commands, file),
       restore: (file, log) => restoreWith(commands, file, log),
@@ -264,14 +268,15 @@ export async function targetOf(service: ServiceRow, key: string | null): Promise
   return {
     ...base,
     label: `${service.name} / ${parsed.name}`,
-    stem: `${service.slug}-${fileSafe(parsed.name)}`,
+    stem: `${service.slug}-${fileSafe(parsed.name)}-${keyHash(key)}`,
     extension: "tar.gz",
     dump: (file) => dumpStorage(docker, source, file),
     restore: async (file, log) => ({ out: await restoreStorage(docker, service.id, source, file, log), format: "tar.gz" }),
   };
 }
 
-export async function runBackup(backupId: string) {
+/** Takes a backup. `protect` is a backup retention must keep (the one a safety backup precedes). */
+export async function runBackup(backupId: string, protect?: string) {
   const backup = await db.query.backup.findFirst({
     where: eq(schema.backup.id, backupId),
     with: { service: true },
@@ -311,7 +316,7 @@ export async function runBackup(backupId: string) {
       .update(schema.backup)
       .set({ status: "success", filename, size, destination: s3Status === "uploaded" ? s3!.id : "local", s3Status, finishedAt: new Date() })
       .where(eq(schema.backup.id, backup.id));
-    await applyRetention(service.id, backup.target, t.retention, t.retentionS3);
+    await applyRetention(service.id, backup.target, t.retention, t.retentionS3, protect);
     if (backup.trigger === "schedule") {
       void notify(await orgOfService(service.id), "backup.success", {
         ok: true,
@@ -348,13 +353,13 @@ export async function runBackup(backupId: string) {
  * Keeps the newest `keepLocal` backups on this machine and `keepS3` in S3. A backup
  * whose copies are all gone is removed from the list. Imported files are kept.
  */
-async function applyRetention(serviceId: string, target: string | null, keepLocal: number, keepS3: number) {
+async function applyRetention(serviceId: string, target: string | null, keepLocal: number, keepS3: number, protect?: string) {
   const rows = await db
     .select()
     .from(schema.backup)
     .where(and(eq(schema.backup.serviceId, serviceId), eq(schema.backup.status, "success"), target ? eq(schema.backup.target, target) : isNull(schema.backup.target)))
     .orderBy(desc(schema.backup.createdAt));
-  const own = rows.filter((b) => b.trigger !== "import");
+  const own = rows.filter((b) => b.trigger !== "import" && b.id !== protect);
   const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, serviceId));
   for (const [i, b] of own.entries()) {
     if (!b.filename) continue;
@@ -541,7 +546,7 @@ export async function importBackup(backupId: string, opts: { backupFirst?: boole
     await db.insert(schema.backup).values({ id, serviceId: service.id, target: backup.target, trigger: "pre-import" });
     await logLine(backupId, "Backing up the current data first");
     try {
-      await runBackup(id);
+      await runBackup(id, backupId);
     } catch (e) {
       await logLine(backupId, `The safety backup failed, so nothing was restored: ${(e as Error).message}`);
       throw new Error("The safety backup failed, so nothing was restored.");

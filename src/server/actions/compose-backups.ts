@@ -12,8 +12,9 @@ import { composeDatabases, parseBackupKey } from "@/server/backups/compose";
 import { stackStorage } from "@/server/backups/storage";
 import type { ComposeBackupConfig } from "@/server/services/types";
 
-async function stack(serviceId: string) {
+async function stack(serviceId: string, adminOnly = false) {
   const ctx = await requirePermission("databases.backups");
+  if (adminOnly && !ctx.isAdmin) throw new UserError("Only organization admins can change backups.");
   const { service } = await serviceInOrg(serviceId, ctx.org.id);
   // Apps get storage backups too; database containers are found only in compose files.
   if (service.type !== "compose" && service.type !== "app") throw new UserError("Backups of volumes and folders are for apps and compose stacks.");
@@ -65,7 +66,7 @@ async function writeConfigs(serviceId: string, next: Record<string, ComposeBacku
 /** Adds a database, volume or directory to the stack's backups (manual until a schedule is set). */
 export async function addComposeBackup(serviceId: string, key: string) {
   return act(async () => {
-    const { ctx, service, content } = await stack(serviceId);
+    const { ctx, service, content } = await stack(serviceId, true);
     const current = service.composeBackups ?? {};
     if (current[key]) return { key };
     const parsed = await validKey(service, content, key);
@@ -92,7 +93,7 @@ const configSchema = z.object({
 /** Schedule, retention and S3 storage of one backup of a stack. */
 export async function saveComposeBackup(serviceId: string, key: string, input: z.infer<typeof configSchema>) {
   return act(async () => {
-    const { ctx, service } = await stack(serviceId);
+    const { ctx, service } = await stack(serviceId, true);
     const data = configSchema.parse(input);
     const current = service.composeBackups ?? {};
     if (!current[key]) throw new UserError("Add this backup first.");
@@ -119,7 +120,7 @@ export async function saveComposeBackup(serviceId: string, key: string, input: z
 /** Stops backing up a database, volume or directory. Backups already taken stay until deleted. */
 export async function removeComposeBackup(serviceId: string, key: string) {
   return act(async () => {
-    const { ctx, service } = await stack(serviceId);
+    const { ctx, service } = await stack(serviceId, true);
     const { [key]: removed, ...rest } = service.composeBackups ?? {};
     if (!removed) return null;
     await writeConfigs(service.id, rest);

@@ -7,12 +7,15 @@ import { certificateCovers } from "@/server/ssl/match";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Badge, Card, EmptyState } from "@/components/ui/misc";
 import { StatusDot } from "@/components/ui/status";
+import { getSetting } from "@/server/settings";
+import { VerifiedDomainsCard } from "./verified-domains";
 
 export const metadata = { title: "Domains" };
 
 export default async function DomainsPage() {
   const ctx = await requireOrg();
-  const [rows, certs] = await Promise.all([
+  const verification = !ctx.isRoot && (await getSetting("domainVerification"));
+  const [rows, certs, verified] = await Promise.all([
     db
       .select({
         domain: schema.domain,
@@ -26,12 +29,19 @@ export default async function DomainsPage() {
       .orderBy(asc(schema.domain.hostname))
       .then((list) => list.filter((r) => ctx.canAccessProject(r.project.id))),
     db.select().from(schema.certificate).where(eq(schema.certificate.organizationId, ctx.org.id)),
+    verification
+      ? db
+          .select({ id: schema.verifiedDomain.id, name: schema.verifiedDomain.name, method: schema.verifiedDomain.method, createdAt: schema.verifiedDomain.createdAt })
+          .from(schema.verifiedDomain)
+          .where(eq(schema.verifiedDomain.organizationId, ctx.org.id))
+          .orderBy(asc(schema.verifiedDomain.name))
+      : Promise.resolve([]),
   ]);
 
   return (
     <>
       <PageHeader title="Domains" description="Every domain connected to a service in this organization." />
-      <PageBody>
+      <PageBody className="flex flex-col gap-6">
         <Card className="overflow-hidden">
           {rows.length === 0 ? (
             <EmptyState icon={<Globe />} title="No domains yet" description="Open a service and add a domain from its Domains tab." />
@@ -106,6 +116,7 @@ export default async function DomainsPage() {
             </div>
           )}
         </Card>
+        {verification && <VerifiedDomainsCard rows={verified.map((v) => ({ ...v, createdAt: v.createdAt.toISOString() }))} />}
       </PageBody>
     </>
   );

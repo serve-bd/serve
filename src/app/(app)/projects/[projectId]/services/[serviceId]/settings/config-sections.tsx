@@ -13,6 +13,7 @@ import type { BuildConfig, KeyValue, RuntimeConfig } from "@/server/services/typ
 import { CAPABILITIES } from "@/server/deploy/options";
 import { digits, KeyValueEditor, linesOf, num, Section } from "./section";
 import { ProductName } from "@/components/brand";
+import { NixpacksHint } from "@/components/nixpacks-hint";
 
 type Save = (patch: Parameters<typeof updateService>[1]) => Promise<unknown>;
 
@@ -84,14 +85,14 @@ export function BuildSection({
       {(v, set) => (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Builder">
+            <Field label="Builder" description={nixpacks ? undefined : <NixpacksHint />}>
               <Select
                 value={v.builder}
                 onValueChange={(b) => set({ builder: b as BuildConfig["builder"] })}
                 options={[
                   { value: "auto", label: "Automatic", description: "Dockerfile if present, otherwise detect" },
                   { value: "dockerfile", label: "Dockerfile" },
-                  { value: "nixpacks", label: "Nixpacks", disabled: !nixpacks, description: nixpacks ? undefined : "Not installed" },
+                  { value: "nixpacks", label: "Nixpacks", disabled: !nixpacks, description: nixpacks ? undefined : "Not installed (how to add it is below)" },
                   { value: "static", label: "Static site" },
                 ]}
               />

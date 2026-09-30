@@ -9,7 +9,7 @@ export function AdvancedSettings({
   orgSettings,
   organizations,
 }: {
-  orgSettings: { allowOrganizationCreation: boolean };
+  orgSettings: { allowOrganizationCreation: boolean; domainVerification: boolean };
   organizations: { id: string; name: string; createdAt: string; members: number; projects: number; isRoot: boolean }[];
 }) {
   return (
@@ -29,6 +29,12 @@ export function AdvancedSettings({
             description="When off, only Root admins can create them."
             checked={v.allowOrganizationCreation}
             onCheckedChange={set("allowOrganizationCreation")}
+          />
+          <SwitchRow
+            title="Other organizations prove they own their domains"
+            description="Before adding a custom domain, organizations other than Root add a DNS TXT record (or have the zone in their Cloudflare account). Keeps one organization from taking another's domain."
+            checked={v.domainVerification}
+            onCheckedChange={set("domainVerification")}
           />
           <div className="divide-y divide-line rounded-xl border border-line">
             {organizations.map((o) => (

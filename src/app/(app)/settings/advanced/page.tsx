@@ -25,7 +25,7 @@ export default async function AdvancedSettingsPage() {
   return (
     <>
       <AdvancedSettings
-        orgSettings={{ allowOrganizationCreation: s.allowOrganizationCreation }}
+        orgSettings={{ allowOrganizationCreation: s.allowOrganizationCreation, domainVerification: s.domainVerification }}
         organizations={orgs.map((o) => ({ ...o, createdAt: o.createdAt.toISOString(), isRoot: o.id === s.rootOrganizationId }))}
       />
       <CleanupPolicy

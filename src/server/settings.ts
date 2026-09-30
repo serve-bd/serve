@@ -28,6 +28,8 @@ export type Settings = {
   rootOrganizationId: string | null;
   /** Let every user create organizations (otherwise only Root admins can). */
   allowOrganizationCreation: boolean;
+  /** Organizations other than Root prove they own a domain (DNS TXT record) before adding it. */
+  domainVerification: boolean;
   /** Limits for organizations that have none of their own (the Root organization is unlimited). */
   defaultOrgLimits: OrgLimits;
   /** Last time the worker reported in (ISO timestamp). */
@@ -142,6 +144,7 @@ export const defaultSettings: Settings = {
   onboardingDone: false,
   rootOrganizationId: null,
   allowOrganizationCreation: false,
+  domainVerification: true,
   defaultOrgLimits: {},
   workerHeartbeat: null,
   workerSchemaVersion: null,

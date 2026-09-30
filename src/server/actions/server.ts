@@ -31,6 +31,7 @@ const settingsSchema = z
     acmeEmail: z.union([z.email("Enter a valid email"), z.literal("")]),
     acmeStaging: z.boolean(),
     allowOrganizationCreation: z.boolean(),
+    domainVerification: z.boolean(),
     dashboardTunnelId: z.string().nullable(),
     /** The dashboard should use a tunnel, even while none is available (it reconnects later). */
     dashboardWantsTunnel: z.boolean(),

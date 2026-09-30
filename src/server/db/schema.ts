@@ -567,6 +567,24 @@ export const domain = pgTable(
   (t) => [index("domain_service_idx").on(t.serviceId)],
 );
 
+/**
+ * Domains an organization proved it controls (a TXT record, or the zone in its Cloudflare
+ * account). Covers the name and every subdomain. Other organizations than Root need one before
+ * adding a custom domain.
+ */
+export const verifiedDomain = pgTable(
+  "verified_domain",
+  {
+    id: id(),
+    organizationId: orgRef(),
+    name: text("name").notNull(),
+    /** "txt" or "cloudflare". */
+    method: text("method").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("verified_domain_org_name_idx").on(t.organizationId, t.name)],
+);
+
 export type CertificateProvider = "letsencrypt-http" | "letsencrypt-cloudflare" | "cloudflare-origin" | "custom";
 
 export type CertificateStatus = "pending" | "issuing" | "active" | "failed" | "expired";

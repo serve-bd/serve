@@ -27,6 +27,8 @@ import {
   updateDomain,
 } from "@/server/actions/services";
 import { findCloudflareZone, refreshTunnels } from "@/server/actions/integrations";
+import { checkDomainOwnership } from "@/server/actions/verified-domains";
+import { DomainProof } from "@/components/domain-proof";
 import useSWR from "swr";
 import { relativeRecordName } from "@/lib/dns-name";
 import { cn } from "@/lib/utils";
@@ -375,6 +377,18 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
   const [mode, setMode] = React.useState<"route" | "redirect">("route");
 
   const [step, setStep] = React.useState<1 | 2>(1);
+  // The TXT record to add when the organization has not proved it owns the domain yet.
+  const [proof, setProof] = React.useState<{ recordName: string; recordValue: string } | null>(null);
+  const [checking, setChecking] = React.useState(false);
+  const verifyThenContinue = async () => {
+    setChecking(true);
+    const res = await checkDomainOwnership(hostname).finally(() => setChecking(false));
+    if (!res.ok) return void toast.error(res.error);
+    if (res.data.verified) {
+      setProof(null);
+      setStep(2);
+    } else setProof({ recordName: res.data.recordName, recordValue: res.data.recordValue });
+  };
   const lookup = useDebounced(hostname, 500);
   const { data: zoneData, isLoading: zoneLoading } = useSWR(props.hasCloudflare && /\.[a-z]{2,}$/i.test(lookup) ? ["cf-zone", lookup] : null, async () => {
     const res = await findCloudflareZone(lookup);
@@ -456,7 +470,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
           onSubmit={(e) => {
             e.preventDefault();
             if (step === 1) {
-              if (step1Done) setStep(2);
+              if (step1Done) void verifyThenContinue();
               return;
             }
             void run();
@@ -487,7 +501,10 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                 <Field label="Domain">
                   <Input
                     value={hostname}
-                    onChange={(e) => setHostname(e.target.value.trim().toLowerCase())}
+                    onChange={(e) => {
+                      setHostname(e.target.value.trim().toLowerCase());
+                      setProof(null);
+                    }}
                     placeholder="app.example.com"
                     autoFocus
                     required
@@ -506,6 +523,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                     </button>
                   ))}
                 </div>
+                {proof && <DomainProof recordName={proof.recordName} recordValue={proof.recordValue} domain={hostname.replace(/^\*\./, "")} />}
                 {mode === "redirect" ? (
                   <Field label="Redirect to" description="Visitors are sent to this URL with a permanent redirect.">
                     <Input value={redirect} onChange={(e) => setRedirect(e.target.value)} placeholder="https://www.example.com" required />
@@ -610,8 +628,8 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
             {step === 1 ? (
               <>
                 <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
-                <Button type="submit" variant="primary" size="sm" disabled={!step1Done}>
-                  Continue
+                <Button type="submit" variant="primary" size="sm" disabled={!step1Done} loading={checking}>
+                  {proof ? "Check again" : "Continue"}
                 </Button>
               </>
             ) : (

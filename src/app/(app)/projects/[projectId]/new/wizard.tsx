@@ -24,6 +24,7 @@ import { PageBody, PageHeader, type Crumb } from "@/components/shell/page-header
 import useSWR from "swr";
 import type { DbEngine } from "@/server/services/types";
 import { ProductName } from "@/components/brand";
+import { NixpacksHint } from "@/components/nixpacks-hint";
 
 type Kind = "git" | "image" | "database" | "compose";
 
@@ -418,16 +419,16 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Builder">
+        <Field label="Builder" description={props.nixpacks || compose ? undefined : <NixpacksHint />}>
           <Select
             value={builder}
             onValueChange={setBuilder}
             options={[
               { value: "auto", label: "Automatic", description: "Dockerfile if present, otherwise detect" },
               { value: "dockerfile", label: "Dockerfile" },
-              { value: "nixpacks", label: "Nixpacks", description: props.nixpacks ? "Installed" : "Not installed", disabled: !props.nixpacks },
-              { value: "static", label: "Static site", description: "Served by nginx" },
               { value: "compose", label: "Docker Compose", description: "Run the repository's compose file" },
+              { value: "nixpacks", label: "Nixpacks", description: props.nixpacks ? "Installed" : "Not installed (how to add it is below)", disabled: !props.nixpacks },
+              { value: "static", label: "Static site", description: "Served by nginx" },
             ]}
           />
         </Field>

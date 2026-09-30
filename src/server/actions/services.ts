@@ -22,6 +22,7 @@ import { ensureCertificateFor } from "@/server/ssl/certificates";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { getSettings } from "@/server/settings";
 import { env } from "@/server/env";
+import { domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 import { composeVariables } from "@/lib/compose-vars";
 import { teardownServices } from "@/server/services/teardown";
 import { composeNameClashes, composeSecurityIssues, safeRedirectUrl } from "@/server/security";
@@ -1023,6 +1024,9 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
     const [taken] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, data.hostname));
     if (taken) throw new UserError("That domain is already connected to a service.");
     await assertNotDashboardHost(ctx, data.hostname);
+    // Other organizations than Root prove they control the domain first (DNS TXT record or their Cloudflare zone).
+    const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, data.hostname);
+    if (!ownership.verified) throw new UserError(ownershipMessage(data.hostname, ownership));
     await requireRoom(ctx.org.id, { domains: 1 });
     if (data.certificateId) {
       const [cert] = await db

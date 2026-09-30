@@ -5,6 +5,11 @@ import * as React from "react";
 import {
   Background,
   BackgroundVariant,
+  BaseEdge,
+  EdgeLabelRenderer,
+  type EdgeProps,
+  type EdgeTypes,
+  getBezierPath,
   type Edge,
   Handle,
   MarkerType,
@@ -112,27 +117,56 @@ function ServiceCardNode({ data, selected }: NodeProps<ServiceNode>) {
 
 const nodeTypes: NodeTypes = { service: ServiceCardNode };
 
-function edgesOf(services: ServiceCardData[]): Edge[] {
+type UseEdge = Edge<{ variables: string[]; kind: "local" | "private" | "broken" }, "uses">;
+
+/** A use: the line, and a small pill with the variables it goes through. */
+function UseEdgeView({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd, style }: EdgeProps<UseEdge>) {
+  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+  const vars = data?.variables ?? [];
+  const text = vars.length > 2 ? `${vars.slice(0, 2).join(", ")} +${vars.length - 2}` : vars.join(", ");
+  return (
+    <>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      <EdgeLabelRenderer>
+        <div
+          style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+          title={data?.kind === "broken" ? `${vars.join(", ")}: the servers share no private network, so this name does not resolve.` : vars.join(", ")}
+          className={cn(
+            "nodrag nopan pointer-events-auto absolute flex max-w-[180px] items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] leading-4 shadow-sm",
+            data?.kind === "broken"
+              ? "border-bad/40 bg-bad-soft text-bad"
+              : data?.kind === "private"
+                ? "border-accent/40 bg-surface text-accent-strong"
+                : "border-line bg-surface text-muted",
+          )}
+        >
+          {data?.kind === "broken" && <AlertTriangle className="size-3 flex-none" />}
+          <span className="truncate">{text}</span>
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+const edgeTypes: EdgeTypes = { uses: UseEdgeView };
+
+function edgesOf(services: ServiceCardData[]): UseEdge[] {
   const byId = new Map(services.map((s) => [s.id, s]));
-  const edges: Edge[] = [];
+  const edges: UseEdge[] = [];
   for (const s of services)
     for (const u of s.uses) {
       const target = byId.get(u.id);
       if (!target) continue;
-      const across = s.serverId !== target.serverId && u.private;
-      const color = u.broken ? "var(--bad)" : across ? "var(--accent)" : "var(--line-strong)";
-      const vars = u.variables.length > 2 ? `${u.variables.slice(0, 2).join(", ")} +${u.variables.length - 2}` : u.variables.join(", ");
+      const kind = u.broken ? "broken" : s.serverId !== target.serverId && u.private ? "private" : "local";
+      const color = kind === "broken" ? "var(--bad)" : kind === "private" ? "var(--accent)" : "var(--line-strong)";
       edges.push({
         id: `${s.id}->${u.id}`,
+        type: "uses",
         source: s.id,
         target: u.id,
-        animated: across && !u.broken,
-        label: u.broken ? `${vars} · not reachable` : vars,
-        labelStyle: { fill: u.broken ? "var(--bad)" : "var(--muted)", fontSize: 10, fontFamily: "var(--font-mono, monospace)" },
-        labelBgStyle: { fill: "var(--bg)" },
-        labelBgPadding: [4, 2],
-        labelBgBorderRadius: 4,
-        style: { stroke: color, strokeWidth: 1.5, strokeDasharray: u.broken ? "5 4" : undefined },
+        animated: kind === "private",
+        data: { variables: u.variables, kind },
+        style: { stroke: color, strokeWidth: 1.5, strokeDasharray: kind === "broken" ? "5 4" : undefined },
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
       });
     }
@@ -187,6 +221,7 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onNodeClick={(_e, node) => {
           router.push(`/projects/${projectId}/services/${node.id}`);

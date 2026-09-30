@@ -92,7 +92,8 @@ export function autoLayout(services: LayoutService[]): Record<string, Pos> {
       rowH = Math.max(rowH, h);
       width = Math.max(width, x - GAP);
     }
-    offsetX += width + GAP + 2 * FRAME_PAD + 40;
+    // Room between server boxes for a line and its label.
+    offsetX += width + 2 * FRAME_PAD + 200;
   }
   return out;
 }

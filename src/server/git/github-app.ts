@@ -223,3 +223,35 @@ export function repoFullName(url: string) {
 export function forgetToken(credentialId: string) {
   tokenCache.delete(credentialId);
 }
+
+/** Whether GitHub could reach a dashboard address at all (not localhost or a private network). */
+function reachableFromGithub(base: string) {
+  const host = new URL(base).hostname.replace(/^\[|\]$/g, "");
+  return !/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|fc|fd)/i.test(host) && !host.endsWith(".local");
+}
+
+/**
+ * Points each GitHub App's webhook at the dashboard's current address. The address is fixed when an
+ * app is created, so after the dashboard domain changes GitHub would keep sending pushes to the old
+ * one and nothing deploys on push. Returns the apps that were changed.
+ */
+export async function syncAppWebhooks() {
+  const base = await publicBaseUrl();
+  if (!reachableFromGithub(base)) return [];
+  const apps = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.provider, "github-app"));
+  const changed: string[] = [];
+  for (const cred of apps) {
+    try {
+      const secret = readAppSecret(cred);
+      const jwt = appJwt(secret.appId, secret.pem);
+      const url = `${base}/api/webhooks/github/${cred.id}`;
+      const config = await githubJson<{ url?: string }>(`${API}/app/hook/config`, jwt);
+      if (config.url === url) continue;
+      await githubJson(`${API}/app/hook/config`, jwt, { method: "PATCH", body: JSON.stringify({ url, content_type: "json" }) });
+      changed.push(cred.name);
+    } catch (e) {
+      console.warn(`Could not update the webhook of ${cred.name}:`, (e as Error).message);
+    }
+  }
+  return changed;
+}

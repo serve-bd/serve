@@ -103,6 +103,12 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
       for (const id of new Set([before.dashboardTunnelId, after.dashboardTunnelId].filter(Boolean) as string[])) await syncTunnelIngress(id).catch(() => {});
     }
 
+    // GitHub Apps send pushes to the address they were created with: move them to the new one.
+    if (["dashboardDomain", "dashboardHttps", "dashboardTunnelId"].some((k) => JSON.stringify(before[k as keyof Settings]) !== JSON.stringify(after[k as keyof Settings]))) {
+      const { syncAppWebhooks } = await import("@/server/git/github-app");
+      void syncAppWebhooks().catch(() => {});
+    }
+
     const proxyRelevant: (keyof Settings)[] = ["dashboardDomain", "dashboardHttps", "dashboardTunnelId", "proxyCustomConfig", "dashboardAllowlist"];
     if (proxyRelevant.some((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]))) await enqueue("proxy.sync", {});
 

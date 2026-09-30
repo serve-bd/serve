@@ -447,6 +447,17 @@ async function main() {
   );
   every(60_000, "servers", probeRemoteServers, true);
   every(60_000, "tunnels", checkTunnels, true);
+  // A GitHub App keeps the webhook address it was created with; follow dashboard domain changes.
+  every(
+    60 * 60_000,
+    "github-app-hooks",
+    async () => {
+      const { syncAppWebhooks } = await import("@/server/git/github-app");
+      const changed = await syncAppWebhooks();
+      if (changed.length) log(`Pointed the webhook of ${changed.join(", ")} at this dashboard`);
+    },
+    true,
+  );
   every(30_000, "metrics", collectMetrics, true);
   every(60_000, "backups", scheduleBackups);
   every(60_000, "instance-backups", () => scheduleInstanceBackups((backupId) => enqueue("instance.backup", { backupId }, { concurrencyKey: "instance-backup" })));

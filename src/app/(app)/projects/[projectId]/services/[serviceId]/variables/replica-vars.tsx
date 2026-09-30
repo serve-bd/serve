@@ -97,9 +97,9 @@ export function PreviewVars(props: {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-0.5 px-1">
-        <h3 className="font-display text-[15px] font-semibold text-fg">Pull request previews</h3>
-        <p className="text-[13px] text-muted">
-          Variables previews get instead of the ones above, like a staging database or test API keys. Open previews get them at once and use them from their next deploy.
+        <p className="text-[13px] leading-relaxed text-muted">
+          Pull request previews get these instead of the Main variables with the same name, like a staging database or test API keys. Everything else comes from Main. Open previews
+          get changes at once and use them from their next deploy.
           {props.databaseVariable && ` ${props.databaseVariable} is set by the preview database copy.`}
         </p>
       </div>
@@ -132,7 +132,9 @@ function ReplicaCard({
   const [revealed, setRevealed] = React.useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const preview = replica === 0;
-  const [collapsed, toggle] = useCollapsed(preview ? `serve:preview-vars:${serviceId}` : `serve:replica-vars:${serviceId}:${replica}`, initial.length === 0);
+  const [folded, toggle] = useCollapsed(`serve:replica-vars:${serviceId}:${replica}`, initial.length === 0);
+  // Previews have a tab of their own: nothing to fold there.
+  const collapsed = !preview && folded;
 
   const current = rows.filter((r) => r.key.trim());
   const dirty = JSON.stringify(current.map((r) => [r.key, r.value])) !== baseline || current.length !== rows.filter((r) => r.key || r.value).length;
@@ -175,7 +177,7 @@ function ReplicaCard({
           </span>
         }
         description={collapsed ? undefined : unused ? "No replica has this number now. Its variables apply again when you add replicas." : undefined}
-        actions={<CollapseButton collapsed={collapsed} onClick={toggle} label={preview ? "preview variables" : `replica ${replica} variables`} />}
+        actions={preview ? undefined : <CollapseButton collapsed={collapsed} onClick={toggle} label={`replica ${replica} variables`} />}
       />
       {!collapsed && (
         <>
@@ -239,7 +241,7 @@ function ReplicaCard({
           {rows.length === 0 && (
             <p className="px-5 py-4 text-[13px] text-muted">
               {preview
-                ? "None. Previews use the variables above, including the production database, if it is set there."
+                ? "None yet. Previews use the Main variables, including the production database if one is set there."
                 : "No variables of its own. This replica uses the variables above."}
             </p>
           )}

@@ -14,6 +14,7 @@ import { saveEnvVars } from "@/server/actions/services";
 import { parseEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
 import { referenceOf } from "@/lib/refs";
+import { Tab, Tabs, TabsList, TabsPanel } from "@/components/ui/tabs";
 import { CollapseButton, PreviewVars, type ReplicaVar, ReplicaVars, useCollapsed } from "./replica-vars";
 
 /** `hidden`: the value is kept on the server and not sent here (the role cannot see secrets); `from` is its stored key. */
@@ -67,6 +68,7 @@ export function VariablesEditor({
   // Rows as last saved: their values are masked until revealed. New and edited values stay readable while typing.
   const [savedValues, setSavedValues] = React.useState(() => new Map(vars.map((v) => [v.id!, v.value])));
   const [raw, setRaw] = React.useState<string | null>(null);
+  const [tab, setTab] = React.useState<"main" | "previews">("main");
   const [revealed, setRevealed] = React.useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [collapsed, toggleCollapsed] = useCollapsed(`serve:vars-collapsed:${serviceId}`);
@@ -110,223 +112,243 @@ export function VariablesEditor({
   const missing = composeVars.filter((name) => !current.some((v) => v.key === name));
 
   return (
-    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-      <div className="flex min-w-0 flex-col gap-4">
-        {missing.length > 0 && (
-          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/30 bg-warn-soft px-4 py-3 text-[13px]">
-            <TriangleAlert className="size-4 flex-none text-warn" />
-            <p className="min-w-0 flex-1 text-fg-2">
-              The compose file uses {missing.length === 1 ? "a variable that is" : "variables that are"} not set: <span className="font-mono text-fg">{missing.join(", ")}</span>.
-              Deploys stop until {missing.length === 1 ? "it is" : "they are"} added.
-            </p>
-            <Button
-              size="sm"
-              onClick={() => {
-                setRaw(null);
-                setVars((prev) => [...prev, ...missing.map((key) => withId({ key, value: "", buildTime: true, runtime: true }))]);
-              }}
-            >
-              <Plus /> Add {missing.length === 1 ? "it" : "all"}
-            </Button>
-          </div>
-        )}
-        <Card className="overflow-hidden">
-          <CardHeader
-            className={cn(collapsed && "items-center border-b-0")}
-            title={
-              <span className="flex items-center gap-2">
-                Environment variables {!canEdit && <Badge>Read only</Badge>}
-                {collapsed && <span className="text-[12px] font-normal text-muted">{current.filter((v) => v.key).length} variables</span>}
-              </span>
-            }
-            description={collapsed ? undefined : "Encrypted at rest. Changes apply on the next deploy."}
-            actions={
-              <>
-                {!collapsed && canSeeSecrets && canEdit && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      if (raw === null) setRaw(toRaw(vars));
-                      else {
-                        setVars(parseEnv(raw).map((v) => withId({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? true, runtime: true })));
-                        setRaw(null);
-                      }
-                    }}
-                  >
-                    <Code2 /> {raw === null ? "Raw editor" : "Table view"}
-                  </Button>
-                )}
-                <CollapseButton collapsed={collapsed} onClick={toggleCollapsed} label="environment variables" />
-              </>
-            }
-          />
-          {collapsed ? null : raw !== null ? (
-            <div className="p-4">
-              <Textarea
-                value={raw}
-                onChange={(e) => setRaw(e.target.value)}
-                rows={Math.max(10, raw.split("\n").length + 2)}
-                className="font-mono text-[12.5px] leading-relaxed"
-                spellCheck={false}
-                placeholder="KEY=value"
-              />
-            </div>
-          ) : vars.length === 0 ? (
-            <EmptyState
-              title="No variables yet"
-              description={canEdit ? "Add variables, paste a .env file in the raw editor, or reference another service." : "This service has no variables."}
-              action={
-                canEdit && (
-                  <div className="flex flex-wrap justify-center gap-2">
-                    <Button size="sm" onClick={() => setVars([withId({ key: "", value: "", buildTime: true, runtime: true })])}>
-                      <Plus /> Add variable
-                    </Button>
-                    <AddReferenceMenu references={references} taken={taken} onAdd={addVar} />
-                  </div>
-                )
-              }
-            />
-          ) : (
-            <div className="divide-y divide-line">
-              <div
-                className={cn(
-                  "hidden gap-3 px-5 py-2 text-[11px] font-semibold text-faint sm:grid",
-                  hasBuild ? "grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_32px]" : "grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_32px]",
-                )}
-              >
-                <span>Name</span>
-                <span>Value</span>
-                {hasBuild && <span>Available at</span>}
-                <span />
-              </div>
-              {vars.map((v) => {
-                const editing = savedValues.get(v.id!) !== v.value;
-                const shown = editing || revealed.has(v.id!);
-                const isRef = v.value.includes("${{");
-                return (
-                  <div
-                    key={v.id}
-                    className={cn(
-                      "grid items-center gap-3 px-5 py-2.5",
-                      hasBuild ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_32px]" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_32px]",
-                    )}
-                  >
-                    <Input
-                      value={v.key}
-                      onChange={(e) => update(v.id!, { key: e.target.value.replace(/\s/g, "_") })}
-                      placeholder="KEY"
-                      className="font-mono text-[12.5px]"
-                      disabled={!canEdit}
-                    />
-                    <div className="relative">
-                      <Input
-                        value={v.value}
-                        type={shown || isRef ? "text" : "password"}
-                        onChange={(e) => update(v.id!, { value: e.target.value, hidden: false })}
-                        placeholder={v.hidden ? (canEdit ? "Hidden. Type to replace it." : "Hidden") : canEdit ? "value" : ""}
-                        className={cn("pr-9 font-mono text-[12.5px]", isRef && "text-accent")}
-                        autoComplete="off"
-                        disabled={!canEdit}
-                        title={v.hidden ? "Your role cannot see secret values." : undefined}
-                      />
-                      {!isRef && !editing && !v.hidden && (canSeeSecrets || !v.from) && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setRevealed((s) => {
-                              const n = new Set(s);
-                              if (n.has(v.id!)) n.delete(v.id!);
-                              else n.add(v.id!);
-                              return n;
-                            })
-                          }
-                          className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-faint hover:text-fg"
-                          aria-label={shown ? "Hide value" : "Show value"}
-                        >
-                          {shown ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                        </button>
-                      )}
-                    </div>
-                    {hasBuild && (
-                      <div className="flex items-center gap-3 text-xs text-muted">
-                        <Tooltip content="Available while the app runs">
-                          <label className="flex items-center gap-1.5">
-                            <Checkbox checked={v.runtime} onCheckedChange={(c) => update(v.id!, { runtime: !!c })} disabled={!canEdit} /> Run
-                          </label>
-                        </Tooltip>
-                        <Tooltip content="Passed as a build argument">
-                          <label className="flex items-center gap-1.5">
-                            <Checkbox checked={v.buildTime} onCheckedChange={(c) => update(v.id!, { buildTime: !!c })} disabled={!canEdit} /> Build
-                          </label>
-                        </Tooltip>
-                      </div>
-                    )}
-                    {canEdit ? (
-                      <Button variant="ghost" size="icon-sm" onClick={() => setVars((prev) => prev.filter((x) => x.id !== v.id))} aria-label="Remove variable">
-                        <Trash2 />
-                      </Button>
-                    ) : (
-                      <span />
-                    )}
-                  </div>
-                );
-              })}
-              {canEdit && (
-                <div className="flex flex-wrap gap-2 px-5 py-3">
-                  <Button size="sm" variant="ghost" onClick={() => setVars((prev) => [...prev, withId({ key: "", value: "", buildTime: true, runtime: true })])}>
-                    <Plus /> Add variable
-                  </Button>
-                  <AddReferenceMenu references={references} taken={taken} onAdd={addVar} variant="ghost" />
-                </div>
-              )}
-            </div>
-          )}
-          {collapsed && !dirty ? null : canEdit ? (
-            <CardFooter className={cn("transition-opacity", !dirty && "opacity-60")}>
-              <span className="text-xs text-muted">
-                {dirty ? "You have unsaved changes." : `${current.filter((v) => v.key).length} variables${canSeeSecrets ? "" : " · values hidden for your role"}`}
-              </span>
-              <div className="flex gap-2">
-                {dirty && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      const rows = initial.map(withId);
-                      setVars(rows);
-                      setSavedValues(new Map(rows.map((v) => [v.id!, v.value])));
-                      setRaw(null);
-                    }}
-                  >
-                    Discard
-                  </Button>
-                )}
-                <Button size="sm" variant="primary" disabled={!dirty || !canEdit} loading={save.pending} onClick={() => (canRedeploy ? setConfirmOpen(true) : save.run(false))}>
-                  Save changes
+    <Tabs value={previewVars ? tab : "main"} onValueChange={(v) => setTab(v as "main" | "previews")} className="flex flex-col gap-4">
+      {previewVars && (
+        <TabsList>
+          <Tab value="main">Main</Tab>
+          <Tab value="previews">
+            Previews
+            {previewVars.length > 0 && <span className="text-[11px] text-faint tabular-nums">{previewVars.length}</span>}
+          </Tab>
+        </TabsList>
+      )}
+      {/* Both panels stay mounted, so unsaved edits survive switching tabs. */}
+      <TabsPanel value="main" keepMounted className="data-[hidden]:hidden">
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="flex min-w-0 flex-col gap-4">
+            {missing.length > 0 && (
+              <div role="alert" className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/30 bg-warn-soft px-4 py-3 text-[13px]">
+                <TriangleAlert className="size-4 flex-none text-warn" />
+                <p className="min-w-0 flex-1 text-fg-2">
+                  The compose file uses {missing.length === 1 ? "a variable that is" : "variables that are"} not set:{" "}
+                  <span className="font-mono text-fg">{missing.join(", ")}</span>. Deploys stop until {missing.length === 1 ? "it is" : "they are"} added.
+                </p>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setRaw(null);
+                    setVars((prev) => [...prev, ...missing.map((key) => withId({ key, value: "", buildTime: true, runtime: true }))]);
+                  }}
+                >
+                  <Plus /> Add {missing.length === 1 ? "it" : "all"}
                 </Button>
               </div>
-            </CardFooter>
-          ) : (
-            <CardFooter>
-              <span className="flex items-center gap-1.5 text-xs text-muted">
-                <Lock className="size-3.5" /> Read only. Your role can see these variables but not change them.
-              </span>
-            </CardFooter>
-          )}
-        </Card>
-        {replicas > 0 && (
-          <ReplicaVars
-            serviceId={serviceId}
-            replicas={replicas}
-            initial={replicaVars}
-            keys={current.filter((v) => v.key && v.runtime).map((v) => v.key)}
-            canEdit={canEdit}
-            canSeeSecrets={canSeeSecrets}
-            canRedeploy={canRedeploy}
-          />
-        )}
-        {previewVars && (
+            )}
+            <Card className="overflow-hidden">
+              <CardHeader
+                className={cn(collapsed && "items-center border-b-0")}
+                title={
+                  <span className="flex items-center gap-2">
+                    Environment variables {!canEdit && <Badge>Read only</Badge>}
+                    {collapsed && <span className="text-[12px] font-normal text-muted">{current.filter((v) => v.key).length} variables</span>}
+                  </span>
+                }
+                description={collapsed ? undefined : "Encrypted at rest. Changes apply on the next deploy."}
+                actions={
+                  <>
+                    {!collapsed && canSeeSecrets && canEdit && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          if (raw === null) setRaw(toRaw(vars));
+                          else {
+                            setVars(parseEnv(raw).map((v) => withId({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? true, runtime: true })));
+                            setRaw(null);
+                          }
+                        }}
+                      >
+                        <Code2 /> {raw === null ? "Raw editor" : "Table view"}
+                      </Button>
+                    )}
+                    <CollapseButton collapsed={collapsed} onClick={toggleCollapsed} label="environment variables" />
+                  </>
+                }
+              />
+              {collapsed ? null : raw !== null ? (
+                <div className="p-4">
+                  <Textarea
+                    value={raw}
+                    onChange={(e) => setRaw(e.target.value)}
+                    rows={Math.max(10, raw.split("\n").length + 2)}
+                    className="font-mono text-[12.5px] leading-relaxed"
+                    spellCheck={false}
+                    placeholder="KEY=value"
+                  />
+                </div>
+              ) : vars.length === 0 ? (
+                <EmptyState
+                  title="No variables yet"
+                  description={canEdit ? "Add variables, paste a .env file in the raw editor, or reference another service." : "This service has no variables."}
+                  action={
+                    canEdit && (
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <Button size="sm" onClick={() => setVars([withId({ key: "", value: "", buildTime: true, runtime: true })])}>
+                          <Plus /> Add variable
+                        </Button>
+                        <AddReferenceMenu references={references} taken={taken} onAdd={addVar} />
+                      </div>
+                    )
+                  }
+                />
+              ) : (
+                <div className="divide-y divide-line">
+                  <div
+                    className={cn(
+                      "hidden gap-3 px-5 py-2 text-[11px] font-semibold text-faint sm:grid",
+                      hasBuild ? "grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_32px]" : "grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_32px]",
+                    )}
+                  >
+                    <span>Name</span>
+                    <span>Value</span>
+                    {hasBuild && <span>Available at</span>}
+                    <span />
+                  </div>
+                  {vars.map((v) => {
+                    const editing = savedValues.get(v.id!) !== v.value;
+                    const shown = editing || revealed.has(v.id!);
+                    const isRef = v.value.includes("${{");
+                    return (
+                      <div
+                        key={v.id}
+                        className={cn(
+                          "grid items-center gap-3 px-5 py-2.5",
+                          hasBuild ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_32px]" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_32px]",
+                        )}
+                      >
+                        <Input
+                          value={v.key}
+                          onChange={(e) => update(v.id!, { key: e.target.value.replace(/\s/g, "_") })}
+                          placeholder="KEY"
+                          className="font-mono text-[12.5px]"
+                          disabled={!canEdit}
+                        />
+                        <div className="relative">
+                          <Input
+                            value={v.value}
+                            type={shown || isRef ? "text" : "password"}
+                            onChange={(e) => update(v.id!, { value: e.target.value, hidden: false })}
+                            placeholder={v.hidden ? (canEdit ? "Hidden. Type to replace it." : "Hidden") : canEdit ? "value" : ""}
+                            className={cn("pr-9 font-mono text-[12.5px]", isRef && "text-accent")}
+                            autoComplete="off"
+                            disabled={!canEdit}
+                            title={v.hidden ? "Your role cannot see secret values." : undefined}
+                          />
+                          {!isRef && !editing && !v.hidden && (canSeeSecrets || !v.from) && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRevealed((s) => {
+                                  const n = new Set(s);
+                                  if (n.has(v.id!)) n.delete(v.id!);
+                                  else n.add(v.id!);
+                                  return n;
+                                })
+                              }
+                              className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-faint hover:text-fg"
+                              aria-label={shown ? "Hide value" : "Show value"}
+                            >
+                              {shown ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                            </button>
+                          )}
+                        </div>
+                        {hasBuild && (
+                          <div className="flex items-center gap-3 text-xs text-muted">
+                            <Tooltip content="Available while the app runs">
+                              <label className="flex items-center gap-1.5">
+                                <Checkbox checked={v.runtime} onCheckedChange={(c) => update(v.id!, { runtime: !!c })} disabled={!canEdit} /> Run
+                              </label>
+                            </Tooltip>
+                            <Tooltip content="Passed as a build argument">
+                              <label className="flex items-center gap-1.5">
+                                <Checkbox checked={v.buildTime} onCheckedChange={(c) => update(v.id!, { buildTime: !!c })} disabled={!canEdit} /> Build
+                              </label>
+                            </Tooltip>
+                          </div>
+                        )}
+                        {canEdit ? (
+                          <Button variant="ghost" size="icon-sm" onClick={() => setVars((prev) => prev.filter((x) => x.id !== v.id))} aria-label="Remove variable">
+                            <Trash2 />
+                          </Button>
+                        ) : (
+                          <span />
+                        )}
+                      </div>
+                    );
+                  })}
+                  {canEdit && (
+                    <div className="flex flex-wrap gap-2 px-5 py-3">
+                      <Button size="sm" variant="ghost" onClick={() => setVars((prev) => [...prev, withId({ key: "", value: "", buildTime: true, runtime: true })])}>
+                        <Plus /> Add variable
+                      </Button>
+                      <AddReferenceMenu references={references} taken={taken} onAdd={addVar} variant="ghost" />
+                    </div>
+                  )}
+                </div>
+              )}
+              {collapsed && !dirty ? null : canEdit ? (
+                <CardFooter className={cn("transition-opacity", !dirty && "opacity-60")}>
+                  <span className="text-xs text-muted">
+                    {dirty ? "You have unsaved changes." : `${current.filter((v) => v.key).length} variables${canSeeSecrets ? "" : " · values hidden for your role"}`}
+                  </span>
+                  <div className="flex gap-2">
+                    {dirty && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          const rows = initial.map(withId);
+                          setVars(rows);
+                          setSavedValues(new Map(rows.map((v) => [v.id!, v.value])));
+                          setRaw(null);
+                        }}
+                      >
+                        Discard
+                      </Button>
+                    )}
+                    <Button size="sm" variant="primary" disabled={!dirty || !canEdit} loading={save.pending} onClick={() => (canRedeploy ? setConfirmOpen(true) : save.run(false))}>
+                      Save changes
+                    </Button>
+                  </div>
+                </CardFooter>
+              ) : (
+                <CardFooter>
+                  <span className="flex items-center gap-1.5 text-xs text-muted">
+                    <Lock className="size-3.5" /> Read only. Your role can see these variables but not change them.
+                  </span>
+                </CardFooter>
+              )}
+            </Card>
+            {replicas > 0 && (
+              <ReplicaVars
+                serviceId={serviceId}
+                replicas={replicas}
+                initial={replicaVars}
+                keys={current.filter((v) => v.key && v.runtime).map((v) => v.key)}
+                canEdit={canEdit}
+                canSeeSecrets={canSeeSecrets}
+                canRedeploy={canRedeploy}
+              />
+            )}
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <ReferencesCard references={references} canEdit={canEdit} taken={taken} onAdd={addVar} />
+          </div>
+        </div>
+      </TabsPanel>
+      {previewVars && (
+        <TabsPanel value="previews" keepMounted className="max-w-3xl data-[hidden]:hidden">
           <PreviewVars
             serviceId={serviceId}
             initial={previewVars}
@@ -334,12 +356,8 @@ export function VariablesEditor({
             canEdit={canEdit}
             databaseVariable={previewDatabaseVariable}
           />
-        )}
-      </div>
-
-      <div className="flex flex-col gap-4">
-        <ReferencesCard references={references} canEdit={canEdit} taken={taken} onAdd={addVar} />
-      </div>
+        </TabsPanel>
+      )}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent size="sm">
@@ -357,7 +375,7 @@ export function VariablesEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </Tabs>
   );
 }
 

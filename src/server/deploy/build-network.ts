@@ -101,7 +101,7 @@ export async function ensureBuilder(name: string, network: string, docker: Docke
  */
 const inUse = new Map<string, number>();
 
-export async function useBuilder<T>(name: string, docker: DockerCli, build: () => Promise<T>): Promise<T> {
+export async function withBuilder<T>(name: string, docker: DockerCli, build: () => Promise<T>): Promise<T> {
   inUse.set(name, (inUse.get(name) ?? 0) + 1);
   try {
     return await build();

@@ -9,7 +9,7 @@ import type { BuildConfig } from "@/server/services/types";
 import { scopeCacheMounts } from "@/server/security";
 import { buildArgFlags } from "./options";
 import { declareBuildArgs } from "@/lib/dockerfile";
-import { type BuildNetwork, builderFlags, builderName, ensureBuilder, serverCli, useBuilder } from "./build-network";
+import { type BuildNetwork, builderFlags, builderName, ensureBuilder, serverCli, withBuilder } from "./build-network";
 
 export type BuildContext = {
   /** Absolute path of the build context (repo + rootDir). */
@@ -337,7 +337,7 @@ async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileCont
       const name = builderName(network.name);
       const cli = ctx.remote ? serverCli(ctx.remote.server) : (a: string[]) => run("docker", a, { env: { ...ctx.dockerEnv } });
       // Counted from before it starts, so another build ending meanwhile does not stop it.
-      await useBuilder(name, cli, async () => {
+      await withBuilder(name, cli, async () => {
         if (!(await ensureBuilder(name, network.name, cli, ctx.log))) return build([]);
         const count = Object.keys(network.hosts).length;
         ctx.log(count ? `Build steps can reach this environment's services (${count} names)` : "Build steps can reach this environment's network");

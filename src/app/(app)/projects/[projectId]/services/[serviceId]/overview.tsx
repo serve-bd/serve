@@ -461,7 +461,7 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                   {service.rootDir && service.rootDir !== "." && service.rootDir !== "/" ? ` · ${service.rootDir}` : ""}
                 </Row>
                 <Row label="Deploy on push">{service.autoDeploy ? "On" : "Off"}</Row>
-                <Row label="PR previews">{service.previewsEnabled ? "On" : "Off"}</Row>
+                {!service.isPreview && <Row label="PR previews">{service.previewsEnabled ? "On" : "Off"}</Row>}
               </>
             )}
             {service.source?.kind === "image" && (

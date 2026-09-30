@@ -88,6 +88,7 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
       status: service.status,
       autoDeploy: service.autoDeploy,
       previewsEnabled: service.previewsEnabled,
+      isPreview: service.previewPr !== null,
       createdAt: service.createdAt.toISOString(),
       port: service.runtime.port,
       replicas: service.runtime.replicas,

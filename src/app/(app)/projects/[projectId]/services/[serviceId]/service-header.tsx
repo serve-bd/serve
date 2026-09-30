@@ -5,7 +5,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { AlertTriangle, ArrowUpRight, ChevronDown, Construction, FolderInput, Layers, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowUpRight,
+  ChevronDown,
+  Construction,
+  FolderInput,
+  Layers,
+  Play,
+  Plug,
+  Power,
+  RotateCw,
+  Rocket,
+  Server as ServerIcon,
+  Square,
+} from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
 import { ServiceSwitcher, type SiblingService } from "./service-switcher";
 import { MoveServicesDialog } from "@/components/move-services-dialog";
@@ -164,6 +179,14 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
         </div>
       </header>
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 px-4 pt-7 sm:px-8">
+        {service.parent && (
+          <Link
+            href={`/projects/${project.id}/services/${service.parent.id}`}
+            className="-mb-1 inline-flex w-fit items-center gap-1.5 rounded-lg text-[13px] font-medium text-muted transition-colors hover:text-fg"
+          >
+            <ArrowLeft className="size-4" /> Back to {service.parent.name}
+          </Link>
+        )}
         <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-start gap-3.5 sm:flex-[1_1_20rem] sm:items-center">
             <ServiceIcon type={service.type} engine={service.engine} icon={service.icon} source={service.sourceType} size="lg" />

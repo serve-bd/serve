@@ -2,6 +2,11 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { type ServiceIssue, serviceIssues } from "@/server/services/issues";
+import { type ServiceUse, serviceUses } from "@/server/services/uses";
+import { decryptOrNull } from "@/server/crypto";
+import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
+
+export type { ServiceUse };
 
 export type ServiceCardData = {
   id: string;
@@ -17,13 +22,17 @@ export type ServiceCardData = {
   lastDeploy: { id: string; status: string; commitMessage: string | null; createdAt: Date } | null;
   /** Problems that need attention, worst first. */
   issues: ServiceIssue[];
+  serverId: string;
+  serverName: string;
+  /** Services of the environment this one references in its variables. */
+  uses: ServiceUse[];
 };
 
 export async function environmentServices(environmentId: string): Promise<ServiceCardData[]> {
   const services = await db.select().from(schema.service).where(eq(schema.service.environmentId, environmentId)).orderBy(asc(schema.service.createdAt));
   if (!services.length) return [];
   const ids = services.map((s) => s.id);
-  const [domains, deployments, issues] = await Promise.all([
+  const [domains, deployments, issues, vars, servers, mesh] = await Promise.all([
     db.select().from(schema.domain).where(inArray(schema.domain.serviceId, ids)).orderBy(asc(schema.domain.createdAt)),
     db
       .selectDistinctOn([schema.deployment.serviceId], {
@@ -37,7 +46,23 @@ export async function environmentServices(environmentId: string): Promise<Servic
       .where(inArray(schema.deployment.serviceId, ids))
       .orderBy(schema.deployment.serviceId, desc(schema.deployment.createdAt)),
     serviceIssues(ids),
+    db.select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(inArray(schema.envVar.serviceId, ids)),
+    db
+      .select({ id: schema.server.id, name: schema.server.name })
+      .from(schema.server)
+      .where(
+        inArray(
+          schema.server.id,
+          services.map((s) => s.serverId),
+        ),
+      ),
+    meshMemberIds(),
   ]);
+  const uses = serviceUses(
+    services,
+    vars.map((v) => ({ ...v, value: decryptOrNull(v.value) ?? "" })),
+    (a, b) => privatelyConnected(mesh, a, b),
+  );
   return services.map((s) => {
     const primary = pickPrimaryDomain(domains.filter((x) => x.serviceId === s.id));
     const dep = deployments.find((x) => x.serviceId === s.id);
@@ -63,6 +88,9 @@ export async function environmentServices(environmentId: string): Promise<Servic
       previewPr: s.previewPr ?? null,
       lastDeploy: dep ? { id: dep.id, status: dep.status, commitMessage: dep.commitMessage, createdAt: dep.createdAt } : null,
       issues: issues.get(s.id) ?? [],
+      serverId: s.serverId,
+      serverName: servers.find((x) => x.id === s.serverId)?.name ?? "",
+      uses: uses.get(s.id) ?? [],
     };
   });
 }

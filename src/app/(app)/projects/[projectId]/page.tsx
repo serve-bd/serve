@@ -12,7 +12,7 @@ export async function generateMetadata(props: PageProps<"/projects/[projectId]">
 
 export default async function ProjectPage(props: PageProps<"/projects/[projectId]">) {
   const { projectId } = await props.params;
-  const { env } = await props.searchParams;
+  const { env, view } = await props.searchParams;
   const ctx = await requireOrg();
   const project = await pageProject(projectId, ctx.org.id);
   const { envs, current } = await resolveEnvironment(projectId, typeof env === "string" ? env : undefined);
@@ -23,6 +23,8 @@ export default async function ProjectPage(props: PageProps<"/projects/[projectId
       environments={envs.map((e) => ({ id: e.id, name: e.name }))}
       environment={{ id: current.id, name: current.name }}
       initialServices={services}
+      view={view === "canvas" ? "canvas" : "list"}
+      positions={current.canvas?.positions ?? {}}
     />
   );
 }

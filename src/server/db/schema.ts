@@ -328,6 +328,8 @@ export const environment = pgTable(
       .notNull()
       .references(() => project.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /** Where services sit on the canvas, by service id; missing ones are placed automatically. */
+    canvas: jsonb("canvas").$type<{ positions: Record<string, { x: number; y: number }> }>(),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("environment_project_name_idx").on(t.projectId, t.name)],

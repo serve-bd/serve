@@ -1,4 +1,4 @@
-import { PRIVATE_VARS, REF, referenceName } from "@/lib/refs";
+import { PRIVATE_VARS, referencedService, referencesIn } from "@/lib/refs";
 import { privatelyConnected } from "./plan";
 
 export type ImpactService = { id: string; name: string; slug: string; serverId: string; environmentId: string; projectId: string };
@@ -21,11 +21,10 @@ export function lostLinks(before: Map<string, string[]>, after: Map<string, stri
     const consumer = byId.get(v.serviceId);
     if (!consumer) continue;
     const siblings = byEnv.get(consumer.environmentId) ?? [];
-    for (const [, ref] of v.value.matchAll(REF)) {
-      const dot = ref.indexOf(".");
-      if (dot === -1 || !PRIVATE_VARS.test(ref.slice(dot + 1))) continue;
-      const name = ref.slice(0, dot).toLowerCase();
-      const provider = siblings.find((s) => s.id !== consumer.id && (s.slug.toLowerCase() === name || s.name.toLowerCase() === name || referenceName(s.name) === name));
+    for (const ref of referencesIn([v.value])) {
+      if (!PRIVATE_VARS.test(ref.key)) continue;
+      const provider = referencedService(siblings, ref.name);
+      if (provider?.id === consumer.id) continue;
       if (!provider || !lost(consumer.serverId, provider.serverId)) continue;
       const key = `${consumer.id}|${provider.id}`;
       const link = found.get(key) ?? { consumerId: consumer.id, providerId: provider.id, variables: [] };

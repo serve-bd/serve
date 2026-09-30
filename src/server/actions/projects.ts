@@ -1,7 +1,7 @@
 "use server";
 
 import { requireRoom } from "@/server/limits";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { cannotMessage } from "@/lib/permissions";
@@ -153,5 +153,40 @@ export async function redeployEnvironment(environmentId: string) {
       .where(and(eq(schema.service.environmentId, environmentId), inArray(schema.service.status, ["running", "failed", "crashed"])));
     for (const s of services) await queueDeployment(s.id, "redeploy", { userId: ctx.user.id });
     return { count: services.length };
+  });
+}
+
+const canvasPositions = z.record(z.string().max(32), z.object({ x: z.number().finite().min(-1e5).max(1e5), y: z.number().finite().min(-1e5).max(1e5) }));
+
+/** Remember where services sit on an environment's canvas (merged: only moved services are sent). */
+export async function saveCanvasPositions(environmentId: string, positions: Record<string, { x: number; y: number }>) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const parsed = canvasPositions.parse(positions);
+    const [env] = await db.select().from(schema.environment).where(eq(schema.environment.id, environmentId));
+    if (!env) throw new UserError("Environment not found.");
+    await projectInOrg(env.projectId, ctx.org.id);
+    const ids = new Set((await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.environmentId, environmentId))).map((s) => s.id));
+    const moved: Record<string, { x: number; y: number }> = {};
+    for (const [id, p] of Object.entries(parsed)) if (ids.has(id)) moved[id] = { x: Math.round(p.x), y: Math.round(p.y) };
+    if (!Object.keys(moved).length) return null;
+    // Merged in one statement, so two people moving different services never undo each other.
+    await db
+      .update(schema.environment)
+      .set({ canvas: sql`jsonb_build_object('positions', coalesce(${schema.environment.canvas}->'positions', '{}'::jsonb) || ${JSON.stringify(moved)}::jsonb)` })
+      .where(eq(schema.environment.id, environmentId));
+    return null;
+  });
+}
+
+/** Forget the canvas layout: services go back to automatic places. */
+export async function resetCanvasLayout(environmentId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const [env] = await db.select().from(schema.environment).where(eq(schema.environment.id, environmentId));
+    if (!env) throw new UserError("Environment not found.");
+    await projectInOrg(env.projectId, ctx.org.id);
+    await db.update(schema.environment).set({ canvas: null }).where(eq(schema.environment.id, environmentId));
+    return null;
   });
 }

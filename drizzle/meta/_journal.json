@@ -211,6 +211,13 @@
       "when": 1790752209830,
       "tag": "0029_private_networks",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790754800243,
+      "tag": "0030_environment_canvas",
+      "breakpoints": true
     }
   ]
 }

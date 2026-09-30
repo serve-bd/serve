@@ -1,0 +1,289 @@
+"use client";
+
+import "@xyflow/react/dist/base.css";
+import * as React from "react";
+import {
+  Background,
+  BackgroundVariant,
+  type Edge,
+  Handle,
+  MarkerType,
+  type Node,
+  type NodeProps,
+  type NodeTypes,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  useNodesState,
+  useReactFlow,
+  ViewportPortal,
+} from "@xyflow/react";
+import { AlertTriangle, ArrowUpRight, LayoutGrid, Maximize, Minus, Plus, Server as ServerIcon } from "lucide-react";
+import { useRouter } from "@/hooks/use-router";
+import { ServiceIcon } from "@/components/service-icon";
+import { StatusLabel } from "@/components/ui/status";
+import { Tooltip } from "@/components/ui/tooltip";
+import { useConfirm } from "@/components/ui/confirm";
+import { useAction } from "@/hooks/use-action";
+import { resetCanvasLayout, saveCanvasPositions } from "@/server/actions/projects";
+import type { ServiceCardData } from "@/server/project-data";
+import { cn } from "@/lib/utils";
+import { autoLayout, CARD_H, CARD_W, FRAME_PAD, FRAME_TOP, type Pos } from "@/lib/canvas-layout";
+
+type ServiceNode = Node<{ s: ServiceCardData; projectId: string }, "service">;
+
+const sourceKind = (s: ServiceCardData) => (s.source && s.type === "app" ? (s.source.includes("/") && !s.source.includes(":") ? "git" : "image") : null);
+
+/** A box around each server's services, sized from where they sit now; drawn behind the cards. */
+function ServerFrames({ nodes }: { nodes: ServiceNode[] }) {
+  const byServer = new Map<string, ServiceNode[]>();
+  for (const n of nodes) byServer.set(n.data.s.serverId, [...(byServer.get(n.data.s.serverId) ?? []), n]);
+  if (byServer.size < 2) return null;
+  return (
+    <ViewportPortal>
+      {[...byServer].map(([serverId, list]) => {
+        const minX = Math.min(...list.map((n) => n.position.x)) - FRAME_PAD;
+        const minY = Math.min(...list.map((n) => n.position.y)) - FRAME_TOP;
+        const maxX = Math.max(...list.map((n) => n.position.x + CARD_W)) + FRAME_PAD;
+        const maxY = Math.max(...list.map((n) => n.position.y + CARD_H)) + FRAME_PAD;
+        return (
+          <div
+            key={serverId}
+            className="pointer-events-none absolute rounded-3xl border border-dashed border-line-strong/70 bg-surface-2/30"
+            style={{ transform: `translate(${minX}px, ${minY}px)`, width: maxX - minX, height: maxY - minY }}
+          >
+            <span className="flex items-center gap-1.5 px-4 pt-3 text-[11px] font-medium tracking-wide text-muted uppercase">
+              <ServerIcon className="size-3" /> {list[0].data.s.serverName || "Server"}
+            </span>
+          </div>
+        );
+      })}
+    </ViewportPortal>
+  );
+}
+
+function ServiceCardNode({ data, selected }: NodeProps<ServiceNode>) {
+  const { s } = data;
+  const issue = s.issues[0];
+  return (
+    <div
+      style={{ width: CARD_W, height: CARD_H }}
+      className={cn(
+        "group flex cursor-pointer flex-col justify-between rounded-2xl border bg-surface shadow-sm transition-[border-color,box-shadow] duration-150 hover:shadow-md",
+        issue?.tone === "bad" ? "border-bad/50" : issue?.tone === "warn" ? "border-warn/50" : selected ? "border-accent" : "border-line hover:border-line-strong",
+      )}
+    >
+      <Handle type="target" position={Position.Left} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
+      <div className="flex items-start gap-3 px-3.5 pt-3">
+        <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind(s)} size="sm" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="flex items-center gap-1.5">
+            <span className="truncate text-[13px] font-semibold text-fg">{s.name}</span>
+            {s.previewPr !== null && <span className="shrink-0 rounded-full bg-info-soft px-1.5 text-[9px] font-semibold text-info">PREVIEW</span>}
+          </span>
+          <span className="truncate text-[11px] text-muted">{s.domain ?? s.source ?? (s.engine ? s.engine : s.type)}</span>
+        </div>
+        {s.domain && (
+          <a
+            href={`${s.domainHttps ? "https" : "http"}://${s.domain}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="nodrag flex-none rounded-md p-1 text-faint transition-colors hover:bg-hover hover:text-accent"
+            aria-label={`Open ${s.domain}`}
+          >
+            <ArrowUpRight className="size-3.5" />
+          </a>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-2 border-t border-line px-3.5 py-2">
+        <StatusLabel status={s.status} className="text-[11px]" />
+        {issue && (
+          <span className={cn("flex min-w-0 items-center gap-1 text-[11px]", issue.tone === "bad" ? "text-bad" : "text-warn")} title={s.issues.map((i) => i.text).join("\n")}>
+            <AlertTriangle className="size-3 flex-none" />
+            <span className="truncate">{s.issues.length > 1 ? `${s.issues.length} issues` : "Needs attention"}</span>
+          </span>
+        )}
+      </div>
+      <Handle type="source" position={Position.Right} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
+    </div>
+  );
+}
+
+const nodeTypes: NodeTypes = { service: ServiceCardNode };
+
+function edgesOf(services: ServiceCardData[]): Edge[] {
+  const byId = new Map(services.map((s) => [s.id, s]));
+  const edges: Edge[] = [];
+  for (const s of services)
+    for (const u of s.uses) {
+      const target = byId.get(u.id);
+      if (!target) continue;
+      const across = s.serverId !== target.serverId && u.private;
+      const color = u.broken ? "var(--bad)" : across ? "var(--accent)" : "var(--line-strong)";
+      const vars = u.variables.length > 2 ? `${u.variables.slice(0, 2).join(", ")} +${u.variables.length - 2}` : u.variables.join(", ");
+      edges.push({
+        id: `${s.id}->${u.id}`,
+        source: s.id,
+        target: u.id,
+        animated: across && !u.broken,
+        label: u.broken ? `${vars} · not reachable` : vars,
+        labelStyle: { fill: u.broken ? "var(--bad)" : "var(--muted)", fontSize: 10, fontFamily: "var(--font-mono, monospace)" },
+        labelBgStyle: { fill: "var(--bg)" },
+        labelBgPadding: [4, 2],
+        labelBgBorderRadius: 4,
+        style: { stroke: color, strokeWidth: 1.5, strokeDasharray: u.broken ? "5 4" : undefined },
+        markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
+      });
+    }
+  return edges;
+}
+
+type Props = {
+  projectId: string;
+  environmentId: string;
+  services: ServiceCardData[];
+  saved: Record<string, Pos>;
+  canManage: boolean;
+};
+
+function Canvas({ projectId, environmentId, services, saved, canManage }: Props) {
+  const router = useRouter();
+  const confirm = useConfirm();
+  const flow = useReactFlow();
+  const auto = React.useMemo(() => autoLayout(services), [services]);
+  // Where each service sits: dragged here, saved before, or placed automatically.
+  const place = React.useCallback((s: ServiceCardData, current?: Pos): Pos => current ?? saved[s.id] ?? auto[s.id], [saved, auto]);
+  const build = React.useCallback(
+    (prev: ServiceNode[]): ServiceNode[] =>
+      services.map((s) => ({
+        id: s.id,
+        type: "service",
+        position: place(s, prev.find((n) => n.id === s.id)?.position),
+        data: { s, projectId },
+        draggable: canManage,
+      })),
+    [services, place, projectId, canManage],
+  );
+  const [nodes, setNodes, onNodesChange] = useNodesState<ServiceNode>(build([]));
+  // New data (status, a service added or removed) keeps what is already on the canvas where it is.
+  React.useEffect(() => {
+    setNodes((prev) => build(prev));
+  }, [build, setNodes]);
+  const edges = React.useMemo(() => edgesOf(services), [services]);
+
+  const save = useAction((positions: Record<string, Pos>) => saveCanvasPositions(environmentId, positions), { refresh: false });
+  const reset = useAction(() => resetCanvasLayout(environmentId), {
+    success: "Layout reset",
+    onSuccess: () => {
+      setNodes(services.map((s) => ({ id: s.id, type: "service", position: auto[s.id], data: { s, projectId }, draggable: canManage })));
+      requestAnimationFrame(() => void flow.fitView({ padding: 0.2, duration: 300 }));
+    },
+  });
+
+  return (
+    <div className="serve-canvas relative size-full">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onNodeClick={(_e, node) => {
+          router.push(`/projects/${projectId}/services/${node.id}`);
+        }}
+        onNodeDragStop={(_e, _node, dragged) => {
+          if (!canManage) return;
+          const moved = Object.fromEntries(dragged.map((n) => [n.id, n.position]));
+          if (Object.keys(moved).length) void save.run(moved);
+        }}
+        nodesConnectable={false}
+        edgesFocusable={false}
+        elementsSelectable
+        fitView
+        fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+        minZoom={0.25}
+        maxZoom={1.75}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1.2} color="var(--line-strong)" />
+        <ServerFrames nodes={nodes} />
+      </ReactFlow>
+      <div className="absolute bottom-4 left-4 flex items-center gap-1 rounded-xl border border-line bg-surface/95 p-1 shadow-sm backdrop-blur">
+        <ToolButton label="Zoom out" onClick={() => void flow.zoomOut({ duration: 200 })}>
+          <Minus />
+        </ToolButton>
+        <ToolButton label="Zoom in" onClick={() => void flow.zoomIn({ duration: 200 })}>
+          <Plus />
+        </ToolButton>
+        <ToolButton label="Fit to screen" onClick={() => void flow.fitView({ padding: 0.2, duration: 300, maxZoom: 1 })}>
+          <Maximize />
+        </ToolButton>
+        {canManage && (
+          <ToolButton
+            label="Arrange automatically"
+            onClick={async () => {
+              if (
+                await confirm({
+                  title: "Arrange automatically?",
+                  description: "Services go back to automatic places for everyone. Moved cards lose their places.",
+                  confirmLabel: "Arrange",
+                })
+              )
+                void reset.run();
+            }}
+          >
+            <LayoutGrid />
+          </ToolButton>
+        )}
+      </div>
+      <Legend services={services} />
+    </div>
+  );
+}
+
+function ToolButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <Tooltip content={label}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        className="flex size-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-fg [&_svg]:size-4"
+      >
+        {children}
+      </button>
+    </Tooltip>
+  );
+}
+
+/** What the lines mean, only for the kinds on this canvas. */
+function Legend({ services }: { services: ServiceCardData[] }) {
+  const byId = new Map(services.map((s) => [s.id, s]));
+  const uses = services.flatMap((s) => s.uses.map((u) => ({ u, across: s.serverId !== byId.get(u.id)?.serverId && u.private })));
+  if (!uses.length) return null;
+  const kinds = [
+    { on: uses.some((x) => !x.across && !x.u.broken), color: "var(--line-strong)", dash: false, text: "Uses" },
+    { on: uses.some((x) => x.across && !x.u.broken), color: "var(--accent)", dash: false, text: "Over the private network" },
+    { on: uses.some((x) => x.u.broken), color: "var(--bad)", dash: true, text: "Not reachable: no shared network" },
+  ].filter((k) => k.on);
+  return (
+    <div className="absolute right-4 bottom-4 hidden flex-col gap-1.5 rounded-xl border border-line bg-surface/95 px-3 py-2.5 text-[11px] text-muted shadow-sm backdrop-blur sm:flex">
+      {kinds.map((k) => (
+        <span key={k.text} className="flex items-center gap-2">
+          <svg width="22" height="6" aria-hidden>
+            <line x1="0" y1="3" x2="22" y2="3" stroke={k.color} strokeWidth="1.5" strokeDasharray={k.dash ? "4 3" : undefined} />
+          </svg>
+          {k.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export function ProjectCanvas(props: Props) {
+  return (
+    <ReactFlowProvider>
+      <Canvas {...props} />
+    </ReactFlowProvider>
+  );
+}

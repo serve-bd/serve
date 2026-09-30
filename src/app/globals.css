@@ -348,3 +348,8 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Project canvas: server boxes sit behind the cards and lines. */
+.serve-canvas .react-flow__viewport-portal {
+  z-index: -1;
+}

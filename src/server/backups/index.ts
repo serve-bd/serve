@@ -4,13 +4,18 @@ import { databaseContainer } from "@/server/databases/container";
 import { PassThrough } from "node:stream";
 import zlib from "node:zlib";
 import { pipeline } from "node:stream/promises";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import type Docker from "dockerode";
+import { LABEL } from "@/server/docker/client";
+import { credsFromEnv, DUMP_EXTENSION, dumpCommands, engineOfImage, parseBackupKey, requirePass } from "./compose";
+
+export { parseBackupKey };
+import { dumpStorage, restoreStorage, stackStorage } from "./storage";
 import { db, schema } from "@/server/db";
 import { decrypt } from "@/server/crypto";
 import { serverOf } from "@/server/servers/context";
 import { engines } from "@/server/databases/engines";
 import { databaseCreds } from "@/server/databases/options";
-import type { EngineCreds } from "@/server/databases/engines";
 import type { DatabaseConfig } from "@/server/services/types";
 import { newId } from "@/server/id";
 import { paths } from "@/server/paths";
@@ -52,73 +57,217 @@ async function logLine(backupId: string, line: string) {
 
 type ServiceRow = typeof schema.service.$inferSelect;
 
-/** Dump a database service into a file on this machine. The dump runs next to the database and streams back. Returns the size. */
-export async function dumpDatabase(service: ServiceRow, file: string) {
+/** A database container and the commands that dump into and restore from it. */
+type Commands = {
+  docker: Docker;
+  container: Docker.Container;
+  engine: DatabaseConfig["engine"];
+  backup: string;
+  restore: string;
+  /** Postgres: psql for plain SQL files instead of pg_restore. */
+  restorePlain?: string;
+  /** Masked in any output. */
+  password: string;
+};
+
+/**
+ * What a backup reads from and writes to: a database service, or in a compose stack one of its
+ * database containers (`db:<service>`), a volume (`volume:<name>`) or a host directory
+ * (`dir:<path>`). Same retention and S3 handling for all of them.
+ */
+type Target = {
+  label: string;
+  /** Start of the backup file names. */
+  stem: string;
+  extension: string;
+  s3DestinationId: string | null;
+  retention: number;
+  retentionS3: number;
+  dump(file: string): Promise<number>;
+  restore(file: string, log: (line: string) => void): Promise<{ out: string; format: string }>;
+};
+
+async function databaseCommands(service: ServiceRow): Promise<Commands> {
   const cfg = service.database;
   if (!cfg) throw new Error(`${service.name} is not a database`);
   const engine = engines[cfg.engine];
   const creds = databaseCreds(cfg, decrypt(cfg.password));
   const { docker } = await serverOf(service);
-  const exec = await (await databaseContainer(docker, service)).exec({
-    Cmd: ["sh", "-c", engine.backupCommand(creds)],
-    AttachStdout: true,
-    AttachStderr: true,
-  });
+  const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+  return {
+    docker,
+    container: await databaseContainer(docker, service),
+    engine: cfg.engine,
+    backup: engine.backupCommand(creds),
+    restore: engine.restoreCommand(creds),
+    restorePlain: cfg.engine === "postgres" ? `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(creds.database)}` : undefined,
+    password: creds.password,
+  };
+}
+
+/** Output of a short command in a container (reading a *_FILE secret). */
+async function execText(container: Docker.Container, docker: Docker, cmd: string[]) {
+  const exec = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
+  const stream = await exec.start({ hijack: true, stdin: false });
+  const out = new PassThrough();
+  let text = "";
+  out.on("data", (c: Buffer) => (text += c.toString()));
+  docker.modem.demuxStream(stream, out, new PassThrough());
+  await new Promise<void>((resolve) => stream.on("end", resolve));
+  return (await exec.inspect()).ExitCode === 0 ? text : null;
+}
+
+async function composeCommands(service: ServiceRow, name: string): Promise<Commands> {
+  const { docker } = await serverOf(service);
+  const [row] = await docker.listContainers({ filters: { label: [`${LABEL.service}=${service.id}`, `com.docker.compose.service=${name}`], status: ["running"] } });
+  if (!row) throw new Error(`The ${name} container of ${service.name} is not running. Start the stack first.`);
+  const container = docker.getContainer(row.Id);
+  const info = await container.inspect();
+  // Checked again on the container itself, not only through the list filter.
+  if (info.Config.Labels?.[LABEL.service] !== service.id) throw new Error(`The ${name} container does not belong to ${service.name}.`);
+  const engine = engineOfImage(info.Config.Image);
+  if (!engine) throw new Error(`${name} runs ${info.Config.Image}, which is not a database Serve can back up.`);
+  const env: Record<string, string> = {};
+  for (const line of info.Config.Env ?? []) {
+    const i = line.indexOf("=");
+    if (i > 0) env[line.slice(0, i)] = line.slice(i + 1);
+  }
+  const files: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env))
+    if (k.endsWith("_FILE") && v.startsWith("/")) {
+      const text = await execText(container, docker, ["cat", v]).catch(() => null);
+      if (text !== null) files[k] = text;
+    }
+  const creds = credsFromEnv(engine, env, files);
+  if (typeof creds === "string") throw new Error(creds);
+  // Redis and Valkey often get their password on the command line: redis-server --requirepass x.
+  if ((engine === "redis" || engine === "valkey") && !creds.password) creds.password = requirePass([...(info.Config.Entrypoint ?? []), ...(info.Config.Cmd ?? [])]);
+  return { docker, container, engine, ...dumpCommands(engine, creds), password: creds.password };
+}
+
+/** Dumps through a database container into a file on this machine. The dump streams back. Returns the size. */
+async function dumpWith(t: Commands, file: string) {
+  const exec = await t.container.exec({ Cmd: ["sh", "-c", t.backup], AttachStdout: true, AttachStderr: true });
   const stream = await exec.start({ hijack: true, stdin: false });
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   let errText = "";
   stderr.on("data", (c: Buffer) => (errText += c.toString()));
-  docker.modem.demuxStream(stream, stdout, stderr);
+  t.docker.modem.demuxStream(stream, stdout, stderr);
   stream.on("end", () => {
     stdout.end();
     stderr.end();
   });
   await pipeline(stdout, fs.createWriteStream(file));
   const info = await exec.inspect();
-  if (info.ExitCode !== 0) throw new Error(errText.replaceAll(creds.password, "***").trim() || `Backup command exited with ${info.ExitCode}`);
+  const masked = t.password ? errText.replaceAll(t.password, "***") : errText;
+  if (info.ExitCode !== 0) throw new Error(masked.trim() || `Backup command exited with ${info.ExitCode}`);
   const { size } = await fs.promises.stat(file);
-  if (size === 0) throw new Error(errText.trim() || "Backup produced an empty file");
+  if (size === 0) throw new Error(masked.trim() || "Backup produced an empty file");
   return size;
 }
 
 /** Run a shell command in a database container with `input` on stdin. Returns its output with the password masked. */
-export async function runWithInput(service: ServiceRow, command: string, input: NodeJS.ReadableStream, gz: boolean, password: string) {
-  const { docker } = await serverOf(service);
-  const exec = await (await databaseContainer(docker, service)).exec({
-    Cmd: ["sh", "-c", command],
-    AttachStdin: true,
-    AttachStdout: true,
-    AttachStderr: true,
-  });
+async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream, gz: boolean) {
+  const exec = await t.container.exec({ Cmd: ["sh", "-c", command], AttachStdin: true, AttachStdout: true, AttachStderr: true });
   const stream = await exec.start({ hijack: true, stdin: true });
   let output = "";
   const sink = new PassThrough();
   sink.on("data", (c: Buffer) => (output += c.toString()));
-  docker.modem.demuxStream(stream, sink, sink);
+  t.docker.modem.demuxStream(stream, sink, sink);
   const done = new Promise<void>((resolve) => stream.on("end", resolve));
   await pipeline(gz ? input.pipe(zlib.createGunzip()) : input, stream, { end: false }).catch(() => {});
   (stream as unknown as { end: () => void }).end();
   await done;
   const info = await exec.inspect();
-  const clean = output.replaceAll(password, "***").trim();
+  const clean = (t.password ? output.replaceAll(t.password, "***") : output).trim();
   if (info.ExitCode && info.ExitCode !== 0) throw new Error(clean.slice(-1500) || `Command exited with ${info.ExitCode}`);
   return clean;
 }
 
+/** Restores a dump into a database container; Redis and Valkey restart to load it. */
+async function restoreWith(t: Commands, file: string, log: (line: string) => void = () => {}) {
+  // Mongo archives are gzip streams already; everything else ending in .gz is unpacked on the way in.
+  const gz = /\.gz$/i.test(file) && t.engine !== "mongodb";
+  const { command, format } = await restoreCommandFor(t, file, gz);
+  const out = await runIn(t, command, fs.createReadStream(file), gz);
+  if (t.engine === "redis" || t.engine === "valkey") {
+    log("Restarting to load the dump");
+    await t.container.restart();
+  }
+  return { out, format: `${format}${gz ? " (gzip)" : ""}` };
+}
+
+/** Dump a database service into a file on this machine. Returns the size. */
+export async function dumpDatabase(service: ServiceRow, file: string) {
+  return dumpWith(await databaseCommands(service), file);
+}
+
+/** Run a shell command in a database container with `input` on stdin. Returns its output with the password masked. */
+export async function runWithInput(service: ServiceRow, command: string, input: NodeJS.ReadableStream, gz: boolean, password: string) {
+  return runIn({ ...(await databaseCommands(service)), password }, command, input, gz);
+}
+
 /** Restore a dump file (made by dumpDatabase for the same engine) into a database service. */
 export async function restoreDumpFile(service: ServiceRow, file: string) {
-  const cfg = service.database;
-  if (!cfg) throw new Error(`${service.name} is not a database`);
-  const creds = databaseCreds(cfg, decrypt(cfg.password));
-  const gz = /\.gz$/i.test(file) && cfg.engine !== "mongodb";
-  const { command } = await restoreCommandFor(cfg, creds, file, gz);
-  const out = await runWithInput(service, command, fs.createReadStream(file), gz, creds.password);
-  if (cfg.engine === "redis" || cfg.engine === "valkey") {
-    const { docker } = await serverOf(service);
-    await (await databaseContainer(docker, service)).restart();
+  return (await restoreWith(await databaseCommands(service), file)).out;
+}
+
+const fileSafe = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(-40) || "data";
+
+/** The target of a backup row: a compose key when it has one, else the database service. */
+export async function targetOf(service: ServiceRow, key: string | null): Promise<Target> {
+  if (!key) {
+    const cfg = service.database;
+    if (!cfg) throw new Error(`${service.name} is not a database`);
+    return {
+      label: service.name,
+      stem: service.slug,
+      extension: engines[cfg.engine].backupExtension,
+      s3DestinationId: cfg.s3DestinationId ?? null,
+      retention: cfg.backupRetention,
+      retentionS3: cfg.backupRetentionS3 ?? cfg.backupRetention,
+      dump: async (file) => dumpWith(await databaseCommands(service), file),
+      restore: async (file, log) => restoreWith(await databaseCommands(service), file, log),
+    };
   }
-  return out;
+  const parsed = parseBackupKey(key);
+  if (!parsed || service.type !== "compose") throw new Error("This backup does not belong to a compose stack.");
+  const cfg = service.composeBackups?.[key];
+  const base = {
+    s3DestinationId: cfg?.s3DestinationId ?? null,
+    retention: cfg?.retention ?? 7,
+    retentionS3: cfg?.retentionS3 ?? cfg?.retention ?? 7,
+  };
+  if (parsed.kind === "db") {
+    const commands = await composeCommands(service, parsed.name);
+    return {
+      ...base,
+      label: `${service.name} / ${parsed.name}`,
+      stem: `${service.slug}-${fileSafe(parsed.name)}`,
+      extension: DUMP_EXTENSION[commands.engine],
+      dump: (file) => dumpWith(commands, file),
+      restore: (file, log) => restoreWith(commands, file, log),
+    };
+  }
+  // Storage: only a volume or directory the stack's own containers mount.
+  const { docker } = await serverOf(service);
+  const source = { kind: parsed.kind, source: parsed.name };
+  const mounted = (await stackStorage(docker, service.id)).some((m) => m.kind === source.kind && m.source === source.source);
+  if (!mounted) throw new Error(`${parsed.name} is not mounted by ${service.name} any more.`);
+  return {
+    ...base,
+    label: `${service.name} / ${parsed.name}`,
+    stem: `${service.slug}-${fileSafe(parsed.name)}`,
+    extension: "tar.gz",
+    dump: (file) => dumpStorage(docker, source, file),
+    restore: async (file, log) => ({ out: await restoreStorage(docker, service.id, source, file, log), format: "tar.gz" }),
+  };
 }
 
 export async function runBackup(backupId: string) {
@@ -126,22 +275,25 @@ export async function runBackup(backupId: string) {
     where: eq(schema.backup.id, backupId),
     with: { service: true },
   });
-  if (!backup?.service.database) return;
+  if (!backup) return;
   const service = backup.service;
-  const cfg = service.database!;
-  const engine = engines[cfg.engine];
+  if (!backup.target && !service.database) return;
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const filename = `${service.slug}-${stamp}.${engine.backupExtension}`;
-  const file = backupFile(service.id, filename);
-  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  let file: string | null = null;
+  let label = service.name;
 
   try {
-    const size = await dumpDatabase(service, file);
+    const t = await targetOf(service, backup.target);
+    label = t.label;
+    const filename = `${t.stem}-${stamp}.${t.extension}`;
+    file = backupFile(service.id, filename);
+    await fs.promises.mkdir(path.dirname(file), { recursive: true });
+    const size = await t.dump(file);
 
     await logLine(backup.id, `Dumped ${filename} (${size} bytes)`);
 
     // A failed upload keeps the local copy; the backup still counts.
-    const s3 = await s3For(cfg.s3DestinationId);
+    const s3 = await s3For(t.s3DestinationId);
     let s3Status: "uploaded" | "failed" | null = null;
     if (s3) {
       try {
@@ -158,20 +310,20 @@ export async function runBackup(backupId: string) {
       .update(schema.backup)
       .set({ status: "success", filename, size, destination: s3Status === "uploaded" ? s3!.id : "local", s3Status, finishedAt: new Date() })
       .where(eq(schema.backup.id, backup.id));
-    await applyRetention(service.id, cfg.backupRetention, cfg.backupRetentionS3 ?? cfg.backupRetention, cfg.s3DestinationId);
+    await applyRetention(service.id, backup.target, t.retention, t.retentionS3);
     if (backup.trigger === "schedule") {
       void notify(await orgOfService(service.id), "backup.success", {
         ok: true,
-        title: `Backup of ${service.name} finished`,
+        title: `Backup of ${label} finished`,
         body: filename,
         url: `/projects/${service.projectId}/services/${service.id}/backups`,
         serviceId: service.id,
-        dedupKey: `backup:${service.id}`,
+        dedupKey: `backup:${service.id}:${backup.target ?? ""}`,
         data: { backupId: backup.id, filename, size, s3: s3Status },
       });
     }
   } catch (error) {
-    await fs.promises.rm(file, { force: true });
+    if (file) await fs.promises.rm(file, { force: true });
     const message = error instanceof Error ? error.message : String(error);
     await db
       .update(schema.backup)
@@ -179,12 +331,12 @@ export async function runBackup(backupId: string) {
       .where(eq(schema.backup.id, backup.id));
     void notify(await orgOfService(service.id), "backup.failed", {
       ok: false,
-      title: `Backup of ${service.name} failed`,
+      title: `Backup of ${label} failed`,
       body: message.slice(0, 400),
       url: `/projects/${service.projectId}/services/${service.id}/backups`,
       error: message.slice(0, 2000),
       serviceId: service.id,
-      dedupKey: `backup:${service.id}`,
+      dedupKey: `backup:${service.id}:${backup.target ?? ""}`,
       data: { backupId: backup.id },
     });
     throw error;
@@ -195,11 +347,11 @@ export async function runBackup(backupId: string) {
  * Keeps the newest `keepLocal` backups on this machine and `keepS3` in S3. A backup
  * whose copies are all gone is removed from the list. Imported files are kept.
  */
-async function applyRetention(serviceId: string, keepLocal: number, keepS3: number, s3Id?: string | null) {
+async function applyRetention(serviceId: string, target: string | null, keepLocal: number, keepS3: number) {
   const rows = await db
     .select()
     .from(schema.backup)
-    .where(and(eq(schema.backup.serviceId, serviceId), eq(schema.backup.status, "success")))
+    .where(and(eq(schema.backup.serviceId, serviceId), eq(schema.backup.status, "success"), target ? eq(schema.backup.target, target) : isNull(schema.backup.target)))
     .orderBy(desc(schema.backup.createdAt));
   const own = rows.filter((b) => b.trigger !== "import");
   const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, serviceId));
@@ -216,7 +368,6 @@ async function applyRetention(serviceId: string, keepLocal: number, keepS3: numb
     }
     if (dropLocal && (!inS3 || dropS3)) await db.delete(schema.backup).where(eq(schema.backup.id, b.id));
   }
-  void s3Id;
 }
 
 /** Whether the backup file is still on this machine. */
@@ -259,29 +410,24 @@ async function peek(file: string, gz: boolean, bytes = 8): Promise<Buffer> {
 }
 
 /** The command that restores this file: pg_restore for custom dumps, psql for plain SQL. */
-async function restoreCommandFor(cfg: DatabaseConfig, creds: EngineCreds, file: string, gz: boolean) {
-  const engine = engines[cfg.engine];
-  if (cfg.engine === "postgres") {
+async function restoreCommandFor(t: Commands, file: string, gz: boolean) {
+  if (t.engine === "postgres" && t.restorePlain) {
     const head = await peek(file, gz, 5);
-    if (head.toString("latin1") !== "PGDMP") {
-      const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-      return { command: `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(creds.database)}`, format: "plain SQL" };
-    }
-    return { command: engine.restoreCommand(creds), format: "pg_dump custom format" };
+    if (head.toString("latin1") !== "PGDMP") return { command: t.restorePlain, format: "plain SQL" };
+    return { command: t.restore, format: "pg_dump custom format" };
   }
-  return { command: engine.restoreCommand(creds), format: engine.backupExtension };
+  return { command: t.restore, format: DUMP_EXTENSION[t.engine] };
 }
 
 export async function restoreBackup(backupId: string) {
   const backup = await db.query.backup.findFirst({ where: eq(schema.backup.id, backupId), with: { service: true } });
-  if (!backup?.filename || !backup.service.database) throw new Error("Backup not found");
+  if (!backup?.filename || (!backup.target && !backup.service.database)) throw new Error("Backup not found");
   const service = backup.service;
-  const cfg = service.database!;
-  const creds = databaseCreds(cfg, decrypt(cfg.password));
   const file = backupFile(service.id, backup.filename);
   await db.update(schema.backup).set({ restoreStatus: "running" }).where(eq(schema.backup.id, backupId));
-  await logLine(backupId, `Restoring into ${service.name}`);
   try {
+    const t = await targetOf(service, backup.target);
+    await logLine(backupId, `Restoring into ${t.label}`);
     if (!fs.existsSync(file)) {
       const s3 = await s3For(backup.destination !== "local" ? backup.destination : null);
       if (!s3) throw new Error("The backup file is missing.");
@@ -289,16 +435,8 @@ export async function restoreBackup(backupId: string) {
       await fs.promises.mkdir(path.dirname(file), { recursive: true });
       await s3Download(s3, s3Key(s3.prefix, service.slug, backup.filename), file);
     }
-    // Mongo archives are gzip streams already; everything else ending in .gz is unpacked on the way in.
-    const gz = /\.gz$/i.test(backup.filename) && cfg.engine !== "mongodb";
-    const { command, format } = await restoreCommandFor(cfg, creds, file, gz);
-    await logLine(backupId, `Format: ${format}${gz ? " (gzip)" : ""}`);
-    const clean = await runWithInput(service, command, fs.createReadStream(file), gz, creds.password);
-    if (cfg.engine === "redis" || cfg.engine === "valkey") {
-      await logLine(backupId, "Restarting to load the dump");
-      const { docker } = await serverOf(service);
-      await (await databaseContainer(docker, service)).restart();
-    }
+    const { out: clean, format } = await t.restore(file, (line) => void logLine(backupId, line));
+    await logLine(backupId, `Format: ${format}`);
     if (clean) await logLine(backupId, clean.slice(-2000));
     await db.update(schema.backup).set({ restoreStatus: "success", restoredAt: new Date() }).where(eq(schema.backup.id, backupId));
     await logLine(backupId, "Restore finished");
@@ -344,7 +482,7 @@ export function importFilename(engine: DatabaseConfig["engine"], slug: string, o
 
 export async function importBackup(backupId: string, opts: { backupFirst?: boolean; url?: string; s3?: { destinationId: string; key: string } }) {
   const backup = await db.query.backup.findFirst({ where: eq(schema.backup.id, backupId), with: { service: true } });
-  if (!backup?.filename || !backup.service.database) throw new Error("Import not found");
+  if (!backup?.filename || (!backup.target && !backup.service.database)) throw new Error("Import not found");
   const service = backup.service;
   const file = backupFile(service.id, backup.filename);
   try {
@@ -399,7 +537,7 @@ export async function importBackup(backupId: string, opts: { backupFirst?: boole
 
   if (opts.backupFirst) {
     const id = newId();
-    await db.insert(schema.backup).values({ id, serviceId: service.id, trigger: "pre-import" });
+    await db.insert(schema.backup).values({ id, serviceId: service.id, target: backup.target, trigger: "pre-import" });
     await logLine(backupId, "Backing up the current data first");
     try {
       await runBackup(id);

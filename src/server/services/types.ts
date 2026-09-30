@@ -180,6 +180,15 @@ export type RuntimeConfig = {
 
 export type DbEngine = "postgres" | "mysql" | "mariadb" | "mongodb" | "redis" | "valkey" | "clickhouse";
 
+/** Automatic backups of one database container in a compose stack. */
+export type ComposeBackupConfig = {
+  /** Cron expression; null keeps only manual backups. */
+  schedule: string | null;
+  retention: number;
+  retentionS3?: number | null;
+  s3DestinationId?: string | null;
+};
+
 export type DatabaseConfig = {
   engine: DbEngine;
   version: string;

@@ -136,7 +136,7 @@ export function InstanceBackups({
                   {b.error && <span className="line-clamp-2 text-xs text-bad">{b.error}</span>}
                 </div>
                 {b.status === "success" && (
-                  <a href={`/api/instance/backups/${b.id}/download`} className={buttonVariants({ size: "sm" })}>
+                  <a href={`/api/instance/backups/${b.id}/download`} download className={buttonVariants({ size: "sm" })}>
                     <Download /> Download
                   </a>
                 )}

@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import useSWR from "swr";
 import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -111,7 +110,7 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
             <MenuContent>
               {b.status === "success" && available && (
                 <>
-                  <MenuLinkItem render={<Link href={`/api/backups/${b.id}/download`} prefetch={false} />}>
+                  <MenuLinkItem render={<a href={`/api/backups/${b.id}/download`} download />}>
                     <Download /> Download{!b.local ? " from S3" : ""}
                   </MenuLinkItem>
                   {isAdmin && (
@@ -138,6 +137,14 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
 
 export function BackupsManager(props: {
   serviceId: string;
+  /** A compose stack's backup key (db:…, volume:…, dir:…). */
+  target?: string | null;
+  title?: string;
+  description?: string;
+  /** Shown in the restore question: what gets replaced. */
+  restoreWhat?: string;
+  /** Extra controls in the schedule column (like "Stop backing up"). */
+  aside?: React.ReactNode;
   isAdmin: boolean;
   running: boolean;
   engineLabel: string;
@@ -151,11 +158,11 @@ export function BackupsManager(props: {
   timezone: string;
 }) {
   const confirm = useConfirm();
-  const { data, mutate } = useSWR<{ backups: Backup[] }>(`/api/services/${props.serviceId}/backups`, {
+  const { data, mutate } = useSWR<{ backups: Backup[] }>(`/api/services/${props.serviceId}/backups${props.target ? `?target=${encodeURIComponent(props.target)}` : ""}`, {
     refreshInterval: (d) => (d?.backups.some((b) => b.status === "running" || b.restoreStatus === "running") ? 1500 : 10000),
   });
 
-  const run = useAction(() => createBackup(props.serviceId), { success: "Backup started", onSuccess: () => void mutate() });
+  const run = useAction(() => createBackup(props.serviceId, props.target ?? null), { success: "Backup started", onSuccess: () => void mutate() });
   const restore = useAction((id: string, backupFirst: boolean) => restoreFromBackup(id, { backupFirst }), { success: "Restore started", onSuccess: () => void mutate() });
   const remove = useAction(deleteBackup, { success: "Backup deleted", onSuccess: () => void mutate() });
   const backups = data?.backups ?? [];
@@ -166,8 +173,8 @@ export function BackupsManager(props: {
       <div className="flex min-w-0 flex-col gap-6">
         <Card className="overflow-hidden">
           <CardHeader
-            title="Backups"
-            description="Consistent dumps taken with the database's own tools. Download, restore or import one."
+            title={props.title ?? "Backups"}
+            description={props.description ?? "Consistent dumps taken with the database's own tools. Download, restore or import one."}
             actions={
               <Button size="sm" variant="primary" onClick={() => run.run()} loading={run.pending} disabled={!props.running}>
                 <Play /> Back up now
@@ -175,7 +182,11 @@ export function BackupsManager(props: {
             }
           />
           {backups.length === 0 ? (
-            <EmptyState icon={<HardDrive />} title="No backups yet" description={props.running ? "Take a backup now or set a schedule." : "Start the database to take a backup."} />
+            <EmptyState
+              icon={<HardDrive />}
+              title="No backups yet"
+              description={props.running ? "Take a backup now or set a schedule." : props.target ? "Start the stack to take a backup." : "Start the database to take a backup."}
+            />
           ) : (
             <div className="divide-y divide-line">
               {backups.map((b) => (
@@ -187,7 +198,7 @@ export function BackupsManager(props: {
                     safety.current = true;
                     const ok = await confirm({
                       title: "Restore this backup?",
-                      description: `The current data in ${props.engineLabel} is replaced with ${x.filename}.`,
+                      description: `${props.restoreWhat ?? `The current data in ${props.engineLabel}`} is replaced with ${x.filename}.`,
                       confirmLabel: "Restore",
                       danger: true,
                       children: <SafetyToggle valueRef={safety} />,
@@ -210,7 +221,7 @@ export function BackupsManager(props: {
             </div>
           )}
         </Card>
-        {props.isAdmin && (
+        {props.isAdmin && !props.target && (
           <ImportCard
             serviceId={props.serviceId}
             running={props.running}
@@ -223,16 +234,22 @@ export function BackupsManager(props: {
         )}
       </div>
 
-      <ScheduleCard
-        serviceId={props.serviceId}
-        schedule={props.schedule}
-        retention={props.retention}
-        retentionS3={props.retentionS3}
-        s3DestinationId={props.s3DestinationId}
-        destinations={props.destinations}
-        timezone={props.timezone}
-        canEdit={props.isAdmin}
-      />
+      <div className="flex flex-col gap-4">
+        <ScheduleCard
+          key={props.target ?? "database"}
+          serviceId={props.serviceId}
+          target={props.target}
+          noun={props.target && !props.target.startsWith("db:") ? "copies" : "dumps"}
+          schedule={props.schedule}
+          retention={props.retention}
+          retentionS3={props.retentionS3}
+          s3DestinationId={props.s3DestinationId}
+          destinations={props.destinations}
+          timezone={props.timezone}
+          canEdit={props.isAdmin}
+        />
+        {props.aside}
+      </div>
     </div>
   );
 }

@@ -1,10 +1,14 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
 import { BackupsManager } from "./backups-manager";
+import { ComposeBackups } from "./compose-backups";
+import { composeDatabases } from "@/server/backups/compose";
+import { stackStorage } from "@/server/backups/storage";
+import { serverOf } from "@/server/servers/context";
 import { NoAccess } from "@/components/no-access";
 import { getSettings } from "@/server/settings";
 import { engines } from "@/server/databases/engines";
@@ -18,7 +22,7 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
   const { projectId, serviceId } = await props.params;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
-  if (!service.database) redirect(`/projects/${projectId}/services/${serviceId}`);
+  if (!service.database && service.type !== "compose") redirect(`/projects/${projectId}/services/${serviceId}`);
   // Backups hold the database's data: only roles that may manage them see the page.
   if (!ctx.can("databases.backups")) return <NoAccess permission="databases.backups" />;
   const destinations = await db
@@ -26,6 +30,46 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
     .from(schema.s3Destination)
     .where(eq(schema.s3Destination.organizationId, ctx.org.id));
   const settings = await getSettings();
+  if (service.type === "compose" || !service.database) {
+    const databases = composeDatabases(service.compose?.content ?? "").map((d) => ({
+      key: `db:${d.service}`,
+      kind: "db" as const,
+      name: d.service,
+      detail: d.image,
+      containers: [d.service],
+    }));
+    const server = await serverOf(service).catch(() => null);
+    const storage = server
+      ? (await stackStorage(server.docker, service.id).catch(() => [])).map((m) => ({
+          key: `${m.kind}:${m.source}`,
+          kind: m.kind,
+          name: m.source,
+          detail: m.destinations.join(", "),
+          containers: m.containers,
+        }))
+      : [];
+    const configs = service.composeBackups ?? {};
+    const targets = await db
+      .selectDistinct({ target: schema.backup.target })
+      .from(schema.backup)
+      .where(and(eq(schema.backup.serviceId, service.id), isNotNull(schema.backup.target)));
+    return (
+      <PageBody>
+        <ComposeBackups
+          serviceId={service.id}
+          slug={service.slug}
+          isAdmin={ctx.isAdmin}
+          running={service.status === "running"}
+          configs={configs}
+          orphaned={targets.map((t) => t.target as string).filter((t) => !configs[t])}
+          databases={databases}
+          storage={storage}
+          destinations={destinations}
+          timezone={settings.timezone}
+        />
+      </PageBody>
+    );
+  }
   // Uploads go through the dashboard's proxy on the server Serve runs on, with its limit.
   const [local] = settings.dashboardDomain ? await db.select({ proxyConfig: schema.server.proxyConfig }).from(schema.server).where(eq(schema.server.id, LOCAL_SERVER_ID)) : [];
   const maxUpload = settings.dashboardDomain ? local?.proxyConfig?.nginx?.maxBodySize || DEFAULT_MAX_BODY_SIZE : null;

@@ -271,20 +271,29 @@ async function checkProxies() {
 const lastBackupRun = new Map<string, number>();
 
 async function scheduleBackups() {
-  const services = await db
+  const databases = await db
     .select()
     .from(schema.service)
     .where(and(eq(schema.service.type, "database"), isNotNull(schema.service.database)));
+  const stacks = await db
+    .select()
+    .from(schema.service)
+    .where(and(eq(schema.service.type, "compose"), isNotNull(schema.service.composeBackups)));
+  // One entry per schedule: a database service, or one backup of a compose stack (target key).
+  const due = [
+    ...databases.map((s) => ({ service: s, target: null as string | null, cron: s.database?.backupSchedule })),
+    ...stacks.flatMap((s) => Object.entries(s.composeBackups ?? {}).map(([target, cfg]) => ({ service: s, target, cron: cfg.schedule }))),
+  ];
   const now = new Date();
   const tz = (await getSettings()).timezone;
-  for (const s of services) {
-    const cron = s.database?.backupSchedule;
+  for (const { service: s, target, cron } of due) {
     if (!cron) continue;
+    const runKey = `${s.id}:${target ?? ""}`;
     try {
       const prev = CronExpressionParser.parse(cron, { currentDate: now, tz }).prev().toDate().getTime();
       // Fire if the previous occurrence happened within the last minute and was not handled yet.
-      if (now.getTime() - prev < 60_000 && lastBackupRun.get(s.id) !== prev) {
-        lastBackupRun.set(s.id, prev);
+      if (now.getTime() - prev < 60_000 && lastBackupRun.get(runKey) !== prev) {
+        lastBackupRun.set(runKey, prev);
         // A full backup storage limit skips the scheduled backup (the organization is notified).
         const [owner] = await db
           .select({ organizationId: schema.project.organizationId })
@@ -293,7 +302,7 @@ async function scheduleBackups() {
           .where(eq(schema.service.id, s.id));
         if (owner && !(await hasRoomFor(owner.organizationId, "backupStorage"))) continue;
         const id = newId();
-        await db.insert(schema.backup).values({ id, serviceId: s.id, trigger: "schedule" });
+        await db.insert(schema.backup).values({ id, serviceId: s.id, target, trigger: "schedule" });
         await enqueue("backup.run", { backupId: id }, { concurrencyKey: `backup:${s.id}` });
       }
     } catch {

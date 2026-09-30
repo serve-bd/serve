@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useAction } from "@/hooks/use-action";
 import { updateService } from "@/server/actions/services";
+import { saveComposeBackup } from "@/server/actions/compose-backups";
 import { cn } from "@/lib/utils";
 
 type Mode = "hourly" | "daily" | "weekly" | "custom";
@@ -59,6 +60,10 @@ function nextRuns(cron: string, tz: string, count = 3): Date[] | null {
 
 export function ScheduleCard(props: {
   serviceId: string;
+  /** A compose stack's backup key; saved on the stack instead of the database service. */
+  target?: string | null;
+  /** "copies" for volumes and folders, "dumps" for databases. */
+  noun?: string;
   schedule: string | null;
   retention: number;
   retentionS3: number | null;
@@ -92,15 +97,13 @@ export function ScheduleCard(props: {
   const set = (patch: Partial<Plan>) => setPlan((p) => ({ ...p, ...patch }));
 
   const save = useAction(
-    () =>
-      updateService(props.serviceId, {
-        database: {
-          backupSchedule: enabled ? cron : null,
-          backupRetention: Math.max(1, Math.min(365, Number(retention) || 7)),
-          backupRetentionS3: dest === "local" ? null : Math.max(1, Math.min(3650, Number(retentionS3) || Number(retention) || 7)),
-          s3DestinationId: dest === "local" ? null : dest,
-        },
-      }),
+    () => {
+      const keep = Math.max(1, Math.min(365, Number(retention) || 7));
+      const keepS3 = dest === "local" ? null : Math.max(1, Math.min(3650, Number(retentionS3) || Number(retention) || 7));
+      const s3 = dest === "local" ? null : dest;
+      if (props.target) return saveComposeBackup(props.serviceId, props.target, { schedule: enabled ? cron : null, retention: keep, retentionS3: keepS3, s3DestinationId: s3 });
+      return updateService(props.serviceId, { database: { backupSchedule: enabled ? cron : null, backupRetention: keep, backupRetentionS3: keepS3, s3DestinationId: s3 } });
+    },
     { success: enabled ? "Backup schedule saved" : "Automatic backups turned off", onSuccess: () => setSaved(snapshot) },
   );
 
@@ -110,7 +113,7 @@ export function ScheduleCard(props: {
     <Card className="h-fit">
       <CardHeader
         title="Automatic backups"
-        description="Scheduled dumps with automatic cleanup."
+        description={`Scheduled ${props.noun ?? "dumps"} with automatic cleanup.`}
         actions={<Switch checked={enabled} onCheckedChange={setEnabled} disabled={!props.canEdit} aria-label="Automatic backups" />}
       />
       <CardBody className="flex flex-col gap-5 py-5">

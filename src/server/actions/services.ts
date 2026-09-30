@@ -1323,15 +1323,19 @@ export async function generateDomain(serviceId: string) {
 /*                                  Backups                                   */
 /* -------------------------------------------------------------------------- */
 
-export async function createBackup(serviceId: string) {
+/** Starts a backup of a database service, or of one backup target of a compose stack. */
+export async function createBackup(serviceId: string, target?: string | null) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
-    if (service.type !== "database") throw new UserError("Backups are available for databases.");
-    if (service.status !== "running") throw new UserError("Start the database before backing it up.");
+    if (service.type === "compose") {
+      if (!target || !service.composeBackups?.[target]) throw new UserError("Add this backup first.");
+    } else if (service.type !== "database") throw new UserError("Backups are available for databases and compose stacks.");
+    else target = null;
+    if (service.status !== "running") throw new UserError(service.type === "compose" ? "Start the stack before backing it up." : "Start the database before backing it up.");
     await requireNotOver(ctx.org.id, "backupStorage");
     const id = newId();
-    await db.insert(schema.backup).values({ id, serviceId, trigger: "manual" });
+    await db.insert(schema.backup).values({ id, serviceId, target: target ?? null, trigger: "manual" });
     await enqueue("backup.run", { backupId: id }, { concurrencyKey: `backup:${serviceId}` });
     return { id };
   });
@@ -1343,7 +1347,7 @@ export async function restoreFromBackup(backupId: string, opts: { backupFirst?: 
     const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
     if (b?.status !== "success") throw new UserError("Backup not found.");
     const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
-    if (service.status !== "running") throw new UserError("Start the database before restoring.");
+    if (service.status !== "running") throw new UserError(service.type === "compose" ? "Start the stack before restoring." : "Start the database before restoring.");
     await db.update(schema.backup).set({ restoreStatus: "running" }).where(eq(schema.backup.id, backupId));
     // With a safety backup, the import job takes the backup and restores only if it succeeded.
     if (opts.backupFirst) await enqueue("backup.import", { backupId, backupFirst: true }, { concurrencyKey: `backup:${b.serviceId}` });
@@ -1367,7 +1371,7 @@ export async function deleteBackup(backupId: string) {
     if (!b) throw new UserError("Backup not found.");
     const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
     const { deleteBackupFiles } = await import("@/server/backups");
-    await deleteBackupFiles(b, service.database?.s3DestinationId);
+    await deleteBackupFiles(b, b.target ? service.composeBackups?.[b.target]?.s3DestinationId : service.database?.s3DestinationId);
     await db.delete(schema.backup).where(eq(schema.backup.id, backupId));
     return null;
   });

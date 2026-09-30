@@ -2,6 +2,7 @@ import { type AnyPgColumn, bigint, boolean, check, index, integer, jsonb, pgTabl
 import { relations, sql } from "drizzle-orm";
 import type {
   BuildConfig,
+  ComposeBackupConfig,
   ComposeConfig,
   DatabaseConfig,
   DeploymentTarget,
@@ -387,6 +388,8 @@ export const service = pgTable(
     build: jsonb("build").$type<BuildConfig>(),
     runtime: jsonb("runtime").$type<RuntimeConfig>().notNull(),
     database: jsonb("database").$type<DatabaseConfig>(),
+    /** Backups of databases inside a compose stack, by compose service name. */
+    composeBackups: jsonb("compose_backups").$type<Record<string, ComposeBackupConfig>>(),
     compose: jsonb("compose").$type<ComposeConfig>(),
     /** Build server, registry and extra servers of an app (build once, run on many servers). */
     distribution: jsonb("distribution").$type<DistributionConfig>(),
@@ -800,6 +803,8 @@ export const backup = pgTable(
     error: text("error"),
     trigger: text("trigger").notNull().default("manual"),
     /** Upload to S3: uploaded, failed, or null when no S3 destination was set. */
+    /** Compose service the dump came from; null for a database service. */
+    target: text("target"),
     s3Status: text("s3_status").$type<"uploaded" | "failed" | "deleted">(),
     /** Last restore of this backup. */
     restoreStatus: text("restore_status").$type<"running" | "success" | "failed">(),

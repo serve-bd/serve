@@ -72,10 +72,10 @@ describe("versions", () => {
     expect(compareVersions("1.0.0-rc.1", "1.0.0")).toBe(-1);
   });
   it("pins the image to the new version", () => {
-    expect(nextImage("ghcr.io/shahriyardx/serve:0.1.0", "v0.2.0")).toBe("ghcr.io/shahriyardx/serve:0.2.0");
-    expect(nextImage("ghcr.io/shahriyardx/serve:latest", "0.2.0")).toBe("ghcr.io/shahriyardx/serve:0.2.0");
-    expect(nextImage("ghcr.io/shahriyardx/serve:edge", "0.2.0")).toBe("ghcr.io/shahriyardx/serve:0.2.0");
+    expect(nextImage("ghcr.io/serve-bd/serve:0.1.0", "v0.2.0")).toBe("ghcr.io/serve-bd/serve:0.2.0");
+    expect(nextImage("ghcr.io/serve-bd/serve:latest", "0.2.0")).toBe("ghcr.io/serve-bd/serve:0.2.0");
+    expect(nextImage("ghcr.io/serve-bd/serve:edge", "0.2.0")).toBe("ghcr.io/serve-bd/serve:0.2.0");
     expect(nextImage("localhost:5000/serve", "0.2.0")).toBe("localhost:5000/serve:0.2.0");
-    expect(nextImage("ghcr.io/shahriyardx/serve@sha256:abc", "0.2.0")).toBe("ghcr.io/shahriyardx/serve:0.2.0");
+    expect(nextImage("ghcr.io/serve-bd/serve@sha256:abc", "0.2.0")).toBe("ghcr.io/serve-bd/serve:0.2.0");
   });
 });

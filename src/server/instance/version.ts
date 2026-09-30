@@ -51,5 +51,5 @@ function readGitHead(dir: string): string | null {
 
 /** Repository whose GitHub releases announce updates. */
 export function updateRepository() {
-  return process.env.SERVE_UPDATE_REPO || "shahriyardx/serve";
+  return process.env.SERVE_UPDATE_REPO || "serve-bd/serve";
 }

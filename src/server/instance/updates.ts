@@ -11,7 +11,7 @@ import { currentVersion, updateRepository } from "./version";
 import { notify } from "@/server/notify";
 
 export const UPDATER_CONTAINER = "serve-updater";
-const DEFAULT_IMAGE = "ghcr.io/shahriyardx/serve:latest";
+const DEFAULT_IMAGE = "ghcr.io/serve-bd/serve:latest";
 
 /**
  * How this instance was installed. Only the Docker Compose install (install.sh) can update

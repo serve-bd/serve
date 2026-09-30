@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Serve installer.
-#   curl -fsSL https://raw.githubusercontent.com/shahriyardx/serve/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/serve-bd/serve/main/install.sh | bash
 #
 # Without root it restarts itself through sudo, which asks for your password.
 # A new install asks for the dashboard and proxy ports; running it again on an installed server
@@ -16,9 +16,9 @@
 set -euo pipefail
 
 DATA_DIR=/data/serve
-REPO="${SERVE_REPO:-shahriyardx/serve}"
+REPO="${SERVE_REPO:-serve-bd/serve}"
 IMAGE_REPO="${SERVE_IMAGE_REPO:-ghcr.io/$REPO}"
-REPO_RAW="${SERVE_REPO_RAW:-https://raw.githubusercontent.com/shahriyardx/serve/main}"
+REPO_RAW="${SERVE_REPO_RAW:-https://raw.githubusercontent.com/serve-bd/serve/main}"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  \033[34m→\033[0m %s\n' "$*"; }

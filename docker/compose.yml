@@ -3,7 +3,7 @@ name: serve
 
 services:
   serve:
-    image: ${SERVE_IMAGE:-ghcr.io/shahriyardx/serve:latest}
+    image: ${SERVE_IMAGE:-ghcr.io/serve-bd/serve:latest}
     container_name: serve
     command: web
     restart: unless-stopped
@@ -21,7 +21,7 @@ services:
     networks: [serve]
 
   serve-worker:
-    image: ${SERVE_IMAGE:-ghcr.io/shahriyardx/serve:latest}
+    image: ${SERVE_IMAGE:-ghcr.io/serve-bd/serve:latest}
     container_name: serve-worker
     command: worker
     restart: unless-stopped

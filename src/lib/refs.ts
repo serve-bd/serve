@@ -80,8 +80,11 @@ export function scopeReader(maps: { environment: Record<string, string>; project
   return (scope: string, key: string) => (scope === "shared" || scope === "environment" ? maps.environment[key] : scope === "project" ? maps.project[key] : maps.org[key]);
 }
 
-/** Per-replica references, filled in for each container: ${{replica.index}}, ${{replica.number}}, ${{replica.count}}. */
-export const REPLICA_REF = /\$\{\{\s*replica\.(index|number|count)\s*\}\}/gi;
+/**
+ * Per-replica references, filled in for each container: ${{replica.index}}, ${{replica.number}},
+ * ${{replica.count}}, and ${{replica.pick(a,b,c)}} (replica 1 gets a, replica 2 gets b, ...).
+ */
+export const REPLICA_REF = /\$\{\{\s*replica\.(?:(index|number|count)|pick\(([^)]*)\))\s*\}\}/gi;
 
 /**
  * The environment of one replica: fills the replica references and sets SERVE_REPLICA_INDEX
@@ -90,6 +93,18 @@ export const REPLICA_REF = /\$\{\{\s*replica\.(index|number|count)\s*\}\}/gi;
 export function replicaEnv(env: Record<string, string>, index: number, count: number): Record<string, string> {
   const values = { index: String(index), number: String(index + 1), count: String(count) } as const;
   const out: Record<string, string> = { SERVE_REPLICA_INDEX: values.index, SERVE_REPLICA_COUNT: values.count };
-  for (const [k, v] of Object.entries(env)) out[k] = v.replace(REPLICA_REF, (_m, part: string) => values[part.toLowerCase() as keyof typeof values]);
+  for (const [k, v] of Object.entries(env))
+    out[k] = v.replace(REPLICA_REF, (_m, part: string | undefined, list: string | undefined) =>
+      part ? values[part.toLowerCase() as keyof typeof values] : (pickList(list ?? "")[index] ?? ""),
+    );
   return out;
+}
+
+const pickList = (list: string) => list.split(",").map((x) => x.trim());
+
+/** Variables whose ${{replica.pick(...)}} has fewer values than there are replicas. */
+export function shortReplicaPicks(env: Record<string, string>, count: number): string[] {
+  return Object.entries(env)
+    .filter(([, v]) => [...v.matchAll(REPLICA_REF)].some((m) => m[2] !== undefined && pickList(m[2]).length < count))
+    .map(([k]) => k);
 }

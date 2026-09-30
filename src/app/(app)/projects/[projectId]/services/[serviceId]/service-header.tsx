@@ -96,14 +96,14 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   const can = useCan();
   const cannot = useCannot();
   const tabHref = (tab: ServiceIssue["tab"]) => (tab === "overview" ? base : `${base}/${tab}`);
-  const tabs: { href: string; label: string; exact?: boolean }[] = [
+  const tabs: { href: string; label: string; count?: number; exact?: boolean }[] = [
     { href: base, label: "Overview", exact: true },
     { href: `${base}/deployments`, label: "Deployments" },
     ...(can("logs.view") ? [{ href: `${base}/logs`, label: "Logs" }] : []),
     ...(can("console.access") ? [{ href: `${base}/console`, label: "Console" }] : []),
     { href: `${base}/metrics`, label: "Metrics" },
     { href: `${base}/variables`, label: "Variables" },
-    ...(service.previews !== null ? [{ href: `${base}/previews`, label: service.previews ? `Previews ${service.previews}` : "Previews" }] : []),
+    ...(service.previews !== null ? [{ href: `${base}/previews`, label: "Previews", count: service.previews }] : []),
     ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains & ports" }] : []),
     ...(service.type === "database"
       ? [{ href: `${base}/backups`, label: "Backups" }]
@@ -358,6 +358,9 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 >
                   <span className="inline-flex items-center gap-1.5">
                     {t.label}
+                    {!!t.count && (
+                      <span className="min-w-[18px] rounded-full bg-fg/[0.08] px-1.5 py-px text-center text-[11px] leading-4 font-semibold text-fg-2 tabular-nums">{t.count}</span>
+                    )}
                     {tabIssue(t.href) && <AlertTriangle className={cn("size-3.5", tabIssue(t.href) === "bad" ? "text-bad" : "text-warn")} aria-label="Needs attention" />}
                   </span>
                   {active && <span className="absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-fg" />}

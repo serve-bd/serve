@@ -106,8 +106,8 @@ function ssoRuntime(settings: SignInSettings, base: string): SsoRuntime {
 }
 
 /** Adds the user to an organization with a role, unless already a member. */
-async function joinOrganization(userId: string, organizationId: string, role: SsoProvider["defaultRole"], roleId: string | null) {
-  const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, organizationId));
+async function joinOrganization(userId: string, organizationId: string, role: SsoProvider["defaultRole"], roleId: string | null, why: string) {
+  const [org] = await db.select({ id: schema.organization.id, name: schema.organization.name }).from(schema.organization).where(eq(schema.organization.id, organizationId));
   if (!org) return;
   const [existing] = await db
     .select({ id: schema.member.id })
@@ -115,6 +115,8 @@ async function joinOrganization(userId: string, organizationId: string, role: Ss
     .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, userId)));
   if (existing) return;
   await db.insert(schema.member).values({ id: newId(), organizationId: org.id, userId, role, roleId: role === "member" ? roleId : null });
+  const { logActivity } = await import("@/server/activity");
+  await logActivity({ userId, organizationId: org.id, action: "member.joined", message: `Joined ${org.name} ${why}` }).catch(() => {});
 }
 
 /**
@@ -125,10 +127,10 @@ async function joinProviderOrganizations(provider: SsoProvider, userId: string) 
   const rules = githubRules(provider);
   if (rules.length) {
     const matched = new Set(matchedGithubOrgs());
-    for (const r of rules) if (matched.has(r.org) && r.organizationId) await joinOrganization(userId, r.organizationId, r.role, r.roleId);
+    for (const r of rules) if (matched.has(r.org) && r.organizationId) await joinOrganization(userId, r.organizationId, r.role, r.roleId, `as a member of the ${r.org} GitHub organization`);
     return;
   }
-  if (provider.defaultOrganizationId) await joinOrganization(userId, provider.defaultOrganizationId, provider.defaultRole, provider.defaultRoleId ?? null);
+  if (provider.defaultOrganizationId) await joinOrganization(userId, provider.defaultOrganizationId, provider.defaultRole, provider.defaultRoleId ?? null, "through sign-in");
 }
 
 /** The provider an OAuth callback came from, with its settings. */

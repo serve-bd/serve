@@ -235,7 +235,8 @@ export async function checkContainerHealth() {
         event: "container.crashloop",
         url,
       });
-    } else if (await openIncidentFor(key)) {
+    } else if (service.status !== "crashed" && (await openIncidentFor(key))) {
+      // A service stopped for crashing is not recovered: the incident stays open until it runs again.
       await resolveIncident(key, { event: "service.recovered", title: `${service.name} stopped restarting`, body: "Its containers have been stable for a while.", url });
     }
   }

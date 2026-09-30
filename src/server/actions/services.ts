@@ -449,6 +449,7 @@ const updateSchema = z.object({
         .nullable(),
       healthcheckTimeout: z.number().int().min(10).max(1800).nullable(),
       restartPolicy: z.enum(["always", "unless-stopped", "on-failure", "no"]),
+      crashLimit: z.number().int().min(1, "At least 1 crash").max(1000, "At most 1000 crashes").nullable(),
       cpuLimit: z.number().min(0.05).max(256).nullable(),
       memoryLimit: z
         .number()

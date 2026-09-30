@@ -29,6 +29,7 @@ import { SCHEMA_VERSION } from "@/server/version";
 import { checkTunnels } from "@/server/cloudflare/tunnels";
 import { shutdownTunnels, syncTunnels } from "@/server/tunnel/listener";
 import { checkContainerHealth, checkServerResources, pruneMonitoring, runUptimeChecks } from "@/server/monitoring/checks";
+import { enforceCrashLimits } from "@/server/monitoring/crash-limit";
 import { failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBackups } from "@/server/instance/backups";
 import { periodicUpdateCheck, reconcileUpdate, runUpdate } from "@/server/instance/updates";
 import { syncMesh } from "@/server/mesh";
@@ -433,6 +434,7 @@ async function main() {
 
   every(15_000, "heartbeat", () => updateSettings({ workerHeartbeat: new Date().toISOString(), workerSchemaVersion: SCHEMA_VERSION, workerVersion: currentVersion() }), true);
   every(15_000, "monitor", monitorServices, true);
+  every(15_000, "crash-limit", async () => enforceCrashLimits(await reachableServers()));
   every(60_000, "servers", probeRemoteServers, true);
   every(60_000, "tunnels", checkTunnels, true);
   every(30_000, "metrics", collectMetrics, true);

@@ -10,7 +10,7 @@ import { useAction } from "@/hooks/use-action";
 import { useRouter } from "@/hooks/use-router";
 import { useConfirm } from "@/components/ui/confirm";
 import { deployWithoutCache, type updateService } from "@/server/actions/services";
-import type { BuildConfig, KeyValue, RuntimeConfig } from "@/server/services/types";
+import { type BuildConfig, DEFAULT_CRASH_LIMIT, type KeyValue, type RuntimeConfig } from "@/server/services/types";
 import { CAPABILITIES } from "@/server/deploy/options";
 import { digits, KeyValueEditor, linesOf, num, Section } from "./section";
 import { ProductName } from "@/components/brand";
@@ -351,6 +351,7 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
         workingDir: runtime.workingDir ?? "",
         user: runtime.user ?? "",
         restartPolicy: runtime.restartPolicy,
+        crashLimit: runtime.crashLimit === undefined ? String(DEFAULT_CRASH_LIMIT) : String(runtime.crashLimit ?? ""),
         stopSignal: runtime.stopSignal ?? "SIGTERM",
         stopTimeout: String(runtime.stopTimeout ?? 10),
       }}
@@ -363,6 +364,8 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
             workingDir: v.workingDir.trim() || null,
             user: v.user.trim() || null,
             restartPolicy: v.restartPolicy,
+            // Empty: never stopped for crashing.
+            crashLimit: Number(v.crashLimit) > 0 ? Number(v.crashLimit) : null,
             stopSignal: v.stopSignal as RuntimeConfig["stopSignal"],
             stopTimeout: num(v.stopTimeout),
           },
@@ -398,6 +401,13 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
               ]}
             />
           </Field>
+          {(v.restartPolicy === "always" || v.restartPolicy === "unless-stopped") && (
+            <Field label="Stop after crashes" optional description="A replica that crashes this many times in a row stops until the next deploy or start. Empty: restart forever.">
+              <InputGroup suffix="crashes">
+                <Input value={v.crashLimit} onChange={(e) => set({ crashLimit: digits(e.target.value) })} inputMode="numeric" placeholder="Never" />
+              </InputGroup>
+            </Field>
+          )}
           <Field label="Stop signal" description="Sent when a container stops.">
             <Select
               value={v.stopSignal}

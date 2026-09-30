@@ -125,6 +125,11 @@ export type RuntimeConfig = {
   healthcheckPath?: string | null;
   healthcheckTimeout?: number | null;
   restartPolicy: RestartPolicy;
+  /**
+   * With "always" or "unless-stopped": a replica that crashes this many times in a row is stopped
+   * until the next deploy or start. Null: never stopped. Unset: DEFAULT_CRASH_LIMIT.
+   */
+  crashLimit?: number | null;
   /** CPU cores limit, e.g. 0.5 */
   cpuLimit?: number | null;
   /** Memory limit in MB. */
@@ -279,6 +284,16 @@ export type PreviewDatabaseConfig = {
   /** SQL run on the copy after the restore, e.g. to replace personal data. */
   scrubSql?: string | null;
 };
+
+/** Crashes in a row after which a replica is stopped, unless the app sets its own limit. */
+export const DEFAULT_CRASH_LIMIT = 10;
+
+/** The crash limit an app runs with, or null when its replicas are never stopped for crashing. */
+export function crashLimitOf(runtime: Pick<RuntimeConfig, "restartPolicy" | "crashLimit">): number | null {
+  // Docker gives up by itself with "on-failure" (5 tries) and never restarts with "no".
+  if (runtime.restartPolicy !== "always" && runtime.restartPolicy !== "unless-stopped") return null;
+  return runtime.crashLimit === undefined ? DEFAULT_CRASH_LIMIT : runtime.crashLimit;
+}
 
 export const defaultRuntime = (port: number | null = null): RuntimeConfig => ({
   port,

@@ -1,0 +1,18 @@
+/** Counting crashes in a row of one container. Pure, so it is tested without Docker. */
+
+/** A replica that stays up this long has stopped crashing: its count starts over. */
+export const STABLE_MS = 10 * 60_000;
+
+/** Restart count of a container when it last counted as stable (or was first seen). */
+export type CrashTrack = { base: number };
+
+/**
+ * Crashes in a row of one container, from Docker's restart count. The count starts over once the
+ * container has run for STABLE_MS, and when Docker reset it (a manual start sets it back to 0).
+ */
+export function crashesInARow(track: CrashTrack | undefined, info: { restartCount: number; running: boolean; startedAt: number }, now: number) {
+  let base = track?.base ?? 0;
+  if (info.restartCount < base) base = 0;
+  if (info.running && now - info.startedAt >= STABLE_MS) base = info.restartCount;
+  return { crashes: info.restartCount - base, track: { base } };
+}

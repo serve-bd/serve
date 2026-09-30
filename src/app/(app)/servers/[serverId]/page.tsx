@@ -43,7 +43,11 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
           return {
             host,
             health: { ...health, proxyStartedAt: proxy?.startedAt ?? null },
-            extra: { nixpacks, dataDir: ctx.paths.root, proxyPorts: `${ctx.proxyHttpPort} / ${ctx.proxyHttpsPort}` },
+            extra: {
+              nixpacks,
+              dataDir: ctx.paths.root,
+              proxyPorts: ctx.proxyHttpPort || ctx.proxyHttpsPort ? `${ctx.proxyHttpPort || "off"} / ${ctx.proxyHttpsPort || "off"}` : "None (tunnels only)",
+            },
           };
         }),
       )

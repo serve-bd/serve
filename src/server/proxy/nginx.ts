@@ -278,9 +278,11 @@ async function containerSpec(ctx: ServerCtx, kind: RunningKind, config: ServerPr
 async function baseContainerSpec(ctx: ServerCtx, kind: RunningKind, config: ServerProxyConfig) {
   const p = ctx.paths;
   const settings = await getSettings();
+  // Port 0: the proxy takes no port on the machine. It still serves Cloudflare Tunnels, which reach
+  // it over Docker's network (the default for servers without a public IP).
   const ports: Record<string, { HostPort: string }[]> = {
-    "80/tcp": [{ HostPort: String(ctx.proxyHttpPort) }],
-    "443/tcp": [{ HostPort: String(ctx.proxyHttpsPort) }],
+    ...(ctx.proxyHttpPort > 0 ? { "80/tcp": [{ HostPort: String(ctx.proxyHttpPort) }] } : {}),
+    ...(ctx.proxyHttpsPort > 0 ? { "443/tcp": [{ HostPort: String(ctx.proxyHttpsPort) }] } : {}),
   };
   const shared = [
     `${path.posix.join(p.proxy, "pages")}:${proxyPaths.pages}:ro`,
@@ -305,7 +307,7 @@ async function baseContainerSpec(ctx: ServerCtx, kind: RunningKind, config: Serv
     };
   }
   if (kind === "caddy") {
-    if (config.caddy?.http3) ports["443/udp"] = [{ HostPort: String(ctx.proxyHttpsPort) }];
+    if (config.caddy?.http3 && ctx.proxyHttpsPort > 0) ports["443/udp"] = [{ HostPort: String(ctx.proxyHttpsPort) }];
     return {
       Image: proxyImages.caddy,
       Cmd: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"],
@@ -561,7 +563,9 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
       mismatch
         ? `Replacing the ${info.Config.Labels?.[KIND_LABEL] ?? "nginx"} proxy with ${kind}`
         : portsDiffer
-          ? `Proxy ports changed to ${ctx.proxyHttpPort}/${ctx.proxyHttpsPort}; recreating the proxy`
+          ? ctx.proxyHttpPort || ctx.proxyHttpsPort
+            ? `Proxy ports changed to ${ctx.proxyHttpPort || "none"}/${ctx.proxyHttpsPort || "none"}; recreating the proxy`
+            : "Proxy ports turned off; recreating the proxy"
           : "The proxy container definition changed; recreating the proxy",
     );
     const busy = await busyProxyPorts(ctx, hostPorts);

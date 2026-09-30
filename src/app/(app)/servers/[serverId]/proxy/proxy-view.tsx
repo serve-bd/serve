@@ -196,7 +196,7 @@ export function ProxyView({
                 <div className="flex min-w-0 flex-col divide-y divide-line sm:border-l sm:border-line">
                   <Row label="Ports">
                     <span className="tabular-nums">
-                      HTTP {status.ports.http} · HTTPS {status.ports.https}
+                      {status.ports.http || status.ports.https ? `HTTP ${status.ports.http || "off"} · HTTPS ${status.ports.https || "off"}` : "None (tunnels only)"}
                     </span>
                   </Row>
                   <Row label="Sites">{files.filter((f) => f.kind === "service" || f.kind === "dashboard").length}</Row>

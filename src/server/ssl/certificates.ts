@@ -67,6 +67,11 @@ export function certificateServer(cert: Pick<Cert, "serverId">) {
  * counts failures against rate limits. Only definite problems stop the run.
  */
 async function httpPreflight(ctx: ServerCtx, cert: Cert, log: (l: string) => void) {
+  if (ctx.proxyHttpPort === 0) {
+    throw new Error(
+      `The proxy on ${ctx.name} takes no ports on the machine, so Let's Encrypt cannot reach it. Serve the domain through a Cloudflare Tunnel (it brings its own certificate), or connect Cloudflare in Integrations to use the DNS check.`,
+    );
+  }
   if (ctx.proxyHttpPort !== 80) {
     throw new Error(
       `The proxy on ${ctx.name} listens on port ${ctx.proxyHttpPort}, but Let's Encrypt only checks port 80. Connect Cloudflare in Integrations to use the DNS check, or turn off HTTPS for the domain and open http://${cert.domains[0]}:${ctx.proxyHttpPort}.`,

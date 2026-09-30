@@ -129,8 +129,9 @@ const serverSchema = z.object({
     .nullable()
     .optional(),
   sslipFallback: z.boolean(),
-  proxyHttpPort: z.number().int().min(1).max(65535),
-  proxyHttpsPort: z.number().int().min(1).max(65535),
+  /** 0: the proxy takes no port on the machine (Cloudflare Tunnels still reach it). */
+  proxyHttpPort: z.number().int().min(0).max(65535),
+  proxyHttpsPort: z.number().int().min(0).max(65535),
   organizationIds: z.array(z.string()).nullable(),
   /** Root admins only: hand the server to an organization, or back to the instance (null). */
   ownerOrganizationId: z.string().nullable(),
@@ -229,7 +230,7 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     const httpPort = data.proxyHttpPort ?? current?.proxyHttpPort ?? before.proxyHttpPort;
     const httpsPort = data.proxyHttpsPort ?? current?.proxyHttpsPort ?? before.proxyHttpsPort;
     const portsChanged = (data.proxyHttpPort !== undefined || data.proxyHttpsPort !== undefined) && (httpPort !== current?.proxyHttpPort || httpsPort !== current?.proxyHttpsPort);
-    if (portsChanged && httpPort === httpsPort) throw new UserError("HTTP and HTTPS need different ports.");
+    if (portsChanged && httpPort === httpsPort && httpPort !== 0) throw new UserError("HTTP and HTTPS need different ports.");
     const patch: Partial<typeof schema.server.$inferInsert> = {
       ...data,
       ...(portsChanged ? { proxyHttpPort: httpPort, proxyHttpsPort: httpsPort, proxyPortsCustomized: true } : { proxyHttpPort: undefined, proxyHttpsPort: undefined }),

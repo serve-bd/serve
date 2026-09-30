@@ -320,6 +320,7 @@ function challengeProblem(props: Props, viaDns: boolean) {
   const port = tls ? 443 : 80;
   const actual = tls ? props.proxyPorts?.https : props.proxyPorts?.http;
   if (!props.serverIp) return "This server has no public IP, so Let's Encrypt cannot reach it to validate the domain.";
+  if (actual === 0) return "The proxy takes no ports on this server, so Let's Encrypt cannot reach it. Use a Cloudflare Tunnel or the Cloudflare DNS check.";
   if (actual && actual !== port) return `The proxy listens on port ${actual} instead of ${port}, so Let's Encrypt cannot validate the domain.`;
   return null;
 }

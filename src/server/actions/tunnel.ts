@@ -80,6 +80,9 @@ export async function createTunnelServer(input: z.input<typeof tunnelInput>) {
         organizationIds: owner ? [] : [ctx.org.id],
         status: "pending",
         statusMessage: "Waiting for the server to connect",
+        // Nothing on the internet reaches it: the proxy serves Cloudflare Tunnels without taking ports.
+        proxyHttpPort: 0,
+        proxyHttpsPort: 0,
         tunnel: {
           relayPort,
           clientKey: null,

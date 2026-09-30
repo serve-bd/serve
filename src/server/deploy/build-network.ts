@@ -33,14 +33,28 @@ export function serverCli(server: Pick<ServerCtx, "local" | "exec">): DockerCli 
   };
 }
 
-/** One builder per environment network and Docker host: the CLI keeps builders by name. */
-export function builderName(network: string, dockerEnv: Record<string, string> = {}) {
-  const host = crypto
-    .createHash("sha256")
-    .update(dockerEnv.DOCKER_HOST ?? "local")
-    .digest("hex")
-    .slice(0, 6);
-  return `${PREFIX}${network.replace(/^serve-env-/, "")}-${host}`;
+/**
+ * One builder per environment network on each machine (the CLI that runs it is on that machine).
+ * The suffix is fixed: 0.1.2 to 0.1.4 derived it from the Docker host, which left extra builders.
+ */
+const SUFFIX = crypto.createHash("sha256").update("local").digest("hex").slice(0, 6);
+export function builderName(network: string) {
+  return `${PREFIX}${network.replace(/^serve-env-/, "")}-${SUFFIX}`;
+}
+
+/** Removes other builders of the same environment network (older names), with their cache. */
+async function removeOtherBuilders(name: string, network: string, docker: DockerCli) {
+  const prefix = `buildx_buildkit_${PREFIX}${network.replace(/^serve-env-/, "")}-`;
+  const names = (await docker(["ps", "-a", "--filter", `name=${prefix}`, "--format", "{{.Names}}"]).catch(() => ""))
+    .split("\n")
+    .map((n) => n.trim())
+    .filter((n) => n.startsWith(prefix) && n !== `buildx_buildkit_${name}0`);
+  for (const container of names) {
+    await docker(["buildx", "rm", "-f", container.replace(/^buildx_buildkit_/, "").replace(/0$/, "")]).catch(async () => {
+      await docker(["rm", "-f", "-v", container]).catch(() => "");
+      await docker(["volume", "rm", `${container}_state`]).catch(() => "");
+    });
+  }
 }
 
 const HOSTNAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,252}$/;
@@ -64,6 +78,7 @@ export async function networkHosts(d: Docker, network: string): Promise<Record<s
 
 /** Creates the builder when this worker does not know it yet. False when buildx cannot run one. */
 export async function ensureBuilder(name: string, network: string, docker: DockerCli, log: (line: string) => void) {
+  await removeOtherBuilders(name, network, docker);
   try {
     await docker(["buildx", "inspect", "--bootstrap", name]);
     return true;
@@ -77,6 +92,26 @@ export async function ensureBuilder(name: string, network: string, docker: Docke
   } catch (error) {
     log(`Could not start a build container on the environment network (${(error as Error).message.trim().split("\n").pop()}); building without access to its services.`);
     return false;
+  }
+}
+
+/**
+ * Builds using each builder right now. A builder is stopped once its last build ends: its cache
+ * stays on disk, and the next build starts it again in a second or two.
+ */
+const inUse = new Map<string, number>();
+
+export async function useBuilder<T>(name: string, docker: DockerCli, build: () => Promise<T>): Promise<T> {
+  inUse.set(name, (inUse.get(name) ?? 0) + 1);
+  try {
+    return await build();
+  } finally {
+    const left = (inUse.get(name) ?? 1) - 1;
+    if (left > 0) inUse.set(name, left);
+    else {
+      inUse.delete(name);
+      await docker(["stop", `buildx_buildkit_${name}0`]).catch(() => "");
+    }
   }
 }
 
@@ -114,6 +149,8 @@ export async function pruneBuilders(d: Docker, docker: DockerCli, untilHours: nu
     }
     if (!(await ensureBuilder(name, network, docker, () => {}))) continue;
     output.push(await docker(["buildx", "prune", "--builder", name, "-f", "--filter", `until=${untilHours}h`]).catch(() => ""));
+    // Started for the prune: stop it again unless a build is using it.
+    if (!inUse.has(name)) await docker(["stop", `buildx_buildkit_${name}0`]).catch(() => "");
   }
   return output;
 }

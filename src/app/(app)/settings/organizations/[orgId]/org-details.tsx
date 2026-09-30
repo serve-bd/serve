@@ -125,6 +125,7 @@ export function OrgDetails({
                   onValueChange={(r) => changeRole.run(m.id, r)}
                   options={roles.map((r) => ({ value: r.id, label: r.name, description: r.description ?? undefined }))}
                   className="ml-11 w-36 sm:ml-0"
+                  aria-label={`Role of ${m.name}`}
                 />
               ) : (
                 <Badge tone={m.role === "owner" ? "accent" : "neutral"}>{roleName(m.roleId)}</Badge>

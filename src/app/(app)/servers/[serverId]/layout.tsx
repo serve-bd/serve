@@ -11,7 +11,7 @@ import { loadServerView, withTimeout } from "./_lib/load";
 
 export default async function ServerLayout({ children, params }: LayoutProps<"/servers/[serverId]">) {
   const { serverId } = await params;
-  const { row, server, manage } = await loadServerView(serverId);
+  const { row, server, manage, ctx: viewer } = await loadServerView(serverId);
   const settings = await getSettings();
   // A remote server that is not set up yet has no health to report.
   const health = row.isLocal || row.status === "ready" ? await withTimeout(server().then((ctx) => serverHealth(ctx, settings))) : null;
@@ -35,7 +35,9 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
         }
         description={
           !manage
-            ? "Shared with your organization. You deploy services here; its owner manages the server."
+            ? row.ownerOrganizationId === viewer.org.id || (viewer.isRoot && !row.ownerOrganizationId)
+              ? "View only. Admins of this organization manage the server."
+              : "Shared with your organization. You deploy services here; its owner manages the server."
             : row.isLocal
               ? "The machine this dashboard runs on. Reached through the local Docker socket."
               : row.tunnel

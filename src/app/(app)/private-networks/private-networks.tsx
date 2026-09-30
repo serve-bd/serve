@@ -194,7 +194,7 @@ export function PrivateNetworks({
                 ) : (
                   <ul className="divide-y divide-line">
                     {n.servers.map((m) => {
-                      const s = byId.get(m.id) ?? { ...m, state: null, message: null, address: null, nat: false };
+                      const s = byId.get(m.id) ?? { ...m, state: null, message: null, address: null, nat: false, shared: true };
                       const st = stateOf(s);
                       return (
                         <li key={m.id} className="flex items-center gap-3 px-5 py-3">

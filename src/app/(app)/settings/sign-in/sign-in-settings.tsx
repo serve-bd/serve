@@ -92,7 +92,11 @@ export function SignInSettingsView({
             open={passwordOff}
             onOpenChange={setPasswordOff}
             title="Turn off password sign-in?"
-            description="Nobody can sign in with a password until you turn it on again. The saved passwords stay."
+            description={
+              forcedPassword
+                ? "SERVE_ALLOW_PASSWORD_LOGIN keeps password sign-in on while it is set. This setting takes effect once you remove it."
+                : "Nobody can sign in with a password until you turn it on again. The saved passwords stay."
+            }
             people={passwordPeople}
             method="a password"
             signOutPossible={!forcedPassword}

@@ -36,6 +36,7 @@ export function UsersView({ me, users, orgs, roles }: { me: string; users: User[
   const [filter, setFilter] = React.useState("all");
   const [adding, setAdding] = React.useState<User | null>(null);
   const [resetLink, setResetLink] = React.useState<{ name: string; url: string } | null>(null);
+  const [resetOpen, setResetOpen] = React.useState(false);
   const makeResetLink = useAction((userId: string) => createPasswordResetLink(userId), { refresh: false });
   const q = query.trim().toLowerCase();
   const shown = users.filter(
@@ -65,6 +66,7 @@ export function UsersView({ me, users, orgs, roles }: { me: string; users: User[
             value={filter}
             onValueChange={setFilter}
             className="sm:w-52"
+            aria-label="Filter by organization"
             options={[{ value: "all", label: "Every user" }, { value: "none", label: "In no organization" }, ...orgs.map((o) => ({ value: o.id, label: `In ${o.name}` }))]}
           />
         </div>
@@ -123,7 +125,10 @@ export function UsersView({ me, users, orgs, roles }: { me: string; users: User[
                     <MenuItem
                       onClick={async () => {
                         const res = await makeResetLink.run(u.id);
-                        if (res) setResetLink({ name: u.name, url: res.url });
+                        if (res) {
+                          setResetLink({ name: u.name, url: res.url });
+                          setResetOpen(true);
+                        }
                       }}
                     >
                       <KeyRound /> Create password reset link
@@ -140,7 +145,7 @@ export function UsersView({ me, users, orgs, roles }: { me: string; users: User[
         <AddToOrgDialog user={adding} orgs={orgs.filter((o) => !adding.memberships.some((m) => m.organizationId === o.id))} roles={roles} onClose={() => setAdding(null)} />
       )}
 
-      <Dialog open={!!resetLink} onOpenChange={(o) => !o && setResetLink(null)}>
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
         <DialogContent>
           <DialogHeader title="Password reset link" description={`Send this link to ${resetLink?.name}. It works once and expires in 1 hour.`} />
           <DialogBody>{resetLink && <CopyField value={resetLink.url} />}</DialogBody>

@@ -46,6 +46,7 @@ export function VariablesEditor({
   canSeeSecrets = true,
   previewVars = null,
   previewDatabaseVariable = null,
+  initialTab,
 }: {
   serviceId: string;
   type: string;
@@ -63,12 +64,13 @@ export function VariablesEditor({
   /** Variables of pull request previews; null when the service has no previews. */
   previewVars?: ReplicaVar[] | null;
   previewDatabaseVariable?: string | null;
+  initialTab?: "main" | "previews";
 }) {
   const [vars, setVars] = React.useState<Var[]>(() => initial.map(withId));
   // Rows as last saved: their values are masked until revealed. New and edited values stay readable while typing.
   const [savedValues, setSavedValues] = React.useState(() => new Map(vars.map((v) => [v.id!, v.value])));
   const [raw, setRaw] = React.useState<string | null>(null);
-  const [tab, setTab] = React.useState<"main" | "previews">("main");
+  const [tab, setTab] = React.useState<"main" | "previews">(initialTab ?? "main");
   const [revealed, setRevealed] = React.useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [collapsed, toggleCollapsed] = useCollapsed(`serve:vars-collapsed:${serviceId}`);

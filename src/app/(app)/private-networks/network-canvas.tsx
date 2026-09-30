@@ -287,7 +287,7 @@ function Canvas({ networks, servers, saved, canArrange }: Props) {
           if ((e.target as HTMLElement).closest(".react-flow__handle")) return;
           if (node.type === "server") {
             const id = node.id.slice("server:".length);
-            router.push(servers.find((s) => s.id === id)?.shared ? `/servers/${id}` : `/servers/${id}/network`);
+            router.push(servers.find((s) => s.id === id)?.shared === false ? `/servers/${id}/network` : `/servers/${id}`);
           }
         }}
         onNodeDragStart={(_e, node) => {

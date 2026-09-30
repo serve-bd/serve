@@ -338,9 +338,13 @@ export function ServiceSettings(props: Props) {
                       Previews get this app&apos;s variables, so they use its production database
                       {props.previewDatabase.previewVars.length ? ` unless one of your preview variables (${props.previewDatabase.previewVars.join(", ")}) replaces it` : ""}. Turn
                       on &quot;Copy a database for each preview&quot; below, or set{" "}
-                      <Link href={`/projects/${props.projectId}/services/${service.id}/variables`} className="text-accent hover:underline">
-                        preview variables
-                      </Link>
+                      {service.previewsEnabled ? (
+                        <Link href={`/projects/${props.projectId}/services/${service.id}/variables?tab=previews`} className="text-accent hover:underline">
+                          preview variables
+                        </Link>
+                      ) : (
+                        "preview variables on the Variables tab after you save"
+                      )}
                       .
                     </span>
                   </p>

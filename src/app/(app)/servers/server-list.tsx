@@ -44,7 +44,7 @@ type SharedRow = {
 };
 
 export function ServerList({ servers, shared = [], canAdd = true }: { servers: Row[]; shared?: SharedRow[]; canAdd?: boolean }) {
-  if (!servers.length && !shared.length) {
+  if (!servers.length && !shared.length && !canAdd) {
     return (
       <Card>
         <EmptyState icon={<Server />} title="No servers yet" description={canAdd ? "Add a Linux server with SSH access to deploy to it." : "Ask an admin to add a server."} />

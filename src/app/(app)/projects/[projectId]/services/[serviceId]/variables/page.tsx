@@ -15,6 +15,7 @@ export const metadata = { title: "Variables" };
 
 export default async function VariablesPage(props: PageProps<"/projects/[projectId]/services/[serviceId]/variables">) {
   const { projectId, serviceId } = await props.params;
+  const { tab } = await props.searchParams;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   const canSeeSecrets = ctx.can("variables.view-secrets");
@@ -109,6 +110,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
             : null
         }
         previewDatabaseVariable={service.previewDatabase?.variable ?? null}
+        initialTab={tab === "previews" ? "previews" : "main"}
         canEdit={ctx.can("variables.edit")}
         canSeeSecrets={canSeeSecrets}
         references={references}

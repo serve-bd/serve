@@ -22,6 +22,7 @@ export function Select({
   disabled,
   name,
   size = "md",
+  "aria-label": ariaLabel,
 }: {
   value: string | null;
   onValueChange: (value: string) => void;
@@ -31,12 +32,14 @@ export function Select({
   disabled?: boolean;
   name?: string;
   size?: "sm" | "md";
+  "aria-label"?: string;
 }) {
   const items = options.map((o) => ({ value: o.value, label: o.label }));
   const selected = options.find((o) => o.value === value);
   return (
     <BaseSelect.Root items={items} value={value} onValueChange={(v) => v !== null && onValueChange(v as string)} disabled={disabled} name={name}>
       <BaseSelect.Trigger
+        aria-label={ariaLabel}
         className={cn(
           "flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-line-strong bg-surface px-3 text-left text-sm text-fg shadow-sm outline-none transition-[border-color,box-shadow] hover:bg-surface-2 focus-visible:border-accent focus-visible:ring-3 focus-visible:ring-[var(--ring)]/40 data-[disabled]:opacity-60 data-[popup-open]:border-accent",
           size === "sm" ? "h-8 text-[13px]" : "h-9",

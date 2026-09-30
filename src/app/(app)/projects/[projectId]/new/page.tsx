@@ -14,7 +14,7 @@ export const metadata = { title: "New service" };
 
 export default async function NewServicePage(props: PageProps<"/projects/[projectId]/new">) {
   const { projectId } = await props.params;
-  const { env, type, template, repo, branch, credential, builder, server } = await props.searchParams;
+  const { env, type, template, repo, branch, credential, builder, server, root } = await props.searchParams;
   const ctx = await requireOrg();
   if (!ctx.can("services.manage")) return <NoAccess permission="services.manage" />;
   const project = await pageProject(projectId, ctx.org.id);
@@ -85,6 +85,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
               branch: typeof branch === "string" && branch ? branch : "main",
               credentialId: typeof credential === "string" && credential ? credential : null,
               builder: typeof builder === "string" ? builder : null,
+              rootDir: typeof root === "string" ? root : null,
             }
           : null
       }

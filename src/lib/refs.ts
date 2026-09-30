@@ -84,7 +84,12 @@ export function scopeReader(maps: { environment: Record<string, string>; project
  * Per-replica references, filled in for each container: ${{replica.index}}, ${{replica.number}},
  * ${{replica.count}}, and ${{replica.pick(a,b,c)}} (replica 1 gets a, replica 2 gets b, ...).
  */
-export const REPLICA_REF = /\$\{\{\s*replica\.(?:(index|number|count)|pick\(((?:[^)\\]|\\.)*)\))\s*\}\}/gi;
+export const REPLICA_REF = /\$\{\{\s*replica\.(?:(index|number|count)|pick\(((?:[^)\\]|\\[\s\S])*)\))\s*\}\}/gi;
+
+/** Replicas an app runs in all: 1 to 20 per server, on its main server and each extra server. */
+export function replicaCount(replicas: number | null | undefined, extraServers = 0) {
+  return Math.max(1, Math.min(replicas || 1, 20)) * (1 + extraServers);
+}
 
 /**
  * The environment of one replica: fills the replica references and sets SERVE_REPLICA_INDEX
@@ -104,7 +109,7 @@ export function replicaEnv(env: Record<string, string>, index: number, count: nu
  * Values of a pick list, split on commas. Spaces around a value are ignored; `\,` `\)` `\\` and
  * `\ ` stand for the characters themselves (replicaPick escapes them).
  */
-function pickList(list: string) {
+export function pickList(list: string) {
   const out: string[] = [];
   let cur: { ch: string; esc: boolean }[] = [];
   const flush = () => {
@@ -131,12 +136,12 @@ export function shortReplicaPicks(env: Record<string, string>, count: number): s
 
 /** The values of a variable that is exactly ${{replica.pick(...)}}, or null. */
 export function parseReplicaPick(value: string): string[] | null {
-  const m = /^\$\{\{\s*replica\.pick\(((?:[^)\\]|\\.)*)\)\s*\}\}$/i.exec(value.trim());
+  const m = /^\$\{\{\s*replica\.pick\(((?:[^)\\]|\\[\s\S])*)\)\s*\}\}$/i.exec(value.trim());
   return m ? pickList(m[1]) : null;
 }
 
 /** ${{replica.pick(...)}} for a list of values, escaping what would end a value or the list. */
 export function replicaPick(values: string[]) {
-  const escapeValue = (v: string) => v.replace(/[\\,)]/g, "\\$&").replace(/^\s+|\s+$/g, (ws) => ws.replace(/./g, "\\$&"));
+  const escapeValue = (v: string) => v.replace(/[\\,)]/g, "\\$&").replace(/^\s+|\s+$/g, (ws) => ws.replace(/[\s\S]/g, "\\$&"));
   return `\${{replica.pick(${values.map(escapeValue).join(",")})}}`;
 }

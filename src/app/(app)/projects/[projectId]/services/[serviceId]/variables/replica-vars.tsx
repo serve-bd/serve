@@ -126,7 +126,8 @@ function ReplicaCard({
     {
       success: (d) => (d.deploymentId ? "Saved. Redeploying…" : `Replica ${replica} variables saved`),
       onSuccess: () => {
-        setRows(current);
+        // A renamed hidden value is now stored under its new name.
+        setRows(current.map((r) => (r.hidden ? { ...r, from: r.key } : r)));
         setSaved(new Map(current.map((r) => [r.id, r.value])));
         setBaseline(JSON.stringify(current.map((r) => [r.key, r.value])));
         setRevealed(new Set());

@@ -181,10 +181,10 @@ export function ProxyOptionsCard({
               checked={form.buffering}
               onCheckedChange={(v) => set("buffering", v)}
             />
-            {(replicas > 1 || form.sticky) && (
+            {(replicas > 1 || initial?.sticky) && (
               <SwitchRow
                 title="Sticky sessions"
-                description={`Send each visitor to the same replica every time. Needed for Socket.IO and sessions kept in memory. ${
+                description={`Send each visitor to the same replica on this server every time. Needed for Socket.IO and sessions kept in memory. ${
                   proxyKind === "traefik" ? "Traefik remembers the replica in a cookie." : "Visitors are matched by their IP address."
                 }`}
                 checked={form.sticky}

@@ -8,7 +8,7 @@ import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
 import { runServerIds } from "@/server/deploy/distribution";
 import { PageBody } from "@/components/shell/page-header";
 import { composeVariables } from "@/lib/compose-vars";
-import { referenceName } from "@/lib/refs";
+import { referenceName, replicaCount } from "@/lib/refs";
 import { VariablesEditor } from "./variables-editor";
 
 export const metadata = { title: "Variables" };
@@ -90,13 +90,13 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
             ? { key: v.key, value, buildTime: v.buildTime, runtime: v.runtime }
             : { key: v.key, value: "", buildTime: v.buildTime, runtime: v.runtime, hidden: true, from: v.key };
         })}
-        replicas={service.type === "app" ? Math.max(1, service.runtime.replicas || 1) * (1 + (service.distribution?.extraServerIds?.length ?? 0)) : 0}
+        replicas={service.type === "app" ? replicaCount(service.runtime.replicas, service.distribution?.extraServerIds?.length ?? 0) : 0}
         replicaVars={Object.fromEntries(
           Object.entries(service.replicaVars ?? {}).map(([n, vars]) => [
             Number(n),
             Object.entries(vars).map(([key, enc]) => {
               const value = decryptOrNull(enc) ?? "";
-              return canSeeSecrets || /^(\$\{\{[^}]+\}\})+$/.test(value.trim()) ? { key, value } : { key, value: "", hidden: true };
+              return canSeeSecrets || (/^(\$\{\{[^}]+\}\})+$/.test(value.trim()) && !/replica\.pick\(/i.test(value)) ? { key, value } : { key, value: "", hidden: true };
             }),
           ]),
         )}

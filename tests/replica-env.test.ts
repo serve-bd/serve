@@ -50,3 +50,17 @@ describe("replicaEnv", () => {
     expect(parseReplicaPick("plain")).toBeNull();
   });
 });
+
+describe("replica count and pick escapes", () => {
+  it("caps replicas per server and counts extra servers", async () => {
+    const { replicaCount } = await import("@/lib/refs");
+    expect(replicaCount(0)).toBe(1);
+    expect(replicaCount(4, 1)).toBe(8);
+    expect(replicaCount(50)).toBe(20);
+  });
+  it("keeps values with commas, brackets and edge newlines whole", async () => {
+    const { replicaPick, parseReplicaPick } = await import("@/lib/refs");
+    const values = ["mongodb://h1,h2/db", "a)b", "\nx\n", "c\\d"];
+    expect(parseReplicaPick(replicaPick(values))).toEqual(values);
+  });
+});

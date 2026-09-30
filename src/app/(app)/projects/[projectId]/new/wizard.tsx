@@ -61,7 +61,7 @@ type Props = {
   initialServerId?: string | null;
   initialTemplate: string | null;
   /** Git form filled in from a link (an existing app's "deploy its compose file"). */
-  initialGit?: { repository: string; branch: string; credentialId: string | null; builder: string | null } | null;
+  initialGit?: { repository: string; branch: string; credentialId: string | null; builder: string | null; rootDir?: string | null } | null;
   templates: CatalogTemplate[];
   /** Organization admins can manage templates. */
   canManageTemplates: boolean;
@@ -195,7 +195,11 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const [builder, setBuilder] = React.useState(initial?.builder === "compose" ? "compose" : "auto");
   /** "compose": the repository's compose file, deployed as a stack instead of one built image. */
   const compose = builder === "compose";
-  const [composePath, setComposePath] = React.useState("docker-compose.yml");
+  // From an app in a folder of the repository: its compose file is likely next to it.
+  const [composePath, setComposePath] = React.useState(() => {
+    const dir = (initial?.rootDir ?? "").replace(/^\/+|\/+$/g, "");
+    return dir && !dir.split("/").includes("..") ? `${dir}/docker-compose.yml` : "docker-compose.yml";
+  });
   const [rootDir, setRootDir] = React.useState("/");
   const [port, setPort] = React.useState("");
   const [env, setEnv] = React.useState("");

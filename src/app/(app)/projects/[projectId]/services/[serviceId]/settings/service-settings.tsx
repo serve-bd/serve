@@ -403,6 +403,7 @@ export function ServiceSettings(props: Props) {
                     repo: service.source.repository,
                     branch: service.source.branch,
                     server: props.server.id,
+                    ...(service.build?.rootDir && service.build.rootDir !== "/" ? { root: service.build.rootDir } : {}),
                     ...(service.source.credentialId ? { credential: service.source.credentialId } : {}),
                   })}`
                 : undefined

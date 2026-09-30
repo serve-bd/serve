@@ -80,8 +80,10 @@ export function VariablesEditor({
   const save = useAction((redeploy: boolean) => saveEnvVars(serviceId, current, redeploy), {
     success: (d) => (d.deploymentId ? "Saved. Redeploying…" : "Variables saved"),
     onSuccess: () => {
-      setBaseline(JSON.stringify(current.filter((v) => v.key)));
-      const saved = raw !== null ? current.map(withId) : vars;
+      // A renamed hidden value is now stored under its new name.
+      setBaseline(JSON.stringify(current.filter((v) => v.key).map((v) => ("keep" in v ? { ...v, keep: v.key } : v))));
+      const saved = raw !== null ? current.map(withId) : vars.map((v) => (v.hidden ? { ...v, from: v.key } : v));
+      if (raw === null) setVars(saved);
       if (raw !== null) {
         setVars(saved);
         setRaw(null);

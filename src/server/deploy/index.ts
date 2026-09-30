@@ -23,7 +23,7 @@ import { DeployLogger, type StepLog } from "./logger";
 import { distributionProblem, normalizeDistribution, type Distribution } from "./distribution";
 import { getRegistry, pushImage, registryAuth, type RegistryRow } from "@/server/registries";
 import { defaultRepository, imageRef, normalizeRepository, renderTag } from "@/server/registries/refs";
-import { replicaEnv, shortReplicaPicks } from "@/lib/refs";
+import { replicaCount, replicaEnv, shortReplicaPicks } from "@/lib/refs";
 import type { DeploymentTarget } from "@/server/services/types";
 import { createSpec, startContainer, volumeName, waitHealthy } from "./containers";
 import { prepareMounts } from "@/server/services/mounts";
@@ -359,7 +359,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
 
   const env = await resolveEnv({ ...service, runtime });
   log.redact(env.secrets);
-  const replicaTotal = replicasOf(runtime) * (1 + dist.extraServerIds.length);
+  const replicaTotal = replicaCount(runtime.replicas, dist.extraServerIds.length);
   const short = shortReplicaPicks(env.runtime, replicaTotal);
   if (short.length) log.line(`Warning: replica.pick in ${short.join(", ")} has fewer values than the ${replicaTotal} replicas. The others get an empty value.`);
   if (env.missing.length) log.line(`Warning: unresolved variable references: ${env.missing.join(", ")}`);
@@ -451,7 +451,18 @@ async function runOnServer(opts: {
   if (runtime.preDeployCommand && !dep.rollbackOf && primary) {
     // Runs before the old version stops, so a failing migration never takes the app down.
     log.step("Running the pre-deploy command");
-    await runPreDeploy({ service, dep, image, env: replicaEnv(env.runtime, 0, replicaTotal), runtime, network, d, log, signal, serviceDir: server.paths.service(service.id) });
+    await runPreDeploy({
+      service,
+      dep,
+      image,
+      env: replicaEnv({ ...env.runtime, ...env.replicas[1] }, 0, replicaTotal),
+      runtime,
+      network,
+      d,
+      log,
+      signal,
+      serviceDir: server.paths.service(service.id),
+    });
     checkCancelled(signal);
   }
 

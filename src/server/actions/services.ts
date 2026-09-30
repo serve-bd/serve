@@ -988,25 +988,29 @@ export async function saveReplicaVars(serviceId: string, replica: number, vars: 
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "app") throw new UserError("Only apps have replicas.");
     if (!Number.isInteger(replica) || replica < 1 || replica > 100) throw new UserError("Unknown replica.");
-    const stored = service.replicaVars?.[replica] ?? {};
-    const next: Record<string, string> = {};
-    for (const v of vars) {
-      const key = v.key.trim();
-      if (!key) continue;
-      if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key)) throw new UserError(`"${key}" is not a valid variable name.`);
-      if (key in next) throw new UserError(`${key} is defined twice.`);
-      if (v.keep !== undefined) {
-        if (!(v.keep in stored)) throw new UserError(`${v.keep} no longer exists. Reload the page.`);
-        next[key] = stored[v.keep];
-      } else next[key] = encrypt(v.value);
-    }
-    const all = { ...(service.replicaVars ?? {}) };
-    if (Object.keys(next).length) all[replica] = next;
-    else delete all[replica];
-    await db
-      .update(schema.service)
-      .set({ replicaVars: Object.keys(all).length ? all : null })
-      .where(eq(schema.service.id, serviceId));
+    await db.transaction(async (tx) => {
+      // Locked, so two replica cards saved at the same moment both keep their change.
+      const [row] = await tx.select({ replicaVars: schema.service.replicaVars }).from(schema.service).where(eq(schema.service.id, serviceId)).for("update");
+      const stored = row?.replicaVars?.[replica] ?? {};
+      const next: Record<string, string> = {};
+      for (const v of vars) {
+        const key = v.key.trim();
+        if (!key) continue;
+        if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key)) throw new UserError(`"${key}" is not a valid variable name.`);
+        if (Object.hasOwn(next, key)) throw new UserError(`${key} is defined twice.`);
+        if (v.keep !== undefined) {
+          if (!Object.hasOwn(stored, v.keep)) throw new UserError(`${v.keep} no longer exists. Reload the page.`);
+          next[key] = stored[v.keep];
+        } else next[key] = encrypt(v.value);
+      }
+      const all = { ...(row?.replicaVars ?? {}) };
+      if (Object.keys(next).length) all[replica] = next;
+      else delete all[replica];
+      await tx
+        .update(schema.service)
+        .set({ replicaVars: Object.keys(all).length ? all : null })
+        .where(eq(schema.service.id, serviceId));
+    });
     let deploymentId: string | null = null;
     if (redeploy && service.status !== "idle") deploymentId = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
     return { deploymentId };

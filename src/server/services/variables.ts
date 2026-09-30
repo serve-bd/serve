@@ -3,7 +3,7 @@ import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull } from "@/server/crypto";
 import { engines } from "@/server/databases/engines";
 import { databaseUrl } from "@/server/databases/options";
-import { PRIVATE_VARS, REF, referenceName, replicaEnv } from "@/lib/refs";
+import { PRIVATE_VARS, pickList, REF, REPLICA_REF, referenceName, replicaCount, replicaEnv, replicaPick } from "@/lib/refs";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { privateHost } from "@/lib/hostname";
 import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
@@ -146,7 +146,19 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const self = providedVars(service, domainsBy.get(service.id) ?? []);
   const missing = new Set<string>();
 
-  const expand = (value: string, depth = 0): string =>
+  // Each value of a replica.pick list is filled in on its own and escaped again, so a filled-in
+  // value with commas or brackets stays one value.
+  const expand = (value: string, depth = 0): string => {
+    let out = "";
+    let last = 0;
+    for (const m of value.matchAll(REPLICA_REF)) {
+      out += expandRefs(value.slice(last, m.index), depth);
+      out += m[2] !== undefined ? replicaPick(pickList(m[2]).map((item) => expandRefs(item, depth))) : m[0];
+      last = m.index + m[0].length;
+    }
+    return out + expandRefs(value.slice(last), depth);
+  };
+  const expandRefs = (value: string, depth: number): string =>
     value.replace(REF, (_match, ref: string) => {
       // Filled in per container when replicas start (replicaEnv).
       if (/^replica\.(index|number|count)$/i.test(ref)) return _match;
@@ -180,7 +192,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   }
 
   // Builds happen once: they see the first replica.
-  Object.assign(build, replicaEnv(build, 0, Math.max(1, service.type === "app" ? service.runtime.replicas || 1 : 1)));
+  Object.assign(build, replicaEnv(build, 0, service.type === "app" ? replicaCount(service.runtime.replicas, service.distribution?.extraServerIds?.length ?? 0) : 1));
   delete build.SERVE_REPLICA_INDEX;
   delete build.SERVE_REPLICA_COUNT;
 
@@ -193,6 +205,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
 
   const secretKey = /SECRET|TOKEN|PASS|KEY|URL|DSN|AUTH|PRIVATE|CREDENTIAL/i;
   const values = Object.entries(runtime).concat(Object.entries(build), ...Object.values(replicas).map((r) => Object.entries(r)));
+  // What each replica gets from a replica.pick list is redacted like a value of its own.
+  for (const [k, v] of [...values]) for (const m of v.matchAll(REPLICA_REF)) if (m[2] !== undefined) for (const item of pickList(m[2])) values.push([k, item]);
   const secrets = values.filter(([k, v]) => v.length >= 6 && (secretKey.test(k) || v.length >= 20)).map(([, v]) => v);
   // Shared values of any scope that ended up in the environment are redacted too.
   for (const [k, v] of [...Object.entries(sharedMap), ...Object.entries(projectMap), ...Object.entries(orgMap)]) {

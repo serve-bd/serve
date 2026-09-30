@@ -66,7 +66,8 @@ export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { service
   const tx = counterRate(series, "netTx");
   const limit = memoryLimit ? memoryLimit * 1024 * 1024 : last?.memoryLimit || undefined;
   // Docker reports a limit (the host's RAM at least) whenever it can measure memory; none means it cannot.
-  const memUnknown = series.length > 0 && series.every((p) => !p.memoryLimit);
+  // Docker on some servers never reports memory (limit 0); judged by the latest point, so a change mid-window shows.
+  const memUnknown = series.length > 0 && !series.at(-1)!.memoryLimit;
   const { data: req } = useSWR<Req>(hasDomains ? `/api/services/${serviceId}/requests?hours=${hours}` : null, { refreshInterval: 30000 });
 
   return (

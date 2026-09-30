@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { asc } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
-import { listedInOrg } from "@/server/servers/access";
+import { listedInOrg, serverAllowsOrg } from "@/server/servers/access";
 import { db, schema } from "@/server/db";
 import { meshNetworks } from "@/server/mesh";
 import { meshServerAddress } from "@/lib/mesh";
@@ -34,7 +34,15 @@ export default async function PrivateNetworksPage(props: { searchParams: Promise
   ]);
   // In Root every network and server; in another organization its own networks and servers.
   // A server shared with it sits in networks of its owner, which this page does not show.
-  const servers = allServers.filter((s) => listedInOrg(ctx, s) && (ctx.isRoot || s.ownerOrganizationId === ctx.org.id));
+  // Servers shared with it are listed too once they joined the private network (their owner joins them),
+  // so its admins can add them to its networks.
+  const joined = (s: (typeof allServers)[number]) => !!s.mesh?.enabled && s.meshIndex !== null;
+  const servers = allServers.filter(
+    (s) =>
+      (listedInOrg(ctx, s) && (ctx.isRoot || s.ownerOrganizationId === ctx.org.id)) ||
+      (!ctx.isRoot && s.ownerOrganizationId !== ctx.org.id && serverAllowsOrg(s, ctx.org.id) && joined(s)),
+  );
+  const isShared = (s: (typeof allServers)[number]) => !ctx.isRoot && s.ownerOrganizationId !== ctx.org.id;
   const networks =
     ctx.isInstanceAdmin && ctx.isRoot
       ? allNetworks
@@ -59,6 +67,7 @@ export default async function PrivateNetworksPage(props: { searchParams: Promise
             message: s.mesh?.enabled ? (s.mesh.message ?? null) : null,
             address: s.mesh?.enabled && s.meshIndex !== null ? meshServerAddress(s.meshIndex) : null,
             nat: !!s.mesh?.enabled && !s.mesh.endpoint,
+            shared: isShared(s),
           }))}
         />
       </PageBody>

@@ -45,6 +45,8 @@ export type CanvasServer = {
   message: string | null;
   address: string | null;
   nat: boolean;
+  /** Shared with the organization: opens its read-only page. */
+  shared?: boolean;
 };
 type Networks = Omit<MeshNetworkView, "member">[];
 
@@ -283,7 +285,10 @@ function Canvas({ networks, servers, saved, canArrange }: Props) {
         onNodeClick={(e, node) => {
           // A click on a connection dot is the start of a line, not a way to open the server.
           if ((e.target as HTMLElement).closest(".react-flow__handle")) return;
-          if (node.type === "server") router.push(`/servers/${node.id.slice("server:".length)}/network`);
+          if (node.type === "server") {
+            const id = node.id.slice("server:".length);
+            router.push(servers.find((s) => s.id === id)?.shared ? `/servers/${id}` : `/servers/${id}/network`);
+          }
         }}
         onNodeDragStart={(_e, node) => {
           dragFrom.current = { id: node.id, position: node.position };

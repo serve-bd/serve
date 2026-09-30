@@ -3,9 +3,9 @@ import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { UserError } from "@/server/action";
 import { ForbiddenError, type OrgContext, requireOrg } from "@/server/auth";
-import { canAddServers, canManageServer, listedInOrg, ownerFor, serverAllowsOrg } from "./ownership";
+import { canAddServers, canManageServer, canViewServer, listedInOrg, ownerFor, serverAllowsOrg, serverFitsNetwork } from "./ownership";
 
-export { canAddServers, canManageServer, listedInOrg, ownerFor, serverAllowsOrg };
+export { canAddServers, canManageServer, canViewServer, listedInOrg, ownerFor, serverAllowsOrg, serverFitsNetwork };
 
 /** The signed-in admin and a server they manage; throws otherwise. */
 export async function requireServerAdmin(serverId: string) {
@@ -30,6 +30,14 @@ export async function listedServerIds(ctx: Pick<OrgContext, "isInstanceAdmin" | 
     .select({ id: schema.server.id, ownerOrganizationId: schema.server.ownerOrganizationId, organizationIds: schema.server.organizationIds })
     .from(schema.server);
   return rows.filter((r) => listedInOrg(ctx, r)).map((r) => r.id);
+}
+
+/** Servers every member of the organization sees read-only: owned by it or shared with it. */
+export async function viewableServerIds(ctx: Pick<OrgContext, "org">) {
+  const rows = await db
+    .select({ id: schema.server.id, ownerOrganizationId: schema.server.ownerOrganizationId, organizationIds: schema.server.organizationIds })
+    .from(schema.server);
+  return rows.filter((r) => serverAllowsOrg(r, ctx.org.id)).map((r) => r.id);
 }
 
 /** Whether an organization brought servers of its own. */

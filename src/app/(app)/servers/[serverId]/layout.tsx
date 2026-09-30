@@ -7,11 +7,11 @@ import { SectionNav } from "@/components/shell/section-nav";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/misc";
 import { statusText } from "@/components/ui/status";
-import { loadServer, withTimeout } from "./_lib/load";
+import { loadServerView, withTimeout } from "./_lib/load";
 
 export default async function ServerLayout({ children, params }: LayoutProps<"/servers/[serverId]">) {
   const { serverId } = await params;
-  const { row, server } = await loadServer(serverId);
+  const { row, server, manage } = await loadServerView(serverId);
   const settings = await getSettings();
   // A remote server that is not set up yet has no health to report.
   const health = row.isLocal || row.status === "ready" ? await withTimeout(server().then((ctx) => serverHealth(ctx, settings))) : null;
@@ -34,11 +34,13 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
           </span>
         }
         description={
-          row.isLocal
-            ? "The machine this dashboard runs on. Reached through the local Docker socket."
-            : row.tunnel
-              ? `${row.username}@${row.host} · no public IP, connects out through a tunnel`
-              : `${row.username}@${row.host}${row.port === 22 ? "" : `:${row.port}`}`
+          !manage
+            ? "Shared with your organization. You deploy services here; its owner manages the server."
+            : row.isLocal
+              ? "The machine this dashboard runs on. Reached through the local Docker socket."
+              : row.tunnel
+                ? `${row.username}@${row.host} · no public IP, connects out through a tunnel`
+                : `${row.username}@${row.host}${row.port === 22 ? "" : `:${row.port}`}`
         }
         actions={
           <Tooltip content={ready ? "Docker, the proxy and the worker are running." : issues.join(" · ")}>
@@ -55,32 +57,44 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
       />
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 pt-4 pb-16 sm:px-8 lg:flex-row lg:gap-10 lg:pt-6">
         <SectionNav
-          groups={[
-            {
-              title: "Server",
-              items: [
-                { href: base, label: "General", icon: "Settings2", exact: true },
-                { href: `${base}/domains`, label: "Domains", icon: "Globe" },
-                { href: `${base}/network`, label: "Private network", icon: "Waypoints", warn: row.mesh?.enabled === true && row.mesh.state === "error" },
-              ],
-            },
-            {
-              title: "Platform",
-              items: [
-                { href: `${base}/proxy`, label: "Proxy", icon: "Network", warn: !!health && !health.proxy },
-                { href: `${base}/resources`, label: "Resources", icon: "Boxes" },
-              ],
-            },
-            {
-              title: "Operations",
-              items: [
-                { href: `${base}/terminal`, label: "Terminal", icon: "SquareTerminal" },
-                { href: `${base}/cleanup`, label: "Docker cleanup", icon: "Brush", warn: !!health && health.diskPercent >= settings.cleanupDiskThreshold },
-                { href: `${base}/metrics`, label: "Metrics", icon: "Activity" },
-                { href: `${base}/alerts`, label: "Alerts", icon: "BellRing", warn: openAlerts.length > 0 },
-              ],
-            },
-          ]}
+          groups={
+            !manage
+              ? [
+                  {
+                    title: "Server",
+                    items: [
+                      { href: base, label: "General", icon: "Settings2", exact: true },
+                      { href: `${base}/metrics`, label: "Metrics", icon: "Activity" },
+                    ],
+                  },
+                ]
+              : [
+                  {
+                    title: "Server",
+                    items: [
+                      { href: base, label: "General", icon: "Settings2", exact: true },
+                      { href: `${base}/domains`, label: "Domains", icon: "Globe" },
+                      { href: `${base}/network`, label: "Private network", icon: "Waypoints", warn: row.mesh?.enabled === true && row.mesh.state === "error" },
+                    ],
+                  },
+                  {
+                    title: "Platform",
+                    items: [
+                      { href: `${base}/proxy`, label: "Proxy", icon: "Network", warn: !!health && !health.proxy },
+                      { href: `${base}/resources`, label: "Resources", icon: "Boxes" },
+                    ],
+                  },
+                  {
+                    title: "Operations",
+                    items: [
+                      { href: `${base}/terminal`, label: "Terminal", icon: "SquareTerminal" },
+                      { href: `${base}/cleanup`, label: "Docker cleanup", icon: "Brush", warn: !!health && health.diskPercent >= settings.cleanupDiskThreshold },
+                      { href: `${base}/metrics`, label: "Metrics", icon: "Activity" },
+                      { href: `${base}/alerts`, label: "Alerts", icon: "BellRing", warn: openAlerts.length > 0 },
+                    ],
+                  },
+                ]
+          }
         />
         <div className="flex min-w-0 flex-1 flex-col gap-6">{children}</div>
       </div>

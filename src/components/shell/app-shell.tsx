@@ -173,13 +173,14 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
             ))}
         </NavGroup>
 
-        {(props.isInstanceAdmin || props.isOrgAdmin) && (
-          <NavGroup title="Server">
-            <NavLink item={{ href: "/servers", label: "Servers", icon: Server }} pathname={pathname} onNavigate={onNavigate} />
+        <NavGroup title="Server">
+          {/* Every member sees the servers read-only; admins also manage networks. */}
+          <NavLink item={{ href: "/servers", label: "Servers", icon: Server }} pathname={pathname} onNavigate={onNavigate} />
+          {(props.isInstanceAdmin || props.isOrgAdmin) && (
             <NavLink item={{ href: "/private-networks", label: "Private networks", icon: Waypoints }} pathname={pathname} onNavigate={onNavigate} />
-            {props.isInstanceAdmin && <NavLink item={{ href: "/settings", label: "Settings", icon: Settings }} pathname={pathname} onNavigate={onNavigate} />}
-          </NavGroup>
-        )}
+          )}
+          {props.isInstanceAdmin && <NavLink item={{ href: "/settings", label: "Settings", icon: Settings }} pathname={pathname} onNavigate={onNavigate} />}
+        </NavGroup>
       </nav>
 
       <div className="border-t border-line p-3">

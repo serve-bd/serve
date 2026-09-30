@@ -33,10 +33,25 @@ type Row = {
 };
 
 /** A server shared with the organization: it deploys there, a Root admin manages it. */
-type SharedRow = { id: string; name: string; description: string | null; status: ServerStatus; services: number; running: number };
+type SharedRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: ServerStatus;
+  services: number;
+  running: number /** Owned by the organization, seen by a member who does not manage it. */;
+  own?: boolean;
+};
 
-export function ServerList({ servers, shared = [] }: { servers: Row[]; shared?: SharedRow[] }) {
-  if (servers.length <= 1 && servers[0]?.isLocal && !shared.length) {
+export function ServerList({ servers, shared = [], canAdd = true }: { servers: Row[]; shared?: SharedRow[]; canAdd?: boolean }) {
+  if (!servers.length && !shared.length) {
+    return (
+      <Card>
+        <EmptyState icon={<Server />} title="No servers yet" description={canAdd ? "Add a Linux server with SSH access to deploy to it." : "Ask an admin to add a server."} />
+      </Card>
+    );
+  }
+  if (servers.length <= 1 && servers[0]?.isLocal && !shared.length && canAdd) {
     return (
       <div className="flex flex-col gap-6">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -64,14 +79,17 @@ export function ServerList({ servers, shared = [] }: { servers: Row[]; shared?: 
       {shared.map((s) => (
         <SharedCard key={s.id} server={s} />
       ))}
-      <AddCard />
+      {canAdd && <AddCard />}
     </div>
   );
 }
 
 function SharedCard({ server: s }: { server: SharedRow }) {
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
+    <Link
+      href={`/servers/${s.id}`}
+      className="group flex flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-sm transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md"
+    >
       <div className="flex items-start gap-3 p-4">
         <span className="flex size-10 flex-none items-center justify-center rounded-xl bg-surface-2 text-fg-2 ring-1 ring-line">
           <Server className="size-5" />
@@ -79,19 +97,20 @@ function SharedCard({ server: s }: { server: SharedRow }) {
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-[15px] font-semibold text-fg">{s.name}</span>
-            <Badge tone="info">Shared</Badge>
+            {s.own ? <Badge>View only</Badge> : <Badge tone="info">Shared</Badge>}
           </div>
-          <span className="truncate text-[12px] text-muted">{s.description || "Shared with this organization"}</span>
+          <span className="truncate text-[12px] text-muted">{s.description || (s.own ? "This organization's server" : "Shared with this organization")}</span>
         </div>
+        <ArrowRight className="size-4 flex-none text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-fg-2" />
       </div>
       <div className="flex flex-1 flex-col gap-1.5 px-4 pb-4">
         <StatusLabel status={s.status} kind="server" className="text-xs" />
-        <p className="text-xs leading-relaxed text-muted">You deploy services here. A Root admin manages the server.</p>
+        <p className="text-xs leading-relaxed text-muted">{s.own ? "Admins of this organization manage it." : "You deploy services here. Its owner manages the server."}</p>
       </div>
       <div className="border-t border-line px-4 py-2.5 text-xs text-muted">
         {s.services === 0 ? "None of your services" : `${s.running} of ${s.services} of your services running`}
       </div>
-    </div>
+    </Link>
   );
 }
 

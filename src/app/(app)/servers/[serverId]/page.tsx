@@ -7,14 +7,14 @@ import { commandExists } from "@/server/process";
 import { fingerprint } from "@/server/servers/ssh";
 import { ServerOverview } from "./general";
 import { AccessCard, BuildsLimitsCard, ConnectionSettings, DangerZone, ValidationCard, type ServerDetails } from "./server-settings";
-import { loadServer, withTimeout } from "./_lib/load";
+import { loadServerView, withTimeout } from "./_lib/load";
 import { TunnelCard } from "./tunnel-card";
 
 export const metadata = { title: "Server" };
 
 export default async function ServerGeneralPage(props: PageProps<"/servers/[serverId]">) {
   const { serverId } = await props.params;
-  const { row, ctx, server } = await loadServer(serverId);
+  const { row, ctx, server, manage } = await loadServerView(serverId);
   const reachable = row.isLocal || row.status === "ready";
 
   const [settings, keys, orgs, [{ services }]] = await Promise.all([
@@ -48,6 +48,20 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
         }),
       )
     : null;
+
+  if (!manage) {
+    // Seen read-only: how the machine is doing, nothing about how it is reached or set up.
+    return (
+      <>
+        {overview && <ServerOverview host={overview.host} health={overview.health} extra={{ ...overview.extra, dataDir: null }} />}
+        <p className="px-1 text-[13px] leading-relaxed text-muted">
+          {ctx.isAdmin
+            ? "Your organization deploys here and may add this server to its private networks. Its settings, terminal and cleanup stay with the organization that owns it."
+            : "You can see how this server is doing. Admins of your organization choose which services run here."}
+        </p>
+      </>
+    );
+  }
 
   const details: ServerDetails = {
     id: row.id,

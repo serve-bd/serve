@@ -4,7 +4,7 @@ import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { ForbiddenError, type OrgContext, requireOrg } from "@/server/auth";
-import { canManageServer, ownerFor, requireServerAdmin, requireServerCreator } from "@/server/servers/access";
+import { canManageServer, ownerFor, requireServerAdmin, requireServerCreator, serverFitsNetwork } from "@/server/servers/access";
 import { db, schema } from "@/server/db";
 import { encrypt } from "@/server/crypto";
 import { enqueue } from "@/server/queue";
@@ -45,13 +45,24 @@ async function requireNetworkAdmin(networkId: string) {
 }
 
 /**
- * Whether a server may be in a network: an organization's networks hold only its own servers, and
- * the instance's networks only instance servers. Root admins may connect anything.
+ * Whether a server may be in a network: an organization's networks hold its own servers and the
+ * ones shared with it, the instance's networks only instance servers. Root admins may connect anything.
  */
-function assertSameOwner(ctx: Ctx, network: { organizationId: string | null; name: string }, server: { ownerOrganizationId: string | null; name: string }) {
+function assertSameOwner(
+  ctx: Ctx,
+  network: { organizationId: string | null; name: string },
+  server: { ownerOrganizationId: string | null; organizationIds: string[] | null; name: string },
+) {
   if (ctx.isInstanceAdmin) return;
-  if (network.organizationId !== server.ownerOrganizationId) throw new UserError(`${server.name} belongs to another organization, so it cannot join ${network.name}.`);
+  if (!serverFitsNetwork(network, server)) throw new UserError(`${server.name} belongs to another organization, so it cannot join ${network.name}.`);
 }
+
+/**
+ * Who puts a server in (or takes it out of) a network: its managers, and admins of the network's
+ * organization for a server shared with it. Joining the private network itself stays with managers.
+ */
+const canPlace = (ctx: Ctx, network: { organizationId: string | null }, server: { ownerOrganizationId: string | null; organizationIds: string[] | null }) =>
+  canManageServer(ctx, server) || (canManageNetwork(ctx, network) && serverFitsNetwork(network, server));
 
 /** A new private network; the name must be free (any case). */
 async function insertNetwork(tx: Tx, name: string, organizationId: string | null = null) {
@@ -215,7 +226,7 @@ export async function createNetwork(name: string, serverIds: string[] = []) {
         const found = await tx.select().from(schema.server).where(inArray(schema.server.id, ids));
         if (found.length !== ids.length) throw new UserError("A server no longer exists. Reload the page.");
         for (const s of found) {
-          if (!canManageServer(ctx, s)) throw new ForbiddenError(`You cannot manage ${s.name}.`);
+          if (!canPlace(ctx, row, s)) throw new ForbiddenError(`You cannot add ${s.name} to a network.`);
           assertSameOwner(ctx, row, s);
         }
         await tx.insert(schema.privateNetworkMember).values(ids.map((serverId) => ({ networkId: row.id, serverId })));
@@ -278,7 +289,10 @@ export async function setNetworkMember(networkId: string, serverId: string, memb
     const { ctx, network } = await requireNetworkAdmin(networkId);
     const [server] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
     if (!server) throw new UserError("Server not found.");
-    if (!canManageServer(ctx, server)) throw new ForbiddenError(`You cannot manage ${server.name}.`);
+    // Taking a server out of the organization's own network is always allowed to its admins.
+    if (member ? !canPlace(ctx, network, server) : !canManageServer(ctx, server) && !canManageNetwork(ctx, network)) {
+      throw new ForbiddenError(`You cannot change where ${server.name} is.`);
+    }
     if (member) assertSameOwner(ctx, network, server);
     if (member)
       await db

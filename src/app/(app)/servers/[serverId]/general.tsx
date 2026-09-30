@@ -39,7 +39,8 @@ export function ServerOverview({
 }: {
   host: Host;
   health: ServerHealth & { proxyStartedAt: string | null };
-  extra: { nixpacks: boolean | null; dataDir: string; proxyPorts: string };
+  /** `dataDir`: null for someone who only sees the server. */
+  extra: { nixpacks: boolean | null; dataDir: string | null; proxyPorts: string };
 }) {
   const router = useRouter();
   const [refreshing, startRefresh] = React.useTransition();
@@ -109,10 +110,12 @@ export function ServerOverview({
         />
         <Check ok={health.worker} label="Worker" detail={health.worker ? "Running" : "Not running, jobs are waiting"} />
         {extra.nixpacks !== null && <Check ok={extra.nixpacks} optional label="Nixpacks" detail={extra.nixpacks ? "Installed" : "Not installed, auto detection is used"} />}
-        <div className="flex items-center justify-between gap-4 px-5 py-2.5 text-[13px]">
-          <span className="flex-none text-fg-2">Data directory</span>
-          <code className="min-w-0 truncate font-mono text-xs text-muted">{extra.dataDir}</code>
-        </div>
+        {extra.dataDir && (
+          <div className="flex items-center justify-between gap-4 px-5 py-2.5 text-[13px]">
+            <span className="flex-none text-fg-2">Data directory</span>
+            <code className="min-w-0 truncate font-mono text-xs text-muted">{extra.dataDir}</code>
+          </div>
+        )}
       </div>
     </Card>
   );

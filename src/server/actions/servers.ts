@@ -1,11 +1,11 @@
 "use server";
 
-import { and, count, eq, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { ForbiddenError, type OrgContext } from "@/server/auth";
-import { ownerFor, requireServerAdmin, requireServerCreator } from "@/server/servers/access";
+import { ownerFor, requireServerAdmin, requireServerCreator, serverFitsNetwork } from "@/server/servers/access";
 import { db, schema } from "@/server/db";
 import { requireRoomForServer } from "@/server/limits";
 import { encrypt } from "@/server/crypto";
@@ -262,20 +262,25 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
           .where(eq(schema.privateKey.id, moveKey));
     });
     forgetServer(id);
-    if (ownerChanged) {
-      // It leaves private networks of its old owner, so it no longer reaches their servers.
-      const left = await db
-        .delete(schema.privateNetworkMember)
-        .where(
-          and(
-            eq(schema.privateNetworkMember.serverId, id),
-            sql`${schema.privateNetworkMember.networkId} in (select ${schema.privateNetwork.id} from ${schema.privateNetwork} where ${schema.privateNetwork.organizationId} is distinct from ${data.ownerOrganizationId ?? null})`,
-          ),
-        )
-        .returning({ networkId: schema.privateNetworkMember.networkId });
+    const sharingChanged = data.organizationIds !== undefined && JSON.stringify(data.organizationIds) !== JSON.stringify(before.organizationIds);
+    if (ownerChanged || sharingChanged) {
+      // It leaves private networks of organizations it no longer belongs to or is shared with.
+      const [after] = await db.select().from(schema.server).where(eq(schema.server.id, id));
+      const joined = await db
+        .select({ networkId: schema.privateNetworkMember.networkId, organizationId: schema.privateNetwork.organizationId })
+        .from(schema.privateNetworkMember)
+        .innerJoin(schema.privateNetwork, eq(schema.privateNetwork.id, schema.privateNetworkMember.networkId))
+        .where(eq(schema.privateNetworkMember.serverId, id));
+      const stale = joined.filter((n) => !serverFitsNetwork(n, after)).map((n) => n.networkId);
+      const left = stale.length
+        ? await db
+            .delete(schema.privateNetworkMember)
+            .where(and(eq(schema.privateNetworkMember.serverId, id), inArray(schema.privateNetworkMember.networkId, stale)))
+            .returning({ networkId: schema.privateNetworkMember.networkId })
+        : [];
       if (left.length) await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });
       // Its proxy was removed above: start it again for the new owner.
-      if (before.status === "ready") {
+      if (ownerChanged && before.status === "ready") {
         const { ensureServerProxy } = await import("@/server/proxy/nginx");
         await getServer(id)
           .then((c) => ensureServerProxy(c))

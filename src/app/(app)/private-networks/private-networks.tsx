@@ -26,6 +26,8 @@ type ServerRow = {
   address: string | null;
   /** No public address: reaches only servers that have one. */
   nat: boolean;
+  /** Shared with the organization by its owner: it can be put in networks, not managed here. */
+  shared?: boolean;
 };
 
 const stateOf = (s: ServerRow) =>
@@ -87,7 +89,8 @@ export function PrivateNetworks({
   const byId = new Map(servers.map((s) => [s.id, s]));
   const inSome = new Set(networks.flatMap((n) => n.servers.map((s) => s.id)));
   const notJoined = servers.filter((s) => !s.joined);
-  const alone = servers.filter((s) => s.joined && !inSome.has(s.id));
+  // A shared server may be in its owner's networks, which this page does not show.
+  const alone = servers.filter((s) => s.joined && !s.shared && !inSome.has(s.id));
 
   return (
     <div className="flex flex-col gap-6">
@@ -146,7 +149,7 @@ export function PrivateNetworks({
                             <MenuItem key={s.id} disabled={!s.joined} onClick={() => void member.run(n.id, s.id, true)}>
                               <ServerIcon />
                               <span className="min-w-0 flex-1 truncate">{s.name}</span>
-                              {!s.joined && <span className="text-xs text-faint">not joined</span>}
+                              {!s.joined ? <span className="text-xs text-faint">not joined</span> : s.shared && <span className="text-xs text-info">shared</span>}
                             </MenuItem>
                           ))}
                           {candidates.some((s) => !s.joined) && <p className="px-2 pt-1 pb-1.5 text-xs text-faint">Servers join from their Private network page.</p>}
@@ -197,8 +200,9 @@ export function PrivateNetworks({
                         <li key={m.id} className="flex items-center gap-3 px-5 py-3">
                           <span className={cn("size-2 flex-none rounded-full", st.dot)} aria-hidden />
                           <div className="flex min-w-0 flex-1 flex-col">
-                            <Link href={`/servers/${m.id}/network`} className="truncate text-[13px] font-medium text-fg hover:underline">
+                            <Link href={s.shared ? `/servers/${m.id}` : `/servers/${m.id}/network`} className="truncate text-[13px] font-medium text-fg hover:underline">
                               {m.name}
+                              {s.shared && <span className="ml-1.5 text-[11px] font-normal text-info">Shared</span>}
                             </Link>
                             <span className={cn("truncate text-xs", st.tone)} title={s.message ?? undefined}>
                               {s.address ? <span className="font-mono text-muted">{s.address} · </span> : null}

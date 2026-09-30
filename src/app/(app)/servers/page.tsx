@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { asc, sql } from "drizzle-orm";
 import { Plus } from "lucide-react";
 import { requireOrg } from "@/server/auth";
@@ -14,7 +13,6 @@ export const metadata = { title: "Servers" };
 
 export default async function ServersPage() {
   const ctx = await requireOrg();
-  if (!ctx.isInstanceAdmin && !ctx.isAdmin) redirect("/");
   const managed = new Set(await listedServerIds(ctx));
   const all = await db
     .select({
@@ -43,33 +41,33 @@ export default async function ServersPage() {
   const rows = all.filter((r) => managed.has(r.id)).map((r) => ({ ...r, owner: ctx.isInstanceAdmin ? r.owner : null }));
   // Servers shared with this organization that it deploys to but does not manage: shown read-only,
   // with only its own services counted.
-  const shared = ctx.isRoot
-    ? []
-    : await db
-        .select({
-          id: schema.server.id,
-          name: schema.server.name,
-          description: schema.server.description,
-          status: schema.server.status,
-          ownerOrganizationId: schema.server.ownerOrganizationId,
-          organizationIds: schema.server.organizationIds,
-          services: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${ctx.org.id})`,
-          running: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${ctx.org.id} and s.status = 'running')`,
-        })
-        .from(schema.server)
-        .orderBy(asc(schema.server.createdAt))
-        .then((list) =>
-          list
-            .filter((r) => !managed.has(r.id) && r.ownerOrganizationId !== ctx.org.id && serverAllowsOrg(r, ctx.org.id))
-            .map(({ ownerOrganizationId: _o, organizationIds: _i, ...r }) => r),
-        );
+  const shared = await db
+    .select({
+      id: schema.server.id,
+      name: schema.server.name,
+      description: schema.server.description,
+      status: schema.server.status,
+      ownerOrganizationId: schema.server.ownerOrganizationId,
+      organizationIds: schema.server.organizationIds,
+      services: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${ctx.org.id})`,
+      running: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${ctx.org.id} and s.status = 'running')`,
+    })
+    .from(schema.server)
+    .orderBy(asc(schema.server.createdAt))
+    .then((list) =>
+      list
+        .filter((r) => !managed.has(r.id) && serverAllowsOrg(r, ctx.org.id))
+        .map(({ ownerOrganizationId, organizationIds: _i, ...r }) => ({ ...r, own: ownerOrganizationId === ctx.org.id || (ctx.isRoot && !ownerOrganizationId) })),
+    );
 
   return (
     <>
       <PageHeader
         title="Servers"
         description={
-          ctx.isRoot ? (
+          !canAddServers(ctx) ? (
+            <>Servers {ctx.org.name} deploys to. Admins add and manage them.</>
+          ) : ctx.isRoot ? (
             <>Machines you deploy to. Add a server over SSH and everything it needs is installed.</>
           ) : (
             <>Servers {ctx.org.name} brings. Only this organization deploys to them, unless a Root admin shares one. Add a server over SSH and everything it needs is installed.</>
@@ -84,7 +82,7 @@ export default async function ServersPage() {
         }
       />
       <PageBody>
-        <ServerList servers={rows.map((r) => ({ ...r, lastSeenAt: r.lastSeenAt?.toISOString() ?? null }))} shared={shared} />
+        <ServerList servers={rows.map((r) => ({ ...r, lastSeenAt: r.lastSeenAt?.toISOString() ?? null }))} shared={shared} canAdd={canAddServers(ctx)} />
       </PageBody>
     </>
   );

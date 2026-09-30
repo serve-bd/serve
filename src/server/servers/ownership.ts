@@ -17,6 +17,24 @@ export function canManageServer(ctx: Pick<Ctx, "isInstanceAdmin" | "isAdmin" | "
 }
 
 /**
+ * Who sees a server read-only (overview, metrics): whoever manages it, and every member of an
+ * organization that owns it or that it is shared with. Terminal, settings and cleanup stay with managers.
+ */
+export function canViewServer(ctx: Pick<Ctx, "isInstanceAdmin" | "isAdmin" | "org">, server: ServerAccess) {
+  return canManageServer(ctx, server) || serverAllowsOrg(server, ctx.org.id);
+}
+
+/**
+ * Whether a server may be in a private network: an organization's networks hold its own servers
+ * and servers shared with it, the instance's networks only instance servers. Services stay apart
+ * per environment, so a shared server exposes nothing of another organization to the network.
+ */
+export function serverFitsNetwork(network: { organizationId: string | null }, server: ServerAccess) {
+  if (!network.organizationId) return !server.ownerOrganizationId;
+  return serverAllowsOrg(server, network.organizationId);
+}
+
+/**
  * Servers listed while an organization is active: in Root, every server a Root admin manages; in
  * any other organization only its own servers, plus (for Root admins) the ones shared with it.
  * Root admins can still open any server; the lists just match the organization they are in.

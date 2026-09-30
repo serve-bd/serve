@@ -11,9 +11,10 @@ import { Card, EmptyState } from "@/components/ui/misc";
 import { ProjectCard } from "./_components/project-card";
 import { DeploymentsTable } from "./_components/deployments-table";
 import { ServerCards } from "./_components/server-cards";
-import { listedServerIds } from "@/server/servers/access";
+import { listedServerIds, viewableServerIds } from "@/server/servers/access";
 
-async function serverCards(ids: string[]) {
+/** Server cards: full for servers the user manages; for the others only this organization's services and no address. */
+async function serverCards(ids: string[], managed: Set<string>, organizationId: string) {
   const rows = await db
     .select({
       id: schema.server.id,
@@ -23,10 +24,19 @@ async function serverCards(ids: string[]) {
       status: schema.server.status,
       services: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id")`,
       running: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id" and s.status = 'running')`,
+      ownServices: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${organizationId})`,
+      ownRunning: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${organizationId} and s.status = 'running')`,
     })
     .from(schema.server)
     .orderBy(sql`${schema.server.isLocal} desc`, asc(schema.server.createdAt));
-  return Promise.all(rows.filter((r) => ids.includes(r.id)).map(async (r) => ({ ...r, series: await metricSeries(serverScope(r.id), 6, 48).catch(() => []) })));
+  return Promise.all(
+    rows
+      .filter((r) => ids.includes(r.id))
+      .map(async ({ ownServices, ownRunning, ...r }) => ({
+        ...(managed.has(r.id) ? r : { ...r, host: "Shared with this organization", services: ownServices, running: ownRunning }),
+        series: await metricSeries(serverScope(r.id), 6, 48).catch(() => []),
+      })),
+  );
 }
 
 function Section({
@@ -71,7 +81,11 @@ export default async function OverviewPage() {
   const [projects, deployments, servers] = await Promise.all([
     projectSummaries(ctx.org.id, ctx.projectIds),
     recentDeployments(ctx.org.id, 8, undefined, ctx.projectIds),
-    ctx.isInstanceAdmin || ctx.isAdmin ? listedServerIds(ctx).then((ids) => (ids.length ? serverCards(ids) : null)) : Promise.resolve(null),
+    // Servers it manages, plus the ones every member sees: owned by or shared with this organization.
+    Promise.all([listedServerIds(ctx), viewableServerIds(ctx)]).then(([listed, viewable]) => {
+      const ids = [...new Set([...listed, ...viewable])];
+      return ids.length ? serverCards(ids, new Set(listed), ctx.org.id) : null;
+    }),
   ]);
   return (
     <>

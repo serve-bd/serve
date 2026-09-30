@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canAddServers, canManageServer, ownerFor, serverAllowsOrg } from "@/server/servers/ownership";
+import { canAddServers, canManageServer, canViewServer, ownerFor, serverAllowsOrg, serverFitsNetwork } from "@/server/servers/ownership";
 
 const ctx = (o: Partial<{ isInstanceAdmin: boolean; isAdmin: boolean; isRoot: boolean; org: string }> = {}) => ({
   isInstanceAdmin: o.isInstanceAdmin ?? false,
@@ -66,5 +66,33 @@ describe("servers listed in the active organization", () => {
     expect(listedInOrg(rootAdminInAcme, acmeOwn)).toBe(true);
     expect(listedInOrg(acmeAdmin, sharedWithAcme)).toBe(false);
     expect(listedInOrg(acmeAdmin, acmeOwn)).toBe(true);
+  });
+});
+
+describe("shared servers", () => {
+  const shared = { ownerOrganizationId: null, organizationIds: ["root", "acme"] };
+  const rootOnly = { ownerOrganizationId: null, organizationIds: ["root"] };
+  const betas = { ownerOrganizationId: "beta", organizationIds: [] };
+  const member = (isAdmin: boolean) => ({ isInstanceAdmin: false, isAdmin, org: { id: "acme" } });
+
+  it("every member of an organization it is shared with sees it; nobody else", () => {
+    expect(canViewServer(member(false), shared)).toBe(true);
+    expect(canViewServer(member(true), shared)).toBe(true);
+    expect(canViewServer(member(true), rootOnly)).toBe(false);
+    expect(canViewServer(member(true), betas)).toBe(false);
+  });
+
+  it("seeing is not managing", () => {
+    expect(canManageServer(member(true), shared)).toBe(false);
+  });
+
+  it("fits the networks of organizations it belongs to or is shared with", () => {
+    expect(serverFitsNetwork({ organizationId: "acme" }, shared)).toBe(true);
+    expect(serverFitsNetwork({ organizationId: "acme" }, rootOnly)).toBe(false);
+    expect(serverFitsNetwork({ organizationId: "beta" }, betas)).toBe(true);
+    expect(serverFitsNetwork({ organizationId: "acme" }, betas)).toBe(false);
+    // The instance's networks hold only instance servers.
+    expect(serverFitsNetwork({ organizationId: null }, shared)).toBe(true);
+    expect(serverFitsNetwork({ organizationId: null }, betas)).toBe(false);
   });
 });

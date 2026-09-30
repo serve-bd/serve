@@ -7,6 +7,7 @@ import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
 import { AlertTriangle, ArrowUpRight, ChevronDown, Construction, FolderInput, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
+import { ServiceSwitcher, type SiblingService } from "./service-switcher";
 import { MoveServicesDialog } from "@/components/move-services-dialog";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,8 @@ import { useCan, useCannot } from "@/components/permissions";
 
 type Props = {
   project: { id: string; name: string };
+  /** Services of the same environment, for the breadcrumb switcher. */
+  siblings: SiblingService[];
   environment: string;
   service: {
     id: string;
@@ -54,7 +57,7 @@ export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
   });
 }
 
-export function ServiceHeader({ project, environment, service, initialLive, server, ports, maintenance, issues }: Props) {
+export function ServiceHeader({ project, environment, service, initialLive, server, ports, maintenance, issues, siblings }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const confirm = useConfirm();
@@ -112,13 +115,30 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   // Never deployed: nothing runs yet, so there is nothing to restart or stop.
   const notDeployed = live.status === "idle";
   const busy = ["building", "deploying", "restarting"].includes(live.status);
+  const me: SiblingService = {
+    id: service.id,
+    name: service.name,
+    type: service.type,
+    icon: service.icon,
+    engine: service.engine,
+    sourceType: service.sourceType,
+    status: live.status,
+  };
 
   return (
     <>
       {/* Thin header: breadcrumbs only. Title, actions and tabs belong to the page. */}
       <header className="border-b border-line bg-bg">
         <div className="w-full px-4 py-3 sm:px-8">
-          <Breadcrumbs items={[{ label: "Projects", href: "/projects" }, { label: project.name, href: `/projects/${project.id}?env=${environment}` }, { label: service.name }]} />
+          <Breadcrumbs
+            items={[
+              { label: "Projects", href: "/projects" },
+              { label: project.name, href: `/projects/${project.id}?env=${environment}` },
+              {
+                label: <ServiceSwitcher projectId={project.id} current={me} services={siblings.some((s) => s.id === service.id) ? siblings : [...siblings, me]} />,
+              },
+            ]}
+          />
         </div>
       </header>
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 px-4 pt-7 sm:px-8">

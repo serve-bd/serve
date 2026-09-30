@@ -1,7 +1,7 @@
 import { requireOrg } from "@/server/auth";
 import { pageService } from "@/server/services/access";
 import { serviceLive } from "@/server/service-data";
-import { eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { serversForOrg } from "@/server/servers/access";
 import { publishedPorts } from "@/server/services/ports";
@@ -21,6 +21,20 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
       .where(eq(schema.server.id, service.serverId)),
     serviceIssues([serviceId]),
   ]);
+  // The other services of this environment, for the switcher in the breadcrumb (previews stay out).
+  const siblings = await db
+    .select({
+      id: schema.service.id,
+      name: schema.service.name,
+      type: schema.service.type,
+      icon: schema.service.icon,
+      status: schema.service.status,
+      database: schema.service.database,
+      source: schema.service.source,
+    })
+    .from(schema.service)
+    .where(and(eq(schema.service.projectId, projectId), eq(schema.service.environmentId, service.environmentId), isNull(schema.service.parentServiceId)))
+    .orderBy(asc(schema.service.name));
   const ports = await publishedPorts(service, server);
   // The server name is only worth showing when the organization can deploy to more than one.
   const [env] = await (await import("@/server/project-data")).projectEnvironments(projectId).then((envs) => envs.filter((e) => e.id === service.environmentId));
@@ -53,6 +67,15 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
         server={servers.length > 1 && server ? { id: service.serverId, name: server.name } : null}
         ports={ports.map((p) => ({ label: p.label, url: p.url, protocol: p.protocol }))}
         issues={issues.get(serviceId) ?? []}
+        siblings={siblings.map((s) => ({
+          id: s.id,
+          name: s.name,
+          type: s.type,
+          icon: s.icon,
+          status: s.status,
+          engine: s.database?.engine ?? null,
+          sourceType: s.source?.type ?? null,
+        }))}
         maintenance={service.type === "database" ? null : { enabled: !!service.maintenance?.enabled, since: service.maintenance?.since ?? null }}
       />
       {props.children}

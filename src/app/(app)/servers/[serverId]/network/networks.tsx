@@ -96,12 +96,12 @@ export function Networks({ serverId, serverName, networks, refresh }: { serverId
         }
       />
       {!inAny && (
-        <p className="mx-5 mb-4 rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
+        <p className="mx-5 my-4 rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
           {serverName} is in no network, so no other server reaches it. Turn on a network below.
         </p>
       )}
       {networks.length > 0 && (
-        <ul className="divide-y divide-line border-t border-line">
+        <ul className="divide-y divide-line">
           {networks.map((n) => {
             const others = n.servers.filter((s) => s.id !== serverId);
             return (

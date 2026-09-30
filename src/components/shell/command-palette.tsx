@@ -5,7 +5,25 @@ import { useRouter } from "@/hooks/use-router";
 import { Command } from "cmdk";
 import useSWR from "swr";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
-import { Activity, Blocks, Box, Cloud, Database, FolderGit2, Globe, Layers, LayoutGrid, Plus, Search, Server, Settings, ShieldCheck, Users, KeyRound } from "lucide-react";
+import {
+  Activity,
+  Blocks,
+  Box,
+  Cloud,
+  Database,
+  FolderGit2,
+  Globe,
+  Layers,
+  LayoutGrid,
+  Plus,
+  Search,
+  Server,
+  Settings,
+  ShieldCheck,
+  Users,
+  KeyRound,
+  Waypoints,
+} from "lucide-react";
 import { StatusDot } from "@/components/ui/status";
 import { projectColor } from "./project-color";
 
@@ -144,6 +162,11 @@ export function CommandPalette({
                     {isInstanceAdmin && (
                       <Command.Item onSelect={() => go("/servers")} className={itemClass}>
                         <Server /> Servers
+                      </Command.Item>
+                    )}
+                    {isInstanceAdmin && (
+                      <Command.Item onSelect={() => go("/private-networks")} className={itemClass}>
+                        <Waypoints /> Private networks
                       </Command.Item>
                     )}
                     {isInstanceAdmin && (

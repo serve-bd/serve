@@ -33,6 +33,7 @@ import {
   AlertTriangle,
   HeartPulse,
   Settings,
+  Waypoints,
 } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
@@ -173,6 +174,7 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
         {props.isInstanceAdmin && (
           <NavGroup title="Server">
             <NavLink item={{ href: "/servers", label: "Servers", icon: Server }} pathname={pathname} onNavigate={onNavigate} />
+            <NavLink item={{ href: "/private-networks", label: "Private networks", icon: Waypoints }} pathname={pathname} onNavigate={onNavigate} />
             <NavLink item={{ href: "/settings", label: "Settings", icon: Settings }} pathname={pathname} onNavigate={onNavigate} />
           </NavGroup>
         )}

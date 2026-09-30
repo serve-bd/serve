@@ -34,7 +34,7 @@ import { HOSTNAME_RE } from "@/lib/hostname";
 import { SERVICE_NAME_RE, toServiceName } from "@/lib/service-name";
 import { CAPABILITIES } from "@/server/deploy/options";
 import { containerOptionsSchema } from "@/server/deploy/runtime-schema";
-import { volumeSchema } from "@/server/services/volume-schema";
+import { volumeListSchema } from "@/server/services/volume-schema";
 import { dockerfileSourceSchema } from "@/server/services/source-schema";
 
 async function assertEnvironment(projectId: string, environmentId: string) {
@@ -171,11 +171,7 @@ const appSchema = z.object({
   port: z.number().int().min(1).max(65535).nullable().optional(),
   envVars: envVarInput,
   /** Persistent storage set up front: named Docker volumes only (host paths need the root admin, in settings). */
-  volumes: z
-    .array(volumeSchema)
-    .max(50)
-    .refine((list) => list.every((v) => v.kind === "volume"), "Add host paths and files in the service settings.")
-    .optional(),
+  volumes: volumeListSchema.refine((list) => list.every((v) => v.kind === "volume"), "Add host paths and files in the service settings.").optional(),
   /** Services are never deployed on creation unless the caller asks (e.g. the API). */
   deploy: z.boolean().default(false),
   /** Server to run on; defaults to the server Serve runs on. */
@@ -490,7 +486,7 @@ const updateSchema = z.object({
         .min(16)
         .max(1024 * 1024)
         .nullable(),
-      volumes: z.array(volumeSchema).max(50),
+      volumes: volumeListSchema,
       ports: z.array(
         z.object({
           host: z.number().int().min(1).max(65535),

@@ -344,6 +344,10 @@ export function StorageSection({
               editing={editing}
               isRootAdmin={isRootAdmin}
               data={data}
+              taken={[
+                ...(data && editing.at !== "data" ? [value.dataPath.trim() || data.defaultPath] : []),
+                ...value.volumes.filter((_, j) => j !== editing.at).map((x) => x.mountPath),
+              ]}
               onChange={(patch) => setEditing((e) => e && { ...e, draft: { ...e.draft, ...patch } })}
               onDone={finishEditing}
             />
@@ -359,12 +363,15 @@ function MountEditor({
   editing,
   isRootAdmin,
   data,
+  taken,
   onChange,
   onDone,
 }: {
   editing: { at: number | "new" | "data"; draft: VolumeMount };
   isRootAdmin: boolean;
   data?: { mountPath: string; defaultPath: string };
+  /** Container paths other mounts use. */
+  taken: string[];
   onChange: (patch: Partial<VolumeMount>) => void;
   onDone: () => void;
 }) {
@@ -373,7 +380,9 @@ function MountEditor({
   const { label, hint } = TYPES[type];
   const isData = at === "data";
   const server = v.kind === "bind";
-  const complete = isData || (v.source.trim() && v.mountPath.trim());
+  const norm = (p: string) => (p.trim().length > 1 ? p.trim().replace(/\/+$/, "") : p.trim());
+  const clash = !!v.mountPath.trim() && taken.some((p) => norm(p) === norm(v.mountPath));
+  const complete = !clash && (isData || (v.source.trim() && v.mountPath.trim()));
   const mono = "font-mono text-[13px]";
   return (
     <form
@@ -402,7 +411,7 @@ function MountEditor({
             />
           </Field>
         )}
-        <Field label="Mounted at" description="The path inside the container.">
+        <Field label="Mounted at" description="The path inside the container." error={clash ? "Another mount already uses this path." : undefined}>
           <Input
             value={v.mountPath}
             onChange={(e) => onChange({ mountPath: e.target.value })}

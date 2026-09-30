@@ -20,3 +20,19 @@ export const volumeSchema = z
     if (v.kind === "bind" && !/^\/[^:]*$/.test(v.source)) ctx.addIssue({ code: "custom", message: "Host paths must be absolute." });
     if (v.kind === "file" && !/^[\w][\w.-]*$/.test(v.source)) ctx.addIssue({ code: "custom", message: "File names use letters, numbers, dots and dashes." });
   });
+
+const normalPath = (p: string) => (p.length > 1 ? p.trim().replace(/\/+$/, "") : p.trim());
+
+/** Persistent storage of one service: each container path is mounted once, and never on / itself. */
+export const volumeListSchema = z
+  .array(volumeSchema)
+  .max(50)
+  .superRefine((list, ctx) => {
+    const seen = new Set<string>();
+    for (const v of list) {
+      const path = normalPath(v.mountPath);
+      if (path === "/") ctx.addIssue({ code: "custom", message: "Mount a path inside the container, like /data, not / itself." });
+      else if (seen.has(path)) ctx.addIssue({ code: "custom", message: `${path} is mounted twice. Each container path can have one mount.` });
+      seen.add(path);
+    }
+  });

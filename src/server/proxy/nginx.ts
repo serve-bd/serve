@@ -27,7 +27,8 @@ import {
   type SiteUpstream,
 } from "./templates";
 import { certificateCovers } from "@/server/ssl/match";
-import { composeAlias, tunnelNetworkName, upstreamName } from "./names";
+import { composeAlias, tunnelNetworkName, upstreamNamer } from "./names";
+import { ensureTunnelNetwork } from "./tunnel-network";
 import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker/networks";
 import crypto from "node:crypto";
 import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type ProxyFile, type ProxyKind, type RunningKind, type ServerProxyConfig } from "./config";
@@ -36,7 +37,7 @@ import { forgetDashboardTrusted, visitorIpOf } from "./trusted-proxies";
 import { allTrusted, type TrustedProxies } from "@/lib/trusted-proxies";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
-import { caddyMainConfig, renderCaddySite } from "./caddy";
+import { caddyMainConfig, renderCaddySite, tunnelTrustFor } from "./caddy";
 import { renderTraefikSite, TRAEFIK_API, traefikBaseDynamic, traefikRouters, traefikStaticArgs, type ExpectedRouter } from "./traefik";
 
 /**
@@ -480,11 +481,11 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
   }
   await ensureNetwork(ctx.docker, ctx.network);
   // Before the static files: the visitor-IP config trusts this network's subnet.
-  await ensureNetwork(ctx.docker, tunnelNetworkName(ctx.network));
+  const tunnelNet = await ensureTunnelNetwork(ctx.docker, ctx.network, log);
   const changed = await writeStaticFiles(ctx, kind, config);
   const info = await getProxyContainer(ctx);
   // A proxy from before the tunnel network joins it (cloudflared reaches the proxy there).
-  if (info) await connectProxy(tunnelNetworkName(ctx.network), ctx).catch(() => {});
+  if (info && tunnelNet) await connectProxy(tunnelNetworkName(ctx.network), ctx).catch(() => {});
   const spec = await containerSpec(ctx, kind, config);
   const specHash = crypto.createHash("sha256").update(JSON.stringify(spec)).digest("hex").slice(0, 16);
   const mismatch = !!info && (info.Config.Labels?.[KIND_LABEL] ?? "nginx") !== kind;
@@ -530,7 +531,7 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
     staleMounts.delete(ctx.id);
     // Join the environment networks before starting, so upstream names resolve on the first start.
     await connectProxyToAll(ctx);
-    await connectProxy(tunnelNetworkName(ctx.network), ctx);
+    if (tunnelNet) await connectProxy(tunnelNetworkName(ctx.network), ctx);
     await container.start();
     log?.(`Proxy container started (${kind})`);
   };
@@ -712,6 +713,30 @@ function tlsFor(hostname: string, explicitId: string | null, certs: CertRow[]): 
   return cert ? { cert: cert.certPath!, key: cert.keyPath! } : null;
 }
 
+type ServiceRow = typeof schema.service.$inferSelect;
+type DomainRow = typeof schema.domain.$inferSelect;
+
+/** The part of a domain's upstream name after the slug: its port, or compose service and port. */
+function upstreamSuffix(service: Pick<ServiceRow, "type" | "runtime">, d: Pick<DomainRow, "port" | "composeService">) {
+  const port = d.port ?? service.runtime.port ?? 80;
+  if (service.type === "app") return String(port);
+  if (service.type === "compose" && d.composeService) return `${d.composeService}_${port}`;
+  return null;
+}
+
+/** Every upstream (slug, suffix) the sites on a server may use, to keep their nginx names apart. */
+async function serverUpstreamKeys(serverId: string) {
+  const rows = await db
+    .select({ slug: schema.service.slug, type: schema.service.type, runtime: schema.service.runtime, port: schema.domain.port, composeService: schema.domain.composeService })
+    .from(schema.domain)
+    .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
+    .where(and(inArray(schema.service.type, ["app", "compose"]), or(eq(schema.service.serverId, serverId), runsAsExtraOn(serverId))));
+  return rows.flatMap((r) => {
+    const suffix = upstreamSuffix(r, r);
+    return suffix ? [{ slug: r.slug, suffix }] : [];
+  });
+}
+
 /** Certificates a site on a server may use: same organization, stored on that server. */
 function usableCertificates(organizationId: string, serverId: string) {
   return db
@@ -739,6 +764,7 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
   const errorPages = defaultsOf((await proxyStateOf(server.id)).config.nginx?.defaults).unavailablePage;
   const maintenance = maintenanceOf(service.id, service.maintenance);
   const tunnelIp = service.domains.some((d) => d.tunnelId) ? tunnelRealIp(await visitorIpOf(server)) : null;
+  const upstreamName = upstreamNamer(await serverUpstreamKeys(server.id));
   const cfg = service.proxy;
   const options: SiteOptions | null = cfg ? ({ ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null } as SiteOptions) : null;
   // www ↔ apex redirect, only between hostnames that are both on this service.
@@ -753,16 +779,17 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
 
   for (const d of service.domains) {
     let upstream: string | null = null;
-    if (!d.redirectTo && !stopped) {
+    const suffix = d.redirectTo || stopped ? null : upstreamSuffix(service, d);
+    if (suffix) {
       const port = d.port ?? service.runtime.port ?? 80;
       if (service.type === "app") {
-        const name = upstreamName(service.slug, String(port));
+        const name = upstreamName(service.slug, suffix);
         if (!upstreams.has(name)) {
           upstreams.set(name, { name, servers: containers.map((c) => `${c}:${port}`), sticky: !!cfg?.sticky });
         }
         upstream = name;
       } else if (service.type === "compose" && d.composeService) {
-        const name = upstreamName(service.slug, `${d.composeService}_${port}`);
+        const name = upstreamName(service.slug, suffix);
         if (!upstreams.has(name)) {
           upstreams.set(name, {
             name,
@@ -825,7 +852,9 @@ async function renderModel(kind: RunningKind, ctx: ServerCtx, model: SiteModel |
   const { config } = await proxyStateOf(ctx.id);
   const stamp = (model.certificates ?? []).map((l) => `${l}\n`).join("");
   const visitor = await visitorIpOf(ctx);
-  if (kind === "caddy") return stamp + renderCaddySite(model, defaultsOf(config.caddy?.defaults), !!visitor.header);
+  // The dashboard always gets X-Real-IP: it reads the visitor from there when the header is not X-Forwarded-For.
+  if (kind === "caddy")
+    return stamp + renderCaddySite(model, defaultsOf(config.caddy?.defaults), !!visitor.header || model.name === "_dashboard", visitor.header ? tunnelTrustFor(visitor) : []);
   const settings = await getSettings();
   return stamp + renderTraefikSite(model, { resolver: !!settings.acmeEmail, trusted: allTrusted(visitor), defaults: defaultsOf(config.traefik?.defaults) });
 }
@@ -1225,18 +1254,21 @@ export async function applyTrustedProxies(ctx: ServerCtx, next: TrustedProxies |
   }
 }
 
-/** After Cloudflare's ranges changed: re-apply every server that trusts them. */
+/** After Cloudflare's ranges changed: re-apply every server that trusts them. False when one failed (retry later). */
 export async function syncCloudflareTrusting(log?: Log) {
   const rows = await db.select({ id: schema.server.id, trusted: schema.server.trustedProxies }).from(schema.server);
   const ids = new Set(rows.filter((r) => r.trusted?.cloudflare).map((r) => r.id));
+  let ok = true;
   for (const ctx of await activeServers()) {
     if (!ids.has(ctx.id)) continue;
     try {
       await syncServerProxy(ctx, log);
     } catch (error) {
+      ok = false;
       log?.(`Proxy sync failed on ${ctx.name}: ${(error as Error).message}`);
     }
   }
+  return ok;
 }
 
 export async function waitHealthy(ctx: ServerCtx, timeoutMs = 20_000) {

@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { fillTemplate, notifyEventCatalog, type Provider, providers, webhookExample } from "@/lib/notifications";
 import { type OutgoingMessage, parseHeaders, planDelivery, signWebhook, webhookBody } from "@/server/notifications/payloads";
-import { channelWants, decide, inQuietHours, inScope, retryDelay } from "@/server/notifications/rules";
+import { channelWants, decide, inQuietHours, inScope, retryDelay, throttleSince } from "@/server/notifications/rules";
 import { validateChannelConfig } from "@/server/notifications/validate";
 
 const msg = (patch: Partial<OutgoingMessage> = {}): OutgoingMessage => ({
@@ -260,5 +260,20 @@ describe("validation", () => {
     expect(() => validateChannelConfig("webhook", { url: "https://x.co", headers: "Host: x" })).toThrow(/sets/);
     expect(() => validateChannelConfig("matrix", { homeserver: "https://m.org", accessToken: "t", roomId: "room" })).toThrow(/room ID/);
     expect(() => validateChannelConfig("nope", {})).toThrow(/Unknown/);
+  });
+});
+
+describe("throttling around recoveries", () => {
+  it("sends down → recovered → down within the throttle window", () => {
+    const now = new Date("2026-09-29T10:10:00Z");
+    const downAt = new Date("2026-09-29T10:00:00Z");
+    const throttle = (status: string, lastInGroup: Date | null, lastOfProblem: string | null) =>
+      decide({ quietHours: null, severity: "critical", throttleMinutes: 30, lastSentAt: throttleSince({ status }, lastInGroup, lastOfProblem), now });
+    // The recovery has its own event, so its group has nothing sent yet; it is never held back anyway.
+    expect(throttle("recovered", downAt, "down")).toBe("send");
+    // Down again: the group still holds the first alert, but the last message of the problem was a recovery.
+    expect(throttle("down", downAt, "recovered")).toBe("send");
+    // A repeat of a problem that is still down is grouped.
+    expect(throttle("down", downAt, "down")).toBe("group");
   });
 });

@@ -78,16 +78,23 @@ async function signedFetch(cfg: S3Config, method: string, key: string, body?: Bu
 
   const url = new URL(`${endpoint.origin}${pathname}${query ? `?${query}` : ""}`);
   let req: http.ClientRequest | undefined;
-  // Idle timeout until the answer starts; the error text below is read under it too.
+  // Idle timeout until the answer starts; the error text below is read under it too. publicOnly
+  // takes no pooled socket, so every request goes through the lookup check.
   const res = await new Promise<http.IncomingMessage>((resolve, reject) => {
-    req = (url.protocol === "https:" ? https : http).request(url, { method, headers, lookup: cfg.publicOnly ? publicLookup : undefined, timeout: 120_000 }, resolve);
+    req = (url.protocol === "https:" ? https : http).request(
+      url,
+      { method, headers, lookup: cfg.publicOnly ? publicLookup : undefined, agent: cfg.publicOnly ? false : undefined, timeout: 120_000 },
+      resolve,
+    );
     req.on("timeout", () => req?.destroy(new Error("The storage did not answer in time.")));
     req.on("error", reject);
     if (body instanceof fs.ReadStream) pipeline(body, req).catch(reject);
     else req.end(body);
   });
   const status = res.statusCode ?? 0;
-  if ((status < 200 || status >= 300) && status !== 404) {
+  // 404 is an answer for reads and deletes (the object is not there); a write that gets it failed.
+  const missingOk = status === 404 && (method === "GET" || method === "HEAD" || method === "DELETE");
+  if ((status < 200 || status >= 300) && !missingOk) {
     const text = await new Promise<string>((resolve) => {
       let t = "";
       res.on("data", (c: Buffer) => (t += t.length < 65_536 ? c.toString() : ""));

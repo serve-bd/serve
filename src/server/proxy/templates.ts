@@ -23,10 +23,13 @@ ${v.tunnel.map((s) => `set_real_ip_from ${s};`).join("\n")}
 real_ip_header CF-Connecting-IP;
 `;
   }
-  return `# Managed by Serve — visitor IPs from the trusted proxies of this server and Cloudflare Tunnel traffic.
-${allTrusted(v)
-  .map((s) => `set_real_ip_from ${s};`)
-  .join("\n")}
+  // A visitor can send X-Real-IP or True-Client-IP through Cloudflare: for those the tunnel is trusted
+  // only by the tunnel hosts' own server blocks (tunnelRealIp), for CF-Connecting-IP there.
+  const safe = v.header === "x-forwarded-for" || v.header === "cf-connecting-ip";
+  const trusted = safe ? allTrusted(v) : v.ranges;
+  if (!trusted.length) return null;
+  return `# Managed by Serve — visitor IPs from the trusted proxies of this server${safe ? " and Cloudflare Tunnel traffic" : ""}.
+${trusted.map((s) => `set_real_ip_from ${s};`).join("\n")}
 real_ip_header ${clientIpHeaderNames[v.header]};
 ${v.header === "x-forwarded-for" ? "real_ip_recursive on;\n" : ""}`;
 }

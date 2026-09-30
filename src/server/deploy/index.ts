@@ -18,7 +18,7 @@ import { engines } from "@/server/databases/engines";
 import { logActivity } from "@/server/activity";
 import { notify, orgOfService } from "@/server/notify";
 import { buildImage } from "./builders";
-import { cloneRepository } from "./git";
+import { cloneRepository, staleEntries } from "./git";
 import { DeployLogger, type StepLog } from "./logger";
 import { distributionProblem, normalizeDistribution, type Distribution } from "./distribution";
 import { getRegistry, pushImage, registryAuth, type RegistryRow } from "@/server/registries";
@@ -751,7 +751,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   const serviceDir = paths.service(service.id);
   let dir = path.join(serviceDir, "compose");
   let content = cfg.content;
-  let removed: string[] = [];
+  let tracked: string[] | null = null;
 
   if (cfg.mode === "git") {
     if (service.source?.type !== "git") throw new Error("Compose from git needs a git source.");
@@ -765,7 +765,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
       commitAuthor: clone.commitAuthor,
       branch: service.source.branch,
     });
-    removed = clone.removed ?? [];
+    tracked = clone.files ?? null;
     let composePath = containedPath(repoDir, cfg.path, "Compose file path");
     // The standard names are interchangeable: a repository with compose.yaml works with the default path.
     const standard = ["docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"];
@@ -799,7 +799,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
       throw new Error(`The compose file uses paths that lead outside the repository: ${escaping.map((p) => path.relative(repoDir, p)).join(", ")}`);
     }
     // BuildKit cache mounts are shared by every build on the server: give this organization's its own ids.
-    await scopeDockerfiles(composeDockerfiles(content, dir), buildCacheScope(await orgIdOf(service)));
+    await scopeDockerfiles(composeDockerfiles(content, dir), buildCacheScope(await orgIdOf(service)), repoDir);
     // Remember the file so the UI can show services and ports.
     await db
       .update(schema.service)
@@ -906,9 +906,19 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     const remoteRoot = path.posix.join(server.paths.service(service.id), cfg.mode === "git" ? "repo" : "compose");
     const remoteDir = path.posix.join(remoteRoot, path.relative(uploadRoot, dir).split(path.sep).join("/"));
     log.step(`Uploading the project to ${server.name}`);
-    // The upload only adds and replaces files: what the new commit removed goes first.
-    if (removed.length) await server.fs.removeInside(remoteRoot, removed);
+    // The upload only adds and replaces files: what is no longer tracked since the last upload
+    // goes first. The list sits outside the copy, where the stack's containers cannot change it.
+    const uploaded = path.posix.join(server.paths.service(service.id), ".serve-uploaded-files.json");
+    if (tracked) {
+      const previous = await server.fs
+        .readFile(uploaded)
+        .then((text) => JSON.parse(text) as string[])
+        .catch(() => null);
+      const stale = previous ? staleEntries(previous, tracked) : [];
+      if (stale.length) await server.fs.removeInside(remoteRoot, stale);
+    }
     await server.fs.uploadDir(uploadRoot, remoteRoot);
+    if (tracked) await server.fs.writeFile(uploaded, JSON.stringify(tracked));
     target = { ...target, dir: remoteDir };
   }
   log.step(`Starting ${composeServiceNames(content).length} compose services`);

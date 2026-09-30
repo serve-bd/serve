@@ -76,6 +76,14 @@ export function decide(opts: { quietHours: QuietHours | null; severity: Severity
   return "send";
 }
 
+/**
+ * When the throttle counts from: the last message of the group, except that a recovery is never
+ * held back, nor the alert after one. The channel must end up showing the real state.
+ */
+export function throttleSince(m: { status: string }, lastInGroup: Date | null, lastOfProblemStatus: string | null) {
+  return m.status === "recovered" || lastOfProblemStatus === "recovered" ? null : lastInGroup;
+}
+
 /** Delay before retry `attempt` (1-based) of a failed delivery; null when it should stop. */
 export function retryDelay(attempt: number) {
   const steps = [60_000, 5 * 60_000, 30 * 60_000];

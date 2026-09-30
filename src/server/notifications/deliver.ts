@@ -7,7 +7,7 @@ import { publicRequest } from "@/server/net/public-fetch";
 import { enqueue } from "@/server/queue";
 import { eventInfo, fillTemplate, type NotifyEvent, providerInfo, type Severity, severityRank } from "@/lib/notifications";
 import { type OutgoingMessage, planDelivery } from "./payloads";
-import { channelWants, decide, inQuietHours, retryDelay } from "./rules";
+import { channelWants, decide, inQuietHours, retryDelay, throttleSince } from "./rules";
 import { productName } from "@/server/branding";
 
 type Channel = typeof schema.notificationChannel.$inferSelect;
@@ -211,30 +211,49 @@ async function record(channel: Channel, m: OutgoingMessage, status: Delivery["st
   return row;
 }
 
+const tried = ["sent", "failed", "pending"] as const;
+
 /** Last delivery that went out (or tried to) for this event on this channel. */
 async function lastSent(channelId: string, groupKey: string) {
   const [row] = await db
-    .select({ createdAt: schema.notificationDelivery.createdAt, status: sql<string | null>`${schema.notificationDelivery.message}->>'status'` })
+    .select({ createdAt: schema.notificationDelivery.createdAt })
     .from(schema.notificationDelivery)
     .where(
       and(
         eq(schema.notificationDelivery.channelId, channelId),
         eq(schema.notificationDelivery.groupKey, groupKey),
         eq(schema.notificationDelivery.test, false),
-        inArray(schema.notificationDelivery.status, ["sent", "failed", "pending"]),
+        inArray(schema.notificationDelivery.status, [...tried]),
       ),
     )
     .orderBy(desc(schema.notificationDelivery.createdAt))
     .limit(1);
-  return row ?? null;
+  return row?.createdAt ?? null;
+}
+
+/** Status of the last message about the same problem on this channel, whatever its event (the alert or its recovery). */
+async function lastOfProblem(channelId: string, dedupKey: string) {
+  const [row] = await db
+    .select({ status: sql<string | null>`${schema.notificationDelivery.message}->>'status'` })
+    .from(schema.notificationDelivery)
+    .where(
+      and(
+        eq(schema.notificationDelivery.channelId, channelId),
+        eq(schema.notificationDelivery.test, false),
+        inArray(schema.notificationDelivery.status, [...tried]),
+        sql`${schema.notificationDelivery.message}->>'dedupKey' = ${dedupKey}`,
+      ),
+    )
+    .orderBy(desc(schema.notificationDelivery.createdAt))
+    .limit(1);
+  return row?.status ?? null;
 }
 
 async function deliverToChannel(channel: Channel, base: OutgoingMessage) {
   const m = { ...applyTemplate(channel, base), id: newId() };
   const groupKey = groupKeyOf(m);
-  const last = channel.throttleMinutes > 0 ? await lastSent(channel.id, groupKey) : null;
-  // A recovery is never held back, nor an alert right after one: the channel must end up in the real state.
-  const since = m.status === "recovered" || last?.status === "recovered" ? null : (last?.createdAt ?? null);
+  const throttled = channel.throttleMinutes > 0 && m.status !== "recovered";
+  const since = throttled ? throttleSince(m, await lastSent(channel.id, groupKey), m.dedupKey ? await lastOfProblem(channel.id, m.dedupKey) : null) : null;
   const decision = decide({
     quietHours: providerInfo(channel.kind)?.alerting ? null : channel.quietHours,
     severity: m.severity,

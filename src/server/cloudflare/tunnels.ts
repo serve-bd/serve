@@ -2,9 +2,10 @@ import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
-import { ensureNetwork, imageExists, LABEL, pullImage } from "@/server/docker/client";
+import { imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { connectProxy } from "@/server/docker/networks";
 import { tunnelNetworkName } from "@/server/proxy/names";
+import { ensureTunnelNetwork } from "@/server/proxy/tunnel-network";
 import { getServer } from "@/server/servers/context";
 import { Cloudflare } from "./api";
 import { getSetting, getSettings, updateSettings } from "@/server/settings";
@@ -59,13 +60,7 @@ export async function ensureTunnelContainer(tunnel: Tunnel, retry = true): Promi
   const ctx = await getServer(tunnel.serverId);
   const name = tunnelContainerName(tunnel);
   const container = ctx.docker.getContainer(name);
-  const network = tunnelNetworkName(ctx.network);
-  const networkIsNew = !(await ctx.docker
-    .getNetwork(network)
-    .inspect()
-    .catch(() => null));
-  await ensureNetwork(ctx.docker, network);
-  await connectProxy(network, ctx);
+  const { network, created } = await connectorNetwork(ctx);
   let existing = await container.inspect().catch(() => null);
   // Connectors from before the tunnel network sat on the network services share: move them.
   const moved = !!existing && existing.HostConfig.NetworkMode !== network;
@@ -73,10 +68,10 @@ export async function ensureTunnelContainer(tunnel: Tunnel, retry = true): Promi
     await container.remove({ force: true }).catch(() => {});
     existing = null;
   }
-  if (networkIsNew || moved) {
-    // The proxy trusts visitor IPs from the tunnel network's subnet: write that trust now, not at the next restart.
-    const { ensureServerProxy } = await import("@/server/proxy/nginx");
-    await ensureServerProxy(ctx).catch(() => {});
+  if (created || moved) {
+    // The proxy trusts visitor IPs from the tunnel network's subnet: write that trust and every site now, not at the next restart.
+    const { syncServerProxy } = await import("@/server/proxy/nginx");
+    await syncServerProxy(ctx).catch(() => {});
   }
   if (!existing) {
     if (!(await imageExists(TUNNEL_IMAGE, ctx.docker))) await pullImage(TUNNEL_IMAGE, undefined, null, ctx.docker);
@@ -104,6 +99,17 @@ export async function ensureTunnelContainer(tunnel: Tunnel, retry = true): Promi
     await container.remove({ force: true }).catch(() => {});
     await ensureTunnelContainer(tunnel, false);
   }
+}
+
+/**
+ * The network connectors join: the one only they share with the proxy, or the main network when it
+ * cannot be created (the tunnel still works; the proxy then trusts no tunnel visitor IP).
+ */
+async function connectorNetwork(ctx: Awaited<ReturnType<typeof getServer>>) {
+  const state = await ensureTunnelNetwork(ctx.docker, ctx.network);
+  const network = state ? tunnelNetworkName(ctx.network) : ctx.network;
+  await connectProxy(network, ctx);
+  return { network, created: state === "created" };
 }
 
 async function connectorSpec(tunnel: Tunnel, name: string, network: string) {
@@ -177,9 +183,7 @@ export async function updateTunnelConnector(tunnel: Tunnel) {
     .getContainer(next)
     .remove({ force: true })
     .catch(() => {});
-  const network = tunnelNetworkName(ctx.network);
-  await ensureNetwork(ctx.docker, network);
-  await connectProxy(network, ctx);
+  const { network } = await connectorNetwork(ctx);
   const container = await ctx.docker.createContainer(await connectorSpec(tunnel, next, network));
   await container.start();
   const deadline = Date.now() + 60_000;

@@ -8,6 +8,7 @@ import type { ServerCtx } from "@/server/servers/context";
 import type { ComposePort } from "@/server/services/types";
 import { sh } from "@/server/servers/ssh";
 import { composeAlias } from "@/server/proxy/names";
+import { replaceFile } from "./files";
 
 type ComposeFile = {
   services?: Record<string, ComposeService>;
@@ -173,8 +174,9 @@ export type ComposeRun = {
 
 export async function writeComposeFiles(opts: ComposeRun & { content: string }) {
   await fs.mkdir(opts.dir, { recursive: true });
-  await fs.writeFile(path.join(opts.dir, opts.file), opts.content);
-  await fs.writeFile(path.join(opts.dir, ".env"), envFile(opts.vars), { mode: 0o600 });
+  // The project directory may be mounted into the stack's containers: never write through a link.
+  await replaceFile(path.join(opts.dir, opts.file), opts.content);
+  await replaceFile(path.join(opts.dir, ".env"), envFile(opts.vars), 0o600);
 }
 
 function composeArgs(opts: Pick<ComposeRun, "projectName" | "dir" | "file">) {

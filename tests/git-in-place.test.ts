@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/db", () => ({ db: {}, schema: {} }));
 
-import { cloneRepository } from "@/server/deploy/git";
+import { cloneRepository, staleEntries } from "@/server/deploy/git";
 import { localFs } from "@/server/servers/fs";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "serve-git-"));
@@ -81,7 +81,9 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(src, "conf"));
   fs.writeFileSync(path.join(src, "conf", "inner.txt"), "dir\n");
   fs.writeFileSync(path.join(src, "sw"), "file\n");
-  await git(src, "submodule", "add", "--quiet", "-b", "main", `${base}/sub.git`, "lib/sub");
+  // A relative submodule URL: resolved against the superproject's origin.
+  await git(src, "remote", "add", "origin", `${base}/origin.git`);
+  await git(src, "submodule", "add", "--quiet", "-b", "main", "../sub.git", "lib/sub");
   await git(src, "add", ".");
   await git(src, "commit", "--quiet", "-m", "first");
   await git(src, "push", "--quiet", `${base}/origin.git`, "HEAD:main");
@@ -137,10 +139,12 @@ describe("compose repositories updated in place", () => {
     expect(fs.existsSync(path.join(dir, "pwned"))).toBe(false);
     expect(fs.readFileSync(path.join(dir, "conf"), "utf8")).toBe("file now\n");
     expect(fs.readFileSync(path.join(dir, "sw", "f"), "utf8")).toBe("dir now\n");
-    expect(new Set(second.removed)).toEqual(new Set(["gone.txt", "conf/inner.txt", "conf", "sw"]));
+    expect(first.files).toContain("lib/sub/s.txt");
+    const stale = staleEntries(first.files ?? [], second.files ?? []);
+    expect(new Set(stale)).toEqual(new Set(["gone.txt", "conf/inner.txt", "sw", "conf"]));
 
     // What deployCompose does for a remote server, with the tar extraction of the upload.
-    await localFs.removeInside(remote, second.removed ?? []);
+    await localFs.removeInside(remote, stale);
     await new Promise<void>((resolve, reject) =>
       execFile("sh", ["-c", 'tar -C "$1" -cf - . | tar -xf - -C "$2"', "sh", dir, remote], (error) => (error ? reject(error) : resolve())),
     );
@@ -148,6 +152,18 @@ describe("compose repositories updated in place", () => {
     expect(fs.readFileSync(path.join(remote, "conf"), "utf8")).toBe("file now\n");
     expect(fs.readFileSync(path.join(remote, "sw", "f"), "utf8")).toBe("dir now\n");
     expect(fs.readFileSync(path.join(remote, "data", "db.txt"), "utf8")).toBe("keep me\n");
+
+    // A deploy killed mid-way leaves a lock; a damaged git directory is started again.
+    fs.writeFileSync(`${dir}.git/index.lock`, "");
+    const lines: string[] = [];
+    await cloneRepository(source, dir, (l) => lines.push(l), undefined, null, { inPlace: true });
+    expect(lines.join("\n")).not.toContain("Git update failed");
+    fs.writeFileSync(`${dir}.git/HEAD`, "garbage\n");
+    const again = await cloneRepository(source, dir, (l) => lines.push(l), undefined, null, { inPlace: true });
+    expect(lines.join("\n")).toContain("Git update failed");
+    expect(again.commitSha).toBe(second.commitSha);
+    expect(fs.readFileSync(path.join(dir, "data", "db.txt"), "utf8")).toBe("keep me\n");
+    expect(fs.readFileSync(path.join(dir, "lib/sub/s.txt"), "utf8")).toBe("sub\n");
   });
 
   it("never deletes through a symlink planted in the remote copy", async () => {

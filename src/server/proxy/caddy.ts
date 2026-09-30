@@ -106,6 +106,14 @@ import ${proxyPaths.sites}/custom/*.caddy
 `;
 }
 
+/** Header Caddy reads for every request that is safe to trust from the tunnel too. */
+const tunnelSafe = (v: VisitorIp) => !v.header || v.header === "x-forwarded-for" || v.header === "cf-connecting-ip";
+
+/** The tunnel network when Caddy's trusted_proxies leave it out (X-Real-IP, True-Client-IP): tunnel hosts then read CF-Connecting-IP themselves. */
+export function tunnelTrustFor(v: VisitorIp) {
+  return tunnelSafe(v) ? [] : v.tunnel;
+}
+
 /** Where Caddy takes the visitor IP from (client_ip in matchers, logs and client_ip_hash). */
 function clientIpOptions(v: VisitorIp) {
   if (!v.header) {
@@ -116,8 +124,7 @@ function clientIpOptions(v: VisitorIp) {
   // Caddy reads one header for all traffic. A visitor can send X-Real-IP or True-Client-IP
   // through Cloudflare, so with those the tunnel is not trusted; X-Forwarded-For and
   // CF-Connecting-IP are written by Cloudflare's edge.
-  const safe = v.header === "x-forwarded-for" || v.header === "cf-connecting-ip";
-  const trusted = safe ? allTrusted(v) : v.ranges;
+  const trusted = tunnelSafe(v) ? allTrusted(v) : v.ranges;
   if (!trusted.length) return [];
   const lines = [`trusted_proxies static ${trusted.join(" ")}`, `client_ip_headers ${clientIpHeaderNames[v.header]}`];
   // Right to left: the visitor is the last address no trusted proxy added.
@@ -143,9 +150,19 @@ function headerLines(o: SiteModel["options"], tls: boolean) {
   return lines;
 }
 
-function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, realIp: boolean) {
+function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, realIp: boolean, tunnelRanges: string[]) {
   const o = site.options;
   const lines: string[] = [];
+  // A tunnel host while Caddy reads a header the tunnel is not trusted for: the visitor is
+  // cloudflared's CF-Connecting-IP when the request came from the tunnel network (like nginx).
+  const viaTunnel = realIp && h.tunnel && tunnelRanges.length > 0;
+  if (viaTunnel)
+    lines.push(
+      `@serve_via_tunnel remote_ip ${tunnelRanges.join(" ")}`,
+      `@serve_not_tunnel not remote_ip ${tunnelRanges.join(" ")}`,
+      "request_header @serve_via_tunnel X-Real-IP {http.request.header.CF-Connecting-IP}",
+      "request_header @serve_not_tunnel X-Real-IP {client_ip}",
+    );
   const allow = [...(h.allow ?? []), ...(o?.allow ?? [])];
   if (o?.deny?.length) lines.push(`@serve_denied client_ip ${o.deny.join(" ")}`, "respond @serve_denied 403");
   if (allow.length) lines.push(`@serve_blocked not client_ip ${allow.join(" ")}`, "respond @serve_blocked 403");
@@ -196,14 +213,17 @@ function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, real
     if (o?.buffering === false) proxy.push("flush_interval -1");
     if (o?.websockets === false) proxy.push("header_up -Upgrade", "header_up -Connection");
     // Caddy appends the nearest proxy to X-Forwarded-For; give apps the visitor it resolved too (as nginx does).
-    if (realIp) proxy.push("header_up X-Real-IP {client_ip}");
+    if (realIp && !viaTunnel) proxy.push("header_up X-Real-IP {client_ip}");
     lines.push(`reverse_proxy ${targets.join(" ")} {`, tab(proxy), "}");
   }
   return lines;
 }
 
-/** `realIp`: trusted proxies are on (apps get the resolved visitor in X-Real-IP). */
-export function renderCaddySite(site: SiteModel, defaults: Required<ProxyDefaults> = ON, realIp = false) {
+/**
+ * `realIp`: apps get the resolved visitor in X-Real-IP (trusted proxies on, and always for the
+ * dashboard). `tunnelRanges`: the tunnel network, when Caddy's header does not trust it (tunnelTrustFor).
+ */
+export function renderCaddySite(site: SiteModel, defaults: Required<ProxyDefaults> = ON, realIp = false, tunnelRanges: string[] = []) {
   const blocks = [`${GENERATED} ${site.title}.`];
   for (const h of site.hosts) {
     const inner: string[] = ["import serve_log", "import serve_errors"];
@@ -211,7 +231,7 @@ export function renderCaddySite(site: SiteModel, defaults: Required<ProxyDefault
     if (h.redirectTo) inner.push(`redir ${h.redirectTo.replace(/\/$/, "")}{uri} 308`);
     else {
       const targets = h.upstream ? (site.upstreams.find((u) => u.key === h.upstream)?.targets ?? []) : [];
-      inner.push("route {", tab(routeBody(site, h, targets.length ? targets : null, realIp)), "}");
+      inner.push("route {", tab(routeBody(site, h, targets.length ? targets : null, realIp, tunnelRanges)), "}");
     }
     blocks.push(`${addresses(h)} {\n${tab(inner)}\n}`);
     // The :80 catch-all would win over Caddy's automatic redirect, so redirect explicitly.

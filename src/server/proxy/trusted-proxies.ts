@@ -49,6 +49,12 @@ export async function visitorIpOf(ctx: ServerCtx): Promise<VisitorIp> {
   return { tunnel, ranges: [...new Set([...t.ranges, ...(t.cloudflare ? await cloudflareRanges() : [])])], header: t.header };
 }
 
+/** Whether any server trusts Cloudflare's proxy (only then are its ranges fetched). */
+export async function anyServerTrustsCloudflare() {
+  const rows = await db.select({ trusted: schema.server.trustedProxies }).from(schema.server);
+  return rows.some((r) => r.trusted?.cloudflare);
+}
+
 const REFRESH_EVERY = 24 * 3600_000;
 
 /**
@@ -70,29 +76,42 @@ export async function refreshCloudflareRanges() {
   return [...previous].sort().join() !== [...parsed.ranges].sort().join();
 }
 
-let localTrusted: { at: number; ranges: Promise<string[]> } | null = null;
+type DashboardTrust = { ranges: string[]; realIp: boolean };
 
-/** Trusted ranges of the dashboard's proxy, cached for a minute (read on every sign-in). */
-function dashboardTrusted() {
+let localTrusted: { at: number; trust: Promise<DashboardTrust> } | null = null;
+
+/**
+ * How to read the visitor of the dashboard's proxy, cached for a minute (read on every sign-in).
+ * `realIp`: trusted proxies are on with another header than X-Forwarded-For. The proxy then
+ * forwards the visitor's own X-Forwarded-For entries next to its load balancer's address, so the
+ * dashboard reads X-Real-IP, which nginx and Caddy set to the visitor they resolved. Traefik reads
+ * X-Forwarded-For only (whatever header is saved), so it stays on X-Forwarded-For.
+ */
+function dashboardTrust() {
   if (!localTrusted || Date.now() - localTrusted.at > 60_000) {
-    const ranges = import("@/server/servers/context")
+    const trust = import("@/server/servers/context")
       .then(({ getServer }) => getServer(LOCAL_SERVER_ID))
-      .then(visitorIpOf)
-      .then(allTrusted)
-      .catch(() => []);
-    localTrusted = { at: Date.now(), ranges };
+      .then(async (ctx): Promise<DashboardTrust> => {
+        const [visitor, [row]] = await Promise.all([visitorIpOf(ctx), db.select({ kind: schema.server.proxyKind }).from(schema.server).where(eq(schema.server.id, ctx.id))]);
+        const kind = row?.kind ?? "nginx";
+        return { ranges: allTrusted(visitor), realIp: !!visitor.header && visitor.header !== "x-forwarded-for" && (kind === "nginx" || kind === "caddy") };
+      })
+      .catch(() => ({ ranges: [], realIp: false }));
+    localTrusted = { at: Date.now(), trust };
   }
-  return localTrusted.ranges;
+  return localTrusted.trust;
 }
 
-/** After a change of the local server's trusted proxies. */
+/** After a change of the local server's trusted proxies (or its proxy kind). */
 export function forgetDashboardTrusted() {
   localTrusted = null;
 }
 
 /** The visitor's address as the dashboard's proxy resolved it, from the request headers it forwarded. */
 export async function dashboardVisitorIp(headers: Pick<Headers, "get"> | undefined) {
+  const trust = await dashboardTrust();
+  if (trust.realIp) return headers?.get("x-real-ip") || null;
   const forwarded = headers?.get("x-forwarded-for");
   if (!forwarded) return headers?.get("x-real-ip") || null;
-  return clientIpFrom(forwarded, await dashboardTrusted());
+  return clientIpFrom(forwarded, trust.ranges);
 }

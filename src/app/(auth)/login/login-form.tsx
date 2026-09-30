@@ -33,11 +33,12 @@ export function LoginForm({
   const codeAfterSso = ssoError === "two_factor_required";
   const [error, setError] = React.useState<string | null>(ssoError && !codeAfterSso ? ssoErrorMessage(ssoError) : null);
   const [redirecting, setRedirecting] = React.useState<string | null>(null);
+  const loginUrl = next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`;
 
   async function withProvider(id: string) {
     setRedirecting(id);
     setError(null);
-    const opts = { callbackURL: next, errorCallbackURL: next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`, newUserCallbackURL: next };
+    const opts = { callbackURL: next, errorCallbackURL: loginUrl, newUserCallbackURL: next };
     // The company login (OpenID Connect) is registered as provider "oidc" next to GitHub and Google.
     const { error } = await authClient.signIn.social({ provider: id as "github", ...opts });
     if (error) {
@@ -48,12 +49,26 @@ export function LoginForm({
   const [needsCode, setNeedsCode] = React.useState(codeAfterSso);
   const [useBackup, setUseBackup] = React.useState(false);
 
+  /** Leaves the code step for the sign-in choices (and drops `?error=` from the address). */
+  function backToStart(message: string | null = null) {
+    setNeedsCode(false);
+    setUseBackup(false);
+    setPending(false);
+    setError(message);
+    if (codeAfterSso) router.replace(loginUrl);
+  }
+
   async function verify(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const code = String(new FormData(e.currentTarget).get("code")).trim();
     setPending(true);
     setError(null);
     const { error } = useBackup ? await authClient.twoFactor.verifyBackupCode({ code, trustDevice: true }) : await authClient.twoFactor.verifyTotp({ code, trustDevice: true });
+    // The pending sign-in is gone (it lasts 10 minutes, or too many codes were tried): start over.
+    if (error?.code === "INVALID_TWO_FACTOR_COOKIE" || error?.code === "TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE") {
+      backToStart("Your sign-in expired. Sign in again.");
+      return;
+    }
     if (error) {
       setPending(false);
       setError(error.message ?? "That code is not valid.");
@@ -116,6 +131,9 @@ export function LoginForm({
             className="text-[13px] text-muted transition-colors hover:text-fg"
           >
             {useBackup ? "Use authenticator app" : "Use a backup code"}
+          </button>
+          <button type="button" onClick={() => backToStart()} className="text-[13px] text-muted transition-colors hover:text-fg">
+            Back to sign in
           </button>
         </form>
       </AuthCard>

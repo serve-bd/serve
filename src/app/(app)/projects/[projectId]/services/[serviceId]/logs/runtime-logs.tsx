@@ -8,7 +8,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useLatest } from "@/hooks/use-client";
 import { cn } from "@/lib/utils";
 
-type Incoming = { t: string; m: string; s: string | null; e: boolean };
+type Incoming = { c: string; t: string; m: string; s: string | null; e: boolean };
 
 /** Docker's RFC3339 timestamp with its fraction padded to nanoseconds, so two of them compare as strings. */
 const sortable = (t: string) => t.replace(/(?:\.(\d+))?(Z|[+-]\d\d:\d\d)$/, (_, f: string | undefined, zone: string) => `.${(f ?? "").padEnd(9, "0")}${zone}`);
@@ -45,17 +45,23 @@ export function RuntimeLogs({
   React.useEffect(() => {
     let es: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout>;
-    // Newest line received: a reconnect resumes after it, keeping what is on screen.
-    let last: string | null = null;
+    // Newest line of each container: a reconnect resumes each after it, keeping what is on screen.
+    const last = new Map<string, string>();
+    let resume = false;
     const connect = () => {
       const query = new URLSearchParams({ tail: "500" });
       if (container) query.set("container", container);
-      if (last) query.set("since", last);
+      if (resume) query.set("resume", "1");
+      if (last.size) query.set("since", [...last].map(([id, t]) => `${id}:${t}`).join(","));
+      resume = true;
       es = new EventSource(`/api/services/${serviceId}/logs?${query}`);
       es.onopen = () => setConnected(true);
       es.addEventListener("logs", (ev) => {
         const batch = JSON.parse((ev as MessageEvent).data) as Incoming[];
-        for (const l of batch) if (l.t && (!last || sortable(l.t) > sortable(last))) last = l.t;
+        for (const l of batch) {
+          const prev = last.get(l.c);
+          if (l.t && (!prev || sortable(l.t) > sortable(prev))) last.set(l.c, l.t);
+        }
         buffer.current.push(...batch.map((l) => ({ text: l.m, time: l.t, source: l.s, error: l.e })));
       });
       es.addEventListener("info", (ev) => {

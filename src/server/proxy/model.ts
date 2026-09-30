@@ -183,7 +183,9 @@ export async function trustedSubnets(ctx: ServerCtx): Promise<string[]> {
   try {
     const info = (await ctx.docker.getNetwork(tunnelNetworkName(ctx.network)).inspect()) as { IPAM?: { Config?: { Subnet?: string }[] } };
     return (info.IPAM?.Config ?? []).map((c) => c.Subnet).filter((s): s is string => !!s && /^[0-9a-f:.]+\/\d{1,3}$/i.test(s));
-  } catch {
-    return [];
+  } catch (error) {
+    // No tunnel network: nothing to trust. Any other failure stops the sync rather than writing configs without the trust.
+    if ((error as { statusCode?: number }).statusCode === 404) return [];
+    throw error;
   }
 }

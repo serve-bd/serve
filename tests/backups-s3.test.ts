@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { s3Download, s3Test } from "@/server/backups/s3";
+import { s3Delete, s3Download, s3Test, s3Upload } from "@/server/backups/s3";
 import { engines } from "@/server/databases/engines";
 
 let server: http.Server;
@@ -12,6 +12,10 @@ let port = 0;
 
 beforeAll(async () => {
   server = http.createServer((req, res) => {
+    if (req.url?.includes("missing")) {
+      res.writeHead(404, { "content-type": "application/xml" });
+      return res.end("<Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message></Error>");
+    }
     if (req.url?.includes("redirect")) {
       res.writeHead(302, { location: "http://169.254.169.254/latest/meta-data/" });
       return res.end();
@@ -36,6 +40,15 @@ describe("S3 requests", () => {
 
   it("does not follow redirects", async () => {
     await expect(s3Test(cfg(`http://127.0.0.1:${port}`, false, "redirect"))).rejects.toThrow(/S3 GET failed: 302/);
+  });
+
+  it("fails an upload the storage answers with 404, but not a delete", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "serve-s3-"));
+    fs.writeFileSync(path.join(dir, "dump"), "dump");
+    await expect(s3Upload(cfg(`http://127.0.0.1:${port}`, false, "missing"), "x/dump", path.join(dir, "dump"))).rejects.toThrow(/S3 PUT failed: 404 NoSuchBucket/);
+    await expect(s3Delete(cfg(`http://127.0.0.1:${port}`, false, "missing"), "x/dump")).resolves.toBeUndefined();
+    await expect(s3Download(cfg(`http://127.0.0.1:${port}`, false, "missing"), "x/dump", path.join(dir, "out"))).rejects.toThrow(/not found/);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("downloads an object", async () => {

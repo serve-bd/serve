@@ -12,7 +12,7 @@ import { fullBuildServers } from "@/lib/server-limits";
 import { newId } from "@/server/id";
 import { docker, ensureNetwork, LABEL, listServiceContainers } from "@/server/docker/client";
 import { ensureProxy, ensureServerProxy, syncAllProxy, syncCloudflareTrusting } from "@/server/proxy/nginx";
-import { refreshCloudflareRanges } from "@/server/proxy/trusted-proxies";
+import { anyServerTrustsCloudflare, refreshCloudflareRanges } from "@/server/proxy/trusted-proxies";
 import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
 import { runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
@@ -44,6 +44,8 @@ const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOStrin
 const running = new Map<string, { job: Job; controller: AbortController; buildServer?: string | null }>();
 let wake: (() => void) | null = null;
 let stopping = false;
+/** A server did not take Cloudflare's latest ranges yet. */
+let cloudflareSyncPending = false;
 
 async function handle(job: Job, signal: AbortSignal) {
   const p = job.payload as Record<string, string>;
@@ -474,7 +476,11 @@ async function main() {
     60 * 60_000,
     "cloudflare-ranges",
     async () => {
-      if (await refreshCloudflareRanges()) await syncCloudflareTrusting(log);
+      if (!(await anyServerTrustsCloudflare())) return;
+      // A server that failed to apply new ranges is tried again every run until it succeeds (a restart syncs every proxy anyway).
+      if ((await refreshCloudflareRanges().catch((e) => (log(`Cloudflare ranges: ${(e as Error).message}`), false))) || cloudflareSyncPending) {
+        cloudflareSyncPending = !(await syncCloudflareTrusting(log));
+      }
     },
     true,
   );

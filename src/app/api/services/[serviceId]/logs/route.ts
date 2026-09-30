@@ -23,9 +23,15 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
     return new Response("Not found", { status: 404 });
   }
   const tail = Math.min(Math.max(Number(request.nextUrl.searchParams.get("tail") ?? 300), 10), 5000);
-  // A reconnect resumes after the last line the page has: everything since then, and nothing it already shows.
-  const sinceParam = request.nextUrl.searchParams.get("since");
-  const since = sinceParam && !Number.isNaN(Date.parse(sinceParam)) ? sortable(sinceParam) : null;
+  // A reconnect resumes each container after the last line the page has of it (`id:timestamp,…`).
+  // Containers it has no line of, like the new ones of a redeploy, start with the usual tail.
+  const resume = request.nextUrl.searchParams.get("resume") === "1";
+  const since = new Map<string, string>();
+  for (const pair of (request.nextUrl.searchParams.get("since") ?? "").split(",")) {
+    const i = pair.indexOf(":");
+    const t = pair.slice(i + 1);
+    if (i > 0 && !Number.isNaN(Date.parse(t))) since.set(pair.slice(0, i), sortable(t));
+  }
   let docker;
   let all;
   try {
@@ -72,19 +78,21 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
       };
       if (!containers.length) {
         // Said once: resumed connections keep quiet while there is still nothing to show.
-        if (!since) send("info", { message: only ? `No container is running for ${only}.` : "No containers are running for this service." });
+        if (!resume) send("info", { message: only ? `No container is running for ${only}.` : "No containers are running for this service." });
         retry = setTimeout(finish, 15000);
       }
       const multi = containers.length > 1;
       for (const c of containers) {
         if (closed) break;
+        const id = c.Id.slice(0, 12);
+        const after = since.get(id);
         const label = c.Labels["com.docker.compose.service"] ?? (multi ? c.Names[0].replace(/^\//, "").split("-").pop() : null);
         try {
           const raw = (await docker.getContainer(c.Id).logs({
             follow: true,
             stdout: true,
             stderr: true,
-            ...(since ? { since: Math.floor(Date.parse(since) / 1000) } : { tail }),
+            ...(after ? { since: Math.floor(Date.parse(after) / 1000) } : { tail }),
             timestamps: true,
           })) as unknown as NodeJS.ReadableStream;
           streams.push(raw);
@@ -108,10 +116,10 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
                 .filter(Boolean)
                 .map((l) => {
                   const sp = l.indexOf(" ");
-                  return { t: l.slice(0, sp), m: l.slice(sp + 1), s: label, e: isErr };
+                  return { c: id, t: l.slice(0, sp), m: l.slice(sp + 1), s: label, e: isErr };
                 })
                 // Docker's since is in whole seconds: drop the lines of that second the page already has.
-                .filter((l) => !since || sortable(l.t) > since);
+                .filter((l) => !after || sortable(l.t) > after);
               if (batch.length) send("logs", batch);
             });
           };

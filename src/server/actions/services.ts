@@ -1229,6 +1229,7 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
         try {
           const record = await cf.upsertARecord(data.cloudflare.zoneId, data.hostname, ip, data.cloudflare.proxied);
           recordId = record?.id ?? null;
+          if (!record) warning = `${data.hostname} already has an A record pointing at this server. Serve left it as it is, including its Cloudflare proxy setting.`;
         } catch (e) {
           warning = `DNS record not created: ${(e as Error).message}`;
         }
@@ -1345,7 +1346,9 @@ export async function setDomainRoute(domainId: string, tunnelId: string | null) 
         const [oldTunnel] = previousTunnel ? await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, previousTunnel)) : [];
         if (domain.cloudflareRecordId) await cf.deleteDnsRecord(domain.cloudflareZoneId, domain.cloudflareRecordId).catch(() => {});
         try {
-          recordId = (await cf.upsertARecord(domain.cloudflareZoneId, domain.hostname, ip, true))?.id ?? null;
+          const record = await cf.upsertARecord(domain.cloudflareZoneId, domain.hostname, ip, true);
+          recordId = record?.id ?? null;
+          if (!record) warning = `${domain.hostname} already has an A record pointing at ${ip}. Serve left it as it is, including its Cloudflare proxy setting.`;
         } catch (e) {
           // Put the tunnel record back so DNS matches what the database still says.
           if (oldTunnel) await cf.upsertTunnelRecord(domain.cloudflareZoneId, domain.hostname, oldTunnel.cfTunnelId).catch(() => {});

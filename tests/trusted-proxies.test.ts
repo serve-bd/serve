@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { clientIpFrom, inRanges, normalizeTrustedRange, normalizeTrustedRanges, trustedProxiesSchema, type VisitorIp } from "@/lib/trusted-proxies";
 import { realIpConfig, serverBlocks, tunnelRealIp } from "@/server/proxy/templates";
-import { caddyMainConfig, renderCaddySite } from "@/server/proxy/caddy";
+import { caddyMainConfig, renderCaddySite, tunnelTrustFor } from "@/server/proxy/caddy";
 import { renderTraefikSite, traefikStaticArgs } from "@/server/proxy/traefik";
 import type { SiteModel } from "@/server/proxy/model";
 
@@ -91,6 +91,10 @@ real_ip_header CF-Connecting-IP;
     const realIp = realIpConfig(on("x-real-ip"))!;
     expect(realIp).toContain("real_ip_header X-Real-IP;");
     expect(realIp).not.toContain("real_ip_recursive");
+    // A visitor can send X-Real-IP through Cloudflare: only tunnel hosts' own blocks trust the tunnel then.
+    expect(realIp).not.toContain(TUNNEL);
+    expect(realIpConfig(on("true-client-ip"))).not.toContain(TUNNEL);
+    expect(realIpConfig(on("cf-connecting-ip"))).toContain(`set_real_ip_from ${TUNNEL};`);
   });
 
   it("keeps tunnel hosts on cloudflared's CF-Connecting-IP alone", () => {
@@ -130,6 +134,20 @@ describe("Caddy and Traefik visitor IP config", () => {
     expect(realIp).toContain("trusted_proxies static 203.0.113.0/24\n\t\tclient_ip_headers X-Real-IP\n");
     expect(realIp).not.toContain("trusted_proxies_strict");
     expect(renderCaddySite(site, undefined, true)).toContain("header_up X-Real-IP {client_ip}");
+  });
+
+  it("gives Caddy tunnel hosts cloudflared's CF-Connecting-IP when the header leaves the tunnel out", () => {
+    expect(tunnelTrustFor(on("x-real-ip"))).toEqual([TUNNEL]);
+    expect(tunnelTrustFor(on("x-forwarded-for"))).toEqual([]);
+    expect(tunnelTrustFor(off)).toEqual([]);
+    const tunnelSite: SiteModel = { ...site, hosts: [{ ...site.hosts[0], tunnel: true }] };
+    const conf = renderCaddySite(tunnelSite, undefined, true, [TUNNEL]);
+    expect(conf).toContain(`@serve_via_tunnel remote_ip ${TUNNEL}`);
+    expect(conf).toContain("request_header @serve_via_tunnel X-Real-IP {http.request.header.CF-Connecting-IP}");
+    expect(conf).toContain("request_header @serve_not_tunnel X-Real-IP {client_ip}");
+    expect(conf).not.toContain("header_up X-Real-IP");
+    // Hosts not on a tunnel keep the resolved client IP.
+    expect(renderCaddySite(site, undefined, true, [TUNNEL])).not.toContain("serve_via_tunnel");
   });
 
   it("passes every trusted range to Traefik", () => {

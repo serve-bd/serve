@@ -10,11 +10,8 @@ export type CloneResult = {
   commitSha: string;
   commitMessage: string;
   commitAuthor: string;
-  /**
-   * In-place updates: tracked paths of the previous commit that the new one removed or turned
-   * into another kind of entry. Other copies of the work tree delete them before taking the new files.
-   */
-  removed?: string[];
+  /** In-place updates: the tracked files of the checkout, submodules' included (see staleEntries). */
+  files?: string[];
 };
 
 /**
@@ -158,16 +155,17 @@ async function updateInPlace(
       cwd: dir,
       ...options,
     });
-  if (!(await fs.stat(path.join(gitDir, "HEAD")).catch(() => null))) await git(["init", "--quiet"]);
+  // Deploys of a service run one at a time: a lock file is left over from a killed deploy.
+  for (const entry of await fs.readdir(gitDir, { recursive: true }).catch(() => [] as string[])) {
+    if (entry.endsWith(".lock")) await fs.rm(path.join(gitDir, entry), { force: true });
+  }
   const access = await gitAccess(source, `${dir}.auth`, organizationId);
-  let removed: string[] = [];
-
-  try {
-    log(`Fetching ${access.url} (branch ${source.branch})`);
-    const options = { env: access.gitEnv, onLine: log, signal, redact: access.redact };
+  const options = { env: access.gitEnv, onLine: log, signal, redact: access.redact };
+  const update = async () => {
+    if (!(await fs.stat(path.join(gitDir, "HEAD")).catch(() => null))) await git(["init", "--quiet"]);
+    // Relative submodule URLs resolve against origin. The URL holds no credentials; those come from the environment.
+    await git(["config", "remote.origin.url", access.cloneUrl]);
     await git(["fetch", "--depth", "1", "--no-tags", "--", access.cloneUrl, source.branch], options);
-    const previous = (await git(["rev-parse", "--verify", "--quiet", "HEAD"]).catch(() => "")).trim();
-    if (previous) removed = await removedPaths(git, previous);
     // Tracked files take the new commit's content and files removed from git go; untracked files stay.
     await git(["reset", "--quiet", "--hard", "FETCH_HEAD"], options);
     if (opts.submodules !== false) {
@@ -184,31 +182,45 @@ async function updateInPlace(
       await git(["submodule", "sync", "--quiet", "--recursive"], options);
       await git(["submodule", "update", "--init", "--recursive", "--depth", "1"], options);
     }
+  };
+
+  try {
+    log(`Fetching ${access.url} (branch ${source.branch})`);
+    try {
+      await update();
+    } catch (error) {
+      // Unreachable repository or branch: a new git directory would not help.
+      const output = `${(error as Error).message}\n${(error as { output?: string }).output ?? ""}`;
+      if (signal?.aborted || /could not read|authentication failed|not found|couldn't find remote ref|could not resolve host|unable to access/i.test(output)) throw error;
+      // A damaged git directory: start it again. Only git's own files, never the work tree and its data.
+      log(`Git update failed (${(error as Error).message}); fetching again into a new git directory`);
+      await fs.rm(gitDir, { recursive: true, force: true });
+      await update();
+    }
   } finally {
     await fs.rm(`${dir}.auth`, { recursive: true, force: true });
   }
 
-  return { ...checkedOut(dir, await git(["log", "-1", "--format=%H%x1f%an%x1f%s"]), log), removed };
+  const files = (await git(["ls-files", "-z", ...(opts.submodules === false ? [] : ["--recurse-submodules"])])).split("\0").filter(Boolean);
+  return { ...checkedOut(dir, await git(["log", "-1", "--format=%H%x1f%an%x1f%s"]), log), files };
 }
 
 /**
- * Paths of `previous` that FETCH_HEAD deletes or changes the kind of (file, symlink, submodule),
- * and directories of `previous` that became a file: those must go before the new entry fits.
+ * What a copy of an older checkout must delete before the new files are extracted over it:
+ * files no longer tracked, and paths that were directories and are now files (a directory in
+ * the way of a file). A file that became a directory is already in the first group.
  */
-async function removedPaths(git: (args: string[]) => Promise<string>, previous: string) {
-  const fields = (await git(["diff", "--name-status", "--no-renames", "-z", previous, "FETCH_HEAD"])).split("\0");
-  const removed: string[] = [];
-  const added: string[] = [];
-  for (let i = 0; i + 1 < fields.length; i += 2) {
-    const [status, file] = [fields[i], fields[i + 1]];
-    if (status === "D" || status === "T") removed.push(file);
-    else if (status === "A") added.push(file);
-  }
-  if (added.length) {
-    const dirs = new Set((await git(["ls-tree", "-r", "-d", "--name-only", "-z", previous])).split("\0"));
-    removed.push(...added.filter((file) => dirs.has(file)));
-  }
-  return removed;
+export function staleEntries(previous: string[], current: string[]): string[] {
+  const now = new Set(current);
+  const dirs = new Set(
+    previous.flatMap((file) =>
+      file
+        .split("/")
+        .slice(0, -1)
+        .map((_, i, parts) => parts.slice(0, i + 1).join("/")),
+    ),
+  );
+  return [...previous.filter((file) => !now.has(file)), ...current.filter((file) => dirs.has(file))];
 }
 
 /** Quick remote check used by the UI to validate a repository and list branches. */

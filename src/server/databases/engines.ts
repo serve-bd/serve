@@ -77,6 +77,20 @@ function clickhouseBackup(c: EngineCreds) {
   ].join("\n");
 }
 
+/**
+ * Restores a ClickHouse SQL file. clickhouse-client reads all of stdin before it runs a multi-query
+ * script, so the file is fed to it in parts of about 16 MB, each ending at a line that ends a statement.
+ */
+function clickhouseRestore(c: EngineCreds) {
+  const awk = [
+    'BEGIN { cmd = ENVIRON["SERVE_CH"] }',
+    "{ print | cmd; n += length($0) + 1 }",
+    "/;[ \\t\\r]*$/ && n >= 16777216 { if (close(cmd)) { failed = 1; exit 1 } n = 0 }",
+    "END { if (failed) exit 1; if (n && close(cmd)) exit 1 }",
+  ].join("\n");
+  return `SERVE_CH=${sh(`${chClient(c)} --multiquery`)} awk ${sh(awk)}`;
+}
+
 /** redis-cli / valkey-cli with auth, over TLS when the server only speaks TLS. */
 const rcli = (bin: string, c: EngineCreds) => `${bin} -a ${sh(c.password)} --no-auth-warning${c.tlsRequired ? " --tls --insecure" : ""}`;
 const mongoTls = (c: EngineCreds) => (c.tlsRequired ? " --tls --tlsAllowInvalidCertificates" : "");
@@ -332,7 +346,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
     healthcheck: () => ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"],
     url: (c) => `clickhouse://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
     backupCommand: clickhouseBackup,
-    restoreCommand: (c) => `${chClient(c)} --multiquery`,
+    restoreCommand: clickhouseRestore,
     backupExtension: "sql",
     runAs: "clickhouse",
     entrypoint: "/entrypoint.sh",

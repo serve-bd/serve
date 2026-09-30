@@ -43,7 +43,9 @@ export function VisitorIpCard({ serverId, kind, initial, disabled }: { serverId:
   const save = async () => {
     setPending(true);
     setError(null);
-    const res = await saveTrustedProxies(serverId, value.on ? { ranges: value.ranges.split("\n"), header: value.header, cloudflare: value.cloudflare } : null);
+    // Traefik reads X-Forwarded-For only: save what the form shows, not an older choice.
+    const header = kind === "traefik" ? "x-forwarded-for" : value.header;
+    const res = await saveTrustedProxies(serverId, value.on ? { ranges: value.ranges.split("\n"), header, cloudflare: value.cloudflare } : null);
     setPending(false);
     if (!res.ok) return setError(res.error);
     toast.success(value.on ? "Trusted proxies applied" : "Trusted proxies turned off");

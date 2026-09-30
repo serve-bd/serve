@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { type BetterAuthOptions, betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
@@ -188,28 +188,63 @@ type ValidateUserInfo = NonNullable<NonNullable<BetterAuthOptions["user"]>["vali
 const LINK_BY_EMAIL = new Set(["github", "google"]);
 
 /**
- * Provider sign-ins and links to existing users. A company login (OpenID Connect) is set up by an
- * admin and could assert any email, so it links to an existing user only from that user's Account
- * page. Users with two-factor authentication still need their code after a provider sign-in.
+ * Links to existing users. A company login (OpenID Connect) is set up by an admin and could assert
+ * any email, so it links to an existing user only from that user's Account page.
  */
 const checkProviderSignIn: ValidateUserInfo = async ({ user, source }, ctx) => {
-  if (source.method !== "oauth" || (source.action !== "sign-in" && source.action !== "link-account") || !user.id) return;
-  const userId = String(user.id);
+  if (source.method !== "oauth" || source.action !== "link-account" || !user.id) return;
   // Linking from the Account page: the signed-in user adds a provider to their own account.
-  if (source.action === "link-account" && (await getSessionFromCtx(ctx))?.user.id === userId) return;
-  if (source.action === "link-account" && !LINK_BY_EMAIL.has(source.oauth?.providerId ?? "")) return { error: "account_not_linked" };
-  const [row] = await db.select({ twoFactorEnabled: schema.user.twoFactorEnabled }).from(schema.user).where(eq(schema.user.id, userId));
-  if (!row?.twoFactorEnabled) return;
-  await startTwoFactor(ctx, userId, source.oauth?.providerId);
-  return { error: "two_factor_required" };
+  if ((await getSessionFromCtx(ctx))?.user.id === String(user.id)) return;
+  if (!LINK_BY_EMAIL.has(source.oauth?.providerId ?? "")) return { error: "account_not_linked" };
 };
+
+type EndpointContext = Parameters<ValidateUserInfo>[1];
+
+/** Paths where a provider sign-in creates a session (the OAuth callback, an ID token sign-in). */
+function providerSessionPath(path: string | undefined) {
+  return !!path && (path.startsWith("/callback/") || path === "/sign-in/social");
+}
+
+/**
+ * Users with two-factor authentication still need their code after a provider sign-in, unless
+ * this device is trusted. Runs when the session is about to be created, after better-auth linked
+ * the provider, so a GitHub or Google link by email is kept. Throws to stop the session.
+ */
+async function requireSecondFactor(ctx: EndpointContext, userId: string, providerId: string | null) {
+  const [row] = await db.select({ twoFactorEnabled: schema.user.twoFactorEnabled }).from(schema.user).where(eq(schema.user.id, userId));
+  if (!row?.twoFactorEnabled || (await trustedDevice(ctx, userId))) return;
+  await startTwoFactor(ctx, userId, providerId);
+  throw new APIError("FORBIDDEN", { code: "two_factor_required", message: "Enter the code from your authenticator app." });
+}
+
+const TRUST_DEVICE_MAX_AGE = 30 * 24 * 60 * 60;
+
+/**
+ * The two-factor plugin's trusted device check for password sign-ins, done the same way: a valid
+ * signed trust_device cookie whose record matches the user is used once and replaced by a new one.
+ */
+async function trustedDevice(ctx: EndpointContext, userId: string) {
+  const cookie = ctx.context.createAuthCookie("trust_device", { maxAge: TRUST_DEVICE_MAX_AGE });
+  const value = await ctx.getSignedCookie(cookie.name, ctx.context.secret);
+  if (!value) return false;
+  const sign = (id: string) => createHmac("sha256", ctx.context.secret).update(`${userId}!${id}`).digest("base64url");
+  const [token, trustId] = value.split("!");
+  if (!token || !trustId || token !== sign(trustId)) return false;
+  const record = await ctx.context.internalAdapter.findVerificationValue(trustId);
+  if (!record || record.value !== userId || record.expiresAt <= new Date()) return false;
+  await ctx.context.internalAdapter.deleteVerificationByIdentifier(trustId);
+  const nextId = `trust-device-${randomBytes(24).toString("base64url")}`;
+  await ctx.context.internalAdapter.createVerificationValue({ value: userId, identifier: nextId, expiresAt: new Date(Date.now() + TRUST_DEVICE_MAX_AGE * 1000) });
+  await ctx.setSignedCookie(cookie.name, `${sign(nextId)}!${nextId}`, ctx.context.secret, cookie.attributes);
+  return true;
+}
 
 /**
  * Starts the code step the way the two-factor plugin does after a password sign-in (a pending
  * verification and its signed cookie); the login page then asks for the code, and the plugin's
  * verify endpoints create the session.
  */
-async function startTwoFactor(ctx: Parameters<ValidateUserInfo>[1], userId: string, providerId: string | undefined) {
+async function startTwoFactor(ctx: EndpointContext, userId: string, providerId: string | null) {
   const maxAge = 600;
   const identifier = `2fa-${randomBytes(15).toString("base64url")}`;
   const expiresAt = new Date(Date.now() + maxAge * 1000);
@@ -228,7 +263,7 @@ type ProviderSignIn = { userId: string; providerId: string; githubOrgs: string[]
  * A provider sign-in that needed the two-factor code gets its session from the verify endpoint,
  * outside the callback: run the GitHub organization join it would have run there.
  */
-async function joinAfterTwoFactor(ctx: Parameters<ValidateUserInfo>[1], userId: string) {
+async function joinAfterTwoFactor(ctx: EndpointContext, userId: string) {
   const cookie = ctx.context.createAuthCookie("two_factor");
   const identifier = await ctx.getSignedCookie(cookie.name, ctx.context.secret);
   if (!identifier) return;
@@ -376,6 +411,7 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly) {
           before: async (session, ctx) => {
             // With the GitHub organization rule, membership there is the source of truth:
             // members join the chosen organization on every sign-in, not only the first.
+            if (ctx && providerSessionPath(ctx.path)) await requireSecondFactor(ctx, session.userId, providerIdOf(ctx.path, ctx.params as Record<string, unknown> | undefined));
             const provider = await callbackProvider(ctx);
             if (provider?.allowedOrgs?.length && !signInRefused()) await joinProviderOrganizations(provider, session.userId);
             else if (ctx?.path?.startsWith("/two-factor/verify-")) await joinAfterTwoFactor(ctx, session.userId);

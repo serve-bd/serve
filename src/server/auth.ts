@@ -2,6 +2,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { type BetterAuthOptions, betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
+import { requestIsHttps } from "@/lib/request-https";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { type GenericOAuthConfig, genericOAuth, organization, twoFactor } from "better-auth/plugins";
 import { and, asc, eq } from "drizzle-orm";
@@ -287,13 +288,18 @@ const appOnly: DashboardAddresses = (() => {
   return { hosts: [app.host], origins: [app.origin] };
 })();
 
-function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly) {
+/**
+ * `secure`: Secure (__Secure-) session cookies, for HTTPS requests only. Browsers drop Secure
+ * cookies set over plain HTTP, so without this switch nobody could sign in before the dashboard
+ * has a domain with HTTPS.
+ */
+function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, secure = false) {
   return betterAuth({
     secret: env.authSecret,
     // Never "*": that would make every website a trusted redirect target (a password reset link
     // could then send its token anywhere).
     baseURL: { allowedHosts: addresses.hosts, fallback: env.appUrl },
-    advanced: { trustedProxyHeaders: true },
+    advanced: { trustedProxyHeaders: true, useSecureCookies: secure },
     database: drizzleAdapter(db, {
       provider: "pg",
       schema: {
@@ -455,31 +461,42 @@ function tooManyAttempts(key: string, max: number, windowMs: number) {
   return recent.length > max;
 }
 
-/** The auth instance without sign-in providers: sessions, password sign-in and organizations. */
+/** The auth instance without sign-in providers, for plain HTTP requests: sessions, password sign-in and organizations. */
 export const auth = createAuth(noSso);
+const secureAuth = createAuth(noSso, appOnly, true);
 
-let current: { key: string; instance: ReturnType<typeof createAuth> } | null = null;
+/** The instance for a request: its cookies are Secure exactly when the request is HTTPS. */
+export function authFor(h: Headers | null | undefined) {
+  return requestIsHttps(h) ? secureAuth : auth;
+}
+
+const current = new Map<boolean, { key: string; instance: ReturnType<typeof createAuth> }>();
 
 /**
  * Auth instance with the sign-in providers from settings. better-auth fixes providers when an
  * instance is created, so a new one is built whenever their settings (or the dashboard URL) change.
  */
-export async function getAuth() {
+export async function getAuth(request?: Request) {
+  const secure = requestIsHttps(request?.headers);
   const settings = await getSetting("signIn");
   const addresses = await dashboardAddresses();
   const sso = activeProviders(settings).length > 0;
   const { publicBaseUrl } = await import("@/server/git/github-app");
   const base = sso ? await publicBaseUrl() : "";
   const key = `${base}|${sso ? configHash(settings) : "-"}|${addresses.hosts.join(",")}`;
-  if (current?.key !== key) current = { key, instance: createAuth(sso ? ssoRuntime(settings, base) : noSso, addresses) };
-  return current.instance;
+  const cached = current.get(secure);
+  if (cached?.key === key) return cached.instance;
+  const instance = createAuth(sso ? ssoRuntime(settings, base) : noSso, addresses, secure);
+  current.set(secure, { key, instance });
+  return instance;
 }
 
 export type Session = typeof auth.$Infer.Session;
 export type SessionUser = Session["user"];
 
 export const getSession = cache(async () => {
-  return auth.api.getSession({ headers: await headers() });
+  const h = await headers();
+  return authFor(h).api.getSession({ headers: h });
 });
 
 /** Use in server components/actions: returns the user or redirects to login. */

@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { auth } from "@/server/auth";
+import { authFor } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { createAccount, createOrganization, userCount } from "@/server/accounts";
 import { updateSettings } from "@/server/settings";
@@ -35,7 +35,7 @@ export async function setupInstance(input: z.infer<typeof setupSchema>) {
       .set({ organizationIds: sql`array_append(coalesce(${schema.server.organizationIds}, '{}'), ${org.id})` })
       .where(and(isNull(schema.server.ownerOrganizationId), sql`not (${org.id} = any(coalesce(${schema.server.organizationIds}, '{}')))`));
     await logActivity({ userId: user.id, organizationId: org.id, action: "instance.setup", message: "Set up this instance" });
-    await auth.api.signInEmail({ body: { email: data.email, password: data.password }, headers: await headers() });
+    await authFor(await headers()).api.signInEmail({ body: { email: data.email, password: data.password }, headers: await headers() });
     return null;
   });
 }
@@ -79,7 +79,7 @@ export async function acceptInviteWithSignup(input: z.infer<typeof inviteSignupS
     const user = await createAccount({ name: data.name, email: inv.invitation.email, password: data.password });
     const org = await joinOrganization(data.invitationId, user.id, user.email);
     const h = await headers();
-    await auth.api.signInEmail({ body: { email: user.email, password: data.password }, headers: h });
+    await authFor(h).api.signInEmail({ body: { email: user.email, password: data.password }, headers: h });
     return { organizationId: org.id };
   });
 }
@@ -88,10 +88,10 @@ export async function acceptInviteWithSignup(input: z.infer<typeof inviteSignupS
 export async function acceptInvite(invitationId: string) {
   return act(async () => {
     const h = await headers();
-    const session = await auth.api.getSession({ headers: h });
+    const session = await authFor(h).api.getSession({ headers: h });
     if (!session) throw new UserError("Sign in first.");
     const org = await joinOrganization(invitationId, session.user.id, session.user.email);
-    await auth.api.setActiveOrganization({ headers: h, body: { organizationId: org.id } });
+    await authFor(h).api.setActiveOrganization({ headers: h, body: { organizationId: org.id } });
     return { organizationId: org.id };
   });
 }

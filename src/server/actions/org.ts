@@ -7,7 +7,7 @@ import { publicBaseUrl } from "@/server/git/github-app";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { auth, isInstanceAdmin, type OrgContext, requireOrg, requireOrgAdmin, requireUser, requirePermission } from "@/server/auth";
+import { authFor, isInstanceAdmin, type OrgContext, requireOrg, requireOrgAdmin, requireUser, requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { createOrganization } from "@/server/accounts";
 import { getSetting } from "@/server/settings";
@@ -26,7 +26,7 @@ export async function switchOrganization(organizationId: string) {
       .from(schema.member)
       .where(and(eq(schema.member.organizationId, organizationId), eq(schema.member.userId, user.id)));
     if (!m) throw new UserError("You are not a member of that organization.");
-    await auth.api.setActiveOrganization({ headers: await headers(), body: { organizationId } });
+    await authFor(await headers()).api.setActiveOrganization({ headers: await headers(), body: { organizationId } });
     return null;
   });
 }
@@ -38,7 +38,7 @@ export async function createOrg(name: string) {
     const allowed = (await getSetting("allowOrganizationCreation")) || (await isInstanceAdmin(user.id));
     if (!allowed) throw new UserError("Only Root organization admins can create organizations on this server.");
     const org = await createOrganization(clean, user.id);
-    await auth.api.setActiveOrganization({ headers: await headers(), body: { organizationId: org.id } });
+    await authFor(await headers()).api.setActiveOrganization({ headers: await headers(), body: { organizationId: org.id } });
     await logActivity({ userId: user.id, organizationId: org.id, action: "org.created", message: `Created organization ${org.name}` });
     return { id: org.id };
   });

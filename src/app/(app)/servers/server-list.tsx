@@ -13,6 +13,8 @@ type Row = {
   name: string;
   description: string | null;
   host: string;
+  /** No public IP: reached through its tunnel. */
+  tunnel: boolean;
   port: number;
   username: string;
   isLocal: boolean;
@@ -100,7 +102,7 @@ function ServerCard({ server: s }: { server: Row }) {
             {s.mesh && <Badge>Private network</Badge>}
           </div>
           <span className="truncate font-mono text-[12px] text-muted">
-            {s.isLocal ? (s.publicIp ?? "Local Docker") : `${s.username}@${s.host}${s.port === 22 ? "" : `:${s.port}`}`}
+            {s.isLocal ? (s.publicIp ?? "Local Docker") : s.tunnel ? `${s.username}@${s.host} · via tunnel` : `${s.username}@${s.host}${s.port === 22 ? "" : `:${s.port}`}`}
           </span>
         </div>
         <ArrowRight className="size-4 flex-none text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-fg-2" />

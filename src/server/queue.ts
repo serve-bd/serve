@@ -23,11 +23,13 @@ export type JobType =
   | "notification.deliver"
   | "environment.copy-data"
   | "preview.database"
-  | "mesh.sync";
+  | "mesh.sync"
+  | "tunnel.sync";
 
 export type JobPayloads = {
   deploy: { deploymentId: string };
   "mesh.sync": Record<string, never>;
+  "tunnel.sync": Record<string, never>;
   "service.stop": { serviceId: string };
   "service.start": { serviceId: string };
   "service.restart": { serviceId: string };

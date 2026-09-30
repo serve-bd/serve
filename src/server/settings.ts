@@ -78,6 +78,10 @@ export type Settings = {
   branding: BrandingConfig | null;
   /** Where servers and private networks sit on the private networks canvas, by id. */
   networkCanvas: Record<string, { x: number; y: number }>;
+  /** Host key of the tunnel listener (encrypted OpenSSH private key), made on first use. */
+  tunnelHostKey: string | null;
+  /** What the worker last reported about the tunnel listener. */
+  tunnelListener: { port: number; listening: boolean; error: string | null; at: string } | null;
 };
 
 export type InstanceBackup = {
@@ -165,6 +169,8 @@ export const defaultSettings: Settings = {
   updateRun: null,
   branding: null,
   networkCanvas: {},
+  tunnelHostKey: null,
+  tunnelListener: null,
 };
 
 /** Rows holding uploaded branding images; kept out of getSettings() so pages do not load image bytes. */

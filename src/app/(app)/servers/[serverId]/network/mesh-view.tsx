@@ -24,12 +24,14 @@ type Props = {
   ready: boolean;
   initial: MeshOverview;
   suggestedEndpoint: string;
+  /** No public IP (it connects out): joining starts on "No public address". */
+  behindNat?: boolean;
   /** Servers not in the private network (other than this one). */
   outside: number;
   services: number;
 };
 
-export function MeshView({ serverId, serverName, ready, initial, suggestedEndpoint, outside, services }: Props) {
+export function MeshView({ serverId, serverName, ready, initial, suggestedEndpoint, behindNat, outside, services }: Props) {
   const { data, mutate } = useSWR<MeshOverview>(`/api/servers/${serverId}/mesh`, {
     fallbackData: initial,
     refreshInterval: (d) => (d?.enabled && d.state !== "ready" ? 2000 : d?.state === "starting" ? 2000 : 8000),
@@ -57,7 +59,7 @@ export function MeshView({ serverId, serverName, ready, initial, suggestedEndpoi
             ready={ready}
             joined={joined}
             initialEndpoint={mesh.endpoint ?? (mesh.enabled ? "" : suggestedEndpoint)}
-            initialNat={mesh.enabled && mesh.endpoint === null}
+            initialNat={mesh.enabled ? mesh.endpoint === null : !!behindNat}
             initialPort={mesh.port ?? MESH_DEFAULT_PORT}
             networks={mesh.networks}
             onDone={() => {

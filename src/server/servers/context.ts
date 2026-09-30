@@ -12,6 +12,7 @@ import { dockerCliEnv } from "./cli";
 import { runServerIds } from "@/server/deploy/distribution";
 import type { DistributionConfig } from "@/server/services/types";
 import { localFs, remoteFs, type ServerFs } from "./fs";
+import { relayHost } from "@/server/tunnel";
 import { closeConnection, dockerStream, sshExec, type SshExecResult, type SshTarget } from "./ssh";
 
 export { LOCAL_SERVER_ID };
@@ -106,7 +107,9 @@ export async function sshTargetFor(row: ServerRow): Promise<SshTarget> {
   if (!row.privateKeyId) throw new Error(`Server ${row.name} has no SSH key.`);
   const [key] = await db.select().from(schema.privateKey).where(eq(schema.privateKey.id, row.privateKeyId));
   if (!key) throw new Error(`The SSH key of ${row.name} was deleted.`);
-  return { id: row.id, host: row.host, port: row.port, username: row.username, privateKey: decrypt(key.privateKey), hostKey: row.hostKey };
+  // A server that connects out is reached through its relay on the worker, not at its own address.
+  const via = row.tunnel ? { host: relayHost(), port: row.tunnel.relayPort } : { host: row.host, port: row.port };
+  return { id: row.id, ...via, username: row.username, privateKey: decrypt(key.privateKey), hostKey: row.hostKey };
 }
 
 function buildLocal(row: ServerRow): ServerCtx {
@@ -157,6 +160,7 @@ function stamp(row: ServerRow) {
   return JSON.stringify([
     row.host,
     row.port,
+    row.tunnel?.relayPort ?? null,
     row.username,
     row.privateKeyId,
     row.hostKey,

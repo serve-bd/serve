@@ -20,6 +20,7 @@ export default async function ServersPage() {
       name: schema.server.name,
       description: schema.server.description,
       host: schema.server.host,
+      tunnel: sql<boolean>`${schema.server.tunnel} is not null`,
       port: schema.server.port,
       username: schema.server.username,
       isLocal: schema.server.isLocal,

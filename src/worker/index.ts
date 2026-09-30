@@ -26,6 +26,7 @@ import { probeServer, setupServer } from "@/server/servers/setup";
 import { getServer, serverOf } from "@/server/servers/context";
 import { SCHEMA_VERSION } from "@/server/version";
 import { checkTunnels } from "@/server/cloudflare/tunnels";
+import { shutdownTunnels, syncTunnels } from "@/server/tunnel/listener";
 import { checkContainerHealth, checkServerResources, pruneMonitoring, runUptimeChecks } from "@/server/monitoring/checks";
 import { failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBackups } from "@/server/instance/backups";
 import { periodicUpdateCheck, reconcileUpdate, runUpdate } from "@/server/instance/updates";
@@ -87,6 +88,8 @@ async function handle(job: Job, signal: AbortSignal) {
       return void (await attemptDelivery(p.deliveryId));
     case "mesh.sync":
       return syncMesh();
+    case "tunnel.sync":
+      return syncTunnels();
     case "proxy.switch": {
       const { switchProxy } = await import("@/server/proxy/switch");
       return switchProxy(p.serverId, p.to as ProxyKind);
@@ -381,6 +384,8 @@ async function main() {
   every(5 * 60_000, "proxy-health", checkProxies, true);
   // Private network: addresses for new services, servers that joined or left, agents that went missing.
   every(30_000, "mesh", () => syncMesh(), true);
+  // Servers that connect out: the listener runs while any exist.
+  every(10_000, "tunnels", () => syncTunnels(), true);
   // Uptime checks run every 15 s and pick the monitors that are due.
   every(15_000, "uptime", runUptimeChecks, true);
   every(60_000, "container-health", checkContainerHealth);
@@ -405,6 +410,7 @@ async function shutdown() {
   const deadline = Date.now() + 25_000;
   while (running.size && Date.now() < deadline) await new Promise((r) => setTimeout(r, 500));
   for (const r of running.values()) r.controller.abort();
+  shutdownTunnels();
   await updateSettings({ workerHeartbeat: null }).catch(() => {});
   await sql.end({ timeout: 5 });
   process.exit(0);

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, Download, KeyRound, Plus, RotateCw, Server, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Cable, Check, CheckCircle2, Download, Globe, KeyRound, Loader2, Plus, RotateCw, Server, XCircle } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
@@ -12,13 +12,15 @@ import { toast } from "@/components/ui/toast";
 import { LogViewer } from "@/components/log-viewer";
 import { SshPublicKey } from "@/components/ssh-public-key";
 import { createPrivateKey, createServer, updateServer, validateServer } from "@/server/actions/servers";
+import { createTunnelServer } from "@/server/actions/tunnel";
+import { JoinCommand } from "@/components/tunnel-join";
 import { getServerProgress } from "@/server/actions/servers-ui";
 import type { ServerStatus } from "@/server/db/schema";
 import { cn } from "@/lib/utils";
 import { ProductName } from "@/components/brand";
 
 type Key = { id: string; name: string; publicKey: string; fingerprint: string };
-type Step = "connection" | "key" | "connect";
+type Step = "connection" | "key" | "connect" | "join";
 
 const STEPS: { id: Step; label: string }[] = [
   { id: "connection", label: "Connection" },
@@ -26,7 +28,13 @@ const STEPS: { id: Step; label: string }[] = [
   { id: "connect", label: "Connect" },
 ];
 
-function Stepper({ step }: { step: Step }) {
+/** A server without a public IP: details, then it runs the join command and gets set up. */
+const TUNNEL_STEPS: { id: Step; label: string }[] = [
+  { id: "connection", label: "Details" },
+  { id: "join", label: "Connect" },
+];
+
+function Stepper({ step, steps: STEPS }: { step: Step; steps: { id: Step; label: string }[] }) {
   const index = STEPS.findIndex((s) => s.id === step);
   return (
     <ol className="flex items-center gap-2" aria-label="Progress">
@@ -51,9 +59,13 @@ function Stepper({ step }: { step: Step }) {
 
 type KeyMode = "existing" | "generate" | "import";
 
-export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
+export function AddServer({ keys: initialKeys, tunnel }: { keys: Key[]; tunnel: { address: string; port: number } }) {
   const router = useRouter();
   const [step, setStep] = React.useState<Step>("connection");
+  // Reachable over SSH, or without a public IP (it connects out through a tunnel).
+  const [reach, setReach] = React.useState<"ssh" | "tunnel">("ssh");
+  const [tunnelForm, setTunnelForm] = React.useState({ address: tunnel.address, sshPort: "22" });
+  const [joined, setJoined] = React.useState<{ id: string; command: string; expiresAt: string } | null>(null);
   const [conn, setConn] = React.useState({ name: "", host: "", port: "22", username: "root" });
   const [keys, setKeys] = React.useState(initialKeys);
   const [keyMode, setKeyMode] = React.useState<KeyMode>(initialKeys.length ? "existing" : "generate");
@@ -65,6 +77,25 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
   const key = keys.find((k) => k.id === keyId) ?? null;
   const port = Number(conn.port) || 22;
   const connectionValid = conn.name.trim() && conn.host.trim() && port > 0 && port < 65536 && conn.username.trim();
+  const sshPort = Number(tunnelForm.sshPort) || 22;
+  const tunnelValid = conn.name.trim() && conn.username.trim() && tunnelForm.address.trim() && sshPort > 0 && sshPort < 65536;
+
+  async function createTunnel() {
+    setBusy(true);
+    const res = await createTunnelServer({
+      name: conn.name.trim(),
+      username: conn.username.trim(),
+      sshPort,
+      address: tunnelForm.address.trim(),
+      origin: window.location.origin,
+    });
+    setBusy(false);
+    if (!res.ok) return toast.error(res.error);
+    setJoined(res.data);
+    setServerId(res.data.id);
+    setStep("join");
+    router.refresh();
+  }
 
   async function prepareKey() {
     if (keyMode === "existing") return key;
@@ -116,13 +147,15 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
 
   return (
     <div className="flex animate-rise flex-col gap-5">
-      <Stepper step={step} />
+      <Stepper step={step} steps={reach === "tunnel" ? TUNNEL_STEPS : STEPS} />
 
       {step === "connection" && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (connectionValid) setStep("key");
+            if (reach === "tunnel") {
+              if (tunnelValid) void createTunnel();
+            } else if (connectionValid) setStep("key");
           }}
         >
           <Card>
@@ -135,6 +168,32 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
               }
             />
             <CardBody className="flex flex-col gap-4 py-5">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="How to reach the server">
+                {(
+                  [
+                    ["ssh", "Public IP or hostname", "A VPS or any machine reachable over SSH", Globe],
+                    ["tunnel", "No public IP", "Home or office internet, shared IP, behind NAT", Cable],
+                  ] as const
+                ).map(([value, label, hint, Icon]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={reach === value}
+                    onClick={() => setReach(value)}
+                    className={cn(
+                      "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-[border-color,background-color,box-shadow]",
+                      reach === value ? "border-accent bg-accent-soft/50 ring-3 ring-[var(--ring)]/25" : "border-line bg-surface hover:bg-surface-2",
+                    )}
+                  >
+                    <Icon className={cn("size-4 flex-none", reach === value ? "text-accent" : "text-muted")} />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="text-[13px] font-medium text-fg">{label}</span>
+                      <span className="truncate text-[11.5px] text-muted">{hint}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
               <Field
                 label="Name"
                 description={
@@ -145,21 +204,28 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
               >
                 <Input value={conn.name} onChange={(e) => setConn({ ...conn, name: e.target.value })} placeholder="hetzner-fsn-1" autoFocus />
               </Field>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
-                <Field label="IP address or hostname">
-                  <Input
-                    value={conn.host}
-                    onChange={(e) => setConn({ ...conn, host: e.target.value })}
-                    placeholder="203.0.113.10"
-                    className="font-mono"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                </Field>
-                <Field label="SSH port">
-                  <Input value={conn.port} onChange={(e) => setConn({ ...conn, port: e.target.value.replace(/\D/g, "").slice(0, 5) })} inputMode="numeric" className="font-mono" />
-                </Field>
-              </div>
+              {reach === "ssh" && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
+                  <Field label="IP address or hostname">
+                    <Input
+                      value={conn.host}
+                      onChange={(e) => setConn({ ...conn, host: e.target.value })}
+                      placeholder="203.0.113.10"
+                      className="font-mono"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </Field>
+                  <Field label="SSH port">
+                    <Input
+                      value={conn.port}
+                      onChange={(e) => setConn({ ...conn, port: e.target.value.replace(/\D/g, "").slice(0, 5) })}
+                      inputMode="numeric"
+                      className="font-mono"
+                    />
+                  </Field>
+                </div>
+              )}
               <Field label="User" description="root, or a user with passwordless sudo who can run Docker.">
                 <Input
                   value={conn.username}
@@ -169,10 +235,39 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
                   spellCheck={false}
                 />
               </Field>
+              {reach === "tunnel" && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
+                  <Field
+                    label={
+                      <>
+                        This <ProductName /> machine&apos;s address
+                      </>
+                    }
+                    description={`The server connects out to it on TCP ${tunnel.port}: its public IP or a host name that is not behind Cloudflare's proxy.`}
+                  >
+                    <Input
+                      value={tunnelForm.address}
+                      onChange={(e) => setTunnelForm({ ...tunnelForm, address: e.target.value.trim() })}
+                      placeholder="203.0.113.10"
+                      className="font-mono"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </Field>
+                  <Field label="Its SSH port" description="On the server itself.">
+                    <Input
+                      value={tunnelForm.sshPort}
+                      onChange={(e) => setTunnelForm({ ...tunnelForm, sshPort: e.target.value.replace(/\D/g, "").slice(0, 5) })}
+                      inputMode="numeric"
+                      className="font-mono"
+                    />
+                  </Field>
+                </div>
+              )}
             </CardBody>
             <CardFooter className="justify-end">
-              <Button type="submit" variant="primary" disabled={!connectionValid}>
-                Continue <ArrowRight />
+              <Button type="submit" variant="primary" disabled={reach === "tunnel" ? !tunnelValid : !connectionValid} loading={reach === "tunnel" && busy}>
+                {reach === "tunnel" ? "Create join command" : "Continue"} <ArrowRight />
               </Button>
             </CardFooter>
           </Card>
@@ -278,6 +373,17 @@ export function AddServer({ keys: initialKeys }: { keys: Key[] }) {
       )}
 
       {step === "connect" && serverId && <ConnectStep serverId={serverId} name={conn.name} onBack={() => setStep("key")} />}
+      {step === "join" && joined && (
+        <JoinStep
+          serverId={joined.id}
+          name={conn.name}
+          command={joined.command}
+          expiresAt={joined.expiresAt}
+          user={conn.username}
+          address={tunnelForm.address}
+          port={tunnel.port}
+        />
+      )}
     </div>
   );
 }
@@ -413,6 +519,67 @@ function ConnectStep({ serverId, name, onBack }: { serverId: string; name: strin
           <ArrowLeft /> Change key or connection
         </Button>
         <Link href={`/servers/${serverId}`} className={buttonVariants({ variant: ready ? "primary" : "secondary" })}>
+          <Server /> {ready ? "Open server" : "Open server page"}
+        </Link>
+      </CardFooter>
+    </Card>
+  );
+}
+
+/** Waits for a server that connects out to run its join command, then follows its setup. */
+function JoinStep(props: { serverId: string; name: string; command: string; expiresAt: string; user: string; address: string; port: number }) {
+  const router = useRouter();
+  const [connected, setConnected] = React.useState(false);
+  const [ready, setReady] = React.useState(false);
+  React.useEffect(() => {
+    if (connected) return;
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      const res = await getServerProgress(props.serverId);
+      if (stop) return;
+      // Connected (or already past waiting): the setup log takes over.
+      if (res.ok && (res.data.tunnel?.connectedAt || res.data.status !== "pending")) {
+        setConnected(true);
+        router.refresh();
+        return;
+      }
+      timer = setTimeout(poll, 2000);
+    };
+    void poll();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [connected, props.serverId, router]);
+  return (
+    <Card>
+      <CardHeader
+        title={connected ? `Setting up ${props.name}` : `Connect ${props.name}`}
+        description={
+          connected ? (
+            <>
+              Connected through the tunnel. <ProductName /> checks Docker, prepares its data directory and starts the proxy.
+            </>
+          ) : (
+            "Run the command on the server. This page moves on by itself when it connects."
+          )
+        }
+      />
+      <CardBody className="flex flex-col gap-4 py-5">
+        {connected ? (
+          <ServerSetupProgress serverId={props.serverId} onReady={() => setReady(true)} />
+        ) : (
+          <>
+            <JoinCommand command={props.command} expiresAt={props.expiresAt} user={props.user} address={props.address} port={props.port} />
+            <p className="flex items-center gap-2 text-[13px] text-muted">
+              <Loader2 className="size-4 animate-spin text-info" /> Waiting for {props.name} to connect…
+            </p>
+          </>
+        )}
+      </CardBody>
+      <CardFooter className="justify-end">
+        <Link href={`/servers/${props.serverId}`} className={buttonVariants({ variant: ready ? "primary" : "secondary" })}>
           <Server /> {ready ? "Open server" : "Open server page"}
         </Link>
       </CardFooter>

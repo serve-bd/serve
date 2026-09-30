@@ -146,7 +146,8 @@ export async function meshAddressOptions(serverId: string) {
     // The address the internet sees; with a shared (CGNAT) connection nobody can dial it.
     add(row.publicIp, "seen from the internet");
     if (!row.isLocal) {
-      add(row.host, "SSH address");
+      // A server that connects out has no address of its own to offer.
+      if (!row.tunnel) add(row.host, "SSH address");
       // The server's own interfaces, without Docker's bridges and the private network itself.
       const { getServer } = await import("@/server/servers/context");
       const ctx = await getServer(serverId);

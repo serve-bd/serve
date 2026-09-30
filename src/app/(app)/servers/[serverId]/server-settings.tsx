@@ -31,6 +31,8 @@ export type ServerDetails = {
   privateKeyId: string | null;
   hostKey: string | null;
   hostKeyFingerprint: string | null;
+  /** No public IP: it connects out through a tunnel. */
+  tunnel: boolean;
   dataDir: string;
   status: ServerStatus;
   statusMessage: string | null;
@@ -300,7 +302,16 @@ export function DangerZone({ server }: { server: ServerDetails }) {
             if (
               await confirm({
                 title: `Remove ${server.name}?`,
-                description: "This cannot be undone. You can add the server again later.",
+                description: server.tunnel ? (
+                  <span className="flex flex-col gap-2">
+                    <span>This cannot be undone. The server&apos;s tunnel can no longer sign in; to remove it from the machine, run there:</span>
+                    <code className="rounded-lg bg-sunken px-2.5 py-2 font-mono text-[11.5px] break-all text-fg select-all">
+                      sudo systemctl disable --now serve-tunnel; sudo pkill -f /etc/serve-tunnel/run.sh; sudo rm -rf /etc/serve-tunnel /etc/systemd/system/serve-tunnel.service
+                    </code>
+                  </span>
+                ) : (
+                  "This cannot be undone. You can add the server again later."
+                ),
                 confirmLabel: "Remove server",
                 danger: true,
               })

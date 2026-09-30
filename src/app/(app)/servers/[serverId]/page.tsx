@@ -8,6 +8,7 @@ import { fingerprint } from "@/server/servers/ssh";
 import { ServerOverview } from "./general";
 import { AccessCard, BuildsLimitsCard, ConnectionSettings, DangerZone, ValidationCard, type ServerDetails } from "./server-settings";
 import { loadServer, withTimeout } from "./_lib/load";
+import { TunnelCard } from "./tunnel-card";
 
 export const metadata = { title: "Server" };
 
@@ -52,6 +53,7 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
     privateKeyId: row.privateKeyId,
     hostKey: row.hostKey,
     hostKeyFingerprint: row.hostKey ? fingerprint(row.hostKey) : null,
+    tunnel: !!row.tunnel,
     dataDir: row.dataDir,
     status: row.status,
     statusMessage: row.statusMessage,
@@ -64,7 +66,23 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
     <>
       {overview && <ServerOverview host={overview.host} health={overview.health} extra={overview.extra} />}
       {!row.isLocal && <ValidationCard server={details} />}
-      <ConnectionSettings server={details} keys={keys} />
+      {row.tunnel ? (
+        <TunnelCard
+          serverId={row.id}
+          user={row.username}
+          sshPort={row.port}
+          tunnel={{
+            connectedAt: row.tunnel.connectedAt,
+            remote: row.tunnel.remote,
+            joined: !!row.tunnel.clientKey,
+            address: row.tunnel.address,
+            port: row.tunnel.port,
+            listenerError: settings.tunnelListener && !settings.tunnelListener.listening ? settings.tunnelListener.error : null,
+          }}
+        />
+      ) : (
+        <ConnectionSettings server={details} keys={keys} />
+      )}
       <BuildsLimitsCard
         serverId={row.id}
         limits={{ buildConcurrency: row.buildConcurrency, imageRetention: row.imageRetention, metricsRetentionHours: row.metricsRetentionHours }}

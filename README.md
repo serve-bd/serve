@@ -51,6 +51,7 @@ Everything runs in Docker. A reverse proxy of your choice (nginx, Caddy or Traef
 **Servers**
 - Deploy to any number of Linux servers over SSH, next to the machine Serve runs on. Serve installs Docker and the proxy when needed.
 - Per-server proxy, certificates, domains, metrics, Docker cleanup and a root terminal. Move services between servers.
+- Servers without a public IP (home, office, behind NAT) connect out through an SSH tunnel.
 - Private networks between servers (WireGuard): services on different servers reach each other by their private names, encrypted, with no public ports. Group servers into several networks to keep them apart. A service keeps its private address when it moves.
 
 **Operate**
@@ -187,6 +188,15 @@ Servers → **Add server**:
 3. Connect. Serve pins the server's host key, checks Docker (and installs it if you ask), prepares `/data/serve` and starts the proxy.
 
 Only SSH needs to be reachable from the Serve machine. Open ports 80 and 443 on the server for its apps, or use a Cloudflare Tunnel.
+
+### Servers without a public IP
+
+A machine at home or in an office (shared IP, behind NAT) can be added too: **Add server → No public IP**. Serve shows a one-line command to run on it (`curl … | sudo bash`). The machine then keeps an encrypted SSH tunnel open to Serve, and Serve reaches it through that tunnel: deploys, logs, terminals and the private network work as with any server.
+
+- The machine connects out to the Serve machine on TCP 7822 (`SERVE_TUNNEL_PORT`). Open that port in the Serve machine's cloud firewall; nothing is opened on the machine's router. Serve publishes the port only while such a server exists.
+- The command works once, for 24 hours. The tunnel runs as the `serve-tunnel` systemd service and comes back after reboots and network drops.
+- The tunnel can only carry Serve's SSH connection to the machine: it has no shell on the Serve machine and cannot reach anything else there.
+- For public sites on such a machine, use a Cloudflare Tunnel; in the private network, pick **No public address**.
 
 ### Private network between servers
 

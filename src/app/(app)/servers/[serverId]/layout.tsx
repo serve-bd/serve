@@ -34,7 +34,11 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
           </span>
         }
         description={
-          row.isLocal ? "The machine this dashboard runs on. Reached through the local Docker socket." : `${row.username}@${row.host}${row.port === 22 ? "" : `:${row.port}`}`
+          row.isLocal
+            ? "The machine this dashboard runs on. Reached through the local Docker socket."
+            : row.tunnel
+              ? `${row.username}@${row.host} · no public IP, connects out through a tunnel`
+              : `${row.username}@${row.host}${row.port === 22 ? "" : `:${row.port}`}`
         }
         actions={
           <Tooltip content={ready ? "Docker, the proxy and the worker are running." : issues.join(" · ")}>

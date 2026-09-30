@@ -105,9 +105,18 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
       if (install.code !== 0) throw new Error("Installing Docker failed. See the log above.");
       await run(target, `mkdir -p /etc/docker && [ -f /etc/docker/daemon.json ] || printf '%s\\n' ${sh(DAEMON_JSON)} > /etc/docker/daemon.json`, log, { sudo: true });
       await run(target, "systemctl enable --now docker >/dev/null 2>&1 || service docker start", log, { sudo: true });
-      docker = await dockerVersion();
-      if (docker.code !== 0 && permissionDenied(docker.stderr) && (await grantDockerAccess())) docker = await dockerVersion();
-      if (docker.code !== 0) throw new Error(`Docker was installed but does not answer: ${docker.stderr.trim()}`);
+      // A just-started engine needs a moment before it answers; the docker group needs a new login.
+      let granted = false;
+      for (let i = 0; i < 15; i++) {
+        docker = await dockerVersion();
+        if (docker.code === 0) break;
+        if (!granted && permissionDenied(docker.stderr)) {
+          granted = true;
+          if (await grantDockerAccess()) continue;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      if (docker.code !== 0) throw new Error(`Docker was installed but does not answer: ${docker.stderr.trim() || `exit code ${docker.code}`}`);
     }
     log(`Docker ${docker.stdout.trim()}`);
 

@@ -216,6 +216,26 @@ export const privateKey = pgTable("private_key", {
 
 export type ServerStatus = "pending" | "validating" | "ready" | "unreachable" | "error";
 
+/**
+ * A server without a public address that connects out: it keeps an SSH reverse tunnel open to
+ * Serve's tunnel listener, and Serve reaches its sshd through a local relay port.
+ */
+export type ServerTunnel = {
+  /** Port of the relay (on the worker) that leads to the server's sshd while it is connected. */
+  relayPort: number;
+  /** Public key the server's tunnel client signs in with; null until it has joined. */
+  clientKey: string | null;
+  /** sha256 of the one-time join token, and when it stops working. */
+  tokenHash: string | null;
+  tokenExpiresAt: string | null;
+  /** Address and port of the tunnel listener the server connects to. */
+  address: string;
+  port: number;
+  /** While connected: since when, and from where. */
+  connectedAt: string | null;
+  remote: string | null;
+};
+
 /** A server's membership in the private network (WireGuard between servers). */
 export type ServerMesh = {
   enabled: boolean;
@@ -295,6 +315,8 @@ export const server = pgTable("server", {
   /** Slot in the private network: the server owns 10.240.<index>.0/24 and 10.241.<index>.0/24. */
   meshIndex: integer("mesh_index").unique(),
   mesh: jsonb("mesh").$type<ServerMesh>(),
+  /** Set for servers without a public address that connect out (see ServerTunnel). */
+  tunnel: jsonb("tunnel").$type<ServerTunnel>(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

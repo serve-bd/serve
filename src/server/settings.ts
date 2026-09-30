@@ -76,6 +76,8 @@ export type Settings = {
   updateRun: UpdateRun | null;
   /** Logos, favicon and accent colour (the product name is instanceName). Null means the defaults. */
   branding: BrandingConfig | null;
+  /** Where servers and private networks sit on the private networks canvas, by id. */
+  networkCanvas: Record<string, { x: number; y: number }>;
 };
 
 export type InstanceBackup = {
@@ -162,6 +164,7 @@ export const defaultSettings: Settings = {
   updateCheck: null,
   updateRun: null,
   branding: null,
+  networkCanvas: {},
 };
 
 /** Rows holding uploaded branding images; kept out of getSettings() so pages do not load image bytes. */

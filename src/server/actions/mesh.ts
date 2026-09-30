@@ -318,3 +318,28 @@ export async function meshChangeImpact(
       .sort((a, b) => a.project.localeCompare(b.project) || a.consumer.localeCompare(b.consumer));
   });
 }
+
+const canvasPositions = z.record(z.string().max(32), z.object({ x: z.number().finite().min(-1e5).max(1e5), y: z.number().finite().min(-1e5).max(1e5) }));
+
+/** Remember where servers and networks sit on the private networks canvas (merged: only moved ones are sent). */
+export async function saveNetworkCanvas(positions: Record<string, { x: number; y: number }>) {
+  return act(async () => {
+    await requireInstanceAdmin();
+    const moved = Object.fromEntries(Object.entries(canvasPositions.parse(positions)).map(([id, p]) => [id, { x: Math.round(p.x), y: Math.round(p.y) }]));
+    if (!Object.keys(moved).length) return null;
+    // One statement, so two admins moving different cards never undo each other.
+    await db.execute(sql`
+      insert into setting (key, value) values ('networkCanvas', ${JSON.stringify(moved)}::jsonb)
+      on conflict (key) do update set value = setting.value || excluded.value, updated_at = now()`);
+    return null;
+  });
+}
+
+/** Forget the private networks canvas layout. */
+export async function resetNetworkCanvas() {
+  return act(async () => {
+    await requireInstanceAdmin();
+    await db.delete(schema.setting).where(eq(schema.setting.key, "networkCanvas"));
+    return null;
+  });
+}

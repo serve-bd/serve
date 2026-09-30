@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoLayout, CARD_H, CARD_W } from "@/lib/canvas-layout";
+import { autoLayout, CARD_H, CARD_W, NET_W, networkLayout, SERVER_W } from "@/lib/canvas-layout";
 import { referencedService, referencesIn } from "@/lib/refs";
 import { serviceUses } from "@/server/services/uses";
 
@@ -90,5 +90,35 @@ describe("automatic canvas layout", () => {
 
   it("ignores uses of services that are not on the canvas", () => {
     expect(() => autoLayout([{ id: "x", serverId: "s", uses: [{ id: "elsewhere" }] }])).not.toThrow();
+  });
+});
+
+describe("private networks canvas layout", () => {
+  it("puts networks above their servers and a shared server between its networks", () => {
+    const pos = networkLayout({
+      networks: [
+        { id: "a", servers: ["s1", "s2"] },
+        { id: "b", servers: ["s2", "s3"] },
+      ],
+      servers: ["s1", "s2", "s3"],
+    });
+    expect(pos["network:a"].y).toBeLessThan(pos["server:s1"].y);
+    expect(pos["network:b"].y).toBeLessThan(pos["server:s3"].y);
+    const mid = (pos["network:a"].x + pos["network:b"].x) / 2;
+    expect(Math.abs(pos["server:s2"].x + SERVER_W / 2 - (mid + NET_W / 2))).toBeLessThan(SERVER_W);
+  });
+
+  it("puts servers in no network in a row below, and skips unknown servers", () => {
+    const pos = networkLayout({ networks: [{ id: "a", servers: ["s1", "gone"] }], servers: ["s1", "x", "y"] });
+    expect(pos["server:gone"]).toBeUndefined();
+    expect(pos["server:x"].y).toBeGreaterThan(pos["server:s1"].y);
+    expect(pos["server:x"].y).toBe(pos["server:y"].y);
+    expect(pos["server:y"].x).toBeGreaterThan(pos["server:x"].x);
+  });
+
+  it("works with no networks at all", () => {
+    const pos = networkLayout({ networks: [], servers: ["a", "b"] });
+    expect(pos["server:a"]).toEqual({ x: 0, y: 0 });
+    expect(pos["server:b"].y).toBe(0);
   });
 });

@@ -96,3 +96,50 @@ export function autoLayout(services: LayoutService[]): Record<string, Pos> {
   }
   return out;
 }
+
+/** Private networks canvas: network pills and server cards. */
+export const NET_W = 200;
+export const NET_H = 44;
+export const SERVER_W = 232;
+export const SERVER_H = 64;
+
+export type NetworkLayoutInput = { networks: { id: string; servers: string[] }[]; servers: string[] };
+
+/**
+ * Networks on top, their servers below (a server in two networks sits between them); servers in
+ * no network in a row underneath. Keys are node ids: "network:<id>" and "server:<id>".
+ */
+export function networkLayout(input: NetworkLayoutInput): Record<string, Pos> {
+  const g = new Graph();
+  g.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 90, marginx: 0, marginy: 0 });
+  g.setDefaultEdgeLabel(() => ({}));
+  const known = new Set(input.servers);
+  const placed = new Set<string>();
+  for (const n of input.networks) g.setNode(`network:${n.id}`, { width: NET_W, height: NET_H });
+  for (const n of input.networks)
+    for (const s of n.servers) {
+      if (!known.has(s)) continue;
+      if (!placed.has(s)) g.setNode(`server:${s}`, { width: SERVER_W, height: SERVER_H });
+      placed.add(s);
+      g.setEdge(`network:${n.id}`, `server:${s}`);
+    }
+  const out: Record<string, Pos> = {};
+  let bottom = 0;
+  let width = 0;
+  if (input.networks.length) {
+    layout(g);
+    for (const id of g.nodes()) {
+      const n = g.node(id);
+      out[id] = { x: Math.round(n.x - n.width / 2), y: Math.round(n.y - n.height / 2) };
+      bottom = Math.max(bottom, n.y + n.height / 2);
+      width = Math.max(width, n.x + n.width / 2);
+    }
+  }
+  // Servers outside every network: a row below, wrapping at the width above (at least four cards).
+  const rest = input.servers.filter((s) => !placed.has(s));
+  const perRow = Math.max(4, Math.floor((width + 40) / (SERVER_W + 40)));
+  rest.forEach((s, i) => {
+    out[`server:${s}`] = { x: (i % perRow) * (SERVER_W + 40), y: Math.round(bottom + (bottom ? 90 : 0) + Math.floor(i / perRow) * (SERVER_H + 32)) };
+  });
+  return out;
+}

@@ -12,6 +12,9 @@ import { useAction } from "@/hooks/use-action";
 import { createNetwork, deleteNetwork, renameNetwork, setNetworkMember } from "@/server/actions/mesh";
 import type { MeshNetworkView } from "@/server/mesh";
 import { NetworkNameDialog } from "../servers/[serverId]/network/networks";
+import { NetworkCanvas } from "./network-canvas";
+import { type View, ViewToggle } from "@/components/view-toggle";
+import { useRouter } from "@/hooks/use-router";
 import { cn } from "@/lib/utils";
 
 type ServerRow = {
@@ -35,7 +38,40 @@ const stateOf = (s: ServerRow) =>
         : { dot: "animate-led bg-warn", label: "Starting…", tone: "text-warn" };
 
 /** Every private network with its servers; add and remove servers, create, rename and delete networks. */
-export function PrivateNetworks({ networks, servers }: { networks: Omit<MeshNetworkView, "member">[]; servers: ServerRow[] }) {
+const VIEW_KEY = "serve-network-view";
+
+export function PrivateNetworks({
+  networks,
+  servers,
+  view,
+  positions,
+}: {
+  networks: Omit<MeshNetworkView, "member">[];
+  servers: ServerRow[];
+  view: View;
+  positions: Record<string, { x: number; y: number }>;
+}) {
+  const router = useRouter();
+  const setView = React.useCallback(
+    (v: View) => {
+      try {
+        localStorage.setItem(VIEW_KEY, v);
+      } catch {}
+      router.replace(v === "canvas" ? "/private-networks?view=canvas" : "/private-networks", { scroll: false });
+    },
+    [router],
+  );
+  // Opened without a choice in the URL: use the one from last time.
+  const asked = React.useRef(false);
+  React.useEffect(() => {
+    if (asked.current) return;
+    asked.current = true;
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(VIEW_KEY);
+    } catch {}
+    if (stored === "canvas" && view === "list" && !new URLSearchParams(window.location.search).has("view")) setView("canvas");
+  }, [view, setView]);
   const meshConfirm = useMeshConfirm();
   const [creating, setCreating] = React.useState(false);
   const [renaming, setRenaming] = React.useState<{ id: string; name: string } | null>(null);
@@ -56,12 +92,19 @@ export function PrivateNetworks({ networks, servers }: { networks: Omit<MeshNetw
         <p className="text-[13px] text-muted">
           {networks.length} network{networks.length === 1 ? "" : "s"} · {servers.filter((s) => s.joined).length} of {servers.length} server{servers.length === 1 ? "" : "s"} joined
         </p>
-        <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
-          <Plus /> New network
-        </Button>
+        <div className="flex items-center gap-2">
+          {servers.length > 0 && <ViewToggle view={view} onChange={setView} />}
+          <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+            <Plus /> New network
+          </Button>
+        </div>
       </div>
 
-      {networks.length === 0 ? (
+      {view === "canvas" && servers.length > 0 ? (
+        <div className="h-[70dvh] min-h-[380px] overflow-hidden rounded-2xl border border-line bg-sunken sm:h-[calc(100dvh-17rem)] sm:min-h-[460px]">
+          <NetworkCanvas networks={networks} servers={servers} saved={positions} />
+        </div>
+      ) : networks.length === 0 ? (
         <Card>
           <EmptyState
             icon={<Network />}

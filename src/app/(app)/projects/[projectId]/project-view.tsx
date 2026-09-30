@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { AlertTriangle, ArrowUpRight, Check, FolderInput, SquareCheck, ChevronDown, Copy, Layers3, LayoutGrid, Plus, Settings, Workflow } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, FolderInput, SquareCheck, ChevronDown, Copy, Layers3, Plus, Settings } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, EmptyState, TimeAgo } from "@/components/ui/misc";
@@ -20,6 +20,7 @@ import { createEnvironment } from "@/server/actions/projects";
 import type { ServiceCardData } from "@/server/project-data";
 import { CloneEnvironmentDialog } from "./clone-environment";
 import { ProjectCanvas } from "./project-canvas";
+import { ViewToggle } from "@/components/view-toggle";
 import { MoveServicesDialog } from "@/components/move-services-dialog";
 import { cn } from "@/lib/utils";
 import { useCan } from "@/components/permissions";
@@ -174,34 +175,6 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
         )}
       </div>
     </Link>
-  );
-}
-
-/** List or canvas; the choice is in the URL (shareable) and remembered for next time. */
-function ViewToggle({ view, onChange }: { view: Props["view"]; onChange: (v: Props["view"]) => void }) {
-  return (
-    <div role="radiogroup" aria-label="View" className="flex items-center rounded-xl border border-line bg-surface-2 p-0.5">
-      {(
-        [
-          ["list", LayoutGrid, "List"],
-          ["canvas", Workflow, "Canvas"],
-        ] as const
-      ).map(([v, Icon, label]) => (
-        <button
-          key={v}
-          type="button"
-          role="radio"
-          aria-checked={view === v}
-          onClick={() => onChange(v)}
-          className={cn(
-            "flex h-7 items-center gap-1.5 rounded-[10px] px-2.5 text-[13px] font-medium transition-colors [&_svg]:size-3.5",
-            view === v ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg",
-          )}
-        >
-          <Icon /> {label}
-        </button>
-      ))}
-    </div>
   );
 }
 

@@ -4,15 +4,17 @@ import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { meshNetworks } from "@/server/mesh";
 import { meshServerAddress } from "@/lib/mesh";
+import { getSettings } from "@/server/settings";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { PrivateNetworks } from "./private-networks";
 
 export const metadata = { title: "Private networks" };
 
-export default async function PrivateNetworksPage() {
+export default async function PrivateNetworksPage(props: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { view } = await props.searchParams;
   const ctx = await requireOrg();
   if (!ctx.isInstanceAdmin) redirect("/");
-  const [networks, servers] = await Promise.all([
+  const [networks, servers, settings] = await Promise.all([
     meshNetworks(),
     db
       .select({
@@ -25,6 +27,7 @@ export default async function PrivateNetworksPage() {
       })
       .from(schema.server)
       .orderBy(asc(schema.server.name)),
+    getSettings(),
   ]);
   return (
     <>
@@ -34,6 +37,8 @@ export default async function PrivateNetworksPage() {
       />
       <PageBody>
         <PrivateNetworks
+          view={view === "canvas" ? "canvas" : "list"}
+          positions={settings.networkCanvas}
           networks={networks}
           servers={servers.map((s) => ({
             id: s.id,

@@ -10,6 +10,7 @@ import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { MESH_DEFAULT_PORT, MESH_MAX_SERVERS, meshEndpointProblem } from "@/lib/mesh";
 import { generateMeshKeys } from "@/server/mesh/keys";
+import { privatelyConnected } from "@/server/mesh/plan";
 import { newId } from "@/server/id";
 
 const networkName = z.string().trim().min(1, "Enter a name.").max(40, "Use 40 characters or fewer.");
@@ -245,5 +246,71 @@ export async function setNetworkMember(networkId: string, serverId: string, memb
       message: member ? `Added ${server.name} to the private network ${network.name}` : `Removed ${server.name} from the private network ${network.name}`,
     });
     return null;
+  });
+}
+
+export type MeshImpact = { consumer: string; consumerServer: string; provider: string; providerServer: string; project: string; href: string; variables: string[] }[];
+
+/** What stops working if a server leaves a network, a network is deleted, or a server leaves the private network. */
+export async function meshChangeImpact(
+  change: { kind: "remove"; networkId: string; serverId: string } | { kind: "delete"; networkId: string } | { kind: "leave"; serverId: string },
+) {
+  return act(async (): Promise<MeshImpact> => {
+    await requireInstanceAdmin();
+    const { meshMemberIds } = await import("@/server/mesh/members");
+    const { lostLinks, membersAfter } = await import("@/server/mesh/impact");
+    const { decryptOrNull } = await import("@/server/crypto");
+    const before = await meshMemberIds();
+    const after = membersAfter(before, change);
+    // Only services on servers that lose a link can be affected.
+    const losing = new Set<string>();
+    const ids = [...before.keys()];
+    for (const a of ids) for (const b of ids) if (a < b && privatelyConnected(before, a, b) && !privatelyConnected(after, a, b)) losing.add(a).add(b);
+    if (!losing.size) return [];
+    const services = await db
+      .select({
+        id: schema.service.id,
+        name: schema.service.name,
+        slug: schema.service.slug,
+        serverId: schema.service.serverId,
+        environmentId: schema.service.environmentId,
+        projectId: schema.service.projectId,
+      })
+      .from(schema.service);
+    const envs = new Set(services.filter((s) => losing.has(s.serverId)).map((s) => s.environmentId));
+    const relevant = services.filter((s) => envs.has(s.environmentId));
+    const consumers = relevant.filter((s) => losing.has(s.serverId)).map((s) => s.id);
+    const vars = consumers.length
+      ? (
+          await db
+            .select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value })
+            .from(schema.envVar)
+            .where(inArray(schema.envVar.serviceId, consumers))
+        ).map((v) => ({ ...v, value: decryptOrNull(v.value) ?? "" }))
+      : [];
+    const links = lostLinks(before, after, relevant, vars);
+    if (!links.length) return [];
+    const [servers, projects] = await Promise.all([
+      db.select({ id: schema.server.id, name: schema.server.name }).from(schema.server),
+      db.select({ id: schema.project.id, name: schema.project.name }).from(schema.project),
+    ]);
+    const serverName = new Map(servers.map((s) => [s.id, s.name]));
+    const projectName = new Map(projects.map((p) => [p.id, p.name]));
+    const byId = new Map(relevant.map((s) => [s.id, s]));
+    return links
+      .map((l) => {
+        const c = byId.get(l.consumerId)!;
+        const p = byId.get(l.providerId)!;
+        return {
+          consumer: c.name,
+          consumerServer: serverName.get(c.serverId) ?? "",
+          provider: p.name,
+          providerServer: serverName.get(p.serverId) ?? "",
+          project: projectName.get(c.projectId) ?? "",
+          href: `/projects/${c.projectId}/services/${c.id}/variables`,
+          variables: l.variables.sort(),
+        };
+      })
+      .sort((a, b) => a.project.localeCompare(b.project) || a.consumer.localeCompare(b.consumer));
   });
 }

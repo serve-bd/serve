@@ -3,7 +3,7 @@ import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull } from "@/server/crypto";
 import { engines } from "@/server/databases/engines";
 import { databaseUrl } from "@/server/databases/options";
-import { referenceName } from "@/lib/refs";
+import { PRIVATE_VARS, REF, referenceName } from "@/lib/refs";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { privateHost } from "@/lib/hostname";
 import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
@@ -53,9 +53,6 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
 }
 
 /** Variables that point at the private network (unreachable from another server). */
-const PRIVATE_VARS = /^(HOST|PORT|DATABASE_URL|REDIS_URL|MONGO_URL|POSTGRES_URL|MYSQL_URL|SERVE_PRIVATE_DOMAIN)$/;
-
-const REF = /\$\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g;
 
 export type ResolvedEnv = {
   runtime: Record<string, string>;

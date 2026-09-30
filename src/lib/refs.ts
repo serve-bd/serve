@@ -15,3 +15,9 @@ export function referenceName(serviceName: string) {
 export function referenceOf(serviceName: string, key: string) {
   return `\${{${referenceName(serviceName)}.${key}}}`;
 }
+
+/** A reference in a variable value: ${{KEY}} or ${{service.KEY}}. */
+export const REF = /\$\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g;
+
+/** Variables that hold private names: they only work on the same server or across a shared private network. */
+export const PRIVATE_VARS = /^(HOST|PORT|DATABASE_URL|REDIS_URL|MONGO_URL|POSTGRES_URL|MYSQL_URL|SERVE_PRIVATE_DOMAIN)$/;

@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { handshakeAge, meshEndpoint, meshEndpointProblem } from "@/lib/mesh";
 import { LINKS_JQ, RULES_JQ, WG_JQ } from "@/server/mesh/agent";
 import { generateMeshKeys } from "@/server/mesh/keys";
+import { type ImpactService, type ImpactVar, lostLinks, membersAfter } from "@/server/mesh/impact";
 import {
   addressChanges,
   agentConfig,
@@ -377,5 +378,54 @@ describe.runIf(!!process.env.PATH && fs.existsSync("/usr/bin/jq"))("private netw
     expect(out).toContain("[Interface]\nPrivateKey = cHJpdg==\nListenPort = 51820");
     expect(out).toContain("[Peer]\nPublicKey = pb\nAllowedIPs = 10.240.2.0/24, 10.241.2.0/24\nEndpoint = 10.0.0.2:51820\nPersistentKeepalive = 25");
     expect(out).toContain("[Peer]\nPublicKey = pc\nAllowedIPs = 10.240.3.0/24, 10.241.3.0/24\nPersistentKeepalive = 25");
+  });
+});
+
+describe("what a private network change breaks", () => {
+  const before = new Map([
+    ["a", ["n1"]],
+    ["b", ["n1", "n2"]],
+    ["c", ["n2"]],
+  ]);
+  const services: ImpactService[] = [
+    { id: "pg", name: "Postgres", slug: "postgres-ab12", serverId: "a", environmentId: "e1", projectId: "p" },
+    { id: "api", name: "api", slug: "api-cd34", serverId: "b", environmentId: "e1", projectId: "p" },
+    { id: "web", name: "web", slug: "web-ef56", serverId: "c", environmentId: "e1", projectId: "p" },
+    { id: "other", name: "Postgres", slug: "postgres-zz99", serverId: "a", environmentId: "e2", projectId: "p" },
+  ];
+  const vars: ImpactVar[] = [
+    { serviceId: "api", key: "DATABASE_URL", value: "${{postgres.DATABASE_URL}}" },
+    { serviceId: "api", key: "DB_HOST", value: "${{ postgres-ab12.HOST }}:${{postgres.PORT}}" },
+    // Public values keep working without the private network.
+    { serviceId: "api", key: "SITE", value: "${{postgres.SERVE_PUBLIC_URL}}" },
+    { serviceId: "web", key: "API", value: "http://${{api.SERVE_PRIVATE_DOMAIN}}" },
+  ];
+
+  it("works out memberships after each kind of change", () => {
+    expect(membersAfter(before, { kind: "remove", networkId: "n1", serverId: "b" }).get("b")).toEqual(["n2"]);
+    expect(membersAfter(before, { kind: "delete", networkId: "n2" }).get("c")).toEqual([]);
+    expect(membersAfter(before, { kind: "leave", serverId: "a" }).has("a")).toBe(false);
+    // The original is left alone.
+    expect(before.get("b")).toEqual(["n1", "n2"]);
+  });
+
+  it("lists services that use a private name across a link that goes away", () => {
+    const after = membersAfter(before, { kind: "remove", networkId: "n1", serverId: "b" });
+    expect(lostLinks(before, after, services, vars)).toEqual([{ consumerId: "api", providerId: "pg", variables: ["DATABASE_URL", "DB_HOST"] }]);
+    const gone = membersAfter(before, { kind: "delete", networkId: "n2" });
+    expect(lostLinks(before, gone, services, vars)).toEqual([{ consumerId: "web", providerId: "api", variables: ["API"] }]);
+  });
+
+  it("finds nothing when the servers still share another network or nothing uses the link", () => {
+    const twice = new Map([
+      ["a", ["n1", "n3"]],
+      ["b", ["n1", "n3"]],
+    ]);
+    expect(lostLinks(twice, membersAfter(twice, { kind: "delete", networkId: "n1" }), services, vars)).toEqual([]);
+    // c leaving breaks nothing: nothing uses a service on c.
+    expect(lostLinks(before, membersAfter(before, { kind: "leave", serverId: "c" }), services, vars.slice(0, 3))).toEqual([]);
+    // Same server: never affected.
+    const local: ImpactVar[] = [{ serviceId: "other", key: "X", value: "${{postgres.HOST}}" }];
+    expect(lostLinks(before, membersAfter(before, { kind: "leave", serverId: "a" }), services, local)).toEqual([]);
   });
 });

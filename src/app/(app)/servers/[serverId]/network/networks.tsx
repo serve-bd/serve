@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge, Card, CardHeader } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
-import { useConfirm } from "@/components/ui/confirm";
+import { useMeshConfirm } from "@/components/mesh-confirm";
 import { useAction } from "@/hooks/use-action";
 import { createNetwork, deleteNetwork, renameNetwork, setNetworkMember } from "@/server/actions/mesh";
 import type { MeshNetworkView } from "@/server/mesh";
@@ -74,7 +74,7 @@ export function NetworkNameDialog({
 
 /** The private networks, with a switch for this server's place in each. */
 export function Networks({ serverId, serverName, networks, refresh }: { serverId: string; serverName: string; networks: MeshNetworkView[]; refresh: () => void }) {
-  const confirm = useConfirm();
+  const meshConfirm = useMeshConfirm();
   const [creating, setCreating] = React.useState(false);
   const [renaming, setRenaming] = React.useState<MeshNetworkView | null>(null);
   const [toggling, setToggling] = React.useState<string | null>(null);
@@ -132,13 +132,16 @@ export function Networks({ serverId, serverName, networks, refresh }: { serverId
                   onCheckedChange={async (on) => {
                     if (
                       !on &&
-                      others.length > 0 &&
-                      !(await confirm({
-                        title: `Take ${serverName} out of ${n.name}?`,
-                        description: `Services here and on ${others.map((s) => s.name).join(", ")} stop reaching each other by their private names, unless they share another network.`,
-                        confirmLabel: "Take out",
-                        danger: true,
-                      }))
+                      !(await meshConfirm(
+                        { kind: "remove", networkId: n.id, serverId },
+                        {
+                          title: `Take ${serverName} out of ${n.name}?`,
+                          description: others.length
+                            ? `${serverName} stops reaching ${others.map((s) => s.name).join(", ")} through ${n.name}. Servers that share another network keep that link.`
+                            : `${serverName} is the only server in ${n.name}.`,
+                          confirmLabel: "Take out",
+                        },
+                      ))
                     )
                       return;
                     setToggling(n.id);
@@ -162,14 +165,16 @@ export function Networks({ serverId, serverName, networks, refresh }: { serverId
                       danger
                       onClick={async () => {
                         if (
-                          await confirm({
-                            title: `Delete ${n.name}?`,
-                            description: n.servers.length
-                              ? `${n.servers.map((s) => s.name).join(", ")} stop reaching each other through it. Servers that share another network keep that link.`
-                              : "No server is in it.",
-                            confirmLabel: "Delete network",
-                            danger: true,
-                          })
+                          await meshConfirm(
+                            { kind: "delete", networkId: n.id },
+                            {
+                              title: `Delete ${n.name}?`,
+                              description: n.servers.length
+                                ? `${n.servers.map((s) => s.name).join(", ")} stop reaching each other through it. Servers that share another network keep that link.`
+                                : "No server is in it.",
+                              confirmLabel: "Delete network",
+                            },
+                          )
                         )
                           void remove.run(n.id);
                       }}

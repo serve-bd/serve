@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState } from "@/components/ui/misc";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { Tooltip } from "@/components/ui/tooltip";
-import { useConfirm } from "@/components/ui/confirm";
+import { useMeshConfirm } from "@/components/mesh-confirm";
 import { useAction } from "@/hooks/use-action";
 import { createNetwork, deleteNetwork, renameNetwork, setNetworkMember } from "@/server/actions/mesh";
 import type { MeshNetworkView } from "@/server/mesh";
@@ -27,7 +27,7 @@ const stateOf = (s: ServerRow) =>
 
 /** Every private network with its servers; add and remove servers, create, rename and delete networks. */
 export function PrivateNetworks({ networks, servers }: { networks: Omit<MeshNetworkView, "member">[]; servers: ServerRow[] }) {
-  const confirm = useConfirm();
+  const meshConfirm = useMeshConfirm();
   const [creating, setCreating] = React.useState(false);
   const [renaming, setRenaming] = React.useState<{ id: string; name: string } | null>(null);
   const create = useAction((name: string) => createNetwork(name), { success: "Private network created" });
@@ -110,14 +110,16 @@ export function PrivateNetworks({ networks, servers }: { networks: Omit<MeshNetw
                             danger
                             onClick={async () => {
                               if (
-                                await confirm({
-                                  title: `Delete ${n.name}?`,
-                                  description: n.servers.length
-                                    ? `${n.servers.map((s) => s.name).join(", ")} stop reaching each other through it. Servers that share another network keep that link.`
-                                    : "No server is in it.",
-                                  confirmLabel: "Delete network",
-                                  danger: true,
-                                })
+                                await meshConfirm(
+                                  { kind: "delete", networkId: n.id },
+                                  {
+                                    title: `Delete ${n.name}?`,
+                                    description: n.servers.length
+                                      ? `${n.servers.map((s) => s.name).join(", ")} stop reaching each other through it. Servers that share another network keep that link.`
+                                      : "No server is in it.",
+                                    confirmLabel: "Delete network",
+                                  },
+                                )
                               )
                                 void remove.run(n.id);
                             }}
@@ -156,13 +158,16 @@ export function PrivateNetworks({ networks, servers }: { networks: Omit<MeshNetw
                               onClick={async () => {
                                 const others = n.servers.filter((x) => x.id !== m.id);
                                 if (
-                                  others.length &&
-                                  !(await confirm({
-                                    title: `Remove ${m.name} from ${n.name}?`,
-                                    description: `Services on ${m.name} and on ${others.map((x) => x.name).join(", ")} stop reaching each other by their private names, unless they share another network.`,
-                                    confirmLabel: "Remove",
-                                    danger: true,
-                                  }))
+                                  !(await meshConfirm(
+                                    { kind: "remove", networkId: n.id, serverId: m.id },
+                                    {
+                                      title: `Remove ${m.name} from ${n.name}?`,
+                                      description: others.length
+                                        ? `${m.name} stops reaching ${others.map((x) => x.name).join(", ")} through ${n.name}. Servers that share another network keep that link.`
+                                        : `${m.name} is the only server in ${n.name}.`,
+                                      confirmLabel: "Remove",
+                                    },
+                                  ))
                                 )
                                   return;
                                 void member.run(n.id, m.id, false);

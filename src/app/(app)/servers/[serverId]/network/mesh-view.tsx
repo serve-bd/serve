@@ -9,7 +9,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge, Card, CardBody, CardFooter, CardHeader, CopyButton, EmptyState } from "@/components/ui/misc";
-import { useConfirm } from "@/components/ui/confirm";
+import { useMeshConfirm } from "@/components/mesh-confirm";
 import { useAction } from "@/hooks/use-action";
 import { useNow } from "@/hooks/use-client";
 import { meshAddressOptions, resyncMesh, saveMesh } from "@/server/actions/mesh";
@@ -358,7 +358,7 @@ function Section({ title, description, children }: { title: string; description:
 }
 
 function Joined({ mesh, serverId, serverName, onEdit, refresh }: { mesh: MeshOverview; serverId: string; serverName: string; onEdit: () => void; refresh: () => void }) {
-  const confirm = useConfirm();
+  const meshConfirm = useMeshConfirm();
   const leave = useAction(() => saveMesh(serverId, { enabled: false }), { success: `${serverName} is leaving the private network`, onSuccess: refresh });
   const apply = useAction(() => resyncMesh(serverId), { success: "Applying the configuration again", onSuccess: refresh });
   const problem = problemOf(mesh);
@@ -403,12 +403,14 @@ function Joined({ mesh, serverId, serverName, onEdit, refresh }: { mesh: MeshOve
             loading={leave.pending}
             onClick={async () => {
               if (
-                await confirm({
-                  title: `Remove ${serverName} from the private network?`,
-                  description: "Services on other servers can no longer reach services on this server by their private names, and the other way around.",
-                  confirmLabel: "Leave network",
-                  danger: true,
-                })
+                await meshConfirm(
+                  { kind: "leave", serverId },
+                  {
+                    title: `Remove ${serverName} from the private network?`,
+                    description: "Services on other servers can no longer reach services on this server by their private names, and the other way around.",
+                    confirmLabel: "Leave network",
+                  },
+                )
               )
                 void leave.run();
             }}

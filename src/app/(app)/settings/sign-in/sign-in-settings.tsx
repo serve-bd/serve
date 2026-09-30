@@ -11,15 +11,16 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Badge, Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { Select } from "@/components/ui/select";
-import { SwitchRow } from "@/components/ui/switch";
+import { Switch, SwitchRow } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
-import { removeSsoProvider, saveSsoProvider, setPasswordLogin, testOidcIssuer } from "@/server/actions/sign-in";
+import { removeSsoProvider, saveSsoProvider, setPasswordLogin, setSsoProviderEnabled, testOidcIssuer } from "@/server/actions/sign-in";
 import type { ProviderView, SsoProviderId } from "@/server/sso/config";
 
 type Org = { id: string; name: string; roles: { id: string; name: string }[] };
 
-type ProviderRow = { id: SsoProviderId; callbackUrl: string; config: ProviderView | null };
+type ProviderRow = { id: SsoProviderId; callbackUrl: string; config: ProviderView | null; people: number };
 
 const titles: Record<SsoProviderId, string> = { github: "GitHub", google: "Google", oidc: "OpenID Connect" };
 
@@ -52,17 +53,23 @@ const list = (v: string) =>
 export function SignInSettingsView({
   passwordEnabled,
   forcedPassword,
+  passwordPeople,
   providers,
   organizations,
   httpsWarning,
 }: {
   passwordEnabled: boolean;
   forcedPassword: boolean;
+  /** People with a password. */
+  passwordPeople: number;
   providers: ProviderRow[];
   organizations: Org[];
   httpsWarning: boolean;
 }) {
-  const togglePassword = useAction((on: boolean) => setPasswordLogin(on), { success: "Password sign-in updated" });
+  const togglePassword = useAction((on: boolean, signOut?: boolean) => setPasswordLogin(on, signOut), {
+    onSuccess: (d) => toast.success(signedOutText("Password sign-in updated", d.signedOut)),
+  });
+  const [passwordOff, setPasswordOff] = React.useState(false);
   const active = providers.filter((p) => p.config?.enabled && p.config.hasSecret);
 
   return (
@@ -79,7 +86,17 @@ export function SignInSettingsView({
             }
             checked={passwordEnabled}
             disabled={togglePassword.pending || (passwordEnabled && !active.length)}
-            onCheckedChange={(on) => togglePassword.run(on)}
+            onCheckedChange={(on) => (on ? togglePassword.run(true) : setPasswordOff(true))}
+          />
+          <TurnOffDialog
+            open={passwordOff}
+            onOpenChange={setPasswordOff}
+            title="Turn off password sign-in?"
+            description="Nobody can sign in with a password until you turn it on again. The saved passwords stay."
+            people={passwordPeople}
+            method="a password"
+            signOutPossible={!forcedPassword}
+            onConfirm={(signOut) => togglePassword.run(false, signOut)}
           />
           {forcedPassword && (
             <p className="text-xs text-muted">
@@ -112,6 +129,74 @@ export function SignInSettingsView({
   );
 }
 
+const signedOutText = (text: string, n: number) => (n ? `${text}. ${n} ${n === 1 ? "person was" : "people were"} signed out.` : text);
+
+/** Confirms turning a sign-in method off, with the choice to end the sessions of the people who use it. */
+function TurnOffDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  people,
+  method,
+  signOutPossible = true,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  people: number;
+  method: string;
+  signOutPossible?: boolean;
+  onConfirm: (signOut: boolean) => void;
+}) {
+  const [signOut, setSignOut] = React.useState(false);
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) setSignOut(false);
+        onOpenChange(o);
+      }}
+    >
+      <DialogContent>
+        <DialogHeader title={title} description={description} />
+        <DialogBody>
+          {signOutPossible && people > 0 ? (
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line px-3.5 py-3 hover:bg-hover">
+              <Checkbox className="mt-0.5" checked={signOut} onCheckedChange={(v) => setSignOut(!!v)} />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-[13px] font-medium text-fg">Also sign out everyone who has {method}</span>
+                <span className="text-xs leading-relaxed text-muted">
+                  {people} {people === 1 ? "person has" : "people have"} one. Someone who also has another sign-in method is signed out too, and signs in again with it. You stay
+                  signed in.
+                </span>
+              </span>
+            </label>
+          ) : (
+            <p className="text-[13px] text-muted">People who are signed in now stay signed in.</p>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => {
+              onConfirm(signOut);
+              setSignOut(false);
+              onOpenChange(false);
+            }}
+          >
+            Turn off
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const consoles: Partial<Record<SsoProviderId, { label: string; href: string }>> = {
   github: { label: "Open GitHub", href: "https://github.com/settings/applications/new" },
   google: { label: "Open Google Cloud", href: "https://console.cloud.google.com/apis/credentials" },
@@ -126,6 +211,10 @@ const blurb: Record<SsoProviderId, string> = {
 /** One provider in the list: logo, status and a button that opens its setup. */
 function ProviderItem({ row, organizations }: { row: ProviderRow; organizations: Org[] }) {
   const [open, setOpen] = React.useState(false);
+  const [turningOff, setTurningOff] = React.useState(false);
+  const toggle = useAction((on: boolean, signOut?: boolean) => setSsoProviderEnabled(row.id, on, signOut), {
+    onSuccess: (d) => toast.success(signedOutText(`${titles[row.id]} sign-in updated`, d.signedOut)),
+  });
   const c = row.config;
   const on = !!c?.enabled && !!c.hasSecret;
   const domains = c?.allowedOrgs?.length
@@ -144,11 +233,28 @@ function ProviderItem({ row, organizations }: { row: ProviderRow; organizations:
           <span className="text-[14px] font-medium text-fg">{row.id === "oidc" && c?.label ? c.label : titles[row.id]}</span>
           {on ? <Badge tone="ok">On</Badge> : c ? <Badge>Off</Badge> : null}
         </span>
-        <span className="truncate text-[13px] text-muted">{sub}</span>
+        <span className="text-[13px] text-muted sm:truncate">{sub}</span>
       </div>
+      {c?.hasSecret && (
+        <Switch
+          checked={c.enabled}
+          disabled={toggle.pending}
+          onCheckedChange={(v) => (v ? toggle.run(true) : setTurningOff(true))}
+          aria-label={`${titles[row.id]} sign-in on or off`}
+        />
+      )}
       <Button size="sm" variant={c ? "secondary" : "primary"} onClick={() => setOpen(true)}>
         {c ? "Configure" : "Set up"}
       </Button>
+      <TurnOffDialog
+        open={turningOff}
+        onOpenChange={setTurningOff}
+        title={`Turn off ${titles[row.id]} sign-in?`}
+        description="It disappears from the sign-in page, and nobody can sign in with it until you turn it on again. Its settings stay."
+        people={row.people}
+        method={`a linked ${titles[row.id]} account`}
+        onConfirm={(signOut) => toggle.run(false, signOut)}
+      />
       <ProviderDialog key={`${open}:${JSON.stringify(c)}`} row={row} organizations={organizations} open={open} onOpenChange={setOpen} />
     </div>
   );

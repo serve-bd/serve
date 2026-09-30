@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { act, UserError } from "@/server/action";
 import { logActivity } from "@/server/activity";
 import { requireInstanceAdmin, requireUser } from "@/server/auth";
@@ -144,7 +144,48 @@ export async function removeSsoProvider(id: string) {
   });
 }
 
-export async function setPasswordLogin(enabled: boolean) {
+/**
+ * Ends the sessions of everyone with an account of this sign-in method ("credential" for a password),
+ * except the admin's own session. Sessions do not record how they began, so a person who also has
+ * another method is signed out too; they sign in again with that one.
+ */
+async function signOutMethodUsers(providerId: string, keepSessionId: string) {
+  const ended = await db
+    .delete(schema.session)
+    .where(
+      and(
+        ne(schema.session.id, keepSessionId),
+        sql`${schema.session.userId} in (select ${schema.account.userId} from ${schema.account} where ${schema.account.providerId} = ${providerId})`,
+      ),
+    )
+    .returning({ userId: schema.session.userId });
+  return new Set(ended.map((e) => e.userId)).size;
+}
+
+/** Turn a configured provider on or off without removing its settings; optionally sign out its users. */
+export async function setSsoProviderEnabled(id: string, enabled: boolean, signOut = false) {
+  return act(async () => {
+    const ctx = await requireInstanceAdmin();
+    assertProvider(id);
+    const settings = await getSetting("signIn");
+    const before = settings.providers[id];
+    if (!before) throw new UserError(`Set up ${providerNames[id]} sign-in first.`);
+    const next: SignInSettings = { ...settings, providers: { ...settings.providers, [id]: { ...before, enabled } } };
+    if (!enabled && next.passwordEnabled === false && !activeProviders(next).length) throw new UserError("Turn on password sign-in or another provider first.");
+    await assertAdminCanSignIn(next);
+    await updateSettings({ signIn: next });
+    const people = !enabled && signOut ? await signOutMethodUsers(id, ctx.sessionId) : 0;
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      action: "sign-in.provider",
+      message: `${enabled ? "Turned on" : "Turned off"} ${providerNames[id]} sign-in${people ? ` and signed out ${people} ${people === 1 ? "person" : "people"}` : ""}`,
+    });
+    return { signedOut: people };
+  });
+}
+
+export async function setPasswordLogin(enabled: boolean, signOut = false) {
   return act(async () => {
     const ctx = await requireInstanceAdmin();
     const settings = await getSetting("signIn");
@@ -152,13 +193,15 @@ export async function setPasswordLogin(enabled: boolean) {
     if (!enabled && !activeProviders(next).length) throw new UserError("Turn on a sign-in provider first.");
     await assertAdminCanSignIn(next);
     await updateSettings({ signIn: next });
+    // Password sign-in stays possible while SERVE_ALLOW_PASSWORD_LOGIN=1 forces it, so nobody is signed out then.
+    const people = !enabled && signOut && process.env.SERVE_ALLOW_PASSWORD_LOGIN !== "1" ? await signOutMethodUsers("credential", ctx.sessionId) : 0;
     await logActivity({
       userId: ctx.user.id,
       organizationId: ctx.org.id,
       action: "sign-in.password",
-      message: enabled ? "Turned on password sign-in" : "Turned off password sign-in",
+      message: enabled ? "Turned on password sign-in" : `Turned off password sign-in${people ? ` and signed out ${people} ${people === 1 ? "person" : "people"}` : ""}`,
     });
-    return null;
+    return { signedOut: people };
   });
 }
 

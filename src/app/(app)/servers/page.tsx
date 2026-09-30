@@ -4,6 +4,7 @@ import { asc, sql } from "drizzle-orm";
 import { Plus } from "lucide-react";
 import { requireOrg } from "@/server/auth";
 import { canAddServers, listedServerIds } from "@/server/servers/access";
+import { serverAllowsOrg } from "@/server/servers/ownership";
 import { db, schema } from "@/server/db";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { buttonVariants } from "@/components/ui/button";
@@ -40,6 +41,28 @@ export default async function ServersPage() {
     .orderBy(sql`${schema.server.isLocal} desc`, asc(schema.server.createdAt));
   // In Root every server; in another organization only the servers available to it.
   const rows = all.filter((r) => managed.has(r.id)).map((r) => ({ ...r, owner: ctx.isInstanceAdmin ? r.owner : null }));
+  // Servers shared with this organization that it deploys to but does not manage: shown read-only,
+  // with only its own services counted.
+  const shared = ctx.isRoot
+    ? []
+    : await db
+        .select({
+          id: schema.server.id,
+          name: schema.server.name,
+          description: schema.server.description,
+          status: schema.server.status,
+          ownerOrganizationId: schema.server.ownerOrganizationId,
+          organizationIds: schema.server.organizationIds,
+          services: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${ctx.org.id})`,
+          running: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${ctx.org.id} and s.status = 'running')`,
+        })
+        .from(schema.server)
+        .orderBy(asc(schema.server.createdAt))
+        .then((list) =>
+          list
+            .filter((r) => !managed.has(r.id) && r.ownerOrganizationId !== ctx.org.id && serverAllowsOrg(r, ctx.org.id))
+            .map(({ ownerOrganizationId: _o, organizationIds: _i, ...r }) => r),
+        );
 
   return (
     <>
@@ -61,7 +84,7 @@ export default async function ServersPage() {
         }
       />
       <PageBody>
-        <ServerList servers={rows.map((r) => ({ ...r, lastSeenAt: r.lastSeenAt?.toISOString() ?? null }))} />
+        <ServerList servers={rows.map((r) => ({ ...r, lastSeenAt: r.lastSeenAt?.toISOString() ?? null }))} shared={shared} />
       </PageBody>
     </>
   );

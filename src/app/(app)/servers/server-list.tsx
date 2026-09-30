@@ -32,8 +32,11 @@ type Row = {
   alerts: number;
 };
 
-export function ServerList({ servers }: { servers: Row[] }) {
-  if (servers.length <= 1 && servers[0]?.isLocal) {
+/** A server shared with the organization: it deploys there, a Root admin manages it. */
+type SharedRow = { id: string; name: string; description: string | null; status: ServerStatus; services: number; running: number };
+
+export function ServerList({ servers, shared = [] }: { servers: Row[]; shared?: SharedRow[] }) {
+  if (servers.length <= 1 && servers[0]?.isLocal && !shared.length) {
     return (
       <div className="flex flex-col gap-6">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -58,7 +61,36 @@ export function ServerList({ servers }: { servers: Row[] }) {
       {servers.map((s) => (
         <ServerCard key={s.id} server={s} />
       ))}
+      {shared.map((s) => (
+        <SharedCard key={s.id} server={s} />
+      ))}
       <AddCard />
+    </div>
+  );
+}
+
+function SharedCard({ server: s }: { server: SharedRow }) {
+  return (
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
+      <div className="flex items-start gap-3 p-4">
+        <span className="flex size-10 flex-none items-center justify-center rounded-xl bg-surface-2 text-fg-2 ring-1 ring-line">
+          <Server className="size-5" />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-[15px] font-semibold text-fg">{s.name}</span>
+            <Badge tone="info">Shared</Badge>
+          </div>
+          <span className="truncate text-[12px] text-muted">{s.description || "Shared with this organization"}</span>
+        </div>
+      </div>
+      <div className="flex flex-1 flex-col gap-1.5 px-4 pb-4">
+        <StatusLabel status={s.status} kind="server" className="text-xs" />
+        <p className="text-xs leading-relaxed text-muted">You deploy services here. A Root admin manages the server.</p>
+      </div>
+      <div className="border-t border-line px-4 py-2.5 text-xs text-muted">
+        {s.services === 0 ? "None of your services" : `${s.running} of ${s.services} of your services running`}
+      </div>
     </div>
   );
 }

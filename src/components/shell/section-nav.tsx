@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   SquareTerminal,
+  Users,
   Waypoints,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ const icons = {
   ShieldCheck,
   SlidersHorizontal,
   SquareTerminal,
+  Users,
   Waypoints,
 };
 

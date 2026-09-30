@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Building2, Pencil } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { Building2, ChevronRight, Pencil, Users } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
@@ -15,8 +16,8 @@ import { DEFAULT_RESERVATION, formatLimitValue, hasAnyLimit, limitCatalog, type 
 import { cn } from "@/lib/utils";
 import { saveDefaultOrgLimits, saveOrgLimits } from "@/server/actions/limits";
 
-type Org = { id: string; name: string; members: number; root: boolean; custom: boolean; limits: OrgLimits; usage: Usage };
-type Server = { id: string; name: string };
+export type Org = { id: string; name: string; members: number; root: boolean; custom: boolean; limits: OrgLimits; usage: Usage };
+export type Server = { id: string; name: string };
 
 export function OrgLimitsView({ orgs, defaults, servers }: { orgs: Org[]; defaults: OrgLimits; servers: Server[] }) {
   const [editing, setEditing] = React.useState<Org | "defaults" | null>(null);
@@ -38,7 +39,7 @@ export function OrgLimitsView({ orgs, defaults, servers }: { orgs: Org[]; defaul
       </Card>
 
       <Card>
-        <CardHeader title="Organizations" description="Usage and limits of each organization on this instance." />
+        <CardHeader title="Organizations" description="Usage and limits of each organization on this instance. Open one to manage its members." />
         <div className="divide-y divide-line">
           {orgs.map((o) => {
             const hot = limitCatalog.filter((l) => l.key !== "concurrentBuilds" && usageLevel(o.usage[l.key] ?? 0, o.limits[l.key]) !== "ok");
@@ -50,7 +51,9 @@ export function OrgLimitsView({ orgs, defaults, servers }: { orgs: Org[]; defaul
                   </span>
                   <div className="flex min-w-0 flex-1 flex-col">
                     <span className="flex flex-wrap items-center gap-2 text-[14px] font-medium text-fg">
-                      {o.name}
+                      <Link href={`/settings/organizations/${o.id}`} className="hover:underline">
+                        {o.name}
+                      </Link>
                       {o.root && <Badge tone="info">Root</Badge>}
                       {o.custom ? <Badge>Own limits</Badge> : !o.root && hasAnyLimit(o.limits) ? <Badge>Default limits</Badge> : null}
                     </span>
@@ -65,9 +68,14 @@ export function OrgLimitsView({ orgs, defaults, servers }: { orgs: Org[]; defaul
                       )}
                     </span>
                   </div>
-                  <Button size="sm" onClick={() => setEditing(o)}>
-                    <Pencil /> Limits
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(o)}>
+                      <Pencil /> Limits
+                    </Button>
+                    <Link href={`/settings/organizations/${o.id}`} className={buttonVariants({ size: "sm" })}>
+                      <Users /> Members <ChevronRight />
+                    </Link>
+                  </div>
                 </div>
                 {hasAnyLimit(o.limits) && (
                   <div className="pl-11">
@@ -93,7 +101,7 @@ export function OrgLimitsView({ orgs, defaults, servers }: { orgs: Org[]; defaul
   );
 }
 
-function LimitSummary({ limits, empty }: { limits: OrgLimits; empty: string }) {
+export function LimitSummary({ limits, empty }: { limits: OrgLimits; empty: string }) {
   const set = limitCatalog.filter((l) => limits[l.key] != null);
   if (!set.length && !limits.allowedServers) return <p className="text-[13px] text-muted">{empty}</p>;
   return (
@@ -114,7 +122,7 @@ const toDraft = (l: OrgLimits): Record<string, string> => ({
   defaultMemory: l.defaultMemory != null ? String(l.defaultMemory) : "",
 });
 
-function LimitsDialog({ org, initial, servers, onClose }: { org: Org | null; initial: OrgLimits; servers: Server[]; onClose: () => void }) {
+export function LimitsDialog({ org, initial, servers, onClose }: { org: Org | null; initial: OrgLimits; servers: Server[]; onClose: () => void }) {
   const [draft, setDraft] = React.useState(toDraft(initial));
   const [useDefaults, setUseDefaults] = React.useState(org ? !org.custom && !org.root : false);
   const [allowed, setAllowed] = React.useState<string[] | null>(initial.allowedServers ?? null);

@@ -33,35 +33,50 @@ export function containedPath(base: string, relative: string, label = "Path"): s
 const DANGEROUS_KEYS = ["privileged", "cap_add", "devices", "security_opt", "sysctls", "userns_mode", "cgroup_parent", "device_cgroup_rules"];
 const HOST_MODES = ["pid", "ipc", "uts", "network_mode"];
 
+/** Compose YAML as Docker Compose reads it: merge keys (`<<: *anchor`) resolved. */
+function parseCompose(content: string): Record<string, unknown> | null {
+  try {
+    return (YAML.parse(content, { merge: true }) as Record<string, unknown>) ?? {};
+  } catch {
+    return null;
+  }
+}
+
+/** `${VAR}` in a value: Compose fills it in later, from the service's variables. */
+const interpolated = (v: unknown) => typeof v === "string" && v.includes("$");
+
 /**
  * Compose options that reach into Serve's own networks: joining an outside network (Serve's own,
  * or another environment's) or taking a name Serve's containers answer to (serve, serve-db…).
- * A container there could pose as Serve's database or dashboard. Nobody's compose file may do this;
- * Serve attaches stacks to their environment network itself.
+ * A container there could pose as Serve's database or dashboard. Serve attaches stacks to their
+ * environment network itself.
  */
 export function composeNetworkIssues(content: string): string[] {
-  let doc: { services?: Record<string, Record<string, unknown>>; networks?: Record<string, Record<string, unknown> | null> };
-  try {
-    doc = YAML.parse(content) ?? {};
-  } catch {
-    return [];
-  }
+  const doc = parseCompose(content) as { services?: Record<string, Record<string, unknown>>; networks?: Record<string, Record<string, unknown> | null> } | null;
+  if (!doc) return [];
   const issues: string[] = [];
   const reserved = (name: unknown) => typeof name === "string" && /^serve($|[-_.])/i.test(name.trim());
   for (const [name, net] of Object.entries(doc.networks ?? {})) {
-    if (net && typeof net === "object" && (net.external || net.name !== undefined)) issues.push(`network ${name}: outside networks are not allowed`);
+    if (!net || typeof net !== "object") continue;
+    // Naming the stack's own network is fine; an outside one, a reserved or a variable name is not.
+    if (net.external) issues.push(`network ${name}: outside networks are not allowed`);
+    else if (reserved(net.name) || interpolated(net.name)) issues.push(`network ${name}: the name "${net.name}" is not allowed`);
   }
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
+    // The service name is a network alias too.
+    if (reserved(name)) issues.push(`service ${name}: the name is reserved`);
     if (!svc || typeof svc !== "object") continue;
-    if (reserved(svc.container_name)) issues.push(`${name}: container_name "${svc.container_name}" is reserved`);
-    if (reserved(svc.hostname)) issues.push(`${name}: hostname "${svc.hostname}" is reserved`);
+    for (const key of ["container_name", "hostname"] as const) {
+      if (reserved(svc[key])) issues.push(`${name}: ${key} "${svc[key]}" is reserved`);
+      else if (interpolated(svc[key])) issues.push(`${name}: ${key} cannot use variables`);
+    }
     const mode = svc.network_mode;
-    if (typeof mode === "string" && mode.startsWith("container:")) issues.push(`${name}: "network_mode: ${mode}" is not allowed`);
+    if (typeof mode === "string" && (mode.startsWith("container:") || interpolated(mode))) issues.push(`${name}: "network_mode: ${mode}" is not allowed`);
     const nets = svc.networks;
     if (nets && typeof nets === "object" && !Array.isArray(nets)) {
       for (const [net, cfg] of Object.entries(nets as Record<string, { aliases?: unknown } | null>)) {
         const aliases = Array.isArray(cfg?.aliases) ? cfg.aliases : [];
-        for (const a of aliases) if (reserved(a)) issues.push(`${name}: alias "${a}" on ${net} is reserved`);
+        for (const a of aliases) if (reserved(a) || interpolated(a)) issues.push(`${name}: alias "${a}" on ${net} is not allowed`);
       }
     }
   }
@@ -73,23 +88,27 @@ export function composeNetworkIssues(content: string): string[] {
  * organization may use them; everyone else gets a readable error.
  */
 export function composeSecurityIssues(content: string): string[] {
-  let doc: { services?: Record<string, Record<string, unknown>>; volumes?: Record<string, { driver_opts?: Record<string, unknown> } | null> };
-  try {
-    doc = YAML.parse(content) ?? {};
-  } catch {
-    return [];
-  }
+  const doc = parseCompose(content) as {
+    services?: Record<string, Record<string, unknown>>;
+    volumes?: Record<string, { driver_opts?: Record<string, unknown> } | null>;
+    include?: unknown;
+  } | null;
+  if (!doc) return [];
   const issues: string[] = [];
+  // Other files are not checked here, so they cannot be pulled in.
+  if (doc.include) issues.push(`"include" is not allowed`);
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
     if (!svc || typeof svc !== "object") continue;
     for (const key of DANGEROUS_KEYS) if (svc[key]) issues.push(`${name}: "${key}" is not allowed`);
     // Sharing namespaces with the host or with arbitrary containers breaks isolation.
     for (const key of HOST_MODES) {
       const v = svc[key];
-      if (typeof v === "string" && (v === "host" || v.startsWith("container:"))) {
+      if (typeof v === "string" && (v === "host" || v.startsWith("container:") || interpolated(v))) {
         issues.push(`${name}: "${key}: ${v}" is not allowed`);
       }
     }
+    const ext = svc.extends;
+    if (ext && typeof ext === "object" && (ext as { file?: unknown }).file) issues.push(`${name}: "extends" from another file is not allowed`);
     const outside = (p: string) => p.startsWith("/") || p.startsWith("~") || p.split(/[\\/]/).includes("..");
     const build = svc.build;
     const context = typeof build === "string" ? build : (build as { context?: string } | undefined)?.context;
@@ -103,7 +122,8 @@ export function composeSecurityIssues(content: string): string[] {
     for (const v of volumes) {
       const source = typeof v === "string" ? v.split(":")[0] : (v as { source?: string; type?: string })?.type === "bind" ? ((v as { source?: string }).source ?? "") : "";
       if (!source) continue;
-      if (source.startsWith("/") || source.startsWith("~") || source.includes("..") || source.includes("docker.sock")) {
+      // A variable could turn into any host path once Compose fills it in.
+      if (source.startsWith("/") || source.startsWith("~") || source.includes("..") || source.includes("docker.sock") || source.includes("$")) {
         issues.push(`${name}: bind mount "${source}" is not allowed`);
       }
     }

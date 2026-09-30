@@ -177,6 +177,17 @@ function onClient(conn: Connection, info: { ip: string; port: number }) {
     if (!found) return ctx.reject(["publickey"]);
     if (!ctx.signature) return ctx.accept();
     if (found.key.verify(ctx.blob as Buffer, ctx.signature, ctx.hashAlgo) !== true) return ctx.reject(["publickey"]);
+    // The cache may be seconds old: the key must still be this server's (not replaced by a new join,
+    // not a removed server). Only signed attempts get here, so this lookup cannot be flooded.
+    const [row] = await db
+      .select({ tunnel: schema.server.tunnel })
+      .from(schema.server)
+      .where(eq(schema.server.id, found.id))
+      .catch(() => []);
+    if (row?.tunnel?.clientKey !== found.clientKey) {
+      void loadKeys().catch(() => {});
+      return ctx.reject(["publickey"]);
+    }
     // A server connects once: a newer connection replaces an older one (after a network change).
     drop(found.id, undefined, true);
     // With Docker Compose every connection comes through the gateway container: its address says nothing.

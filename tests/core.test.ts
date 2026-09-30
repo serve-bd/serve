@@ -182,6 +182,48 @@ networks:
     expect(issues.join()).toContain("network other");
     expect(issues.join()).not.toContain("cache");
   });
+  it("sees through merge keys and variables, and checks service names", () => {
+    const merged = composeNetworkIssues(`x-net: &net
+  external: true
+  name: serve
+x-svc: &svc
+  container_name: serve-db
+services:
+  a:
+    <<: *svc
+    image: x
+  serve-worker:
+    image: y
+  b:
+    image: z
+    container_name: \${NAME}
+    network_mode: \${MODE}
+networks:
+  ext:
+    <<: *net
+`);
+    expect(merged.join("|")).toContain("network ext: outside");
+    expect(merged.join("|")).toContain('container_name "serve-db"');
+    expect(merged.join("|")).toContain("service serve-worker");
+    expect(merged.join("|")).toContain("container_name cannot use variables");
+    expect(merged.join("|")).toContain("network_mode: ${MODE}");
+    const host = composeSecurityIssues(`include: [other.yml]
+services:
+  a:
+    image: x
+    extends: { file: base.yml, service: web }
+    volumes: ["\${DATA}:/data"]
+`);
+    expect(host.join("|")).toContain('"include"');
+    expect(host.join("|")).toContain('"extends" from another file');
+    expect(host.join("|")).toContain("${DATA}");
+  });
+
+  it("allows naming the stack's own networks", () => {
+    expect(composeNetworkIssues("services:\n  web:\n    image: x\nnetworks:\n  default:\n    name: myapp\n  back:\n    driver: bridge\n")).toEqual([]);
+    expect(composeNetworkIssues("services:\n  web:\n    image: x\nnetworks:\n  default:\n    name: serve\n")).toHaveLength(1);
+  });
+
   it("allows the stack's own networks and ordinary names", () => {
     expect(
       composeNetworkIssues(`services:

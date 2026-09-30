@@ -48,13 +48,16 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
       awaitingRefresh.current = 0;
     }
   }, [refreshing]);
-  React.useEffect(
-    () => () => {
+  // Gone before an action finished: its refresh is not waited for (nothing would ever count it down).
+  const mounted = React.useRef(true);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
       if (awaitingRefresh.current) setRunning(-awaitingRefresh.current);
       awaitingRefresh.current = 0;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const run = React.useCallback(
     async (...args: A): Promise<T | undefined> => {
@@ -70,7 +73,8 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
         const { success, onSuccess, refresh = true } = optsRef.current;
         if (success) toast.success(typeof success === "function" ? success(res.data) : success);
         onSuccess?.(res.data);
-        if (refresh) {
+        if (refresh && !mounted.current) router.refresh();
+        else if (refresh) {
           awaitingRefresh.current += 1;
           counted = false;
           startRefresh(() => router.refresh());

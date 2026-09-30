@@ -70,6 +70,9 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     .returning({ id: schema.server.id });
   if (!claimed.length) return new NextResponse("This join command expired or was used already. Create a new one on the server's page in Serve.\n", { status: 404 });
   forgetServer(row.id);
+  // The listener picks up the new key now, and drops a connection that still uses the old one.
+  const { enqueue } = await import("@/server/queue");
+  await enqueue("tunnel.sync", {}, { concurrencyKey: "tunnel" }).catch(() => {});
   const lines = [
     `SERVE_KEY=${key.publicKey.trim()}`,
     `SSH_USER=${row.username}`,

@@ -234,7 +234,7 @@ export async function createTunnel(opts: { organizationId: string; cloudflareAcc
     await syncTunnelIngress(existing.id);
     await ensureTunnelContainer(existing);
     await db.update(schema.cloudflareTunnel).set({ status: "pending", statusMessage: null }).where(eq(schema.cloudflareTunnel.id, existing.id));
-    return existing;
+    return { ...existing, status: "pending" as const, statusMessage: null };
   }
   const ctx = await getServer(opts.serverId);
   const accountId = await cfAccountIdOf(opts.cloudflareAccountId);

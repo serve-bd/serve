@@ -57,6 +57,8 @@ export function MeshView({ serverId, serverName, ready, initial, suggestedEndpoi
           <Joined mesh={mesh} serverId={serverId} serverName={serverName} onEdit={() => setEditing(true)} refresh={() => mutate()} />
         ) : (
           <JoinForm
+            // Joining again (after leaving) starts from a fresh form, not the old edit form's state.
+            key={joined ? "edit" : "join"}
             serverId={serverId}
             ready={ready}
             joined={joined}

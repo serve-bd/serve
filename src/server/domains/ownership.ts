@@ -4,7 +4,9 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { env } from "@/server/env";
 import { newId } from "@/server/id";
-import { getSetting } from "@/server/settings";
+import { serverAllowsOrg } from "@/server/servers/ownership";
+import { getSetting, getSettings } from "@/server/settings";
+import { UserError } from "@/server/action";
 
 export const VERIFY_LABEL = "_serve-verify";
 
@@ -32,6 +34,16 @@ export function ownershipExempt(hostname: string, wildcardDomains: string[]) {
   });
 }
 
+type WildcardServer = { wildcardDomain: string | null; ownerOrganizationId: string | null; organizationIds: string[] | null };
+
+/**
+ * Wildcard domains whose names an organization may use without proof: those of servers it deploys
+ * to. Only Root admins, or an owner that proved the domain, can save a server's wildcard (updateServer).
+ */
+export function trustedWildcards(servers: WildcardServer[], organizationId: string) {
+  return servers.filter((s) => !!s.wildcardDomain && serverAllowsOrg(s, organizationId)).map((s) => s.wildcardDomain!);
+}
+
 async function txtRecords(name: string): Promise<string[]> {
   // Public resolvers first: a record just added is not held back by a local cache.
   const resolver = new dns.Resolver({ timeout: 4000, tries: 2 });
@@ -53,8 +65,7 @@ export type Ownership =
 export async function domainOwnership(org: { id: string; isRoot: boolean }, hostname: string): Promise<Ownership> {
   if (org.isRoot) return { verified: true, via: "root" };
   if (!(await getSetting("domainVerification"))) return { verified: true, via: "off" };
-  const servers = await db.select({ wildcardDomain: schema.server.wildcardDomain }).from(schema.server);
-  if (ownershipExempt(hostname, servers.map((s) => s.wildcardDomain ?? "").filter(Boolean))) return { verified: true, via: "exempt" };
+  if (ownershipExempt(hostname, await trustedWildcardsFor(org.id))) return { verified: true, via: "exempt" };
 
   const candidates = ownershipCandidates(hostname);
   const [known] = await db
@@ -77,7 +88,7 @@ export async function domainOwnership(org: { id: string; isRoot: boolean }, host
     const { Cloudflare } = await import("@/server/cloudflare/api");
     for (const account of accounts) {
       const zone = await Cloudflare.forAccount(account.id)
-        .then((cf) => cf.zoneFor(hostname.replace(/^\*\./, "")))
+        .then((cf) => cf.zoneFor(hostname.replace(/^\*\./, ""), { activeOnly: true }))
         .catch(() => null);
       if (zone) {
         await remember(org.id, zone.name.toLowerCase(), "cloudflare");
@@ -88,8 +99,26 @@ export async function domainOwnership(org: { id: string; isRoot: boolean }, host
   return { verified: false, recordName: `${VERIFY_LABEL}.${candidates[0]}`, recordValue: value };
 }
 
+async function trustedWildcardsFor(organizationId: string) {
+  const servers = await db
+    .select({ wildcardDomain: schema.server.wildcardDomain, ownerOrganizationId: schema.server.ownerOrganizationId, organizationIds: schema.server.organizationIds })
+    .from(schema.server);
+  return trustedWildcards(servers, organizationId);
+}
+
 async function remember(organizationId: string, name: string, method: "txt" | "cloudflare") {
   await db.insert(schema.verifiedDomain).values({ id: newId(), organizationId, name, method }).onConflictDoNothing();
+}
+
+/** The dashboard's own hostnames belong to it; a wildcard over them only to the Root organization. */
+export async function assertNotDashboardHost(org: { isRoot: boolean }, hostname: string) {
+  const settings = await getSettings();
+  const reserved = [settings.dashboardDomain, new URL(env.appUrl).hostname].filter((h): h is string => !!h).map((h) => h.toLowerCase());
+  if (reserved.includes(hostname)) throw new UserError("That is the dashboard's own domain.");
+  if (hostname.startsWith("*.") && !org.isRoot) {
+    const suffix = hostname.slice(1);
+    if (reserved.some((h) => h.endsWith(suffix) && !h.slice(0, -suffix.length).includes("."))) throw new UserError("That wildcard would cover the dashboard's domain.");
+  }
 }
 
 /** The message shown when a domain still needs its TXT record. */

@@ -8,10 +8,10 @@ import type { ProxyMaintenance } from "@/server/services/maintenance";
  */
 export const PROXY_IMAGE = process.env.SERVE_PROXY_IMAGE ?? "nginx:1.30.5-alpine";
 
-/** Trust the visitor IP from Cloudflare Tunnels, but only from the proxy's own Docker network. */
+/** Trust the visitor IP from Cloudflare Tunnels, but only from the network the proxy shares with cloudflared alone. */
 export function realIpConfig(subnets: string[]) {
   if (!subnets.length) return null;
-  return `# Managed by Serve — visitor IPs for Cloudflare Tunnel traffic (cloudflared runs on this network).
+  return `# Managed by Serve — visitor IPs for Cloudflare Tunnel traffic (only cloudflared shares this network with the proxy).
 ${subnets.map((s) => `set_real_ip_from ${s};`).join("\n")}
 real_ip_header CF-Connecting-IP;
 `;

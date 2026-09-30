@@ -26,11 +26,11 @@ import {
   type SiteUpstream,
 } from "./templates";
 import { certificateCovers } from "@/server/ssl/match";
-import { composeAlias } from "./names";
+import { composeAlias, tunnelNetworkName, upstreamName } from "./names";
 import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker/networks";
 import crypto from "node:crypto";
 import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type ProxyFile, type ProxyKind, type RunningKind, type ServerProxyConfig } from "./config";
-import { appTargets, dashboardModel, serviceModel, trustedSubnets, type SiteModel } from "./model";
+import { appTargets, certificateStamp, dashboardModel, serviceModel, trustedSubnets, type SiteModel } from "./model";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { caddyMainConfig, renderCaddySite } from "./caddy";
@@ -475,8 +475,12 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
     return null;
   }
   await ensureNetwork(ctx.docker, ctx.network);
+  // Before the static files: the visitor-IP config trusts this network's subnet.
+  await ensureNetwork(ctx.docker, tunnelNetworkName(ctx.network));
   const changed = await writeStaticFiles(ctx, kind, config);
   const info = await getProxyContainer(ctx);
+  // A proxy from before the tunnel network joins it (cloudflared reaches the proxy there).
+  if (info) await connectProxy(tunnelNetworkName(ctx.network), ctx).catch(() => {});
   const spec = await containerSpec(ctx, kind, config);
   const specHash = crypto.createHash("sha256").update(JSON.stringify(spec)).digest("hex").slice(0, 16);
   const mismatch = !!info && (info.Config.Labels?.[KIND_LABEL] ?? "nginx") !== kind;
@@ -522,6 +526,7 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
     staleMounts.delete(ctx.id);
     // Join the environment networks before starting, so upstream names resolve on the first start.
     await connectProxyToAll(ctx);
+    await connectProxy(tunnelNetworkName(ctx.network), ctx);
     await container.start();
     log?.(`Proxy container started (${kind})`);
   };
@@ -703,8 +708,6 @@ function tlsFor(hostname: string, explicitId: string | null, certs: CertRow[]): 
   return cert ? { cert: cert.certPath!, key: cert.keyPath! } : null;
 }
 
-const upstreamName = (slug: string, suffix: string) => `svc_${slug}_${suffix}`.replace(/[^a-zA-Z0-9_]/g, "_");
-
 /** Certificates a site on a server may use: same organization, stored on that server. */
 function usableCertificates(organizationId: string, serverId: string) {
   return db
@@ -777,7 +780,13 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
   }
 
   const geo = maintenance?.allow.length ? [maintenanceGeo(maintenanceVar(service.id), maintenance.allow)] : [];
-  return [`# Managed by Serve — service "${service.name}" (${service.id}).`, ...geo, ...[...upstreams.values()].map(upstreamBlock), ...servers.map(serverBlocks)].join("\n");
+  const stamp = certificateStamp(
+    certs,
+    servers.map((s) => s.tls),
+  );
+  return [`# Managed by Serve — service "${service.name}" (${service.id}).`, ...stamp, ...geo, ...[...upstreams.values()].map(upstreamBlock), ...servers.map(serverBlocks)].join(
+    "\n",
+  );
 }
 
 export { composeAlias };
@@ -788,14 +797,16 @@ async function renderNginxDashboard(): Promise<string | null> {
   if (!settings.dashboardDomain) return null;
   const certs = settings.rootOrganizationId ? await usableCertificates(settings.rootOrganizationId, LOCAL_SERVER_ID) : [];
   const upstream: SiteUpstream = { name: "serve_dashboard", servers: [env.dashboardUpstream] };
+  const tls = settings.dashboardHttps ? tlsFor(settings.dashboardDomain, null, certs) : null;
   return [
     "# Managed by Serve — dashboard.",
+    ...certificateStamp(certs, [tls]),
     upstreamBlock(upstream),
     serverBlocks({
       hostname: settings.dashboardDomain,
       upstream: upstream.name,
       forceHttps: true,
-      tls: settings.dashboardHttps ? tlsFor(settings.dashboardDomain, null, certs) : null,
+      tls,
       allow: settings.dashboardAllowlist,
     }),
   ].join("\n");
@@ -804,9 +815,10 @@ async function renderNginxDashboard(): Promise<string | null> {
 async function renderModel(kind: RunningKind, ctx: ServerCtx, model: SiteModel | null) {
   if (!model) return null;
   const { config } = await proxyStateOf(ctx.id);
-  if (kind === "caddy") return renderCaddySite(model, defaultsOf(config.caddy?.defaults));
+  const stamp = (model.certificates ?? []).map((l) => `${l}\n`).join("");
+  if (kind === "caddy") return stamp + renderCaddySite(model, defaultsOf(config.caddy?.defaults));
   const settings = await getSettings();
-  return renderTraefikSite(model, { resolver: !!settings.acmeEmail, trusted: await trustedSubnets(ctx), defaults: defaultsOf(config.traefik?.defaults) });
+  return stamp + renderTraefikSite(model, { resolver: !!settings.acmeEmail, trusted: await trustedSubnets(ctx), defaults: defaultsOf(config.traefik?.defaults) });
 }
 
 /** The site Serve generates for a service (ignoring a custom override). */
@@ -1287,6 +1299,8 @@ export async function clearProxyForNewOwner(ctx: ServerCtx) {
     // The proxy ran as root, so a non-root SSH user may not delete its files: Docker can.
     await removeAsRoot(ctx, ctx.paths.proxy, dirs);
   }
+  // Cloudflare tokens certbot used for the old owner's certificates.
+  await ctx.fs.rm(path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare")).catch(() => removeAsRoot(ctx, ctx.paths.letsencrypt, ["serve-cloudflare"]));
 }
 
 /** Deletes folders inside `dir` on the server through a short-lived container. */

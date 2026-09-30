@@ -11,7 +11,7 @@ import { proxyPaths } from "@/server/paths";
 import { run } from "@/server/process";
 import { getSettings } from "@/server/settings";
 import { getServer, type ServerCtx } from "@/server/servers/context";
-import { ensureServerProxy, servicesUsingCertificate, syncDashboardProxy, syncServiceProxy } from "@/server/proxy/nginx";
+import { ensureServerProxy, reloadProxy, servicesUsingCertificate, syncDashboardProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { notify } from "@/server/notify";
 import { enqueue } from "@/server/queue";
@@ -113,20 +113,29 @@ async function certbot(cert: Cert, log: (l: string) => void) {
     "--expand",
   ];
   if (settings.acmeStaging) args.push("--staging");
+  const credsFiles: string[] = [];
   if (isDns) {
     if (!cert.cloudflareAccountId) throw new Error("Pick a Cloudflare account for DNS validation.");
     const [account] = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, cert.cloudflareAccountId));
     if (!account) throw new Error("The Cloudflare account for this certificate was removed.");
-    const credsFile = path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${account.id}.ini`);
+    // One file per certificate: a run that ends does not delete the file of another still running.
+    const credsFile = path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${cert.id}.ini`);
+    // Earlier versions kept one file per account: it goes too.
+    credsFiles.push(credsFile, path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${account.id}.ini`));
     await ctx.fs.writeFile(credsFile, `dns_cloudflare_api_token = ${decrypt(account.apiToken)}\n`, 0o600);
-    args.push("--dns-cloudflare", "--dns-cloudflare-credentials", `/etc/letsencrypt/serve-cloudflare/${account.id}.ini`, "--dns-cloudflare-propagation-seconds", "30");
+    args.push("--dns-cloudflare", "--dns-cloudflare-credentials", `/etc/letsencrypt/serve-cloudflare/${cert.id}.ini`, "--dns-cloudflare-propagation-seconds", "30");
   } else {
     await ensureServerProxy(ctx, log);
     args.push("--webroot", "-w", "/var/www/acme");
   }
   for (const d of cert.domains) args.push("-d", d);
   log(`$ certbot certonly ${isDns ? "--dns-cloudflare" : "--webroot"} ${cert.domains.map((d) => `-d ${d}`).join(" ")}${ctx.local ? "" : `  (on ${ctx.name})`}`);
-  await docker(ctx, args, { onLine: log });
+  try {
+    await docker(ctx, args, { onLine: log });
+  } finally {
+    // The token is written again for every run: it does not stay on the server between them.
+    for (const file of credsFiles) await ctx.fs.rm(file).catch(() => {});
+  }
   const pem = await readFromLetsencrypt(ctx, `live/${cert.id}/fullchain.pem`);
   return {
     pem,
@@ -187,6 +196,12 @@ export async function applyCertificate(cert: Cert) {
   // The dashboard is served by the local proxy only.
   if (cert.serverId === LOCAL_SERVER_ID && settings.dashboardDomain && certificateCovers(cert.domains, settings.dashboardDomain)) {
     await syncDashboardProxy().catch(() => {});
+  }
+  // A renewal writes the same file paths: sites with their own proxy config would keep the old one.
+  if (cert.serverId) {
+    await getServer(cert.serverId)
+      .then((server) => reloadProxy(server))
+      .catch(() => {});
   }
 }
 
@@ -374,6 +389,7 @@ export async function deleteCertificateFiles(cert: Cert) {
     return; // server removed
   }
   await ctx.fs.rm(path.posix.join(ctx.paths.certs, cert.id)).catch(() => {});
+  await ctx.fs.rm(path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${cert.id}.ini`)).catch(() => {});
   if (cert.provider.startsWith("letsencrypt")) {
     await docker(ctx, ["run", "--rm", "-v", `${ctx.paths.letsencrypt}:/etc/letsencrypt`, CERTBOT_IMAGE, "delete", "--non-interactive", "--cert-name", cert.id]).catch(() => {});
   }

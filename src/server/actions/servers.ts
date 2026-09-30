@@ -15,6 +15,7 @@ import { logActivity } from "@/server/activity";
 import { generateKeyPair, parsePrivateKey } from "@/server/servers/keys";
 import { forgetServer, getServer } from "@/server/servers/context";
 import { publicAddress } from "@/server/net/public-host";
+import { domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 
 /* -------------------------------------------------------------------------- */
 /*                                Private keys                                */
@@ -216,6 +217,12 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     }
     if (before.isLocal && (data.host || data.port || data.username || data.privateKeyId || data.dataDir)) {
       throw new UserError("The connection of this server cannot change: the dashboard runs on it.");
+    }
+    // Names under a server's wildcard need no proof later: other organizations than Root prove it first.
+    if (data.wildcardDomain && data.wildcardDomain !== before.wildcardDomain && !ctx.isInstanceAdmin) {
+      const wildcard = `*.${data.wildcardDomain}`;
+      const ownership = await domainOwnership({ id: ctx.org.id, isRoot: false }, wildcard);
+      if (!ownership.verified) throw new UserError(ownershipMessage(wildcard, ownership));
     }
     // Current effective ports (the local server uses its environment until ports are saved here).
     const current = await getServer(id).catch(() => null);

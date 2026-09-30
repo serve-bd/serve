@@ -2,7 +2,9 @@ import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
-import { imageExists, LABEL, pullImage } from "@/server/docker/client";
+import { ensureNetwork, imageExists, LABEL, pullImage } from "@/server/docker/client";
+import { connectProxy } from "@/server/docker/networks";
+import { tunnelNetworkName } from "@/server/proxy/names";
 import { getServer } from "@/server/servers/context";
 import { Cloudflare } from "./api";
 import { getSetting, getSettings, updateSettings } from "@/server/settings";
@@ -57,11 +59,29 @@ export async function ensureTunnelContainer(tunnel: Tunnel, retry = true): Promi
   const ctx = await getServer(tunnel.serverId);
   const name = tunnelContainerName(tunnel);
   const container = ctx.docker.getContainer(name);
+  const network = tunnelNetworkName(ctx.network);
+  const networkIsNew = !(await ctx.docker
+    .getNetwork(network)
+    .inspect()
+    .catch(() => null));
+  await ensureNetwork(ctx.docker, network);
+  await connectProxy(network, ctx);
   let existing = await container.inspect().catch(() => null);
+  // Connectors from before the tunnel network sat on the network services share: move them.
+  const moved = !!existing && existing.HostConfig.NetworkMode !== network;
+  if (moved) {
+    await container.remove({ force: true }).catch(() => {});
+    existing = null;
+  }
+  if (networkIsNew || moved) {
+    // The proxy trusts visitor IPs from the tunnel network's subnet: write that trust now, not at the next restart.
+    const { ensureServerProxy } = await import("@/server/proxy/nginx");
+    await ensureServerProxy(ctx).catch(() => {});
+  }
   if (!existing) {
     if (!(await imageExists(TUNNEL_IMAGE, ctx.docker))) await pullImage(TUNNEL_IMAGE, undefined, null, ctx.docker);
     // The worker and a "Create tunnel" click can get here at the same time: the other one's container is fine.
-    await ctx.docker.createContainer(await connectorSpec(tunnel, name, ctx.network)).catch((error) => {
+    await ctx.docker.createContainer(await connectorSpec(tunnel, name, network)).catch((error) => {
       if ((error as { statusCode?: number }).statusCode !== 409) throw error;
     });
     // Docker holds the name before the other one's container can be inspected: wait for it a moment.
@@ -157,7 +177,10 @@ export async function updateTunnelConnector(tunnel: Tunnel) {
     .getContainer(next)
     .remove({ force: true })
     .catch(() => {});
-  const container = await ctx.docker.createContainer(await connectorSpec(tunnel, next, ctx.network));
+  const network = tunnelNetworkName(ctx.network);
+  await ensureNetwork(ctx.docker, network);
+  await connectProxy(network, ctx);
+  const container = await ctx.docker.createContainer(await connectorSpec(tunnel, next, network));
   await container.start();
   const deadline = Date.now() + 60_000;
   let ready = false;

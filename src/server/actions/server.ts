@@ -11,7 +11,7 @@ import { enqueue } from "@/server/queue";
 import { detectPublicIp, resolveA } from "@/server/system";
 import { newId } from "@/server/id";
 import { certificateCovers } from "@/server/ssl/match";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { logActivity } from "@/server/activity";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { updateLocalAddressing } from "@/server/proxy/addressing";
@@ -114,12 +114,24 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
 
     // Dashboard HTTPS: request a certificate from the Root organization.
     if (after.dashboardDomain && after.dashboardHttps && !after.dashboardTunnelId && after.acmeEmail && after.rootOrganizationId) {
-      const certs = await db.select().from(schema.certificate).where(eq(schema.certificate.organizationId, after.rootOrganizationId));
-      if (!certs.some((c) => certificateCovers(c.domains, after.dashboardDomain!))) {
+      // Only the local proxy serves the dashboard, and only an active certificate (or one on its way) counts.
+      const covering = (
+        await db
+          .select()
+          .from(schema.certificate)
+          .where(and(eq(schema.certificate.organizationId, after.rootOrganizationId), eq(schema.certificate.serverId, LOCAL_SERVER_ID)))
+      ).filter((c) => certificateCovers(c.domains, after.dashboardDomain!));
+      const retry = covering.find((c) => c.provider !== "custom");
+      const served = covering.some((c) => c.status === "active" || c.status === "pending" || c.status === "issuing");
+      // A failed or expired one is requested again rather than doubled.
+      if (!served && retry) {
+        await enqueue("certificate.issue", { certificateId: retry.id }, { concurrencyKey: `cert:${retry.id}`, maxAttempts: 2 });
+      } else if (!served) {
         const id = newId();
         await db.insert(schema.certificate).values({
           id,
           organizationId: after.rootOrganizationId,
+          serverId: LOCAL_SERVER_ID,
           name: `Dashboard (${after.dashboardDomain})`,
           domains: [after.dashboardDomain],
           provider: "letsencrypt-http",

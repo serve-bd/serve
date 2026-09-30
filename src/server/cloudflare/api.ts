@@ -123,9 +123,12 @@ export class Cloudflare {
     return (await this.request<CfZone>("GET", `/zones/${zoneId}`)).result;
   }
 
-  /** Find the zone that owns a hostname (longest suffix match). */
-  async zoneFor(hostname: string): Promise<CfZone | null> {
-    const zones = await this.zones();
+  /**
+   * Find the zone that owns a hostname (longest suffix match). `activeOnly` skips zones whose
+   * nameservers are not switched yet: anyone can add a pending zone, so only an active one proves control.
+   */
+  async zoneFor(hostname: string, { activeOnly = false }: { activeOnly?: boolean } = {}): Promise<CfZone | null> {
+    const zones = (await this.zones()).filter((z) => !activeOnly || z.status === "active");
     const host = hostname.toLowerCase().replace(/^\*\./, "");
     return zones.filter((z) => host === z.name || host.endsWith(`.${z.name}`)).sort((a, b) => b.name.length - a.name.length)[0] ?? null;
   }
@@ -156,17 +159,19 @@ export class Cloudflare {
     await this.request("DELETE", `/zones/${zoneId}/dns_records/${recordId}`);
   }
 
-  /** Create or update the A record for a hostname so it points at `ip`. */
   /**
    * Create the A record for a hostname, or update one Serve created earlier.
-   * Records created by someone else are never overwritten.
+   * Records created by someone else are never overwritten or adopted: when the user's own A
+   * record already points at `ip`, it stays theirs and null is returned (nothing for Serve to delete later).
    */
-  async upsertARecord(zoneId: string, hostname: string, ip: string, proxied: boolean, comment = "Managed by Serve") {
+  async upsertARecord(zoneId: string, hostname: string, ip: string, proxied: boolean, comment = "Managed by Serve"): Promise<CfDnsRecord | null> {
     const existing = (await this.dnsRecords(zoneId, { name: hostname })).filter((r) => ["A", "AAAA", "CNAME"].includes(r.type));
-    const foreign = existing.filter((r) => r.comment !== comment && !(r.type === "A" && r.content === ip));
-    if (foreign.length) {
-      throw new CloudflareError(`${hostname} already has a ${foreign[0].type} record (${foreign[0].content}). Remove it in Cloudflare or point it at this server yourself.`, 409);
+    const foreign = existing.filter((r) => r.comment !== comment);
+    const blocking = foreign.filter((r) => !(r.type === "A" && r.content === ip));
+    if (blocking.length) {
+      throw new CloudflareError(`${hostname} already has a ${blocking[0].type} record (${blocking[0].content}). Remove it in Cloudflare or point it at this server yourself.`, 409);
     }
+    if (foreign.length) return null;
     const a = existing.find((r) => r.type === "A");
     if (a) return this.updateDnsRecord(zoneId, a.id, { content: ip, proxied, comment });
     return this.createDnsRecord(zoneId, { type: "A", name: hostname, content: ip, proxied, comment });

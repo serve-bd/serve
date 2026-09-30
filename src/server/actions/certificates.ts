@@ -12,6 +12,7 @@ import { getSettings } from "@/server/settings";
 import { serverAllowsOrg } from "@/server/servers/access";
 import { applyCertificate, deleteCertificateFiles, saveCustomCertificate } from "@/server/ssl/certificates";
 import { logActivity } from "@/server/activity";
+import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 
 const nameRe = /^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/;
 
@@ -53,6 +54,14 @@ export async function requestCertificate(input: z.input<typeof requestSchema>) {
     }
     if (data.provider.startsWith("letsencrypt") && !(await getSettings()).acmeEmail) {
       throw new UserError("Set a Let's Encrypt email in Server settings first.");
+    }
+    if (data.provider === "letsencrypt-http" && !ctx.isRoot) {
+      // The challenge passes for any name that points at a shared server: prove each domain like a custom domain.
+      for (const domain of data.domains) {
+        await assertNotDashboardHost(ctx, domain);
+        const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, domain);
+        if (!ownership.verified) throw new UserError(ownershipMessage(domain, ownership));
+      }
     }
     const serverId = await allowedServer(data.serverId, ctx.org.id);
     const id = newId();

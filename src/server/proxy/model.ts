@@ -8,7 +8,7 @@ import type { ServerCtx } from "@/server/servers/context";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import { certificateCovers } from "@/server/ssl/match";
 import { maintenanceOf, type ProxyMaintenance } from "@/server/services/maintenance";
-import { composeAlias } from "./names";
+import { composeAlias, tunnelNetworkName } from "./names";
 
 /**
  * Proxy-agnostic description of one site (a service with domains, or the
@@ -42,6 +42,8 @@ export type SiteModel = {
   options: ServiceProxyConfig | null;
   /** Maintenance page on every host (except redirects). */
   maintenance?: ProxyMaintenance | null;
+  /** Comment lines naming the certificates served (certificateStamp). */
+  certificates?: string[];
 };
 
 type CertRow = typeof schema.certificate.$inferSelect;
@@ -50,6 +52,15 @@ export function certificateFor(hostname: string, explicitId: string | null, cert
   const usable = certs.filter((c) => c.status === "active" && c.certPath && c.keyPath);
   const cert = (explicitId && usable.find((c) => c.id === explicitId)) || usable.find((c) => certificateCovers(c.domains, hostname));
   return cert ? { cert: cert.certPath!, key: cert.keyPath! } : null;
+}
+
+/**
+ * Comment lines naming each certificate a site serves and when it expires. A renewal writes the
+ * same files, so without them the site would not change and the proxy would keep the old certificate.
+ */
+export function certificateStamp(certs: CertRow[], used: ({ cert: string } | null | undefined)[]) {
+  const paths = new Set(used.flatMap((t) => (t ? [t.cert] : [])));
+  return certs.filter((c) => c.certPath && paths.has(c.certPath)).map((c) => `# Certificate ${c.id} valid until ${c.expiresAt?.toISOString() ?? "unknown"}.`);
 }
 
 export function orgCertificates(organizationId: string, serverId: string) {
@@ -129,6 +140,10 @@ export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<S
     hosts,
     options: cfg,
     maintenance: maintenanceOf(service.id, service.maintenance),
+    certificates: certificateStamp(
+      certs,
+      hosts.map((h) => h.tls),
+    ),
   };
 }
 
@@ -139,6 +154,7 @@ export async function dashboardModel(): Promise<SiteModel | null> {
   const certs = settings.rootOrganizationId ? await orgCertificates(settings.rootOrganizationId, LOCAL_SERVER_ID) : [];
   const tunnel = !!(settings as { dashboardTunnelId?: string | null }).dashboardTunnelId;
   const https = settings.dashboardHttps && !tunnel;
+  const tls = https ? certificateFor(settings.dashboardDomain, null, certs) : null;
   return {
     name: "_dashboard",
     title: "dashboard",
@@ -153,18 +169,19 @@ export async function dashboardModel(): Promise<SiteModel | null> {
         https,
         forceHttps: true,
         tunnel,
-        tls: https ? certificateFor(settings.dashboardDomain, null, certs) : null,
+        tls,
         allow: settings.dashboardAllowlist,
       },
     ],
     options: null,
+    certificates: certificateStamp(certs, [tls]),
   };
 }
 
-/** Subnets of the network the proxy shares with apps and cloudflared (trusted for CF-Connecting-IP). */
+/** Subnets of the network the proxy shares only with cloudflared (trusted for CF-Connecting-IP). */
 export async function trustedSubnets(ctx: ServerCtx): Promise<string[]> {
   try {
-    const info = (await ctx.docker.getNetwork(ctx.network).inspect()) as { IPAM?: { Config?: { Subnet?: string }[] } };
+    const info = (await ctx.docker.getNetwork(tunnelNetworkName(ctx.network)).inspect()) as { IPAM?: { Config?: { Subnet?: string }[] } };
     return (info.IPAM?.Config ?? []).map((c) => c.Subnet).filter((s): s is string => !!s && /^[0-9a-f:.]+\/\d{1,3}$/i.test(s));
   } catch {
     return [];

@@ -21,8 +21,7 @@ import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { getSettings } from "@/server/settings";
-import { env } from "@/server/env";
-import { domainOwnership, ownershipMessage } from "@/server/domains/ownership";
+import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 import { composeVariables } from "@/lib/compose-vars";
 import { teardownServices } from "@/server/services/teardown";
 import { composeNameClashes, composeSecurityIssues, safeRedirectUrl } from "@/server/security";
@@ -787,10 +786,19 @@ export async function cancelDeployment(deploymentId: string) {
     if (!dep) throw new UserError("Deployment not found.");
     await serviceInOrg(dep.serviceId, ctx.org.id);
     if (dep.status === "queued") {
-      await db.update(schema.deployment).set({ status: "cancelled", finishedAt: new Date(), logs: "Cancelled before it started.\n" }).where(eq(schema.deployment.id, deploymentId));
-    } else if (dep.status === "building" || dep.status === "deploying") {
+      const [cancelled] = await db
+        .update(schema.deployment)
+        .set({ status: "cancelled", finishedAt: new Date(), logs: "Cancelled before it started.\n" })
+        .where(and(eq(schema.deployment.id, deploymentId), eq(schema.deployment.status, "queued")))
+        .returning({ id: schema.deployment.id });
+      if (cancelled) return null;
+      // The worker picked it up in the meantime: cancel the running deployment instead.
+      const [now] = await db.select({ status: schema.deployment.status }).from(schema.deployment).where(eq(schema.deployment.id, deploymentId));
+      dep.status = now?.status ?? dep.status;
+    }
+    if (dep.status === "building" || dep.status === "deploying") {
       await sql.notify(CANCEL_CHANNEL, deploymentId);
-    } else {
+    } else if (dep.status !== "queued") {
       throw new UserError("This deployment has already finished.");
     }
     return null;
@@ -1123,17 +1131,6 @@ const domainSchema = z.object({
   tunnelId: z.string().nullable().optional(),
 });
 
-/** The dashboard's own hostnames belong to it; a wildcard over them only to the Root organization. */
-async function assertNotDashboardHost(ctx: OrgContext, hostname: string) {
-  const settings = await getSettings();
-  const reserved = [settings.dashboardDomain, new URL(env.appUrl).hostname].filter((h): h is string => !!h).map((h) => h.toLowerCase());
-  if (reserved.includes(hostname)) throw new UserError("That is the dashboard's own domain.");
-  if (hostname.startsWith("*.") && !ctx.isRoot) {
-    const suffix = hostname.slice(1);
-    if (reserved.some((h) => h.endsWith(suffix) && !h.slice(0, -suffix.length).includes("."))) throw new UserError("That wildcard would cover the dashboard's domain.");
-  }
-}
-
 export async function addDomain(serviceId: string, input: z.input<typeof domainSchema>) {
   return act(async () => {
     const ctx = await requirePermission("domains.manage");
@@ -1202,7 +1199,7 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
         const cf = await Cloudflare.forAccount(account.id);
         try {
           const record = await cf.upsertARecord(data.cloudflare.zoneId, data.hostname, ip, data.cloudflare.proxied);
-          recordId = record.id;
+          recordId = record?.id ?? null;
         } catch (e) {
           warning = `DNS record not created: ${(e as Error).message}`;
         }
@@ -1319,7 +1316,7 @@ export async function setDomainRoute(domainId: string, tunnelId: string | null) 
         const [oldTunnel] = previousTunnel ? await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, previousTunnel)) : [];
         if (domain.cloudflareRecordId) await cf.deleteDnsRecord(domain.cloudflareZoneId, domain.cloudflareRecordId).catch(() => {});
         try {
-          recordId = (await cf.upsertARecord(domain.cloudflareZoneId, domain.hostname, ip, true)).id;
+          recordId = (await cf.upsertARecord(domain.cloudflareZoneId, domain.hostname, ip, true))?.id ?? null;
         } catch (e) {
           // Put the tunnel record back so DNS matches what the database still says.
           if (oldTunnel) await cf.upsertTunnelRecord(domain.cloudflareZoneId, domain.hostname, oldTunnel.cfTunnelId).catch(() => {});

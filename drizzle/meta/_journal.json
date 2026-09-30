@@ -232,6 +232,13 @@
       "when": 1790760244913,
       "tag": "0032_live_event_tuning",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790764513313,
+      "tag": "0033_tunnel_state_events",
+      "breakpoints": true
     }
   ]
 }

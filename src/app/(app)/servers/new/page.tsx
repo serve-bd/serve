@@ -18,7 +18,9 @@ export default async function NewServerPage() {
     .orderBy(desc(schema.privateKey.createdAt));
   const [local] = await db.select({ publicIp: schema.server.publicIp }).from(schema.server).where(eq(schema.server.isLocal, true));
   // The address a server without a public IP connects out to: this machine's public IP by default.
-  const tunnel = { address: local?.publicIp ?? new URL(env.appUrl).hostname, port: tunnelPort() };
+  // Never a loopback address: the other machine would connect to itself.
+  const fromUrl = new URL(env.appUrl).hostname;
+  const tunnel = { address: local?.publicIp ?? (/^(localhost|127\.|0\.0\.0\.0$|\[?::1\]?$)/.test(fromUrl) ? "" : fromUrl), port: tunnelPort() };
   return (
     <>
       <PageHeader title="Add server" breadcrumbs={[{ label: "Servers", href: "/servers" }, { label: "Add server" }]} />

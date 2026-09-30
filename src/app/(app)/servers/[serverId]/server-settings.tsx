@@ -33,6 +33,8 @@ export type ServerDetails = {
   hostKeyFingerprint: string | null;
   /** No public IP: it connects out through a tunnel. */
   tunnel: boolean;
+  /** For such a server: its tunnel is up right now. */
+  tunnelConnected: boolean;
   dataDir: string;
   status: ServerStatus;
   statusMessage: string | null;
@@ -166,7 +168,14 @@ export function ValidationCard({ server }: { server: ServerDetails }) {
           )
         }
         actions={
-          <Button size="sm" onClick={() => void validate.run(false)} loading={validate.pending} disabled={server.status === "validating"}>
+          <Button
+            size="sm"
+            onClick={() => void validate.run(false)}
+            loading={validate.pending}
+            // Without its tunnel a server that connects out cannot be reached: validating would only fail.
+            disabled={server.status === "validating" || (server.tunnel && !server.tunnelConnected)}
+            title={server.tunnel && !server.tunnelConnected ? "Waiting for the server's tunnel to connect" : undefined}
+          >
             <PlugZap /> Validate connection
           </Button>
         }
@@ -201,7 +210,8 @@ export function ValidationCard({ server }: { server: ServerDetails }) {
           )}
         </div>
         {watching ? (
-          <ServerSetupProgress key={validate.pending ? "pending" : "watch"} serverId={server.id} compact />
+          // A new status (the server connected, a setup started elsewhere) starts watching afresh.
+          <ServerSetupProgress key={`${validate.pending ? "pending" : "watch"}|${server.status}`} serverId={server.id} compact />
         ) : (
           <button type="button" onClick={() => setWatching(true)} className="w-fit text-[12.5px] font-medium text-accent hover:underline">
             Show the last setup log

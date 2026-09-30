@@ -64,7 +64,8 @@ function assertHostAccess(ctx: OrgContext, what: string) {
 function assertSafeCompose(ctx: OrgContext, content: string) {
   const issues = composeSecurityIssues(content);
   if (issues.length && !(ctx.isInstanceAdmin && ctx.isRoot)) {
-    throw new UserError(`This compose file uses options only services of the Root organization may use: ${issues.slice(0, 3).join("; ")}.`);
+    const who = ctx.isRoot ? "only admins of the Root organization may use" : "only services of the Root organization may use";
+    throw new UserError(`This compose file uses options ${who}: ${issues.slice(0, 3).join("; ")}.`);
   }
 }
 

@@ -219,6 +219,16 @@ export function ProjectView({ project, environments, environment, initialService
     setSelecting(false);
     setSelected([]);
   };
+  // Another environment: nothing of the old one stays selected.
+  const [selectionEnv, setSelectionEnv] = React.useState(environment.id);
+  if (selectionEnv !== environment.id) {
+    setSelectionEnv(environment.id);
+    setSelecting(false);
+    setSelected([]);
+  }
+  // Services that left the list (moved, deleted) drop out of the selection.
+  const shown = new Set(services.map((s) => s.id));
+  if (selected.some((id) => !shown.has(id))) setSelected(selected.filter((id) => shown.has(id)));
 
   return (
     <>

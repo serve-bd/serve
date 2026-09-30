@@ -187,7 +187,9 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
   const confirm = useConfirm();
   const flow = useReactFlow();
   const fs = useCanvasFullscreen(flow);
-  const auto = React.useMemo(() => autoLayout(services), [services]);
+  // Laid out again only when services or their uses change, not on every status refresh.
+  const shapeKey = JSON.stringify(services.map((s) => ({ id: s.id, serverId: s.serverId, uses: s.uses.map((u) => ({ id: u.id })) })));
+  const auto = React.useMemo(() => autoLayout(JSON.parse(shapeKey)), [shapeKey]);
   // Where each service sits: dragged here, saved before, or placed automatically.
   // A refresh hands over an equal but new object: only a real change of the saved places counts.
   const savedKey = JSON.stringify(saved);

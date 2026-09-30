@@ -6,7 +6,7 @@ import { act, UserError } from "@/server/action";
 import { requireInstanceAdmin } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { encrypt } from "@/server/crypto";
-import { newId } from "@/server/id";
+import { newId, slugify } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { generateKeyPair } from "@/server/servers/keys";
@@ -25,7 +25,13 @@ const tunnelInput = z.object({
     .regex(/^[a-z_][a-z0-9_.-]*$/i, "Enter a user name"),
   sshPort: z.number().int().min(1).max(65535),
   /** Address of this Serve machine the server connects to (public IP or host name). */
-  address: z.string().trim().toLowerCase().regex(HOST, "Enter this Serve machine's public IP or host name"),
+  address: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(HOST, "Enter this Serve machine's public IP or host name")
+    // The server would connect to itself.
+    .refine((a) => !/^(localhost|127\.|0\.0\.0\.0$|::1$)/.test(a), "This address only works on the machine itself. Enter this Serve machine's public IP or host name."),
   /** The dashboard's address as the browser sees it: the join command downloads from it. */
   origin: z.string().url(),
 });
@@ -60,8 +66,8 @@ export async function createTunnelServer(input: z.input<typeof tunnelInput>) {
       await tx.insert(schema.server).values({
         id,
         name: data.name,
-        // Replaced by the machine's own host name when it joins.
-        host: "tunnel",
+        // Its name until it joins, then the machine's own host name.
+        host: slugify(data.name, 63),
         port: data.sshPort,
         username: data.username,
         privateKeyId: keyId,

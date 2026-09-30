@@ -153,16 +153,19 @@ function JoinForm({
   const [mode, setMode] = React.useState<"pick" | "custom" | "nat">(initialNat ? "nat" : "pick");
   React.useEffect(() => {
     let alive = true;
-    void meshAddressOptions(serverId).then((r) => {
-      if (!alive) return;
-      const list = r.ok ? r.data : [];
-      setOptions(list);
-      if (initialNat) return;
-      // A saved or suggested address that is not one of them stays editable.
-      if (initialEndpoint && !list.some((o) => o.address === initialEndpoint)) setMode("custom");
-      else if (!initialEndpoint && list[0]) setEndpoint(list[0].address);
-      else if (!initialEndpoint) setMode("custom");
-    });
+    // A failed request (network error) still leaves a form to type an address into.
+    void meshAddressOptions(serverId)
+      .catch(() => ({ ok: false as const, error: "" }))
+      .then((r) => {
+        if (!alive) return;
+        const list = r.ok ? r.data : [];
+        setOptions(list);
+        if (initialNat) return;
+        // A saved or suggested address that is not one of them stays editable.
+        if (initialEndpoint && !list.some((o) => o.address === initialEndpoint)) setMode("custom");
+        else if (!initialEndpoint && list[0]) setEndpoint(list[0].address);
+        else if (!initialEndpoint) setMode("custom");
+      });
     return () => {
       alive = false;
     };

@@ -1,5 +1,7 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
+import { getSetting } from "@/server/settings";
+import { composeSecurityIssues } from "@/server/security";
 
 /** Tab of the service page that fixes the problem. */
 export type IssueTab = "overview" | "deployments" | "domains";
@@ -39,12 +41,34 @@ export async function serviceIssues(serviceIds: string[]): Promise<Map<string, S
       .from(schema.incident)
       .where(and(inArray(schema.incident.serviceId, serviceIds), isNull(schema.incident.resolvedAt))),
     db
-      .select({ id: schema.service.id, status: schema.service.status, serverName: schema.server.name, proxyStopped: schema.server.proxyStopped })
+      .select({
+        id: schema.service.id,
+        status: schema.service.status,
+        serverName: schema.server.name,
+        proxyStopped: schema.server.proxyStopped,
+        compose: schema.service.compose,
+        organizationId: schema.project.organizationId,
+      })
       .from(schema.service)
       .innerJoin(schema.server, eq(schema.service.serverId, schema.server.id))
+      .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
       .where(inArray(schema.service.id, serviceIds)),
   ]);
+  const rootId = await getSetting("rootOrganizationId");
   const add = (id: string | null, issue: ServiceIssue) => id && out.get(id)?.push(issue);
+
+  // A compose file that breaks a rule made after it was saved: say so before the next deploy fails.
+  for (const s of services) {
+    if (!s.compose?.content || s.organizationId === rootId) continue;
+    const found = composeSecurityIssues(s.compose.content);
+    if (found.length) {
+      add(s.id, {
+        tone: "bad",
+        text: `The next deploy will fail: the compose file uses options only the Root organization may use (${found.slice(0, 2).join("; ")})`,
+        tab: "deployments",
+      });
+    }
+  }
 
   // A stopped proxy takes every domain of its server offline.
   for (const s of services) {

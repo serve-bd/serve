@@ -12,7 +12,8 @@ import { toast } from "@/components/ui/toast";
 import { LogViewer } from "@/components/log-viewer";
 import { SshPublicKey } from "@/components/ssh-public-key";
 import { createPrivateKey, createServer, updateServer, validateServer } from "@/server/actions/servers";
-import { createTunnelServer } from "@/server/actions/tunnel";
+import { createTunnelServer, newJoinCommand } from "@/server/actions/tunnel";
+import { useNow } from "@/hooks/use-client";
 import { JoinCommand } from "@/components/tunnel-join";
 import { getServerProgress } from "@/server/actions/servers-ui";
 import type { ServerStatus } from "@/server/db/schema";
@@ -415,7 +416,8 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
           router.refresh();
           return;
         }
-        if (res.data.status !== "validating") {
+        // "pending": not set up yet (a server that connects out may still be on its way): keep watching.
+        if (res.data.status !== "validating" && res.data.status !== "pending") {
           router.refresh();
           return;
         }
@@ -438,7 +440,9 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
     setTick((t) => t + 1);
   };
 
-  const status = progress?.status ?? "validating";
+  // Waiting to be set up counts as in progress, not as a failure.
+  const waiting = progress?.status === "pending";
+  const status = waiting ? "validating" : (progress?.status ?? "validating");
   const noDocker = /docker is not installed/i.test(progress?.statusMessage ?? "");
   const lines = (progress?.setupLog ?? "")
     .split("\n")
@@ -466,9 +470,11 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
               {status === "ready"
                 ? "Connected. The server is ready."
                 : status === "validating"
-                  ? progress?.statusMessage === "Queued"
-                    ? "Waiting for the worker…"
-                    : "Connecting and preparing the server…"
+                  ? waiting
+                    ? (progress?.statusMessage ?? "Waiting for the server to connect…")
+                    : progress?.statusMessage === "Queued"
+                      ? "Waiting for the worker…"
+                      : "Connecting and preparing the server…"
                   : noDocker
                     ? "Docker is not installed"
                     : "Could not finish the setup"}
@@ -529,6 +535,11 @@ function ConnectStep({ serverId, name, onBack }: { serverId: string; name: strin
 /** Waits for a server that connects out to run its join command, then follows its setup. */
 function JoinStep(props: { serverId: string; name: string; command: string; expiresAt: string; user: string; address: string; port: number }) {
   const router = useRouter();
+  // A command works for 24 hours: after that the page offers a new one instead of waiting forever.
+  const [join, setJoin] = React.useState({ command: props.command, expiresAt: props.expiresAt });
+  const [renewing, setRenewing] = React.useState(false);
+  const now = useNow();
+  const expired = now !== null && now > new Date(join.expiresAt).getTime();
   const [connected, setConnected] = React.useState(false);
   const [ready, setReady] = React.useState(false);
   React.useEffect(() => {
@@ -571,10 +582,29 @@ function JoinStep(props: { serverId: string; name: string; command: string; expi
           <ServerSetupProgress serverId={props.serverId} onReady={() => setReady(true)} />
         ) : (
           <>
-            <JoinCommand command={props.command} expiresAt={props.expiresAt} user={props.user} address={props.address} port={props.port} />
-            <p className="flex items-center gap-2 text-[13px] text-muted">
-              <Loader2 className="size-4 animate-spin text-info" /> Waiting for {props.name} to connect…
-            </p>
+            <JoinCommand command={join.command} expiresAt={join.expiresAt} user={props.user} address={props.address} port={props.port} />
+            {expired ? (
+              <div className="flex flex-wrap items-center gap-3 text-[13px] text-muted">
+                This command expired.
+                <Button
+                  size="sm"
+                  loading={renewing}
+                  onClick={async () => {
+                    setRenewing(true);
+                    const res = await newJoinCommand(props.serverId, window.location.origin);
+                    setRenewing(false);
+                    if (!res.ok) return toast.error(res.error);
+                    setJoin(res.data);
+                  }}
+                >
+                  <RotateCw /> New command
+                </Button>
+              </div>
+            ) : (
+              <p className="flex items-center gap-2 text-[13px] text-muted">
+                <Loader2 className="size-4 animate-spin text-info" /> Waiting for {props.name} to connect…
+              </p>
+            )}
           </>
         )}
       </CardBody>

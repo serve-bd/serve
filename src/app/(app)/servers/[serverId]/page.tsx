@@ -54,6 +54,7 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
     hostKey: row.hostKey,
     hostKeyFingerprint: row.hostKey ? fingerprint(row.hostKey) : null,
     tunnel: !!row.tunnel,
+    tunnelConnected: !!row.tunnel?.connectedAt,
     dataDir: row.dataDir,
     status: row.status,
     statusMessage: row.statusMessage,

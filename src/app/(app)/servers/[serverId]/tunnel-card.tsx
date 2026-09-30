@@ -10,6 +10,7 @@ import { toast } from "@/components/ui/toast";
 import { JoinCommand } from "@/components/tunnel-join";
 import { newJoinCommand } from "@/server/actions/tunnel";
 import { cn } from "@/lib/utils";
+import { useRouter } from "@/hooks/use-router";
 
 export type TunnelView = {
   connectedAt: string | null;
@@ -23,6 +24,7 @@ export type TunnelView = {
 
 /** A server without a public IP: whether its tunnel is up, and a new join command when needed. */
 export function TunnelCard({ serverId, user, sshPort, tunnel }: { serverId: string; user: string; sshPort: number; tunnel: TunnelView }) {
+  const router = useRouter();
   const [address, setAddress] = React.useState(tunnel.address);
   const [command, setCommand] = React.useState<{ command: string; expiresAt: string } | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -34,6 +36,8 @@ export function TunnelCard({ serverId, user, sshPort, tunnel }: { serverId: stri
     setBusy(false);
     if (!res.ok) return toast.error(res.error);
     setCommand(res.data);
+    // "Connects to" shows the address the new command uses.
+    router.refresh();
   };
 
   return (
@@ -85,7 +89,12 @@ export function TunnelCard({ serverId, user, sshPort, tunnel }: { serverId: stri
           </p>
         )}
         {command ? (
-          <JoinCommand command={command.command} expiresAt={command.expiresAt} user={user} address={address} port={tunnel.port} />
+          <div className="flex flex-col gap-3">
+            <JoinCommand command={command.command} expiresAt={command.expiresAt} user={user} address={address} port={tunnel.port} />
+            <Button size="sm" variant="ghost" className="self-start" onClick={() => setCommand(null)}>
+              Change the address or make another command
+            </Button>
+          </div>
         ) : (
           <div className="flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-end">
             <Field label="Dashboard address the server connects to" className="min-w-0 flex-1">

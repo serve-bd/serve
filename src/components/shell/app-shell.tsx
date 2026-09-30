@@ -259,7 +259,7 @@ export function AppShell(props: ShellProps) {
             )}
             <main className="flex-1">{props.children}</main>
             <DeploymentsIndicator />
-            <LiveUpdates />
+            <LiveUpdates scope={`${props.org.id}|${props.access.roleName}|${props.access.permissions.join(",")}`} />
           </div>
         </div>
       </CommandPalette>

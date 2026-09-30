@@ -14,12 +14,14 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
 
 export function CardHeader({ title, description, actions, className }: { title: React.ReactNode; description?: React.ReactNode; actions?: React.ReactNode; className?: string }) {
   return (
+    // The text takes the free space, so actions stay top right beside a long description; they
+    // wrap under it only when less than 16rem would be left for the text (phones).
     <div className={cn("flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4", className)}>
-      <div className="flex min-w-0 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 basis-64 flex-col gap-0.5">
         <h3 className="font-display text-[15px] font-semibold text-fg">{title}</h3>
         {description && <p className="text-[13px] leading-relaxed text-muted">{description}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-none flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }

@@ -27,6 +27,7 @@ import { replicaCount, replicaEnv, shortReplicaPicks } from "@/lib/refs";
 import type { DeploymentTarget } from "@/server/services/types";
 import { createSpec, dockerRestartPolicy, startContainer, volumeName, waitHealthy } from "./containers";
 import { prepareMounts } from "@/server/services/mounts";
+import { adoptAnonymousVolumes, imageVolumePaths, statefulMounts, uncoveredPaths, volumesFor } from "./image-volumes";
 import { databasePlan } from "@/server/databases/options";
 import { ensureDatabaseTls } from "@/server/databases/tls";
 import { allocateSubnet, composeServiceNames, composeUp, stackNetworkName, transformCompose, writeComposeFiles } from "./compose";
@@ -367,11 +368,14 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   // The service's own server first: its failure fails the deployment and keeps the old version everywhere.
   const primaryTarget = targets[0];
   primaryTarget.status = "deploying";
+  let imageVolumes: string[] = [];
   await saveTargets();
   try {
     if (multi) log.step(`Deploying to ${server.name}`);
     await ensureImageOn(server, service, prepared, registry, log);
-    await runOnServer({ service, dep, log, server, image, runtime, env, signal, primary: true, replicaOffset: 0, replicaTotal });
+    imageVolumes = await imageVolumePaths(image, server.docker);
+    runtime = await keepImageVolumes(service, runtime, imageVolumes, log);
+    await runOnServer({ service, dep, log, server, image, runtime, env, signal, primary: true, replicaOffset: 0, replicaTotal, imageVolumes });
     primaryTarget.status = "success";
   } catch (error) {
     primaryTarget.status = "failed";
@@ -393,7 +397,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
         await ensureImageOn(extra, service, prepared, registry, slog);
         // Replica numbers continue across servers, in the order the servers were added.
         const replicaOffset = (dist.extraServerIds.indexOf(extra.id) + 1) * replicasOf(runtime);
-        await runOnServer({ service, dep, log: slog, server: extra, image, runtime, env, signal, primary: false, replicaOffset, replicaTotal });
+        await runOnServer({ service, dep, log: slog, server: extra, image, runtime, env, signal, primary: false, replicaOffset, replicaTotal, imageVolumes });
         t.status = "success";
       } catch (error) {
         t.status = "failed";
@@ -428,13 +432,22 @@ async function runOnServer(opts: {
   /** Index of this server's first replica, and replicas across all servers (SERVE_REPLICA_INDEX/COUNT). */
   replicaOffset: number;
   replicaTotal: number;
+  /** Paths the image declares with VOLUME. */
+  imageVolumes: string[];
 }) {
   const { service, dep, log, server, image, runtime, env, signal, primary, replicaOffset, replicaTotal } = opts;
   const d = server.docker;
   const old = (await listServiceContainers(service.id, true, d)).filter((c) => c.Labels[LABEL.deployment] !== dep.id);
   const replicas = replicasOf(runtime);
   const recreate = runtime.deployStrategy === "recreate";
-  const needsStopFirst = runtime.ports.length > 0 || recreate;
+  // Two copies of a stateful app (postgres, redis, ...) on one data directory corrupt it.
+  const stateful = statefulMounts(opts.imageVolumes, runtime.volumes);
+  const needsStopFirst = runtime.ports.length > 0 || recreate || stateful.length > 0;
+  if (stateful.length && replicas > 1) {
+    log.line(
+      `Warning: the ${replicas} replicas share the data in ${stateful.map((v) => v.mountPath).join(", ")}. Most databases need exactly one; use 1 replica unless the app supports this.`,
+    );
+  }
   if (runtime.ports.length) {
     // Fail before touching the running version when another container holds a port.
     await assertPortsFree(d, server.name, runtime.ports, service.id);
@@ -467,7 +480,13 @@ async function runOnServer(opts: {
   }
 
   if (needsStopFirst && old.length) {
-    log.line(recreate ? "Stopping the previous version first (recreate strategy)" : "Stopping the previous version first because host ports are published");
+    log.line(
+      recreate
+        ? "Stopping the previous version first (recreate strategy)"
+        : runtime.ports.length
+          ? "Stopping the previous version first because host ports are published"
+          : `Stopping the previous version first: it keeps data in ${stateful.map((v) => v.mountPath).join(", ")}, which two copies must not use at once`,
+    );
     const stopWait = runtime.stopTimeout ?? 10;
     for (const c of old)
       await d
@@ -478,6 +497,12 @@ async function runOnServer(opts: {
   log.step(`Starting ${replicas} container${replicas > 1 ? "s" : ""}`);
   const started: string[] = [];
   try {
+    if (stateful.length && old.length) {
+      // The newest container of the previous version holds its data.
+      const previous = old.filter((c) => c.Labels[LABEL.kind] === "app").sort((a, b) => b.Created - a.Created);
+      await adoptAnonymousVolumes({ d, slug: service.slug, serviceId: service.id, volumes: stateful, old: previous, log: log.line });
+      checkCancelled(signal);
+    }
     for (let i = 0; i < replicas; i++) {
       const name = `${service.slug}-${dep.id.slice(0, 6)}-${i + 1}`;
       await removeContainer(name, 0, d);
@@ -549,6 +574,32 @@ async function runOnServer(opts: {
     await Promise.all(old.map((c) => removeContainer(c.Id, 0, d)));
   }
   await pruneImages(service, server, image).catch(() => {});
+}
+
+/**
+ * Mount a named volume on every path the image keeps data in (VOLUME) that no mount covers, and
+ * save it to Persistent storage: an anonymous volume would be new and empty after every deploy.
+ */
+async function keepImageVolumes(service: Service, runtime: Service["runtime"], declared: string[], log: StepLog) {
+  const missing = uncoveredPaths(declared, runtime.volumes);
+  if (!missing.length) return runtime;
+  const replicas = replicasOf(runtime);
+  if (replicas > 1) {
+    // One shared volume would put several copies on one data directory: not done on the user's behalf.
+    log.line(
+      `Warning: the image stores data in ${missing.join(", ")}. Each of the ${replicas} replicas keeps its own copy, lost on the next deploy. Add a volume in Persistent storage to keep it.`,
+    );
+    return runtime;
+  }
+  const added = volumesFor(missing, runtime.volumes);
+  for (const v of added) log.line(`The image stores data in ${v.mountPath}: kept in volume ${volumeName(service.slug, v.source)} across deploys.`);
+  const [fresh] = await db.select({ runtime: schema.service.runtime }).from(schema.service).where(eq(schema.service.id, service.id));
+  const saved = fresh?.runtime ?? runtime;
+  await db
+    .update(schema.service)
+    .set({ runtime: { ...saved, volumes: [...saved.volumes, ...added] } })
+    .where(eq(schema.service.id, service.id));
+  return { ...runtime, volumes: [...runtime.volumes, ...added] };
 }
 
 /**

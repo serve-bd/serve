@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { AlertTriangle, ArrowUpRight, ChevronDown, Construction, FolderInput, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, ChevronDown, Construction, FolderInput, Layers, Play, Plug, Power, RotateCw, Rocket, Server as ServerIcon, Square } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
 import { ServiceSwitcher, type SiblingService } from "./service-switcher";
 import { MoveServicesDialog } from "@/components/move-services-dialog";
@@ -151,7 +151,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 <StatusLabel status={live.status} className="shrink-0 rounded-full bg-surface-2 px-2.5 py-0.5 text-xs ring-1 ring-line" />
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
-                <span className="max-w-full truncate font-mono text-[12px]">{service.sourceLabel}</span>
+                {service.sourceLabel && <span className="max-w-full truncate font-mono text-[12px]">{service.sourceLabel}</span>}
                 {primary && (
                   <a
                     href={`${primary.https ? "https" : "http"}://${primary.hostname}`}
@@ -183,10 +183,13 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                     </span>
                   ),
                 )}
-                <span className="rounded bg-sunken px-1.5 py-px text-[11px] text-muted">{environment}</span>
+                <span className="inline-flex items-center gap-1 text-[12px]" title="Environment">
+                  <Layers className="size-3 shrink-0 text-faint" />
+                  {environment}
+                </span>
                 {server && (
-                  <Link href={`/servers/${server.id}`} className="inline-flex max-w-full items-center gap-1 rounded bg-sunken px-1.5 py-px text-[11px] text-muted hover:text-fg">
-                    <ServerIcon className="size-3 shrink-0" />
+                  <Link href={`/servers/${server.id}`} title="Server" className="inline-flex max-w-full items-center gap-1 text-[12px] hover:text-fg">
+                    <ServerIcon className="size-3 shrink-0 text-faint" />
                     <span className="truncate">{server.name}</span>
                   </Link>
                 )}

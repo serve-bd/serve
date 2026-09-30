@@ -120,8 +120,11 @@ export function ComposeStorageSection({
                   <FileText /> File with content
                 </MenuItem>
                 <MenuSeparator />
-                <MenuItem disabled={!isRootAdmin} onClick={() => add({ kind: "bind", source: "", target: "" })}>
-                  <Folder /> Path on the server
+                <MenuItem disabled={!isRootAdmin} onClick={() => add({ kind: "bind", source: "", target: "", hostType: "file" })}>
+                  <FileText /> File on the server
+                </MenuItem>
+                <MenuItem disabled={!isRootAdmin} onClick={() => add({ kind: "bind", source: "", target: "", hostType: "directory" })}>
+                  <Folder /> Directory on the server
                 </MenuItem>
               </MenuContent>
             </Menu>
@@ -154,7 +157,7 @@ export function ComposeStorageSection({
 
         <div className="flex flex-col gap-2.5">
           {draft.map((m, i) => {
-            const Icon = KIND[m.kind].icon;
+            const Icon = m.kind === "bind" && m.hostType === "file" ? FileText : KIND[m.kind].icon;
             const size = m.kind === "volume" ? sizeOf(m.source) : undefined;
             const locked = readOnly || m.kind === "other";
             return (
@@ -176,11 +179,11 @@ export function ComposeStorageSection({
                       </Field>
                     )}
                     {m.kind === "bind" && (
-                      <Field label="Path on the server">
+                      <Field label={m.hostType === "file" ? "File on the server" : "Directory on the server"}>
                         <Input
                           value={m.source}
                           onChange={(e) => update(i, { source: e.target.value })}
-                          placeholder="/srv/media"
+                          placeholder={m.hostType === "file" ? "/etc/ssl/certs/ca.pem" : "/srv/media"}
                           disabled={locked || !isRootAdmin}
                           className="h-8 font-mono text-[12.5px]"
                         />
@@ -237,7 +240,7 @@ export function ComposeStorageSection({
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted sm:pl-11">
-                  <Badge>{KIND[m.kind].label}</Badge>
+                  <Badge>{m.kind === "bind" ? (m.hostType === "file" ? "Server file" : "Server directory") : KIND[m.kind].label}</Badge>
                   {(m.kind === "file" || ("readOnly" in m && m.readOnly)) && (
                     <span className="inline-flex items-center gap-1">
                       <Lock className="size-3" /> Read-only in the container

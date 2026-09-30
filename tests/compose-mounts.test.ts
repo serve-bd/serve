@@ -82,6 +82,12 @@ describe("compose storage", () => {
     expect(() => writeComposeMounts(file, "nope", [])).toThrow(/no service nope/);
   });
 
+  it("writes server files so Docker does not create a directory for them", () => {
+    const out = writeComposeMounts("services:\n  a:\n    image: x\n", "a", [{ kind: "bind", source: "/etc/ca.pem", target: "/ca.pem", readOnly: true, hostType: "file" }]);
+    expect(YAML.parse(out).services.a.volumes).toEqual([{ type: "bind", source: "/etc/ca.pem", target: "/ca.pem", read_only: true, bind: { create_host_path: false } }]);
+    expect(readComposeMounts(out)[0].mounts).toEqual([{ kind: "bind", source: "/etc/ca.pem", target: "/ca.pem", readOnly: true, hostType: "file" }]);
+  });
+
   it("names volumes like Docker Compose", () => {
     expect(composeVolumeName(file, "mm-abc123", "config")).toBe("mm-abc123_config");
     expect(composeVolumeName("services: {}\nvolumes:\n  d:\n    name: shared\n", "p", "d")).toBe("shared");

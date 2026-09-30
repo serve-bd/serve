@@ -9,7 +9,14 @@ export type ComposeMount =
   /** A named volume of the stack (`data:/var/lib/app`). */
   | { kind: "volume"; source: string; target: string; readOnly?: boolean }
   /** A path on the server (`/srv/media:/media`, `./conf:/etc/app`). */
-  | { kind: "bind"; source: string; target: string; readOnly?: boolean }
+  | {
+      kind: "bind";
+      source: string;
+      target: string;
+      readOnly?: boolean;
+      /** "file": an existing file; written so Docker does not create a directory in its place. */
+      hostType?: "file" | "directory";
+    }
   /** A file whose content lives in the compose file (top-level `configs` with `content`); always read-only. */
   | { kind: "file"; name: string; target: string; content: string }
   /** Anything else (tmpfs, anonymous volumes, interpolated paths, configs from files): kept as written. */
@@ -44,10 +51,13 @@ function longVolume(v: Record<string, unknown>, index: number): ComposeMount {
   const target = String(v.target ?? "");
   const source = typeof v.source === "string" ? v.source : "";
   const readOnly = v.read_only === true || undefined;
-  const extra = Object.keys(v).some((k) => !["type", "source", "target", "read_only"].includes(k));
+  // `bind: { create_host_path: false }` is how the page writes a server file.
+  const bind = v.bind as Record<string, unknown> | undefined;
+  const fileBind = !!bind && Object.keys(bind).length === 1 && bind.create_host_path === false;
+  const extra = Object.keys(v).some((k) => !["type", "source", "target", "read_only"].includes(k) && !(k === "bind" && fileBind));
   if (!extra && !source.includes("$")) {
-    if (v.type === "volume" && source) return { kind: "volume", source, target, readOnly };
-    if (v.type === "bind" && source) return { kind: "bind", source, target, readOnly };
+    if (v.type === "volume" && source && !bind) return { kind: "volume", source, target, readOnly };
+    if (v.type === "bind" && source) return fileBind ? { kind: "bind", source, target, readOnly, hostType: "file" } : { kind: "bind", source, target, readOnly };
   }
   return { kind: "other", from: "volumes", index, target, label: v.type === "tmpfs" ? "Temporary (tmpfs)" : `${String(v.type ?? "mount")} mount` };
 }
@@ -143,7 +153,9 @@ export function writeComposeMounts(content: string, service: string, mounts: Com
   const configs: unknown[] = [];
   const files: { name: string; content: string }[] = [];
   for (const m of mounts) {
-    if (m.kind === "volume" || m.kind === "bind") {
+    if (m.kind === "bind" && m.hostType === "file") {
+      volumes.push(doc.createNode({ type: "bind", source: m.source, target: m.target, ...(m.readOnly ? { read_only: true } : {}), bind: { create_host_path: false } }));
+    } else if (m.kind === "volume" || m.kind === "bind") {
       const text = `${m.source}:${m.target}${m.readOnly ? ":ro" : ""}`;
       // An unchanged entry keeps its node, and with it its comment.
       const same = isSeq(oldVolumes) ? oldVolumes.items.find((item) => isScalar(item) && item.value === text && !volumes.includes(item)) : undefined;

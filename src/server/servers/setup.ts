@@ -154,6 +154,15 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
         );
       }
     }
+    // A machine that runs its own Serve (its worker container) belongs to that install: the names
+    // this server would use (serve-proxy, the serve network, serve-mesh) are already its own, and
+    // setting up here would take them over.
+    const own = await run(target, "docker ps -a --filter name=^serve-worker$ --format '{{.Names}} {{.Status}}'", log, { quiet: true });
+    if (own.code === 0 && own.stdout.trim()) {
+      throw new Error(
+        "This machine runs its own Serve installation (the serve-worker container), so it cannot also be a server of this dashboard. Use it from its own dashboard, or uninstall that Serve first (cd /data/serve && docker compose down).",
+      );
+    }
     const compose = await run(target, "docker compose version --short", log, { quiet: true });
     if (compose.code !== 0) log("Docker Compose v2 is missing. Compose services will not deploy on this server.");
     else log(`Compose ${compose.stdout.trim()}`);

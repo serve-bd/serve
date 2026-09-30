@@ -20,6 +20,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useNodesState,
+  useConnection,
   useReactFlow,
 } from "@xyflow/react";
 import { LayoutGrid, Maximize, Minus, Network, Plus, Server as ServerIcon, X } from "lucide-react";
@@ -49,15 +50,24 @@ type Networks = Omit<MeshNetworkView, "member">[];
 /** One colour per network, in order; readable on light and dark. */
 const COLORS = ["#14b8a6", "#6366f1", "#f59e0b", "#ec4899", "#22c55e", "#0ea5e9", "#a855f7", "#ef4444"];
 
-type NetworkNode = Node<{ name: string; color: string; count: number }, "network">;
+type NetworkNode = Node<{ name: string; color: string; count: number; dropTarget?: boolean }, "network">;
 type ServerNode = Node<{ server: CanvasServer; networks: number }, "server">;
 type MemberEdge = Edge<{ networkName: string; serverName: string; color: string; onRemove: () => void }, "member">;
 
-function NetworkNodeView({ data }: NodeProps<NetworkNode>) {
+function NetworkNodeView({ id, data }: NodeProps<NetworkNode>) {
+  // Lights up while a server card is dragged over it or a line is drawn from a server.
+  const connection = useConnection();
+  const target = data.dropTarget || (connection.inProgress && connection.fromNode.type === "server" && connection.fromNode.id !== id);
   return (
     <div
-      style={{ width: NET_W, height: NET_H, borderColor: data.color, background: `color-mix(in oklab, ${data.color} 14%, var(--surface))` }}
-      className="flex items-center gap-2 rounded-full border-2 px-4 shadow-sm"
+      style={{
+        width: NET_W,
+        height: NET_H,
+        borderColor: data.color,
+        background: `color-mix(in oklab, ${data.color} ${target ? 30 : 14}%, var(--surface))`,
+        boxShadow: target ? `0 0 0 4px color-mix(in oklab, ${data.color} 35%, transparent)` : undefined,
+      }}
+      className={cn("flex items-center gap-2 rounded-full border-2 px-4 shadow-sm transition-[box-shadow,background-color,transform] duration-150", data.dropTarget && "scale-105")}
     >
       <Network className="size-4 flex-none" style={{ color: data.color }} />
       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-fg">{data.name}</span>
@@ -73,8 +83,10 @@ function NetworkNodeView({ data }: NodeProps<NetworkNode>) {
   );
 }
 
-function ServerNodeView({ data, selected }: NodeProps<ServerNode>) {
+function ServerNodeView({ data, selected, dragging }: NodeProps<ServerNode>) {
   const s = data.server;
+  const connection = useConnection();
+  const target = connection.inProgress && connection.fromNode.type === "network";
   const tone = !s.joined
     ? { dot: "bg-faint", text: "Not joined" }
     : s.state === "error"
@@ -88,7 +100,9 @@ function ServerNodeView({ data, selected }: NodeProps<ServerNode>) {
       className={cn(
         "flex cursor-pointer flex-col justify-center gap-1 rounded-2xl border bg-surface px-3.5 shadow-sm transition-[border-color,box-shadow] hover:shadow-md",
         !s.joined && "border-dashed opacity-70",
-        s.state === "error" ? "border-bad/50" : selected ? "border-accent" : "border-line hover:border-line-strong",
+        // See-through while dragged, so the network under it shows it is the drop target.
+        dragging && "opacity-60 shadow-lg",
+        target ? "border-accent ring-4 ring-accent/25" : s.state === "error" ? "border-bad/50" : selected ? "border-accent" : "border-line hover:border-line-strong",
       )}
       title={s.message ?? undefined}
     >
@@ -181,6 +195,8 @@ function Canvas({ networks, servers, saved }: Props) {
   );
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(build([]));
   const dragFrom = React.useRef<{ id: string; position: Pos } | null>(null);
+  const [dropTarget, setDropTarget] = React.useState<string | null>(null);
+  const shown = React.useMemo(() => (dropTarget ? nodes.map((n) => (n.id === dropTarget ? { ...n, data: { ...n.data, dropTarget: true } } : n)) : nodes), [nodes, dropTarget]);
   React.useEffect(() => {
     setNodes((prev) => build(prev));
   }, [build, setNodes]);
@@ -249,18 +265,26 @@ function Canvas({ networks, servers, saved }: Props) {
   return (
     <div className="serve-canvas relative size-full">
       <ReactFlow
-        nodes={nodes}
+        nodes={shown}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
-        onNodeClick={(_e, node) => {
+        onNodeClick={(e, node) => {
+          // A click on a connection dot is the start of a line, not a way to open the server.
+          if ((e.target as HTMLElement).closest(".react-flow__handle")) return;
           if (node.type === "server") router.push(`/servers/${node.id.slice("server:".length)}/network`);
         }}
         onNodeDragStart={(_e, node) => {
           dragFrom.current = { id: node.id, position: node.position };
         }}
+        onNodeDrag={(_e, node) => {
+          if (node.type !== "server") return;
+          const over = flow.getIntersectingNodes(node).find((n) => n.type === "network")?.id ?? null;
+          setDropTarget((current) => (current === over ? current : over));
+        }}
         onNodeDragStop={(_e, node, dragged) => {
+          setDropTarget(null);
           const from = dragFrom.current?.id === node.id ? dragFrom.current.position : null;
           dragFrom.current = null;
           const target = node.type === "server" ? flow.getIntersectingNodes(node).find((n) => n.type === "network") : undefined;

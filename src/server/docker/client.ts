@@ -154,6 +154,17 @@ export async function execInContainer(
   });
   // The command finished: release the connection right away.
   (stream as { destroy?: () => void }).destroy?.();
-  const info = await exec.inspect();
-  return { exitCode: info.ExitCode ?? 0, output: demuxDockerBuffer(Buffer.concat(chunks)) };
+  return { exitCode: (await execExitCode(exec)) ?? 0, output: demuxDockerBuffer(Buffer.concat(chunks)) };
+}
+
+/**
+ * Exit code of an exec whose output ended. Docker may still report it running (exit code null)
+ * for a moment after the stream closes, so it asks again for up to 3 seconds.
+ */
+export async function execExitCode(exec: Docker.Exec): Promise<number | null> {
+  for (let i = 0; ; i++) {
+    const info = await exec.inspect();
+    if (!info.Running || i >= 30) return info.ExitCode ?? null;
+    await new Promise((r) => setTimeout(r, 100));
+  }
 }

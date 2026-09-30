@@ -12,7 +12,8 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/backups/[backup
   const org = await requireOrg();
   if (!org.can("databases.backups")) return new Response(cannotMessage("databases.backups"), { status: 403 });
   const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
-  if (!b?.filename) return new Response("Not found", { status: 404 });
+  // A backup still being written is not offered (an import's uploaded file is complete).
+  if (!b?.filename || (b.status === "running" && b.trigger !== "import")) return new Response("Not found", { status: 404 });
   try {
     await serviceInOrg(b.serviceId, org.org.id);
   } catch {

@@ -17,17 +17,26 @@ export type StorageSource = { kind: "volume" | "dir"; source: string; containers
  */
 const SKIP = [/^\/(var\/)?run\/docker\.sock$/, /^\/$/, /^\/(proc|sys|dev|boot|etc|root|usr|bin|sbin|lib|lib64|var\/lib\/docker|run)(\/|$)/];
 
-/** Whether a host path is off limits: a system folder or Serve's own data directory. */
-export function blockedPath(p: string) {
-  const data = env.dataDir.replace(/\/+$/, "");
-  return SKIP.some((r) => r.test(p)) || p === data || p.startsWith(`${data}/`) || p === "/data/serve" || p.startsWith("/data/serve/");
+/** Where a server keeps Serve's data, and the folder of one service in it. */
+export type StoragePaths = { root: string; service: (serviceId: string) => string };
+
+/**
+ * Whether a host path is off limits: a system folder or Serve's own data directory on that server.
+ * Folders inside the service's own folder (a compose file's `./data`) are allowed.
+ */
+export function blockedPath(p: string, paths?: StoragePaths, serviceId?: string) {
+  if (SKIP.some((r) => r.test(p))) return true;
+  if (paths && serviceId && p.startsWith(`${paths.service(serviceId).replace(/\/+$/, "")}/`)) return false;
+  const roots = [env.dataDir, "/data/serve", ...(paths ? [paths.root] : [])].map((r) => r.replace(/\/+$/, ""));
+  return roots.some((data) => p === data || p.startsWith(`${data}/`));
 }
 
 /**
  * Volumes and host directories mounted by the stack's containers, from Docker itself: exact
  * volume names and absolute host paths, whatever the compose file wrote.
  */
-export async function stackStorage(docker: Docker, serviceId: string): Promise<StorageSource[]> {
+export async function stackStorage(server: { docker: Docker; paths: StoragePaths }, serviceId: string): Promise<StorageSource[]> {
+  const { docker } = server;
   const rows = await docker.listContainers({ all: true, filters: { label: [`${LABEL.service}=${serviceId}`] } });
   const out = new Map<string, StorageSource>();
   for (const row of rows) {
@@ -36,7 +45,7 @@ export async function stackStorage(docker: Docker, serviceId: string): Promise<S
       const kind = m.Type === "volume" && m.Name ? "volume" : m.Type === "bind" && m.Source ? "dir" : null;
       if (!kind) continue;
       const source = kind === "volume" ? (m.Name as string) : m.Source;
-      if (kind === "dir" && blockedPath(source)) continue;
+      if (kind === "dir" && blockedPath(source, server.paths, serviceId)) continue;
       const key = `${kind}:${source}`;
       const entry = out.get(key) ?? { kind, source, containers: [], destinations: [] };
       if (!entry.containers.includes(name)) entry.containers.push(name);

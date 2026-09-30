@@ -31,8 +31,7 @@ export async function composeBackupOptions(serviceId: string) {
   return act(async () => {
     const { service, content } = await stack(serviceId);
     const databases: BackupOption[] = composeDatabases(content).map((d) => ({ key: `db:${d.service}`, kind: "db", name: d.service, detail: d.image, containers: [d.service] }));
-    const { docker } = await serverOf(service);
-    const storage: BackupOption[] = (await stackStorage(docker, service.id).catch(() => [])).map((m) => ({
+    const storage: BackupOption[] = (await stackStorage(await serverOf(service), service.id).catch(() => [])).map((m) => ({
       key: `${m.kind}:${m.source}`,
       kind: m.kind,
       name: m.source,
@@ -50,17 +49,21 @@ async function validKey(service: { id: string; slug: string } & Parameters<typeo
     if (!composeDatabases(content).some((d) => d.service === parsed.name)) throw new UserError(`${parsed.name} is not a database container of this stack.`);
     return parsed;
   }
-  const { docker } = await serverOf(service);
-  const mounted = await stackStorage(docker, service.id);
+  const mounted = await stackStorage(await serverOf(service), service.id);
   if (!mounted.some((m) => m.kind === parsed.kind && m.source === parsed.name)) throw new UserError(`${parsed.name} is not mounted by this stack. Start the stack first.`);
   return parsed;
 }
 
-async function writeConfigs(serviceId: string, next: Record<string, ComposeBackupConfig>) {
-  await db
-    .update(schema.service)
-    .set({ composeBackups: Object.keys(next).length ? next : null })
-    .where(eq(schema.service.id, serviceId));
+/** Changes the stack's backups from what is stored now, locked so saves at the same moment all stay. */
+async function updateConfigs(serviceId: string, change: (current: Record<string, ComposeBackupConfig>) => Record<string, ComposeBackupConfig>) {
+  await db.transaction(async (tx) => {
+    const [row] = await tx.select({ composeBackups: schema.service.composeBackups }).from(schema.service).where(eq(schema.service.id, serviceId)).for("update");
+    const next = change(row?.composeBackups ?? {});
+    await tx
+      .update(schema.service)
+      .set({ composeBackups: Object.keys(next).length ? next : null })
+      .where(eq(schema.service.id, serviceId));
+  });
 }
 
 /** Adds a database, volume or directory to the stack's backups (manual until a schedule is set). */
@@ -70,7 +73,7 @@ export async function addComposeBackup(serviceId: string, key: string) {
     const current = service.composeBackups ?? {};
     if (current[key]) return { key };
     const parsed = await validKey(service, content, key);
-    await writeConfigs(service.id, { ...current, [key]: { schedule: null, retention: 7 } });
+    await updateConfigs(service.id, (now) => (now[key] ? now : { ...now, [key]: { schedule: null, retention: 7 } }));
     await logActivity({
       userId: ctx.user.id,
       projectId: service.projectId,
@@ -112,7 +115,10 @@ export async function saveComposeBackup(serviceId: string, key: string, input: z
         .where(and(eq(schema.s3Destination.id, data.s3DestinationId), eq(schema.s3Destination.organizationId, ctx.org.id)));
       if (!dest) throw new UserError("Backup storage not found.");
     }
-    await writeConfigs(service.id, { ...current, [key]: data });
+    await updateConfigs(service.id, (now) => {
+      if (!now[key]) throw new UserError("This backup was removed. Reload the page.");
+      return { ...now, [key]: data };
+    });
     return null;
   });
 }
@@ -121,9 +127,8 @@ export async function saveComposeBackup(serviceId: string, key: string, input: z
 export async function removeComposeBackup(serviceId: string, key: string) {
   return act(async () => {
     const { ctx, service } = await stack(serviceId, true);
-    const { [key]: removed, ...rest } = service.composeBackups ?? {};
-    if (!removed) return null;
-    await writeConfigs(service.id, rest);
+    if (!service.composeBackups?.[key]) return null;
+    await updateConfigs(service.id, (now) => Object.fromEntries(Object.entries(now).filter(([k]) => k !== key)));
     await logActivity({
       userId: ctx.user.id,
       projectId: service.projectId,

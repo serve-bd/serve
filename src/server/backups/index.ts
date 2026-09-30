@@ -7,7 +7,7 @@ import zlib from "node:zlib";
 import { pipeline } from "node:stream/promises";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type Docker from "dockerode";
-import { LABEL } from "@/server/docker/client";
+import { execExitCode, LABEL } from "@/server/docker/client";
 import { credsFromEnv, DUMP_EXTENSION, dumpCommands, engineOfImage, parseBackupKey, requirePass } from "./compose";
 
 export { parseBackupKey };
@@ -115,7 +115,7 @@ async function execText(container: Docker.Container, docker: Docker, cmd: string
   out.on("data", (c: Buffer) => (text += c.toString()));
   docker.modem.demuxStream(stream, out, new PassThrough());
   await new Promise<void>((resolve) => stream.on("end", resolve));
-  return (await exec.inspect()).ExitCode === 0 ? text : null;
+  return (await execExitCode(exec)) === 0 ? text : null;
 }
 
 async function composeCommands(service: ServiceRow, name: string): Promise<Commands> {
@@ -160,9 +160,9 @@ async function dumpWith(t: Commands, file: string) {
     stderr.end();
   });
   await pipeline(stdout, fs.createWriteStream(file));
-  const info = await exec.inspect();
+  const exitCode = await execExitCode(exec);
   const masked = t.password ? errText.replaceAll(t.password, "***") : errText;
-  if (info.ExitCode !== 0) throw new Error(masked.trim() || `Backup command exited with ${info.ExitCode}`);
+  if (exitCode !== 0) throw new Error(masked.trim() || `Backup command exited with ${exitCode}`);
   const { size } = await fs.promises.stat(file);
   if (size === 0) throw new Error(masked.trim() || "Backup produced an empty file");
   return size;
@@ -180,9 +180,9 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
   await pipeline(gz ? input.pipe(zlib.createGunzip()) : input, stream, { end: false }).catch(() => {});
   (stream as unknown as { end: () => void }).end();
   await done;
-  const info = await exec.inspect();
+  const exitCode = await execExitCode(exec);
   const clean = (t.password ? output.replaceAll(t.password, "***") : output).trim();
-  if (info.ExitCode && info.ExitCode !== 0) throw new Error(clean.slice(-1500) || `Command exited with ${info.ExitCode}`);
+  if (exitCode && exitCode !== 0) throw new Error(clean.slice(-1500) || `Command exited with ${exitCode}`);
   return clean;
 }
 
@@ -261,9 +261,10 @@ export async function targetOf(service: ServiceRow, key: string | null): Promise
     };
   }
   // Storage: only a volume or directory the stack's own containers mount.
-  const { docker } = await serverOf(service);
+  const server = await serverOf(service);
+  const { docker } = server;
   const source = { kind: parsed.kind, source: parsed.name };
-  const mounted = (await stackStorage(docker, service.id)).some((m) => m.kind === source.kind && m.source === source.source);
+  const mounted = (await stackStorage(server, service.id)).some((m) => m.kind === source.kind && m.source === source.source);
   if (!mounted) throw new Error(`${parsed.name} is not mounted by ${service.name} any more.`);
   return {
     ...base,
@@ -293,6 +294,8 @@ export async function runBackup(backupId: string, protect?: string) {
     label = t.label;
     const filename = `${t.stem}-${stamp}.${t.extension}`;
     file = backupFile(service.id, filename);
+    // Known before the dump starts, so a restart mid-way can remove the partial file.
+    await db.update(schema.backup).set({ filename }).where(eq(schema.backup.id, backup.id));
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
     const size = await t.dump(file);
 
@@ -316,7 +319,10 @@ export async function runBackup(backupId: string, protect?: string) {
       .update(schema.backup)
       .set({ status: "success", filename, size, destination: s3Status === "uploaded" ? s3!.id : "local", s3Status, finishedAt: new Date() })
       .where(eq(schema.backup.id, backup.id));
-    await applyRetention(service.id, backup.target, t.retention, t.retentionS3, protect);
+    // The backup is done: a failing cleanup of older ones must not undo it.
+    await applyRetention(service.id, backup.target, t.retention, t.retentionS3, protect).catch((e) =>
+      logLine(backup.id, `Removing old backups failed: ${(e as Error).message}`).catch(() => {}),
+    );
     if (backup.trigger === "schedule") {
       void notify(await orgOfService(service.id), "backup.success", {
         ok: true,
@@ -333,7 +339,7 @@ export async function runBackup(backupId: string, protect?: string) {
     const message = error instanceof Error ? error.message : String(error);
     await db
       .update(schema.backup)
-      .set({ status: "failed", error: message.slice(0, 2000), finishedAt: new Date() })
+      .set({ status: "failed", error: message.slice(0, 2000), finishedAt: new Date(), filename: null })
       .where(eq(schema.backup.id, backup.id));
     void notify(await orgOfService(service.id), "backup.failed", {
       ok: false,

@@ -40,7 +40,7 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
     }));
     const server = await serverOf(service).catch(() => null);
     const storage = server
-      ? (await stackStorage(server.docker, service.id).catch(() => [])).map((m) => ({
+      ? (await stackStorage(server, service.id).catch(() => [])).map((m) => ({
           key: `${m.kind}:${m.source}`,
           kind: m.kind,
           name: m.source,

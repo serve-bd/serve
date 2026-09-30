@@ -1,8 +1,9 @@
 // Must stay first: every other import may read the environment when it loads.
 import "dotenv/config";
+import fs from "node:fs";
 import { checkLimitNotices, hasRoomFor, measureOrgDisk } from "@/server/limits";
 import { copyEnvironmentData, preparePreviewDatabase } from "@/server/services/environments";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import type { ProxyKind } from "@/server/proxy/config";
 import { CronExpressionParser } from "cron-parser";
 import { db, schema, sql } from "@/server/db";
@@ -15,7 +16,7 @@ import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, finishJob,
 import { runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
 import { issueCertificate, renewDueCertificates } from "@/server/ssl/certificates";
-import { importBackup, restoreBackup, runBackup } from "@/server/backups";
+import { backupFile, importBackup, restoreBackup, runBackup } from "@/server/backups";
 import { collectMetrics } from "@/server/metrics";
 import { getSettings, updateSettings } from "@/server/settings";
 import { notify, orgOfService } from "@/server/notify";
@@ -340,13 +341,42 @@ async function recover() {
       updateRun: { ...run, state: "failed", finishedAt: new Date().toISOString(), log: `${run.log}==> The worker restarted before the update started. Nothing was changed.\n` },
     });
 
+  // Backups and restores still waiting for their job are left alone: the job runs them later.
+  const waiting = await db
+    .select({ payload: schema.job.payload })
+    .from(schema.job)
+    .where(and(eq(schema.job.status, "pending"), inArray(schema.job.type, ["backup.run", "backup.restore", "backup.import"])));
+  const waitingIds = [...new Set(waiting.map((j) => (j.payload as { backupId: string }).backupId))];
+  const notWaiting = waitingIds.length ? notInArray(schema.backup.id, waitingIds) : undefined;
+  // Backups cut off by a restart: failed, and their partial file removed.
+  const cut = await db
+    .update(schema.backup)
+    .set({ status: "failed", error: "The worker restarted during this backup.", finishedAt: new Date() })
+    .where(and(eq(schema.backup.status, "running"), notWaiting))
+    .returning({ serviceId: schema.backup.serviceId, filename: schema.backup.filename, trigger: schema.backup.trigger });
+  for (const b of cut) {
+    if (!b.filename || b.trigger === "import") continue;
+    await fs.promises.rm(backupFile(b.serviceId, b.filename), { force: true }).catch(() => {});
+    await db
+      .update(schema.backup)
+      .set({ filename: null })
+      .where(and(eq(schema.backup.serviceId, b.serviceId), eq(schema.backup.filename, b.filename)));
+  }
+
   // Restores cut off by a restart: mark them failed, and start containers a storage restore stopped.
+  // Only restores whose job was running when the worker stopped had stopped anything.
+  const wasRunning = new Set(
+    (stale as unknown as { type: string; payload: { backupId?: string } }[])
+      .filter((j) => j.type === "backup.restore" || j.type === "backup.import")
+      .map((j) => j.payload?.backupId),
+  );
   const restores = await db
     .update(schema.backup)
     .set({ restoreStatus: "failed", restoredAt: new Date() })
-    .where(eq(schema.backup.restoreStatus, "running"))
-    .returning({ serviceId: schema.backup.serviceId, target: schema.backup.target });
+    .where(and(eq(schema.backup.restoreStatus, "running"), notWaiting))
+    .returning({ id: schema.backup.id, serviceId: schema.backup.serviceId, target: schema.backup.target });
   for (const r of restores) {
+    if (!wasRunning.has(r.id)) continue;
     const key = r.target ? parseBackupKey(r.target) : null;
     if (!key || key.kind === "db") continue;
     const [service] = await db.select().from(schema.service).where(eq(schema.service.id, r.serviceId));

@@ -59,6 +59,12 @@ function ServerFrames({
   const drag = React.useRef<{ ids: Set<string>; x: number; y: number; zoom: number; start: Map<string, Pos>; moved: boolean } | null>(null);
   const byServer = new Map<string, ServiceNode[]>();
   for (const n of nodes) byServer.set(n.data.s.serverId, [...(byServer.get(n.data.s.serverId) ?? []), n]);
+  // A drag the browser cut off: the cards go back to where they started, nothing is saved.
+  const cancel = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (d?.moved) setNodes((all) => all.map((n) => (d.start.has(n.id) ? { ...n, position: d.start.get(n.id)! } : n)));
+  };
   if (byServer.size < 2) return null;
   return (
     <ViewportPortal>
@@ -74,7 +80,8 @@ function ServerFrames({
               "nopan absolute rounded-3xl border border-dashed border-line-strong/70 bg-surface-2/30",
               canManage ? "pointer-events-auto cursor-grab active:cursor-grabbing" : "pointer-events-none",
             )}
-            style={{ transform: `translate(${minX}px, ${minY}px)`, width: maxX - minX, height: maxY - minY }}
+            // touch-action: the browser must not take a touch drag over as a scroll.
+            style={{ transform: `translate(${minX}px, ${minY}px)`, width: maxX - minX, height: maxY - minY, touchAction: "none" }}
             title={canManage ? "Drag to move this server's services" : undefined}
             onPointerDown={(e) => {
               if (!canManage || e.button !== 0) return;
@@ -107,8 +114,11 @@ function ServerFrames({
               const dy = Math.round((e.clientY - d.y) / d.zoom);
               const moved = Object.fromEntries([...d.start].map(([id, p]) => [id, { x: p.x + dx, y: p.y + dy }]));
               setNodes((all) => all.map((n) => (moved[n.id] ? { ...n, position: moved[n.id] } : n)));
-              onMoved(moved);
+              // Every card keeps its place from now on, so cards placed automatically never jump into the moved box.
+              onMoved({ ...Object.fromEntries(nodes.map((n) => [n.id, n.position])), ...moved });
             }}
+            onPointerCancel={() => cancel()}
+            onLostPointerCapture={() => cancel()}
           >
             <span className="flex items-center gap-1.5 px-4 pt-3 text-[11px] font-medium tracking-wide text-muted uppercase">
               <ServerIcon className="size-3" /> {list[0].data.s.serverName || "Server"}

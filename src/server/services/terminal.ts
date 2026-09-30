@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { Duplex } from "node:stream";
 import type Docker from "dockerode";
-import { docker as localDocker, imageExists, LABEL, pullImage, removeContainer } from "@/server/docker/client";
+import { docker as localDocker, execExitCode, imageExists, LABEL, pullImage, removeContainer } from "@/server/docker/client";
 import { getServer } from "@/server/servers/context";
 import { shellChannel } from "@/server/servers/ssh";
 
@@ -141,21 +141,30 @@ export async function openSession(opts: {
     cmd = ["sh", "-c", DEBUG_SHELL];
     onClose = () => {
       opts.onClose?.();
+      liveHelpers.delete(helper);
       void docker
         .getContainer(helper)
         .remove({ force: true })
         .catch(() => {});
     };
   }
-  const exec = await docker.getContainer(containerId).exec({
-    Cmd: cmd,
-    AttachStdin: true,
-    AttachStdout: true,
-    AttachStderr: true,
-    Tty: true,
-    Env: ["TERM=xterm-256color", "COLORTERM=truecolor", "LANG=C.UTF-8"],
-  });
-  const stream = (await exec.start({ hijack: true, stdin: true, Tty: true })) as unknown as Duplex;
+  let exec: Docker.Exec;
+  let stream: Duplex;
+  try {
+    exec = await docker.getContainer(containerId).exec({
+      Cmd: cmd,
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: true,
+      Env: ["TERM=xterm-256color", "COLORTERM=truecolor", "LANG=C.UTF-8"],
+    });
+    stream = (await exec.start({ hijack: true, stdin: true, Tty: true })) as unknown as Duplex;
+  } catch (error) {
+    // No session to close later: remove the helper now.
+    if (containerId !== opts.containerId) onClose?.();
+    throw error;
+  }
   const backend: Backend = {
     resize: async (cols, rows) => void (await exec.resize({ w: cols, h: rows }).catch(() => {})),
     exitCode: async () => (await exec.inspect().catch(() => null))?.ExitCode ?? null,
@@ -177,13 +186,16 @@ async function hasShell(docker: Docker, containerId: string) {
       stream.on("error", resolve);
       stream.resume();
     });
-    return (await exec.inspect()).ExitCode === 0;
+    return (await execExitCode(exec)) === 0;
   } catch {
     return false;
   }
 }
 
 const DEBUG_IMAGE = "alpine:3.22.6";
+
+/** Helper containers of open sessions in this process (kept across reloads in development). */
+const liveHelpers: Set<string> = ((globalThis as { __serveDebugHelpers?: Set<string> }).__serveDebugHelpers ??= new Set());
 
 const DEBUG_SHELL = [
   "export TERM=xterm-256color COLORTERM=truecolor",
@@ -198,6 +210,14 @@ async function startDebugHelper(docker: Docker, containerId: string) {
   const target = await docker.getContainer(containerId).inspect();
   if (!target.State.Running) throw new Error("The container is not running.");
   if (!(await imageExists(DEBUG_IMAGE, docker))) await pullImage(DEBUG_IMAGE, undefined, null, docker);
+  // Helpers left by a restart (their sessions are gone) are removed first: a day old and not ours.
+  const stale = await docker.listContainers({ all: true, filters: { label: [`${LABEL.kind}=debug-shell`] } }).catch(() => []);
+  for (const c of stale)
+    if (!liveHelpers.has(c.Id) && Date.now() / 1000 - c.Created > 86_400)
+      await docker
+        .getContainer(c.Id)
+        .remove({ force: true })
+        .catch(() => {});
   const helper = await docker.createContainer({
     name: `serve-debug-${target.Id.slice(0, 12)}-${crypto.randomBytes(3).toString("hex")}`,
     Image: DEBUG_IMAGE,
@@ -213,7 +233,14 @@ async function startDebugHelper(docker: Docker, containerId: string) {
       RestartPolicy: { Name: "no" },
     },
   });
-  await helper.start();
+  try {
+    await helper.start();
+  } catch (error) {
+    // AutoRemove only applies once it has started.
+    await helper.remove({ force: true }).catch(() => {});
+    throw error;
+  }
+  liveHelpers.add(helper.id);
   return helper.id;
 }
 

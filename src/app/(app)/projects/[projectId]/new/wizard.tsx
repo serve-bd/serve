@@ -1069,12 +1069,17 @@ function ServerBar({ servers, value, onChange }: { servers: Props["servers"]; va
 /** Renders the page header too, so the server picker can sit in its actions. */
 export function NewServiceWizard({ header, ...props }: Props & { header: { title: string; description: string; breadcrumbs: Crumb[] } }) {
   const [serverId, setServerId] = React.useState(props.initialServerId ?? props.servers[0]?.id ?? "local");
+  const [step, setStep] = React.useState<Step>(() => initialStep(props));
   const p = { ...props, serverId };
   return (
     <>
-      <PageHeader {...header} actions={props.servers.length > 1 ? <ServerBar servers={props.servers} value={serverId} onChange={setServerId} /> : undefined} />
+      <PageHeader
+        {...header}
+        // Where it deploys only matters once a kind of service is chosen.
+        actions={step && props.servers.length > 1 ? <ServerBar servers={props.servers} value={serverId} onChange={setServerId} /> : undefined}
+      />
       <PageBody>
-        <WizardSteps props={p} />
+        <WizardSteps props={p} step={step} setStep={setStep} />
       </PageBody>
     </>
   );
@@ -1082,14 +1087,15 @@ export function NewServiceWizard({ header, ...props }: Props & { header: { title
 
 type Step = { kind: Kind; engine?: DbEngine } | { template: string } | null;
 
-function WizardSteps({ props }: { props: Props }) {
-  const initial: Step =
-    props.initialType && starts.some((k) => k.id === props.initialType)
-      ? { kind: props.initialType as Kind }
-      : props.initialTemplate && props.templates.some((t) => t.id === props.initialTemplate)
-        ? { template: props.initialTemplate }
-        : null;
-  const [step, setStep] = React.useState<Step>(initial);
+function initialStep(props: Props): Step {
+  return props.initialType && starts.some((k) => k.id === props.initialType)
+    ? { kind: props.initialType as Kind }
+    : props.initialTemplate && props.templates.some((t) => t.id === props.initialTemplate)
+      ? { template: props.initialTemplate }
+      : null;
+}
+
+function WizardSteps({ props, step, setStep }: { props: Props; step: Step; setStep: (s: Step) => void }) {
   const back = () => setStep(null);
   if (!step) return <Catalog props={props} onStart={(kind, engine) => setStep({ kind, engine })} onTemplate={(id) => setStep({ template: id })} />;
   if ("template" in step) return <TemplateConfigure props={props} template={props.templates.find((t) => t.id === step.template)!} onBack={back} />;

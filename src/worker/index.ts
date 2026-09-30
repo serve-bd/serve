@@ -432,8 +432,19 @@ async function main() {
   });
 
   every(15_000, "heartbeat", () => updateSettings({ workerHeartbeat: new Date().toISOString(), workerSchemaVersion: SCHEMA_VERSION, workerVersion: currentVersion() }), true);
-  every(15_000, "monitor", monitorServices, true);
-  every(15_000, "crash-limit", async () => enforceCrashLimits(await reachableServers()));
+  // One loop: the status check never runs while the crash limit is stopping a replica.
+  every(
+    15_000,
+    "monitor",
+    async () => {
+      try {
+        await monitorServices();
+      } finally {
+        await enforceCrashLimits(await reachableServers());
+      }
+    },
+    true,
+  );
   every(60_000, "servers", probeRemoteServers, true);
   every(60_000, "tunnels", checkTunnels, true);
   every(30_000, "metrics", collectMetrics, true);

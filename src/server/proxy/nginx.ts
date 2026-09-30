@@ -1280,8 +1280,32 @@ export async function clearProxyForNewOwner(ctx: ServerCtx) {
       .catch((e: { statusCode?: number }) => {
         if (e?.statusCode !== 404) throw e;
       });
-  await ctx.fs.rm(path.posix.join(ctx.paths.proxy, "traefik-data"));
-  await ctx.fs.rm(path.posix.join(ctx.paths.proxy, "caddy-data"));
+  const dirs = ["traefik-data", "caddy-data"];
+  try {
+    for (const d of dirs) await ctx.fs.rm(path.posix.join(ctx.paths.proxy, d));
+  } catch {
+    // The proxy ran as root, so a non-root SSH user may not delete its files: Docker can.
+    await removeAsRoot(ctx, ctx.paths.proxy, dirs);
+  }
+}
+
+/** Deletes folders inside `dir` on the server through a short-lived container. */
+async function removeAsRoot(ctx: ServerCtx, dir: string, names: string[]) {
+  const { STORAGE_HELPER_IMAGE } = await import("@/server/backups/storage");
+  if (!(await imageExists(STORAGE_HELPER_IMAGE, ctx.docker))) await pullImage(STORAGE_HELPER_IMAGE, undefined, null, ctx.docker);
+  const c = await ctx.docker.createContainer({
+    Image: STORAGE_HELPER_IMAGE,
+    Cmd: ["rm", "-rf", "--", ...names.map((n) => `/mnt/dir/${n}`)],
+    Labels: { [LABEL.managed]: "true" },
+    HostConfig: { Binds: [`${dir}:/mnt/dir`], NetworkMode: "none" },
+  });
+  try {
+    await c.start();
+    const { StatusCode } = await c.wait();
+    if (StatusCode !== 0) throw new Error(`Could not delete the old proxy data in ${dir}.`);
+  } finally {
+    await c.remove({ force: true }).catch(() => {});
+  }
 }
 
 /** Stop a server's proxy and keep it stopped until an admin starts it again. Every site goes offline. */

@@ -245,11 +245,15 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     if ((data.host && data.host !== before.host) || (data.port && data.port !== before.port)) patch.hostKey = null;
     if (ownerChanged && before.status !== "pending") {
       // The new owner gets root on the machine: the old owner's token and certificates leave it first.
-      const { clearProxyForNewOwner } = await import("@/server/proxy/nginx");
+      const { clearProxyForNewOwner, ensureServerProxy } = await import("@/server/proxy/nginx");
+      const target = await getServer(id).catch(() => null);
+      if (!target) throw new UserError(`${before.name} could not be reached to clear its proxy. Try again when it is online.`);
       try {
-        await clearProxyForNewOwner(await getServer(id));
-      } catch {
-        throw new UserError(`${before.name} could not be reached to clear its proxy. Try again when it is online.`);
+        await clearProxyForNewOwner(target);
+      } catch (e) {
+        // The owner stays the same: bring its proxy back at once, so its sites stay online.
+        void ensureServerProxy(target).catch(() => {});
+        throw new UserError(`Could not clear the proxy of ${before.name}: ${(e as Error).message}. Try again when it is online.`);
       }
     }
     await db.transaction(async (tx) => {

@@ -210,11 +210,17 @@ export async function getServer(id: string | null | undefined = LOCAL_SERVER_ID)
   const previous = fresh ? await cached.ctx.then((c: ServerCtx) => c.ssh?.host).catch(() => undefined) : undefined;
   const ctx = row.isLocal ? Promise.resolve(buildLocal(row)) : buildRemote(row, previous);
   if (fresh && previous) {
+    // Calls meanwhile keep the cached context, so only one of them checks the address.
+    cached.at = Date.now();
+    const next = await ctx.then((c) => c.ssh?.host).catch(() => null);
     // Same address as before: keep the clients and their live connections.
-    const same = await ctx.then((c) => c.ssh?.host === previous).catch(() => false);
-    if (same) {
+    if (next === previous) {
       void ctx.then(dispose);
-      cached.at = Date.now();
+      return cached.ctx;
+    }
+    // The lookup failed for now: keep the old, vetted address and check again in a minute.
+    if (next == null) {
+      cached.at = Date.now() - PINNED_TTL + 60_000;
       return cached.ctx;
     }
     // The host name now points elsewhere: new connections go to the new address.

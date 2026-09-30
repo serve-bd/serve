@@ -21,6 +21,8 @@ const SKIP = [/^\/(var\/)?run\/docker\.sock$/, /^\/$/, /^\/(proc|sys|dev|boot|et
 /** Where a server keeps Serve's data, and the folder of one service in it. */
 export type StoragePaths = { root: string; service: (serviceId: string) => string };
 
+const COMPOSE_FILES = [".env", ".serve-compose.yml"];
+
 /**
  * Whether a host path is off limits: a system folder or Serve's own data directory on that server.
  * Inside the service's own folder only folders below the compose project's directory are allowed
@@ -30,7 +32,11 @@ export function blockedPath(raw: string, paths?: StoragePaths, serviceId?: strin
   const p = path.posix.normalize(raw).replace(/(.)\/+$/, "$1");
   if (SKIP.some((r) => r.test(p))) return true;
   if (paths && serviceId && p.startsWith(`${paths.service(serviceId).replace(/\/+$/, "")}/`)) {
-    return !projectDirs.some((d) => p.startsWith(`${path.posix.normalize(d).replace(/\/+$/, "")}/`));
+    return !projectDirs.some((d) => {
+      const dir = `${path.posix.normalize(d).replace(/\/+$/, "")}/`;
+      // The files Serve writes there: the stack's variables and its compose file.
+      return p.startsWith(dir) && !COMPOSE_FILES.includes(p.slice(dir.length));
+    });
   }
   const roots = [env.dataDir, "/data/serve", ...(paths ? [paths.root] : [])].map((r) => r.replace(/\/+$/, ""));
   return roots.some((data) => p === data || p.startsWith(`${data}/`));
@@ -73,12 +79,16 @@ async function realPaths(server: { exec?: (command: string) => Promise<{ code: n
   const out = new Map<string, string>();
   if (!server.exec || !dirs.length) return out;
   const quote = (v: string) => `'${v.replaceAll("'", `'\\''`)}'`;
-  const res = await server.exec(`for p in ${dirs.map(quote).join(" ")}; do realpath -e -- "$p" 2>/dev/null || echo; done`).catch(() => null);
-  const lines = res?.stdout.split("\n") ?? [];
-  dirs.forEach((d, i) => {
-    const r = lines[i]?.trim();
-    if (r?.startsWith("/")) out.set(d, r);
-  });
+  // One "index<TAB>path" line per existing folder, so a failed or odd line never shifts the others.
+  // readlink -f works in GNU coreutils and BusyBox alike.
+  const res = await server
+    .exec(`i=0; for p in ${dirs.map(quote).join(" ")}; do [ -e "$p" ] && printf '%s\\t%s\\n' "$i" "$(readlink -f "$p")"; i=$((i+1)); done; true`)
+    .catch(() => null);
+  for (const line of res?.stdout.split("\n") ?? []) {
+    const m = /^(\d+)\t(\/.*)$/.exec(line);
+    const d = m && dirs[Number(m[1])];
+    if (d) out.set(d, m[2]);
+  }
   return out;
 }
 

@@ -17,6 +17,12 @@ describe("storage backup paths", () => {
     expect(blockedPath("/opt/serve/services/svc1/repo/apps/web/../../..", remote, "svc1", dirs)).toBe(true);
     expect(blockedPath("/opt/serve/services/svc1/compose/uploads", remote, "svc1")).toBe(true);
   });
+  it("blocks the files Serve writes in the project directory", () => {
+    const dirs = ["/opt/serve/services/svc1/compose"];
+    expect(blockedPath("/opt/serve/services/svc1/compose/.env", remote, "svc1", dirs)).toBe(true);
+    expect(blockedPath("/opt/serve/services/svc1/compose/.serve-compose.yml", remote, "svc1", dirs)).toBe(true);
+    expect(blockedPath("/opt/serve/services/svc1/compose/config/.env", remote, "svc1", dirs)).toBe(false);
+  });
   it("blocks the server's data folder, other services and system folders", () => {
     expect(blockedPath("/opt/serve/proxy/certs", remote, "svc1")).toBe(true);
     expect(blockedPath("/opt/serve/services/svc2/compose/uploads", remote, "svc1")).toBe(true);

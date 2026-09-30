@@ -1,3 +1,4 @@
+import { dockerRestartPolicy } from "@/server/deploy/containers";
 import { LABEL } from "@/server/docker/client";
 import { type Stats, statsToSample } from "@/server/metrics";
 import { serverOf } from "@/server/servers/context";
@@ -66,9 +67,11 @@ export async function containerDetails(service: Service, containerId: string) {
 
 export type ContainerDetails = NonNullable<Awaited<ReturnType<typeof containerDetails>>>;
 
-export async function restartOwnContainer(service: Service, containerId: string) {
+export async function restartOwnContainer(service: Service & { type: string; runtime: { restartPolicy: string } }, containerId: string) {
   const own = await ownContainer(service, containerId);
   if (!own) return false;
+  // A replica the crash limit stopped has restart policy "no": give it the service's policy back.
+  if (service.type === "app") await own.container.update({ RestartPolicy: dockerRestartPolicy(service.runtime.restartPolicy) }).catch(() => {});
   await own.container.restart({ t: 10 });
   return true;
 }

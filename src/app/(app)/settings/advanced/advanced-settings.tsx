@@ -3,7 +3,6 @@
 import { Badge, TimeAgo } from "@/components/ui/misc";
 import { SwitchRow } from "@/components/ui/switch";
 import { SettingsCard } from "../_components/settings-card";
-import { ProductName } from "@/components/brand";
 
 export function AdvancedSettings({
   orgSettings,
@@ -13,15 +12,7 @@ export function AdvancedSettings({
   organizations: { id: string; name: string; createdAt: string; members: number; projects: number; isRoot: boolean }[];
 }) {
   return (
-    <SettingsCard
-      title="Organizations"
-      description={
-        <>
-          Every organization on this <ProductName /> instance.
-        </>
-      }
-      initial={orgSettings}
-    >
+    <SettingsCard title="Organizations" description={<>Every organization on this instance.</>} initial={orgSettings}>
       {(v, set) => (
         <>
           <SwitchRow

@@ -6,7 +6,6 @@ import { Badge, Card, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
 import type { ServerInfo, ServerStatus } from "@/server/db/schema";
 import { cn, formatBytes } from "@/lib/utils";
-import { ProductName } from "@/components/brand";
 
 type Row = {
   id: string;
@@ -47,11 +46,7 @@ export function ServerList({ servers }: { servers: Row[] }) {
           <EmptyState
             icon={<Server />}
             title="Run services on more machines"
-            description={
-              <>
-                Add a Linux server with SSH access. <ProductName /> installs Docker if needed, starts its proxy there, and lets you deploy to it like this one.
-              </>
-            }
+            description={<>Add a Linux server with SSH access. Docker is installed if needed, starts its proxy there, and lets you deploy to it like this one.</>}
           />
         </Card>
       </div>

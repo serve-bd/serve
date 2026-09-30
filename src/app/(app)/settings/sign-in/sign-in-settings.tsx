@@ -254,7 +254,7 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
             </Step>
             <Step n={3} title="Paste the app's details">
               {row.id === "oidc" && (
-                <Field label="Issuer URL" description="Serve reads its /.well-known/openid-configuration.">
+                <Field label="Issuer URL" description="Its /.well-known/openid-configuration is read.">
                   <div className="flex gap-2">
                     <Input value={v.issuer} onChange={(e) => set("issuer")(e.target.value)} placeholder="https://login.example.com" className="font-mono text-[13px]" />
                     <Button

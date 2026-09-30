@@ -128,7 +128,7 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
         .then((c) => c.docker.info() as Promise<{ ID?: string }>)
         .catch(() => null);
       if (local?.ID && local.ID === dockerId) {
-        throw new Error('This is the Docker engine Serve itself runs on. Use the built-in "This server" entry instead of adding it again.');
+        throw new Error('This is the Docker engine the dashboard itself runs on. Use the built-in "This server" entry instead of adding it again.');
       }
       const twin = (await db.select({ id: schema.server.id, name: schema.server.name, info: schema.server.info }).from(schema.server)).find(
         (r) => r.id !== serverId && (r.info as ServerInfo & { dockerId?: string }).dockerId === dockerId,

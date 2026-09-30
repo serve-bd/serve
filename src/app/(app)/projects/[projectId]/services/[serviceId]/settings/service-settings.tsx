@@ -37,7 +37,6 @@ import type { MaintenanceConfig, PreviewDatabaseConfig } from "@/server/services
 import { DistributionSection } from "./distribution-section";
 import type { MonitorSummary } from "@/server/monitoring/queries";
 import { updateDatabaseSettings } from "@/server/actions/databases";
-import { ProductName } from "@/components/brand";
 
 type Source =
   | { type: "git"; repository: string; branch: string; credentialId?: string | null; webhook?: RepoWebhook | null }
@@ -280,11 +279,7 @@ export function ServiceSettings(props: Props) {
           <Section
             id="source"
             title="Source"
-            description={
-              <>
-                The repository and branch <ProductName /> builds from.
-              </>
-            }
+            description={<>The repository and branch to build from.</>}
             initial={{
               repository: service.source.repository,
               branch: service.source.branch,

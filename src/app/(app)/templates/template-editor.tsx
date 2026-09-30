@@ -15,7 +15,6 @@ import { useAction } from "@/hooks/use-action";
 import { fetchComposeFromUrl, saveCustomTemplate } from "@/server/actions/templates";
 import { composeVariables, guessVarKind } from "@/lib/compose-vars";
 import { cn } from "@/lib/utils";
-import { ProductName } from "@/components/brand";
 
 type VarKind = "value" | "password" | "secret" | "hex32" | "base64key" | "publicUrl" | "publicHost";
 type VarRow = { key: string; kind: VarKind; value: string; label: string };
@@ -174,14 +173,7 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex min-w-0 flex-col gap-5">
           <Card>
-            <CardHeader
-              title="Compose file"
-              description={
-                <>
-                  Use {"${VARIABLE}"} for values that differ per service. <ProductName /> fills them when a service is created.
-                </>
-              }
-            />
+            <CardHeader title="Compose file" description={<>Use {"${VARIABLE}"} for values that differ per service. They are filled in when a service is created.</>} />
             <CardBody className="flex flex-col gap-4 py-5">
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input

@@ -16,7 +16,6 @@ import { changeDatabasePassword, redeployServices, updateDatabaseSettings } from
 import { updateService } from "@/server/actions/services";
 import type { RestartPolicy } from "@/server/services/types";
 import { Section, digits, num } from "./section";
-import { ProductName } from "@/components/brand";
 
 export type DatabaseSettingsProps = {
   serviceId: string;
@@ -193,9 +192,7 @@ function CredentialsSection(props: DatabaseSettingsProps) {
                 <TriangleAlert className="mt-px size-3.5 flex-none" /> Start the database first.
               </p>
             )}
-            <p className="text-xs leading-relaxed text-muted">
-              Apps that connect with the old password lose access until they are redeployed. <ProductName /> lists them afterwards.
-            </p>
+            <p className="text-xs leading-relaxed text-muted">Apps that connect with the old password lose access until they are redeployed. They are listed afterwards.</p>
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
@@ -482,11 +479,7 @@ function TlsSection(props: DatabaseSettingsProps) {
     <Section
       id="tls"
       title="TLS"
-      description={
-        <>
-          Encrypts connections with a certificate from a private authority <ProductName /> creates for this database. Applies on restart.
-        </>
-      }
+      description={<>Encrypts connections with a certificate from a private authority made for this database. Applies on restart.</>}
       initial={{ enabled: !!config.tls?.enabled, mode: config.tls?.mode ?? "prefer" }}
       onSave={(v) => saveDb({ tls: v.enabled ? { enabled: true, mode: v.mode } : null })}
       footerNote={

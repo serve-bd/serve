@@ -20,7 +20,7 @@ const setupSchema = z.object({
 export async function setupInstance(input: z.infer<typeof setupSchema>) {
   return act(async () => {
     const data = setupSchema.parse(input);
-    if ((await userCount()) > 0) throw new UserError("Serve is already set up. Sign in instead.");
+    if ((await userCount()) > 0) throw new UserError("This instance is already set up. Sign in instead.");
     const user = await createAccount(data);
     const org = await createOrganization("Root", user.id);
     await updateSettings({ rootOrganizationId: org.id });
@@ -29,7 +29,7 @@ export async function setupInstance(input: z.infer<typeof setupSchema>) {
       .update(schema.server)
       .set({ organizationIds: sql`array_append(coalesce(${schema.server.organizationIds}, '{}'), ${org.id})` })
       .where(and(isNull(schema.server.ownerOrganizationId), sql`not (${org.id} = any(coalesce(${schema.server.organizationIds}, '{}')))`));
-    await logActivity({ userId: user.id, organizationId: org.id, action: "instance.setup", message: "Set up Serve" });
+    await logActivity({ userId: user.id, organizationId: org.id, action: "instance.setup", message: "Set up this instance" });
     await auth.api.signInEmail({ body: { email: data.email, password: data.password }, headers: await headers() });
     return null;
   });

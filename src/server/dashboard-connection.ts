@@ -211,7 +211,7 @@ async function upstreamStep(ctx: ServerCtx): Promise<ConnectionStep> {
       title,
       state: "fail",
       summary: `Connection to ${upstream} timed out`,
-      detail: "Serve runs on the host here, and the host firewall blocks Docker containers from reaching it. Allow the proxy's network on the dashboard port once:",
+      detail: "The dashboard runs on the host here, and the host firewall blocks Docker containers from reaching it. Allow the proxy's network on the dashboard port once:",
       command: `sudo ufw allow from ${subnet ?? "<docker network subnet>"} to any port ${port} proto tcp`,
     };
   }
@@ -283,7 +283,7 @@ async function httpsStep(domain: string, route: "ip" | "tunnel", https: boolean,
             : code === "ECONNREFUSED"
               ? "Connection refused"
               : `Request failed${code ? ` (${code})` : ""}`;
-    return cert ?? { id: "https", title, state: "fail", summary, detail: `Serve requested ${url}.` };
+    return cert ?? { id: "https", title, state: "fail", summary, detail: `Requested ${url}.` };
   }
 }
 

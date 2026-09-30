@@ -45,7 +45,7 @@ export async function createTunnelServer(input: z.input<typeof tunnelInput>) {
     const ctx = await requireServerCreator();
     const owner = ownerFor(ctx);
     const data = tunnelInput.parse(input);
-    if (!/^https?:$/.test(new URL(data.origin).protocol)) throw new UserError("Open Serve over http or https.");
+    if (!/^https?:$/.test(new URL(data.origin).protocol)) throw new UserError("Open the dashboard over http or https.");
     const key = generateKeyPair(`serve-${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
     const keyId = newId();
     const id = newId();
@@ -104,7 +104,7 @@ export async function newJoinCommand(serverId: string, origin: string, address?:
     const [row] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
     if (!row?.tunnel) throw new UserError("This server does not connect out.");
     const next = address !== undefined ? tunnelInput.shape.address.parse(address) : row.tunnel.address;
-    if (!/^https?:$/.test(new URL(z.string().url().parse(origin)).protocol)) throw new UserError("Open Serve over http or https.");
+    if (!/^https?:$/.test(new URL(z.string().url().parse(origin)).protocol)) throw new UserError("Open the dashboard over http or https.");
     const token = newJoinToken();
     // Only these fields: the worker may be writing the connection state at the same moment.
     await db

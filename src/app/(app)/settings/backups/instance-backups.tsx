@@ -14,7 +14,6 @@ import { formatBytes } from "@/lib/utils";
 import { removeInstanceBackup, revealEncryptionKey, saveInstanceBackupSettings, startInstanceBackup } from "@/server/actions/instance";
 import type { InstanceBackup } from "@/server/settings";
 import { SettingsCard } from "../_components/settings-card";
-import { ProductName } from "@/components/brand";
 
 type Settings = { schedule: string | null; retention: number; s3DestinationId: string | null };
 
@@ -160,19 +159,12 @@ export function InstanceBackups({
       </Card>
 
       <Card>
-        <CardHeader
-          title="Restoring"
-          description={
-            <>
-              A running <ProductName /> cannot replace its own database, so restores run from the server's shell.
-            </>
-          }
-        />
+        <CardHeader title="Restoring" description={<>A running instance cannot replace its own database, so restores run from the server's shell.</>} />
         <CardBody className="flex flex-col gap-3 py-5 text-[13px] leading-relaxed text-fg-2">
           <p>Copy the backup to the server, keep the same encryption key in /data/serve/.env, then run:</p>
           <CopyField value="sudo bash /data/serve/restore-instance.sh serve-….tar.gz.enc" />
           <p className="text-xs text-muted">
-            The script stops <ProductName />, restores the database and files, and starts it again. It is included in the repository as scripts/restore-instance.sh; the README
+            The script stops the instance, restores the database and files, and starts it again. It is included in the repository as scripts/restore-instance.sh; the README
             describes each step.
           </p>
         </CardBody>

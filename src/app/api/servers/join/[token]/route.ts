@@ -27,7 +27,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ token: 
   const { token } = await ctx.params;
   const row = await serverFor(token);
   if (!row) {
-    return script(`#!/bin/sh\necho "This join command expired or was used already. Create a new one on the server's page in Serve." >&2\nexit 1\n`);
+    return script(`#!/bin/sh\necho "This join command expired or was used already. Create a new one on the server's page in the dashboard." >&2\nexit 1\n`);
   }
   // The address this machine used to download the script (behind a proxy: the forwarded one).
   const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? request.nextUrl.host).split(",")[0].trim();
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ token: 
 export async function POST(request: NextRequest, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const row = await serverFor(token);
-  if (!row?.tunnel) return new NextResponse("This join command expired or was used already. Create a new one on the server's page in Serve.\n", { status: 404 });
+  if (!row?.tunnel) return new NextResponse("This join command expired or was used already. Create a new one on the server's page in the dashboard.\n", { status: 404 });
   const form = await request.formData().catch(() => null);
   const clientKey = normalizePublicKey(String(form?.get("publicKey") ?? ""));
   if (!clientKey) return new NextResponse("Send the tunnel's public key.\n", { status: 400 });
@@ -50,9 +50,9 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
   // One machine is one server: its single tunnel service cannot serve two.
   const others = await db.select({ id: schema.server.id, name: schema.server.name, tunnel: schema.server.tunnel }).from(schema.server).where(isNotNull(schema.server.tunnel));
   const twin = others.find((o) => o.id !== row.id && o.tunnel?.clientKey === clientKey);
-  if (twin) return new NextResponse(`This machine is already connected to Serve as the server "${twin.name}". Remove that server in Serve first.\n`, { status: 409 });
+  if (twin) return new NextResponse(`This machine is already connected as the server "${twin.name}". Remove that server in the dashboard first.\n`, { status: 409 });
   const [key] = row.privateKeyId ? await db.select().from(schema.privateKey).where(eq(schema.privateKey.id, row.privateKeyId)) : [];
-  if (!key) return new NextResponse("This server has no SSH key in Serve.\n", { status: 409 });
+  if (!key) return new NextResponse("This server has no SSH key in the dashboard.\n", { status: 409 });
   const host = await tunnelHostKey();
   // The token is used up; the next join needs a new command. Claimed in one statement (only while
   // the token is still there), so two registrations at the same moment cannot both win.
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     })
     .where(and(eq(schema.server.id, row.id), sql`${schema.server.tunnel}->>'tokenHash' = ${row.tunnel.tokenHash}`))
     .returning({ id: schema.server.id });
-  if (!claimed.length) return new NextResponse("This join command expired or was used already. Create a new one on the server's page in Serve.\n", { status: 404 });
+  if (!claimed.length) return new NextResponse("This join command expired or was used already. Create a new one on the server's page in the dashboard.\n", { status: 404 });
   forgetServer(row.id);
   // The listener picks up the new key now, and drops a connection that still uses the old one.
   const { enqueue } = await import("@/server/queue");

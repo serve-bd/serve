@@ -18,7 +18,6 @@ import { getSiteFile, reloadProxyNow } from "@/server/actions/server-proxy";
 import { deleteProxyFile, saveProxyContainer, saveProxyDefaults, saveProxyFile } from "@/server/actions/proxy-kind";
 import type { ProxyDefaults, ProxyFile, RunningKind } from "@/server/proxy/config";
 import { cn, formatBytes } from "@/lib/utils";
-import { ProductName } from "@/components/brand";
 
 export type ManagedFile = { file: string; kind: "main" | "dashboard" | "service" | "custom" | "other"; label: string; href: string | null; size: number; updatedAt: string };
 
@@ -309,35 +308,18 @@ export function BuiltInDefaultsCard({ serverId, kind, initial, disabled }: { ser
   };
   return (
     <Card>
-      <CardHeader
-        title="Built-in defaults"
-        description={
-          <>
-            What <ProductName /> adds on its own. Turn one off to handle it in a custom file instead.
-          </>
-        }
-      />
+      <CardHeader title="Built-in defaults" description={<>What is added automatically. Turn one off to handle it in a custom file instead.</>} />
       <CardBody className="flex flex-col gap-3 py-5">
         <SwitchRow
           title="Catch-all 404 page"
-          description={
-            <>
-              Unknown hostnames get <ProductName />
-              &apos;s 404 page.{!value.catchAll && off}
-            </>
-          }
+          description={<>Unknown hostnames get the built-in 404 page.{!value.catchAll && off}</>}
           checked={value.catchAll}
           onCheckedChange={(x) => setValue({ ...value, catchAll: x })}
           disabled={disabled}
         />
         <SwitchRow
           title="Unavailable page"
-          description={
-            <>
-              Stopped or unreachable services answer with <ProductName />
-              &apos;s 503 page.{!value.unavailablePage && off}
-            </>
-          }
+          description={<>Stopped or unreachable services answer with the built-in 503 page.{!value.unavailablePage && off}</>}
           checked={value.unavailablePage}
           onCheckedChange={(x) => setValue({ ...value, unavailablePage: x })}
           disabled={disabled}
@@ -500,7 +482,7 @@ export function ProxyContainerCard({
       />
       <CardBody className="flex flex-col divide-y divide-line p-0">
         <div className="px-5 py-4">
-          <Field label="Image" description={`Default ${defaultImage}. Leave empty to follow Serve's default.`}>
+          <Field label="Image" description={`Default ${defaultImage}. Leave empty to follow the default.`}>
             <Input
               value={value.image}
               onChange={(e) => setValue({ ...value, image: e.target.value.trim() })}

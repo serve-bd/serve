@@ -52,7 +52,7 @@ export async function startInstanceBackup() {
     if (settings.instanceBackups.some((b) => b.status === "running")) throw new UserError("A backup is already running.");
     const backupId = await queueInstanceBackupRecord("manual");
     await enqueue("instance.backup", { backupId }, { concurrencyKey: "instance-backup" });
-    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "instance.backup", message: "Started a backup of this Serve instance" });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "instance.backup", message: "Started a backup of this instance" });
     return { backupId };
   });
 }

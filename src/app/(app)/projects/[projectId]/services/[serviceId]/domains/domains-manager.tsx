@@ -35,7 +35,6 @@ import { cn } from "@/lib/utils";
 import { useCan } from "@/components/permissions";
 import { cannotMessage } from "@/lib/permissions";
 import { useDebounced } from "@/hooks/use-client";
-import { ProductName } from "@/components/brand";
 
 type DomainRow = {
   id: string;
@@ -269,7 +268,7 @@ function TlsChoice({
   const options: { id: "auto" | "custom" | "none"; title: string; body: string }[] = [
     { id: "auto", title: "HTTPS, free certificate", body: httpsDescription(props) },
     ...(own.length || value === "custom" ? [{ id: "custom" as const, title: "HTTPS, my certificate", body: "Use a certificate you uploaded in Certificates." }] : []),
-    { id: "none", title: "HTTP only", body: "No certificate. For when your own proxy, load balancer or CDN in front of Serve handles HTTPS." },
+    { id: "none", title: "HTTP only", body: "No certificate. For when your own proxy, load balancer or CDN in front handles HTTPS." },
   ];
   return (
     <div className="flex flex-col gap-2">
@@ -566,16 +565,14 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                   <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
                     <Waypoints className="mt-0.5 size-4 flex-none text-[#f38020]" />
                     <p>
-                      <ProductName /> points <span className="font-mono text-fg">{hostname}</span> at the tunnel in {tunnel!.accountName}. Cloudflare serves it over HTTPS, so no
-                      certificate or open port is needed.
+                      <span className="font-mono text-fg">{hostname}</span> points at the tunnel in {tunnel!.accountName}. Cloudflare serves it over HTTPS, so no certificate or
+                      open port is needed.
                     </p>
                   </div>
                 ) : props.proxyKind === "none" ? (
                   <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
                     <Globe className="mt-0.5 size-4 flex-none text-muted" />
-                    <p>
-                      No proxy on this server — use published ports or your own proxy. <ProductName /> saves the domain and serves it again when a proxy runs.
-                    </p>
+                    <p>No proxy on this server — use published ports or your own proxy. The domain is saved and served again when a proxy runs.</p>
                   </div>
                 ) : (
                   <>

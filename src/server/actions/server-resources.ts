@@ -27,7 +27,7 @@ export async function controlUnmanagedContainer(raw: z.input<typeof input>) {
     if (!info) throw new UserError("Container not found.");
     const labels = info.Config.Labels ?? {};
     const name = info.Name.replace(/^\//, "");
-    if (labels[LABEL.service]) throw new UserError("This container belongs to a Serve service. Use the service page instead.");
+    if (labels[LABEL.service]) throw new UserError("This container belongs to a service. Use the service page instead.");
     if (isSystemContainer(labels, name)) throw new UserError("Serve's own containers cannot be controlled here.");
     if (action === "start") await container.start();
     else if (action === "stop") await container.stop({ t: 15 });

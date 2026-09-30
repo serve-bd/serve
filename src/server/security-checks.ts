@@ -110,7 +110,7 @@ export async function securityChecks(settings?: Settings): Promise<SecurityCheck
 
   checks.push({
     id: "docker",
-    title: "Serve controls Docker on this host",
+    title: "The dashboard controls Docker on this host",
     status: "info",
     detail: "The worker uses the Docker socket, which equals root access. Run Serve on a server dedicated to it and give admin roles carefully.",
   });

@@ -13,7 +13,7 @@ export const severityOptions: { value: Severity; label: string; description: str
   { value: "critical", label: "Critical only", description: "Outages, crashes and failed backups." },
 ];
 
-export type NotifyEventGroup = "Deployments" | "Uptime & incidents" | "Backups" | "Certificates" | "Servers" | "Tasks" | "Organization" | "Serve";
+export type NotifyEventGroup = "Deployments" | "Uptime & incidents" | "Backups" | "Certificates" | "Servers" | "Tasks" | "Organization" | "Instance";
 
 export const notifyEventCatalog = [
   { id: "deploy.success", label: "Deployment succeeded", group: "Deployments", severity: "info" },
@@ -30,16 +30,16 @@ export const notifyEventCatalog = [
   { id: "server.disk", label: "Disk full, cleanup ran", group: "Servers", severity: "warning" },
   { id: "task.failed", label: "Scheduled task failed", group: "Tasks", severity: "warning" },
   { id: "org.limit", label: "Organization limit reached", group: "Organization", severity: "warning" },
-  { id: "instance.backup.success", label: "Serve backup succeeded", group: "Serve", severity: "info" },
-  { id: "instance.backup.failed", label: "Serve backup failed", group: "Serve", severity: "critical" },
-  { id: "instance.update.available", label: "Serve update available", group: "Serve", severity: "info" },
-  { id: "instance.update.success", label: "Serve updated", group: "Serve", severity: "info" },
-  { id: "instance.update.failed", label: "Serve update failed", group: "Serve", severity: "critical" },
+  { id: "instance.backup.success", label: "Instance backup succeeded", group: "Instance", severity: "info" },
+  { id: "instance.backup.failed", label: "Instance backup failed", group: "Instance", severity: "critical" },
+  { id: "instance.update.available", label: "Update available", group: "Instance", severity: "info" },
+  { id: "instance.update.success", label: "Instance updated", group: "Instance", severity: "info" },
+  { id: "instance.update.failed", label: "Update failed", group: "Instance", severity: "critical" },
 ] as const satisfies readonly { id: string; label: string; group: NotifyEventGroup; severity: Severity }[];
 
 export type NotifyEvent = (typeof notifyEventCatalog)[number]["id"];
 
-export const notifyEventGroups: NotifyEventGroup[] = ["Deployments", "Uptime & incidents", "Backups", "Certificates", "Servers", "Tasks", "Organization", "Serve"];
+export const notifyEventGroups: NotifyEventGroup[] = ["Deployments", "Uptime & incidents", "Backups", "Certificates", "Servers", "Tasks", "Organization", "Instance"];
 
 export function eventInfo(id: string) {
   return notifyEventCatalog.find((e) => e.id === id);

@@ -9,7 +9,6 @@ import { SwitchRow } from "@/components/ui/switch";
 import { DnsCheck } from "@/components/dns-check";
 import { SettingsCard } from "../_components/settings-card";
 import { ConnectionCheck } from "./connection-check";
-import { ProductName } from "@/components/brand";
 
 export function DashboardSettings({
   serverIp,
@@ -73,7 +72,7 @@ export function DashboardSettings({
                   <Link href="/integrations/cloudflare" className="text-accent hover:underline">
                     Integrations → Cloudflare
                   </Link>{" "}
-                  and <ProductName /> reconnects the domain automatically, or switch to Server IP.
+                  and the domain reconnects automatically, or switch to Server IP.
                 </span>
               </p>
             ) : v.dashboardTunnelId ? (
@@ -85,7 +84,7 @@ export function DashboardSettings({
                 )}
                 <p className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-3.5 text-[13px] leading-relaxed text-fg-2">
                   <Waypoints className="mt-0.5 size-4 flex-none text-[#f38020]" />
-                  <ProductName /> points the domain at the tunnel when you save. Cloudflare serves it over HTTPS, so no public IP, open port or certificate is needed.
+                  The domain points at the tunnel when you save. Cloudflare serves it over HTTPS, so no public IP, open port or certificate is needed.
                 </p>
               </>
             ) : (

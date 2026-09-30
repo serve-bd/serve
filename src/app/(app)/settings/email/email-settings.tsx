@@ -10,7 +10,7 @@ import { Badge, Card, CardBody, CardFooter, CardHeader } from "@/components/ui/m
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { removeEmailSettings, saveEmailSettings, sendTestEmail } from "@/server/actions/email";
-import { ProductName, useProductName } from "@/components/brand";
+import { useProductName } from "@/components/brand";
 
 type Provider = "smtp" | "resend" | "postmark" | "mailroom";
 type Security = "none" | "starttls" | "tls";
@@ -98,11 +98,7 @@ export function EmailSettingsForm({ initial, mailrooms }: { initial: Initial; ma
       >
         <CardHeader
           title={<span className="flex items-center gap-2">Email {configured ? <Badge tone="ok">On</Badge> : <Badge>Off</Badge>}</span>}
-          description={
-            <>
-              <ProductName /> sends password resets, invitations and email notifications with these settings.
-            </>
-          }
+          description={<>Password resets, invitations and email notifications with these settings.</>}
         />
         <CardBody className="flex flex-col gap-5 py-5">
           <Field label="Send with">
@@ -158,14 +154,7 @@ export function EmailSettingsForm({ initial, mailrooms }: { initial: Initial; ma
               {v.provider === "mailroom" && (
                 <>
                   {mailrooms.length > 0 && (
-                    <Field
-                      label={
-                        <>
-                          Mailroom in <ProductName />
-                        </>
-                      }
-                      description="Fills in the address of a Mailroom you deployed here."
-                    >
+                    <Field label={<>Mailroom deployed here</>} description="Fills in the address of a Mailroom you deployed here.">
                       <Select
                         value={mailrooms.find((m) => m.url === v.baseUrl)?.id ?? ""}
                         onValueChange={(id) => {
@@ -177,14 +166,7 @@ export function EmailSettingsForm({ initial, mailrooms }: { initial: Initial; ma
                       />
                     </Field>
                   )}
-                  <Field
-                    label="Mailroom address"
-                    description={
-                      <>
-                        The address you open Mailroom at. <ProductName /> sends through its API at /api/v1/emails.
-                      </>
-                    }
-                  >
+                  <Field label="Mailroom address" description={<>The address you open Mailroom at. Emails go through its API at /api/v1/emails.</>}>
                     <Input value={v.baseUrl} onChange={(e) => set("baseUrl")(e.target.value)} placeholder="https://mail.example.com" className="font-mono text-[13px]" required />
                   </Field>
                 </>

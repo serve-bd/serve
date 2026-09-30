@@ -148,7 +148,7 @@ async function scheduleOn(serverId: string) {
       await notify(owner?.id ?? settings.rootOrganizationId, "server.disk", {
         ok: false,
         title: `Disk is ${Math.round(percent)}% full${where}`,
-        body: `Serve ran an automatic cleanup and freed ${formatSize(result.reclaimed)}. The disk is now ${nowPercent}% full.`,
+        body: `An automatic cleanup freed ${formatSize(result.reclaimed)}. The disk is now ${nowPercent}% full.`,
         url: `/servers/${serverId}/cleanup`,
         serverId,
         data: { percent: Math.round(percent), nowPercent, reclaimedBytes: result.reclaimed },

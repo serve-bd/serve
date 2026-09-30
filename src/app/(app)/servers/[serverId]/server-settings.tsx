@@ -18,7 +18,6 @@ import { deleteServer, resetHostKey, updateServer, validateServer } from "@/serv
 import type { ServerStatus } from "@/server/db/schema";
 import { SettingsCard } from "@/app/(app)/settings/_components/settings-card";
 import { ServerSetupProgress } from "../new/add-server";
-import { ProductName } from "@/components/brand";
 
 export type ServerDetails = {
   id: string;
@@ -50,11 +49,7 @@ export function ConnectionSettings({ server, keys }: { server: ServerDetails; ke
     return (
       <SettingsCard
         title="Details"
-        description={
-          <>
-            How this server appears in <ProductName />.
-          </>
-        }
+        description={<>How this server appears in the dashboard.</>}
         initial={{ name: server.name, description: server.description ?? "" }}
         onSave={(v) => updateServer(server.id, { name: v.name, description: v.description || null })}
       >
@@ -133,14 +128,7 @@ export function ConnectionSettings({ server, keys }: { server: ServerDetails; ke
               <Select value={v.privateKeyId || null} onValueChange={set("privateKeyId")} options={keys.map((k) => ({ value: k.id, label: k.name }))} placeholder="Choose a key" />
             </Field>
           </div>
-          <Field
-            label="Data directory"
-            description={
-              <>
-                Where <ProductName /> keeps repositories, proxy configuration and certificates on this server.
-              </>
-            }
-          >
+          <Field label="Data directory" description={<>Where repositories, proxy configuration and certificates on this server.</>}>
             <Input value={v.dataDir} onChange={(e) => set("dataDir")(e.target.value)} className="font-mono sm:max-w-sm" spellCheck={false} />
           </Field>
         </>
@@ -320,14 +308,7 @@ export function DangerZone({ server }: { server: ServerDetails }) {
   const remove = useAction(() => deleteServer(server.id), { success: `${server.name} removed`, refresh: false, onSuccess: () => router.push("/servers") });
   return (
     <Card className="border-bad/25">
-      <CardHeader
-        title="Remove server"
-        description={
-          <>
-            <ProductName /> forgets this server. Containers already running there keep running until you stop them on the server.
-          </>
-        }
-      />
+      <CardHeader title="Remove server" description={<>This server is forgotten. Containers already running there keep running until you stop them on the server.</>} />
       <CardBody className="flex flex-wrap items-center justify-between gap-3 py-4">
         <p className="text-[13px] text-muted">
           {server.services > 0

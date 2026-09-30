@@ -11,7 +11,6 @@ import { useAction } from "@/hooks/use-action";
 import { checkMonitorNow, saveMonitor } from "@/server/actions/monitoring";
 import type { MonitorSummary } from "@/server/monitoring/queries";
 import { Section } from "./section";
-import { ProductName } from "@/components/brand";
 
 const intervals = [
   { value: "30", label: "Every 30 seconds" },
@@ -57,11 +56,7 @@ export function MonitoringSection({
     <Section
       id="monitoring"
       title="Monitoring"
-      description={
-        <>
-          <ProductName /> checks this service and alerts your notification channels when it goes down and when it recovers.
-        </>
-      }
+      description={<>Checks this service and alerts your notification channels when it goes down and when it recovers.</>}
       initial={initial}
       onSave={(v) =>
         save.run({

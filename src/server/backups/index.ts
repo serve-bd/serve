@@ -127,7 +127,7 @@ async function composeCommands(service: ServiceRow, name: string): Promise<Comma
   // Checked again on the container itself, not only through the list filter.
   if (info.Config.Labels?.[LABEL.service] !== service.id) throw new Error(`The ${name} container does not belong to ${service.name}.`);
   const engine = engineOfImage(info.Config.Image);
-  if (!engine) throw new Error(`${name} runs ${info.Config.Image}, which is not a database Serve can back up.`);
+  if (!engine) throw new Error(`${name} runs ${info.Config.Image}, which is not a database that can be backed up.`);
   const env: Record<string, string> = {};
   for (const line of info.Config.Env ?? []) {
     const i = line.indexOf("=");

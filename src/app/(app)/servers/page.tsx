@@ -8,7 +8,6 @@ import { db, schema } from "@/server/db";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { ServerList } from "./server-list";
-import { ProductName } from "@/components/brand";
 
 export const metadata = { title: "Servers" };
 
@@ -48,14 +47,9 @@ export default async function ServersPage() {
         title="Servers"
         description={
           ctx.isRoot ? (
-            <>
-              Machines <ProductName /> deploys to. Add a server over SSH and <ProductName /> installs what it needs.
-            </>
+            <>Machines you deploy to. Add a server over SSH and everything it needs is installed.</>
           ) : (
-            <>
-              Servers {ctx.org.name} brings. Only this organization deploys to them, unless a Root admin shares one. Add a server over SSH and <ProductName /> installs what it
-              needs.
-            </>
+            <>Servers {ctx.org.name} brings. Only this organization deploys to them, unless a Root admin shares one. Add a server over SSH and everything it needs is installed.</>
           )
         }
         actions={

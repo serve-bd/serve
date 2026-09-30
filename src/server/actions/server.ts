@@ -81,7 +81,7 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
     if (!domain) patch.dashboardWantsTunnel = false;
     if (tunnelId && domain && (data.dashboardTunnelId !== undefined || data.dashboardDomain !== undefined)) {
       const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
-      if (tunnel?.serverId !== "local") throw new UserError("Choose a tunnel on the server Serve runs on.");
+      if (tunnel?.serverId !== "local") throw new UserError("Choose a tunnel on the server the dashboard runs on.");
       const { Cloudflare } = await import("@/server/cloudflare/api");
       const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
       const zone = await cf.zoneFor(domain).catch(() => null);

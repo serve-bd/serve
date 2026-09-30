@@ -11,7 +11,6 @@ import { Card, EmptyState } from "@/components/ui/misc";
 import { ProjectCard } from "./_components/project-card";
 import { DeploymentsTable } from "./_components/deployments-table";
 import { ServerCards } from "./_components/server-cards";
-import { ProductName } from "@/components/brand";
 import { managedServerIds } from "@/server/servers/access";
 
 async function serverCards(ids: string[]) {
@@ -123,15 +122,7 @@ export default async function OverviewPage() {
         </Section>
 
         {servers && (
-          <Section
-            title="Servers"
-            description={
-              <>
-                Machines <ProductName /> deploys to, with usage over the last 6 hours.
-              </>
-            }
-            href="/servers"
-          >
+          <Section title="Servers" description={<>Machines you deploy to, with usage over the last 6 hours.</>} href="/servers">
             <ServerCards servers={servers} />
           </Section>
         )}

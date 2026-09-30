@@ -16,7 +16,6 @@ import { useAction } from "@/hooks/use-action";
 import { addRegistry, deleteRegistry, testRegistry, updateRegistry } from "@/server/actions/registries";
 import { registryPresets } from "@/server/registries/refs";
 import type { RegistryKind } from "@/server/db/schema";
-import { ProductName } from "@/components/brand";
 
 export type RegistryItem = {
   id: string;
@@ -205,14 +204,7 @@ function RegistryDialog({ registry, onClose }: { registry: RegistryItem | null; 
             void save.run();
           }}
         >
-          <DialogHeader
-            title={registry ? `Edit ${registry.name}` : "Add a container registry"}
-            description={
-              <>
-                <ProductName /> logs in to check the credentials before saving.
-              </>
-            }
-          />
+          <DialogHeader title={registry ? `Edit ${registry.name}` : "Add a container registry"} description={<>The credentials are checked by logging in before saving.</>} />
           <DialogBody>
             <Field label="Registry" description={preset.hint}>
               <Select

@@ -17,7 +17,6 @@ import { DEFAULT_TAG, defaultRepository, renderTag } from "@/server/registries/r
 import type { Distribution } from "@/server/deploy/distribution";
 import type { DeploymentTarget } from "@/server/services/types";
 import { cn } from "@/lib/utils";
-import { ProductName } from "@/components/brand";
 
 type ServerOption = { id: string; name: string; status: string; isLocal: boolean };
 type RegistryOption = { id: string; name: string; host: string; namespace: string | null; username: string };
@@ -170,11 +169,7 @@ export function DistributionSection(props: {
               </Field>
               <SwitchRow
                 title="Also tag as latest"
-                description={
-                  <>
-                    Moves the latest tag to every new image, for tools outside <ProductName />.
-                  </>
-                }
+                description={<>Moves the latest tag to every new image, for tools that deploy it elsewhere.</>}
                 checked={value.tagLatest}
                 onCheckedChange={(c) => set({ tagLatest: c })}
                 disabled={!props.canEdit}

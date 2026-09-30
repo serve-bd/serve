@@ -4,7 +4,6 @@ import { getSettings } from "@/server/settings";
 import { securityChecks } from "@/server/security-checks";
 import { PageHeader } from "@/components/shell/page-header";
 import { SectionNav } from "@/components/shell/section-nav";
-import { ProductName } from "@/components/brand";
 
 export default async function SettingsLayout({ children }: LayoutProps<"/settings">) {
   const ctx = await requireOrg();
@@ -14,14 +13,7 @@ export default async function SettingsLayout({ children }: LayoutProps<"/setting
 
   return (
     <>
-      <PageHeader
-        title="Settings"
-        description={
-          <>
-            Settings for this <ProductName /> instance, shared by every organization and server.
-          </>
-        }
-      />
+      <PageHeader title="Settings" description={<>Settings for this instance, shared by every organization and server.</>} />
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 pt-4 pb-16 sm:px-8 lg:flex-row lg:gap-10 lg:pt-6">
         <SectionNav
           groups={[

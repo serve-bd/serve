@@ -115,7 +115,7 @@ export async function convertManifest(code: string) {
     headers: { accept: "application/vnd.github+json" },
     signal: AbortSignal.timeout(20000),
   });
-  if (!res.ok) throw new Error(`GitHub rejected the app setup (HTTP ${res.status}). Start again from Serve.`);
+  if (!res.ok) throw new Error(`GitHub rejected the app setup (HTTP ${res.status}). Start again from the dashboard.`);
   return (await res.json()) as {
     id: number;
     slug: string;

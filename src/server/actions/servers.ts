@@ -183,7 +183,7 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     const ownerChanged = data.ownerOrganizationId !== undefined && data.ownerOrganizationId !== before.ownerOrganizationId;
     let moveKey: string | null = null;
     if (ownerChanged) {
-      if (before.isLocal && data.ownerOrganizationId) throw new UserError("The server Serve runs on stays with the instance.");
+      if (before.isLocal && data.ownerOrganizationId) throw new UserError("The server the dashboard runs on stays with the instance.");
       if (data.ownerOrganizationId) {
         const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, data.ownerOrganizationId));
         if (!org) throw new UserError("Organization not found.");
@@ -213,7 +213,7 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
       await assertPublicHost(data.host);
     }
     if (before.isLocal && (data.host || data.port || data.username || data.privateKeyId || data.dataDir)) {
-      throw new UserError("The connection of this server cannot change: Serve runs on it.");
+      throw new UserError("The connection of this server cannot change: the dashboard runs on it.");
     }
     // Current effective ports (the local server uses its environment until ports are saved here).
     const current = await getServer(id).catch(() => null);
@@ -353,7 +353,7 @@ export async function resetHostKey(id: string) {
 export async function deleteServer(id: string) {
   return act(async () => {
     const { ctx, row } = await requireServerAdmin(id);
-    if (row.isLocal) throw new UserError("The server Serve runs on cannot be removed.");
+    if (row.isLocal) throw new UserError("The server the dashboard runs on cannot be removed.");
     const [{ n }] = await db.select({ n: count() }).from(schema.service).where(eq(schema.service.serverId, id));
     if (n > 0) throw new UserError(`${n} service${n === 1 ? " runs" : "s run"} on this server. Move or delete ${n === 1 ? "it" : "them"} first.`);
     const extraOf = await db

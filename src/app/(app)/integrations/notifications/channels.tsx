@@ -15,7 +15,6 @@ import { eventInfo, providerCategories, providerInfo, providers, severityOptions
 import { cn } from "@/lib/utils";
 import { deleteNotificationChannel, retryNotificationDelivery, testNotificationChannel, toggleNotificationChannel } from "@/server/actions/notifications";
 import { ProviderIcon } from "./provider-icon";
-import { ProductName } from "@/components/brand";
 
 export type ChannelCard = {
   id: string;
@@ -92,11 +91,7 @@ export function NotificationChannels({ channels, deliveries, isAdmin }: { channe
     <>
       <PageHeader
         title="Notifications"
-        description={
-          <>
-            Choose where <ProductName /> sends alerts, which events each place gets, and when.
-          </>
-        }
+        description={<>Choose where alerts go, which events each place gets, and when.</>}
         actions={isAdmin && channels.length > 0 && <AddChannelMenu />}
       />
       <PageBody className="flex flex-col gap-6">
@@ -266,12 +261,7 @@ function DeliveryHistory({ deliveries, channels, isAdmin }: { deliveries: Delive
                   {d.error && (
                     <p className={cn("mt-1 text-xs break-words", d.status === "failed" ? "text-bad" : "text-muted")}>
                       {d.error}
-                      {d.status === "failed" && d.nextAttemptAt && (
-                        <span className="text-muted">
-                          {" "}
-                          · <ProductName /> tries again automatically.
-                        </span>
-                      )}
+                      {d.status === "failed" && d.nextAttemptAt && <span className="text-muted"> · Tried again automatically.</span>}
                     </p>
                   )}
                   {d.status === "held" && <p className="mt-1 text-xs text-muted">Waiting for quiet hours to end.</p>}

@@ -17,7 +17,6 @@ import { ProxyPicker } from "./proxy-picker";
 import { CaddySettingsCard, NginxSettingsCard, TraefikSettingsCard, type TraefikSettingsView } from "./proxy-settings";
 import { BuiltInDefaultsCard, DynamicConfigsCard, ProxyContainerCard, type ContainerView, type ManagedFile } from "./dynamic-configs";
 import { cn } from "@/lib/utils";
-import { ProductName } from "@/components/brand";
 
 /** A switch counts as running only for a while, so a crashed worker does not lock the page. */
 const isSwitching = (s: ProxySwitchState | null) => s?.state === "running" && Date.now() - new Date(s.startedAt).getTime() < 10 * 60_000;
@@ -83,12 +82,7 @@ export function ProxyView({
           <EmptyState
             icon={<Unplug />}
             title="No proxy on this server"
-            description={
-              <>
-                <ProductName /> does not run a reverse proxy here, so domains and certificates are not served. Reach services on their published ports or put your own proxy in
-                front.
-              </>
-            }
+            description={<>No reverse proxy runs here, so domains and certificates are not served. Reach services on their published ports or put your own proxy in front.</>}
           />
         </Card>
       )}
@@ -96,7 +90,7 @@ export function ProxyView({
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-warn/25 bg-warn-soft px-5 py-4">
           <Square className="size-4 flex-none text-warn" />
           <p className="min-w-0 flex-1 text-[13px] text-fg-2">
-            <span className="font-medium text-fg">The proxy is stopped.</span> Every site on this server is offline. <ProductName /> does not start it again on its own.
+            <span className="font-medium text-fg">The proxy is stopped.</span> Every site on this server is offline. It does not start again on its own.
           </p>
           <Button size="sm" variant="primary" onClick={() => start.run()} loading={start.pending}>
             <Play /> Start proxy
@@ -299,8 +293,8 @@ function CustomConfigCard({ initial }: { initial: string }) {
           title="Shared nginx directives"
           description={
             <>
-              Extra directives for nginx&apos;s <code className="font-mono text-[12px]">http</code> block, like timeouts, headers or rate limit zones. <ProductName /> tests them
-              with <code className="font-mono text-[12px]">nginx -t</code> before applying. They apply to every server that runs nginx.
+              Extra directives for nginx&apos;s <code className="font-mono text-[12px]">http</code> block, like timeouts, headers or rate limit zones. They are tested with{" "}
+              <code className="font-mono text-[12px]">nginx -t</code> before applying. They apply to every server that runs nginx.
             </>
           }
         />

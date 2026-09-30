@@ -11,7 +11,6 @@ import { toast } from "@/components/ui/toast";
 import { CodeView } from "@/components/code-view";
 import { saveServiceProxyCustom } from "@/server/actions/service-proxy";
 import { cn } from "@/lib/utils";
-import { ProductName } from "@/components/brand";
 
 type RunningKind = "nginx" | "caddy" | "traefik";
 const LABEL: Record<RunningKind, string> = { nginx: "nginx", caddy: "Caddy", traefik: "Traefik" };
@@ -123,8 +122,8 @@ export function ProxyConfigCard({
         </div>
         {otherCustom.length > 0 && !custom && (
           <p className="text-xs text-muted">
-            A custom {otherCustom.map((k) => LABEL[k]).join(" and ")} configuration is saved for this service. This server runs {LABEL[kind]}, so <ProductName />
-            &apos;s generated configuration applies. The saved one comes back if you switch the proxy back.
+            A custom {otherCustom.map((k) => LABEL[k]).join(" and ")} configuration is saved for this service. This server runs {LABEL[kind]}, so the generated configuration
+            applies. The saved one comes back if you switch the proxy back.
           </p>
         )}
         {mode === "custom" && (
@@ -145,9 +144,7 @@ export function ProxyConfigCard({
           generated ? (
             <CodeView code={generated} maxHeight="480px" />
           ) : (
-            <p className="text-[13px] text-muted">
-              <ProductName /> writes no configuration for this service yet.
-            </p>
+            <p className="text-[13px] text-muted">No configuration is written for this service yet.</p>
           )
         ) : (
           <Textarea

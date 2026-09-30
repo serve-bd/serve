@@ -21,7 +21,6 @@ import { postManifest } from "@/lib/github";
 import { GithubMark } from "@/components/github-mark";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { MethodDialog, OAuthApps, OAuthSetupDialog, type OAuthAppRow, type OAuthBase, type OAuthProvider } from "./oauth-apps";
-import { ProductName } from "@/components/brand";
 
 type Cred = {
   id: string;
@@ -95,7 +94,7 @@ function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: bo
         <div className="flex min-w-0 flex-col gap-1">
           <h3 className="text-[15px] font-semibold text-fg">Connect GitHub</h3>
           <p className="max-w-xl text-[13px] leading-relaxed text-muted">
-            <ProductName /> creates a private GitHub App for this server. You choose which repositories it can read, and pushes and pull requests deploy automatically.
+            Creates a private GitHub App for this server. You choose which repositories it can read, and pushes and pull requests deploy automatically.
           </p>
         </div>
       </div>
@@ -215,14 +214,7 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
               void add.run();
             }}
           >
-            <DialogHeader
-              title="Add access token"
-              description={
-                <>
-                  <ProductName /> verifies the token and lists the repositories it can read.
-                </>
-              }
-            />
+            <DialogHeader title="Add access token" description={<>The token is checked, then you see the repositories it can read.</>} />
             <DialogBody>
               <Field label="Provider">
                 <Select

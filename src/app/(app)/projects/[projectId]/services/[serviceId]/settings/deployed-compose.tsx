@@ -37,7 +37,7 @@ export function DeployedCompose({ serviceId }: { serviceId: string }) {
             <FileCode2 className="size-4 text-muted" /> Deployed file
           </span>
         }
-        description="What Serve runs: your file plus its labels, networks, private hostnames and ports. Variable values stay in a separate .env file."
+        description="What runs: your file plus its labels, networks, private hostnames and ports. Variable values stay in a separate .env file."
         actions={
           <Button size="sm" variant="ghost" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
             {open ? "Hide" : "Show"} <ChevronDown className={cn("transition-transform", open && "rotate-180")} />
@@ -51,7 +51,7 @@ export function DeployedCompose({ serviceId }: { serviceId: string }) {
           ) : data === undefined ? (
             <Skeleton className="h-64" />
           ) : data === null ? (
-            <p className="text-[13px] text-muted">Nothing deployed yet. Deploy the stack to see the file Serve runs.</p>
+            <p className="text-[13px] text-muted">Nothing deployed yet. Deploy the stack to see the file that runs.</p>
           ) : (
             <>
               <div className="flex items-center justify-between gap-3 text-xs text-muted">

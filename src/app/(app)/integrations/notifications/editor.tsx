@@ -32,7 +32,6 @@ import {
 import { cn } from "@/lib/utils";
 import { saveNotificationChannel, testNotificationChannel } from "@/server/actions/notifications";
 import { ProviderIcon } from "./provider-icon";
-import { ProductName } from "@/components/brand";
 
 export type ScopeProject = { id: string; name: string; environments: { id: string; name: string; services: { id: string; name: string }[] }[] };
 
@@ -109,7 +108,7 @@ export function ChannelEditor(props: {
     refresh: !!props.channelId,
   });
 
-  const events = notifyEventCatalog.filter((e) => props.isRoot || (e.group !== "Serve" && (e.group !== "Servers" || props.hasServers)));
+  const events = notifyEventCatalog.filter((e) => props.isRoot || (e.group !== "Instance" && (e.group !== "Servers" || props.hasServers)));
   const groups = notifyEventGroups.filter((g) => events.some((e) => e.group === g));
 
   return (
@@ -242,9 +241,7 @@ export function ChannelEditor(props: {
               <CardHeader title="Delivery" description="When messages go out and how repeats are handled." />
               <CardBody className="flex flex-col gap-5 py-5">
                 {alerting ? (
-                  <p className="text-[13px] text-muted">
-                    {provider.label} decides who is paged and when. <ProductName /> opens an alert for each problem and closes it when the problem is fixed.
-                  </p>
+                  <p className="text-[13px] text-muted">{provider.label} decides who is paged and when. An alert opens for each problem and closes when the problem is fixed.</p>
                 ) : (
                   <QuietHoursFields value={form.quietHours} onChange={(quietHours) => set({ quietHours })} />
                 )}
@@ -602,14 +599,7 @@ function WebhookDocs() {
   const example = JSON.stringify(webhookExample, null, 2);
   return (
     <Card>
-      <CardHeader
-        title="Payload"
-        description={
-          <>
-            <ProductName /> sends this JSON body. Fields may be added over time; existing ones keep their meaning.
-          </>
-        }
-      />
+      <CardHeader title="Payload" description={<>This JSON body is sent. Fields may be added over time; existing ones keep their meaning.</>} />
       <CardBody className="flex flex-col gap-4 py-5">
         <div className="relative">
           <pre className="max-h-80 overflow-auto rounded-xl border border-line bg-sunken p-4 font-mono text-[12px] leading-5 text-fg-2">{example}</pre>

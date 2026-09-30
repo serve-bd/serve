@@ -11,7 +11,6 @@ import { useRouter } from "@/hooks/use-router";
 import { disableTunnel, restartTunnelConnector, tunnelDetails, tunnelImpact, updateTunnelConnector } from "@/server/actions/integrations";
 import type { TunnelDetails } from "@/server/cloudflare/tunnels";
 import { cn } from "@/lib/utils";
-import { ProductName } from "@/components/brand";
 
 export type TunnelDomain = { hostname: string; service: { name: string; href: string } | null };
 export type TunnelInfo = {
@@ -216,9 +215,7 @@ export function TunnelRow({
                 ) : (
                   <>
                     <p className="text-[13px] font-medium text-bad">Missing</p>
-                    <p className="text-xs text-muted">
-                      <ProductName /> starts it again within a minute, or restart it now.
-                    </p>
+                    <p className="text-xs text-muted">It starts again within a minute, or restart it now.</p>
                   </>
                 )
               ) : (

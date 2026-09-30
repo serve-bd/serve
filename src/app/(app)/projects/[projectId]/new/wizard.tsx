@@ -23,7 +23,6 @@ import { GithubMark } from "@/components/github-mark";
 import { PageBody, PageHeader, type Crumb } from "@/components/shell/page-header";
 import useSWR from "swr";
 import type { DbEngine } from "@/server/services/types";
-import { ProductName } from "@/components/brand";
 import { NixpacksHint } from "@/components/nixpacks-hint";
 
 type Kind = "git" | "image" | "database" | "compose";
@@ -254,11 +253,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
   return (
     <FormShell
       title="Add a Git repository"
-      description={
-        <>
-          <ProductName /> clones the repository, {compose ? "then runs every service of its compose file." : "builds an image and deploys it with zero downtime."}
-        </>
-      }
+      description={<>The server clones the repository, {compose ? "then runs every service of its compose file." : "builds an image and deploys it with zero downtime."}</>}
       onBack={onBack}
       onSubmit={() =>
         compose
@@ -498,11 +493,7 @@ function ImageForm({ props, onBack }: { props: Props; onBack: () => void }) {
   return (
     <FormShell
       title="Add a Docker image"
-      description={
-        <>
-          <ProductName /> pulls the image and runs it. Redeploy to pull the newest version of a tag.
-        </>
-      }
+      description={<>The server pulls the image and runs it. Redeploy to pull the newest version of a tag.</>}
       onBack={onBack}
       onSubmit={() =>
         run({

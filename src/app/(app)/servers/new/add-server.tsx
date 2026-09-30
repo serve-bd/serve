@@ -18,7 +18,6 @@ import { JoinCommand } from "@/components/tunnel-join";
 import { getServerProgress } from "@/server/actions/servers-ui";
 import type { ServerStatus } from "@/server/db/schema";
 import { cn } from "@/lib/utils";
-import { ProductName } from "@/components/brand";
 
 type Key = { id: string; name: string; publicKey: string; fingerprint: string };
 type Step = "connection" | "key" | "connect" | "join";
@@ -160,14 +159,7 @@ export function AddServer({ keys: initialKeys, tunnel }: { keys: Key[]; tunnel: 
           }}
         >
           <Card>
-            <CardHeader
-              title="Where is the server?"
-              description={
-                <>
-                  Any Linux machine with SSH. <ProductName /> connects as this user to install and run Docker.
-                </>
-              }
-            />
+            <CardHeader title="Where is the server?" description={<>Any Linux machine with SSH. The connection uses this user to install and run Docker.</>} />
             <CardBody className="flex flex-col gap-4 py-5">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="How to reach the server">
                 {(
@@ -195,14 +187,7 @@ export function AddServer({ keys: initialKeys, tunnel }: { keys: Key[]; tunnel: 
                   </button>
                 ))}
               </div>
-              <Field
-                label="Name"
-                description={
-                  <>
-                    Shown in <ProductName />, for example the provider and region.
-                  </>
-                }
-              >
+              <Field label="Name" description={<>Shown in the dashboard, for example the provider and region.</>}>
                 <Input value={conn.name} onChange={(e) => setConn({ ...conn, name: e.target.value })} placeholder="hetzner-fsn-1" autoFocus />
               </Field>
               {reach === "ssh" && (
@@ -239,11 +224,7 @@ export function AddServer({ keys: initialKeys, tunnel }: { keys: Key[]; tunnel: 
               {reach === "tunnel" && (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
                   <Field
-                    label={
-                      <>
-                        This <ProductName /> machine&apos;s address
-                      </>
-                    }
+                    label={<>This machine&apos;s address</>}
                     description={`The server connects out to it on TCP ${tunnel.port}: its public IP or a host name that is not behind Cloudflare's proxy.`}
                   >
                     <Input
@@ -277,18 +258,7 @@ export function AddServer({ keys: initialKeys, tunnel }: { keys: Key[]; tunnel: 
 
       {step === "key" && (
         <Card>
-          <CardHeader
-            title={
-              <>
-                How does <ProductName /> sign in?
-              </>
-            }
-            description={
-              <>
-                <ProductName /> uses an SSH key. Authorize its public key on the server, then connect.
-              </>
-            }
-          />
+          <CardHeader title={<>How does it sign in?</>} description={<>It signs in with an SSH key. Authorize its public key on the server, then connect.</>} />
           <CardBody className="flex flex-col gap-4 py-5">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="SSH key">
               {(
@@ -340,7 +310,7 @@ export function AddServer({ keys: initialKeys, tunnel }: { keys: Key[]; tunnel: 
             )}
             {keyMode === "generate" && (
               <p className="rounded-xl bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed text-muted">
-                <ProductName /> creates a new key pair for this server. Next, you copy its public key to the server. The private key is encrypted and never leaves <ProductName />.
+                A new key pair is created for this server. Next, you copy its public key to the server. The private key is encrypted and never leaves this machine.
               </p>
             )}
             {keyMode === "import" && (
@@ -509,14 +479,7 @@ function ConnectStep({ serverId, name, onBack }: { serverId: string; name: strin
   const [ready, setReady] = React.useState(false);
   return (
     <Card>
-      <CardHeader
-        title={`Connecting to ${name || "the server"}`}
-        description={
-          <>
-            <ProductName /> checks SSH access and Docker, prepares its data directory and starts the proxy.
-          </>
-        }
-      />
+      <CardHeader title={`Connecting to ${name || "the server"}`} description={<>Checks SSH access and Docker, prepares its data directory and starts the proxy.</>} />
       <CardBody className="py-5">
         <ServerSetupProgress serverId={serverId} onReady={() => setReady(true)} />
       </CardBody>
@@ -569,9 +532,7 @@ function JoinStep(props: { serverId: string; name: string; command: string; expi
         title={connected ? `Setting up ${props.name}` : `Connect ${props.name}`}
         description={
           connected ? (
-            <>
-              Connected through the tunnel. <ProductName /> checks Docker, prepares its data directory and starts the proxy.
-            </>
+            <>Connected through the tunnel. Checks Docker, prepares its data directory and starts the proxy.</>
           ) : (
             "Run the command on the server. This page moves on by itself when it connects."
           )

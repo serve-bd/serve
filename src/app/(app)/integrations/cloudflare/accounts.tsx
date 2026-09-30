@@ -23,7 +23,15 @@ type Tunnel = TunnelInfo;
 function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Account; servers: ServerOption[]; tunnels: Tunnel[]; isAdmin: boolean }) {
   // Servers whose "Create tunnel" is running. Clicks on several servers queue up; each keeps its spinner.
   const [busy, setBusy] = React.useState<ReadonlySet<string>>(new Set());
-  const mine = tunnels.filter((t) => t.accountId === account.id);
+  // Tunnels just created here, shown until the refreshed page brings them.
+  const [created, setCreated] = React.useState<Tunnel[]>([]);
+  const known = tunnels.map((t) => t.id).join();
+  // Once the page has them, the page is the source: a later removal must not bring them back.
+  React.useEffect(() => {
+    const ids = new Set(known.split(","));
+    setCreated((c) => (c.some((t) => ids.has(t.id)) ? c.filter((t) => !ids.has(t.id)) : c));
+  }, [known]);
+  const mine = [...tunnels, ...created.filter((c) => !tunnels.some((t) => t.id === c.id))].filter((t) => t.accountId === account.id);
   const withTunnel = mine.map((t) => t.serverId).join();
   // Forget servers whose tunnel now shows, so a later "Create tunnel" there starts without a spinner.
   React.useEffect(() => {
@@ -44,6 +52,7 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
   }, [starting]);
   const enable = useAction(enableTunnel, {
     onSuccess: (r) => {
+      setCreated((c) => [...c.filter((t) => t.id !== r.tunnel.id), r.tunnel]);
       const n = r.reconnected.length;
       if (r.failed.length)
         toast.warning(

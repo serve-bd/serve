@@ -547,7 +547,23 @@ export async function enableTunnel(cloudflareAccountId: string, serverId: string
     });
     // Domains that used a tunnel on this server before (account reconnected, tunnel recreated) come back.
     const revived = await reattachTunnelDomains(tunnel).catch(() => null);
-    return { id: tunnel.id, reconnected: revived?.reconnected ?? [], failed: revived?.failed ?? [] };
+    // The page shows the row from this right away: its own refresh waits for other actions still running.
+    return {
+      tunnel: {
+        id: tunnel.id,
+        accountId: tunnel.cloudflareAccountId,
+        serverId: tunnel.serverId,
+        name: tunnel.name,
+        cfTunnelId: tunnel.cfTunnelId,
+        status: tunnel.status,
+        statusMessage: tunnel.statusMessage,
+        createdAt: tunnel.createdAt.toISOString(),
+        updatedAt: tunnel.updatedAt.toISOString(),
+        domains: [],
+      },
+      reconnected: revived?.reconnected ?? [],
+      failed: revived?.failed ?? [],
+    };
   });
 }
 

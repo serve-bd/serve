@@ -103,8 +103,8 @@ export function ConnectionCheck({ domain, tunnel }: { domain: string; tunnel: bo
       </div>
       {expanded && steps && (
         <ol className="divide-y divide-line border-t border-line bg-surface">
-          {steps.map((s, i) => (
-            <StepRow key={s.id} step={s} index={i} onFixed={() => void mutate()} />
+          {steps.map((s) => (
+            <StepRow key={s.id} step={s} onFixed={() => void mutate()} />
           ))}
         </ol>
       )}
@@ -112,7 +112,7 @@ export function ConnectionCheck({ domain, tunnel }: { domain: string; tunnel: bo
   );
 }
 
-function StepRow({ step, index, onFixed }: { step: ConnectionStep; index: number; onFixed: () => void }) {
+function StepRow({ step, onFixed }: { step: ConnectionStep; onFixed: () => void }) {
   const hasMore = !!(step.detail || step.records?.length || step.command);
   // Problems start open; the user can still fold them.
   const [open, setOpen] = React.useState<boolean | null>(null);
@@ -133,7 +133,7 @@ function StepRow({ step, index, onFixed }: { step: ConnectionStep; index: number
           aria-expanded={hasMore ? expanded : undefined}
         >
           <span className="flex items-center gap-1.5 text-[13px] font-medium text-fg">
-            <span className="text-faint tabular-nums">{index + 1}.</span> {step.title}
+            {step.title}
             {hasMore && <ChevronDown className={cn("size-3.5 text-faint transition-transform", expanded && "rotate-180")} />}
           </span>
           <span className={cn("mt-0.5 text-[13px]", step.state === "fail" ? "text-bad" : step.state === "warn" ? "text-warn" : "text-muted")}>{step.summary}</span>

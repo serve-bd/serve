@@ -11,7 +11,7 @@ import { Card, EmptyState } from "@/components/ui/misc";
 import { ProjectCard } from "./_components/project-card";
 import { DeploymentsTable } from "./_components/deployments-table";
 import { ServerCards } from "./_components/server-cards";
-import { managedServerIds } from "@/server/servers/access";
+import { listedServerIds } from "@/server/servers/access";
 
 async function serverCards(ids: string[]) {
   const rows = await db
@@ -71,7 +71,7 @@ export default async function OverviewPage() {
   const [projects, deployments, servers] = await Promise.all([
     projectSummaries(ctx.org.id, ctx.projectIds),
     recentDeployments(ctx.org.id, 8, undefined, ctx.projectIds),
-    ctx.isInstanceAdmin || ctx.isAdmin ? managedServerIds(ctx).then((ids) => (ids.length ? serverCards(ids) : null)) : Promise.resolve(null),
+    ctx.isInstanceAdmin || ctx.isAdmin ? listedServerIds(ctx).then((ids) => (ids.length ? serverCards(ids) : null)) : Promise.resolve(null),
   ]);
   return (
     <>

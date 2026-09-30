@@ -3,9 +3,9 @@ import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { UserError } from "@/server/action";
 import { ForbiddenError, type OrgContext, requireOrg } from "@/server/auth";
-import { canAddServers, canManageServer, ownerFor, serverAllowsOrg } from "./ownership";
+import { canAddServers, canManageServer, listedInOrg, ownerFor, serverAllowsOrg } from "./ownership";
 
-export { canAddServers, canManageServer, ownerFor, serverAllowsOrg };
+export { canAddServers, canManageServer, listedInOrg, ownerFor, serverAllowsOrg };
 
 /** The signed-in admin and a server they manage; throws otherwise. */
 export async function requireServerAdmin(serverId: string) {
@@ -24,10 +24,12 @@ export async function requireServerCreator() {
   return ctx;
 }
 
-/** Servers a context manages: every server for Root admins, else the ones its organization owns. */
-export async function managedServerIds(ctx: Pick<OrgContext, "isInstanceAdmin" | "isAdmin" | "org">) {
-  const rows = await db.select({ id: schema.server.id, ownerOrganizationId: schema.server.ownerOrganizationId }).from(schema.server);
-  return rows.filter((r) => canManageServer(ctx, r)).map((r) => r.id);
+/** Servers the lists show in the active organization (listedInOrg). */
+export async function listedServerIds(ctx: Pick<OrgContext, "isInstanceAdmin" | "isAdmin" | "isRoot" | "org">) {
+  const rows = await db
+    .select({ id: schema.server.id, ownerOrganizationId: schema.server.ownerOrganizationId, organizationIds: schema.server.organizationIds })
+    .from(schema.server);
+  return rows.filter((r) => listedInOrg(ctx, r)).map((r) => r.id);
 }
 
 /** Whether an organization brought servers of its own. */

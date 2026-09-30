@@ -16,6 +16,17 @@ export function canManageServer(ctx: Pick<Ctx, "isInstanceAdmin" | "isAdmin" | "
   return ctx.isInstanceAdmin || (ctx.isAdmin && !!server.ownerOrganizationId && server.ownerOrganizationId === ctx.org.id);
 }
 
+/**
+ * Servers listed while an organization is active: in Root, every server a Root admin manages; in
+ * any other organization only its own servers, plus (for Root admins) the ones shared with it.
+ * Root admins can still open any server; the lists just match the organization they are in.
+ */
+export function listedInOrg(ctx: Pick<Ctx, "isInstanceAdmin" | "isAdmin" | "isRoot" | "org">, server: ServerAccess) {
+  if (ctx.isRoot) return canManageServer(ctx, server);
+  if (server.ownerOrganizationId === ctx.org.id) return ctx.isAdmin || ctx.isInstanceAdmin;
+  return ctx.isInstanceAdmin && serverAllowsOrg(server, ctx.org.id);
+}
+
 /** Admins may add servers and SSH keys: Root admins for the instance (in Root), others for their organization. */
 export function canAddServers(ctx: Pick<Ctx, "isInstanceAdmin" | "isAdmin" | "isRoot">) {
   return ctx.isRoot ? ctx.isInstanceAdmin : ctx.isAdmin;

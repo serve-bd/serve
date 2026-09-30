@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { asc, sql } from "drizzle-orm";
 import { Plus } from "lucide-react";
 import { requireOrg } from "@/server/auth";
-import { canAddServers, managedServerIds } from "@/server/servers/access";
+import { canAddServers, listedServerIds } from "@/server/servers/access";
 import { db, schema } from "@/server/db";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { buttonVariants } from "@/components/ui/button";
@@ -14,7 +14,7 @@ export const metadata = { title: "Servers" };
 export default async function ServersPage() {
   const ctx = await requireOrg();
   if (!ctx.isInstanceAdmin && !ctx.isAdmin) redirect("/");
-  const managed = new Set(await managedServerIds(ctx));
+  const managed = new Set(await listedServerIds(ctx));
   const all = await db
     .select({
       id: schema.server.id,
@@ -38,7 +38,7 @@ export default async function ServersPage() {
     })
     .from(schema.server)
     .orderBy(sql`${schema.server.isLocal} desc`, asc(schema.server.createdAt));
-  // Root admins see every server; an organization's admins see the servers it brought.
+  // In Root every server; in another organization only the servers available to it.
   const rows = all.filter((r) => managed.has(r.id)).map((r) => ({ ...r, owner: ctx.isInstanceAdmin ? r.owner : null }));
 
   return (

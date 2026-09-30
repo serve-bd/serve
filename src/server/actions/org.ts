@@ -15,7 +15,7 @@ import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
 import type { MemberRole } from "@/server/db/schema";
 import { expandScopes, normalizeScopes } from "@/lib/api-scopes";
-import { allowedScopes, canGrant, cannotMessage, isBuiltinRole, memberRoleFor, normalizePermissions } from "@/lib/permissions";
+import { allowedScopes, BUILTIN_ROLE_INFO, canGrant, cannotMessage, isBuiltinRole, memberRoleFor, normalizePermissions } from "@/lib/permissions";
 import { organizationRoles } from "@/server/permissions";
 
 export async function switchOrganization(organizationId: string) {
@@ -309,15 +309,18 @@ export async function deleteRole(roleId: string) {
 }
 
 /** Adjust the built-in Developer role, for example to let developers see secret values. */
-export async function saveDeveloperPermissions(permissions: string[]) {
+/** Permissions of a built-in role that organizations may adjust (Developer, Viewer). Owner and Admin stay complete. */
+export async function saveBuiltinPermissions(role: string, permissions: string[]) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
+    if (!isBuiltinRole(role) || !BUILTIN_ROLE_INFO[role].editable) throw new UserError("This role cannot be changed.");
     const next = normalizePermissions(z.array(z.string()).max(50).parse(permissions));
+    const name = BUILTIN_ROLE_INFO[role].name;
     await db
       .insert(schema.orgRole)
-      .values({ id: newId(), organizationId: ctx.org.id, builtin: "developer", name: "Developer", permissions: next })
+      .values({ id: newId(), organizationId: ctx.org.id, builtin: role, name, permissions: next })
       .onConflictDoUpdate({ target: [schema.orgRole.organizationId, schema.orgRole.builtin], set: { permissions: next, updatedAt: new Date() } });
-    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "role.saved", message: "Changed the Developer role" });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "role.saved", message: `Changed the ${name} role` });
     return null;
   });
 }

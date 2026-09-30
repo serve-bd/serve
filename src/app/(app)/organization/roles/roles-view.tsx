@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, Minus, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { Check, Eye, Lock, Minus, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader } from "@/components/ui/misc";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -10,11 +10,14 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { deleteRole, saveDeveloperPermissions, saveRole } from "@/server/actions/org";
-import { PERMISSION_GROUPS, PERMISSION_INFO, type Permission } from "@/lib/permissions";
+import { deleteRole, saveBuiltinPermissions, saveRole } from "@/server/actions/org";
+import { BUILTIN_ROLE_INFO, isBuiltinRole, PERMISSION_GROUPS, PERMISSION_INFO, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 type Role = { id: string; name: string; description: string | null; builtin: string | null; permissions: Permission[]; members: number };
+
+/** Custom roles, and the built-in roles an organization may adjust (Developer, Viewer). */
+const editableRole = (r: Role) => !r.builtin || (isBuiltinRole(r.builtin) && BUILTIN_ROLE_INFO[r.builtin].editable);
 
 export function RolesView({ roles, canEdit }: { roles: Role[]; canEdit: boolean }) {
   const confirm = useConfirm();
@@ -46,19 +49,27 @@ export function RolesView({ roles, canEdit }: { roles: Role[]; canEdit: boolean 
                 <span className="flex items-center gap-2 text-[14px] font-medium text-fg">
                   {r.name}
                   {r.builtin ? <Badge>Built-in</Badge> : <Badge tone="info">Custom</Badge>}
+                  {r.builtin && !editableRole(r) && (
+                    <span
+                      className="flex items-center gap-1 text-[11px] font-normal text-faint"
+                      title="Always has every permission, so the organization can never lock itself out."
+                    >
+                      <Lock className="size-3" /> Fixed
+                    </span>
+                  )}
                 </span>
                 <span className="text-xs leading-relaxed text-muted">
                   {r.description ?? `${r.permissions.length} permissions`} · {r.members} member{r.members === 1 ? "" : "s"}
                 </span>
               </div>
               <div className="flex flex-none items-center gap-1">
-                {canEdit && (r.id === "developer" || !r.builtin) ? (
+                {canEdit && editableRole(r) ? (
                   <Button size="sm" variant="ghost" onClick={() => setEditing(r)}>
                     <Pencil /> Edit
                   </Button>
                 ) : (
                   <Button size="sm" variant="ghost" onClick={() => setEditing(r)}>
-                    View
+                    <Eye /> View
                   </Button>
                 )}
                 {canEdit && !r.builtin && (
@@ -91,13 +102,7 @@ export function RolesView({ roles, canEdit }: { roles: Role[]; canEdit: boolean 
 
       <PermissionMatrix roles={roles} />
 
-      {editing && (
-        <RoleDialog
-          role={editing === "new" ? null : editing}
-          readOnly={!canEdit || (editing !== "new" && !!editing.builtin && editing.id !== "developer")}
-          onClose={() => setEditing(null)}
-        />
-      )}
+      {editing && <RoleDialog role={editing === "new" ? null : editing} readOnly={!canEdit || (editing !== "new" && !editableRole(editing))} onClose={() => setEditing(null)} />}
       {custom.length === 0 && canEdit && <p className="text-xs text-muted">Custom roles are shared by every project in this organization.</p>}
     </div>
   );
@@ -144,8 +149,8 @@ function RoleDialog({ role, readOnly, onClose }: { role: Role | null; readOnly: 
   const [name, setName] = React.useState(role?.name ?? "");
   const [description, setDescription] = React.useState(role?.description ?? "");
   const [perms, setPerms] = React.useState<Set<Permission>>(new Set(role?.permissions ?? ["projects.view"]));
-  const developer = role?.id === "developer";
-  const save = useAction(() => (developer ? saveDeveloperPermissions([...perms]) : saveRole(role?.id ?? null, { name, description, permissions: [...perms] })), {
+  const builtin = role?.builtin ?? null;
+  const save = useAction(() => (builtin ? saveBuiltinPermissions(builtin, [...perms]) : saveRole(role?.id ?? null, { name, description, permissions: [...perms] })), {
     success: "Role saved",
     onSuccess: onClose,
   });
@@ -162,7 +167,13 @@ function RoleDialog({ role, readOnly, onClose }: { role: Role | null; readOnly: 
       <DialogContent size="lg">
         <DialogHeader
           title={role ? (readOnly ? role.name : `Edit ${role.name}`) : "New role"}
-          description={developer ? "Changes apply at once to every Developer in this organization." : "Members with this role get exactly these permissions."}
+          description={
+            builtin && !readOnly
+              ? `Changes apply at once to every ${role!.name} in this organization.`
+              : builtin && !editableRole(role!)
+                ? "Always has every permission, so the organization can never lock itself out."
+                : "Members with this role get exactly these permissions."
+          }
         />
         <DialogBody className="max-h-[65vh] overflow-y-auto [&>*]:shrink-0">
           {!role?.builtin && (
@@ -198,7 +209,7 @@ function RoleDialog({ role, readOnly, onClose }: { role: Role | null; readOnly: 
         <DialogFooter>
           <DialogClose render={<Button variant="ghost" size="sm" />}>{readOnly ? "Close" : "Cancel"}</DialogClose>
           {!readOnly && (
-            <Button variant="primary" size="sm" onClick={() => save.run()} loading={save.pending} disabled={!developer && !name.trim()}>
+            <Button variant="primary" size="sm" onClick={() => save.run()} loading={save.pending} disabled={!builtin && !name.trim()}>
               Save role
             </Button>
           )}

@@ -58,10 +58,10 @@ export const BUILTIN_ROLE_INFO: Record<BuiltinRole, { name: string; description:
   owner: { name: "Owner", description: "Everything, including deleting the organization and managing owners.", editable: false },
   admin: { name: "Admin", description: "Everything except managing owners and deleting the organization.", editable: false },
   developer: { name: "Developer", description: "Deploys and changes services. Cannot see secret values unless you allow it.", editable: true },
-  viewer: { name: "Viewer", description: "Read-only: projects, services, deployments and logs.", editable: false },
+  viewer: { name: "Viewer", description: "Read-only by default: projects, services, deployments and logs.", editable: true },
 };
 
-/** Default permissions of each built-in role. Developer can be adjusted per organization. */
+/** Default permissions of each built-in role. Developer and Viewer can be adjusted per organization. */
 export const BUILTIN_PERMISSIONS: Record<BuiltinRole, readonly Permission[]> = {
   owner: PERMISSIONS,
   admin: PERMISSIONS,

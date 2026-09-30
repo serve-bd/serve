@@ -49,3 +49,22 @@ describe("organization server addresses", () => {
     }
   });
 });
+
+describe("servers listed in the active organization", () => {
+  it("shows every server in Root, and only available ones elsewhere", async () => {
+    const { listedInOrg } = await import("@/server/servers/ownership");
+    const rootAdmin = { isInstanceAdmin: true, isAdmin: true, isRoot: true, org: { id: "root" } };
+    const rootAdminInAcme = { ...rootAdmin, isRoot: false, org: { id: "acme" } };
+    const acmeAdmin = { isInstanceAdmin: false, isAdmin: true, isRoot: false, org: { id: "acme" } };
+    const instanceOnlyRoot = { ownerOrganizationId: null, organizationIds: ["root"] };
+    const sharedWithAcme = { ownerOrganizationId: null, organizationIds: ["root", "acme"] };
+    const acmeOwn = { ownerOrganizationId: "acme", organizationIds: [] };
+    expect(listedInOrg(rootAdmin, instanceOnlyRoot)).toBe(true);
+    expect(listedInOrg(rootAdmin, acmeOwn)).toBe(true);
+    expect(listedInOrg(rootAdminInAcme, instanceOnlyRoot)).toBe(false);
+    expect(listedInOrg(rootAdminInAcme, sharedWithAcme)).toBe(true);
+    expect(listedInOrg(rootAdminInAcme, acmeOwn)).toBe(true);
+    expect(listedInOrg(acmeAdmin, sharedWithAcme)).toBe(false);
+    expect(listedInOrg(acmeAdmin, acmeOwn)).toBe(true);
+  });
+});

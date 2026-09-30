@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { and, desc, eq, gt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import type Docker from "dockerode";
@@ -410,7 +410,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     await setDeployment(dep.id, { error: `Not deployed to ${failed.map((t) => `${t.name}: ${t.error ?? t.status}`).join("; ")}`.slice(0, 4000) });
   }
   // The build server keeps a copy for fast rebuilds; trim it like the others.
-  if (buildServer.id !== server.id && !extras.some((e) => e.id === buildServer.id)) await pruneImages(service, buildServer).catch(() => {});
+  if (buildServer.id !== server.id && !extras.some((e) => e.id === buildServer.id)) await pruneImages(service, buildServer, image).catch(() => {});
 }
 
 /** Start a deployment's containers on one server, wait for health, switch traffic and retire the old version there. */
@@ -504,6 +504,8 @@ async function runOnServer(opts: {
     log.step("Waiting for healthchecks");
     await Promise.all(started.map((id) => waitHealthy(id, runtime, log.line, signal, network, server)));
     log.line("All containers are healthy");
+    // Last chance to cancel before traffic moves to the new version.
+    checkCancelled(signal);
   } catch (error) {
     for (const id of started) await removeContainer(id, 0, d);
     if (needsStopFirst && old.length) {
@@ -546,7 +548,7 @@ async function runOnServer(opts: {
   } else if (old.length) {
     await Promise.all(old.map((c) => removeContainer(c.Id, 0, d)));
   }
-  await pruneImages(service, server).catch(() => {});
+  await pruneImages(service, server, image).catch(() => {});
 }
 
 /**
@@ -600,7 +602,10 @@ async function runPreDeploy(opts: {
     const result = (await Promise.race([
       container.wait(),
       new Promise((_, reject) => setTimeout(() => reject(new Error("The pre-deploy command timed out.")), timeoutMs)),
-      new Promise((_, reject) => opts.signal?.addEventListener("abort", () => reject(new DeployCancelled("Deployment cancelled")))),
+      new Promise((_, reject) => {
+        if (opts.signal?.aborted) reject(new DeployCancelled("Deployment cancelled"));
+        else opts.signal?.addEventListener("abort", () => reject(new DeployCancelled("Deployment cancelled")), { once: true });
+      }),
     ])) as { StatusCode: number };
     await new Promise((r) => setTimeout(r, 200));
     if (partial) log.line(partial);
@@ -628,8 +633,8 @@ async function assertPortsFree(d: Docker, serverName: string, ports: PortMapping
   }
 }
 
-/** Keep the newest N images per service for rollbacks; N is set per server. */
-async function pruneImages(service: Service, server: ServerCtx) {
+/** Keep the newest N images per service for rollbacks (N is set per server), and the image being deployed. */
+async function pruneImages(service: Service, server: ServerCtx, current: string) {
   const d = server.docker;
   const keep = await db
     .select({ image: schema.deployment.image })
@@ -637,7 +642,7 @@ async function pruneImages(service: Service, server: ServerCtx) {
     .where(and(eq(schema.deployment.serviceId, service.id), eq(schema.deployment.status, "success")))
     .orderBy(desc(schema.deployment.createdAt))
     .limit(Math.max(1, server.row.imageRetention) + 1);
-  const keepSet = new Set(keep.map((k) => k.image).filter(Boolean));
+  const keepSet = new Set([current, ...keep.map((k) => k.image).filter(Boolean)]);
   const images = await d.listImages({ filters: { reference: [`${imageRepo(service.slug)}:*`] } });
   for (const img of images) {
     const tags = img.RepoTags ?? [];
@@ -746,18 +751,21 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   const serviceDir = paths.service(service.id);
   let dir = path.join(serviceDir, "compose");
   let content = cfg.content;
+  let removed: string[] = [];
 
   if (cfg.mode === "git") {
     if (service.source?.type !== "git") throw new Error("Compose from git needs a git source.");
     log.step("Cloning repository");
     const repoDir = path.join(serviceDir, "repo");
-    const clone = await cloneRepository(service.source, repoDir, log.line, signal, await orgIdOf(service));
+    // Updated in place: relative bind mounts keep their data in the repository directory.
+    const clone = await cloneRepository(service.source, repoDir, log.line, signal, await orgIdOf(service), { inPlace: true });
     await setDeployment(dep.id, {
       commitSha: clone.commitSha,
       commitMessage: clone.commitMessage,
       commitAuthor: clone.commitAuthor,
       branch: service.source.branch,
     });
+    removed = clone.removed ?? [];
     let composePath = containedPath(repoDir, cfg.path, "Compose file path");
     // The standard names are interchangeable: a repository with compose.yaml works with the default path.
     const standard = ["docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"];
@@ -845,13 +853,18 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     }
   }
   if (!subnet) {
-    const others = await db.select({ compose: schema.service.compose }).from(schema.service).where(eq(schema.service.type, "compose"));
-    subnet = await allocateSubnet(others.map((o) => o.compose?.subnet).filter(Boolean) as string[], server);
-    const [fresh] = await db.select({ compose: schema.service.compose }).from(schema.service).where(eq(schema.service.id, service.id));
-    await db
-      .update(schema.service)
-      .set({ compose: { ...(fresh?.compose ?? cfg), subnet } })
-      .where(eq(schema.service.id, service.id));
+    // One stack at a time: two stacks deploying together must not pick the same subnet.
+    subnet = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('serve:compose-subnet'))`);
+      const others = await tx.select({ compose: schema.service.compose }).from(schema.service).where(eq(schema.service.type, "compose"));
+      const picked = await allocateSubnet(others.map((o) => o.compose?.subnet).filter(Boolean) as string[], server);
+      const [fresh] = await tx.select({ compose: schema.service.compose }).from(schema.service).where(eq(schema.service.id, service.id));
+      await tx
+        .update(schema.service)
+        .set({ compose: { ...(fresh?.compose ?? cfg), subnet: picked } })
+        .where(eq(schema.service.id, service.id));
+      return picked;
+    });
   }
   const network = await ensureEnvNetwork(service.environmentId, server);
   await assertPortsFree(server.docker, server.name, service.compose?.ports ?? [], service.id);
@@ -877,6 +890,8 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     const remoteRoot = path.posix.join(server.paths.service(service.id), cfg.mode === "git" ? "repo" : "compose");
     const remoteDir = path.posix.join(remoteRoot, path.relative(uploadRoot, dir).split(path.sep).join("/"));
     log.step(`Uploading the project to ${server.name}`);
+    // The upload only adds and replaces files: what the new commit removed goes first.
+    if (removed.length) await server.fs.removeInside(remoteRoot, removed);
     await server.fs.uploadDir(uploadRoot, remoteRoot);
     target = { ...target, dir: remoteDir };
   }
@@ -969,7 +984,13 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
   const log = new DeployLogger(dep.id);
   const previousStatus = service.status;
   const startedAt = new Date();
-  await setDeployment(dep.id, { status: "building", startedAt });
+  // Only from the queue: a deployment cancelled in the meantime stays cancelled.
+  const [claimed] = await db
+    .update(schema.deployment)
+    .set({ status: "building", startedAt })
+    .where(and(eq(schema.deployment.id, dep.id), eq(schema.deployment.status, "queued")))
+    .returning({ id: schema.deployment.id });
+  if (!claimed) return;
   await setServiceStatus(service.id, "building");
   log.line(`Deployment ${dep.id} started (${dep.trigger})`);
 

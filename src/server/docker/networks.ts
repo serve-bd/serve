@@ -92,6 +92,9 @@ export async function removeEnvNetworkIfUnused(environmentId: string, target: Ne
     // The proxy and the private network's name forwarders only serve the environment's services.
     const helper = (c: { Name: string }) => c.Name === target.proxyContainer || c.Name.startsWith("serve-link-");
     if (members.some((c) => !helper(c))) return;
+    // Stopped containers are not members, but could not start again without the network.
+    const attached = await d.listContainers({ all: true, filters: { network: [name] } });
+    if (attached.some((c) => !helper({ Name: c.Names[0]?.replace(/^\//, "") ?? "" }))) return;
     for (const c of members) {
       if (c.Name === target.proxyContainer)
         await d

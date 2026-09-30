@@ -129,11 +129,16 @@ export async function startContainer(spec: ContainerSpec, target: ContainerTarge
 
 async function sleep(ms: number, signal?: AbortSignal) {
   await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
+    if (signal?.aborted) return reject(new Error("Deployment cancelled"));
+    const onAbort = () => {
       clearTimeout(t);
       reject(new Error("Deployment cancelled"));
-    });
+    };
+    const t = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 

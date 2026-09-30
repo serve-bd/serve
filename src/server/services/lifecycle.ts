@@ -8,7 +8,7 @@ import { paths } from "@/server/paths";
 import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { composeDownByProject } from "@/server/deploy/compose";
 import { deployDatabase, setServiceStatus } from "@/server/deploy";
-import { dockerRestartPolicy } from "@/server/deploy/containers";
+import { dockerRestartPolicy, volumeName } from "@/server/deploy/containers";
 
 async function getService(id: string) {
   const service = await db.query.service.findFirst({ where: eq(schema.service.id, id) });
@@ -74,6 +74,7 @@ export async function startService(serviceId: string): Promise<"started" | "need
     }
     return "needs-deploy";
   }
+  const failed: string[] = [];
   const start = async (target: ServerCtx) => {
     const containers = target.id === server.id ? relevant : await relevantOn(service, target);
     await Promise.all(
@@ -82,12 +83,19 @@ export async function startService(serviceId: string): Promise<"started" | "need
         await target.docker
           .getContainer(c.Id)
           .start()
-          .catch(() => {});
+          .catch((error: Error & { statusCode?: number }) => {
+            // 304: already running.
+            if (error.statusCode !== 304 && target.id === server.id) failed.push(error.message);
+          });
       }),
     );
   };
   await start(server);
   await onExtras(service, start);
+  if (failed.length === relevant.length) {
+    await setServiceStatus(service.id, "crashed");
+    throw new Error(`The service could not be started: ${failed[0]}`);
+  }
   await setServiceStatus(service.id, "running");
   await syncServiceProxy(service.id).catch(() => {});
   return "started";
@@ -145,12 +153,20 @@ export async function destroyService(opts: {
     await composeDownByProject(opts.slug, opts.removeVolumes, server);
   }
   const containers = await listServiceContainers(opts.serviceId, true, docker);
+  const mounted = new Set(containers.flatMap((c) => (c.Mounts ?? []).filter((m) => m.Type === "volume" && m.Name).map((m) => m.Name as string)));
   await Promise.all(containers.map((c) => removeContainer(c.Id, 5, docker)));
 
   if (opts.removeVolumes) {
+    // Volumes are named serve-<slug>-<source>: one of a service whose slug extends this one
+    // (serve-api-v2-data for "api-v2") must not be taken for one of this service's.
+    const prefix = volumeName(opts.slug, "");
+    const others = (await db.select({ id: schema.service.id, slug: schema.service.slug }).from(schema.service))
+      .filter((s) => s.id !== opts.serviceId)
+      .map((s) => volumeName(s.slug, ""))
+      .filter((p) => p.length > prefix.length && p.startsWith(prefix));
     const volumes = await docker.listVolumes();
     for (const v of volumes.Volumes ?? []) {
-      if (v.Name.startsWith(`serve-${opts.slug}-`))
+      if (v.Name.startsWith(prefix) && (mounted.has(v.Name) || !others.some((p) => v.Name.startsWith(p))))
         await docker
           .getVolume(v.Name)
           .remove()

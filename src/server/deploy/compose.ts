@@ -143,13 +143,25 @@ export async function allocateSubnet(taken: string[], server?: Pick<ServerCtx, "
   throw new Error("No free private subnet left for this stack.");
 }
 
-function envFile(vars: Record<string, string>) {
+/** A compose env file whose values compose reads back exactly, never interpolating them. */
+export function envFile(vars: Record<string, string>) {
   return (
     Object.entries(vars)
-      // Single quotes keep values literal (no interpolation) in compose env files.
-      .map(([k, v]) => `${k}=${v.includes("'") ? JSON.stringify(v) : `'${v}'`}`)
+      .map(([k, v]) => `${k}=${envValue(v)}`)
       .join("\n") + "\n"
   );
+}
+
+/**
+ * Single quotes keep a value literal in compose env files but cannot hold a quote. Double quotes
+ * can, with \\, \", \$ and line breaks escaped so nothing is interpolated.
+ */
+function envValue(v: string) {
+  if (!v.includes("'")) return `'${v}'`;
+  return `"${v
+    .replace(/[\\"$]/g, "\\$&")
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")}"`;
 }
 
 export type ComposeRun = {

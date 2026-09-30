@@ -59,6 +59,31 @@ async function removeStaleContainers(ctx: ServerCtx) {
   return removed;
 }
 
+/**
+ * Images older than a day that no container uses. Serve's builds (labelled) and its serve/<slug>
+ * tags stay: a pulled image carries no Serve label, and rollbacks need it. Returns bytes freed.
+ */
+async function removeUnusedImages(ctx: ServerCtx) {
+  const d = ctx.docker;
+  const [images, containers] = await Promise.all([d.listImages({ all: false }), d.listContainers({ all: true })]);
+  const used = new Set(containers.map((c) => c.ImageID));
+  const cutoff = Date.now() / 1000 - 24 * 3600;
+  let freed = 0;
+  for (const img of images) {
+    const tags = (img.RepoTags ?? []).filter((t) => t !== "<none>:<none>");
+    if (used.has(img.Id) || img.Created > cutoff || img.Labels?.[LABEL.managed] || tags.some((t) => t.startsWith("serve/"))) continue;
+    let ok = true;
+    // By tag: removing an image by id fails while more than one tag points at it.
+    for (const ref of tags.length ? tags : [img.Id])
+      await d
+        .getImage(ref)
+        .remove()
+        .catch(() => void (ok = false));
+    if (ok) freed += img.Size;
+  }
+  return freed;
+}
+
 const active = new Map<string, Promise<CleanupRun>>();
 
 /**
@@ -101,9 +126,7 @@ async function doCleanup(trigger: Trigger, serverId: string): Promise<CleanupRun
     if (trigger !== "schedule") reclaimed += await docker_(ctx, ["image", "prune", "-f"]);
 
     // Unused images, except Serve's own tags: the deploy pipeline keeps those for rollbacks.
-    if (settings.cleanupUnusedImages || trigger === "disk") {
-      reclaimed += await docker_(ctx, ["image", "prune", "-af", "--filter", "until=24h", "--filter", `label!=${LABEL.managed}`]);
-    }
+    if (settings.cleanupUnusedImages || trigger === "disk") reclaimed += await removeUnusedImages(ctx).catch(() => 0);
   } catch (e) {
     error = (e as Error).message;
   }

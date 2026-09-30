@@ -10,6 +10,11 @@ export type CloneResult = {
   commitSha: string;
   commitMessage: string;
   commitAuthor: string;
+  /**
+   * In-place updates: tracked paths of the previous commit that the new one removed or turned
+   * into another kind of entry. Other copies of the work tree delete them before taking the new files.
+   */
+  removed?: string[];
 };
 
 /**
@@ -90,8 +95,9 @@ export async function cloneRepository(
   log: (line: string) => void,
   signal?: AbortSignal,
   organizationId?: string | null,
-  opts: { submodules?: boolean } = {},
+  opts: { submodules?: boolean; inPlace?: boolean } = {},
 ): Promise<CloneResult> {
+  if (opts.inPlace) return updateInPlace(source, dir, log, signal, organizationId, opts);
   await fs.rm(dir, { recursive: true, force: true });
   const parent = path.dirname(dir);
   await fs.mkdir(parent, { recursive: true });
@@ -120,9 +126,89 @@ export async function cloneRepository(
   }
 
   const out = await run("git", ["-C", dir, "log", "-1", "--format=%H%x1f%an%x1f%s"]);
+  return checkedOut(dir, out, log);
+}
+
+function checkedOut(dir: string, out: string, log: (line: string) => void): CloneResult {
   const [commitSha, commitAuthor, commitMessage] = out.trim().split("\x1f");
   log(`Checked out ${commitSha.slice(0, 7)} — ${commitMessage}`);
   return { dir, commitSha, commitAuthor, commitMessage };
+}
+
+/**
+ * Brings `dir` to the branch's latest commit without deleting it, so files the
+ * repository does not track (data of relative bind mounts) survive deploys.
+ * Git's own files live next to it in `<dir>.git`: containers may write inside
+ * `dir`, and git must never read a config or hooks they could plant there.
+ */
+async function updateInPlace(
+  source: GitSource,
+  dir: string,
+  log: (line: string) => void,
+  signal: AbortSignal | undefined,
+  organizationId: string | null | undefined,
+  opts: { submodules?: boolean },
+): Promise<CloneResult> {
+  const gitDir = `${dir}.git`;
+  await fs.mkdir(dir, { recursive: true });
+  // A checkout from before git's files moved out of the work tree.
+  await fs.rm(path.join(dir, ".git"), { recursive: true, force: true });
+  const git = (args: string[], options: Parameters<typeof run>[2] = {}) =>
+    run("git", ["--git-dir", gitDir, "--work-tree", dir, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "safe.directory=*", ...args], {
+      cwd: dir,
+      ...options,
+    });
+  if (!(await fs.stat(path.join(gitDir, "HEAD")).catch(() => null))) await git(["init", "--quiet"]);
+  const access = await gitAccess(source, `${dir}.auth`, organizationId);
+  let removed: string[] = [];
+
+  try {
+    log(`Fetching ${access.url} (branch ${source.branch})`);
+    const options = { env: access.gitEnv, onLine: log, signal, redact: access.redact };
+    await git(["fetch", "--depth", "1", "--no-tags", "--", access.cloneUrl, source.branch], options);
+    const previous = (await git(["rev-parse", "--verify", "--quiet", "HEAD"]).catch(() => "")).trim();
+    if (previous) removed = await removedPaths(git, previous);
+    // Tracked files take the new commit's content and files removed from git go; untracked files stay.
+    await git(["reset", "--quiet", "--hard", "FETCH_HEAD"], options);
+    if (opts.submodules !== false) {
+      // Checked out again from scratch, so git writes each submodule's .git file itself.
+      const realDir = await fs.realpath(dir);
+      for (const entry of (await git(["ls-files", "--stage", "-z"])).split("\0")) {
+        const [meta, file] = entry.split("\t");
+        if (!meta?.startsWith("160000 ") || !file) continue;
+        const target = path.join(dir, file);
+        const parent = await fs.realpath(path.dirname(target)).catch(() => null);
+        if (!parent || (parent !== realDir && !parent.startsWith(realDir + path.sep))) throw new Error(`Submodule path ${file} leads outside the repository.`);
+        await fs.rm(path.join(parent, path.basename(target)), { recursive: true, force: true });
+      }
+      await git(["submodule", "sync", "--quiet", "--recursive"], options);
+      await git(["submodule", "update", "--init", "--recursive", "--depth", "1"], options);
+    }
+  } finally {
+    await fs.rm(`${dir}.auth`, { recursive: true, force: true });
+  }
+
+  return { ...checkedOut(dir, await git(["log", "-1", "--format=%H%x1f%an%x1f%s"]), log), removed };
+}
+
+/**
+ * Paths of `previous` that FETCH_HEAD deletes or changes the kind of (file, symlink, submodule),
+ * and directories of `previous` that became a file: those must go before the new entry fits.
+ */
+async function removedPaths(git: (args: string[]) => Promise<string>, previous: string) {
+  const fields = (await git(["diff", "--name-status", "--no-renames", "-z", previous, "FETCH_HEAD"])).split("\0");
+  const removed: string[] = [];
+  const added: string[] = [];
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const [status, file] = [fields[i], fields[i + 1]];
+    if (status === "D" || status === "T") removed.push(file);
+    else if (status === "A") added.push(file);
+  }
+  if (added.length) {
+    const dirs = new Set((await git(["ls-tree", "-r", "-d", "--name-only", "-z", previous])).split("\0"));
+    removed.push(...added.filter((file) => dirs.has(file)));
+  }
+  return removed;
 }
 
 /** Quick remote check used by the UI to validate a repository and list branches. */

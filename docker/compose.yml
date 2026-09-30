@@ -25,6 +25,8 @@ services:
     container_name: serve-worker
     command: worker
     restart: unless-stopped
+    # On stop, running deploys get time to put the old containers back.
+    stop_grace_period: 60s
     env_file: /data/serve/.env
     environment:
       SERVE_ROLE: worker

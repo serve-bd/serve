@@ -17,8 +17,16 @@ export type ServerFs = {
   readdir(dir: string): Promise<string[]>;
   mkdir(dir: string): Promise<void>;
   rm(target: string): Promise<void>;
-  /** Replaces `remoteDir` with the contents of a local directory. */
+  /**
+   * Copies a local directory into `remoteDir`, replacing the files it contains. Other files in
+   * `remoteDir` stay (data of relative bind mounts).
+   */
   uploadDir(localDir: string, remoteDir: string): Promise<void>;
+  /**
+   * Deletes paths (relative to `root`) inside `root`. A path whose parent directory resolves
+   * outside `root` (a symlink a container planted) is skipped.
+   */
+  removeInside(root: string, relPaths: string[]): Promise<void>;
   /** Reads bytes from `offset` (for tailing logs). */
   readFrom(file: string, offset: number, maxBytes: number): Promise<Buffer>;
 };
@@ -55,9 +63,17 @@ export const localFs: ServerFs = {
   rm: (target) => fs.rm(target, { recursive: true, force: true }),
   async uploadDir(localDir, remoteDir) {
     if (path.resolve(localDir) === path.resolve(remoteDir)) return;
-    await fs.rm(remoteDir, { recursive: true, force: true });
-    await fs.mkdir(path.dirname(remoteDir), { recursive: true });
-    await fs.cp(localDir, remoteDir, { recursive: true });
+    await fs.mkdir(remoteDir, { recursive: true });
+    await fs.cp(localDir, remoteDir, { recursive: true, force: true });
+  },
+  async removeInside(root, relPaths) {
+    const realRoot = await fs.realpath(root).catch(() => null);
+    if (!realRoot) return;
+    for (const rel of relPaths) {
+      const parent = await fs.realpath(path.join(root, path.dirname(rel))).catch(() => null);
+      if (!parent || (parent !== realRoot && !parent.startsWith(realRoot + path.sep))) continue;
+      await fs.rm(path.join(parent, path.basename(rel)), { recursive: true, force: true });
+    }
   },
   async readFrom(file, offset, maxBytes) {
     const handle = await fs.open(file, "r");
@@ -126,12 +142,26 @@ export function remoteFs(target: SshTarget): ServerFs {
         tar.stderr.on("data", (d) => (tarError += d));
         return tar.stdout;
       };
-      const tmp = `${remoteDir}.upload`;
-      const r = await sshExec(target, `rm -rf ${sh(tmp)} && mkdir -p ${sh(tmp)} && tar -xf - -C ${sh(tmp)} && rm -rf ${sh(remoteDir)} && mv ${sh(tmp)} ${sh(remoteDir)}`, {
+      // Extracted over the existing copy: tar replaces files (and symlinks) it has entries for.
+      const r = await sshExec(target, `mkdir -p ${sh(remoteDir)} && tar -xf - -C ${sh(remoteDir)}`, {
         stdin: pack,
         timeoutMs: 15 * 60_000,
       });
       if (r.code !== 0) throw new Error(`Upload to the server failed: ${(r.stderr || tarError).trim()}`);
+    },
+    async removeInside(root, relPaths) {
+      // In batches, to keep each command well under the argument length limit.
+      for (let i = 0; i < relPaths.length; i += 200) {
+        const list = relPaths
+          .slice(i, i + 200)
+          .map(sh)
+          .join(" ");
+        await run(
+          `root=$(realpath -e -- ${sh(root)} 2>/dev/null) || exit 0; for p in ${list}; do ` +
+            `parent=$(realpath -e -- "$root/$(dirname -- "$p")" 2>/dev/null) || continue; ` +
+            `case "$parent/" in "$root"/*) rm -rf -- "$parent/$(basename -- "$p")" ;; esac; done`,
+        );
+      }
     },
     async readFrom(file, offset, maxBytes) {
       const s = await session();

@@ -496,6 +496,9 @@ async function shutdown() {
   const deadline = Date.now() + 25_000;
   while (running.size && Date.now() < deadline) await new Promise((r) => setTimeout(r, 500));
   for (const r of running.values()) r.controller.abort();
+  // Aborted deploys still put the previous version back and record the outcome: let them finish.
+  const settled = Date.now() + 20_000;
+  while (running.size && Date.now() < settled) await new Promise((r) => setTimeout(r, 250));
   shutdownTunnels();
   await updateSettings({ workerHeartbeat: null }).catch(() => {});
   await sql.end({ timeout: 5 });

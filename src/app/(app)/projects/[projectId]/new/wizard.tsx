@@ -57,6 +57,8 @@ type Props = {
   nixpacks: boolean;
   initialType: string | null;
   initialTemplate: string | null;
+  /** Git form filled in from a link (an existing app's "deploy its compose file"). */
+  initialGit?: { repository: string; branch: string; credentialId: string | null; builder: string | null } | null;
   templates: CatalogTemplate[];
   /** Organization admins can manage templates. */
   canManageTemplates: boolean;
@@ -178,13 +180,19 @@ function EnvTextarea({ value, onChange }: { value: string; onChange: (v: string)
 function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const router = useRouter();
   const preferred = props.credentials.find((c) => c.provider === "github-app") ?? props.credentials.find((c) => c.provider !== "ssh");
-  const [credentialId, setCredentialId] = React.useState<string>(preferred?.id ?? "public");
+  const initial = props.initialGit;
+  const [credentialId, setCredentialId] = React.useState<string>(
+    initial ? (initial.credentialId && props.credentials.some((c) => c.id === initial.credentialId) ? initial.credentialId : "public") : (preferred?.id ?? "public"),
+  );
   const [query, setQuery] = React.useState("");
-  const [repository, setRepository] = React.useState("");
-  const [branch, setBranch] = React.useState("main");
+  const [repository, setRepository] = React.useState(initial?.repository ?? "");
+  const [branch, setBranch] = React.useState(initial?.branch ?? "main");
   const [branches, setBranches] = React.useState<string[]>([]);
   const [name, setName] = React.useState("");
-  const [builder, setBuilder] = React.useState("auto");
+  const [builder, setBuilder] = React.useState(initial?.builder === "compose" ? "compose" : "auto");
+  /** "compose": the repository's compose file, deployed as a stack instead of one built image. */
+  const compose = builder === "compose";
+  const [composePath, setComposePath] = React.useState("docker-compose.yml");
   const [rootDir, setRootDir] = React.useState("/");
   const [port, setPort] = React.useState("");
   const [env, setEnv] = React.useState("");
@@ -221,34 +229,56 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
     success: "Service created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
+  const stack = useAction(createComposeService, {
+    refresh: false,
+    success: "Stack created. Review the settings, then deploy.",
+    onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
+  });
 
   const filtered = (repos ?? []).filter((r) => r.fullName.toLowerCase().includes(query.toLowerCase())).slice(0, 8);
-  const selectedRepo = repos?.find((r) => r.cloneUrl === repository) ?? null;
+  const listed = repos?.find((r) => r.cloneUrl === repository) ?? null;
+  // A repository from a link stays chosen even when the list is loading or does not include it.
+  const selectedRepo =
+    listed ??
+    (repository && repository === initial?.repository
+      ? { fullName: repository.replace(/^https?:\/\/[^/]+\//, "").replace(/\.git$/, ""), private: false, defaultBranch: null as string | null }
+      : null);
 
   return (
     <FormShell
       title="Add a Git repository"
       description={
         <>
-          <ProductName /> clones the repository, builds an image and deploys it with zero downtime.
+          <ProductName /> clones the repository, {compose ? "then runs every service of its compose file." : "builds an image and deploys it with zero downtime."}
         </>
       }
       onBack={onBack}
       onSubmit={() =>
-        run({
-          projectId: props.projectId,
-          environmentId: props.environmentId,
-          serverId: props.serverId,
-          name: name || repoName(repository) || "app",
-          source: { type: "git", repository, branch, credentialId: credentialId === "public" ? null : credentialId },
-          build: { builder: builder as "auto", rootDir, buildCommand: buildCommand || null, startCommand: startCommand || null },
-          port: port ? Number(port) : null,
-          envVars: parseEnv(env),
-        })
+        compose
+          ? stack.run({
+              projectId: props.projectId,
+              environmentId: props.environmentId,
+              serverId: props.serverId,
+              name: name || repoName(repository) || "stack",
+              mode: "git",
+              path: composePath.trim().replace(/^\/+/, "") || "docker-compose.yml",
+              source: { repository, branch, credentialId: credentialId === "public" ? null : credentialId },
+              envVars: parseEnv(env),
+            })
+          : run({
+              projectId: props.projectId,
+              environmentId: props.environmentId,
+              serverId: props.serverId,
+              name: name || repoName(repository) || "app",
+              source: { type: "git", repository, branch, credentialId: credentialId === "public" ? null : credentialId },
+              build: { builder: builder as "auto", rootDir, buildCommand: buildCommand || null, startCommand: startCommand || null },
+              port: port ? Number(port) : null,
+              envVars: parseEnv(env),
+            })
       }
       footer={
-        <Button type="submit" variant="primary" size="sm" loading={pending} disabled={!repository.trim()}>
-          Create service
+        <Button type="submit" variant="primary" size="sm" loading={pending || stack.pending} disabled={!repository.trim()}>
+          {compose ? "Create stack" : "Create service"}
         </Button>
       }
     >
@@ -299,7 +329,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
                   <span className="truncate">{selectedRepo.fullName}</span>
                   {selectedRepo.private && <Lock className="size-3 flex-none text-faint" />}
                 </span>
-                <span className="text-xs text-muted">Default branch {selectedRepo.defaultBranch}</span>
+                {selectedRepo.defaultBranch && <span className="text-xs text-muted">Default branch {selectedRepo.defaultBranch}</span>}
               </div>
               <Button
                 type="button"
@@ -397,18 +427,32 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
               { value: "dockerfile", label: "Dockerfile" },
               { value: "nixpacks", label: "Nixpacks", description: props.nixpacks ? "Installed" : "Not installed", disabled: !props.nixpacks },
               { value: "static", label: "Static site", description: "Served by nginx" },
+              { value: "compose", label: "Docker Compose", description: "Run the repository's compose file" },
             ]}
           />
         </Field>
-        <Field label="Port" optional description="Detected automatically when empty.">
-          <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder="3000" inputMode="numeric" />
-        </Field>
+        {compose ? (
+          <Field label="Compose file" description="Path in the repository. compose.yaml and similar names are found too.">
+            <Input value={composePath} onChange={(e) => setComposePath(e.target.value)} placeholder="docker-compose.yml" className="font-mono text-[13px]" />
+          </Field>
+        ) : (
+          <Field label="Port" optional description="Detected automatically when empty.">
+            <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder="3000" inputMode="numeric" />
+          </Field>
+        )}
       </div>
+      {compose && (
+        <p className="-mt-2 text-xs text-muted">
+          Every service in the file runs as its own container, and each one is shown on the service page. Add domains after the first deploy.
+        </p>
+      )}
 
-      <button type="button" onClick={() => setAdvanced((a) => !a)} className="flex w-fit items-center gap-1 text-[13px] font-medium text-accent">
-        <ChevronRight className={cn("size-3.5 transition-transform", advanced && "rotate-90")} /> Build options
-      </button>
-      {advanced && (
+      {!compose && (
+        <button type="button" onClick={() => setAdvanced((a) => !a)} className="flex w-fit items-center gap-1 text-[13px] font-medium text-accent">
+          <ChevronRight className={cn("size-3.5 transition-transform", advanced && "rotate-90")} /> Build options
+        </button>
+      )}
+      {advanced && !compose && (
         <div className="grid grid-cols-1 animate-rise gap-4 sm:grid-cols-2">
           <Field label="Root directory">
             <InputGroup prefix="/">

@@ -289,6 +289,8 @@ const composeSchema = z.object({
   template: z.string().optional(),
   /** Values chosen on the configure step; anything missing is generated from the template. */
   vars: z.record(z.string(), z.string().max(4000)).optional(),
+  /** Variables typed on the create form (stacks without a template). */
+  envVars: envVarInput,
   serverId: z.string().nullable().optional(),
 });
 
@@ -372,7 +374,14 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
         runtime: true,
       }));
       await writeEnvVars(id, vars);
+    } else if (data.envVars?.length) {
+      await writeEnvVars(
+        id,
+        data.envVars.filter((v) => v.key.trim()).map((v) => ({ key: v.key.trim(), value: v.value, buildTime: false, runtime: true })),
+      );
     }
+    // Deploy on push, like apps from git.
+    if (data.mode === "git") await registerRepoWebhook(id);
     if (data.deploy) await queueDeployment(id, "create", { userId: ctx.user.id });
     await logActivity({
       userId: ctx.user.id,

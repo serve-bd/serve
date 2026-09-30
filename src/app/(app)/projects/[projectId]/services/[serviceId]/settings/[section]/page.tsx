@@ -106,7 +106,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   if (!ctx.can("services.manage")) return <NoAccess permission="services.manage" />;
-  const [credentials, nixpacks, servers, [server]] = await Promise.all([
+  const [credentials, nixpacks, servers, [server], [environment]] = await Promise.all([
     db
       .select({ id: schema.gitCredential.id, name: schema.gitCredential.name, provider: schema.gitCredential.provider })
       .from(schema.gitCredential)
@@ -117,6 +117,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
       .select({ id: schema.server.id, name: schema.server.name, host: schema.server.host, isLocal: schema.server.isLocal })
       .from(schema.server)
       .where(eq(schema.server.id, service.serverId)),
+    db.select({ name: schema.environment.name }).from(schema.environment).where(eq(schema.environment.id, service.environmentId)),
   ]);
   const { publicBaseUrl } = await import("@/server/git/github-app");
   const base = await publicBaseUrl();
@@ -139,6 +140,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
     <PageBody>
       <ServiceSettings
         projectId={projectId}
+        environmentName={environment?.name ?? "production"}
         service={{
           id: service.id,
           name: service.name,

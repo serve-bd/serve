@@ -45,6 +45,8 @@ type Source =
 
 type Props = {
   projectId: string;
+  /** Name of the service's environment (links to the new-service form keep it). */
+  environmentName: string;
   service: {
     id: string;
     name: string;
@@ -387,7 +389,24 @@ export function ServiceSettings(props: Props) {
         )}
 
         {show("build") && service.build && service.source?.type === "git" && (
-          <BuildSection serviceId={service.id} build={service.build} nixpacks={props.nixpacks} save={save.run} />
+          <BuildSection
+            serviceId={service.id}
+            build={service.build}
+            nixpacks={props.nixpacks}
+            save={save.run}
+            composeHref={
+              service.source?.type === "git" && !service.isPreview
+                ? `/projects/${props.projectId}/new?${new URLSearchParams({
+                    env: props.environmentName,
+                    type: "git",
+                    builder: "compose",
+                    repo: service.source.repository,
+                    branch: service.source.branch,
+                    ...(service.source.credentialId ? { credential: service.source.credentialId } : {}),
+                  })}`
+                : undefined
+            }
+          />
         )}
 
         {show("networking") && service.compose && (

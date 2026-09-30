@@ -1,6 +1,7 @@
 "use client";
 
-import { RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, Layers, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup, Textarea } from "@/components/ui/input";
@@ -19,7 +20,20 @@ const REDEPLOY = "Applies on the next deploy";
 
 /* ---------------------------------- Build --------------------------------- */
 
-export function BuildSection({ serviceId, build, nixpacks, save }: { serviceId: string; build: BuildConfig; nixpacks: boolean; save: Save }) {
+export function BuildSection({
+  serviceId,
+  build,
+  nixpacks,
+  save,
+  composeHref,
+}: {
+  serviceId: string;
+  build: BuildConfig;
+  nixpacks: boolean;
+  save: Save;
+  /** New-service form filled in with this repository, to deploy its compose file as a stack. */
+  composeHref?: string;
+}) {
   const fresh = useAction(() => deployWithoutCache(serviceId), { success: "Deploying without cache" });
   return (
     <Section
@@ -115,6 +129,19 @@ export function BuildSection({ serviceId, build, nixpacks, save }: { serviceId: 
               </InputGroup>
             </Field>
           </div>
+          {composeHref && (
+            <Link
+              href={composeHref}
+              className="flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-[13px] transition-colors hover:border-line-strong"
+            >
+              <Layers className="size-4 flex-none text-muted" />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="font-medium text-fg">Has a docker-compose.yml?</span>
+                <span className="text-xs text-muted">Deploy the repository's compose file as a stack: every container runs and shows on its own.</span>
+              </span>
+              <ChevronRight className="size-4 flex-none text-faint" />
+            </Link>
+          )}
           <Field label="Build arguments" optional description="Passed as --build-arg. Use variables marked Build time for secrets.">
             <KeyValueEditor value={v.buildArgs} onChange={(buildArgs) => set({ buildArgs })} keyPlaceholder="NODE_VERSION" valuePlaceholder="22" addLabel="Add argument" />
           </Field>

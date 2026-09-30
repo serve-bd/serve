@@ -724,10 +724,25 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
       commitAuthor: clone.commitAuthor,
       branch: service.source.branch,
     });
-    const composePath = containedPath(repoDir, cfg.path, "Compose file path");
+    let composePath = containedPath(repoDir, cfg.path, "Compose file path");
+    // The standard names are interchangeable: a repository with compose.yaml works with the default path.
+    const standard = ["docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"];
+    const base = path.posix.basename(cfg.path);
+    if (standard.includes(base) && !(await fs.stat(composePath).catch(() => null))) {
+      for (const name of standard) {
+        const candidate = containedPath(repoDir, path.posix.join(path.posix.dirname(cfg.path), name), "Compose file path");
+        if (await fs.stat(candidate).catch(() => null)) {
+          log.line(`${cfg.path} not found; using ${path.relative(repoDir, candidate)}`);
+          composePath = candidate;
+          break;
+        }
+      }
+    }
     // Resolve symlinks so a link in the repository cannot point at files on the server.
     const realRepo = await fs.realpath(repoDir);
-    const realCompose = await fs.realpath(composePath).catch(() => composePath);
+    const realCompose = await fs.realpath(composePath).catch(() => {
+      throw new Error(`Compose file ${cfg.path} not found in the repository.`);
+    });
     if (realCompose !== realRepo && !realCompose.startsWith(realRepo + path.sep)) {
       throw new Error(`Compose file ${cfg.path} points outside the repository.`);
     }

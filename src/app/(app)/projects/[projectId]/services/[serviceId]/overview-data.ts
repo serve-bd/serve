@@ -94,6 +94,8 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
       restartPolicy: service.runtime.restartPolicy,
       cpuLimit: service.runtime.cpuLimit ?? null,
       memoryLimit: service.runtime.memoryLimit ?? null,
+      /** Services in the compose file (stacks from git too, whose source is the repository). */
+      composeServiceCount: service.compose ? composeServiceNames(service.compose.content).length : 0,
       volumes: service.compose ? composeMountCount(service.compose.content) : service.runtime.volumes.length,
       healthcheckPath: service.runtime.healthcheckPath ?? null,
       builder: service.build?.builder ?? null,

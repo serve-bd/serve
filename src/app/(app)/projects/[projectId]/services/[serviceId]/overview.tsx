@@ -102,7 +102,7 @@ export function ServiceOverview(data: OverviewData) {
   const series = metrics?.series ?? [];
   const last = series.at(-1);
   const running = (live?.containers ?? []).filter((c) => c.state === "running" && (!current || !c.deployment || c.deployment === current.id || service.type === "compose"));
-  const expected = service.type === "compose" ? Math.max(1, service.source?.kind === "compose" ? service.source.services.length : 1) : service.replicas;
+  const expected = service.type === "compose" ? Math.max(1, service.composeServiceCount) : service.replicas;
   const memLimit = service.memoryLimit ? service.memoryLimit * 1024 * 1024 : last?.memoryLimit || null;
   const [openContainer, setOpenContainer] = React.useState<string | null>(null);
   const rx = counterRate(series, "netRx").map((p) => ({ t: p.t, v: p.v ?? 0 }));

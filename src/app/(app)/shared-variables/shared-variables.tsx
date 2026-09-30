@@ -197,7 +197,7 @@ export function SharedVariables({
                   </>
                 )}
                 {canEdit && target && (
-                  <Button size="sm" variant="ghost" onClick={toggleRaw}>
+                  <Button size="sm" variant="secondary" onClick={toggleRaw}>
                     {raw === null ? <Code2 /> : <Table2 />} {raw === null ? "Raw editor" : "Table view"}
                   </Button>
                 )}

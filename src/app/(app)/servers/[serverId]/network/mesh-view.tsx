@@ -11,7 +11,7 @@ import { Badge, Card, CardBody, CardFooter, CardHeader, CopyButton, EmptyState }
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { useNow } from "@/hooks/use-client";
-import { resyncMesh, saveMesh } from "@/server/actions/mesh";
+import { meshAddressOptions, resyncMesh, saveMesh } from "@/server/actions/mesh";
 import { handshakeAge, MESH_DEFAULT_PORT, MESH_LINK_TIMEOUT, meshEndpointProblem } from "@/lib/mesh";
 import type { MeshOverview, MeshPeerView } from "@/server/mesh";
 import { cn, formatBytes } from "@/lib/utils";
@@ -109,6 +109,16 @@ function JoinForm({
     success: joined ? "Private network updated" : "Joining the private network",
     onSuccess: onDone,
   });
+  const [options, setOptions] = React.useState<{ address: string; label: string }[]>([]);
+  React.useEffect(() => {
+    let alive = true;
+    void meshAddressOptions(serverId).then((r) => {
+      if (alive && r.ok) setOptions(r.data);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [serverId]);
   const problem = meshEndpointProblem(endpoint);
   const portNumber = Number(port);
   const portProblem = !port || portNumber < 1 || portNumber > 65535 ? "Enter a port from 1 to 65535" : null;
@@ -142,6 +152,25 @@ function JoinForm({
             error={touched ? problem : null}
           >
             <Input value={endpoint} onChange={(e) => setEndpoint(e.target.value.trim())} placeholder="203.0.113.10" className="font-mono" autoComplete="off" />
+            {options.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-xs text-muted">This server has:</span>
+                {options.map((o) => (
+                  <button
+                    key={o.address}
+                    type="button"
+                    onClick={() => setEndpoint(o.address)}
+                    className={cn(
+                      "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-xs ring-1 transition-colors",
+                      endpoint === o.address ? "bg-accent-soft text-accent-strong ring-accent/30" : "bg-surface-2 text-fg-2 ring-line hover:bg-hover",
+                    )}
+                  >
+                    <span className="font-mono">{o.address}</span>
+                    <span className="text-faint">{o.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </Field>
           <Field label="UDP port" error={touched ? portProblem : null}>
             <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, "").slice(0, 5))} inputMode="numeric" className="font-mono" />

@@ -94,3 +94,30 @@ export async function resyncMesh(serverId: string) {
     return null;
   });
 }
+
+/** Addresses a server can be reached at, to pick from instead of typing one. */
+export async function meshAddressOptions(serverId: string) {
+  return act(async () => {
+    await requireInstanceAdmin();
+    const [row] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
+    if (!row) throw new UserError("Server not found.");
+    const options: { address: string; label: string }[] = [];
+    const add = (address: string | null | undefined, label: string) => {
+      if (address && !meshEndpointProblem(address) && !options.some((o) => o.address === address)) options.push({ address, label });
+    };
+    add(row.publicIp, "public IP");
+    if (!row.isLocal) {
+      add(row.host, "SSH address");
+      // The server's own interfaces, without Docker's bridges and the private network itself.
+      const { getServer } = await import("@/server/servers/context");
+      const ctx = await getServer(serverId);
+      const res = await ctx.exec("ip -4 -o addr show scope global", { timeoutMs: 10_000 }).catch(() => null);
+      for (const line of res?.stdout.split("\n") ?? []) {
+        const [, iface, , cidr] = line.trim().split(/\s+/);
+        if (!iface || !cidr || /^(docker|br-|veth|serve-mesh|virbr|cni|flannel|kube)/.test(iface)) continue;
+        add(cidr.split("/")[0], iface);
+      }
+    }
+    return options;
+  });
+}

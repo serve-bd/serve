@@ -23,8 +23,15 @@ type Tunnel = TunnelInfo;
 /** Tunnels from each server to this account: turn on, see status and details, remove. */
 function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Account; servers: ServerOption[]; tunnels: Tunnel[]; isAdmin: boolean }) {
   const router = useRouter();
-  const [busy, setBusy] = React.useState<string | null>(null);
+  // Servers whose "Create tunnel" is running. Clicks on several servers queue up; each keeps its spinner.
+  const [busy, setBusy] = React.useState<ReadonlySet<string>>(new Set());
   const mine = tunnels.filter((t) => t.accountId === account.id);
+  const withTunnel = mine.map((t) => t.serverId).join();
+  // Forget servers whose tunnel now shows, so a later "Create tunnel" there starts without a spinner.
+  React.useEffect(() => {
+    const has = new Set(withTunnel.split(","));
+    setBusy((b) => ([...b].some((id) => has.has(id)) ? new Set([...b].filter((id) => !has.has(id))) : b));
+  }, [withTunnel]);
   const starting = mine.some((t) => t.status === "pending" || t.status === "down");
   // While a connector is coming up, ask Cloudflare every few seconds instead of waiting for the worker.
   React.useEffect(() => {
@@ -79,10 +86,17 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
                 <Button
                   size="xs"
                   disabled={notReady}
-                  loading={busy === server.id && enable.pending}
+                  loading={busy.has(server.id)}
                   onClick={async () => {
-                    setBusy(server.id);
-                    await enable.run(account.id, server.id);
+                    if (busy.has(server.id)) return;
+                    setBusy((b) => new Set(b).add(server.id));
+                    // On success the spinner stays until the refreshed page shows the tunnel.
+                    if (!(await enable.run(account.id, server.id)))
+                      setBusy((b) => {
+                        const next = new Set(b);
+                        next.delete(server.id);
+                        return next;
+                      });
                   }}
                 >
                   Create tunnel

@@ -53,27 +53,37 @@ function tunnelError(error: unknown) {
 }
 
 /** Start (or repair) the cloudflared container for a tunnel on its server. */
-export async function ensureTunnelContainer(tunnel: Tunnel) {
+export async function ensureTunnelContainer(tunnel: Tunnel, retry = true): Promise<void> {
   const ctx = await getServer(tunnel.serverId);
   const name = tunnelContainerName(tunnel);
-  const existing = await ctx.docker
-    .getContainer(name)
-    .inspect()
-    .catch(() => null);
-  if (existing?.State.Running) return;
-  if (existing) {
-    await ctx.docker
-      .getContainer(name)
-      .start()
-      .catch(async () => {
-        await ctx.docker.getContainer(name).remove({ force: true });
-        await ensureTunnelContainer(tunnel);
+  const container = ctx.docker.getContainer(name);
+  let existing = await container.inspect().catch(() => null);
+  if (!existing) {
+    if (!(await imageExists(TUNNEL_IMAGE, ctx.docker))) await pullImage(TUNNEL_IMAGE, undefined, null, ctx.docker);
+    // The worker and a "Create tunnel" click can get here at the same time: the other one's container is fine.
+    await ctx.docker.createContainer(await connectorSpec(tunnel, name, ctx.network)).catch((error) => {
+      if ((error as { statusCode?: number }).statusCode !== 409) throw error;
+    });
+    // Docker holds the name before the other one's container can be inspected: wait for it a moment.
+    for (let i = 0; !existing; i++) {
+      existing = await container.inspect().catch((error) => {
+        if (i >= 20) throw error;
+        return null;
       });
-    return;
+      if (!existing) await new Promise((r) => setTimeout(r, 250));
+    }
   }
-  if (!(await imageExists(TUNNEL_IMAGE, ctx.docker))) await pullImage(TUNNEL_IMAGE, undefined, null, ctx.docker);
-  const container = await ctx.docker.createContainer(await connectorSpec(tunnel, name, ctx.network));
-  await container.start();
+  if (existing.State.Running) return;
+  try {
+    await container.start();
+  } catch (error) {
+    // 304: started by someone else meanwhile.
+    if ((error as { statusCode?: number }).statusCode === 304) return;
+    if (!retry) throw error;
+    // A container that cannot start (its network was removed, say) is made again once.
+    await container.remove({ force: true }).catch(() => {});
+    await ensureTunnelContainer(tunnel, false);
+  }
 }
 
 async function connectorSpec(tunnel: Tunnel, name: string, network: string) {
@@ -180,12 +190,15 @@ export async function updateTunnelConnector(tunnel: Tunnel) {
 }
 
 async function removeTunnelContainer(tunnel: Tunnel) {
-  const ctx = await getServer(tunnel.serverId).catch(() => null);
-  if (!ctx) return;
-  await ctx.docker
-    .getContainer(tunnelContainerName(tunnel))
-    .remove({ force: true })
-    .catch(() => {});
+  // An unreachable server must not hold up deleting the tunnel on Cloudflare, which stops the connector anyway.
+  const remove = async () => {
+    const ctx = await getServer(tunnel.serverId).catch(() => null);
+    await ctx?.docker
+      .getContainer(tunnelContainerName(tunnel))
+      .remove({ force: true })
+      .catch(() => {});
+  };
+  await Promise.race([remove(), new Promise((r) => setTimeout(r, 20_000))]);
 }
 
 /** Push the tunnel's routes: every domain on it goes to the server's proxy. */

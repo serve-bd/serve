@@ -242,6 +242,12 @@ export async function deleteServer(id: string) {
       const { teardownMesh } = await import("@/server/mesh");
       await Promise.race([getServer(id).then(teardownMesh), new Promise((r) => setTimeout(r, 30_000))]).catch(() => {});
     }
+    // Its tunnels go too: the connector stops there and the tunnel is deleted on Cloudflare.
+    const tunnels = await db.select({ id: schema.cloudflareTunnel.id }).from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serverId, id));
+    if (tunnels.length) {
+      const { deleteTunnel } = await import("@/server/cloudflare/tunnels");
+      await Promise.all(tunnels.map((t) => deleteTunnel(t.id).catch(() => {})));
+    }
     await db.delete(schema.server).where(eq(schema.server.id, id));
     forgetServer(id);
     if (row.mesh?.enabled) await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });

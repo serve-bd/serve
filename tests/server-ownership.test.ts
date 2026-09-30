@@ -39,3 +39,13 @@ describe("server ownership", () => {
     expect(ownerFor(ctx({ org: "acme" }))).toBe("acme");
   });
 });
+
+describe("organization server addresses", () => {
+  it("accepts only public addresses", async () => {
+    const { publicAddress } = await import("@/server/net/public-host");
+    expect(await publicAddress("8.8.8.8")).toBe("8.8.8.8");
+    for (const host of ["127.0.0.1", "10.0.0.5", "192.168.1.2", "172.18.0.3", "169.254.169.254", "::1", "[::1]", "localhost", "no-such-host.invalid"]) {
+      expect(await publicAddress(host)).toBeNull();
+    }
+  });
+});

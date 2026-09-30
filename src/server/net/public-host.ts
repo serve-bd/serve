@@ -8,3 +8,11 @@ export async function hostIsPrivate(raw: string) {
   const addrs = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true }).catch(() => []);
   return !addrs.length || addrs.some((a) => isPrivateAddress(a.address));
 }
+
+/** The host's address when every address it resolves to is public; null otherwise. Connect to it to rule out DNS changes in between. */
+export async function publicAddress(host: string) {
+  const bare = host.replace(/^\[|\]$/g, "");
+  const addrs = net.isIP(bare) ? [{ address: bare }] : await dns.lookup(bare, { all: true }).catch(() => []);
+  if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address))) return null;
+  return addrs[0]!.address;
+}

@@ -63,7 +63,15 @@ export async function deleteOrg() {
     if (ctx.isRoot) throw new UserError("The Root organization manages this server and cannot be deleted.");
     const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id));
     if (n > 0) throw new UserError("Delete all projects in this organization first.");
-    await db.delete(schema.organization).where(eq(schema.organization.id, ctx.org.id));
+    // Its servers would pass to the instance while its admins still have root on them.
+    const [{ servers }] = await db.select({ servers: sql<number>`count(*)::int` }).from(schema.server).where(eq(schema.server.ownerOrganizationId, ctx.org.id));
+    if (servers > 0) throw new UserError("Remove this organization's servers first.");
+    const [{ networks }] = await db.select({ networks: sql<number>`count(*)::int` }).from(schema.privateNetwork).where(eq(schema.privateNetwork.organizationId, ctx.org.id));
+    if (networks > 0) throw new UserError("Delete this organization's private networks first.");
+    await db.transaction(async (tx) => {
+      await tx.delete(schema.privateKey).where(eq(schema.privateKey.organizationId, ctx.org.id));
+      await tx.delete(schema.organization).where(eq(schema.organization.id, ctx.org.id));
+    });
     return null;
   });
 }

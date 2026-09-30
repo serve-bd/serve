@@ -13,6 +13,7 @@ import { runServerIds } from "@/server/deploy/distribution";
 import type { DistributionConfig } from "@/server/services/types";
 import { localFs, remoteFs, type ServerFs } from "./fs";
 import { relayHost } from "@/server/tunnel";
+import { publicAddress } from "@/server/net/public-host";
 import { closeConnection, dockerStream, sshExec, type SshExecResult, type SshTarget } from "./ssh";
 
 export { LOCAL_SERVER_ID };
@@ -109,6 +110,12 @@ export async function sshTargetFor(row: ServerRow): Promise<SshTarget> {
   if (!key) throw new Error(`The SSH key of ${row.name} was deleted.`);
   // A server that connects out is reached through its relay on the worker, not at its own address.
   const via = row.tunnel ? { host: relayHost(), port: row.tunnel.relayPort } : { host: row.host, port: row.port };
+  if (!row.tunnel && row.ownerOrganizationId) {
+    // An organization's server must be a public machine: Serve never connects into its own network for them.
+    const address = await publicAddress(row.host);
+    if (!address) throw new Error(`${row.host} is a private address or does not resolve. Use a public address, or add the server as one that connects out.`);
+    via.host = address;
+  }
   return { id: row.id, ...via, username: row.username, privateKey: decrypt(key.privateKey), hostKey: row.hostKey };
 }
 

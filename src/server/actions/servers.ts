@@ -13,6 +13,7 @@ import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { generateKeyPair, parsePrivateKey } from "@/server/servers/keys";
 import { forgetServer, getServer } from "@/server/servers/context";
+import { publicAddress } from "@/server/net/public-host";
 
 /* -------------------------------------------------------------------------- */
 /*                                Private keys                                */
@@ -149,6 +150,7 @@ export async function createServer(input: Pick<z.input<typeof serverSchema>, "na
       .pick({ name: true, description: true, host: true, port: true, username: true, privateKeyId: true, dataDir: true })
       .parse({ dataDir: "/data/serve", ...input });
     const owner = ownerFor(ctx);
+    if (owner) await assertPublicHost(data.host);
     await usableKey(ctx, data.privateKeyId, owner);
     const id = newId();
     const looksLikeIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(data.host);
@@ -183,6 +185,9 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
       if (data.ownerOrganizationId) {
         const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, data.ownerOrganizationId));
         if (!org) throw new UserError("Organization not found.");
+        // The new owner gets root on the machine: nothing of another organization may stay on it.
+        const foreign = await foreignWorkOn(id, data.ownerOrganizationId);
+        if (foreign.length) throw new UserError(`Move these off the server first; they belong to other organizations: ${foreign.join(", ")}.`);
       }
       // Its key moves with it, so the new owner can manage it; a key other servers use must stay.
       const keyId = data.privateKeyId ?? before.privateKeyId;
@@ -201,6 +206,9 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     if (data.privateKeyId && data.privateKeyId !== before.privateKeyId) {
       await usableKey(ctx, data.privateKeyId, data.ownerOrganizationId === undefined ? before.ownerOrganizationId : data.ownerOrganizationId);
     }
+    if (data.host && data.host !== before.host && (data.ownerOrganizationId === undefined ? before.ownerOrganizationId : data.ownerOrganizationId) && !before.tunnel) {
+      await assertPublicHost(data.host);
+    }
     if (before.isLocal && (data.host || data.port || data.username || data.privateKeyId || data.dataDir)) {
       throw new UserError("The connection of this server cannot change: Serve runs on it.");
     }
@@ -217,10 +225,30 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
       publicIp: data.publicIp === undefined ? undefined : empty(data.publicIp),
       wildcardDomain: data.wildcardDomain === undefined ? undefined : empty(data.wildcardDomain),
     };
+    const ownerChanged = data.ownerOrganizationId !== undefined && data.ownerOrganizationId !== before.ownerOrganizationId;
+    if (ownerChanged) {
+      // An organization's server is shared with nobody; back with the instance, its old owner keeps deploying to it.
+      patch.organizationIds = data.ownerOrganizationId
+        ? []
+        : [...new Set([...(data.organizationIds ?? before.organizationIds ?? []), ...(before.ownerOrganizationId ? [before.ownerOrganizationId] : [])])];
+    }
     // A different machine means a different host key.
     if ((data.host && data.host !== before.host) || (data.port && data.port !== before.port)) patch.hostKey = null;
     await db.update(schema.server).set(patch).where(eq(schema.server.id, id));
     forgetServer(id);
+    if (ownerChanged) {
+      // It leaves private networks of its old owner, so it no longer reaches their servers.
+      const left = await db
+        .delete(schema.privateNetworkMember)
+        .where(
+          and(
+            eq(schema.privateNetworkMember.serverId, id),
+            sql`${schema.privateNetworkMember.networkId} in (select ${schema.privateNetwork.id} from ${schema.privateNetwork} where ${schema.privateNetwork.organizationId} is distinct from ${data.ownerOrganizationId ?? null})`,
+          ),
+        )
+        .returning({ networkId: schema.privateNetworkMember.networkId });
+      if (left.length) await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });
+    }
 
     const connectionChanged = ["host", "port", "username", "privateKeyId", "dataDir"].some((k) => k in data && data[k as keyof typeof data] !== before[k as keyof typeof before]);
     if (connectionChanged && !before.isLocal) await enqueue("server.setup", { serverId: id }, { concurrencyKey: `server:${id}` });
@@ -241,6 +269,36 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.update", message: `Updated server ${data.name ?? before.name}` });
     return null;
   });
+}
+
+/** An organization's server must be a public machine; one without a public address connects out instead. */
+async function assertPublicHost(host: string) {
+  if (!(await publicAddress(host))) throw new UserError("That address is private or does not resolve. Use the server's public address, or add it as a server that connects out.");
+}
+
+/** Services, tunnels and certificates on a server that belong to organizations other than `orgId`. */
+async function foreignWorkOn(serverId: string, orgId: string) {
+  const [services, tunnels, certificates] = await Promise.all([
+    db
+      .select({ name: schema.service.name })
+      .from(schema.service)
+      .innerJoin(schema.project, eq(schema.project.id, schema.service.projectId))
+      .where(
+        and(
+          or(eq(schema.service.serverId, serverId), runsAsExtraOn(serverId), sql`${schema.service.distribution}->>'buildServerId' = ${serverId}`),
+          ne(schema.project.organizationId, orgId),
+        ),
+      ),
+    db
+      .select({ name: schema.cloudflareTunnel.name })
+      .from(schema.cloudflareTunnel)
+      .where(and(eq(schema.cloudflareTunnel.serverId, serverId), ne(schema.cloudflareTunnel.organizationId, orgId))),
+    db
+      .select({ name: schema.certificate.name })
+      .from(schema.certificate)
+      .where(and(eq(schema.certificate.serverId, serverId), ne(schema.certificate.organizationId, orgId))),
+  ]);
+  return [...services.map((r) => r.name), ...tunnels.map((r) => `tunnel ${r.name}`), ...certificates.map((r) => `certificate ${r.name}`)];
 }
 
 /** Connects, checks Docker (optionally installs it) and starts the proxy. */

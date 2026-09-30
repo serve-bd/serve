@@ -116,16 +116,17 @@ export async function saveProxySettings(serverId: string, kind: ProxyKind, input
           dash = { enabled: true, hostname: dashboard.hostname, username: dashboard.username, passwordHash: keep ? dash!.passwordHash : apr1(dashboard.password!) };
         }
       }
-      if (rest.acmeChallenge === "dns-cloudflare" && rest.cloudflareAccountId) {
-        // Only an account of the server's owner (Root for instance servers) may issue its certificates.
+      next.traefik = { ...config.traefik, ...rest, dashboard: dash };
+      // Checked on the merged result, so no field order skips it: only an account of the
+      // server's owner (Root for instance servers) may issue its certificates.
+      if (next.traefik.acmeChallenge === "dns-cloudflare" && next.traefik.cloudflareAccountId) {
         const owner = row.ownerOrganizationId ?? (await getSettings()).rootOrganizationId;
         const [account] = await db
           .select({ id: schema.cloudflareAccount.id })
           .from(schema.cloudflareAccount)
-          .where(and(eq(schema.cloudflareAccount.id, rest.cloudflareAccountId), eq(schema.cloudflareAccount.organizationId, owner ?? "")));
+          .where(and(eq(schema.cloudflareAccount.id, next.traefik.cloudflareAccountId), eq(schema.cloudflareAccount.organizationId, owner ?? "")));
         if (!account) throw new UserError("Cloudflare account not found.");
       }
-      next.traefik = { ...config.traefik, ...rest, dashboard: dash };
     }
     await apply(serverId, kind, next, "these settings");
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.proxy.config", message: `Updated ${proxyLabels[kind]} settings` });

@@ -36,8 +36,7 @@ describe("project canvas auto layout", () => {
     expect(pos.postgres.x).toBeGreaterThan(pos.buraq.x);
     for (const other of ["mysql", "mattermost"]) expect(crosses(from, to, pos[other])).toBe(false);
     const boxes = frames(services, pos);
-    for (const [i, a] of boxes.entries())
-      for (const b of boxes.slice(i + 1)) expect(a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY).toBe(false);
+    for (const [i, a] of boxes.entries()) for (const b of boxes.slice(i + 1)) expect(a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY).toBe(false);
   });
 
   it("packs unrelated services of one server in rows of three", () => {

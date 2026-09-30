@@ -55,7 +55,10 @@ function assertSameOwner(ctx: Ctx, network: { organizationId: string | null; nam
 
 /** A new private network; the name must be free (any case). */
 async function insertNetwork(tx: Tx, name: string, organizationId: string | null = null) {
-  const [taken] = await tx.select({ id: schema.privateNetwork.id }).from(schema.privateNetwork).where(sql`lower(${schema.privateNetwork.name}) = lower(${name})`);
+  const [taken] = await tx
+    .select({ id: schema.privateNetwork.id })
+    .from(schema.privateNetwork)
+    .where(sql`lower(${schema.privateNetwork.name}) = lower(${name}) and ${schema.privateNetwork.organizationId} is not distinct from ${organizationId}`);
   if (taken) throw new UserError(`A private network named "${name}" already exists.`);
   try {
     const [row] = await tx.insert(schema.privateNetwork).values({ id: newId(), name, organizationId }).returning();
@@ -235,7 +238,9 @@ export async function renameNetwork(networkId: string, name: string) {
       const [taken] = await tx
         .select({ id: schema.privateNetwork.id })
         .from(schema.privateNetwork)
-        .where(sql`lower(${schema.privateNetwork.name}) = lower(${parsed}) and ${schema.privateNetwork.id} <> ${networkId}`);
+        .where(
+          sql`lower(${schema.privateNetwork.name}) = lower(${parsed}) and ${schema.privateNetwork.organizationId} is not distinct from ${row.organizationId} and ${schema.privateNetwork.id} <> ${networkId}`,
+        );
       if (taken) throw new UserError(`A private network named "${parsed}" already exists.`);
       await tx
         .update(schema.privateNetwork)
@@ -398,7 +403,7 @@ export async function meshChangeImpact(change: MeshChange) {
           providerServer: hidden ? "" : (serverName.get(p.serverId) ?? ""),
           project: hidden ? "Another organization" : (projectName.get(c.projectId) ?? ""),
           href: ownProject.has(c.projectId) ? `/projects/${c.projectId}/services/${c.id}/variables` : null,
-          variables: l.variables.sort(),
+          variables: hidden ? [] : l.variables.sort(),
         };
       })
       .sort((a, b) => a.project.localeCompare(b.project) || a.consumer.localeCompare(b.consumer));

@@ -178,7 +178,8 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
     }
     // Lives in the mounted sites dir (not globbed as a site), so existing proxies see it without a new mount.
     changed = (await ctx.fs.writeIfChanged(plainParamsFile(ctx), proxyParamsPlain)) || changed;
-    changed = (await writeCustomConfig(ctx, settings.proxyCustomConfig)) || changed;
+    // Instance-wide directives are Root's: an organization's own server does not get them.
+    changed = (await writeCustomConfig(ctx, ctx.row.ownerOrganizationId ? null : settings.proxyCustomConfig)) || changed;
     changed = (await writeOrRemove(ctx, serverRawFile(ctx), null)) || changed;
     changed = (await writeOrRemove(ctx, realIpFile(ctx), realIpConfig(trusted))) || changed;
     changed = (await writeUserFiles(ctx, p.proxyCustom, n.files, customFilePattern.nginx)) || changed;
@@ -233,10 +234,17 @@ async function removeContainer(ctx: ServerCtx, name: string) {
 }
 
 /** The Cloudflare token Traefik needs for DNS challenges, when configured. */
-async function traefikDnsToken(config: ServerProxyConfig) {
+/** The Cloudflare token for DNS challenges; only an account of the server's owner (Root for instance servers). */
+async function traefikDnsToken(serverId: string, config: ServerProxyConfig) {
   const id = config.traefik?.acmeChallenge === "dns-cloudflare" ? config.traefik.cloudflareAccountId : null;
   if (!id) return null;
-  const [account] = await db.select({ token: schema.cloudflareAccount.apiToken }).from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, id));
+  const [row] = await db.select({ owner: schema.server.ownerOrganizationId }).from(schema.server).where(eq(schema.server.id, serverId));
+  const owner = row?.owner ?? (await getSettings()).rootOrganizationId;
+  if (!owner) return null;
+  const [account] = await db
+    .select({ token: schema.cloudflareAccount.apiToken })
+    .from(schema.cloudflareAccount)
+    .where(and(eq(schema.cloudflareAccount.id, id), eq(schema.cloudflareAccount.organizationId, owner)));
   return account ? decrypt(account.token) : null;
 }
 
@@ -306,7 +314,7 @@ async function baseContainerSpec(ctx: ServerCtx, kind: RunningKind, config: Serv
       ],
     };
   }
-  const token = await traefikDnsToken(config);
+  const token = await traefikDnsToken(ctx.id, config);
   return {
     Image: proxyImages.traefik,
     Cmd: traefikStaticArgs(config.traefik ?? {}, { email: settings.acmeEmail, staging: settings.acmeStaging, trusted: await trustedSubnets(ctx), hasDnsToken: !!token }),
@@ -1103,7 +1111,7 @@ export async function testProxyConfig(ctx?: ServerCtx): Promise<ProxyTest> {
  */
 export async function applyCustomConfig(config: string | null) {
   const servers: ServerCtx[] = [];
-  for (const ctx of await activeServers()) if ((await proxyStateOf(ctx.id)).kind === "nginx") servers.push(ctx);
+  for (const ctx of await activeServers()) if (!ctx.row.ownerOrganizationId && (await proxyStateOf(ctx.id)).kind === "nginx") servers.push(ctx);
   const content = customContent(config);
   const applied: { ctx: ServerCtx; previous: string | null }[] = [];
   try {

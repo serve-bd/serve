@@ -1124,7 +1124,8 @@ export const privateNetwork = pgTable(
     name: text("name").notNull(),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("private_network_name_idx").on(sql`lower(${t.name})`)],
+  // Names are unique per owner, so no organization learns another's network names.
+  (t) => [uniqueIndex("private_network_name_idx").on(sql`coalesce(${t.organizationId}, '')`, sql`lower(${t.name})`)],
 );
 
 /** A server can be in several private networks; it only takes part while it has joined (server.mesh). */

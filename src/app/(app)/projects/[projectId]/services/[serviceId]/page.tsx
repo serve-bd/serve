@@ -11,6 +11,8 @@ import { decryptOrNull } from "@/server/crypto";
 import { publishedPorts } from "@/server/services/ports";
 import { monitorSummary } from "@/server/monitoring/queries";
 import { UptimeCard } from "./uptime-card";
+import { loadPreviews } from "./previews/data";
+import { PreviewsCard } from "./previews/previews-list";
 
 export default async function ServicePage(props: PageProps<"/projects/[projectId]/services/[serviceId]">) {
   const { projectId, serviceId } = await props.params;
@@ -50,7 +52,14 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
 
   return (
     <PageBody>
-      <ServiceOverview {...(await loadOverview(service, projectId, ctx.org.id))} />
+      <ServiceOverview
+        {...(await loadOverview(service, projectId, ctx.org.id))}
+        previewsCard={
+          service.type === "app" && service.source?.type === "git" && !service.parentServiceId && service.previewsEnabled ? (
+            <PreviewsCard key="previews" projectId={projectId} serviceId={service.id} previews={await loadPreviews(service.id)} />
+          ) : null
+        }
+      />
     </PageBody>
   );
 }

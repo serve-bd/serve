@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 
@@ -15,7 +15,8 @@ export async function GET() {
     })
     .from(schema.service)
     .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
-    .where(eq(schema.project.organizationId, ctx.org.id))
+    // Pull request previews are reached through their app.
+    .where(and(eq(schema.project.organizationId, ctx.org.id), isNull(schema.service.previewPr)))
     .orderBy(asc(schema.service.name));
   return Response.json({ services: services.filter((s) => ctx.canAccessProject(s.projectId)) });
 }

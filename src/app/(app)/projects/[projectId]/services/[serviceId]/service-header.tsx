@@ -42,7 +42,7 @@ type Props = {
     /** Open previews, for an app that can have them (the Previews tab); null for other services. */
     previews: number | null;
     /** The app a preview belongs to. */
-    parent: { id: string; name: string } | null;
+    parent: { id: string; name: string; pr: number } | null;
   };
   initialLive: ServiceLive;
   server: { id: string; name: string } | null;
@@ -127,6 +127,8 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   // Never deployed: nothing runs yet, so there is nothing to restart or stop.
   const notDeployed = live.status === "idle";
   const busy = ["building", "deploying", "restarting"].includes(live.status);
+  const preview = service.parent?.pr ?? null;
+  const parentMe = service.parent ? (siblings.find((s) => s.id === service.parent!.id) ?? null) : null;
   const me: SiblingService = {
     id: service.id,
     name: service.name,
@@ -146,10 +148,17 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
             items={[
               { label: "Projects", href: "/projects" },
               { label: project.name, href: `/projects/${project.id}?env=${environment}` },
-              ...(service.parent ? [{ label: service.parent.name, href: `/projects/${project.id}/services/${service.parent.id}/previews` }] : []),
               {
-                label: <ServiceSwitcher projectId={project.id} current={me} services={siblings.some((s) => s.id === service.id) ? siblings : [...siblings, me]} />,
+                label: (
+                  <ServiceSwitcher
+                    projectId={project.id}
+                    current={parentMe ?? me}
+                    services={siblings.some((s) => s.id === (parentMe ?? me).id) ? siblings : [...siblings, parentMe ?? me]}
+                  />
+                ),
               },
+              // A preview is part of its app: shown as a step below it, not as a service of its own.
+              ...(service.parent && preview ? [{ label: `PR #${preview}`, href: `/projects/${project.id}/services/${service.parent.id}/previews` }] : []),
             ]}
           />
         </div>
@@ -159,8 +168,9 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
           <div className="flex min-w-0 items-start gap-3.5 sm:flex-[1_1_20rem] sm:items-center">
             <ServiceIcon type={service.type} engine={service.engine} icon={service.icon} source={service.sourceType} size="lg" />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <div className="flex min-w-0 items-center gap-3">
-                <h1 className="truncate text-[22px] leading-tight font-semibold">{service.name}</h1>
+              <div className={cn("flex min-w-0 items-center gap-3", preview && "flex-wrap gap-y-1.5")}>
+                <h1 className="truncate text-[22px] leading-tight font-semibold">{service.parent?.name ?? service.name}</h1>
+                {preview && <span className="shrink-0 rounded-full bg-info-soft px-2.5 py-0.5 text-xs font-semibold text-info">Preview · PR #{preview}</span>}
                 <StatusLabel status={live.status} className="shrink-0 rounded-full bg-surface-2 px-2.5 py-0.5 text-xs ring-1 ring-line" />
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">

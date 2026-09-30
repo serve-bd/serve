@@ -12,17 +12,9 @@ import { useAction } from "@/hooks/use-action";
 import { useRouter } from "@/hooks/use-router";
 import { deployService, removePreviewService } from "@/server/actions/services";
 import { cn } from "@/lib/utils";
+import type { PreviewRow } from "./data";
 
-type Preview = {
-  id: string;
-  pr: number;
-  status: string;
-  branch: string | null;
-  url: string | null;
-  createdAt: string;
-  database: boolean;
-  deployment: { id: string; status: string; title: string | null; sha: string | null; createdAt: string } | null;
-};
+type Preview = PreviewRow;
 
 export function PreviewsList(props: {
   projectId: string;
@@ -154,6 +146,47 @@ export function PreviewsList(props: {
                     )}
                   </MenuContent>
                 </Menu>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/** The Overview card of an app: its open previews, linking to the Previews tab. */
+export function PreviewsCard({ projectId, serviceId, previews }: { projectId: string; serviceId: string; previews: Preview[] }) {
+  const base = `/projects/${projectId}/services`;
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader
+        title="Previews"
+        actions={
+          <Link href={`${base}/${serviceId}/previews`} className={buttonVariants({ size: "sm", variant: "ghost" })}>
+            All
+          </Link>
+        }
+      />
+      {previews.length === 0 ? (
+        <p className="px-5 pb-4 text-[13px] text-muted">No open pull requests. Each new one gets a preview here.</p>
+      ) : (
+        <ul className="divide-y divide-line border-t border-line">
+          {previews.slice(0, 5).map((p) => {
+            const busy = !!p.deployment && ["queued", "building", "deploying"].includes(p.deployment.status);
+            return (
+              <li key={p.id} className="flex min-w-0 items-center gap-2.5 px-5 py-2.5">
+                <StatusDot status={busy ? p.deployment!.status : p.status} kind={busy ? "deployment" : "service"} />
+                <Link href={`${base}/${p.id}`} className="flex-none text-[13px] font-medium text-fg hover:underline">
+                  PR #{p.pr}
+                </Link>
+                {p.url ? (
+                  <a href={p.url} target="_blank" rel="noreferrer" className="min-w-0 truncate text-xs text-accent hover:underline">
+                    {p.url.replace(/^https?:\/\//, "")}
+                  </a>
+                ) : (
+                  <span className="min-w-0 truncate text-xs text-muted">{p.deployment?.title ?? p.branch}</span>
+                )}
               </li>
             );
           })}

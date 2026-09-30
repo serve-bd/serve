@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { ScopeProject } from "./editor";
 
@@ -16,7 +16,7 @@ export async function scopeTree(organizationId: string): Promise<ScopeProject[]>
       .select({ id: schema.service.id, name: schema.service.name, environmentId: schema.service.environmentId, projectId: schema.service.projectId })
       .from(schema.service)
       .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
-      .where(eq(schema.project.organizationId, organizationId))
+      .where(and(eq(schema.project.organizationId, organizationId), isNull(schema.service.previewPr)))
       .orderBy(asc(schema.service.name)),
   ]);
   return projects.map((p) => ({

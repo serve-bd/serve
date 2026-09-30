@@ -39,7 +39,17 @@ import { ContainerDialog } from "./container-dialog";
 
 type Series = { t: number; cpu: number; memory: number; memoryLimit: number; netRx: number | null; netTx: number | null }[];
 type Req = { series: { t: number; requests: number; avgMs: number; s5xx: number }[]; totals: { requests: number; errors: number; bytes: number; avgMs: number } };
-type Live = { status: string; containers: { id: string; name: string; state: string; status: string; deployment: string | null; composeService: string | null }[] };
+type Live = {
+  status: string;
+  containers: { id: string; name: string; state: string; status: string; deployment: string | null; composeService: string | null }[];
+  previews?: {
+    id: string;
+    pr: number;
+    currentDeploymentId: string | null;
+    deployments: { id: string; status: string; commitSha: string | null; commitMessage: string | null; branch: string | null; finishedAt: string | null; createdAt: string }[];
+    containers: { id: string; name: string; state: string; status: string; deployment: string | null }[];
+  }[];
+};
 type Deployment = OverviewData["recent"][number];
 
 const triggerLabel: Record<string, string> = {
@@ -88,7 +98,7 @@ function Stat({ icon, label, value, sub, children }: { icon: React.ReactNode; la
   );
 }
 
-export function ServiceOverview(data: OverviewData) {
+export function ServiceOverview({ previewsCard, ...data }: OverviewData & { previewsCard?: React.ReactNode }) {
   const { service, current } = data;
   const router = useRouter();
   const base = `/projects/${data.projectId}/services/${service.id}`;
@@ -217,6 +227,24 @@ export function ServiceOverview(data: OverviewData) {
           ) : (
             <EmptyState icon={<Rocket />} title="Not deployed yet" description="Deploy to build and start this service." />
           )}
+          {(live?.previews ?? []).map((p) => {
+            const d = p.deployments.find((x) => x.id === p.currentDeploymentId) ?? p.deployments[0];
+            if (!d) return null;
+            return (
+              <Link
+                key={p.id}
+                href={`/projects/${data.projectId}/services/${p.id}/deployments/${d.id}`}
+                className="flex min-w-0 items-center gap-3 border-t border-line px-5 py-3 transition-colors hover:bg-hover"
+              >
+                <Badge tone="info" className="flex-none">
+                  PR #{p.pr}
+                </Badge>
+                <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{d.commitMessage || "Preview"}</span>
+                {d.commitSha && <span className="hidden flex-none font-mono text-xs text-muted sm:inline">{d.commitSha.slice(0, 7)}</span>}
+                <StatusLabel status={d.status} kind="deployment" className="flex-none rounded-full bg-surface-2 px-2 py-0.5 text-xs" />
+              </Link>
+            );
+          })}
         </Card>
 
         {/* Resources */}
@@ -265,6 +293,23 @@ export function ServiceOverview(data: OverviewData) {
                   <ChevronRight className="size-3.5 flex-none text-faint transition-colors group-hover:text-muted" />
                 </button>
               ))}
+              {(live?.previews ?? []).flatMap((p) =>
+                p.containers
+                  .filter((c) => c.deployment === p.currentDeploymentId)
+                  .map((c) => (
+                    <Link
+                      key={c.id}
+                      href={`/projects/${data.projectId}/services/${p.id}`}
+                      className="group flex w-full items-center gap-3 px-5 py-2.5 text-left text-[13px] transition-colors hover:bg-hover"
+                    >
+                      <span className={cn("size-1.5 flex-none rounded-full", c.state === "running" ? "bg-ok" : c.state === "restarting" ? "bg-warn" : "bg-idle")} />
+                      <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-2">{c.name}</span>
+                      <Badge tone="info">PR #{p.pr}</Badge>
+                      <span className="hidden flex-none text-xs text-muted sm:inline">{c.status}</span>
+                      <ChevronRight className="size-3.5 flex-none text-faint transition-colors group-hover:text-muted" />
+                    </Link>
+                  )),
+              )}
             </div>
           )}
         </Card>
@@ -332,6 +377,7 @@ export function ServiceOverview(data: OverviewData) {
 
       <div className="flex min-w-0 flex-col gap-6">
         {!data.monitoring.monitor && <UptimeCard summary={data.monitoring} settingsHref={`${base}/settings/monitoring`} />}
+        {previewsCard}
         {/* Access */}
         <Card>
           <CardHeader

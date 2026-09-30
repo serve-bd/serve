@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import { Ban, GitCommitHorizontal, MoreHorizontal, RefreshCw, RotateCcw, Rocket, User } from "lucide-react";
@@ -17,14 +18,24 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
   const confirm = useConfirm();
   const { data, mutate } = useServiceLive(serviceId);
   const base = `/projects/${projectId}/services/${serviceId}`;
-  const go = (id: string) => router.push(`${base}/deployments/${id}`);
+  // Redeploys of a preview open that preview's deployment page.
+  const target = React.useRef(serviceId);
+  const go = (id: string) => router.push(`/projects/${projectId}/services/${target.current}/deployments/${id}`);
   const rollback = useAction(rollbackTo, { success: "Rollback queued", onSuccess: (d) => go(d.id) });
   const redeploy = useAction(redeployDeployment, { success: "Redeploy queued", onSuccess: (d) => go(d.id) });
   const cancel = useAction(cancelDeployment, { success: "Cancel requested. It stops in a moment.", onSuccess: () => void mutate() });
 
   if (!data) return null;
-  const { deployments, currentDeploymentId, containers } = data;
+  const { currentDeploymentId, containers } = data;
   const relevant = type === "app" ? containers.filter((c) => c.deployment === currentDeploymentId) : containers;
+  // The app's deployments and those of its pull request previews, newest first.
+  const previews = data.previews ?? [];
+  const deployments = [
+    ...data.deployments.map((d) => ({ ...d, preview: null })),
+    ...previews.flatMap((p) =>
+      p.deployments.map((d) => ({ ...d, image: null, error: null, userName: null, preview: { id: p.id, pr: p.pr, current: d.id === p.currentDeploymentId } })),
+    ),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -35,12 +46,13 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
         ) : (
           <ol className="relative">
             {deployments.map((d, i) => {
-              const current = d.id === currentDeploymentId;
+              const current = d.preview ? d.preview.current : d.id === currentDeploymentId;
+              const href = d.preview ? `/projects/${projectId}/services/${d.preview.id}/deployments/${d.id}` : `${base}/deployments/${d.id}`;
               const active = ["queued", "building", "deploying"].includes(d.status);
               const duration = d.startedAt && d.finishedAt ? formatDuration(new Date(d.finishedAt).getTime() - new Date(d.startedAt).getTime()) : null;
               return (
-                <li key={d.id} className={cn("group relative border-b border-line last:border-b-0", current && "bg-ok-soft/40")}>
-                  <Link href={`${base}/deployments/${d.id}`} className="grid grid-cols-[20px_1fr_auto] gap-x-3 px-5 py-3.5 transition-colors hover:bg-hover/50">
+                <li key={d.id} className={cn("group relative border-b border-line last:border-b-0", current && !d.preview && "bg-ok-soft/40")}>
+                  <Link href={href} className="grid grid-cols-[20px_1fr_auto] gap-x-3 px-5 py-3.5 transition-colors hover:bg-hover/50">
                     <span className="relative flex justify-center pt-1.5">
                       <StatusDot status={d.status} kind="deployment" />
                       {i < deployments.length - 1 && <span aria-hidden className="absolute top-5 -bottom-5 w-px bg-line" />}
@@ -50,7 +62,8 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                         <span className="truncate text-[13px] font-medium text-fg">
                           {d.commitMessage || (d.trigger === "rollback" ? "Rollback" : d.trigger === "create" ? "Initial deployment" : "Deployment")}
                         </span>
-                        {current && <Badge tone="ok">Current</Badge>}
+                        {d.preview && <Badge tone="info">PR #{d.preview.pr}</Badge>}
+                        {current && <Badge tone="ok">{d.preview ? "Live" : "Current"}</Badge>}
                         {d.trigger === "rollback" && <Badge tone="info">Rollback</Badge>}
                       </span>
                       <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
@@ -86,7 +99,7 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                           </MenuItem>
                         ) : (
                           <>
-                            {type === "app" && d.status === "success" && !current && d.image && (
+                            {type === "app" && !d.preview && d.status === "success" && !current && d.image && (
                               <MenuItem
                                 onClick={async () => {
                                   if (
@@ -102,7 +115,12 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                                 <RotateCcw /> Roll back to this
                               </MenuItem>
                             )}
-                            <MenuItem onClick={() => redeploy.run(d.id)}>
+                            <MenuItem
+                              onClick={() => {
+                                target.current = d.preview?.id ?? serviceId;
+                                void redeploy.run(d.id);
+                              }}
+                            >
                               <RefreshCw /> Redeploy
                             </MenuItem>
                           </>
@@ -131,6 +149,26 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
           ))}
           {relevant.length === 0 && <p className="px-5 py-4 text-[13px] text-muted">Containers appear here after a successful deploy.</p>}
         </div>
+        {previews.map((p) => {
+          const live = p.containers.filter((c) => c.deployment === p.currentDeploymentId);
+          if (!live.length) return null;
+          return (
+            <div key={p.id} className="border-t border-line">
+              <Link href={`/projects/${projectId}/services/${p.id}`} className="flex items-center gap-2 bg-surface-2 px-5 py-2 text-xs font-medium text-muted hover:text-fg">
+                <Badge tone="info">PR #{p.pr}</Badge> Preview
+              </Link>
+              {live.map((c) => (
+                <div key={c.id} className="flex items-center gap-3 px-5 py-3">
+                  <StatusDot status={c.state === "running" ? "running" : c.state === "restarting" ? "restarting" : c.state === "exited" ? "failed" : "stopped"} />
+                  <div className="flex min-w-0 flex-col">
+                    <span className="truncate font-mono text-[12px] text-fg-2">{c.name}</span>
+                    <span className="truncate text-[11px] text-faint">{c.status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
       </Card>
     </div>
   );

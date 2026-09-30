@@ -411,6 +411,8 @@ export const service = pgTable(
     autoDeploy: boolean("auto_deploy").notNull().default(true),
     /** Deploy pull requests as temporary preview services. */
     previewsEnabled: boolean("previews_enabled").notNull().default(false),
+    /** Preview URL template like pr-{pr}.example.com ({pr}: the pull request number); null: a generated address. */
+    previewDomain: text("preview_domain"),
     /** Set on preview services: the service they were created from. */
     parentServiceId: text("parent_service_id").references((): AnyPgColumn => service.id, { onDelete: "cascade" }),
     previewPr: integer("preview_pr"),

@@ -151,7 +151,11 @@ function ServiceCardNode({ data, selected }: NodeProps<ServiceNode>) {
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="flex items-center gap-1.5">
             <span className="truncate text-[13px] font-semibold text-fg">{s.name}</span>
-            {s.previewPr !== null && <span className="shrink-0 rounded-full bg-info-soft px-1.5 text-[9px] font-semibold text-info">PREVIEW</span>}
+            {s.previews > 0 && (
+              <span className="shrink-0 rounded-full bg-info-soft px-1.5 text-[9px] font-semibold text-info">
+                {s.previews} preview{s.previews === 1 ? "" : "s"}
+              </span>
+            )}
           </span>
           <span className="truncate text-[11px] text-muted">{s.domain ?? s.source ?? (s.engine ? s.engine : s.type)}</span>
         </div>

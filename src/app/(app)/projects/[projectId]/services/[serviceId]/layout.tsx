@@ -1,7 +1,7 @@
 import { requireOrg } from "@/server/auth";
 import { pageService } from "@/server/services/access";
 import { serviceLive } from "@/server/service-data";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { serversForOrg } from "@/server/servers/access";
 import { publishedPorts } from "@/server/services/ports";
@@ -35,6 +35,16 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
     .from(schema.service)
     .where(and(eq(schema.service.projectId, projectId), eq(schema.service.environmentId, service.environmentId), isNull(schema.service.parentServiceId)))
     .orderBy(asc(schema.service.name));
+  // Pull request previews live on the app's Previews tab; a preview links back to its app.
+  const [previews, [parent]] = await Promise.all([
+    db
+      .select({ id: schema.service.id })
+      .from(schema.service)
+      .where(and(eq(schema.service.parentServiceId, service.id), eq(schema.service.type, "app"), isNotNull(schema.service.previewPr))),
+    service.parentServiceId && service.previewPr !== null
+      ? db.select({ id: schema.service.id, name: schema.service.name }).from(schema.service).where(eq(schema.service.id, service.parentServiceId))
+      : Promise.resolve([]),
+  ]);
   const ports = await publishedPorts(service, server);
   // The server name is only worth showing when the organization can deploy to more than one.
   const [env] = await (await import("@/server/project-data")).projectEnvironments(projectId).then((envs) => envs.filter((e) => e.id === service.environmentId));
@@ -49,6 +59,8 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
           type: service.type,
           environmentId: service.environmentId,
           isPreview: !!service.parentServiceId,
+          previews: service.type === "app" && service.source?.type === "git" && !service.parentServiceId && (service.previewsEnabled || previews.length) ? previews.length : null,
+          parent: parent ? { id: parent.id, name: parent.name } : null,
           icon: service.icon,
           engine: service.database?.engine ?? null,
           sourceType: service.source?.type ?? null,

@@ -8,6 +8,8 @@ export type SettingsNavInput = {
   gitSource: boolean;
   hasBuild: boolean;
   hasCompose: boolean;
+  /** An app from Git that is not itself a preview: gets the Previews page. */
+  previews?: boolean;
   db: { engine: string; initScripts: boolean; tls: boolean } | null;
 };
 
@@ -32,6 +34,7 @@ export function settingsNav(s: SettingsNavInput): SettingsNavItem[] {
     { id: "server", label: "Server" },
     ...(s.type === "app" ? [{ id: "servers", label: "Servers & registry" }] : []),
     ...(s.hasSource ? [{ id: "source", label: "Source" }] : []),
+    ...(s.previews ? [{ id: "previews", label: "Previews" }] : []),
     ...(s.hasBuild && s.gitSource ? [{ id: "build", label: "Build" }] : []),
     ...(s.hasCompose
       ? [

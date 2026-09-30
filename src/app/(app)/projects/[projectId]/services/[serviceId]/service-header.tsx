@@ -39,6 +39,10 @@ type Props = {
     sourceLabel: string;
     environmentId: string;
     isPreview: boolean;
+    /** Open previews, for an app that can have them (the Previews tab); null for other services. */
+    previews: number | null;
+    /** The app a preview belongs to. */
+    parent: { id: string; name: string } | null;
   };
   initialLive: ServiceLive;
   server: { id: string; name: string } | null;
@@ -99,6 +103,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     ...(can("console.access") ? [{ href: `${base}/console`, label: "Console" }] : []),
     { href: `${base}/metrics`, label: "Metrics" },
     { href: `${base}/variables`, label: "Variables" },
+    ...(service.previews !== null ? [{ href: `${base}/previews`, label: service.previews ? `Previews ${service.previews}` : "Previews" }] : []),
     ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains & ports" }] : []),
     ...(service.type === "database"
       ? [{ href: `${base}/backups`, label: "Backups" }]
@@ -141,6 +146,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
             items={[
               { label: "Projects", href: "/projects" },
               { label: project.name, href: `/projects/${project.id}?env=${environment}` },
+              ...(service.parent ? [{ label: service.parent.name, href: `/projects/${project.id}/services/${service.parent.id}/previews` }] : []),
               {
                 label: <ServiceSwitcher projectId={project.id} current={me} services={siblings.some((s) => s.id === service.id) ? siblings : [...siblings, me]} />,
               },

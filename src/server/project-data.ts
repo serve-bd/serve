@@ -20,7 +20,8 @@ export type ServiceCardData = {
   source: string | null;
   domain: string | null;
   domainHttps: boolean;
-  previewPr: number | null;
+  /** Open pull request previews; they are shown inside the service, not as cards of their own. */
+  previews: number;
   lastDeploy: { id: string; status: string; commitMessage: string | null; createdAt: Date } | null;
   /** Problems that need attention, worst first. */
   issues: ServiceIssue[];
@@ -31,7 +32,9 @@ export type ServiceCardData = {
 };
 
 export async function environmentServices(environmentId: string): Promise<ServiceCardData[]> {
-  const services = await db.select().from(schema.service).where(eq(schema.service.environmentId, environmentId)).orderBy(asc(schema.service.createdAt));
+  const everything = await db.select().from(schema.service).where(eq(schema.service.environmentId, environmentId)).orderBy(asc(schema.service.createdAt));
+  // Previews and their database copies belong to their app: counted on its card, listed on its Previews tab.
+  const services = everything.filter((s) => s.previewPr === null);
   if (!services.length) return [];
   const ids = services.map((s) => s.id);
   const [domains, deployments, issues, vars, servers, mesh, [scopeRow]] = await Promise.all([
@@ -108,7 +111,7 @@ export async function environmentServices(environmentId: string): Promise<Servic
                 : null,
       domain: primary?.hostname ?? null,
       domainHttps: primary?.https ?? false,
-      previewPr: s.previewPr ?? null,
+      previews: everything.filter((x) => x.parentServiceId === s.id && x.previewPr !== null && x.type === "app").length,
       lastDeploy: dep ? { id: dep.id, status: dep.status, commitMessage: dep.commitMessage, createdAt: dep.createdAt } : null,
       issues: issues.get(s.id) ?? [],
       serverId: s.serverId,

@@ -124,7 +124,11 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-center gap-2">
             <span className="truncate text-[14px] font-semibold text-fg">{s.name}</span>
-            {s.previewPr !== null && <span className="shrink-0 rounded-full bg-info-soft px-1.5 text-[10px] font-semibold text-info">PREVIEW</span>}
+            {s.previews > 0 && (
+              <span className="shrink-0 rounded-full bg-info-soft px-1.5 text-[10px] font-semibold text-info">
+                {s.previews} preview{s.previews === 1 ? "" : "s"}
+              </span>
+            )}
           </span>
           <span className="truncate text-xs text-muted">{s.source ?? (s.engine ? s.engine : s.type)}</span>
         </div>
@@ -275,34 +279,25 @@ export function ProjectView({ project, environments, environment, initialService
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {services.map((s) => {
                 const on = selected.includes(s.id);
-                const selectable = s.previewPr === null;
                 return (
                   <div key={s.id} className="relative">
                     <ServiceCard projectId={project.id} s={s} />
                     {selecting && (
                       <button
                         type="button"
-                        disabled={!selectable}
                         aria-pressed={on}
                         aria-label={`${on ? "Unselect" : "Select"} ${s.name}`}
-                        title={selectable ? undefined : "Previews move with their parent service"}
                         onClick={() => toggle(s.id)}
-                        className={cn(
-                          "absolute inset-0 rounded-2xl transition-colors",
-                          selectable ? "cursor-pointer" : "cursor-not-allowed bg-bg/50",
-                          on ? "bg-accent/[0.06] ring-2 ring-accent" : selectable && "hover:bg-fg/[0.02]",
-                        )}
+                        className={cn("absolute inset-0 cursor-pointer rounded-2xl transition-colors", on ? "bg-accent/[0.06] ring-2 ring-accent" : "hover:bg-fg/[0.02]")}
                       >
-                        {selectable && (
-                          <span
-                            className={cn(
-                              "absolute top-4 right-4 flex size-5 items-center justify-center rounded-md border shadow-sm transition-colors",
-                              on ? "border-accent bg-accent text-accent-fg" : "border-line-strong bg-surface",
-                            )}
-                          >
-                            {on && <Check className="size-3.5" />}
-                          </span>
-                        )}
+                        <span
+                          className={cn(
+                            "absolute top-4 right-4 flex size-5 items-center justify-center rounded-md border shadow-sm transition-colors",
+                            on ? "border-accent bg-accent text-accent-fg" : "border-line-strong bg-surface",
+                          )}
+                        >
+                          {on && <Check className="size-3.5" />}
+                        </span>
                       </button>
                     )}
                   </div>

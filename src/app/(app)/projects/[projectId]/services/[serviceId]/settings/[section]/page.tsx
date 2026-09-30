@@ -133,6 +133,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
     gitSource: service.source?.type === "git",
     hasBuild: !!service.build,
     hasCompose: !!service.compose,
+    previews: service.type === "app" && service.source?.type === "git" && !service.parentServiceId,
     db: database ? { engine: database.config.engine, initScripts: !!database.engine.initScripts, tls: database.engine.tls } : null,
   });
   if (!nav.some((n) => n.id === section)) notFound();
@@ -149,6 +150,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
           type: service.type,
           autoDeploy: service.autoDeploy,
           previewsEnabled: service.previewsEnabled,
+          previewDomain: service.previewDomain,
           isPreview: !!service.parentServiceId,
           source: service.source
             ? service.source.type === "git"
@@ -186,7 +188,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
             : undefined
         }
         previewDatabase={
-          section === "source" && service.type === "app" && service.source?.type === "git" && !service.parentServiceId
+          section === "previews" && service.type === "app" && service.source?.type === "git" && !service.parentServiceId
             ? {
                 config: service.previewDatabase ?? null,
                 previewVars: Object.keys(service.previewVars ?? {}),

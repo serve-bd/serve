@@ -36,6 +36,77 @@ async function orgId(projectId: string) {
 }
 
 /** Create or update the preview service for a pull request and deploy it. */
+/** The port the app's own domain routes to, so a preview answers on the same one. */
+async function appDomainPort(serviceId: string) {
+  const own = await db.select({ port: schema.domain.port, redirectTo: schema.domain.redirectTo }).from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
+  return own.find((d) => !d.redirectTo && d.port)?.port ?? null;
+}
+
+/**
+ * The preview URL template with the pull request number, reached like the app's own domain: through its Cloudflare Tunnel
+ * (a record per preview), with a DNS record in its Cloudflare zone, or through a wildcard record the
+ * owner points at the server. False when the service has no preview domain or the name is taken.
+ */
+async function addPreviewDomain(parent: Service, previewId: string, prNumber: number) {
+  if (!parent.previewDomain) return false;
+  const { previewHostname, previewTemplateProblem } = await import("@/lib/preview-url");
+  if (previewTemplateProblem(parent.previewDomain)) return false;
+  const hostname = previewHostname(parent.previewDomain, prNumber);
+  const [taken] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, hostname));
+  if (taken) return false;
+  const own = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, parent.id));
+  const like = own.find((d) => d.tunnelId) ?? own.find((d) => !d.generated && !d.redirectTo);
+  const { Cloudflare } = await import("@/server/cloudflare/api");
+  let route: { accountId: string; zoneId: string; recordId: string | null; tunnelId: string | null } | null = null;
+  if (like?.tunnelId) {
+    const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, like.tunnelId));
+    if (tunnel && tunnel.serverId === parent.serverId) {
+      const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+      const zone = await cf.zoneFor(hostname).catch(() => null);
+      if (zone) {
+        const record = await cf.upsertTunnelRecord(zone.id, hostname, tunnel.cfTunnelId).catch(() => null);
+        route = { accountId: tunnel.cloudflareAccountId, zoneId: zone.id, recordId: record?.id ?? null, tunnelId: tunnel.id };
+      }
+    }
+  } else if (like?.cloudflareAccountId && like.cloudflareRecordId) {
+    const { serverPublicIp } = await import("@/server/servers/access");
+    const ip = await serverPublicIp(parent.serverId);
+    const cf = await Cloudflare.forAccount(like.cloudflareAccountId);
+    const zone = ip ? await cf.zoneFor(hostname).catch(() => null) : null;
+    if (ip && zone) {
+      const record = await cf.upsertARecord(zone.id, hostname, ip, false).catch(() => null);
+      route = { accountId: like.cloudflareAccountId, zoneId: zone.id, recordId: record?.id ?? null, tunnelId: null };
+    }
+  }
+  // Cloudflare ends HTTPS for a tunnel; otherwise previews use HTTPS when the app's domain does.
+  const https = route?.tunnelId ? false : (like?.https ?? true);
+  const [domain] = await db
+    .insert(schema.domain)
+    .values({
+      id: newId(),
+      serviceId: previewId,
+      hostname,
+      // Same as the app's own domain: the port and path it routes to, and HTTPS.
+      port: like?.port ?? null,
+      pathPrefix: like?.pathPrefix ?? "/",
+      https,
+      forceHttps: https && (like?.forceHttps ?? true),
+      cloudflareAccountId: route?.accountId ?? null,
+      cloudflareZoneId: route?.zoneId ?? null,
+      cloudflareRecordId: route?.recordId ?? null,
+      tunnelId: route?.tunnelId ?? null,
+      wantsTunnel: !!route?.tunnelId,
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (!domain) return false;
+  if (route?.tunnelId) {
+    const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+    await syncTunnelIngress(route.tunnelId).catch(() => {});
+  } else if (https) await ensureCertificateFor(domain, await orgId(parent.projectId));
+  return true;
+}
+
 export async function deployPreview(parent: Service, pr: PullRequest) {
   if (parent.type !== "app" || parent.source?.type !== "git") return null;
   let preview = await previewFor(parent.id, pr.number);
@@ -89,14 +160,16 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
 
     if (parent.previewDatabase) databaseId = await createPreviewDatabase(preview, parent, pr.number);
 
-    const host = await generatedHostname(slug, parent.serverId);
-    if (host) {
-      const [domain] = await db
-        .insert(schema.domain)
-        .values({ id: newId(), serviceId: id, hostname: host.hostname, https: host.https, forceHttps: host.https, generated: true })
-        .onConflictDoNothing()
-        .returning();
-      if (domain?.https) await ensureCertificateFor(domain, await orgId(parent.projectId));
+    if (!(await addPreviewDomain(parent, id, pr.number))) {
+      const host = await generatedHostname(slug, parent.serverId);
+      if (host) {
+        const [domain] = await db
+          .insert(schema.domain)
+          .values({ id: newId(), serviceId: id, hostname: host.hostname, port: await appDomainPort(parent.id), https: host.https, forceHttps: host.https, generated: true })
+          .onConflictDoNothing()
+          .returning();
+        if (domain?.https) await ensureCertificateFor(domain, await orgId(parent.projectId));
+      }
     }
     await logActivity({
       action: "preview.created",
@@ -107,6 +180,11 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
     });
   } else {
     await db.update(schema.service).set({ source }).where(eq(schema.service.id, preview.id));
+    // A URL template set after the preview opened: it gets that address with its next push.
+    if (parent.previewDomain) {
+      const domains = await db.select({ generated: schema.domain.generated }).from(schema.domain).where(eq(schema.domain.serviceId, preview.id));
+      if (domains.every((d) => d.generated)) await addPreviewDomain(parent, preview.id, pr.number);
+    }
   }
 
   const deployment = { commitSha: pr.sha, commitMessage: pr.title, branch: pr.branch };

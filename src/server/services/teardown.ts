@@ -28,12 +28,38 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
   // Remove repository webhooks Serve registered (best effort; the provider may be unreachable).
   const { removeRepoWebhook } = await import("@/server/git/repo-webhooks");
   for (const s of services) if (!s.parentServiceId && s.source?.type === "git" && s.source.webhook?.id) await removeRepoWebhook(s.source);
+  // Domains go with their services: previews also take their DNS records along (Serve made them for
+  // the preview), and tunnels stop routing the removed hostnames.
+  const domains = await db
+    .select()
+    .from(schema.domain)
+    .where(
+      inArray(
+        schema.domain.serviceId,
+        all.map((s) => s.id),
+      ),
+    );
+  const previewIds = new Set(all.filter((s) => s.previewPr !== null).map((s) => s.id));
+  if (domains.some((d) => previewIds.has(d.serviceId) && d.cloudflareRecordId)) {
+    const { Cloudflare } = await import("@/server/cloudflare/api");
+    for (const d of domains) {
+      if (!previewIds.has(d.serviceId) || !d.cloudflareAccountId || !d.cloudflareZoneId || !d.cloudflareRecordId) continue;
+      await Cloudflare.forAccount(d.cloudflareAccountId)
+        .then((cf) => cf.deleteDnsRecord(d.cloudflareZoneId!, d.cloudflareRecordId!))
+        .catch(() => {});
+    }
+  }
   await db.delete(schema.service).where(
     inArray(
       schema.service.id,
       all.map((s) => s.id),
     ),
   );
+  const tunnels = [...new Set(domains.map((d) => d.tunnelId).filter((id): id is string => !!id))];
+  if (tunnels.length) {
+    const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+    for (const id of tunnels) await syncTunnelIngress(id).catch(() => {});
+  }
   // Same concurrency key as deployments, so cleanup runs after an in-flight deploy stops.
   for (const s of all) {
     await enqueue(

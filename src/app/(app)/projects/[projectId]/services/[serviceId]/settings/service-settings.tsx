@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import type { BuildConfig, RepoWebhook, RuntimeConfig, VolumeMount } from "@/server/services/types";
 import { registerServiceWebhook, removeServiceWebhook } from "@/server/actions/integrations";
 import { Section } from "./section";
+import { normalizePreviewTemplate } from "@/lib/preview-url";
 import { AdvancedSection, BuildSection, DeploySection, HealthSection, ResourcesSection, RuntimeSection } from "./config-sections";
 import { ApplyBar, DatabaseSections, type DatabaseSettingsProps } from "./database-sections";
 import type { SettingsNavItem } from "./settings-nav";
@@ -54,6 +55,7 @@ type Props = {
     type: string;
     autoDeploy: boolean;
     previewsEnabled: boolean;
+    previewDomain: string | null;
     isPreview: boolean;
     source: Source | null;
     build: BuildConfig | null;
@@ -285,13 +287,11 @@ export function ServiceSettings(props: Props) {
               branch: service.source.branch,
               credentialId: service.source.credentialId ?? "public",
               autoDeploy: service.autoDeploy,
-              previewsEnabled: service.previewsEnabled,
             }}
             onSave={(v) =>
               save.run({
                 source: { type: "git", repository: v.repository, branch: v.branch, credentialId: v.credentialId === "public" ? null : v.credentialId },
                 autoDeploy: v.autoDeploy,
-                previewsEnabled: v.previewsEnabled,
               })
             }
           >
@@ -323,38 +323,84 @@ export function ServiceSettings(props: Props) {
                   checked={v.autoDeploy}
                   onCheckedChange={(c) => set({ autoDeploy: c })}
                 />
-                {!service.isPreview && service.type === "app" && (
-                  <SwitchRow
-                    title="Preview deployments"
-                    description="Deploy every pull request to its own temporary URL, and remove it when the pull request closes. Enable pull request events on the webhook."
-                    checked={v.previewsEnabled}
-                    onCheckedChange={(c) => set({ previewsEnabled: c })}
-                  />
-                )}
-                {!service.isPreview && service.type === "app" && v.previewsEnabled && props.previewDatabase && !props.previewDatabase.config && (
-                  <p className="flex gap-2 rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
-                    <TriangleAlert className="mt-px size-3.5 flex-none text-warn" />
-                    <span>
-                      Previews get this app&apos;s variables, so they use its production database
-                      {props.previewDatabase.previewVars.length ? ` unless one of your preview variables (${props.previewDatabase.previewVars.join(", ")}) replaces it` : ""}. Turn
-                      on &quot;Copy a database for each preview&quot; below, or set{" "}
-                      {service.previewsEnabled ? (
-                        <Link href={`/projects/${props.projectId}/services/${service.id}/variables?tab=previews`} className="text-accent hover:underline">
-                          preview variables
-                        </Link>
-                      ) : (
-                        "preview variables on the Variables tab after you save"
-                      )}
-                      .
-                    </span>
-                  </p>
-                )}
               </>
             )}
           </Section>
         )}
 
-        {show("source") && service.type === "app" && service.source?.type === "git" && !service.isPreview && props.previewDatabase && (
+        {show("previews") && service.type === "app" && service.source?.type === "git" && !service.isPreview && (
+          <Section
+            id="previews"
+            title="Preview deployments"
+            description={<>Every pull request runs as its own preview with its own address. It is removed when the pull request closes.</>}
+            initial={{ previewsEnabled: service.previewsEnabled, previewDomain: service.previewDomain ?? "" }}
+            onSave={(v) => save.run({ previewsEnabled: v.previewsEnabled, previewDomain: v.previewDomain.trim() || null })}
+          >
+            {(v, set) => {
+              const template = normalizePreviewTemplate(v.previewDomain);
+              return (
+                <>
+                  <SwitchRow
+                    title="Deploy pull requests"
+                    description="Pull request events arrive through the same webhook as pushes. Pull requests from forks are never deployed."
+                    checked={v.previewsEnabled}
+                    onCheckedChange={(c) => set({ previewsEnabled: c })}
+                  />
+                  <Field
+                    label="URL template"
+                    optional
+                    description={
+                      <>
+                        Where each preview is reached. <code className="font-mono">{"{pr}"}</code> becomes the pull request number. Empty: a generated address.
+                      </>
+                    }
+                  >
+                    <Input
+                      value={v.previewDomain}
+                      onChange={(e) => set({ previewDomain: e.target.value })}
+                      placeholder="pr-{pr}.example.com"
+                      className="font-mono"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </Field>
+                  {template && (
+                    <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-xs">
+                      <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                        <span className="text-muted">Pull request #12</span>
+                        <span className="min-w-0 truncate font-mono text-fg">{template.replace("{pr}", "12")}</span>
+                      </span>
+                      <span className="leading-relaxed text-muted">
+                        Through a Cloudflare Tunnel, or with its DNS in a connected Cloudflare account, each preview gets its own DNS record. Otherwise point a wildcard record{" "}
+                        <code className="font-mono text-fg-2">*.{template.slice(template.indexOf(".") + 1)}</code> at this server.
+                      </span>
+                    </div>
+                  )}
+                  {v.previewsEnabled && props.previewDatabase && !props.previewDatabase.config && (
+                    <p className="flex gap-2 rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
+                      <TriangleAlert className="mt-px size-3.5 flex-none text-warn" />
+                      <span>
+                        Previews get this app&apos;s variables, so they use its production database
+                        {props.previewDatabase.previewVars.length ? ` unless one of your preview variables (${props.previewDatabase.previewVars.join(", ")}) replaces it` : ""}.
+                        Turn on &quot;Copy a database for each preview&quot; below, or set{" "}
+                        {service.previewsEnabled ? (
+                          <Link href={`/projects/${props.projectId}/services/${service.id}/variables?tab=previews`} className="text-accent hover:underline">
+                            preview variables
+                          </Link>
+                        ) : (
+                          "preview variables on the Variables tab after you save"
+                        )}
+                        .
+                      </span>
+                    </p>
+                  )}
+                </>
+              );
+            }}
+          </Section>
+        )}
+
+        {show("previews") && service.type === "app" && service.source?.type === "git" && !service.isPreview && props.previewDatabase && (
           <PreviewDatabaseSection
             serviceId={service.id}
             config={props.previewDatabase.config}

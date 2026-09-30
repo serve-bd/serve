@@ -406,6 +406,8 @@ const updateSchema = z.object({
   hostname: z.string().trim().toLowerCase().max(63).nullable().optional(),
   autoDeploy: z.boolean().optional(),
   previewsEnabled: z.boolean().optional(),
+  /** URL template for previews, like pr-{pr}.example.com; "" or null: generated addresses. */
+  previewDomain: z.string().trim().toLowerCase().nullable().optional(),
   source: z
     .discriminatedUnion("type", [
       z.object({ type: z.literal("git"), repository: repositoryField, branch: z.string().trim().min(1), credentialId: z.string().nullable().optional() }),
@@ -580,6 +582,22 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       if (data.previewsEnabled && service.type !== "app") throw new UserError("Preview deployments are only for apps built from a repository.");
       patch.previewsEnabled = data.previewsEnabled;
     }
+    if (data.previewDomain !== undefined) {
+      const { normalizePreviewTemplate, previewTemplateProblem } = await import("@/lib/preview-url");
+      const template = normalizePreviewTemplate(data.previewDomain);
+      if (template) {
+        if (service.type !== "app") throw new UserError("Preview deployments are only for apps built from a repository.");
+        if (!ctx.can("domains.manage")) throw new UserError("You need permission to manage domains to set the preview URL.");
+        const problem = previewTemplateProblem(template);
+        if (problem) throw new UserError(problem);
+        // Every preview host sits under one wildcard: check it like a wildcard domain.
+        const wildcard = `*.${template.slice(template.indexOf(".") + 1)}`;
+        await assertNotDashboardHost(ctx, wildcard);
+        const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, wildcard);
+        if (!ownership.verified) throw new UserError(ownershipMessage(wildcard, ownership));
+      }
+      patch.previewDomain = template || null;
+    }
     if (data.source) {
       if (data.source.type === "git") {
         await assertCredential(data.source.credentialId, ctx.org.id);
@@ -690,6 +708,20 @@ export async function regenerateWebhookSecret(serviceId: string) {
 /* -------------------------------------------------------------------------- */
 /*                                 Lifecycle                                  */
 /* -------------------------------------------------------------------------- */
+
+/** Remove one pull request preview (and its database copy) before the pull request closes. */
+export async function removePreviewService(previewId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const { service: preview } = await serviceInOrg(previewId, ctx.org.id);
+    if (!preview.parentServiceId || preview.previewPr === null || preview.type !== "app") throw new UserError("This is not a pull request preview.");
+    const [parent] = await db.select().from(schema.service).where(eq(schema.service.id, preview.parentServiceId));
+    if (!parent) throw new UserError("The app of this preview no longer exists.");
+    const { removePreview } = await import("@/server/services/previews");
+    await removePreview(parent, preview.previewPr);
+    return null;
+  });
+}
 
 export async function deployService(serviceId: string) {
   return act(async () => {

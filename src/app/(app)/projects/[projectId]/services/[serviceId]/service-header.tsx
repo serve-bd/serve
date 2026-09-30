@@ -111,7 +111,8 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   const can = useCan();
   const cannot = useCannot();
   const tabHref = (tab: ServiceIssue["tab"]) => (tab === "overview" ? base : `${base}/${tab}`);
-  const tabs: { href: string; label: string; count?: number; exact?: boolean }[] = [
+  // `href` names the tab (and its issues); `to` is where it links when that differs.
+  const tabs: { href: string; to?: string; label: string; count?: number; exact?: boolean }[] = [
     { href: base, label: "Overview", exact: true },
     { href: `${base}/deployments`, label: "Deployments" },
     ...(can("logs.view") ? [{ href: `${base}/logs`, label: "Logs" }] : []),
@@ -122,14 +123,14 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains & ports" }] : []),
     ...(service.type !== "database" ? [{ href: `${base}/tasks`, label: "Tasks" }] : []),
     ...(can("databases.backups") && ["database", "compose", "app"].includes(service.type) ? [{ href: `${base}/backups`, label: "Backups" }] : []),
-    ...(can("services.manage") ? [{ href: `${base}/settings`, label: "Settings" }] : []),
+    ...(can("services.manage") ? [{ href: `${base}/settings`, to: `${base}/settings/general`, label: "Settings" }] : []),
   ];
 
   // Brings the active tab into view on phones, only when it changes: live refreshes re-render the header.
   const activeTab = tabs.find((t) => (t.exact ? pathname === t.href : pathname.startsWith(t.href)))?.href;
   const nav = React.useRef<HTMLElement>(null);
   React.useEffect(() => {
-    if (activeTab) nav.current?.querySelector(`a[href="${activeTab}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (activeTab) nav.current?.querySelector(`a[data-tab="${activeTab}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeTab]);
 
   /** Worst issue tone for a tab (the Overview tab only marks incidents). */
@@ -385,7 +386,8 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
               return (
                 <Link
                   key={t.href}
-                  href={t.href}
+                  href={t.to ?? t.href}
+                  data-tab={t.href}
                   className={cn("relative px-3 pt-1 pb-3 text-[13px] font-medium whitespace-nowrap transition-colors", active ? "text-fg" : "text-muted hover:text-fg")}
                 >
                   <span className="inline-flex items-center gap-1.5">

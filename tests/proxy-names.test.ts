@@ -61,3 +61,13 @@ describe("tunnel network range", () => {
     expect(freeTunnelSubnet(["10.0.0.0/8"])).toBeNull();
   });
 });
+
+describe("freeSharedSubnet", async () => {
+  const { freeSharedSubnet } = await import("@/server/docker/subnets");
+  it("uses 10.209.0.0/16 first, then the next free range", () => {
+    expect(freeSharedSubnet([])).toBe("10.209.0.0/16");
+    expect(freeSharedSubnet(["10.209.0.0/16", "fd00::/64"])).toBe("10.223.0.0/16");
+    expect(freeSharedSubnet(["10.209.4.0/24", "10.223.0.0/16"])).toBe("10.224.0.0/16");
+    expect(freeSharedSubnet(["10.0.0.0/8"])).toBeNull();
+  });
+});

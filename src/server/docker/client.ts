@@ -1,5 +1,6 @@
 import Docker from "dockerode";
 import { env } from "@/server/env";
+import { freeSharedSubnet } from "./subnets";
 
 const globalForDocker = globalThis as unknown as { docker?: Docker };
 
@@ -39,9 +40,12 @@ export function ensureNetwork(d: Docker = docker, name: string = env.network): P
         try {
           await d.createNetwork(options);
         } catch (error) {
-          // Docker's default pools can be exhausted on busy hosts; fall back to a fixed range.
+          // Docker's default pools can be exhausted on busy hosts; fall back to a free range of our own.
           if (!/address pools/i.test((error as Error).message)) throw error;
-          await d.createNetwork({ ...options, IPAM: { Driver: "default", Config: [{ Subnet: "10.209.0.0/16" }] } });
+          const used = (await d.listNetworks()).flatMap((n) => (n.IPAM?.Config ?? []).map((c) => c.Subnet ?? "")).filter(Boolean);
+          const subnet = freeSharedSubnet(used);
+          if (!subnet) throw new Error(`Docker has no free address range for the ${name} network. Remove unused networks with docker network prune.`);
+          await d.createNetwork({ ...options, IPAM: { Driver: "default", Config: [{ Subnet: subnet }] } });
         }
       }
     })().catch((error) => {

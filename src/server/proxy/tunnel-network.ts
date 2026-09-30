@@ -1,17 +1,7 @@
 import type Docker from "dockerode";
 import { LABEL } from "@/server/docker/client";
+import { v4Range } from "@/server/docker/subnets";
 import { tunnelNetworkName } from "./names";
-
-/** IPv4 range of a CIDR as [first, last] numbers, or null for anything else (IPv6). */
-function v4Range(cidr: string): [number, number] | null {
-  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/.exec(cidr);
-  if (!m) return null;
-  const prefix = Number(m[5]);
-  const base = ((Number(m[1]) << 24) | (Number(m[2]) << 16) | (Number(m[3]) << 8) | Number(m[4])) >>> 0;
-  const size = 2 ** (32 - prefix);
-  const first = base - (base % size);
-  return [first, first + size - 1];
-}
 
 /**
  * A /26 in 10.222.0.0/16 that overlaps none of the given subnets. Outside the ranges Serve uses

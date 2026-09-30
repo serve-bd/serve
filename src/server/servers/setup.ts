@@ -130,10 +130,29 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
       if (local?.ID && local.ID === dockerId) {
         throw new Error('This is the Docker engine the dashboard itself runs on. Use the built-in "This server" entry instead of adding it again.');
       }
-      const twin = (await db.select({ id: schema.server.id, name: schema.server.name, info: schema.server.info }).from(schema.server)).find(
-        (r) => r.id !== serverId && (r.info as ServerInfo & { dockerId?: string }).dockerId === dockerId,
-      );
-      if (twin) throw new Error(`This is the same Docker engine as the server ${twin.name}. Each server needs its own Docker engine.`);
+      // Checked and claimed under one lock, so two servers set up at the same moment cannot both pass.
+      const twin = await db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext('serve:server-docker-id'))`);
+        const rows = await tx
+          .select({ id: schema.server.id, name: schema.server.name, info: schema.server.info, ownerOrganizationId: schema.server.ownerOrganizationId })
+          .from(schema.server);
+        const found = rows.find((r) => r.id !== serverId && (r.info as ServerInfo & { dockerId?: string }).dockerId === dockerId);
+        if (!found)
+          await tx
+            .update(schema.server)
+            .set({ info: sql`coalesce(${schema.server.info}, '{}'::jsonb) || jsonb_build_object('dockerId', ${dockerId}::text)` })
+            .where(eq(schema.server.id, serverId));
+        return found;
+      });
+      if (twin) {
+        // Another organization's server is not named: that would tell who else uses the machine.
+        const same = twin.ownerOrganizationId === row.ownerOrganizationId;
+        throw new Error(
+          same
+            ? `This is the same Docker engine as the server ${twin.name}. Each server needs its own Docker engine.`
+            : "This machine's Docker engine is already added to this dashboard, by another organization or the instance. Each machine can be added once; ask a Root admin to share it instead.",
+        );
+      }
     }
     const compose = await run(target, "docker compose version --short", log, { quiet: true });
     if (compose.code !== 0) log("Docker Compose v2 is missing. Compose services will not deploy on this server.");

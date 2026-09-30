@@ -22,6 +22,7 @@ type Form = {
   readTimeout: string;
   websockets: boolean;
   buffering: boolean;
+  sticky: boolean;
   authOn: boolean;
   authUser: string;
   authPassword: string;
@@ -45,6 +46,7 @@ function toForm(c: Initial | null): Form {
     readTimeout: c?.readTimeout ? String(c.readTimeout) : "",
     websockets: c?.websockets ?? true,
     buffering: c?.buffering ?? true,
+    sticky: c?.sticky ?? false,
     authOn: !!c?.basicAuthUser,
     authUser: c?.basicAuthUser ?? "",
     authPassword: "",
@@ -91,6 +93,7 @@ export function ProxyOptionsCard({
   isInstanceAdmin,
   hasTls,
   proxyKind = "nginx",
+  replicas = 0,
 }: {
   serviceId: string;
   initial: Initial | null;
@@ -98,6 +101,8 @@ export function ProxyOptionsCard({
   isInstanceAdmin: boolean;
   hasTls: boolean;
   proxyKind?: "nginx" | "caddy" | "traefik";
+  /** Replicas of an app on this server; 0 for other services. */
+  replicas?: number;
 }) {
   const proxyLabel = KIND_LABEL[proxyKind];
   const [form, setForm] = React.useState<Form>(() => toForm(initial));
@@ -115,6 +120,7 @@ export function ProxyOptionsCard({
         readTimeout: seconds(form.readTimeout),
         websockets: form.websockets,
         buffering: form.buffering,
+        sticky: form.sticky,
         basicAuth: { enabled: form.authOn, username: form.authUser.trim() || undefined, password: form.authPassword || undefined },
         allow: lines(form.allow),
         deny: lines(form.deny),
@@ -175,6 +181,16 @@ export function ProxyOptionsCard({
               checked={form.buffering}
               onCheckedChange={(v) => set("buffering", v)}
             />
+            {(replicas > 1 || form.sticky) && (
+              <SwitchRow
+                title="Sticky sessions"
+                description={`Send each visitor to the same replica every time. Needed for Socket.IO and sessions kept in memory. ${
+                  proxyKind === "traefik" ? "Traefik remembers the replica in a cookie." : "Visitors are matched by their IP address."
+                }`}
+                checked={form.sticky}
+                onCheckedChange={(v) => set("sticky", v)}
+              />
+            )}
           </Group>
 
           <Group title="Access control" description="Protect previews, admin panels or staging sites.">

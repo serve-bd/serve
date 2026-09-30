@@ -165,7 +165,8 @@ function routeBody(site: SiteModel, h: HostModel, targets: string[] | null) {
   if (o?.caddyDirectives?.trim()) lines.push("# Custom directives", o.caddyDirectives.trim());
   if (!targets) lines.push(site.stopped ? "error 503" : "error 502");
   else {
-    const proxy: string[] = ["lb_policy round_robin", "lb_try_duration 5s"];
+    // client_ip_hash uses the real visitor IP (trusted_proxies covers the tunnel).
+    const proxy: string[] = [`lb_policy ${o?.sticky && targets.length > 1 ? "client_ip_hash" : "round_robin"}`, "lb_try_duration 5s"];
     const transport: string[] = [];
     if (o?.connectTimeout) transport.push(`dial_timeout ${o.connectTimeout}s`);
     if (o?.readTimeout) transport.push(`read_timeout ${o.readTimeout}s`, `write_timeout ${o.readTimeout}s`);

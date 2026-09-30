@@ -248,7 +248,8 @@ export function errorPages(productName = "Serve") {
   };
 }
 
-export type SiteUpstream = { name: string; servers: string[] };
+/** `sticky`: the same client IP always reaches the same server (real client IP, after the tunnel). */
+export type SiteUpstream = { name: string; servers: string[]; sticky?: boolean };
 
 export type SiteServer = {
   hostname: string;
@@ -313,7 +314,7 @@ export function upstreamBlock(u: SiteUpstream) {
       `    server 127.0.0.1:1 down;`;
   return `upstream ${u.name} {
     zone ${u.name} 64k;
-${servers}
+${u.sticky && u.servers.length > 1 ? "    hash $remote_addr consistent;\n" : ""}${servers}
     keepalive 32;
 }
 `;

@@ -742,7 +742,7 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
       if (service.type === "app") {
         const name = upstreamName(service.slug, String(port));
         if (!upstreams.has(name)) {
-          upstreams.set(name, { name, servers: containers.map((c) => `${c}:${port}`) });
+          upstreams.set(name, { name, servers: containers.map((c) => `${c}:${port}`), sticky: !!cfg?.sticky });
         }
         upstream = name;
       } else if (service.type === "compose" && d.composeService) {

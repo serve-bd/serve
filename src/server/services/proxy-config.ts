@@ -19,6 +19,8 @@ export type ServiceProxyConfig = {
   websockets?: boolean;
   /** Buffer responses (default on). Turn off for streaming and server-sent events. */
   buffering?: boolean;
+  /** Send each visitor to the same replica every time (Socket.IO, in-memory sessions). */
+  sticky?: boolean;
   /**
    * HTTP Basic Auth. nginx and Traefik verify the apr1 hash; Caddy needs bcrypt,
    * which is stored too whenever a password is set (older configs lack it).
@@ -109,6 +111,7 @@ export const proxyInputSchema = z.object({
   readTimeout: z.number().int().min(1).max(86_400).nullable().optional(),
   websockets: z.boolean().optional(),
   buffering: z.boolean().optional(),
+  sticky: z.boolean().optional(),
   basicAuth: z
     .object({
       enabled: z.boolean(),
@@ -177,6 +180,7 @@ export function buildProxyConfig(input: z.output<typeof proxyInputSchema>, previ
     readTimeout: input.readTimeout ?? null,
     websockets: input.websockets ?? true,
     buffering: input.buffering ?? true,
+    sticky: input.sticky ?? false,
     basicAuth,
     allow: input.allow ?? [],
     deny: input.deny ?? [],

@@ -169,6 +169,8 @@ export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; tr
       loadBalancer: {
         passHostHeader: true,
         servers: u.targets.map((t) => ({ url: `http://${t}` })),
+        // Traefik pins visitors with a cookie; it has no client-IP hash.
+        ...(o?.sticky && u.targets.length > 1 ? { sticky: { cookie: { name: `serve_${p.replace(/[^A-Za-z0-9_]/g, "_")}`, httpOnly: true, sameSite: "lax" } } } : {}),
         ...(o?.buffering === false ? { responseForwarding: { flushInterval: "1ms" } } : {}),
         ...(transport ? { serversTransport: transport } : {}),
       },

@@ -729,7 +729,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   // Root organization may use host-level options or reach into Serve's own networks.
   const issues = composeSecurityIssues(content);
   if (issues.length && (await orgIdOf(service)) !== (await getSetting("rootOrganizationId"))) {
-    throw new Error(`The compose file uses options that are not allowed: ${issues.slice(0, 3).join("; ")}`);
+    throw new Error(`The compose file uses options only services of the Root organization may use: ${issues.slice(0, 3).join("; ")}`);
   }
   checkCancelled(signal);
 

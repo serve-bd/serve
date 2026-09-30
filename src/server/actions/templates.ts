@@ -42,7 +42,7 @@ const templateSchema = z.object({
 
 export type CustomTemplateInput = z.input<typeof templateSchema>;
 
-function validate(data: z.output<typeof templateSchema>, isInstanceAdmin: boolean) {
+function validate(data: z.output<typeof templateSchema>, allowHost: boolean) {
   let services: string[];
   try {
     services = Object.keys(parseCompose(data.compose).services ?? {});
@@ -50,8 +50,8 @@ function validate(data: z.output<typeof templateSchema>, isInstanceAdmin: boolea
     throw new UserError(`The compose file is not valid: ${(e as Error).message}`);
   }
   const issues = composeSecurityIssues(data.compose);
-  if (issues.length && !isInstanceAdmin) {
-    throw new UserError(`This compose file uses options that can access the host: ${issues.slice(0, 3).join("; ")}.`);
+  if (issues.length && !allowHost) {
+    throw new UserError(`This compose file uses options only services of the Root organization may use: ${issues.slice(0, 3).join("; ")}.`);
   }
   if (data.exposeService && !services.includes(data.exposeService)) throw new UserError(`The compose file has no service named ${data.exposeService}.`);
   if (data.exposeService && !data.exposePort) throw new UserError("Enter the port the exposed service listens on.");
@@ -68,7 +68,8 @@ export async function saveCustomTemplate(id: string | null, input: CustomTemplat
   return act(async () => {
     const ctx = await requirePermission("integrations.manage");
     const data = templateSchema.parse(input);
-    validate(data, ctx.isInstanceAdmin);
+    // Templates are deployed in their own organization: host options only in the Root organization.
+    validate(data, ctx.isInstanceAdmin && ctx.isRoot);
     const values = {
       name: data.name,
       description: data.description,

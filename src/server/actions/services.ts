@@ -56,10 +56,15 @@ function assertHostAccess(ctx: OrgContext, what: string) {
   if (!ctx.isInstanceAdmin) throw new UserError(`${what} is only available to admins of the Root organization.`);
 }
 
+/**
+ * Host-level compose options are allowed only for services of the Root organization (created by
+ * its admins), the same rule every deploy checks: an instance admin working in another
+ * organization gets the answer now, not on every deploy.
+ */
 function assertSafeCompose(ctx: OrgContext, content: string) {
   const issues = composeSecurityIssues(content);
-  if (issues.length && !ctx.isInstanceAdmin) {
-    throw new UserError(`This compose file uses options that can access the host: ${issues.slice(0, 3).join("; ")}.`);
+  if (issues.length && !(ctx.isInstanceAdmin && ctx.isRoot)) {
+    throw new UserError(`This compose file uses options only services of the Root organization may use: ${issues.slice(0, 3).join("; ")}.`);
   }
 }
 

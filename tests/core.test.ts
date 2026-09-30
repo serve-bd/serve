@@ -219,6 +219,25 @@ services:
     expect(host.join("|")).toContain("${DATA}");
   });
 
+  it("refuses other stacks' volumes and reads $$ as a plain dollar", () => {
+    const issues = composeSecurityIssues(`services:
+  a:
+    image: x
+    container_name: app$$1
+    volumes: ["data:/data", "shared:/shared"]
+volumes:
+  data: {}
+  shared:
+    external: true
+  named:
+    name: other-stack_data
+`);
+    expect(issues.join("|")).toContain("volume shared: outside volumes");
+    expect(issues.join("|")).toContain("volume named: a custom volume name");
+    expect(issues.join("|")).not.toContain("app$$1");
+    expect(issues).toHaveLength(2);
+  });
+
   it("allows naming the stack's own networks", () => {
     expect(composeNetworkIssues("services:\n  web:\n    image: x\nnetworks:\n  default:\n    name: myapp\n  back:\n    driver: bridge\n")).toEqual([]);
     expect(composeNetworkIssues("services:\n  web:\n    image: x\nnetworks:\n  default:\n    name: serve\n")).toHaveLength(1);

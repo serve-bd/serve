@@ -42,8 +42,8 @@ function parseCompose(content: string): Record<string, unknown> | null {
   }
 }
 
-/** `${VAR}` in a value: Compose fills it in later, from the service's variables. */
-const interpolated = (v: unknown) => typeof v === "string" && v.includes("$");
+/** `${VAR}` in a value: Compose fills it in later, from the service's variables (`$$` is a plain `$`). */
+const interpolated = (v: unknown) => typeof v === "string" && v.replaceAll("$$", "").includes("$");
 
 /**
  * Compose options that reach into Serve's own networks: joining an outside network (Serve's own,
@@ -90,7 +90,7 @@ export function composeNetworkIssues(content: string): string[] {
 export function composeSecurityIssues(content: string): string[] {
   const doc = parseCompose(content) as {
     services?: Record<string, Record<string, unknown>>;
-    volumes?: Record<string, { driver_opts?: Record<string, unknown> } | null>;
+    volumes?: Record<string, { driver_opts?: Record<string, unknown>; external?: unknown; name?: unknown } | null>;
     include?: unknown;
   } | null;
   if (!doc) return [];
@@ -123,7 +123,8 @@ export function composeSecurityIssues(content: string): string[] {
       const source = typeof v === "string" ? v.split(":")[0] : (v as { source?: string; type?: string })?.type === "bind" ? ((v as { source?: string }).source ?? "") : "";
       if (!source) continue;
       // A variable could turn into any host path once Compose fills it in.
-      if (source.startsWith("/") || source.startsWith("~") || source.includes("..") || source.includes("docker.sock") || source.includes("$")) {
+      if (interpolated(source)) issues.push(`${name}: volume source "${source}" cannot use variables`);
+      else if (source.startsWith("/") || source.startsWith("~") || source.includes("..") || source.includes("docker.sock")) {
         issues.push(`${name}: bind mount "${source}" is not allowed`);
       }
     }
@@ -131,6 +132,10 @@ export function composeSecurityIssues(content: string): string[] {
   for (const [name, vol] of Object.entries(doc.volumes ?? {})) {
     const opts = vol?.driver_opts;
     if (opts && (opts.device || opts.o)) issues.push(`volume ${name}: driver_opts with host devices are not allowed`);
+    // A volume by its own name could be another stack's data on the same server.
+    const v = vol as { external?: unknown; name?: unknown } | null;
+    if (v?.external) issues.push(`volume ${name}: outside volumes are not allowed`);
+    else if (v?.name !== undefined) issues.push(`volume ${name}: a custom volume name is not allowed`);
   }
   return [...issues, ...composeNetworkIssues(content)];
 }

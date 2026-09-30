@@ -29,6 +29,7 @@ import { SectionPicker } from "@/components/shell/section-picker";
 import { DeployedCompose } from "./deployed-compose";
 import { addPendingApply, clearPendingApply, usePendingApply } from "./pending-apply";
 import { StorageSection } from "./storage-section";
+import { ComposeStorageSection } from "./compose-storage-section";
 import { MonitoringSection } from "./monitoring-section";
 import { MaintenanceSection } from "./maintenance-section";
 import { PreviewDatabaseSection } from "./preview-database-section";
@@ -472,6 +473,10 @@ export function ServiceSettings(props: Props) {
 
         {show("storage") && service.type === "app" && (
           <StorageSection serviceId={service.id} volumes={service.runtime.volumes} running={running} isRootAdmin={props.isRootAdmin} onSave={saveStorage} />
+        )}
+
+        {show("storage") && service.compose && (
+          <ComposeStorageSection serviceId={service.id} mode={service.compose.mode} content={service.compose.content} running={running} isRootAdmin={props.isRootAdmin} />
         )}
 
         {show("advanced") && service.type !== "compose" && <AdvancedSection runtime={service.runtime} save={(p) => saveRuntime(p, "Advanced")} isRootAdmin={props.isRootAdmin} />}

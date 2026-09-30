@@ -3,7 +3,7 @@
 import { useCan } from "@/components/permissions";
 import { ReadOnlyFooter } from "@/components/read-only";
 import * as React from "react";
-import { ArrowUpRight, Laptop, Plus, Trash2 } from "lucide-react";
+import { ArrowUpRight, Check, Laptop, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,7 @@ import type { PortMapping } from "@/server/services/types";
 
 /** A port row; `service` names the compose service for compose stacks. */
 type Row = PortMapping & { service?: string };
-import type { PublishedPort } from "@/server/services/ports";
+import type { ListeningPort, PublishedPort } from "@/server/services/ports";
 
 const digits = (value: string) => Number(value.replace(/\D/g, "")) || 0;
 
@@ -34,6 +34,7 @@ export function PortsCard({
   isLocalServer,
   serverName,
   busy,
+  listening = {},
 }: {
   serviceId: string;
   kind?: "app" | "compose";
@@ -49,6 +50,8 @@ export function PortsCard({
   serverName: string;
   /** Host ports other containers already publish on this server. */
   busy: number[];
+  /** Ports the running containers listen on, per compose service ("" for an app). */
+  listening?: Record<string, ListeningPort[]>;
 }) {
   const canEdit = useCan()("domains.manage");
   const [ports, setPorts] = React.useState<Row[]>(initial);
@@ -65,6 +68,33 @@ export function PortsCard({
     while (busySet.has(port) || ports.some((p) => p.host === port)) port++;
     return port;
   };
+
+  // Ports each service can expose: what its containers listen on, plus what the file or app settings name.
+  const available = (compose ? composeServices : [""])
+    .map((name) => {
+      const list: ListeningPort[] = [...(listening[name] ?? [])];
+      const known = compose ? (composePorts[name] ?? []) : appPort ? [appPort] : [];
+      for (const port of known) if (!list.some((l) => l.port === port && l.protocol === "tcp")) list.push({ port, protocol: "tcp" });
+      return { name, ports: list.sort((a, b) => a.port - b.port) };
+    })
+    .filter((g) => g.ports.length);
+  const mapped = (name: string, l: ListeningPort) =>
+    ports.some((p) => p.container === l.port && p.protocol === l.protocol && (!compose || (p.service ?? composeServices[0]) === name));
+  // Same number on the server when it is free and not a system port; else the next free one.
+  const hostFor = (port: number) => firstFree(port >= 1024 ? port : 8000 + port);
+  const expose = (name: string, l: ListeningPort) => {
+    const service = compose ? name : undefined;
+    const open = ports.findIndex((p) => !p.container && (!compose || (p.service ?? composeServices[0]) === name));
+    if (open >= 0) {
+      update(open, { container: l.port, protocol: l.protocol, host: ports[open].host || hostFor(l.port) });
+      return;
+    }
+    setPorts((all) => [
+      ...all,
+      { ...(service ? { service } : {}), host: hostFor(l.port), container: l.port, protocol: l.protocol, bindAddress: isLocalServer ? "127.0.0.1" : "0.0.0.0" },
+    ]);
+  };
+  const taken = busy.filter((p) => p > 0).slice(0, 14);
 
   const save = useAction(
     async () => {
@@ -132,6 +162,42 @@ export function PortsCard({
               </div>
             )}
 
+            {canEdit && available.length > 0 && (
+              <div className="flex flex-col gap-2 rounded-xl bg-surface-2/60 px-3.5 py-3">
+                {available.map((g) => (
+                  <div key={g.name} className="flex flex-wrap items-center gap-1.5">
+                    <span className="mr-1 text-xs text-muted">{compose ? <>Ports {g.name} listens on</> : "Ports the app listens on"}</span>
+                    {g.ports.map((l) => {
+                      const done = mapped(g.name, l);
+                      return (
+                        <button
+                          key={`${l.port}/${l.protocol}`}
+                          type="button"
+                          disabled={done}
+                          onClick={() => expose(g.name, l)}
+                          title={done ? "Already published" : `Publish ${l.port}/${l.protocol}`}
+                          className={cn(
+                            "inline-flex h-7 items-center gap-1 rounded-lg px-2 font-mono text-[12px] ring-1 transition-colors",
+                            done ? "cursor-default bg-accent-soft text-accent ring-transparent" : "bg-surface text-fg ring-line hover:ring-line-strong",
+                          )}
+                        >
+                          {done ? <Check className="size-3" /> : <Plus className="size-3 text-muted" />}
+                          {l.port}
+                          {l.protocol === "udp" && <span className="text-muted">/udp</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+                {taken.length > 0 && (
+                  <p className="text-[11px] text-faint">
+                    Already taken on {isLocalServer ? "this machine" : serverName}: <span className="font-mono">{taken.join(", ")}</span>
+                    {busy.length > taken.length && ` and ${busy.length - taken.length} more`}
+                  </p>
+                )}
+              </div>
+            )}
+
             {ports.length > 0 && (
               <div
                 className={cn(
@@ -165,27 +231,33 @@ export function PortsCard({
                     />
                   </div>
                 )}
-                <Input
-                  value={String(p.host || "")}
-                  onChange={(e) => update(i, { host: digits(e.target.value) })}
-                  placeholder="8080"
-                  aria-label="Server port"
-                  aria-invalid={busySet.has(p.host) || undefined}
-                  className="h-8 font-mono"
-                  inputMode="numeric"
-                />
-                <Input
-                  value={String(p.container || "")}
-                  onChange={(e) => update(i, { container: digits(e.target.value) })}
-                  placeholder={String(defaultPort(p.service))}
-                  aria-label="Container port"
-                  className="h-8 font-mono"
-                  inputMode="numeric"
-                />
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[11px] font-medium text-faint sm:hidden">{isLocalServer ? "Local port" : "Server port"}</span>
+                  <Input
+                    value={String(p.host || "")}
+                    onChange={(e) => update(i, { host: digits(e.target.value) })}
+                    placeholder="8080"
+                    aria-label="Server port"
+                    aria-invalid={busySet.has(p.host) || undefined}
+                    className="h-8 font-mono"
+                    inputMode="numeric"
+                  />
+                </label>
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[11px] font-medium text-faint sm:hidden">Container port</span>
+                  <Input
+                    value={String(p.container || "")}
+                    onChange={(e) => update(i, { container: digits(e.target.value) })}
+                    placeholder={String(defaultPort(p.service))}
+                    aria-label="Container port"
+                    className="h-8 font-mono"
+                    inputMode="numeric"
+                  />
+                </label>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("order-3 sm:order-5", !canEdit && "invisible")}
+                  className={cn("order-3 self-end sm:order-5", !canEdit && "invisible")}
                   onClick={() => setPorts((all) => all.filter((_, j) => j !== i))}
                   aria-label="Remove port"
                 >

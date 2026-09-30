@@ -8,6 +8,7 @@ import { publishedPorts } from "@/server/services/ports";
 import { composeServiceNames } from "@/server/deploy/compose";
 import { getTemplate } from "@/server/services/templates";
 import { pickPrimaryDomain } from "@/lib/domains";
+import { readComposeMounts } from "@/lib/compose-mounts";
 
 type Service = typeof schema.service.$inferSelect;
 
@@ -93,7 +94,7 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
       restartPolicy: service.runtime.restartPolicy,
       cpuLimit: service.runtime.cpuLimit ?? null,
       memoryLimit: service.runtime.memoryLimit ?? null,
-      volumes: service.runtime.volumes.length,
+      volumes: service.compose ? composeMountCount(service.compose.content) : service.runtime.volumes.length,
       healthcheckPath: service.runtime.healthcheckPath ?? null,
       builder: service.build?.builder ?? null,
       rootDir: service.build?.rootDir ?? null,
@@ -139,3 +140,12 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
 }
 
 export type OverviewData = Awaited<ReturnType<typeof loadOverview>>;
+
+/** Volumes, server paths and files of every service in a compose file. */
+function composeMountCount(content: string) {
+  try {
+    return readComposeMounts(content).reduce((n, s) => n + s.mounts.filter((m) => m.kind !== "other").length, 0);
+  } catch {
+    return 0;
+  }
+}

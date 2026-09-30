@@ -173,7 +173,8 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
         hideSecrets={hideSecrets}
         server={server ?? { id: service.serverId, name: "Unknown server", host: "", isLocal: false }}
         servers={servers}
-        isRootAdmin={ctx.isInstanceAdmin}
+        // Host paths and privileges: Root admins, for services of the Root organization.
+        isRootAdmin={ctx.isInstanceAdmin && ctx.isRoot}
         maintenance={
           section === "maintenance"
             ? {

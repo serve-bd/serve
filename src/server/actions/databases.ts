@@ -183,9 +183,22 @@ export async function deleteVolumeData(serviceId: string, source: string) {
     const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type === "database" && source === "data") throw new UserError("The data volume holds the database. Delete the service to remove it.");
-    if (service.runtime.volumes.some((v) => v.kind === "volume" && v.source === source)) throw new UserError("Remove the mount and redeploy before deleting its data.");
+    let name = volumeName(service.slug, source);
+    if (service.type === "compose" && service.compose) {
+      const { readComposeMounts } = await import("@/lib/compose-mounts");
+      if (readComposeMounts(service.compose.content).some((s) => s.mounts.some((m) => m.kind === "volume" && m.source === source))) {
+        throw new UserError("The compose file still mounts this volume. Remove the mount and redeploy first.");
+      }
+      // A Docker volume name is taken as is when Compose labelled it as this stack's; else <project>_<volume>.
+      const info = await (await serverOf(service)).docker
+        .getVolume(source)
+        .inspect()
+        .catch(() => null);
+      name = info?.Labels?.["com.docker.compose.project"] === service.slug ? source : `${service.slug}_${source}`;
+    } else if (service.runtime.volumes.some((v) => v.kind === "volume" && v.source === source)) {
+      throw new UserError("Remove the mount and redeploy before deleting its data.");
+    }
     const server = await serverOf(service);
-    const name = volumeName(service.slug, source);
     try {
       await server.docker.getVolume(name).remove();
     } catch (e) {

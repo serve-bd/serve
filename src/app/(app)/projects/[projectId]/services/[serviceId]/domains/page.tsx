@@ -11,7 +11,7 @@ import { composeServiceNames, composeServicePorts } from "@/server/deploy/compos
 import { PageBody } from "@/components/shell/page-header";
 import { serverAddressing } from "@/server/proxy/addressing";
 import { getServerRow } from "@/server/servers/context";
-import { busyHostPorts, publishedPorts } from "@/server/services/ports";
+import { busyHostPorts, listeningPorts, publishedPorts } from "@/server/services/ports";
 import { DomainsManager } from "./domains-manager";
 import { PortsCard } from "./ports-card";
 import { ProxyOptionsCard } from "./proxy-options-card";
@@ -52,7 +52,9 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
     ? (({ basicAuth, ...rest }) => ({ ...rest, basicAuthUser: basicAuth?.username ?? null, basicAuthHasBcrypt: !!basicAuth?.bcryptHash }))(service.proxy)
     : null;
   const hasPorts = service.type === "app" || service.type === "compose";
-  const [published, busy] = hasPorts ? await Promise.all([publishedPorts(service, server), busyHostPorts(service)]) : [[], []];
+  const [published, busy, listening] = hasPorts
+    ? await Promise.all([publishedPorts(service, server), busyHostPorts(service), listeningPorts(service)])
+    : [[], [], {} as Awaited<ReturnType<typeof listeningPorts>>];
   const content = service.compose?.content ?? "";
   // Main compose service first: the one a template exposes, else the file's first.
   const template = service.compose?.template ? getTemplate(service.compose.template) : null;
@@ -129,6 +131,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           isLocalServer={server.isLocal}
           serverName={server.name}
           busy={busy}
+          listening={listening}
         />
       )}
       {kind !== "none" && (

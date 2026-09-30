@@ -28,7 +28,11 @@ export async function GET(request: Request, ctx: RouteContext<"/api/services/[se
   const mountPath = new URL(request.url).searchParams.get("path") ?? "";
   if (!/^\/[^\0]*$/.test(mountPath)) return new Response("Choose a mount path.", { status: 400 });
   const server = await serverOf(service);
-  const [container] = (await listServiceContainers(service.id, false, server.docker)).filter((c) => c.State === "running");
+  // Compose stacks: ?container=<compose service> picks which service's container to read from.
+  const composeName = new URL(request.url).searchParams.get("container");
+  const [container] = (await listServiceContainers(service.id, false, server.docker)).filter(
+    (c) => c.State === "running" && (!composeName || c.Labels["com.docker.compose.service"] === composeName),
+  );
   if (!container) return new Response("Start the service first: the archive is read from its running container.", { status: 409 });
   try {
     const stream = (await server.docker.getContainer(container.Id).getArchive({ path: mountPath })) as unknown as NodeJS.ReadableStream;

@@ -38,6 +38,29 @@ export async function publishedPorts(service: Service, server?: { publicIp: stri
   });
 }
 
+export type ListeningPort = { port: number; protocol: "tcp" | "udp" };
+
+/**
+ * Ports the service's running containers listen on (their image's EXPOSE and any published ones),
+ * per compose service; apps use the key "". Empty when nothing runs yet.
+ */
+export async function listeningPorts(service: Service): Promise<Record<string, ListeningPort[]>> {
+  const { serverOf } = await import("@/server/servers/context");
+  const server = await serverOf(service).catch(() => null);
+  const containers = server ? await server.docker.listContainers({ filters: { label: [`serve.service=${service.id}`] } }).catch(() => []) : [];
+  const out: Record<string, ListeningPort[]> = {};
+  for (const c of containers) {
+    const key = service.type === "compose" ? (c.Labels["com.docker.compose.service"] ?? "") : "";
+    const list = (out[key] ??= []);
+    for (const p of c.Ports) {
+      const protocol = p.Type === "udp" ? "udp" : "tcp";
+      if (p.PrivatePort && !list.some((x) => x.port === p.PrivatePort && x.protocol === protocol)) list.push({ port: p.PrivatePort, protocol });
+    }
+  }
+  for (const list of Object.values(out)) list.sort((a, b) => a.port - b.port);
+  return out;
+}
+
 /** Host ports already published on the service's server by other containers (and the proxy). */
 export async function busyHostPorts(service: Service): Promise<number[]> {
   const { serverOf } = await import("@/server/servers/context");

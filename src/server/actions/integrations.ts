@@ -318,7 +318,12 @@ export async function removeServiceWebhook(serviceId: string) {
 export async function createDeployKey(name: string) {
   return act(async () => {
     const ctx = await requirePermission("integrations.manage");
-    const key = await generateSshKey(`serve-${ctx.org.slug}`);
+    const key = await generateSshKey(
+      name
+        .trim()
+        .replace(/[^\w.@+-]+/g, "-")
+        .replace(/^-+|-+$/g, "") || ctx.org.slug,
+    );
     const id = newId();
     await db.insert(schema.gitCredential).values({
       id,

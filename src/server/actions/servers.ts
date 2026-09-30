@@ -24,11 +24,22 @@ const keySchema = z.object({
   privateKey: z.string().trim().max(20_000).optional(),
 });
 
+/** SSH key comment from a name: the name itself, safe for one line of authorized_keys. */
+function keyComment(name: string) {
+  return (
+    name
+      .trim()
+      .replace(/[^\w.@+-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "key"
+  );
+}
+
 export async function createPrivateKey(input: z.input<typeof keySchema>) {
   return act(async () => {
     const ctx = await requireInstanceAdmin();
     const data = keySchema.parse(input);
-    const comment = `serve-${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    // The public key's comment is the name as typed; spaces and odd characters become dashes.
+    const comment = keyComment(data.name);
     let key;
     try {
       key = data.privateKey ? parsePrivateKey(data.privateKey, comment) : generateKeyPair(comment);

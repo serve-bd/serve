@@ -142,8 +142,8 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
         </div>
       </header>
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 px-4 pt-7 sm:px-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 flex-[1_1_20rem] items-start gap-3.5 sm:items-center">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3.5 sm:flex-[1_1_20rem] sm:items-center">
             <ServiceIcon type={service.type} engine={service.engine} icon={service.icon} source={service.sourceType} size="lg" />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <div className="flex min-w-0 items-center gap-3">
@@ -195,12 +195,12 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
           </div>
           {/* Roles that cannot deploy only look: no Manage or Deploy buttons. */}
           {can("services.deploy") && (
-            <div className="ml-auto flex flex-none items-center gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:flex-none sm:items-center">
               <Menu>
                 <MenuTrigger
                   disabled={!can("services.deploy")}
                   title={cannot("services.deploy")}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-[13px] font-medium text-fg shadow-sm hover:bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border sm:h-8 border-line-strong bg-surface px-3 text-[13px] font-medium text-fg shadow-sm hover:bg-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Power className="size-3.5" /> Manage <ChevronDown className="size-3.5 text-muted" />
                 </MenuTrigger>
@@ -259,7 +259,15 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 </MenuContent>
               </Menu>
               <MoveServicesDialog serviceIds={[service.id]} environmentId={service.environmentId} open={moving} onOpenChange={setMoving} />
-              <Button variant="primary" size="sm" onClick={() => deploy.run()} loading={deploy.pending} disabled={!can("services.deploy")} title={cannot("services.deploy")}>
+              <Button
+                variant="primary"
+                size="sm"
+                className="h-9 sm:h-8"
+                onClick={() => deploy.run()}
+                loading={deploy.pending}
+                disabled={!can("services.deploy")}
+                title={cannot("services.deploy")}
+              >
                 <Rocket /> {live.status === "idle" || live.status === "stopped" ? "Deploy" : "Redeploy"}
               </Button>
             </div>
@@ -310,25 +318,28 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
             </div>
           </div>
         )}
-        <nav className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto border-b border-line px-1 sm:mx-0 sm:px-0 [&>a:first-child]:sm:pl-0 [&>a:first-child>span]:sm:left-0">
-          {tabs.map((t) => {
-            const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);
-            return (
-              <Link
-                key={t.href}
-                href={t.href}
-                ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
-                className={cn("relative px-3 pt-1 pb-3 text-[13px] font-medium whitespace-nowrap transition-colors", active ? "text-fg" : "text-muted hover:text-fg")}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  {t.label}
-                  {tabIssue(t.href) && <AlertTriangle className={cn("size-3.5", tabIssue(t.href) === "bad" ? "text-bad" : "text-warn")} aria-label="Needs attention" />}
-                </span>
-                {active && <span className="absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-fg" />}
-              </Link>
-            );
-          })}
-        </nav>
+        {/* Phones: tabs scroll sideways; the fade shows there are more. */}
+        <div className="-mx-4 border-b border-line sm:mx-0">
+          <nav className="scrollbar-none flex gap-1 overflow-x-auto px-1 pr-8 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] sm:px-0 sm:pr-0 sm:[mask-image:none] [&>a:first-child]:sm:pl-0 [&>a:first-child>span]:sm:left-0">
+            {tabs.map((t) => {
+              const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);
+              return (
+                <Link
+                  key={t.href}
+                  href={t.href}
+                  ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
+                  className={cn("relative px-3 pt-1 pb-3 text-[13px] font-medium whitespace-nowrap transition-colors", active ? "text-fg" : "text-muted hover:text-fg")}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    {t.label}
+                    {tabIssue(t.href) && <AlertTriangle className={cn("size-3.5", tabIssue(t.href) === "bad" ? "text-bad" : "text-warn")} aria-label="Needs attention" />}
+                  </span>
+                  {active && <span className="absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-fg" />}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
       </div>
     </>
   );

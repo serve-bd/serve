@@ -31,3 +31,26 @@ describe("Dockerfile sources", () => {
     expect(needsRegistry(dist, "image")).toBe(false);
   });
 });
+
+describe("declareBuildArgs", async () => {
+  const { declareBuildArgs } = await import("@/lib/dockerfile");
+  it("declares the keys after every FROM, keeping a stage's own ARG", () => {
+    const file = ["# syntax=docker/dockerfile:1", "FROM node:22 AS deps", "ARG DATABASE_URL=default", "RUN npm ci", "FROM node:22", "RUN npm run build"].join("\n");
+    expect(declareBuildArgs(file, ["DATABASE_URL", "API_KEY", "bad-name"]).split("\n")).toEqual([
+      "# syntax=docker/dockerfile:1",
+      "FROM node:22 AS deps",
+      "ARG API_KEY",
+      "ARG DATABASE_URL=default",
+      "RUN npm ci",
+      "FROM node:22",
+      "ARG DATABASE_URL",
+      "ARG API_KEY",
+      "RUN npm run build",
+    ]);
+  });
+  it("follows a FROM continued on the next line and leaves files without FROM alone", () => {
+    expect(declareBuildArgs("FROM --platform=$BUILDPLATFORM \\\n  node:22\nRUN x", ["A"])).toBe("FROM --platform=$BUILDPLATFORM \\\n  node:22\nARG A\nRUN x");
+    expect(declareBuildArgs("RUN x", ["A"])).toBe("RUN x");
+    expect(declareBuildArgs("FROM a", [])).toBe("FROM a");
+  });
+});

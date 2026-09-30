@@ -27,6 +27,7 @@ import { replicaCount, replicaEnv, shortReplicaPicks } from "@/lib/refs";
 import type { DeploymentTarget } from "@/server/services/types";
 import { createSpec, dockerRestartPolicy, gpuError, startContainer, volumeName, waitHealthy } from "./containers";
 import { serverPlatform } from "./options";
+import { type BuildNetwork, networkHosts } from "./build-network";
 import { prepareMounts } from "@/server/services/mounts";
 import { adoptAnonymousVolumes, imageVolumePaths, statefulMounts, uncoveredPaths, volumesFor } from "./image-volumes";
 import { databasePlan } from "@/server/databases/options";
@@ -90,7 +91,14 @@ type PreparedImage = {
  * (image sources), or reuse an earlier one (rollbacks). Servers other than
  * `server` get it later through `ensureImageOn`.
  */
-async function prepareAppImage(service: Service, dep: Deployment, log: DeployLogger, server: ServerCtx, signal?: AbortSignal): Promise<PreparedImage> {
+async function prepareAppImage(
+  service: Service,
+  dep: Deployment,
+  log: DeployLogger,
+  server: ServerCtx,
+  signal?: AbortSignal,
+  buildNetwork?: BuildNetwork | null,
+): Promise<PreparedImage> {
   const target = `${imageRepo(service.slug)}:${dep.id}`;
   const d = server.docker;
 
@@ -198,6 +206,7 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
       dockerEnv: await server.cliEnv(),
       cacheScope: buildCacheScope(await orgIdOf(service)),
       platform,
+      network: buildNetwork,
     });
     log.line(`Build finished in ${((Date.now() - started) / 1000).toFixed(1)}s`);
     return { image: target, detectedPort: result.detectedPort ?? (await imagePort(target, d)), registryImage: null, rollback: false };
@@ -214,6 +223,21 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
 async function orgIdOf(service: Service) {
   const [row] = await db.select({ organizationId: schema.project.organizationId }).from(schema.project).where(eq(schema.project.id, service.projectId));
   return row?.organizationId ?? null;
+}
+
+/**
+ * The environment network a build on the service's own server may reach, like the running app
+ * does. A build on a separate build server has no such network and builds without it.
+ */
+async function buildNetworkOf(service: Service, server: ServerCtx, log: DeployLogger): Promise<BuildNetwork | null> {
+  if (!buildsImage(service.source?.type) || service.type !== "app") return null;
+  try {
+    const name = await ensureEnvNetwork(service.environmentId, server);
+    return { name, hosts: await networkHosts(server.docker, name) };
+  } catch (error) {
+    log.line(`Build steps cannot reach this environment's services: ${(error as Error).message}`);
+    return null;
+  }
 }
 
 /**
@@ -391,7 +415,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
 
   // Git builds may happen on a dedicated build server; image sources are pulled where they run.
   const buildServer = buildsImage(sourceType) && dist.buildServerId && !dep.rollbackOf ? await connectTo(dist.buildServerId, log, "build") : server;
-  const prepared = await prepareAppImage(service, dep, log, buildServer, signal);
+  const prepared = await prepareAppImage(service, dep, log, buildServer, signal, buildServer === server ? await buildNetworkOf(service, server, log) : null);
   checkCancelled(signal);
   const { image, detectedPort } = prepared;
   if (registry && buildsImage(sourceType) && !prepared.rollback) {

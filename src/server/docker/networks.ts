@@ -89,8 +89,9 @@ export async function removeEnvNetworkIfUnused(environmentId: string, target: Ne
   try {
     const info = await d.getNetwork(name).inspect();
     const members = Object.values(info.Containers ?? {}) as { Name: string }[];
-    // The proxy and the private network's name forwarders only serve the environment's services.
-    const helper = (c: { Name: string }) => c.Name === target.proxyContainer || c.Name.startsWith("serve-link-");
+    // The proxy, the private network's name forwarders and the environment's build container only
+    // serve the environment's services.
+    const helper = (c: { Name: string }) => c.Name === target.proxyContainer || c.Name.startsWith("serve-link-") || c.Name.startsWith("buildx_buildkit_serve-build-");
     if (members.some((c) => !helper(c))) return;
     // Stopped containers are not members, but could not start again without the network.
     const attached = await d.listContainers({ all: true, filters: { network: [name] } });
@@ -101,11 +102,31 @@ export async function removeEnvNetworkIfUnused(environmentId: string, target: Ne
           .getNetwork(name)
           .disconnect({ Container: c.Name, Force: true })
           .catch(() => {});
-      else
+      else {
         await d
           .getContainer(c.Name)
           .remove({ force: true })
           .catch(() => {});
+        // A build container keeps its cache in a volume of its own.
+        if (c.Name.startsWith("buildx_buildkit_"))
+          await d
+            .getVolume(`${c.Name}_state`)
+            .remove()
+            .catch(() => {});
+      }
+    }
+    // A stopped build container is not a member but still holds the network.
+    for (const c of attached) {
+      const cname = c.Names[0]?.replace(/^\//, "") ?? "";
+      if (!cname.startsWith("buildx_buildkit_serve-build-") || members.some((m) => m.Name === cname)) continue;
+      await d
+        .getContainer(c.Id)
+        .remove({ force: true })
+        .catch(() => {});
+      await d
+        .getVolume(`${cname}_state`)
+        .remove()
+        .catch(() => {});
     }
     await d.getNetwork(name).remove();
   } catch {

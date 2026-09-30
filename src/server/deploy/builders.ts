@@ -4,6 +4,8 @@ import { commandExists, run } from "@/server/process";
 import type { BuildConfig } from "@/server/services/types";
 import { scopeCacheMounts } from "@/server/security";
 import { buildArgFlags } from "./options";
+import { declareBuildArgs } from "@/lib/dockerfile";
+import { type BuildNetwork, builderFlags, builderName, ensureBuilder } from "./build-network";
 
 export type BuildContext = {
   /** Absolute path of the build context (repo + rootDir). */
@@ -21,6 +23,8 @@ export type BuildContext = {
   cacheScope: string;
   /** Target platform, like linux/arm64; unset builds for the server's own. */
   platform?: string | null;
+  /** The environment network the build may reach, with its services' names (Dockerfile builds). */
+  network?: BuildNetwork | null;
 };
 
 export type BuildResult = {
@@ -272,15 +276,18 @@ ${staticStage("source", build.publishDir || ".")}`,
 async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileContent?: string) {
   const args = ["build", "--progress=plain", "-t", ctx.image, ...(ctx.platform ? ["--platform", ctx.platform] : [])];
   let tempDockerfile: string | null = null;
-  // Cache mounts get the organization's prefix; the file is rewritten only when it has any.
+  // The file is rewritten when build variables need declaring (ARG) or cache mounts need the
+  // organization's prefix; otherwise the repository's own file is used as it is.
+  const buildKeys = Object.keys(ctx.buildEnv);
   const own = dockerfileContent ? null : await fs.readFile(path.join(ctx.contextDir, dockerfile), "utf8").catch(() => null);
-  if (own?.includes("type=cache")) {
+  if (own && (own.includes("type=cache") || buildKeys.length)) {
     const ignore = path.join(ctx.contextDir, `${dockerfile}.dockerignore`);
     if (await exists(ignore)) await fs.copyFile(ignore, path.join(ctx.contextDir, ".serve.Dockerfile.dockerignore"));
     dockerfileContent = own;
   }
   if (dockerfileContent) {
-    dockerfileContent = scopeCacheMounts(dockerfileContent, ctx.cacheScope);
+    // Variables marked for the build reach RUN steps without an ARG line in the Dockerfile.
+    dockerfileContent = declareBuildArgs(scopeCacheMounts(dockerfileContent, ctx.cacheScope), buildKeys);
     tempDockerfile = path.join(ctx.contextDir, ".serve.Dockerfile");
     await fs.writeFile(tempDockerfile, dockerfileContent);
     if (dockerfileContent.includes(".serve.nginx.conf")) {
@@ -301,6 +308,14 @@ async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileCont
     );
   args.push(...extra);
   for (const [k, v] of Object.entries(ctx.labels)) args.push("--label", `${k}=${v}`);
+  if (ctx.network) {
+    const name = builderName(ctx.network.name, ctx.dockerEnv);
+    if (await ensureBuilder(name, ctx.network.name, { ...ctx.dockerEnv }, ctx.log)) {
+      const count = Object.keys(ctx.network.hosts).length;
+      ctx.log(count ? `Build steps can reach this environment's services (${count} names)` : "Build steps can reach this environment's network");
+      args.push(...builderFlags(name, ctx.network.hosts));
+    }
+  }
   if (ctx.build.target) args.push("--target", ctx.build.target);
   if (ctx.build.noCache) args.push("--no-cache", "--pull");
   args.push(ctx.contextDir);

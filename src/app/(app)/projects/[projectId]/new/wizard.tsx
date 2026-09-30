@@ -96,10 +96,10 @@ type Props = {
 };
 
 const starts: { id: Kind; title: string; body: string; icon: React.ReactNode }[] = [
-  { id: "git", title: "Git repository", body: "GitHub, GitLab or any Git URL", icon: <GitBranch /> },
-  { id: "image", title: "Docker image", body: "From any registry", icon: <Container /> },
-  { id: "compose", title: "Docker Compose", body: "A multi-container stack", icon: <Layers /> },
-  { id: "database", title: "Database", body: "Managed, with backups", icon: <Database /> },
+  { id: "git", title: "Git repository", body: "Build and deploy from GitHub, GitLab or any Git URL, on every push.", icon: <GitBranch /> },
+  { id: "image", title: "Docker image", body: "Run a ready-made image from Docker Hub or any registry.", icon: <Container /> },
+  { id: "compose", title: "Docker Compose", body: "A multi-container stack from a compose file or a repository.", icon: <Layers /> },
+  { id: "database", title: "Database", body: "PostgreSQL, MySQL, Redis and more, with backups.", icon: <Database /> },
 ];
 
 function repoName(url: string) {
@@ -800,6 +800,42 @@ function ComposeForm({ props, onBack }: { props: Props; onBack: () => void }) {
 const POPULAR = "Popular";
 const YOURS = "Your templates";
 
+const ENGINE_BLURB: Partial<Record<DbEngine, string>> = {
+  postgres: "Relational database with strong SQL support and extensions.",
+  mysql: "Relational database for web and general-purpose apps.",
+  mariadb: "Relational database, a drop-in replacement for MySQL.",
+  mongodb: "Document database that stores JSON-like records.",
+  redis: "In-memory key-value store for caches, queues and sessions.",
+  valkey: "Open source, Redis-compatible in-memory store.",
+  clickhouse: "Column database for fast analytics over large data.",
+};
+
+function SectionTitle({ title, description }: { title: string; description: string }) {
+  return (
+    <div>
+      <h2 className="text-[15px] font-semibold text-fg">{title}</h2>
+      <p className="text-[13px] text-muted">{description}</p>
+    </div>
+  );
+}
+
+function StartCard({ icon, title, body, onClick }: { icon: React.ReactNode; title: string; body: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex items-center gap-4 rounded-2xl border border-line bg-surface p-5 text-left shadow-sm transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md"
+    >
+      {icon}
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="text-[15px] font-semibold text-fg">{title}</span>
+        <span className="text-[13px] leading-snug text-muted">{body}</span>
+      </span>
+      <ChevronRight className="size-4 flex-none text-faint transition-transform group-hover:translate-x-0.5" />
+    </button>
+  );
+}
+
 function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Kind, engine?: DbEngine) => void; onTemplate: (id: string) => void }) {
   const [query, setQuery] = React.useState("");
   const hasCustom = props.templates.some((t) => t.custom);
@@ -822,22 +858,33 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
-        <h2 className="text-[13px] font-medium text-muted">Start from</h2>
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
-          {starts.map((k) => (
-            <button
-              key={k.id}
-              type="button"
-              onClick={() => onStart(k.id)}
-              className="group flex items-center gap-3 rounded-xl border border-line bg-surface px-3.5 py-3 text-left shadow-sm transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md"
-            >
-              <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-accent-soft text-accent [&_svg]:size-[18px]">{k.icon}</span>
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="text-[14px] font-medium text-fg">{k.title}</span>
-                <span className="truncate text-xs text-muted">{k.body}</span>
-              </span>
-              <ChevronRight className="size-4 flex-none text-faint transition-transform group-hover:translate-x-0.5" />
-            </button>
+        <SectionTitle title="Applications" description="Your own code or a ready-made image." />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {starts
+            .filter((k) => k.id !== "database")
+            .map((k) => (
+              <StartCard
+                key={k.id}
+                icon={<span className="flex size-11 flex-none items-center justify-center rounded-xl bg-accent-soft text-accent [&_svg]:size-[22px]">{k.icon}</span>}
+                title={k.title}
+                body={k.body}
+                onClick={() => onStart(k.id)}
+              />
+            ))}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <SectionTitle title="Databases" description="Managed for you: credentials, backups and upgrades." />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {props.engines.map((e) => (
+            <StartCard
+              key={e.engine}
+              icon={<ServiceIcon type="database" engine={e.engine} size="md" />}
+              title={e.label}
+              body={ENGINE_BLURB[e.engine] ?? "A managed database."}
+              onClick={() => onStart("database", e.engine)}
+            />
           ))}
         </div>
       </section>
@@ -1067,7 +1114,7 @@ function ServerBar({ servers, value, onChange }: { servers: Props["servers"]; va
 }
 
 /** Renders the page header too, so the server picker can sit in its actions. */
-export function NewServiceWizard({ header, ...props }: Props & { header: { title: string; description: string; breadcrumbs: Crumb[] } }) {
+export function NewServiceWizard({ header, ...props }: Props & { header: { title?: string; description?: string; breadcrumbs: Crumb[] } }) {
   const [serverId, setServerId] = React.useState(props.initialServerId ?? props.servers[0]?.id ?? "local");
   const [step, setStep] = React.useState<Step>(() => initialStep(props));
   const p = { ...props, serverId };

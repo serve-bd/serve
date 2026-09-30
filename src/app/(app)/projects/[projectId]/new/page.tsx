@@ -65,8 +65,6 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
   return (
     <NewServiceWizard
       header={{
-        title: "New service",
-        description: `Add to ${project.name} · ${current.name}`,
         breadcrumbs: [{ label: "Projects", href: "/projects" }, { label: project.name, href: `/projects/${project.id}?env=${current.name}` }, { label: "New service" }],
       }}
       projectId={project.id}

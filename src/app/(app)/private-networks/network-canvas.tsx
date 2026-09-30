@@ -6,6 +6,7 @@ import {
   Background,
   BackgroundVariant,
   BaseEdge,
+  ConnectionMode,
   type Edge,
   EdgeLabelRenderer,
   type EdgeProps,
@@ -61,7 +62,13 @@ function NetworkNodeView({ data }: NodeProps<NetworkNode>) {
       <Network className="size-4 flex-none" style={{ color: data.color }} />
       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-fg">{data.name}</span>
       <span className="flex-none text-[11px] text-muted tabular-nums">{data.count}</span>
-      <Handle type="source" position={Position.Bottom} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ borderColor: data.color }}
+        className="!size-3 !rounded-full !border-2 !bg-surface transition-transform hover:scale-125"
+        title="Drag to a server to add it"
+      />
     </div>
   );
 }
@@ -85,7 +92,12 @@ function ServerNodeView({ data, selected }: NodeProps<ServerNode>) {
       )}
       title={s.message ?? undefined}
     >
-      <Handle type="target" position={Position.Top} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!size-3 !rounded-full !border-2 !border-line-strong !bg-surface transition-transform hover:scale-125 hover:!border-accent"
+        title="Drag to a network to add this server"
+      />
       <span className="flex items-center gap-2">
         <ServerIcon className="size-3.5 flex-none text-muted" />
         <span className="truncate text-[13px] font-semibold text-fg">{s.name}</span>
@@ -177,6 +189,21 @@ function Canvas({ networks, servers, saved }: Props) {
     success: "Saved. Servers pick up the change within seconds.",
   });
   const save = useAction((positions: Record<string, Pos>) => saveNetworkCanvas(positions), { refresh: false });
+  /** Put a server in a network, from a drop or a drawn line. */
+  const add = (networkId: string, serverId: string) => {
+    const network = networks.find((n) => n.id === networkId);
+    const server = servers.find((s) => s.id === serverId);
+    if (!network || !server) return;
+    if (network.servers.some((s) => s.id === serverId)) {
+      toast.info(`${server.name} is already in ${network.name}`);
+      return;
+    }
+    if (!server.joined) {
+      toast.error(`${server.name} has not joined the private network`, "Join it from its Private network page first.");
+      return;
+    }
+    void member.run(networkId, serverId, true);
+  };
   const reset = useAction(() => resetNetworkCanvas(), {
     success: "Layout reset",
     onSuccess: () => {
@@ -243,18 +270,34 @@ function Canvas({ networks, servers, saved }: Props) {
           }
           // Dropped on a network: it goes in (or not), and the card slides back to where it was.
           setNodes((prev) => prev.map((n) => (n.id === node.id ? { ...n, position: from } : n)));
-          const serverId = node.id.slice("server:".length);
-          const networkId = target.id.slice("network:".length);
-          const network = networks.find((n) => n.id === networkId);
-          const server = servers.find((s) => s.id === serverId);
-          if (!network || !server || network.servers.some((s) => s.id === serverId)) return;
-          if (!server.joined) {
-            toast.error(`${server.name} has not joined the private network`, "Join it from its Private network page first.");
+          add(target.id.slice("network:".length), node.id.slice("server:".length));
+        }}
+        connectionMode={ConnectionMode.Loose}
+        connectionRadius={36}
+        connectionLineStyle={{ stroke: "var(--accent)", strokeWidth: 2, strokeDasharray: "6 4" }}
+        onConnectEnd={(event, state) => {
+          // Dropped anywhere on the other card counts, not only on its dot.
+          const from = state.fromNode;
+          if (!from) return;
+          const point = "changedTouches" in event ? event.changedTouches[0] : event;
+          const at = flow.screenToFlowPosition({ x: point.clientX, y: point.clientY });
+          const to =
+            state.toNode ??
+            flow.getNodes().find((n) => {
+              const w = n.measured?.width ?? 0;
+              const h = n.measured?.height ?? 0;
+              return n.id !== from.id && at.x >= n.position.x && at.x <= n.position.x + w && at.y >= n.position.y && at.y <= n.position.y + h;
+            });
+          if (!to || to.id === from.id) return;
+          const pair = [from, to];
+          const networkNode = pair.find((n) => n.type === "network");
+          const serverNode = pair.find((n) => n.type === "server");
+          if (!networkNode || !serverNode) {
+            toast.error("Connect a server to a network", "Lines go from a network to a server.");
             return;
           }
-          void member.run(networkId, serverId, true);
+          add(networkNode.id.slice("network:".length), serverNode.id.slice("server:".length));
         }}
-        nodesConnectable={false}
         fitView
         fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
         minZoom={0.25}
@@ -283,7 +326,7 @@ function Canvas({ networks, servers, saved }: Props) {
         </ToolButton>
       </div>
       <p className="absolute right-4 bottom-4 hidden max-w-xs rounded-xl border border-line bg-surface/95 px-3 py-2 text-[11px] leading-relaxed text-muted shadow-sm backdrop-blur sm:block">
-        Drag a server onto a network to add it. Press × on a line to take it out.
+        Draw a line from a network to a server (or drop the server on the network) to add it. Press × on a line to take it out.
       </p>
     </div>
   );

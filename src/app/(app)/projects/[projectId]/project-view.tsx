@@ -124,11 +124,6 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-center gap-2">
             <span className="truncate text-[14px] font-semibold text-fg">{s.name}</span>
-            {s.previews > 0 && (
-              <span className="shrink-0 rounded-full bg-info-soft px-1.5 text-[10px] font-semibold text-info">
-                {s.previews} preview{s.previews === 1 ? "" : "s"}
-              </span>
-            )}
           </span>
           <span className="truncate text-xs text-muted">{s.source ?? (s.engine ? s.engine : s.type)}</span>
         </div>

@@ -9,9 +9,16 @@ export type CrashTrack = { base: number };
 /**
  * Crashes in a row of one container, from Docker's restart count. The count starts over once the
  * container has run for STABLE_MS, and when Docker reset it (a manual start sets it back to 0).
+ * A container first seen that is older than `watchingSince` (the worker was restarted) starts
+ * from its current count: restarts from before are not known to be in a row.
  */
-export function crashesInARow(track: CrashTrack | undefined, info: { restartCount: number; running: boolean; startedAt: number }, now: number) {
-  let base = track?.base ?? 0;
+export function crashesInARow(
+  track: CrashTrack | undefined,
+  info: { restartCount: number; running: boolean; startedAt: number; createdAt: number },
+  now: number,
+  watchingSince = 0,
+) {
+  let base = track?.base ?? (info.createdAt < watchingSince ? info.restartCount : 0);
   if (info.restartCount < base) base = 0;
   if (info.running && now - info.startedAt >= STABLE_MS) base = info.restartCount;
   return { crashes: info.restartCount - base, track: { base } };

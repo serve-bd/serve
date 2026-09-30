@@ -32,10 +32,13 @@ export async function organizationRoles(organizationId: string): Promise<RoleOpt
   return [...builtins, ...custom];
 }
 
-/** Permissions and project reach of one membership. An unknown custom role falls back to Viewer. */
+/**
+ * Permissions and project reach of one membership. An unknown custom role gets the default Viewer
+ * permissions, not the organization's adjusted Viewer role, which may grant more.
+ */
 export function accessFrom(member: { role: string; roleId: string | null; projectIds: string[] | null }, roles: RoleOption[]): MemberAccess {
   const roleId = effectiveRoleId(member.role, member.roleId);
-  const role = roles.find((r) => r.id === roleId) ?? roles.find((r) => r.id === "viewer")!;
+  const role = roles.find((r) => r.id === roleId) ?? { id: "viewer", name: BUILTIN_ROLE_INFO.viewer.name, permissions: [...BUILTIN_PERMISSIONS.viewer] };
   const unlimited = role.id === "owner" || role.id === "admin";
   return {
     roleId: role.id,

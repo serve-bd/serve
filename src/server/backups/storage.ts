@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type Docker from "dockerode";
@@ -22,11 +23,15 @@ export type StoragePaths = { root: string; service: (serviceId: string) => strin
 
 /**
  * Whether a host path is off limits: a system folder or Serve's own data directory on that server.
- * Folders inside the service's own folder (a compose file's `./data`) are allowed.
+ * Inside the service's own folder only folders below the compose project's directory are allowed
+ * (a compose file's `./data`): the directory itself holds the stack's `.env` with its secrets.
  */
-export function blockedPath(p: string, paths?: StoragePaths, serviceId?: string) {
+export function blockedPath(raw: string, paths?: StoragePaths, serviceId?: string, projectDirs: string[] = []) {
+  const p = path.posix.normalize(raw).replace(/(.)\/+$/, "$1");
   if (SKIP.some((r) => r.test(p))) return true;
-  if (paths && serviceId && p.startsWith(`${paths.service(serviceId).replace(/\/+$/, "")}/`)) return false;
+  if (paths && serviceId && p.startsWith(`${paths.service(serviceId).replace(/\/+$/, "")}/`)) {
+    return !projectDirs.some((d) => p.startsWith(`${path.posix.normalize(d).replace(/\/+$/, "")}/`));
+  }
   const roots = [env.dataDir, "/data/serve", ...(paths ? [paths.root] : [])].map((r) => r.replace(/\/+$/, ""));
   return roots.some((data) => p === data || p.startsWith(`${data}/`));
 }
@@ -39,13 +44,14 @@ export async function stackStorage(server: { docker: Docker; paths: StoragePaths
   const { docker } = server;
   const rows = await docker.listContainers({ all: true, filters: { label: [`${LABEL.service}=${serviceId}`] } });
   const out = new Map<string, StorageSource>();
+  const projectDirs = rows.map((r) => r.Labels?.["com.docker.compose.project.working_dir"]).filter((d): d is string => !!d);
   for (const row of rows) {
     const name = row.Labels?.["com.docker.compose.service"] ?? row.Names?.[0]?.replace(/^\//, "") ?? row.Id.slice(0, 12);
     for (const m of row.Mounts ?? []) {
       const kind = m.Type === "volume" && m.Name ? "volume" : m.Type === "bind" && m.Source ? "dir" : null;
       if (!kind) continue;
       const source = kind === "volume" ? (m.Name as string) : m.Source;
-      if (kind === "dir" && blockedPath(source, server.paths, serviceId)) continue;
+      if (kind === "dir" && blockedPath(source, server.paths, serviceId, projectDirs)) continue;
       const key = `${kind}:${source}`;
       const entry = out.get(key) ?? { kind, source, containers: [], destinations: [] };
       if (!entry.containers.includes(name)) entry.containers.push(name);

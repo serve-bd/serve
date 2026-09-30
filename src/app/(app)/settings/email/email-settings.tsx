@@ -98,7 +98,7 @@ export function EmailSettingsForm({ initial, mailrooms }: { initial: Initial; ma
       >
         <CardHeader
           title={<span className="flex items-center gap-2">Email {configured ? <Badge tone="ok">On</Badge> : <Badge>Off</Badge>}</span>}
-          description={<>Password resets, invitations and email notifications with these settings.</>}
+          description={<>Password resets, invitations and email notifications are sent with these settings.</>}
         />
         <CardBody className="flex flex-col gap-5 py-5">
           <Field label="Send with">

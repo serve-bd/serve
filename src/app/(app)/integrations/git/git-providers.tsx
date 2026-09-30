@@ -94,7 +94,7 @@ function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: bo
         <div className="flex min-w-0 flex-col gap-1">
           <h3 className="text-[15px] font-semibold text-fg">Connect GitHub</h3>
           <p className="max-w-xl text-[13px] leading-relaxed text-muted">
-            Creates a private GitHub App for this server. You choose which repositories it can read, and pushes and pull requests deploy automatically.
+            A private GitHub App is created for this server. You choose which repositories it can read, and pushes and pull requests deploy automatically.
           </p>
         </div>
       </div>

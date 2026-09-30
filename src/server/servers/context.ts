@@ -81,6 +81,9 @@ function localExec(command: string, opts: Parameters<ServerCtx["exec"]>[1] = {})
   });
 }
 
+/** Stops the pool sweep and closes the sockets of a remote Docker client that is no longer used. */
+const disposers = new WeakMap<Docker, () => void>();
+
 /** Docker API over the shared SSH connection: one exec channel per HTTP connection. */
 function remoteDocker(target: SshTarget) {
   // Keep-alive reuses one dial-stdio channel for many API calls; hijacked streams get their own.
@@ -102,10 +105,15 @@ function remoteDocker(target: SshTarget) {
       }
   }, 15_000);
   sweep.unref();
-  return new Docker({ protocol: "http", host: "docker", port: 80, agent } as Docker.DockerOptions);
+  const docker = new Docker({ protocol: "http", host: "docker", port: 80, agent } as Docker.DockerOptions);
+  disposers.set(docker, () => {
+    clearInterval(sweep);
+    agent.destroy();
+  });
+  return docker;
 }
 
-export async function sshTargetFor(row: ServerRow): Promise<SshTarget> {
+export async function sshTargetFor(row: ServerRow, previous?: string): Promise<SshTarget> {
   if (!row.privateKeyId) throw new Error(`Server ${row.name} has no SSH key.`);
   const [key] = await db.select().from(schema.privateKey).where(eq(schema.privateKey.id, row.privateKeyId));
   if (!key) throw new Error(`The SSH key of ${row.name} was deleted.`);
@@ -113,7 +121,7 @@ export async function sshTargetFor(row: ServerRow): Promise<SshTarget> {
   const via = row.tunnel ? { host: relayHost(), port: row.tunnel.relayPort } : { host: row.host, port: row.port };
   if (!row.tunnel && row.ownerOrganizationId) {
     // An organization's server must be a public machine: Serve never connects into its own network for them.
-    const address = await publicAddress(row.host);
+    const address = await publicAddress(row.host, previous);
     if (!address) throw new Error(`${row.host} is a private address or does not resolve. Use a public address, or add the server as one that connects out.`);
     via.host = address;
   }
@@ -140,8 +148,8 @@ function buildLocal(row: ServerRow): ServerCtx {
   };
 }
 
-async function buildRemote(row: ServerRow): Promise<ServerCtx> {
-  const target = await sshTargetFor(row);
+async function buildRemote(row: ServerRow, previous?: string): Promise<ServerCtx> {
+  const target = await sshTargetFor(row, previous);
   return {
     id: row.id,
     name: row.name,
@@ -197,17 +205,30 @@ export async function getServer(id: string | null | undefined = LOCAL_SERVER_ID)
   const row = await getServerRow(id || LOCAL_SERVER_ID);
   const cached = cache.get(row.id);
   const pinned = !!row.ownerOrganizationId && !row.tunnel && !net.isIP(row.host.replace(/^\[|\]$/g, ""));
-  if (cached && cached.stamp === stamp(row) && !(pinned && Date.now() - cached.at > PINNED_TTL)) return cached.ctx;
-  const ctx = row.isLocal ? Promise.resolve(buildLocal(row)) : buildRemote(row);
-  if (cached && pinned) {
+  const fresh = cached && cached.stamp === stamp(row);
+  if (fresh && !(pinned && Date.now() - cached.at > PINNED_TTL)) return cached.ctx;
+  const previous = fresh ? await cached.ctx.then((c: ServerCtx) => c.ssh?.host).catch(() => undefined) : undefined;
+  const ctx = row.isLocal ? Promise.resolve(buildLocal(row)) : buildRemote(row, previous);
+  if (fresh && previous) {
+    // Same address as before: keep the clients and their live connections.
+    const same = await ctx.then((c) => c.ssh?.host === previous).catch(() => false);
+    if (same) {
+      void ctx.then(dispose);
+      cached.at = Date.now();
+      return cached.ctx;
+    }
     // The host name now points elsewhere: new connections go to the new address.
-    void Promise.all([cached.ctx, ctx])
-      .then(([a, b]) => a.ssh?.host !== b.ssh?.host && closeConnection(row.id))
-      .catch(() => {});
+    closeConnection(row.id);
   }
+  if (cached) void cached.ctx.then((c: ServerCtx) => setTimeout(() => dispose(c), 60_000).unref()).catch(() => {});
   cache.set(row.id, { stamp: stamp(row), ctx, at: Date.now() });
   ctx.catch(() => cache.delete(row.id));
   return ctx;
+}
+
+/** Frees a context's Docker client once nothing uses it. */
+function dispose(ctx: ServerCtx) {
+  disposers.get(ctx.docker)?.();
 }
 
 /** Context for the server a service runs on. */
@@ -235,6 +256,8 @@ export async function listServers() {
 
 /** Drops cached clients and SSH connections (after edits or deletion). */
 export function forgetServer(id: string) {
+  const cached = cache.get(id);
+  if (cached) void cached.ctx.then((c: ServerCtx) => setTimeout(() => dispose(c), 60_000).unref()).catch(() => {});
   cache.delete(id);
   closeConnection(id);
 }

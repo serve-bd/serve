@@ -310,7 +310,7 @@ export function AddServer({ keys: initialKeys, tunnel }: { keys: Key[]; tunnel: 
             )}
             {keyMode === "generate" && (
               <p className="rounded-xl bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed text-muted">
-                A new key pair is created for this server. Next, you copy its public key to the server. The private key is encrypted and never leaves this machine.
+                A new key pair is created for this server. Next, you copy its public key to the server. The private key is encrypted and never leaves the dashboard.
               </p>
             )}
             {keyMode === "import" && (
@@ -479,7 +479,7 @@ function ConnectStep({ serverId, name, onBack }: { serverId: string; name: strin
   const [ready, setReady] = React.useState(false);
   return (
     <Card>
-      <CardHeader title={`Connecting to ${name || "the server"}`} description={<>Checks SSH access and Docker, prepares its data directory and starts the proxy.</>} />
+      <CardHeader title={`Connecting to ${name || "the server"}`} description={<>SSH access and Docker are checked, its data directory is prepared and the proxy is started.</>} />
       <CardBody className="py-5">
         <ServerSetupProgress serverId={serverId} onReady={() => setReady(true)} />
       </CardBody>
@@ -532,7 +532,7 @@ function JoinStep(props: { serverId: string; name: string; command: string; expi
         title={connected ? `Setting up ${props.name}` : `Connect ${props.name}`}
         description={
           connected ? (
-            <>Connected through the tunnel. Checks Docker, prepares its data directory and starts the proxy.</>
+            <>Connected through the tunnel. Docker is checked, its data directory is prepared and the proxy is started.</>
           ) : (
             "Run the command on the server. This page moves on by itself when it connects."
           )

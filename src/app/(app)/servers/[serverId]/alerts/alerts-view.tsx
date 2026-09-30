@@ -61,7 +61,7 @@ export function AlertsView({ serverId, serverName, config, incidents }: { server
           <CardHeader
             title="Thresholds"
             description={
-              <>The samples collected every 30 seconds are compared with these limits and alerts your notification channels. An alert clears 5 points below its limit.</>
+              <>The samples collected every 30 seconds are compared with these limits. Crossing one alerts your notification channels. An alert clears 5 points below its limit.</>
             }
           />
           <CardBody className="flex flex-col gap-5">

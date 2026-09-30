@@ -56,7 +56,7 @@ export function MonitoringSection({
     <Section
       id="monitoring"
       title="Monitoring"
-      description={<>Checks this service and alerts your notification channels when it goes down and when it recovers.</>}
+      description={<>This service is checked, and your notification channels are alerted when it goes down and when it recovers.</>}
       initial={initial}
       onSave={(v) =>
         save.run({

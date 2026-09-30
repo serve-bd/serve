@@ -46,7 +46,7 @@ export function ServerList({ servers }: { servers: Row[] }) {
           <EmptyState
             icon={<Server />}
             title="Run services on more machines"
-            description={<>Add a Linux server with SSH access. Docker is installed if needed, starts its proxy there, and lets you deploy to it like this one.</>}
+            description={<>Add a Linux server with SSH access. Docker is installed if needed and the proxy is started. Then you deploy to it like this one.</>}
           />
         </Card>
       </div>

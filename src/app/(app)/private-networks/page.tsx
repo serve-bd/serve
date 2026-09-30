@@ -32,8 +32,9 @@ export default async function PrivateNetworksPage(props: { searchParams: Promise
       .orderBy(asc(schema.server.name)),
     getSettings(),
   ]);
-  // In Root every network and server; in another organization its own networks and the servers available to it.
-  const servers = allServers.filter((s) => listedInOrg(ctx, s));
+  // In Root every network and server; in another organization its own networks and servers.
+  // A server shared with it sits in networks of its owner, which this page does not show.
+  const servers = allServers.filter((s) => listedInOrg(ctx, s) && (ctx.isRoot || s.ownerOrganizationId === ctx.org.id));
   const networks =
     ctx.isInstanceAdmin && ctx.isRoot
       ? allNetworks

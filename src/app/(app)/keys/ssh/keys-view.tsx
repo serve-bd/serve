@@ -111,7 +111,7 @@ export function AddKeyDialog({
                 </Field>
               ) : (
                 <p className="rounded-xl bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed text-muted">
-                  An ed25519 key pair is created. You copy the public key to your servers; the private key never leaves this machine.
+                  An ed25519 key pair is created. You copy the public key to your servers; the private key never leaves the dashboard.
                 </p>
               )}
             </DialogBody>

@@ -112,7 +112,7 @@ export async function securityChecks(settings?: Settings): Promise<SecurityCheck
     id: "docker",
     title: "The dashboard controls Docker on this host",
     status: "info",
-    detail: "The worker uses the Docker socket, which equals root access. Run Serve on a server dedicated to it and give admin roles carefully.",
+    detail: "The worker uses the Docker socket, which equals root access. Run the dashboard on a server dedicated to it and give admin roles carefully.",
   });
 
   return checks;

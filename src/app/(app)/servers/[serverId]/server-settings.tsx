@@ -128,7 +128,7 @@ export function ConnectionSettings({ server, keys }: { server: ServerDetails; ke
               <Select value={v.privateKeyId || null} onValueChange={set("privateKeyId")} options={keys.map((k) => ({ value: k.id, label: k.name }))} placeholder="Choose a key" />
             </Field>
           </div>
-          <Field label="Data directory" description={<>Where repositories, proxy configuration and certificates on this server.</>}>
+          <Field label="Data directory" description={<>Where repositories, proxy configuration and certificates are kept on this server.</>}>
             <Input value={v.dataDir} onChange={(e) => set("dataDir")(e.target.value)} className="font-mono sm:max-w-sm" spellCheck={false} />
           </Field>
         </>

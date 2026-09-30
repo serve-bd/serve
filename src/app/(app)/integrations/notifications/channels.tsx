@@ -261,7 +261,7 @@ function DeliveryHistory({ deliveries, channels, isAdmin }: { deliveries: Delive
                   {d.error && (
                     <p className={cn("mt-1 text-xs break-words", d.status === "failed" ? "text-bad" : "text-muted")}>
                       {d.error}
-                      {d.status === "failed" && d.nextAttemptAt && <span className="text-muted"> · Tried again automatically.</span>}
+                      {d.status === "failed" && d.nextAttemptAt && <span className="text-muted"> · Retried automatically.</span>}
                     </p>
                   )}
                   {d.status === "held" && <p className="mt-1 text-xs text-muted">Waiting for quiet hours to end.</p>}

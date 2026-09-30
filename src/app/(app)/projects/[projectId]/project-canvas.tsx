@@ -49,11 +49,14 @@ function ServerFrames({
   canManage,
   setNodes,
   onMoved,
+  stored,
 }: {
   nodes: ServiceNode[];
   canManage: boolean;
   setNodes: React.Dispatch<React.SetStateAction<ServiceNode[]>>;
   onMoved: (positions: Record<string, Pos>) => void;
+  /** Places saved before. */
+  stored: Record<string, Pos>;
 }) {
   const flow = useReactFlow();
   const drag = React.useRef<{ ids: Set<string>; x: number; y: number; zoom: number; start: Map<string, Pos>; moved: boolean } | null>(null);
@@ -114,8 +117,9 @@ function ServerFrames({
               const dy = Math.round((e.clientY - d.y) / d.zoom);
               const moved = Object.fromEntries([...d.start].map(([id, p]) => [id, { x: p.x + dx, y: p.y + dy }]));
               setNodes((all) => all.map((n) => (moved[n.id] ? { ...n, position: moved[n.id] } : n)));
-              // Every card keeps its place from now on, so cards placed automatically never jump into the moved box.
-              onMoved({ ...Object.fromEntries(nodes.map((n) => [n.id, n.position])), ...moved });
+              // Cards placed automatically keep their place from now on, so they never jump into the moved box.
+              // Cards saved before are left out: someone else may have moved them since.
+              onMoved({ ...Object.fromEntries(nodes.filter((n) => !stored[n.id]).map((n) => [n.id, n.position])), ...moved });
             }}
             onPointerCancel={() => cancel()}
             onLostPointerCapture={() => cancel()}
@@ -309,7 +313,7 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1.2} color="var(--line-strong)" />
-        <ServerFrames nodes={nodes} canManage={canManage} setNodes={setNodes} onMoved={(moved) => void save.run(moved)} />
+        <ServerFrames nodes={nodes} canManage={canManage} setNodes={setNodes} stored={stored} onMoved={(moved) => void save.run(moved)} />
       </ReactFlow>
       <div className="absolute bottom-4 left-4 flex items-center gap-1 rounded-xl border border-line bg-surface/95 p-1 shadow-sm backdrop-blur">
         <ToolButton label="Zoom out" onClick={() => void flow.zoomOut({ duration: 200 })}>

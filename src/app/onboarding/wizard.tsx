@@ -388,7 +388,7 @@ export function OnboardingWizard({
                     <div className="flex flex-col gap-1">
                       <p className="text-[14px] font-medium text-fg">Connect GitHub with a GitHub App</p>
                       <p className="text-[13px] leading-relaxed text-muted">
-                        Creates a private app for this server. You choose the repositories it can read, and pushes and pull requests deploy automatically.
+                        A private app is created for this server. You choose the repositories it can read, and pushes and pull requests deploy automatically.
                       </p>
                     </div>
                   </div>

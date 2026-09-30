@@ -354,9 +354,10 @@ async function recover() {
     .update(schema.backup)
     .set({ status: "failed", error: "The worker restarted during this backup.", finishedAt: new Date() })
     .where(and(eq(schema.backup.status, "running"), notWaiting))
-    .returning({ serviceId: schema.backup.serviceId, filename: schema.backup.filename, trigger: schema.backup.trigger });
+    .returning({ serviceId: schema.backup.serviceId, filename: schema.backup.filename, trigger: schema.backup.trigger, size: schema.backup.size });
   for (const b of cut) {
-    if (!b.filename || b.trigger === "import") continue;
+    // An uploaded import is complete and stays; an import cut off while it was fetched is partial.
+    if (!b.filename || (b.trigger === "import" && b.size != null)) continue;
     await fs.promises.rm(backupFile(b.serviceId, b.filename), { force: true }).catch(() => {});
     await db
       .update(schema.backup)

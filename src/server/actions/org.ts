@@ -290,10 +290,20 @@ export async function saveRole(roleId: string | null, input: z.input<typeof cust
   });
 }
 
-/** Delete a custom role; its members become Viewers so nobody gains access. */
+/** Delete a custom role; its members become Viewers, so only when that gives them nothing more. */
 export async function deleteRole(roleId: string) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
+    const roles = await organizationRoles(ctx.org.id);
+    const role = roles.find((r) => r.id === roleId && !r.builtin);
+    const viewer = roles.find((r) => r.id === "viewer")!;
+    const [{ members }] = await db
+      .select({ members: sql<number>`count(*)::int` })
+      .from(schema.member)
+      .where(and(eq(schema.member.organizationId, ctx.org.id), eq(schema.member.roleId, roleId)));
+    if (role && members && viewer.permissions.some((p) => !role.permissions.includes(p))) {
+      throw new UserError(`Viewers here can do more than ${role.name}. Give its ${members} member${members === 1 ? "" : "s"} another role first.`);
+    }
     const [row] = await db
       .delete(schema.orgRole)
       .where(and(eq(schema.orgRole.id, roleId), eq(schema.orgRole.organizationId, ctx.org.id), isNull(schema.orgRole.builtin)))

@@ -241,6 +241,15 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     }
     // A different machine means a different host key.
     if ((data.host && data.host !== before.host) || (data.port && data.port !== before.port)) patch.hostKey = null;
+    if (ownerChanged && before.status !== "pending") {
+      // The new owner gets root on the machine: the old owner's token and certificates leave it first.
+      const { clearProxyForNewOwner } = await import("@/server/proxy/nginx");
+      try {
+        await clearProxyForNewOwner(await getServer(id));
+      } catch {
+        throw new UserError(`${before.name} could not be reached to clear its proxy. Try again when it is online.`);
+      }
+    }
     await db.transaction(async (tx) => {
       await tx.update(schema.server).set(patch).where(eq(schema.server.id, id));
       // Its key moves with it, so the new owner can manage it.
@@ -251,11 +260,6 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
           .where(eq(schema.privateKey.id, moveKey));
     });
     forgetServer(id);
-    if (ownerChanged && dnsAccount && before.status === "ready") {
-      // The running proxy still holds the old owner's token: recreate it without.
-      const { ensureServerProxy } = await import("@/server/proxy/nginx");
-      await ensureServerProxy(await getServer(id)).catch(() => {});
-    }
     if (ownerChanged) {
       // It leaves private networks of its old owner, so it no longer reaches their servers.
       const left = await db
@@ -268,6 +272,13 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
         )
         .returning({ networkId: schema.privateNetworkMember.networkId });
       if (left.length) await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });
+      // Its proxy was removed above: start it again for the new owner.
+      if (before.status === "ready") {
+        const { ensureServerProxy } = await import("@/server/proxy/nginx");
+        await getServer(id)
+          .then((c) => ensureServerProxy(c))
+          .catch(() => {});
+      }
     }
 
     const connectionChanged = ["host", "port", "username", "privateKeyId", "dataDir"].some((k) => k in data && data[k as keyof typeof data] !== before[k as keyof typeof before]);

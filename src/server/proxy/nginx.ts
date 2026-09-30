@@ -1267,6 +1267,23 @@ export async function removeProxyContainers(ctx: ServerCtx) {
   await removeContainer(ctx, pagesContainer(ctx));
 }
 
+/**
+ * Before a server changes owner: remove its proxy (its environment may hold the old owner's
+ * Cloudflare token) and the certificates Traefik and Caddy issued for the old owner. Throws when
+ * the server cannot be reached, so nothing of the old owner is handed over.
+ */
+export async function clearProxyForNewOwner(ctx: ServerCtx) {
+  for (const name of [ctx.proxyContainer, pagesContainer(ctx)])
+    await ctx.docker
+      .getContainer(name)
+      .remove({ force: true })
+      .catch((e: { statusCode?: number }) => {
+        if (e?.statusCode !== 404) throw e;
+      });
+  await ctx.fs.rm(path.posix.join(ctx.paths.proxy, "traefik-data"));
+  await ctx.fs.rm(path.posix.join(ctx.paths.proxy, "caddy-data"));
+}
+
 /** Stop a server's proxy and keep it stopped until an admin starts it again. Every site goes offline. */
 export async function stopProxy(ctx: ServerCtx) {
   await db.update(schema.server).set({ proxyStopped: true }).where(eq(schema.server.id, ctx.id));

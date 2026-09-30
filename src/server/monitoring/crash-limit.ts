@@ -7,8 +7,10 @@ import { serversOfService } from "@/server/servers/context";
 import { crashLimitOf } from "@/server/services/types";
 import { type CrashTrack, crashesInARow } from "./crash-count";
 
-const store = globalThis as { __serveCrashTracks?: Map<string, CrashTrack> };
+const store = globalThis as { __serveCrashTracks?: Map<string, CrashTrack>; __serveCrashSince?: number };
 const tracks = (store.__serveCrashTracks ??= new Map());
+/** When this process started counting; containers created before have restarts it did not see. */
+const watchingSince = (store.__serveCrashSince ??= Date.now());
 
 /**
  * Stops app replicas that crashed `crashLimit` times in a row, so a broken release does not
@@ -37,8 +39,14 @@ export async function enforceCrashLimits(reachable: Set<string>) {
         if (!info) continue;
         const { crashes, track } = crashesInARow(
           tracks.get(c.Id),
-          { restartCount: info.RestartCount ?? 0, running: info.State.Running && !info.State.Restarting, startedAt: Date.parse(info.State.StartedAt) || now },
+          {
+            restartCount: info.RestartCount ?? 0,
+            running: info.State.Running && !info.State.Restarting,
+            startedAt: Date.parse(info.State.StartedAt) || now,
+            createdAt: Date.parse(info.Created) || 0,
+          },
           now,
+          watchingSince,
         );
         tracks.set(c.Id, track);
         if (crashes < limit) continue;

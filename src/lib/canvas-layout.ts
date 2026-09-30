@@ -11,91 +11,106 @@ export type Pos = { x: number; y: number };
 /** What the layout needs of a service. */
 export type LayoutService = { id: string; serverId: string; uses: { id: string }[] };
 
-/** Places for one group of services that use each other: users left of what they use. */
-function layoutComponent(list: LayoutService[], ids: Set<string>): { pos: Record<string, Pos>; w: number; h: number } {
-  const g = new Graph();
-  g.setGraph({ rankdir: "LR", nodesep: 32, ranksep: 110, marginx: 0, marginy: 0 });
-  g.setDefaultEdgeLabel(() => ({}));
-  for (const s of list) g.setNode(s.id, { width: CARD_W, height: CARD_H });
-  for (const s of list) for (const u of s.uses) if (ids.has(u.id) && g.hasNode(u.id)) g.setEdge(s.id, u.id);
-  layout(g);
-  const pos: Record<string, Pos> = {};
-  let w = 0;
-  let h = 0;
-  for (const s of list) {
-    const n = g.node(s.id);
-    pos[s.id] = { x: Math.round(n.x - CARD_W / 2), y: Math.round(n.y - CARD_H / 2) };
-    w = Math.max(w, pos[s.id].x + CARD_W);
-    h = Math.max(h, pos[s.id].y + CARD_H);
-  }
-  return { pos, w, h };
+type Box = { minX: number; minY: number; maxX: number; maxY: number };
+
+/** The box a server draws around its cards (same padding as the canvas). */
+function frameOf(ids: string[], pos: Record<string, Pos>): Box {
+  const xs = ids.map((id) => pos[id]);
+  return {
+    minX: Math.min(...xs.map((p) => p.x)) - FRAME_PAD,
+    minY: Math.min(...xs.map((p) => p.y)) - FRAME_TOP,
+    maxX: Math.max(...xs.map((p) => p.x + CARD_W)) + FRAME_PAD,
+    maxY: Math.max(...xs.map((p) => p.y + CARD_H)) + FRAME_PAD,
+  };
 }
 
+const overlaps = (a: Box, b: Box, gap: number) => a.minX < b.maxX + gap && b.minX < a.maxX + gap && a.minY < b.maxY + gap && b.minY < a.maxY + gap;
+
 /**
- * Automatic places. Per server (a column of its own when there are several), services that use
- * each other are laid out together, and the groups are packed in rows so unrelated services sit
- * side by side instead of in one long column.
+ * Automatic places for the whole project at once: one graph, each server a group, users left of
+ * what they use. Lines then run left to right between neighbouring columns instead of across
+ * unrelated cards and servers. Services that use nothing are chained in rows of three inside their
+ * server (invisible links), so a server with many of them stays compact.
  */
 export function autoLayout(services: LayoutService[]): Record<string, Pos> {
-  const GAP = 48;
-  const ROW_W = 3 * CARD_W + 2 * GAP;
-  // Servers whose services use services elsewhere go left, so lines run left to right.
-  const serverOf = new Map(services.map((s) => [s.id, s.serverId]));
-  const score = new Map<string, number>();
-  for (const s of services)
-    for (const u of s.uses) {
-      const to = serverOf.get(u.id);
-      if (!to || to === s.serverId) continue;
-      score.set(s.serverId, (score.get(s.serverId) ?? 0) + 1);
-      score.set(to, (score.get(to) ?? 0) - 1);
-    }
-  const servers = [...new Set(services.map((s) => s.serverId))].sort((a, b) => (score.get(b) ?? 0) - (score.get(a) ?? 0));
-  const out: Record<string, Pos> = {};
-  let offsetX = 0;
-  for (const serverId of servers) {
-    const list = services.filter((s) => s.serverId === serverId);
-    const ids = new Set(list.map((s) => s.id));
-    // Connected groups on this server (uses in either direction).
-    const seen = new Set<string>();
-    const groups: LayoutService[][] = [];
-    for (const start of list) {
-      if (seen.has(start.id)) continue;
-      const group: LayoutService[] = [];
-      const queue = [start];
-      seen.add(start.id);
-      while (queue.length) {
-        const s = queue.shift()!;
-        group.push(s);
-        for (const other of list)
-          if (!seen.has(other.id) && (s.uses.some((u) => u.id === other.id) || other.uses.some((u) => u.id === s.id))) {
-            seen.add(other.id);
-            queue.push(other);
-          }
-      }
-      groups.push(group);
-    }
-    // Bigger groups first, then pack left to right, wrapping into rows.
-    groups.sort((a, b) => b.length - a.length);
-    let x = 0;
-    let y = 0;
-    let rowH = 0;
-    let width = 0;
-    for (const group of groups) {
-      const { pos, w, h } = layoutComponent(group, ids);
-      if (x > 0 && x + w > ROW_W) {
-        x = 0;
-        y += rowH + GAP;
-        rowH = 0;
-      }
-      for (const [id, p] of Object.entries(pos)) out[id] = { x: offsetX + x + p.x, y: y + p.y };
-      x += w + GAP;
-      rowH = Math.max(rowH, h);
-      width = Math.max(width, x - GAP);
-    }
-    // Room between server boxes for a line and its label.
-    offsetX += width + 2 * FRAME_PAD + 200;
+  if (!services.length) return {};
+  const g = new Graph({ compound: true });
+  g.setGraph({ rankdir: "LR", nodesep: 56, ranksep: 180, marginx: 0, marginy: 0 });
+  g.setDefaultEdgeLabel(() => ({}));
+  const ids = new Set(services.map((s) => s.id));
+  const servers = [...new Set(services.map((s) => s.serverId))];
+  for (const server of servers) g.setNode(`server:${server}`, {});
+  for (const s of services) {
+    g.setNode(s.id, { width: CARD_W, height: CARD_H });
+    g.setParent(s.id, `server:${s.serverId}`);
   }
-  return out;
+  const linked = new Set<string>();
+  for (const s of services)
+    for (const u of s.uses)
+      if (ids.has(u.id) && u.id !== s.id) {
+        g.setEdge(s.id, u.id);
+        linked.add(s.id);
+        linked.add(u.id);
+      }
+  // Services that use nothing and are used by nothing: one grid block per server, placed by the
+  // graph as a single node and filled in afterwards.
+  const COLS = 3;
+  const CELL_GAP = 32;
+  const blocks = new Map<string, string[]>();
+  for (const server of servers) {
+    const alone = services.filter((s) => s.serverId === server && !linked.has(s.id)).map((s) => s.id);
+    if (!alone.length) continue;
+    blocks.set(server, alone);
+    for (const id of alone) g.removeNode(id);
+    const cols = Math.min(COLS, alone.length);
+    const rows = Math.ceil(alone.length / COLS);
+    g.setNode(`block:${server}`, { width: cols * CARD_W + (cols - 1) * CELL_GAP, height: rows * CARD_H + (rows - 1) * CELL_GAP });
+    g.setParent(`block:${server}`, `server:${server}`);
+  }
+  layout(g);
+
+  const pos: Record<string, Pos> = {};
+  for (const s of services) {
+    if (!linked.has(s.id)) continue;
+    const n = g.node(s.id);
+    pos[s.id] = { x: Math.round(n.x - CARD_W / 2), y: Math.round(n.y - CARD_H / 2) };
+  }
+  for (const [server, alone] of blocks) {
+    const n = g.node(`block:${server}`);
+    const left = n.x - n.width / 2;
+    const top = n.y - n.height / 2;
+    alone.forEach((id, i) => {
+      pos[id] = { x: Math.round(left + (i % COLS) * (CARD_W + CELL_GAP)), y: Math.round(top + Math.floor(i / COLS) * (CARD_H + CELL_GAP)) };
+    });
+  }
+
+  // Server boxes have more padding than the graph leaves between groups: move a box down until
+  // it no longer touches one placed before it (left to right, top to bottom).
+  const GAP = 32;
+  const members = new Map(servers.map((server) => [server, services.filter((s) => s.serverId === server).map((s) => s.id)]));
+  const order = [...servers].sort((a, b) => {
+    const fa = frameOf(members.get(a)!, pos);
+    const fb = frameOf(members.get(b)!, pos);
+    return fa.minX - fb.minX || fa.minY - fb.minY;
+  });
+  const placed: Box[] = [];
+  for (const server of order) {
+    const list = members.get(server)!;
+    for (let guard = 0; guard < 50; guard++) {
+      const box = frameOf(list, pos);
+      const hit = placed.find((p) => overlaps(box, p, GAP));
+      if (!hit) break;
+      const dy = hit.maxY + GAP - box.minY;
+      for (const id of list) pos[id] = { x: pos[id].x, y: pos[id].y + dy };
+    }
+    placed.push(frameOf(list, pos));
+  }
+
+  // Start at the origin.
+  const minX = Math.min(...Object.values(pos).map((p) => p.x));
+  const minY = Math.min(...Object.values(pos).map((p) => p.y));
+  for (const id of Object.keys(pos)) pos[id] = { x: pos[id].x - minX, y: pos[id].y - minY };
+  return pos;
 }
 
 /** Private networks canvas: network pills and server cards. */

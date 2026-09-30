@@ -40,8 +40,23 @@ type ServiceNode = Node<{ s: ServiceCardData; projectId: string }, "service">;
 
 const sourceKind = (s: ServiceCardData) => (s.source && s.type === "app" ? (s.source.includes("/") && !s.source.includes(":") ? "git" : "image") : null);
 
-/** A box around each server's services, sized from where they sit now; drawn behind the cards. */
-function ServerFrames({ nodes }: { nodes: ServiceNode[] }) {
+/**
+ * A box around each server's services, sized from where they sit now; drawn behind the cards.
+ * Dragging a box moves all of its cards together.
+ */
+function ServerFrames({
+  nodes,
+  canManage,
+  setNodes,
+  onMoved,
+}: {
+  nodes: ServiceNode[];
+  canManage: boolean;
+  setNodes: React.Dispatch<React.SetStateAction<ServiceNode[]>>;
+  onMoved: (positions: Record<string, Pos>) => void;
+}) {
+  const flow = useReactFlow();
+  const drag = React.useRef<{ ids: Set<string>; x: number; y: number; zoom: number; start: Map<string, Pos>; moved: boolean } | null>(null);
   const byServer = new Map<string, ServiceNode[]>();
   for (const n of nodes) byServer.set(n.data.s.serverId, [...(byServer.get(n.data.s.serverId) ?? []), n]);
   if (byServer.size < 2) return null;
@@ -55,8 +70,45 @@ function ServerFrames({ nodes }: { nodes: ServiceNode[] }) {
         return (
           <div
             key={serverId}
-            className="pointer-events-none absolute rounded-3xl border border-dashed border-line-strong/70 bg-surface-2/30"
+            className={cn(
+              "nopan absolute rounded-3xl border border-dashed border-line-strong/70 bg-surface-2/30",
+              canManage ? "pointer-events-auto cursor-grab active:cursor-grabbing" : "pointer-events-none",
+            )}
             style={{ transform: `translate(${minX}px, ${minY}px)`, width: maxX - minX, height: maxY - minY }}
+            title={canManage ? "Drag to move this server's services" : undefined}
+            onPointerDown={(e) => {
+              if (!canManage || e.button !== 0) return;
+              e.stopPropagation();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              drag.current = {
+                ids: new Set(list.map((n) => n.id)),
+                x: e.clientX,
+                y: e.clientY,
+                zoom: flow.getZoom(),
+                start: new Map(list.map((n) => [n.id, n.position])),
+                moved: false,
+              };
+            }}
+            onPointerMove={(e) => {
+              const d = drag.current;
+              if (!d) return;
+              const dx = (e.clientX - d.x) / d.zoom;
+              const dy = (e.clientY - d.y) / d.zoom;
+              if (!d.moved && Math.abs(dx) + Math.abs(dy) < 3) return;
+              d.moved = true;
+              setNodes((all) => all.map((n) => (d.ids.has(n.id) ? { ...n, position: { x: Math.round(d.start.get(n.id)!.x + dx), y: Math.round(d.start.get(n.id)!.y + dy) } } : n)));
+            }}
+            onPointerUp={(e) => {
+              const d = drag.current;
+              drag.current = null;
+              e.currentTarget.releasePointerCapture(e.pointerId);
+              if (!d?.moved) return;
+              const dx = Math.round((e.clientX - d.x) / d.zoom);
+              const dy = Math.round((e.clientY - d.y) / d.zoom);
+              const moved = Object.fromEntries([...d.start].map(([id, p]) => [id, { x: p.x + dx, y: p.y + dy }]));
+              setNodes((all) => all.map((n) => (moved[n.id] ? { ...n, position: moved[n.id] } : n)));
+              onMoved(moved);
+            }}
           >
             <span className="flex items-center gap-1.5 px-4 pt-3 text-[11px] font-medium tracking-wide text-muted uppercase">
               <ServerIcon className="size-3" /> {list[0].data.s.serverName || "Server"}
@@ -247,7 +299,7 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1.2} color="var(--line-strong)" />
-        <ServerFrames nodes={nodes} />
+        <ServerFrames nodes={nodes} canManage={canManage} setNodes={setNodes} onMoved={(moved) => void save.run(moved)} />
       </ReactFlow>
       <div className="absolute bottom-4 left-4 flex items-center gap-1 rounded-xl border border-line bg-surface/95 p-1 shadow-sm backdrop-blur">
         <ToolButton label="Zoom out" onClick={() => void flow.zoomOut({ duration: 200 })}>

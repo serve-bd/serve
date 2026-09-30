@@ -29,13 +29,15 @@ export function LoginForm({
 }) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(ssoError ? ssoErrorMessage(ssoError) : null);
+  // A provider sign-in of a user with two-factor authentication comes back here for the code.
+  const codeAfterSso = ssoError === "two_factor_required";
+  const [error, setError] = React.useState<string | null>(ssoError && !codeAfterSso ? ssoErrorMessage(ssoError) : null);
   const [redirecting, setRedirecting] = React.useState<string | null>(null);
 
   async function withProvider(id: string) {
     setRedirecting(id);
     setError(null);
-    const opts = { callbackURL: next, errorCallbackURL: "/login", newUserCallbackURL: next };
+    const opts = { callbackURL: next, errorCallbackURL: next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`, newUserCallbackURL: next };
     // The company login (OpenID Connect) is registered as provider "oidc" next to GitHub and Google.
     const { error } = await authClient.signIn.social({ provider: id as "github", ...opts });
     if (error) {
@@ -43,7 +45,7 @@ export function LoginForm({
       setError(error.message ?? "Could not start the sign-in.");
     }
   }
-  const [needsCode, setNeedsCode] = React.useState(false);
+  const [needsCode, setNeedsCode] = React.useState(codeAfterSso);
   const [useBackup, setUseBackup] = React.useState(false);
 
   async function verify(e: React.FormEvent<HTMLFormElement>) {

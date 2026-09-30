@@ -10,7 +10,9 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/deployme
   const { deploymentId } = await ctx.params;
   const org = await requireOrg();
   if (!org.can("logs.view")) return new Response(cannotMessage("logs.view"), { status: 403 });
-  const offset = Math.max(0, Number(request.nextUrl.searchParams.get("offset") ?? 0));
+  const requested = Math.trunc(Number(request.nextUrl.searchParams.get("offset") ?? 0));
+  // A whole number that fits the int cast below; anything else starts from the beginning.
+  const offset = Number.isFinite(requested) ? Math.min(Math.max(0, requested), 2_000_000_000) : 0;
   const [row] = await db
     .select({
       serviceId: schema.deployment.serviceId,

@@ -49,6 +49,8 @@ export type SignInSettings = {
   /** Email and password sign-in. Can only be turned off while a provider works for an admin. */
   passwordEnabled: boolean;
   providers: Partial<Record<SsoProviderId, SsoProvider>>;
+  /** The issuer (normalized) that the company login accounts were linked with. Kept when the provider is removed. */
+  oidcLinkedIssuer?: string;
 };
 
 export const defaultSignIn: SignInSettings = { passwordEnabled: true, providers: {} };
@@ -102,6 +104,15 @@ export function buttonLabel(id: SsoProviderId, p: SsoProvider | undefined) {
 }
 
 /** OpenID discovery document of an issuer. */
+/** An issuer as it is compared: the same address however it was typed (trailing slash, discovery path). */
+export function normalizeIssuer(issuer: string) {
+  return issuer
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/\.well-known\/openid-configuration$/, "")
+    .replace(/\/+$/, "");
+}
+
 export function discoveryUrl(issuer: string) {
   const base = issuer.trim().replace(/\/$/, "");
   return base.endsWith("/.well-known/openid-configuration") ? base : `${base}/.well-known/openid-configuration`;

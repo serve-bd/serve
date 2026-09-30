@@ -6,6 +6,7 @@ import {
   callbackUrl,
   configHash,
   discoveryUrl,
+  normalizeIssuer,
   providerIdOf,
   providerInput,
   redact,
@@ -32,6 +33,13 @@ describe("sso config", () => {
     expect(providerIdOf("/callback/twitter", { id: "twitter" })).toBeNull();
     expect(providerIdOf("/sign-up/email", {})).toBeNull();
     expect(providerIdOf(undefined, undefined)).toBeNull();
+  });
+
+  it("compares issuers however they were typed", () => {
+    for (const i of ["https://login.example.com", " https://login.example.com/ ", "https://login.example.com/.well-known/openid-configuration"]) {
+      expect(normalizeIssuer(i)).toBe("https://login.example.com");
+    }
+    expect(normalizeIssuer("https://login.example.com/realms/a/")).toBe("https://login.example.com/realms/a");
   });
 
   it("builds callback and discovery URLs", () => {

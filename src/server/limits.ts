@@ -150,16 +150,25 @@ export async function requireRoom(organizationId: string, room: Room): Promise<{
     void noteLimitReached(organizationId, problem.key, usage[problem.key], limits[problem.key] ?? 0);
     throw new UserError(problem.message);
   }
-  if (room.serverId) {
-    // Its own servers are outside the allow list and the servers limit: those govern shared servers.
-    const [own] = await db.select({ owner: schema.server.ownerOrganizationId }).from(schema.server).where(eq(schema.server.id, room.serverId));
-    if (own?.owner !== organizationId) {
-      const servers = await usedServerIds(organizationId);
-      const problem = serverProblem(limits, servers, room.serverId);
-      if (problem) throw new UserError(problem);
-    }
-  }
+  if (room.serverId) await requireServers(organizationId, [room.serverId], limits);
   return reservation;
+}
+
+/** Throws when the organization may not use these servers together (allow list and number of servers). */
+export async function requireServers(organizationId: string, serverIds: string[], limits?: OrgLimits) {
+  const ids = [...new Set(serverIds)];
+  if (!ids.length) return;
+  const lim = limits ?? (await effectiveLimits(organizationId));
+  if (!lim.allowedServers && lim.servers == null) return;
+  // Its own servers are outside the allow list and the servers limit: those govern shared servers.
+  const owners = await db.select({ id: schema.server.id, owner: schema.server.ownerOrganizationId }).from(schema.server).where(inArray(schema.server.id, ids));
+  const used = await usedServerIds(organizationId);
+  for (const id of ids) {
+    if (owners.find((o) => o.id === id)?.owner === organizationId) continue;
+    const problem = serverProblem(lim, used, id);
+    if (problem) throw new UserError(problem);
+    used.add(id);
+  }
 }
 
 /** Room for copies of existing services (environment clones, previews), with their own CPU and memory. */

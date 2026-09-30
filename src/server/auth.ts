@@ -1,4 +1,5 @@
-import { betterAuth } from "better-auth";
+import { randomBytes } from "node:crypto";
+import { type BetterAuthOptions, betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
@@ -25,6 +26,7 @@ import {
   githubRules,
   type SignInSettings,
   type SsoProvider,
+  type SsoProviderId,
   signUpAllowed,
 } from "@/server/sso/config";
 import { cannotMessage, type Permission } from "@/lib/permissions";
@@ -133,10 +135,10 @@ async function joinOrganization(userId: string, organizationId: string, role: Ss
  * Organizations a provider sign-in adds the user to: per matched GitHub organization rule,
  * or the provider's default organization.
  */
-async function joinProviderOrganizations(provider: SsoProvider, userId: string) {
+async function joinProviderOrganizations(provider: SsoProvider, userId: string, githubOrgs = matchedGithubOrgs()) {
   const rules = githubRules(provider);
   if (rules.length) {
-    const matched = new Set(matchedGithubOrgs());
+    const matched = new Set(githubOrgs);
     for (const r of rules)
       if (matched.has(r.org) && r.organizationId) await joinOrganization(userId, r.organizationId, r.role, r.roleId, `as a member of the ${r.org} GitHub organization`);
     return;
@@ -177,6 +179,69 @@ export async function dashboardAddresses(): Promise<DashboardAddresses> {
     origins.add(`${app.protocol}//${host}`);
   }
   return { hosts: [...hosts].sort(), origins: [...origins].sort() };
+}
+
+type ValidateUserInfo = NonNullable<NonNullable<BetterAuthOptions["user"]>["validateUserInfo"]>;
+
+/** Providers that verify email addresses themselves; an admin cannot make them assert someone else's. */
+const LINK_BY_EMAIL = new Set(["github", "google"]);
+
+/**
+ * Provider sign-ins and links to existing users. A company login (OpenID Connect) is set up by an
+ * admin and could assert any email, so it links to an existing user only from that user's Account
+ * page. Users with two-factor authentication still need their code after a provider sign-in.
+ */
+const checkProviderSignIn: ValidateUserInfo = async ({ user, source }, ctx) => {
+  if (source.method !== "oauth" || (source.action !== "sign-in" && source.action !== "link-account") || !user.id) return;
+  const userId = String(user.id);
+  // Linking from the Account page: the signed-in user adds a provider to their own account.
+  if (source.action === "link-account" && (await getSessionFromCtx(ctx))?.user.id === userId) return;
+  if (source.action === "link-account" && !LINK_BY_EMAIL.has(source.oauth?.providerId ?? "")) return { error: "account_not_linked" };
+  const [row] = await db.select({ twoFactorEnabled: schema.user.twoFactorEnabled }).from(schema.user).where(eq(schema.user.id, userId));
+  if (!row?.twoFactorEnabled) return;
+  await startTwoFactor(ctx, userId, source.oauth?.providerId);
+  return { error: "two_factor_required" };
+};
+
+/**
+ * Starts the code step the way the two-factor plugin does after a password sign-in (a pending
+ * verification and its signed cookie); the login page then asks for the code, and the plugin's
+ * verify endpoints create the session.
+ */
+async function startTwoFactor(ctx: Parameters<ValidateUserInfo>[1], userId: string, providerId: string | undefined) {
+  const maxAge = 600;
+  const identifier = `2fa-${randomBytes(15).toString("base64url")}`;
+  const expiresAt = new Date(Date.now() + maxAge * 1000);
+  await ctx.context.internalAdapter.createVerificationValue({ value: userId, identifier, expiresAt });
+  await ctx.context.internalAdapter.createVerificationValue({ value: "0", identifier: `2fa-attempts-${identifier}`, expiresAt });
+  // What the sign-in found at the provider, for the organization join once the code is right.
+  const pending: ProviderSignIn = { userId, providerId: providerId ?? "", githubOrgs: matchedGithubOrgs() };
+  await ctx.context.internalAdapter.createVerificationValue({ value: JSON.stringify(pending), identifier: `2fa-provider-${identifier}`, expiresAt });
+  const cookie = ctx.context.createAuthCookie("two_factor", { maxAge });
+  await ctx.setSignedCookie(cookie.name, identifier, ctx.context.secret, cookie.attributes);
+}
+
+type ProviderSignIn = { userId: string; providerId: string; githubOrgs: string[] };
+
+/**
+ * A provider sign-in that needed the two-factor code gets its session from the verify endpoint,
+ * outside the callback: run the GitHub organization join it would have run there.
+ */
+async function joinAfterTwoFactor(ctx: Parameters<ValidateUserInfo>[1], userId: string) {
+  const cookie = ctx.context.createAuthCookie("two_factor");
+  const identifier = await ctx.getSignedCookie(cookie.name, ctx.context.secret);
+  if (!identifier) return;
+  const row = await ctx.context.internalAdapter.consumeVerificationValue(`2fa-provider-${identifier}`).catch(() => null);
+  if (!row) return;
+  const pending = JSON.parse(row.value) as ProviderSignIn;
+  const provider = (await getSetting("signIn")).providers[pending.providerId as SsoProviderId];
+  if (pending.userId === userId && provider?.allowedOrgs?.length) await joinProviderOrganizations(provider, userId, pending.githubOrgs);
+}
+
+/** The client address the nearest proxy saw (it appends to X-Forwarded-For; earlier entries are the client's own claim). */
+function clientIp(headers: Headers | undefined) {
+  const forwarded = headers?.get("x-forwarded-for")?.split(",").at(-1)?.trim();
+  return forwarded || headers?.get("x-real-ip") || "unknown";
 }
 
 const appOnly: DashboardAddresses = (() => {
@@ -229,10 +294,14 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly) {
       },
     },
     socialProviders: sso.social,
+    // Only with providers: it also runs for accounts created outside a request (createAccount),
+    // which uses the instance without providers.
+    ...(Object.keys(sso.social).length || sso.oidc.length ? { user: { validateUserInfo: checkProviderSignIn } } : {}),
     account: {
       accountLinking: {
         enabled: true,
-        // Signing in with a provider links it to an existing user with the same verified email.
+        // Signing in with GitHub or Google links it to an existing user with the same verified
+        // email (checkProviderSignIn refuses that for the company login).
         // Linking from the Account page (already signed in) may use a different address.
         allowDifferentEmails: true,
       },
@@ -240,9 +309,15 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly) {
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         // The IP limits above trust X-Forwarded-For, which a client can set; these do not.
+        // Per email and address, so others cannot lock someone out; the looser per-email cap still
+        // stops guessing from many addresses.
         if (ctx.path === "/sign-in/email") {
           const email = String((ctx.body as { email?: unknown } | undefined)?.email ?? "").toLowerCase();
-          if (tooManyAttempts(`email:${email}`, 10, 15 * 60_000)) throw new APIError("TOO_MANY_REQUESTS", { message: "Too many sign-in attempts. Try again in 15 minutes." });
+          const fromHere = tooManyAttempts(`email:${email}|${clientIp(ctx.headers)}`, 10, 15 * 60_000);
+          const overall = tooManyAttempts(`email:${email}`, 100, 60 * 60_000);
+          if (fromHere || overall) {
+            throw new APIError("TOO_MANY_REQUESTS", { message: "Too many sign-in attempts. Try again in 15 minutes." });
+          }
         }
         if (ctx.path.startsWith("/two-factor/verify-")) {
           const pending = ctx.headers?.get("cookie")?.match(/two_factor=([^;]+)/)?.[1] ?? "none";
@@ -300,6 +375,7 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly) {
             // members join the chosen organization on every sign-in, not only the first.
             const provider = await callbackProvider(ctx);
             if (provider?.allowedOrgs?.length && !signInRefused()) await joinProviderOrganizations(provider, session.userId);
+            else if (ctx?.path?.startsWith("/two-factor/verify-")) await joinAfterTwoFactor(ctx, session.userId);
             return {
               data: { ...session, activeOrganizationId: await firstOrganizationFor(session.userId) },
             };

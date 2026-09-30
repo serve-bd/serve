@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { act, UserError } from "@/server/action";
 import { logActivity } from "@/server/activity";
 import { requireInstanceAdmin, requireUser } from "@/server/auth";
@@ -11,6 +11,7 @@ import { getSetting, updateSettings } from "@/server/settings";
 import {
   activeProviders,
   discoveryUrl,
+  normalizeIssuer,
   type ProviderInput,
   providerInput,
   providerNames,
@@ -37,12 +38,29 @@ async function adminsWith(providers: SsoProviderId[]) {
   return rows.length;
 }
 
-/** With password sign-in off, a change must leave a provider that a Root admin can use. */
-async function assertAdminCanSignIn(next: SignInSettings) {
+/** With password sign-in off, a change must leave a provider that a Root admin can use (`unlinked`: its links are about to go). */
+async function assertAdminCanSignIn(next: SignInSettings, unlinked?: SsoProviderId) {
   if (next.passwordEnabled) return;
-  if (!(await adminsWith(activeProviders(next)))) {
+  if (!(await adminsWith(activeProviders(next).filter((p) => p !== unlinked)))) {
     throw new UserError("Password sign-in is off, and no Root admin has linked a provider that stays on. Link one on your Account page first, or turn password sign-in back on.");
   }
+}
+
+/**
+ * The company login matches accounts by the subject its issuer sends, and a new issuer could send
+ * an existing subject for someone else. After an issuer change, links are removed from people who
+ * have another way in (a password, or a GitHub or Google link): they link again from their Account
+ * page. People who only sign in with the company login keep theirs, or they could never get back in.
+ * Root owners and admins always lose theirs: the Root admin who changes the issuer must not be able
+ * to take over another Root admin (assertAdminCanSignIn makes sure one can still sign in).
+ */
+async function dropOidcLinks() {
+  const rootId = await getSetting("rootOrganizationId");
+  const otherWayIn = sql`select ${schema.account.userId} from ${schema.account} where ${schema.account.providerId} in ('credential', 'github', 'google')`;
+  const rootAdmins = sql`select ${schema.member.userId} from ${schema.member} where ${schema.member.organizationId} = ${rootId ?? ""} and ${schema.member.role} in ('owner', 'admin')`;
+  await db
+    .delete(schema.account)
+    .where(and(eq(schema.account.providerId, "oidc"), or(sql`${schema.account.userId} in (${otherWayIn})`, sql`${schema.account.userId} in (${rootAdmins})`)));
 }
 
 /** Reads the OpenID discovery document so a wrong issuer fails on save, not at sign-in. */
@@ -123,8 +141,13 @@ export async function saveSsoProvider(id: string, input: ProviderInput) {
       ...(id === "oidc" ? { issuer: v.issuer, scopes: v.scopes?.length ? v.scopes : undefined, label: v.label || undefined } : {}),
     };
     const next: SignInSettings = { ...settings, providers: { ...settings.providers, [id]: provider } };
-    await assertAdminCanSignIn(next);
+    const linkedIssuer = settings.oidcLinkedIssuer ?? (before?.issuer ? normalizeIssuer(before.issuer) : undefined);
+    const newIssuer = id === "oidc" && !!v.issuer && linkedIssuer !== normalizeIssuer(v.issuer);
+    if (id === "oidc" && v.issuer) next.oidcLinkedIssuer = normalizeIssuer(v.issuer);
+    // Root admins' company login links are always dropped on a new issuer (see dropOidcLinks).
+    await assertAdminCanSignIn(next, newIssuer ? "oidc" : undefined);
     await updateSettings({ signIn: next });
+    if (newIssuer) await dropOidcLinks();
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "sign-in.provider", message: `Updated ${providerNames[id]} sign-in` });
     return null;
   });
@@ -137,6 +160,8 @@ export async function removeSsoProvider(id: string) {
     const settings = await getSetting("signIn");
     const { [id]: _, ...rest } = settings.providers;
     const next: SignInSettings = { ...settings, providers: rest };
+    // Links stay; the issuer they belong to is kept so setting the company login up again can compare.
+    if (id === "oidc" && !next.oidcLinkedIssuer && settings.providers.oidc?.issuer) next.oidcLinkedIssuer = normalizeIssuer(settings.providers.oidc.issuer);
     await assertAdminCanSignIn(next);
     await updateSettings({ signIn: next });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "sign-in.provider", message: `Removed ${providerNames[id]} sign-in` });

@@ -9,7 +9,8 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/servers/
   const { serverId } = await ctx.params;
   const auth = await serverRoute(serverId, { view: true });
   if ("error" in auth) return auth.error;
-  const hours = Math.min(Math.max(Number(request.nextUrl.searchParams.get("hours") ?? 6), 1), 168);
+  const requested = Number(request.nextUrl.searchParams.get("hours") ?? 6);
+  const hours = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 168) : 6;
   const [series, now] = await Promise.all([metricSeries(serverScope(serverId), hours), serverSnapshot(auth.server).catch(() => null)]);
   return NextResponse.json({ series, now });
 }

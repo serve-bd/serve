@@ -1,11 +1,15 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/server/db";
-import { decrypt, encrypt } from "@/server/crypto";
+import { decrypt, decryptOrNull, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { notFound, requireToken, tokenService } from "@/server/api-auth";
 import { queueDeployment } from "@/server/services/create";
 import { logActivity } from "@/server/activity";
+import { isInstanceAdmin } from "@/server/auth";
+import { composeSecurityIssues } from "@/server/security";
+import { getSetting } from "@/server/settings";
+import { composeVariables } from "@/lib/compose-vars";
 
 type Ctx = RouteContext<"/api/v1/services/[serviceId]/env">;
 
@@ -41,6 +45,23 @@ export async function PATCH(request: Request, ctx: Ctx) {
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid body" }, { status: 400 });
   const entries = Object.entries(parsed.data.variables);
+  // Same rule as saveEnvVars: a compose file a Root admin allowed host options for can point them
+  // anywhere through its variables, so only Root admins change the ones it uses.
+  const compose = row.service.compose;
+  if (entries.length && compose?.hostAccess && composeSecurityIssues(compose.content).length) {
+    const rootAdmin = auth.organizationId === (await getSetting("rootOrganizationId")) && (await isInstanceAdmin(auth.userId));
+    if (!rootAdmin) {
+      const used = new Set(composeVariables(compose.content).map((v) => v.name));
+      const stored = await db.select({ key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId));
+      const before = new Map(stored.map((v) => [v.key, decryptOrNull(v.value) ?? ""]));
+      const changed = entries.filter(([key, value]) => used.has(key) && before.get(key) !== (value ?? undefined)).map(([key]) => key);
+      if (changed.length)
+        return Response.json(
+          { error: `This compose file uses host options, so only admins of the Root organization can change ${changed.slice(0, 3).join(", ")}.` },
+          { status: 403 },
+        );
+    }
+  }
   if (entries.length) {
     await db.transaction(async (tx) => {
       const keys = entries.map(([k]) => k);

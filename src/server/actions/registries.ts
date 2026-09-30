@@ -18,6 +18,7 @@ import { usesRegistry } from "@/server/services/distribution-query";
 import { serviceInOrg } from "@/server/services/access";
 import { resolveServerForOrg } from "@/server/servers/access";
 import { queueDeployment } from "@/server/services/create";
+import { requireServers } from "@/server/limits";
 import { removeServiceProxy } from "@/server/proxy/nginx";
 
 /* -------------------------------------------------------------------------- */
@@ -154,7 +155,12 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     const raw = distributionSchema.parse(input);
     const dist = normalizeDistribution(service.serverId, raw);
 
-    for (const id of [dist.buildServerId, ...dist.extraServerIds].filter((x): x is string => !!x)) await resolveServerForOrg(id, ctx.org.id);
+    const picked = [dist.buildServerId, ...dist.extraServerIds].filter((x): x is string => !!x);
+    for (const id of picked) await resolveServerForOrg(id, ctx.org.id);
+    // Servers it already builds or runs on stay allowed, so an unchanged list still saves after a limit is lowered.
+    const current = [...runServerIds(service.serverId, service.distribution), service.distribution?.buildServerId];
+    const newServers = picked.filter((id) => !current.includes(id));
+    await requireServers(ctx.org.id, newServers);
     if (dist.registryId) {
       const registry = await getRegistry(dist.registryId, ctx.org.id);
       if (!registry) throw new UserError("Registry not found.");

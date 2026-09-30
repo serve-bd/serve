@@ -20,10 +20,15 @@ const setupSchema = z.object({
 export async function setupInstance(input: z.infer<typeof setupSchema>) {
   return act(async () => {
     const data = setupSchema.parse(input);
-    if ((await userCount()) > 0) throw new UserError("This instance is already set up. Sign in instead.");
-    const user = await createAccount(data);
-    const org = await createOrganization("Root", user.id);
-    await updateSettings({ rootOrganizationId: org.id });
+    // Locked and checked again inside, so two setups sent at once cannot both create an owner.
+    const { user, org } = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('serve:setup'))`);
+      if ((await userCount()) > 0) throw new UserError("This instance is already set up. Sign in instead.");
+      const user = await createAccount(data);
+      const org = await createOrganization("Root", user.id);
+      await updateSettings({ rootOrganizationId: org.id });
+      return { user, org };
+    });
     // Instance servers (the local one on a fresh install) start shared with Root only.
     await db
       .update(schema.server)

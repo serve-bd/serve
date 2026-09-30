@@ -5,6 +5,7 @@ import { getSession, passwordLoginAllowed } from "@/server/auth";
 import { isEmailConfigured } from "@/server/email/send";
 import { getSetting } from "@/server/settings";
 import { activeProviders, buttonLabel } from "@/server/sso/config";
+import { safeNextPath } from "@/lib/safe-next";
 import { LoginForm } from "./login-form";
 
 export const metadata = { title: "Sign in" };
@@ -17,7 +18,7 @@ export default async function LoginPage(props: PageProps<"/login">) {
   const [signIn, password, canReset] = await Promise.all([getSetting("signIn"), passwordLoginAllowed(), isEmailConfigured()]);
   return (
     <LoginForm
-      next={typeof next === "string" && next.startsWith("/") && !next.startsWith("//") ? next : "/"}
+      next={safeNextPath(next)}
       canReset={canReset && password}
       password={password}
       providers={activeProviders(signIn).map((id) => ({ id, label: buttonLabel(id, signIn.providers[id]) }))}

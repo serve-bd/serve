@@ -24,20 +24,28 @@ Use a server dedicated to Serve: it controls Docker, which is equal to root on t
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shahriyardx/serve/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/shahriyardx/serve/main/install.sh | bash
 ```
 
-Open `http://<server-ip>:8000`, create the owner account and follow the setup guide.
+The installer asks for your sudo password if you are not root. On a new server it asks for three ports; press Enter to keep the defaults:
 
-The installer writes its secrets to `/data/serve/.env` and starts three containers: the dashboard (`serve`), the worker (`serve-worker`) and Serve's database (`serve-db`). Everything Serve keeps lives in `/data/serve`. Do not move that directory.
+- Dashboard: `8000`
+- HTTP for your apps: `80`
+- HTTPS for your apps: `443`
 
-Installer options, set before running it:
+Then open `http://<server-ip>:<dashboard port>`, create the owner account and follow the setup guide.
+
+The installer writes its secrets to `/data/serve/.env` and starts three containers: the dashboard (`serve`), the worker (`serve-worker`) and Serve's database (`serve-db`). Everything Serve keeps lives in `/data/serve`. Do not move that directory. If other containers already run on the server, it asks before it restarts Docker.
+
+To skip the questions, set the answers first (for example in scripts):
 
 | Variable | Default | Description |
 | --- | --- | --- |
+| `SERVE_DASHBOARD_PORT` | `8000` | Host port of the dashboard |
+| `SERVE_PROXY_HTTP_PORT` / `SERVE_PROXY_HTTPS_PORT` | `80` / `443` | Host ports for traffic to your apps |
 | `SERVE_VERSION` | newest release | Release to install, like `0.1.0` |
 | `SERVE_IMAGE` | | Exact image to run (overrides `SERVE_VERSION`) |
-| `SERVE_DASHBOARD_PORT` | `8000` | Host port of the dashboard |
+| `SERVE_YES` | | Set to `1` to ask nothing and use the defaults |
 
 ## After install
 
@@ -50,7 +58,7 @@ Installer options, set before running it:
 
 **Settings → Updates** shows new releases. **Update now** backs up Serve first, then installs the new version, and rolls back if it does not start. Your apps keep running during the update.
 
-To update by hand, run the install command again. It keeps your `.env`.
+To update by hand, run the install command again. It sees that Serve is installed, asks nothing and keeps your `.env` and ports.
 
 ## Backup and restore
 

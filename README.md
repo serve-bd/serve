@@ -84,7 +84,7 @@ Installer options, set as environment variables before running it:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `SERVE_VERSION` | newest release | Release to install, like `0.2.0` |
-| `SERVE_IMAGE` | | Exact image to run (overrides `SERVE_VERSION`); `:edge` follows the main branch |
+| `SERVE_IMAGE` | | Exact image to run (overrides `SERVE_VERSION`) |
 | `SERVE_DASHBOARD_PORT` | `8000` | Host port of the dashboard |
 
 The data directory must stay `/data/serve`: the worker creates bind mounts with host paths, so the path is the same inside and outside its container.
@@ -289,7 +289,7 @@ The scripts in `scripts/e2e/` drive that instance with Playwright (`shot.mjs` ta
 1. Set the new version in `package.json` and commit.
 2. Tag it: `git tag v0.2.0 && git push origin v0.2.0`.
 
-The image workflow checks that the tag matches `package.json`, pushes `:0.2.0`, `:0.2` and `:latest` for both architectures, then publishes the GitHub release that installs see under Settings → Updates. A tag with a suffix (`v0.3.0-rc.1`) becomes a pre-release: it gets no `:latest` and is not offered as an update. Every push to `main` builds `:edge`.
+The image workflow checks that the tag matches `package.json`, pushes `:0.2.0`, `:0.2` and `:latest` for both architectures, then publishes the GitHub release that installs see under Settings → Updates. A tag with a suffix (`v0.3.0-rc.1`) becomes a pre-release: it gets no `:latest` and is not offered as an update. Pushes to `main` build no image; only tags do.
 
 Migrations must only add (new tables, new nullable or defaulted columns), so the previous release keeps working if an update rolls back. Remove old columns one release later. To move a pinned image (proxy, agent base, PostgreSQL), change it in the code and release.
 

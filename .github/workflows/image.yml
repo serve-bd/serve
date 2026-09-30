@@ -1,8 +1,8 @@
 name: Image
 
+# Images are built for releases only: pushing a tag like v0.2.0 (see Releasing in the README).
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -31,10 +31,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
-          # latest is the newest release (what install.sh and updates use); edge follows main.
+          # latest is the newest release (what install.sh and updates use).
           flavor: latest=false
           tags: |
-            type=raw,value=edge,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}

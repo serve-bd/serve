@@ -84,7 +84,7 @@ if [ -z "${SERVE_IMAGE:-}" ]; then
     IMAGE="$CURRENT"
     printf '  \033[33m!\033[0m Could not look up the newest release; keeping %s.\n' "$IMAGE"
   else
-    IMAGE="$IMAGE_REPO:edge"
+    IMAGE="$IMAGE_REPO:latest"
   fi
 else
   IMAGE="$SERVE_IMAGE"

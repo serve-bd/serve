@@ -280,7 +280,7 @@ function FileForm({
   );
 }
 
-function ErrorBox({ message }: { message: string }) {
+export function ErrorBox({ message }: { message: string }) {
   return (
     <div className="flex items-start gap-2.5 rounded-xl border border-bad/15 bg-bad-soft/60 px-3.5 py-3">
       <TriangleAlert className="mt-0.5 size-4 flex-none text-bad" />

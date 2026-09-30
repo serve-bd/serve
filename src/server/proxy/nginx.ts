@@ -20,6 +20,7 @@ import {
   proxyParamsPlain,
   realIpConfig,
   serverBlocks,
+  tunnelRealIp,
   upstreamBlock,
   type SiteOptions,
   type SiteServer,
@@ -30,7 +31,9 @@ import { composeAlias, tunnelNetworkName, upstreamName } from "./names";
 import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker/networks";
 import crypto from "node:crypto";
 import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type ProxyFile, type ProxyKind, type RunningKind, type ServerProxyConfig } from "./config";
-import { appTargets, certificateStamp, dashboardModel, serviceModel, trustedSubnets, type SiteModel } from "./model";
+import { appTargets, certificateStamp, dashboardModel, serviceModel, type SiteModel } from "./model";
+import { forgetDashboardTrusted, visitorIpOf } from "./trusted-proxies";
+import { allTrusted, type TrustedProxies } from "@/lib/trusted-proxies";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { caddyMainConfig, renderCaddySite } from "./caddy";
@@ -153,7 +156,7 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
   let changed = false;
   for (const dir of [p.proxySites, p.proxyCustom, p.proxyLogs, p.acme, p.letsencrypt, p.certs]) await ctx.fs.mkdir(dir);
   changed = (await writePages(ctx)) || changed;
-  const trusted = await trustedSubnets(ctx);
+  const visitor = await visitorIpOf(ctx);
 
   if (kind === "nginx") {
     // If the proxy container started before these files existed (fresh data directory),
@@ -181,7 +184,7 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
     // Instance-wide directives are Root's: an organization's own server does not get them.
     changed = (await writeCustomConfig(ctx, ctx.row.ownerOrganizationId ? null : settings.proxyCustomConfig)) || changed;
     changed = (await writeOrRemove(ctx, serverRawFile(ctx), null)) || changed;
-    changed = (await writeOrRemove(ctx, realIpFile(ctx), realIpConfig(trusted))) || changed;
+    changed = (await writeOrRemove(ctx, realIpFile(ctx), realIpConfig(visitor))) || changed;
     changed = (await writeUserFiles(ctx, p.proxyCustom, n.files, customFilePattern.nginx)) || changed;
   } else if (kind === "caddy") {
     const c = config.caddy ?? {};
@@ -190,7 +193,7 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
     changed =
       (await ctx.fs.writeIfChanged(
         path.posix.join(p.proxy, "caddy", "Caddyfile"),
-        caddyMainConfig(c, { email: settings.acmeEmail, staging: settings.acmeStaging, trusted, defaults: defaultsOf(c.defaults) }),
+        caddyMainConfig(c, { email: settings.acmeEmail, staging: settings.acmeStaging, visitor, defaults: defaultsOf(c.defaults) }),
       )) || changed;
     changed = (await writeOrRemove(ctx, caddyExtraFile(ctx), null)) || changed;
     changed = (await writeUserFiles(ctx, p.proxyCustom, c.files, customFilePattern.caddy)) || changed;
@@ -317,7 +320,7 @@ async function baseContainerSpec(ctx: ServerCtx, kind: RunningKind, config: Serv
   const token = await traefikDnsToken(ctx.id, config);
   return {
     Image: proxyImages.traefik,
-    Cmd: traefikStaticArgs(config.traefik ?? {}, { email: settings.acmeEmail, staging: settings.acmeStaging, trusted: await trustedSubnets(ctx), hasDnsToken: !!token }),
+    Cmd: traefikStaticArgs(config.traefik ?? {}, { email: settings.acmeEmail, staging: settings.acmeStaging, trusted: allTrusted(await visitorIpOf(ctx)), hasDnsToken: !!token }),
     Env: token ? [`CF_DNS_API_TOKEN=${token}`] : [],
     ports,
     Binds: [...shared, `${path.posix.join(p.proxy, "traefik-data")}:/data`],
@@ -734,6 +737,7 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
   const containers = service.type === "app" && !stopped ? await appTargets(server, service) : [];
   const errorPages = defaultsOf((await proxyStateOf(server.id)).config.nginx?.defaults).unavailablePage;
   const maintenance = maintenanceOf(service.id, service.maintenance);
+  const tunnelIp = service.domains.some((d) => d.tunnelId) ? tunnelRealIp(await visitorIpOf(server)) : null;
   const cfg = service.proxy;
   const options: SiteOptions | null = cfg ? ({ ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null } as SiteOptions) : null;
   // www ↔ apex redirect, only between hostnames that are both on this service.
@@ -776,6 +780,7 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
       options,
       ...(errorPages ? {} : { errorPages: false }),
       ...(maintenance ? { maintenance: { ...maintenance, geoVar: maintenance.allow.length ? maintenanceVar(service.id) : null } } : {}),
+      ...(d.tunnelId && tunnelIp ? { realIp: tunnelIp } : {}),
     });
   }
 
@@ -798,6 +803,7 @@ async function renderNginxDashboard(): Promise<string | null> {
   const certs = settings.rootOrganizationId ? await usableCertificates(settings.rootOrganizationId, LOCAL_SERVER_ID) : [];
   const upstream: SiteUpstream = { name: "serve_dashboard", servers: [env.dashboardUpstream] };
   const tls = settings.dashboardHttps ? tlsFor(settings.dashboardDomain, null, certs) : null;
+  const tunnelIp = settings.dashboardTunnelId ? tunnelRealIp(await visitorIpOf(await local())) : null;
   return [
     "# Managed by Serve — dashboard.",
     ...certificateStamp(certs, [tls]),
@@ -808,6 +814,7 @@ async function renderNginxDashboard(): Promise<string | null> {
       forceHttps: true,
       tls,
       allow: settings.dashboardAllowlist,
+      ...(tunnelIp ? { realIp: tunnelIp } : {}),
     }),
   ].join("\n");
 }
@@ -816,9 +823,10 @@ async function renderModel(kind: RunningKind, ctx: ServerCtx, model: SiteModel |
   if (!model) return null;
   const { config } = await proxyStateOf(ctx.id);
   const stamp = (model.certificates ?? []).map((l) => `${l}\n`).join("");
-  if (kind === "caddy") return stamp + renderCaddySite(model, defaultsOf(config.caddy?.defaults));
+  const visitor = await visitorIpOf(ctx);
+  if (kind === "caddy") return stamp + renderCaddySite(model, defaultsOf(config.caddy?.defaults), !!visitor.header);
   const settings = await getSettings();
-  return stamp + renderTraefikSite(model, { resolver: !!settings.acmeEmail, trusted: await trustedSubnets(ctx), defaults: defaultsOf(config.traefik?.defaults) });
+  return stamp + renderTraefikSite(model, { resolver: !!settings.acmeEmail, trusted: allTrusted(visitor), defaults: defaultsOf(config.traefik?.defaults) });
 }
 
 /** The site Serve generates for a service (ignoring a custom override). */
@@ -1190,6 +1198,43 @@ export async function applyServerProxyConfig(ctx: ServerCtx, next: ServerProxyCo
     if ((await getProxyContainer(ctx))?.State.Running) await reloadProxy(ctx).catch(() => {});
     if (kind !== "none") await syncServer(ctx).catch(() => {});
     throw error;
+  }
+}
+
+/**
+ * Save a server's trusted proxies and apply them: the static files (nginx visitor IP file,
+ * Caddyfile), every site (tunnel hosts, Traefik allow lists) and Traefik's container command.
+ * The previous setting comes back when the proxy rejects the result.
+ */
+export async function applyTrustedProxies(ctx: ServerCtx, next: TrustedProxies | null, log?: Log) {
+  const [row] = await db.select({ previous: schema.server.trustedProxies }).from(schema.server).where(eq(schema.server.id, ctx.id));
+  const previous = row?.previous ?? null;
+  const store = async (value: TrustedProxies | null) => {
+    await db.update(schema.server).set({ trustedProxies: value }).where(eq(schema.server.id, ctx.id));
+    if (ctx.local) forgetDashboardTrusted();
+  };
+  await store(next);
+  try {
+    await syncServerProxy(ctx, log);
+    if (!(await proxyStateOf(ctx.id)).stopped && !(await waitHealthy(ctx))) throw new ProxyConfigError("The proxy did not come back healthy with these settings.");
+  } catch (error) {
+    await store(previous);
+    await syncServerProxy(ctx, log).catch(() => {});
+    throw error;
+  }
+}
+
+/** After Cloudflare's ranges changed: re-apply every server that trusts them. */
+export async function syncCloudflareTrusting(log?: Log) {
+  const rows = await db.select({ id: schema.server.id, trusted: schema.server.trustedProxies }).from(schema.server);
+  const ids = new Set(rows.filter((r) => r.trusted?.cloudflare).map((r) => r.id));
+  for (const ctx of await activeServers()) {
+    if (!ids.has(ctx.id)) continue;
+    try {
+      await syncServerProxy(ctx, log);
+    } catch (error) {
+      log?.(`Proxy sync failed on ${ctx.name}: ${(error as Error).message}`);
+    }
   }
 }
 

@@ -86,6 +86,8 @@ export type Settings = {
   tunnelHostKey: string | null;
   /** What the worker last reported about the tunnel listener. */
   tunnelListener: { port: number; listening: boolean; error: string | null; at: string } | null;
+  /** Cloudflare's published proxy ranges, refreshed daily by the worker (null: the list bundled with Serve). */
+  cloudflareRanges: { ranges: string[]; checkedAt: string } | null;
 };
 
 export type InstanceBackup = {
@@ -181,6 +183,7 @@ export const defaultSettings: Settings = {
   networkCanvas: {},
   tunnelHostKey: null,
   tunnelListener: null,
+  cloudflareRanges: null,
 };
 
 /** Rows holding uploaded branding images; kept out of getSettings() so pages do not load image bytes. */

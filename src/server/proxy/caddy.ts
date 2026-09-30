@@ -1,6 +1,7 @@
 import { proxyPaths } from "@/server/paths";
 import { sizeToBytes, type CaddySettings, type ProxyDefaults } from "./config";
 import type { HostModel, SiteModel } from "./model";
+import { allTrusted, clientIpHeaderNames, type VisitorIp } from "@/lib/trusted-proxies";
 
 /**
  * Caddyfile rendering. Caddy obtains and renews certificates by itself
@@ -21,7 +22,7 @@ const tab = (lines: string[], depth = 1) =>
 
 const ON: Required<ProxyDefaults> = { catchAll: true, unavailablePage: true, httpsRedirect: true };
 
-export function caddyMainConfig(cfg: CaddySettings, opts: { email: string | null; staging: boolean; trusted: string[]; defaults?: Required<ProxyDefaults> }) {
+export function caddyMainConfig(cfg: CaddySettings, opts: { email: string | null; staging: boolean; visitor: VisitorIp; defaults?: Required<ProxyDefaults> }) {
   const d = opts.defaults ?? ON;
   const global: string[] = ["admin localhost:2019", "grace_period 10s"];
   if (!d.httpsRedirect) global.push("auto_https disable_redirects");
@@ -30,10 +31,7 @@ export function caddyMainConfig(cfg: CaddySettings, opts: { email: string | null
   if (opts.staging) global.push(`acme_ca ${STAGING}`);
   global.push("log {", `\tlevel ${cfg.logLevel ?? "INFO"}`, "}");
   const servers: string[] = [`protocols h1 h2${cfg.http3 ? " h3" : ""}`];
-  if (opts.trusted.length) {
-    // Tunnel traffic arrives from cloudflared on this network: trust its visitor IP headers, nobody else's.
-    servers.push(`trusted_proxies static ${opts.trusted.join(" ")}`, "client_ip_headers CF-Connecting-IP X-Forwarded-For");
-  }
+  servers.push(...clientIpOptions(opts.visitor));
   const timeouts: string[] = [];
   if (cfg.readTimeout) timeouts.push(`read_body ${cfg.readTimeout}s`);
   if (cfg.writeTimeout) timeouts.push(`write ${cfg.writeTimeout}s`);
@@ -103,6 +101,25 @@ import ${proxyPaths.sites}/custom/*.caddy
 `;
 }
 
+/** Where Caddy takes the visitor IP from (client_ip in matchers, logs and client_ip_hash). */
+function clientIpOptions(v: VisitorIp) {
+  if (!v.header) {
+    if (!v.tunnel.length) return [];
+    // Tunnel traffic arrives from cloudflared on this network: trust its visitor IP headers, nobody else's.
+    return [`trusted_proxies static ${v.tunnel.join(" ")}`, "client_ip_headers CF-Connecting-IP X-Forwarded-For"];
+  }
+  // Caddy reads one header for all traffic. A visitor can send X-Real-IP or True-Client-IP
+  // through Cloudflare, so with those the tunnel is not trusted; X-Forwarded-For and
+  // CF-Connecting-IP are written by Cloudflare's edge.
+  const safe = v.header === "x-forwarded-for" || v.header === "cf-connecting-ip";
+  const trusted = safe ? allTrusted(v) : v.ranges;
+  if (!trusted.length) return [];
+  const lines = [`trusted_proxies static ${trusted.join(" ")}`, `client_ip_headers ${clientIpHeaderNames[v.header]}`];
+  // Right to left: the visitor is the last address no trusted proxy added.
+  if (v.header === "x-forwarded-for") lines.push("trusted_proxies_strict");
+  return lines;
+}
+
 /** Site address(es) for a host: HTTPS (with an explicit HTTP redirect block), HTTPS without redirect, or plain HTTP. */
 function addresses(h: HostModel) {
   if (!h.https) return `http://${h.hostname}`;
@@ -121,7 +138,7 @@ function headerLines(o: SiteModel["options"], tls: boolean) {
   return lines;
 }
 
-function routeBody(site: SiteModel, h: HostModel, targets: string[] | null) {
+function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, realIp: boolean) {
   const o = site.options;
   const lines: string[] = [];
   const allow = [...(h.allow ?? []), ...(o?.allow ?? [])];
@@ -173,12 +190,15 @@ function routeBody(site: SiteModel, h: HostModel, targets: string[] | null) {
     if (transport.length) proxy.push("transport http {", tab(transport), "}");
     if (o?.buffering === false) proxy.push("flush_interval -1");
     if (o?.websockets === false) proxy.push("header_up -Upgrade", "header_up -Connection");
+    // Caddy appends the nearest proxy to X-Forwarded-For; give apps the visitor it resolved too (as nginx does).
+    if (realIp) proxy.push("header_up X-Real-IP {client_ip}");
     lines.push(`reverse_proxy ${targets.join(" ")} {`, tab(proxy), "}");
   }
   return lines;
 }
 
-export function renderCaddySite(site: SiteModel, defaults: Required<ProxyDefaults> = ON) {
+/** `realIp`: trusted proxies are on (apps get the resolved visitor in X-Real-IP). */
+export function renderCaddySite(site: SiteModel, defaults: Required<ProxyDefaults> = ON, realIp = false) {
   const blocks = [`${GENERATED} ${site.title}.`];
   for (const h of site.hosts) {
     const inner: string[] = ["import serve_log", "import serve_errors"];
@@ -186,7 +206,7 @@ export function renderCaddySite(site: SiteModel, defaults: Required<ProxyDefault
     if (h.redirectTo) inner.push(`redir ${h.redirectTo.replace(/\/$/, "")}{uri} 308`);
     else {
       const targets = h.upstream ? (site.upstreams.find((u) => u.key === h.upstream)?.targets ?? []) : [];
-      inner.push("route {", tab(routeBody(site, h, targets.length ? targets : null)), "}");
+      inner.push("route {", tab(routeBody(site, h, targets.length ? targets : null, realIp)), "}");
     }
     blocks.push(`${addresses(h)} {\n${tab(inner)}\n}`);
     // The :80 catch-all would win over Caddy's automatic redirect, so redirect explicitly.

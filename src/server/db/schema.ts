@@ -16,6 +16,7 @@ import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import type { ProxyKind, RunningKind, ProxySwitchState, ServerProxyConfig } from "@/server/proxy/config";
 import type { ChannelScope, MessageTemplate, NotificationKind, QuietHours, Severity } from "@/lib/notifications";
 import type { OrgLimits } from "@/lib/limits";
+import type { TrustedProxies } from "@/lib/trusted-proxies";
 
 const id = () => text("id").primaryKey();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -313,6 +314,8 @@ export const server = pgTable("server", {
   proxyStopped: boolean("proxy_stopped").notNull().default(false),
   /** Ports were saved in Serve (the local server otherwise uses SERVE_PROXY_HTTP(S)_PORT). */
   proxyPortsCustomized: boolean("proxy_ports_customized").notNull().default(false),
+  /** A CDN or load balancer in front of the proxy whose visitor IP header is believed. Null: only Cloudflare Tunnel traffic. */
+  trustedProxies: jsonb("trusted_proxies").$type<TrustedProxies | null>(),
   /**
    * Organization that brought this server: its admins manage it. Null: the instance's server,
    * managed by Root admins. Servers of a deleted organization go back to the instance.

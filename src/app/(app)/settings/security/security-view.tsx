@@ -107,7 +107,8 @@ export function SecurityView({
                   <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />
                   <span>
                     {viewerIp && !hasViewer ? "Your address is not in the list, so saving locks you out of the domain. " : ""}
-                    If you get locked out, open the dashboard on its port (:8000) and clear this list. Behind Cloudflare&apos;s proxy, visitors appear with Cloudflare addresses.
+                    If you get locked out, open the dashboard on its port (:8000) and clear this list. Behind a CDN or load balancer, trust it under Servers → Proxy → Visitor IP,
+                    or visitors appear with its addresses.
                   </span>
                 </p>
               )}

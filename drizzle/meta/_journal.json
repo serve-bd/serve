@@ -302,6 +302,13 @@
       "when": 1790788412188,
       "tag": "0042_preview_domain",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790793969393,
+      "tag": "0043_trusted_proxies",
+      "breakpoints": true
     }
   ]
 }

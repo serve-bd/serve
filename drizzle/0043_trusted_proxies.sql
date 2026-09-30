@@ -1,0 +1,1 @@
+ALTER TABLE "server" ADD COLUMN "trusted_proxies" jsonb;

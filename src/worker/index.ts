@@ -11,7 +11,8 @@ import { runMigrations } from "@/server/db/migrate";
 import { fullBuildServers } from "@/lib/server-limits";
 import { newId } from "@/server/id";
 import { docker, ensureNetwork, LABEL, listServiceContainers } from "@/server/docker/client";
-import { ensureProxy, ensureServerProxy, syncAllProxy } from "@/server/proxy/nginx";
+import { ensureProxy, ensureServerProxy, syncAllProxy, syncCloudflareTrusting } from "@/server/proxy/nginx";
+import { refreshCloudflareRanges } from "@/server/proxy/trusted-proxies";
 import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
 import { runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
@@ -468,6 +469,15 @@ async function main() {
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
   every(5 * 60_000, "cleanup", scheduleCleanup, true);
   every(5 * 60_000, "proxy-health", checkProxies, true);
+  // Servers that trust Cloudflare's proxy follow its published ranges; a failed fetch keeps the last list.
+  every(
+    60 * 60_000,
+    "cloudflare-ranges",
+    async () => {
+      if (await refreshCloudflareRanges()) await syncCloudflareTrusting(log);
+    },
+    true,
+  );
   // Private network: addresses for new services, servers that joined or left, agents that went missing.
   every(30_000, "mesh", () => syncMesh(), true);
   // Servers that connect out: the listener runs while any exist.

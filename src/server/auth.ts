@@ -14,6 +14,7 @@ import { env } from "@/server/env";
 import type { MemberRole } from "@/server/db/schema";
 import { newId } from "@/server/id";
 import { getSetting, getSettings } from "@/server/settings";
+import { dashboardVisitorIp } from "@/server/proxy/trusted-proxies";
 import { guardProfileEmail, matchedGithubOrgs, signInRefused } from "@/server/sso/domain-guard";
 import { githubMembersOnly } from "@/server/sso/github-orgs";
 import {
@@ -238,10 +239,12 @@ async function joinAfterTwoFactor(ctx: Parameters<ValidateUserInfo>[1], userId: 
   if (pending.userId === userId && provider?.allowedOrgs?.length) await joinProviderOrganizations(provider, userId, pending.githubOrgs);
 }
 
-/** The client address the nearest proxy saw (it appends to X-Forwarded-For; earlier entries are the client's own claim). */
-function clientIp(headers: Headers | undefined) {
-  const forwarded = headers?.get("x-forwarded-for")?.split(",").at(-1)?.trim();
-  return forwarded || headers?.get("x-real-ip") || "unknown";
+/**
+ * The visitor address: the right-most X-Forwarded-For entry that is not one of the dashboard
+ * proxy's trusted proxies (earlier entries are the client's own claim).
+ */
+async function clientIp(headers: Headers | undefined) {
+  return (await dashboardVisitorIp(headers)) || "unknown";
 }
 
 const appOnly: DashboardAddresses = (() => {
@@ -313,7 +316,7 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly) {
         // stops guessing from many addresses.
         if (ctx.path === "/sign-in/email") {
           const email = String((ctx.body as { email?: unknown } | undefined)?.email ?? "").toLowerCase();
-          const fromHere = tooManyAttempts(`email:${email}|${clientIp(ctx.headers)}`, 10, 15 * 60_000);
+          const fromHere = tooManyAttempts(`email:${email}|${await clientIp(ctx.headers)}`, 10, 15 * 60_000);
           const overall = tooManyAttempts(`email:${email}`, 100, 60 * 60_000);
           if (fromHere || overall) {
             throw new APIError("TOO_MANY_REQUESTS", { message: "Too many sign-in attempts. Try again in 15 minutes." });

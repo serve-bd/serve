@@ -5,6 +5,7 @@ import { serviceInOrg } from "@/server/services/access";
 import { expandScopes, SCOPE_INFO, type ApiScope } from "@/lib/api-scopes";
 import { allowedScopes } from "@/lib/permissions";
 import { memberAccess } from "@/server/permissions";
+import { dashboardVisitorIp } from "@/server/proxy/trusted-proxies";
 
 export type ApiAuth = {
   tokenId: string;
@@ -18,11 +19,6 @@ export type ApiAuth = {
 };
 
 const USAGE_INTERVAL = 60_000;
-
-function clientIp(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || request.headers.get("x-real-ip") || null;
-}
 
 const json = (status: number, error: string) => Response.json({ error }, { status });
 
@@ -60,7 +56,7 @@ export async function requireToken(request: Request, scope: ApiScope): Promise<{
   if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > USAGE_INTERVAL) {
     void db
       .update(schema.apiToken)
-      .set({ lastUsedAt: new Date(), lastUsedIp: clientIp(request) })
+      .set({ lastUsedAt: new Date(), lastUsedIp: await dashboardVisitorIp(request.headers) })
       .where(eq(schema.apiToken.id, row.id))
       .catch(() => {});
   }

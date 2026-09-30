@@ -1,6 +1,7 @@
 import { proxyPaths } from "@/server/paths";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import type { ProxyMaintenance } from "@/server/services/maintenance";
+import { allTrusted, clientIpHeaderNames, type VisitorIp } from "@/lib/trusted-proxies";
 
 /**
  * Proxy images are pinned to exact versions. A Serve release moves them, and the proxy on every
@@ -8,13 +9,35 @@ import type { ProxyMaintenance } from "@/server/services/maintenance";
  */
 export const PROXY_IMAGE = process.env.SERVE_PROXY_IMAGE ?? "nginx:1.30.5-alpine";
 
-/** Trust the visitor IP from Cloudflare Tunnels, but only from the network the proxy shares with cloudflared alone. */
-export function realIpConfig(subnets: string[]) {
-  if (!subnets.length) return null;
-  return `# Managed by Serve — visitor IPs for Cloudflare Tunnel traffic (only cloudflared shares this network with the proxy).
-${subnets.map((s) => `set_real_ip_from ${s};`).join("\n")}
+/**
+ * Where nginx takes the visitor IP from. Off: Cloudflare Tunnel traffic only, from the network the
+ * proxy shares with cloudflared alone. On: also the server's trusted proxies, with their header;
+ * X-Forwarded-For is read right to left, so the visitor is the last address no trusted proxy added.
+ */
+export function realIpConfig(v: VisitorIp) {
+  if (!v.header) {
+    if (!v.tunnel.length) return null;
+    return `# Managed by Serve — visitor IPs for Cloudflare Tunnel traffic (only cloudflared shares this network with the proxy).
+${v.tunnel.map((s) => `set_real_ip_from ${s};`).join("\n")}
 real_ip_header CF-Connecting-IP;
 `;
+  }
+  return `# Managed by Serve — visitor IPs from the trusted proxies of this server and Cloudflare Tunnel traffic.
+${allTrusted(v)
+  .map((s) => `set_real_ip_from ${s};`)
+  .join("\n")}
+real_ip_header ${clientIpHeaderNames[v.header]};
+${v.header === "x-forwarded-for" ? "real_ip_recursive on;\n" : ""}`;
+}
+
+/**
+ * Server-level override for hosts served through a Cloudflare Tunnel while trusted proxies are on:
+ * they keep believing cloudflared alone, and only its CF-Connecting-IP (a visitor can send any
+ * other header through Cloudflare).
+ */
+export function tunnelRealIp(v: VisitorIp) {
+  if (!v.header || !v.tunnel.length) return null;
+  return [...v.tunnel.map((s) => `    set_real_ip_from ${s};`), "    real_ip_header CF-Connecting-IP;", "    real_ip_recursive off;"].join("\n");
 }
 
 /** nginx config of the error-page server used by Traefik (it cannot serve files itself). */
@@ -268,6 +291,8 @@ export type SiteServer = {
   errorPages?: boolean;
   /** Maintenance page instead of the app. `geoVar` is set when an allow list lets some visitors through. */
   maintenance?: (ProxyMaintenance & { geoVar?: string | null }) | null;
+  /** Visitor IP directives of a Cloudflare Tunnel host (tunnelRealIp), in its plain-HTTP server. */
+  realIp?: string | null;
 };
 
 /** nginx variable name for a service's maintenance allow list. */
@@ -485,7 +510,7 @@ export function serverBlocks(s: SiteServer) {
     listen 80;
     server_name ${s.hostname};
 
-${settings}${rules}${acme}
+${s.realIp ? `${s.realIp}\n\n` : ""}${settings}${rules}${acme}
 
 ${redirectHttp ? `    location / {\n        return 301 https://$host$request_uri;\n    }` : body(s)}
 }

@@ -17,6 +17,8 @@ import { ProxyPicker } from "./proxy-picker";
 import { CaddySettingsCard, NginxSettingsCard, TraefikSettingsCard, type TraefikSettingsView } from "./proxy-settings";
 import { BuiltInDefaultsCard, DynamicConfigsCard, ProxyContainerCard, type ContainerView, type ManagedFile } from "./dynamic-configs";
 import { cn } from "@/lib/utils";
+import type { TrustedProxies } from "@/lib/trusted-proxies";
+import { VisitorIpCard } from "./visitor-ip";
 
 /** A switch counts as running only for a while, so a crashed worker does not lock the page. */
 const isSwitching = (s: ProxySwitchState | null) => s?.state === "running" && Date.now() - new Date(s.startedAt).getTime() < 10 * 60_000;
@@ -40,6 +42,7 @@ export function ProxyView({
   defaultImage,
   definition,
   portsCard,
+  trustedProxies,
 }: {
   serverId: string;
   status: { running: boolean; exists: boolean; image: string; kind: ProxyKind | null; startedAt: string | null; container: string; ports: { http: number; https: number } };
@@ -60,6 +63,7 @@ export function ProxyView({
   cloudflareAccounts: { id: string; name: string }[];
   /** Host ports card, rendered under the status. */
   portsCard?: React.ReactNode;
+  trustedProxies: TrustedProxies | null;
 }) {
   const confirm = useConfirm();
   const [live, setLive] = React.useState<ProxySwitchState | null>(switchState);
@@ -231,6 +235,7 @@ export function ProxyView({
       {kind !== "none" && !switching && (
         <>
           {portsCard}
+          <VisitorIpCard key={JSON.stringify(trustedProxies)} serverId={serverId} kind={kind} initial={trustedProxies} disabled={switching} />
           {kind === "nginx" && <NginxSettingsCard serverId={serverId} initial={settings.nginx} defaultBodySize={maxBodySize} />}
           {kind === "caddy" && <CaddySettingsCard serverId={serverId} initial={settings.caddy} acmeEmail={acmeEmail} />}
           {kind === "traefik" && <TraefikSettingsCard serverId={serverId} initial={settings.traefik} cloudflareAccounts={cloudflareAccounts} />}

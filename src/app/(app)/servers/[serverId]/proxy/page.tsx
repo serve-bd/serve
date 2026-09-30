@@ -58,6 +58,7 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
   return (
     <ProxyView
       serverId={serverId}
+      trustedProxies={row.trustedProxies ?? null}
       portsCard={<ProxyPortsCard serverId={serverId} isLocal={row.isLocal} ports={{ proxyHttpPort: data.ctx.proxyHttpPort, proxyHttpsPort: data.ctx.proxyHttpsPort }} />}
       status={{
         running: data.status.running,

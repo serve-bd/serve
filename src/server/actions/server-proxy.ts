@@ -7,8 +7,10 @@ import { act, UserError } from "@/server/action";
 import { requireInstanceAdmin } from "@/server/auth";
 import { logActivity } from "@/server/activity";
 import { updateSettings } from "@/server/settings";
+import { clientIpHeaderNames, trustedProxiesSchema } from "@/lib/trusted-proxies";
 import {
   applyCustomConfig,
+  applyTrustedProxies,
   ProxyConfigError,
   proxyLogs,
   readSiteFile,
@@ -155,6 +157,32 @@ export async function startProxyNow(serverId: string) {
       throw new UserError((error as Error).message);
     }
     await audit(ctx.user.id, ctx.org.id, "server.proxy.start", `Started the proxy on ${server.name}`);
+    return null;
+  });
+}
+
+/** Turn trusted proxies on (ranges, header, Cloudflare) or off (null) and apply them to the server's proxy. */
+export async function saveTrustedProxies(serverId: string, input: { ranges: string[]; header: string; cloudflare: boolean } | null) {
+  return act(async () => {
+    const { ctx, row } = await requireServerAdmin(serverId);
+    let next = null;
+    if (input) {
+      const parsed = trustedProxiesSchema.safeParse(input);
+      if (!parsed.success) throw new UserError(parsed.error.issues[0]?.message ?? "Check the trusted proxies.");
+      next = parsed.data;
+    }
+    if (!row.isLocal && row.status !== "ready") throw new UserError(`${row.name} is not ready. Validate it first.`);
+    const server = await serverCtx(serverId);
+    try {
+      await applyTrustedProxies(server, next);
+    } catch (error) {
+      if (error instanceof ProxyConfigError) throw new UserError(`The proxy rejected these settings. Nothing was changed.\n${cleanNginxError(error.message)}`);
+      throw new UserError(`The change could not be applied: ${(error as Error).message}`);
+    }
+    const what = next
+      ? `${[`${next.ranges.length} range${next.ranges.length === 1 ? "" : "s"}`, ...(next.cloudflare ? ["Cloudflare"] : [])].join(" and ")}, ${clientIpHeaderNames[next.header]}`
+      : null;
+    await audit(ctx.user.id, ctx.org.id, "server.proxy.trusted", what ? `Trusted proxies on ${server.name}: ${what}` : `Turned off trusted proxies on ${server.name}`);
     return null;
   });
 }

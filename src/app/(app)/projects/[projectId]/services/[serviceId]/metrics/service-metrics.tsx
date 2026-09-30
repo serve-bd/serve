@@ -65,6 +65,8 @@ export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { service
   const rx = counterRate(series, "netRx");
   const tx = counterRate(series, "netTx");
   const limit = memoryLimit ? memoryLimit * 1024 * 1024 : last?.memoryLimit || undefined;
+  // Docker reports a limit (the host's RAM at least) whenever it can measure memory; none means it cannot.
+  const memUnknown = series.length > 0 && series.every((p) => !p.memoryLimit);
   const { data: req } = useSWR<Req>(hasDomains ? `/api/services/${serviceId}/requests?hours=${hours}` : null, { refreshInterval: 30000 });
 
   return (
@@ -119,8 +121,14 @@ export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { service
         <Panel title="CPU" value={last ? `${last.cpu.toFixed(1)}%` : "—"}>
           <AreaChart data={series.map((p) => ({ t: p.t, v: p.cpu }))} format={(v) => `${v.toFixed(1)}%`} height={160} />
         </Panel>
-        <Panel title="Memory" value={last ? formatBytes(last.memory) : "—"}>
-          <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" max={limit} format={(v) => formatBytes(v)} height={160} />
+        <Panel title="Memory" value={last && !memUnknown ? formatBytes(last.memory) : "—"}>
+          {memUnknown ? (
+            <p className="flex h-[160px] items-center justify-center px-4 text-center text-[13px] text-muted">
+              Docker on this server does not report memory use. This happens when Docker runs inside another container.
+            </p>
+          ) : (
+            <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" max={limit} format={(v) => formatBytes(v)} height={160} />
+          )}
         </Panel>
         <Panel title="Network in" value={rx.at(-1)?.v != null ? `${formatBytes(rx.at(-1)!.v!)}/s` : "—"}>
           <AreaChart data={rx} color="var(--ok)" format={(v) => `${formatBytes(v)}/s`} height={120} />

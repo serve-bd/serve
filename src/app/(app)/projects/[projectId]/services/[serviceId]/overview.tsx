@@ -104,6 +104,8 @@ export function ServiceOverview(data: OverviewData) {
   const running = (live?.containers ?? []).filter((c) => c.state === "running" && (!current || !c.deployment || c.deployment === current.id || service.type === "compose"));
   const expected = service.type === "compose" ? Math.max(1, service.composeServiceCount) : service.replicas;
   const memLimit = service.memoryLimit ? service.memoryLimit * 1024 * 1024 : last?.memoryLimit || null;
+  // Docker reports a limit (the host's RAM at least) whenever it can measure memory; none means it cannot.
+  const memUnknown = series.length > 0 && series.every((p) => !p.memoryLimit);
   const [openContainer, setOpenContainer] = React.useState<string | null>(null);
   const rx = counterRate(series, "netRx").map((p) => ({ t: p.t, v: p.v ?? 0 }));
   const lastRx = counterRate(series.slice(-2), "netRx")[0]?.v ?? null;
@@ -231,7 +233,12 @@ export function ServiceOverview(data: OverviewData) {
             <Stat icon={<Cpu />} label="CPU" value={last ? `${last.cpu.toFixed(1)}%` : "—"} sub={service.cpuLimit ? `Limit ${service.cpuLimit} cores` : "No limit"}>
               <AreaChart data={series.map((p) => ({ t: p.t, v: p.cpu }))} format={(v) => `${v.toFixed(1)}%`} height={44} />
             </Stat>
-            <Stat icon={<MemoryStick />} label="Memory" value={last ? formatBytes(last.memory) : "—"} sub={memLimit ? `of ${formatBytes(memLimit)}` : "No limit"}>
+            <Stat
+              icon={<MemoryStick />}
+              label="Memory"
+              value={last && !memUnknown ? formatBytes(last.memory) : "—"}
+              sub={memUnknown ? "Not reported by Docker on this server" : memLimit ? `of ${formatBytes(memLimit)}` : "No limit"}
+            >
               <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" max={memLimit ?? undefined} format={(v) => formatBytes(v)} height={44} />
             </Stat>
             <Stat icon={<Network />} label="Network in" value={lastRx != null ? `${formatBytes(lastRx)}/s` : "—"} sub={lastTx != null ? `Out ${formatBytes(lastTx)}/s` : undefined}>

@@ -656,7 +656,8 @@ const words = (text: string) => text.split(/[\s,]+/).filter(Boolean);
 /** "nofile=65536" or "nofile=1024:4096"; the server explains anything invalid. */
 function parseUlimit(line: string) {
   const [name, value = ""] = line.split("=");
-  const [soft, hard = soft] = value.split(":").map((n) => Number(n.trim()));
+  // An empty number is NaN (Number("") is 0), so the server refuses it instead of setting 0.
+  const [soft, hard = soft] = value.split(":").map((n) => (n.trim() ? Number(n.trim()) : Number.NaN));
   return { name: name.trim(), soft, hard };
 }
 

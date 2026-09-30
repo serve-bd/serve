@@ -1,10 +1,12 @@
 "use client";
 
-import type * as React from "react";
+import * as React from "react";
 import { Switch as BaseSwitch } from "@base-ui/react/switch";
+import { useNameFromLabel } from "@/lib/name-from-label";
 import { cn } from "@/lib/utils";
 
-export function Switch({ className, ...props }: React.ComponentProps<typeof BaseSwitch.Root>) {
+export function Switch({ className, ref, ...props }: React.ComponentProps<typeof BaseSwitch.Root>) {
+  const named = useNameFromLabel(ref, props);
   return (
     <BaseSwitch.Root
       className={cn(
@@ -12,6 +14,7 @@ export function Switch({ className, ...props }: React.ComponentProps<typeof Base
         className as string,
       )}
       {...props}
+      {...named}
     >
       <BaseSwitch.Thumb className="block size-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-[var(--ease-out-quint)] data-[checked]:translate-x-4" />
     </BaseSwitch.Root>
@@ -34,13 +37,28 @@ export function SwitchRow({
   disabled?: boolean;
   name?: string;
 }) {
+  const id = React.useId();
   return (
     <label className="flex items-start justify-between gap-6 py-1">
       <span className="flex flex-col gap-0.5">
-        <span className="text-sm font-medium text-fg">{title}</span>
-        {description && <span className="text-xs leading-relaxed text-muted">{description}</span>}
+        <span id={`${id}-title`} className="text-sm font-medium text-fg">
+          {title}
+        </span>
+        {description && (
+          <span id={`${id}-description`} className="text-xs leading-relaxed text-muted">
+            {description}
+          </span>
+        )}
       </span>
-      <Switch name={name} checked={checked} onCheckedChange={(v) => onCheckedChange?.(v)} disabled={disabled} className="mt-0.5" />
+      <Switch
+        name={name}
+        checked={checked}
+        onCheckedChange={(v) => onCheckedChange?.(v)}
+        disabled={disabled}
+        aria-labelledby={`${id}-title`}
+        aria-describedby={description ? `${id}-description` : undefined}
+        className="mt-0.5"
+      />
     </label>
   );
 }

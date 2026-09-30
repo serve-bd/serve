@@ -3,9 +3,11 @@
 import type * as React from "react";
 import { Checkbox as BaseCheckbox } from "@base-ui/react/checkbox";
 import { Check } from "lucide-react";
+import { useNameFromLabel } from "@/lib/name-from-label";
 import { cn } from "@/lib/utils";
 
-export function Checkbox({ className, ...props }: React.ComponentProps<typeof BaseCheckbox.Root>) {
+export function Checkbox({ className, ref, ...props }: React.ComponentProps<typeof BaseCheckbox.Root>) {
+  const named = useNameFromLabel(ref, props);
   return (
     <BaseCheckbox.Root
       className={cn(
@@ -13,6 +15,7 @@ export function Checkbox({ className, ...props }: React.ComponentProps<typeof Ba
         className as string,
       )}
       {...props}
+      {...named}
     >
       <BaseCheckbox.Indicator className="text-accent-fg data-[unchecked]:hidden">
         <Check className="size-3" strokeWidth={3} />

@@ -3,19 +3,30 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { Building2, Eye, EyeOff, FolderKanban, Layers, Plus, Trash2 } from "lucide-react";
+import { Building2, Code2, Eye, EyeOff, FolderKanban, Layers, Plus, Table2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardFooter, CardHeader, CopyButton, EmptyState } from "@/components/ui/misc";
-import { Input } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
 import { redeployEnvironment, saveSharedVars } from "@/server/actions/projects";
 import { redeployReferencing, saveOrgSharedVars, saveProjectSharedVars } from "@/server/actions/shared-vars";
+import { formatEnv, parseEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
 
 export type Scope = "org" | "project" | "environment";
 
 type Row = { id: number; key: string; value: string };
+
+/** Last one wins when a name repeats, like a .env file. */
+function dedupe(vars: { key: string; value: string }[]) {
+  const map = new Map<string, string>();
+  for (const v of vars) {
+    map.delete(v.key);
+    map.set(v.key, v.value);
+  }
+  return [...map].map(([key, value]) => ({ key, value }));
+}
 
 let seq = 0;
 const withId = (v: { key: string; value: string }): Row => ({
@@ -77,6 +88,7 @@ export function SharedVariables({
   const [rows, setRows] = React.useState<Row[]>(() => vars.map(withId));
   const [revealed, setRevealed] = React.useState<Set<number>>(new Set());
   const [saved, setSaved] = React.useState(vars);
+  const [raw, setRaw] = React.useState<string | null>(null);
 
   const href = (next: { scope?: Scope; project?: string; env?: string }) => {
     const q = new URLSearchParams();
@@ -90,7 +102,7 @@ export function SharedVariables({
     return `/shared-variables${qs ? `?${qs}` : ""}`;
   };
 
-  const clean = rows.filter((r) => r.key.trim()).map((r) => ({ key: r.key.trim(), value: r.value }));
+  const clean = dedupe(raw !== null ? parseEnv(raw) : rows.filter((r) => r.key.trim()).map((r) => ({ key: r.key.trim(), value: r.value })));
   const dirty = JSON.stringify(clean) !== JSON.stringify(saved);
   const target = scope === "org" ? true : scope === "project" ? !!project : !!environment;
 
@@ -104,6 +116,29 @@ export function SharedVariables({
 
   const update = (id: number, patch: Partial<Row>) => setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const add = () => setRows((prev) => [...prev, withId({ key: "", value: "" })]);
+  const toggleRaw = () => {
+    if (raw === null) setRaw(formatEnv(clean));
+    else {
+      setRows(clean.map(withId));
+      setRaw(null);
+    }
+  };
+  // Pasting a .env block into a name field adds every line as a row.
+  const pasteInto = (id: number, e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData("text");
+    if (!text.includes("\n") && !text.includes("=")) return;
+    const parsed = parseEnv(text);
+    if (parsed.length === 0) return;
+    e.preventDefault();
+    setRows((prev) => {
+      const at = prev.findIndex((x) => x.id === id);
+      const rest = prev.filter((x) => x.id !== id || x.value);
+      const next = parsed.map(withId);
+      const kept = rest.filter((x) => !parsed.some((p) => p.key === x.key.trim()));
+      const i = Math.min(at, kept.length);
+      return [...kept.slice(0, i), ...next, ...kept.slice(i)];
+    });
+  };
   const text = scopeText[scope];
 
   return (
@@ -134,45 +169,70 @@ export function SharedVariables({
             title={text.title}
             description={text.description}
             actions={
-              scope !== "org" && (
-                <div className="flex flex-wrap gap-2">
-                  <Select
-                    size="sm"
-                    value={project!.id}
-                    onValueChange={(v) => router.push(href({ project: v }))}
-                    options={projects.map((p) => ({
-                      value: p.id,
-                      label: p.name,
-                    }))}
-                    className="w-40"
-                  />
-                  {scope === "environment" && environment && (
+              <div className="flex flex-wrap items-center gap-2">
+                {scope !== "org" && (
+                  <>
                     <Select
                       size="sm"
-                      value={environment.name}
-                      onValueChange={(v) => router.push(href({ env: v }))}
-                      options={environments.map((e) => ({
-                        value: e.name,
-                        label: e.name,
+                      value={project!.id}
+                      onValueChange={(v) => router.push(href({ project: v }))}
+                      options={projects.map((p) => ({
+                        value: p.id,
+                        label: p.name,
                       }))}
-                      className="w-36"
+                      className="w-40"
                     />
-                  )}
-                </div>
-              )
+                    {scope === "environment" && environment && (
+                      <Select
+                        size="sm"
+                        value={environment.name}
+                        onValueChange={(v) => router.push(href({ env: v }))}
+                        options={environments.map((e) => ({
+                          value: e.name,
+                          label: e.name,
+                        }))}
+                        className="w-36"
+                      />
+                    )}
+                  </>
+                )}
+                {canEdit && target && (
+                  <Button size="sm" variant="ghost" onClick={toggleRaw}>
+                    {raw === null ? <Code2 /> : <Table2 />} {raw === null ? "Raw editor" : "Table view"}
+                  </Button>
+                )}
+              </div>
             }
           />
           {!target ? (
             <EmptyState title="No environments" description="This project has no environments yet." />
+          ) : raw !== null ? (
+            <div className="p-4">
+              <Textarea
+                value={raw}
+                onChange={(e) => setRaw(e.target.value)}
+                rows={Math.max(10, raw.split("\n").length + 2)}
+                className="font-mono text-[12.5px] leading-relaxed"
+                spellCheck={false}
+                autoFocus
+                placeholder={'# Paste a .env file\nAPI_URL=https://api.example.com\nSECRET_KEY="value with spaces"'}
+                aria-label="Variables as .env"
+              />
+            </div>
           ) : rows.length === 0 ? (
             <EmptyState
               title="No shared variables yet"
-              description={canEdit ? "Add a variable and reference it from any service." : "Your role cannot see or edit these values."}
+              description={canEdit ? "Add a variable or paste a .env file, then reference it from any service." : "Your role cannot see or edit these values."}
               action={
                 canEdit && (
-                  <Button size="sm" onClick={add}>
-                    <Plus /> Add variable
-                  </Button>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <Button size="sm" onClick={add}>
+                      <Plus /> Add variable
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setRaw("")}>
+                      <Code2 /> Paste .env
+                    </Button>
+                  </div>
                 )
               }
             />
@@ -196,6 +256,7 @@ export function SharedVariables({
                           key: e.target.value.replace(/\s/g, "_"),
                         })
                       }
+                      onPaste={(e) => pasteInto(r.id, e)}
                       placeholder="KEY"
                       className="font-mono text-[12.5px]"
                       readOnly={!canEdit}
@@ -265,8 +326,9 @@ export function SharedVariables({
               <span className="mr-auto hidden text-xs text-muted sm:inline">{dirty ? "Unsaved changes" : "Changes apply on the next deploy."}</span>
               {canDeploy && (
                 <Button size="sm" variant="ghost" onClick={() => redeploy.run()} loading={redeploy.pending} disabled={dirty}>
-                  Redeploy
-                  <span className="hidden sm:inline"> affected services</span>
+                  <span>
+                    Redeploy<span className="hidden sm:inline"> affected services</span>
+                  </span>
                 </Button>
               )}
               <Button size="sm" variant="primary" onClick={() => save.run()} loading={save.pending} disabled={!dirty}>

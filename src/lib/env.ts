@@ -24,3 +24,11 @@ export function parseEnv(text: string) {
   }
   return out;
 }
+
+/** Write KEY=VALUE lines that parseEnv reads back; values with spaces, quotes or `#` are quoted. */
+export function formatEnv(vars: { key: string; value: string }[]) {
+  return vars
+    .filter((v) => v.key)
+    .map((v) => `${v.key}=${/[\s#"'$\\]/.test(v.value) ? JSON.stringify(v.value) : v.value}`)
+    .join("\n");
+}

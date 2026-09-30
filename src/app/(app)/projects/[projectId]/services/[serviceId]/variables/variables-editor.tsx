@@ -11,7 +11,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { useAction } from "@/hooks/use-action";
 import { saveEnvVars } from "@/server/actions/services";
-import { parseEnv } from "@/lib/env";
+import { formatEnv, parseEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
 import { referenceOf } from "@/lib/refs";
 import { Tab, Tabs, TabsList, TabsPanel } from "@/components/ui/tabs";
@@ -25,13 +25,6 @@ type Reference = { name: string; keys: string[]; label?: string; note?: string; 
 
 let seq = 0;
 const withId = (v: Omit<Var, "id">): Var => ({ ...v, id: ++seq });
-
-function toRaw(vars: Var[]) {
-  return vars
-    .filter((v) => v.key)
-    .map((v) => `${v.key}=${/[\s#"'$]/.test(v.value) ? JSON.stringify(v.value) : v.value}`)
-    .join("\n");
-}
 
 export function VariablesEditor({
   serviceId,
@@ -163,7 +156,7 @@ export function VariablesEditor({
                         size="sm"
                         variant="ghost"
                         onClick={() => {
-                          if (raw === null) setRaw(toRaw(vars));
+                          if (raw === null) setRaw(formatEnv(vars));
                           else {
                             setVars(
                               parseEnv(raw).map((v) => {

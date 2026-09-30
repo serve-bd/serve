@@ -30,7 +30,7 @@ import { databasePlan } from "@/server/databases/options";
 import { ensureDatabaseTls } from "@/server/databases/tls";
 import { allocateSubnet, composeServiceNames, composeUp, stackNetworkName, transformCompose, writeComposeFiles } from "./compose";
 import type { ServiceStatus } from "@/server/db/schema";
-import { composeSecurityIssues, containedPath } from "@/server/security";
+import { composeNetworkIssues, composeSecurityIssues, containedPath } from "@/server/security";
 import { connectProxy, disconnectProxy, ensureEnvNetwork } from "@/server/docker/networks";
 import { getSetting } from "@/server/settings";
 import { meshAfterStart, meshBeforeStart } from "@/server/mesh";
@@ -720,6 +720,9 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     });
     dir = path.dirname(composePath);
     // Compose files from git are checked at deploy time; only the Root organization may use host-level options.
+    // Reaching into Serve's own networks is refused for every organization.
+    const network = composeNetworkIssues(content);
+    if (network.length) throw new Error(`The compose file reaches into Serve's own networks: ${network.slice(0, 3).join("; ")}`);
     const issues = composeSecurityIssues(content);
     if (issues.length && (await orgIdOf(service)) !== (await getSetting("rootOrganizationId"))) {
       throw new Error(`The compose file uses options that can access the host: ${issues.slice(0, 3).join("; ")}`);

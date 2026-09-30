@@ -222,9 +222,14 @@ const gone = trySh(hostB, "ip link show serve-mesh").ok === false && sh(hostB, "
 check("leaving removes the interface and the links", gone);
 const [afterLeave] = await db.select({ mesh: schema.server.mesh }).from(schema.server).where(eq(schema.server.id, serverB));
 check("the server reports it left", afterLeave.mesh?.state === "off", afterLeave.mesh?.state);
+check("leaving frees the server's slot", (await db.select({ i: schema.server.meshIndex }).from(schema.server).where(eq(schema.server.id, serverB)))[0].i === null);
+// Joining again takes a free slot, as saveMesh does.
+const used = new Set((await db.select({ i: schema.server.meshIndex }).from(schema.server)).map((r) => r.i));
+let slot = 1;
+while (used.has(slot)) slot++;
 await db
   .update(schema.server)
-  .set({ mesh: { ...mesh, enabled: true, state: "starting", configHash: null } })
+  .set({ meshIndex: slot, mesh: { ...mesh, enabled: true, state: "starting", configHash: null } })
   .where(eq(schema.server.id, serverB));
 await syncMesh();
 let again = false;

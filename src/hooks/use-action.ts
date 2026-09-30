@@ -37,19 +37,21 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
   const [refreshing, startRefresh] = React.useTransition();
-  // Counted in `running` until the refresh after success has rendered.
-  const awaitingRefresh = React.useRef(false);
+  // Runs counted in `running` until the refresh after their success has rendered. A count, not a
+  // flag: runs of one hook can overlap (several "Create tunnel" clicks) and share one refresh.
+  const awaitingRefresh = React.useRef(0);
   const optsRef = useLatest(opts);
 
   React.useEffect(() => {
     if (!refreshing && awaitingRefresh.current) {
-      awaitingRefresh.current = false;
-      setRunning(-1);
+      setRunning(-awaitingRefresh.current);
+      awaitingRefresh.current = 0;
     }
   }, [refreshing]);
   React.useEffect(
     () => () => {
-      if (awaitingRefresh.current) setRunning(-1);
+      if (awaitingRefresh.current) setRunning(-awaitingRefresh.current);
+      awaitingRefresh.current = 0;
     },
     [],
   );
@@ -69,7 +71,7 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
         if (success) toast.success(typeof success === "function" ? success(res.data) : success);
         onSuccess?.(res.data);
         if (refresh) {
-          awaitingRefresh.current = true;
+          awaitingRefresh.current += 1;
           counted = false;
           startRefresh(() => router.refresh());
         }

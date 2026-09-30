@@ -38,6 +38,8 @@ export function MeshView({ serverId, serverName, ready, initial, suggestedEndpoi
   });
   const mesh = data ?? initial;
   const [editing, setEditing] = React.useState(false);
+  // Left the network (here or elsewhere): the edit form closes, so joining again starts fresh.
+  if (editing && !mesh.enabled) setEditing(false);
   const joined = mesh.enabled;
 
   return (
@@ -116,6 +118,7 @@ function JoinForm({
 }) {
   const [endpoint, setEndpoint] = React.useState(initialEndpoint);
   const [port, setPort] = React.useState(String(initialPort));
+  const meshConfirm = useMeshConfirm();
   const [touched, setTouched] = React.useState(false);
   // Joining: the networks to go into. Kept memberships (from before leaving) come preselected;
   // with a single network it is the obvious choice; with none, a first one is created.
@@ -126,14 +129,16 @@ function JoinForm({
   const [newName, setNewName] = React.useState(networks.length ? "" : "Default");
   const [adding, setAdding] = React.useState(networks.length === 0);
   const newNetwork = adding && newName.trim() ? newName.trim() : undefined;
-  const networkProblem = !joined && !picked.length && !newNetwork ? "Choose a network, or create one" : null;
+  // Networks deleted elsewhere drop out of the choice (they are no longer in the list to untick).
+  const chosen = picked.filter((id) => networks.some((n) => n.id === id));
+  const networkProblem = !joined && !chosen.length && !newNetwork ? "Choose a network, or create one" : null;
   const save = useAction(
     () =>
       saveMesh(serverId, {
         enabled: true,
         ...(mode === "nat" ? { nat: true } : { endpoint }),
         port: Number(port) || MESH_DEFAULT_PORT,
-        ...(joined ? {} : { networks: picked, newNetwork }),
+        ...(joined ? {} : { networks: chosen, newNetwork }),
       }),
     {
       success: joined ? "Private network updated" : "Joining the private network",
@@ -169,7 +174,20 @@ function JoinForm({
       onSubmit={(e) => {
         e.preventDefault();
         setTouched(true);
-        if (!problem && !portProblem && !networkProblem) void save.run();
+        if (problem || portProblem || networkProblem) return;
+        // Switching a joined server to "No public address" cuts it off from servers that have none either.
+        if (joined && mode === "nat" && !initialNat) {
+          void meshConfirm(
+            { kind: "nat", serverId },
+            {
+              title: "Switch to no public address?",
+              description: "Other servers stop dialing this one; it connects out instead. Servers that have no public address either can no longer reach it.",
+              confirmLabel: "Switch",
+            },
+          ).then((ok) => ok && void save.run());
+          return;
+        }
+        void save.run();
       }}
     >
       {!joined && (

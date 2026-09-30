@@ -656,7 +656,8 @@ export async function refreshTunnels() {
     const ctx = await requirePermission("projects.view");
     const { refreshTunnelStatus } = await import("@/server/cloudflare/tunnels");
     const tunnels = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.organizationId, ctx.org.id));
-    const waiting = tunnels.filter((t) => t.status !== "healthy");
+    // Tunnels in error keep the reason the worker or the setup recorded; Cloudflare would only say "down".
+    const waiting = tunnels.filter((t) => t.status !== "healthy" && t.status !== "error");
     await Promise.all(waiting.map((t) => refreshTunnelStatus(t)));
     return null;
   });

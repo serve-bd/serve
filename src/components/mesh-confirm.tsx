@@ -47,10 +47,14 @@ function ImpactNote({ description, impact }: { description: string; impact: Mesh
         </span>
         <span className="flex max-h-48 flex-col gap-1.5 overflow-y-auto">
           {impact.map((i) => (
-            <span key={`${i.href}|${i.provider}`} className="text-xs leading-relaxed text-fg-2">
-              <Link href={i.href} className="font-medium text-fg hover:underline">
-                {i.consumer}
-              </Link>{" "}
+            <span key={`${i.project}|${i.consumer}|${i.provider}`} className="text-xs leading-relaxed text-fg-2">
+              {i.href ? (
+                <Link href={i.href} className="font-medium text-fg hover:underline">
+                  {i.consumer}
+                </Link>
+              ) : (
+                <span className="font-medium text-fg">{i.consumer}</span>
+              )}{" "}
               on {i.consumerServer} uses <span className="font-medium text-fg">{i.provider}</span> on {i.providerServer}
               <span className="text-muted">
                 {" "}

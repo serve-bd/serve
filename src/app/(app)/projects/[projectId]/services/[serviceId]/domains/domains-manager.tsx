@@ -774,10 +774,15 @@ export function DomainsManager(props: Props) {
   React.useEffect(() => {
     if (!starting) return;
     const started = Date.now();
+    let busy = false;
     const timer = setInterval(async () => {
       if (Date.now() - started > 3 * 60_000) return clearInterval(timer);
+      // One check at a time, even when Cloudflare answers slowly.
+      if (busy) return;
+      busy = true;
       // A status change reaches the page as a live event, which refreshes it.
       await refreshTunnels().catch(() => {});
+      busy = false;
     }, 4000);
     return () => clearInterval(timer);
   }, [starting]);

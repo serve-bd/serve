@@ -24,7 +24,8 @@ export function serviceUses<S extends { id: string; name: string; slug: string }
   for (const v of vars) {
     const consumer = services.find((s) => s.id === v.serviceId);
     if (!consumer) continue;
-    const own = (key: string) => vars.find((x) => x.serviceId === consumer.id && x.key === key)?.value;
+    // `${{KEY}}`: the service's own variable, else the environment's shared one (like resolution).
+    const own = (key: string) => vars.find((x) => x.serviceId === consumer.id && x.key === key)?.value ?? scope("environment", key);
     for (const ref of serviceReferencesIn(v.value, own, scope)) {
       const provider = referencedService(services, ref.name);
       if (!provider || provider.id === consumer.id) continue;

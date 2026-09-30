@@ -11,6 +11,7 @@ import { logActivity } from "@/server/activity";
 import { MESH_DEFAULT_PORT, MESH_MAX_SERVERS, meshEndpointProblem } from "@/lib/mesh";
 import { generateMeshKeys } from "@/server/mesh/keys";
 import { privatelyConnected } from "@/server/mesh/plan";
+import type { MeshChange } from "@/server/mesh/impact";
 import { newId } from "@/server/id";
 
 const networkName = z.string().trim().min(1, "Enter a name.").max(40, "Use 40 characters or fewer.");
@@ -71,7 +72,14 @@ export async function saveMesh(serverId: string, input: z.input<typeof meshInput
         const known = new Set((await tx.select({ id: schema.privateNetwork.id }).from(schema.privateNetwork).where(inArray(schema.privateNetwork.id, ids))).map((n) => n.id));
         if (ids.some((id) => !known.has(id))) throw new UserError("That private network no longer exists. Reload the page.");
         await tx.delete(schema.privateNetworkMember).where(eq(schema.privateNetworkMember.serverId, serverId));
-        await tx.insert(schema.privateNetworkMember).values(ids.map((networkId) => ({ networkId, serverId })));
+        await tx
+          .insert(schema.privateNetworkMember)
+          .values(ids.map((networkId) => ({ networkId, serverId })))
+          .catch((error) => {
+            throw [(error as { code?: string }).code, (error as { cause?: { code?: string } }).cause?.code].includes("23503")
+              ? new UserError("That private network no longer exists. Reload the page.")
+              : error;
+          });
       }
       // null: behind NAT. A new address replaces it; otherwise the saved choice stays.
       const endpoint = data.nat ? null : data.endpoint !== undefined ? data.endpoint.trim() : row.mesh ? row.mesh.endpoint : "";
@@ -215,7 +223,11 @@ export async function renameNetwork(networkId: string, name: string) {
 export async function deleteNetwork(networkId: string) {
   return act(async () => {
     const ctx = await requireInstanceAdmin();
-    const [row] = await db.delete(schema.privateNetwork).where(eq(schema.privateNetwork.id, networkId)).returning();
+    // The same lock as joining, so a server never joins a network while it is being deleted.
+    const [row] = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('serve-mesh'))`);
+      return tx.delete(schema.privateNetwork).where(eq(schema.privateNetwork.id, networkId)).returning();
+    });
     if (!row) throw new UserError("Private network not found.");
     await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.update", message: `Deleted the private network ${row.name}` });
@@ -254,14 +266,21 @@ export async function setNetworkMember(networkId: string, serverId: string, memb
   });
 }
 
-export type MeshImpact = { consumer: string; consumerServer: string; provider: string; providerServer: string; project: string; href: string; variables: string[] }[];
+export type MeshImpact = {
+  consumer: string;
+  consumerServer: string;
+  provider: string;
+  providerServer: string;
+  project: string;
+  /** Link to the service's variables; null for another organization's service (not openable from here). */
+  href: string | null;
+  variables: string[];
+}[];
 
 /** What stops working if a server leaves a network, a network is deleted, or a server leaves the private network. */
-export async function meshChangeImpact(
-  change: { kind: "remove"; networkId: string; serverId: string } | { kind: "delete"; networkId: string } | { kind: "leave"; serverId: string },
-) {
+export async function meshChangeImpact(change: MeshChange) {
   return act(async (): Promise<MeshImpact> => {
-    await requireInstanceAdmin();
+    const ctx = await requireInstanceAdmin();
     const { meshMemberIds } = await import("@/server/mesh/members");
     const { lostLinks, membersAfter } = await import("@/server/mesh/impact");
     const { decryptOrNull } = await import("@/server/crypto");
@@ -327,10 +346,12 @@ export async function meshChangeImpact(
     if (!links.length) return [];
     const [servers, projects] = await Promise.all([
       db.select({ id: schema.server.id, name: schema.server.name }).from(schema.server),
-      db.select({ id: schema.project.id, name: schema.project.name }).from(schema.project),
+      db.select({ id: schema.project.id, name: schema.project.name, organizationId: schema.project.organizationId }).from(schema.project),
     ]);
     const serverName = new Map(servers.map((s) => [s.id, s.name]));
     const projectName = new Map(projects.map((p) => [p.id, p.name]));
+    // Servers are shared by organizations: other organizations' services are named, not linked.
+    const ownProject = new Set(projects.filter((p) => p.organizationId === ctx.org.id).map((p) => p.id));
     const byId = new Map(relevant.map((s) => [s.id, s]));
     return links
       .map((l) => {
@@ -342,7 +363,7 @@ export async function meshChangeImpact(
           provider: p.name,
           providerServer: serverName.get(p.serverId) ?? "",
           project: projectName.get(c.projectId) ?? "",
-          href: `/projects/${c.projectId}/services/${c.id}/variables`,
+          href: ownProject.has(c.projectId) ? `/projects/${c.projectId}/services/${c.id}/variables` : null,
           variables: l.variables.sort(),
         };
       })

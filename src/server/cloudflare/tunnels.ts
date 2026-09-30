@@ -5,7 +5,7 @@ import { newId } from "@/server/id";
 import { imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { getServer } from "@/server/servers/context";
 import { Cloudflare } from "./api";
-import { getSettings, updateSettings } from "@/server/settings";
+import { getSetting, getSettings, updateSettings } from "@/server/settings";
 
 /**
  * Cloudflare Tunnels: a cloudflared container on a server keeps an outbound
@@ -228,7 +228,14 @@ export async function createTunnel(opts: { organizationId: string; cloudflareAcc
     .select()
     .from(schema.cloudflareTunnel)
     .where(and(eq(schema.cloudflareTunnel.serverId, opts.serverId), eq(schema.cloudflareTunnel.cloudflareAccountId, opts.cloudflareAccountId)));
-  if (existing) return existing;
+  if (existing) {
+    if (existing.status !== "error") return existing;
+    // A tunnel whose setup failed before: try the setup again instead of reporting success.
+    await syncTunnelIngress(existing.id);
+    await ensureTunnelContainer(existing);
+    await db.update(schema.cloudflareTunnel).set({ status: "pending", statusMessage: null }).where(eq(schema.cloudflareTunnel.id, existing.id));
+    return existing;
+  }
   const ctx = await getServer(opts.serverId);
   const accountId = await cfAccountIdOf(opts.cloudflareAccountId);
   const cf = await Cloudflare.forAccount(opts.cloudflareAccountId);
@@ -256,7 +263,18 @@ export async function createTunnel(opts: { organizationId: string; cloudflareAcc
       name,
       token: encrypt(token),
     })
+    .onConflictDoNothing()
     .returning();
+  if (!tunnel) {
+    // Someone created the tunnel for this server at the same moment: keep theirs, delete ours on Cloudflare.
+    await cf.deleteTunnel(accountId, cfTunnel.id).catch(() => {});
+    const [theirs] = await db
+      .select()
+      .from(schema.cloudflareTunnel)
+      .where(and(eq(schema.cloudflareTunnel.serverId, opts.serverId), eq(schema.cloudflareTunnel.cloudflareAccountId, opts.cloudflareAccountId)));
+    if (!theirs) throw new Error("The tunnel could not be saved. Try again.");
+    return theirs;
+  }
   try {
     await syncTunnelIngress(tunnel.id);
     await ensureTunnelContainer(tunnel);
@@ -326,7 +344,7 @@ export async function checkTunnels() {
     await refreshTunnelStatus(tunnel);
     // Domains waiting for a tunnel on this server (its tunnel was removed, or the service moved here).
     // Ones that failed before are left for a manual Reconnect, so a broken record is not retried every minute.
-    if (await hasReattachCandidates(tunnel.serverId)) await reattachTunnelDomains(tunnel, { skipFailed: true }).catch(() => {});
+    if (await hasReattachCandidates(tunnel.serverId, tunnel.organizationId)) await reattachTunnelDomains(tunnel, { skipFailed: true }).catch(() => {});
   }
   await removeOrphanTunnelContainers();
 }
@@ -347,12 +365,14 @@ export function reattachCandidates<D extends Pick<DomainRow, "id" | "wantsTunnel
   );
 }
 
-async function waitingDomains(serverId: string) {
+/** Waiting domains of one organization's services on a server (servers can be shared by organizations). */
+async function waitingDomains(serverId: string, organizationId: string) {
   return db
     .select({ domain: schema.domain, serverId: schema.service.serverId })
     .from(schema.domain)
     .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
-    .where(and(eq(schema.domain.wantsTunnel, true), isNull(schema.domain.tunnelId), eq(schema.service.serverId, serverId)));
+    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .where(and(eq(schema.domain.wantsTunnel, true), isNull(schema.domain.tunnelId), eq(schema.service.serverId, serverId), eq(schema.project.organizationId, organizationId)));
 }
 
 /** The dashboard wants a tunnel on the local server but has none (or its tunnel is gone). */
@@ -366,8 +386,8 @@ async function dashboardWaiting() {
   return s.dashboardDomain;
 }
 
-async function hasReattachCandidates(serverId: string) {
-  const rows = await waitingDomains(serverId);
+async function hasReattachCandidates(serverId: string, organizationId: string) {
+  const rows = await waitingDomains(serverId, organizationId);
   if (
     reattachCandidates(
       rows.map((r) => ({ ...r.domain, serverId: r.serverId })),
@@ -389,7 +409,7 @@ export type ReattachResult = { reconnected: string[]; failed: { hostname: string
  */
 export async function reattachTunnelDomains(tunnel: Tunnel, opts: { skipFailed?: boolean; domainId?: string } = {}): Promise<ReattachResult> {
   const result: ReattachResult = { reconnected: [], failed: [], notInAccount: [] };
-  const rows = await waitingDomains(tunnel.serverId);
+  const rows = await waitingDomains(tunnel.serverId, tunnel.organizationId);
   const candidates = reattachCandidates(
     rows.map((r) => ({ ...r.domain, serverId: r.serverId })),
     tunnel.serverId,
@@ -427,7 +447,9 @@ export async function reattachTunnelDomains(tunnel: Tunnel, opts: { skipFailed?:
   }
 
   const [server] = await db.select({ isLocal: schema.server.isLocal }).from(schema.server).where(eq(schema.server.id, tunnel.serverId));
-  const dashboard = !opts.domainId && server?.isLocal ? await dashboardWaiting() : null;
+  // The dashboard's domain belongs to the instance: only a tunnel of the Root organization carries it.
+  const root = await getSetting("rootOrganizationId");
+  const dashboard = !opts.domainId && server?.isLocal && tunnel.organizationId === root ? await dashboardWaiting() : null;
   if (dashboard) {
     const zone = await cf.zoneFor(dashboard).catch(() => null);
     if (zone) {

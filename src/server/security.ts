@@ -34,6 +34,41 @@ const DANGEROUS_KEYS = ["privileged", "cap_add", "devices", "security_opt", "sys
 const HOST_MODES = ["pid", "ipc", "uts", "network_mode"];
 
 /**
+ * Compose options that reach into Serve's own networks: joining an outside network (Serve's own,
+ * or another environment's) or taking a name Serve's containers answer to (serve, serve-db…).
+ * A container there could pose as Serve's database or dashboard. Nobody's compose file may do this;
+ * Serve attaches stacks to their environment network itself.
+ */
+export function composeNetworkIssues(content: string): string[] {
+  let doc: { services?: Record<string, Record<string, unknown>>; networks?: Record<string, Record<string, unknown> | null> };
+  try {
+    doc = YAML.parse(content) ?? {};
+  } catch {
+    return [];
+  }
+  const issues: string[] = [];
+  const reserved = (name: unknown) => typeof name === "string" && /^serve($|[-_.])/i.test(name.trim());
+  for (const [name, net] of Object.entries(doc.networks ?? {})) {
+    if (net && typeof net === "object" && (net.external || net.name !== undefined)) issues.push(`network ${name}: outside networks are not allowed`);
+  }
+  for (const [name, svc] of Object.entries(doc.services ?? {})) {
+    if (!svc || typeof svc !== "object") continue;
+    if (reserved(svc.container_name)) issues.push(`${name}: container_name "${svc.container_name}" is reserved`);
+    if (reserved(svc.hostname)) issues.push(`${name}: hostname "${svc.hostname}" is reserved`);
+    const mode = svc.network_mode;
+    if (typeof mode === "string" && mode.startsWith("container:")) issues.push(`${name}: "network_mode: ${mode}" is not allowed`);
+    const nets = svc.networks;
+    if (nets && typeof nets === "object" && !Array.isArray(nets)) {
+      for (const [net, cfg] of Object.entries(nets as Record<string, { aliases?: unknown } | null>)) {
+        const aliases = Array.isArray(cfg?.aliases) ? cfg.aliases : [];
+        for (const a of aliases) if (reserved(a)) issues.push(`${name}: alias "${a}" on ${net} is reserved`);
+      }
+    }
+  }
+  return issues;
+}
+
+/**
  * Compose options that give containers control over the host. Only the Root
  * organization may use them; everyone else gets a readable error.
  */
@@ -77,5 +112,5 @@ export function composeSecurityIssues(content: string): string[] {
     const opts = vol?.driver_opts;
     if (opts && (opts.device || opts.o)) issues.push(`volume ${name}: driver_opts with host devices are not allowed`);
   }
-  return issues;
+  return [...issues, ...composeNetworkIssues(content)];
 }

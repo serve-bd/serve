@@ -459,6 +459,23 @@ describe("what a private network change breaks", () => {
     expect(lostLinks(before, after, services, viaOwn, noShared)).toEqual([{ consumerId: "api", providerId: "pg", variables: ["RAW", "URL"] }]);
   });
 
+  it("warns when switching to no public address cuts off another server without one", () => {
+    const m = members({ home: { networks: ["n1"], nat: true }, pc: ["n1"] });
+    const list = [on("pg", "postgres", "pg-1", "home"), on("app", "app", "app-1", "pc")];
+    const vars: ImpactVar[] = [{ serviceId: "app", key: "DATABASE_URL", value: "${{postgres.DATABASE_URL}}" }];
+    expect(lostLinks(m, membersAfter(m, { kind: "nat", serverId: "pc" }), list, vars, noShared)).toEqual([{ consumerId: "app", providerId: "pg", variables: ["DATABASE_URL"] }]);
+    // A server with a public address in between keeps things working.
+    const withVps = members({ home: { networks: ["n1"], nat: true }, pc: ["n1"], vps: ["n1"] });
+    expect(lostLinks(withVps, membersAfter(withVps, { kind: "nat", serverId: "vps" }), list, vars, noShared)).toHaveLength(0);
+  });
+
+  it("follows ${{KEY}} to an environment shared variable when the service has no such variable", () => {
+    const after = membersAfter(before, { kind: "remove", networkId: "n1", serverId: "b" });
+    const vars: ImpactVar[] = [{ serviceId: "api", key: "DATABASE_URL", value: "${{DB}}" }];
+    const scope = () => (sc: string, key: string) => (sc === "environment" && key === "DB" ? "${{postgres.DATABASE_URL}}" : undefined);
+    expect(lostLinks(before, after, services, vars, scope)).toEqual([{ consumerId: "api", providerId: "pg", variables: ["DATABASE_URL"] }]);
+  });
+
   it("does not take scope names for services", () => {
     const after = membersAfter(before, { kind: "remove", networkId: "n1", serverId: "b" });
     const list = [...services, on("sh", "shared", "shared-aa11", "a")];

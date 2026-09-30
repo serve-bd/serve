@@ -38,8 +38,10 @@ export function lostLinks(
     const consumer = byId.get(v.serviceId);
     if (!consumer) continue;
     const siblings = byEnv.get(consumer.environmentId) ?? [];
-    const own = (key: string) => varsOf.get(consumer.id)?.find((x) => x.key === key)?.value;
-    for (const ref of serviceReferencesIn(v.value, own, scope(consumer))) {
+    const shared = scope(consumer);
+    // `${{KEY}}`: the service's own variable, else the environment's shared one (like resolution).
+    const own = (key: string) => varsOf.get(consumer.id)?.find((x) => x.key === key)?.value ?? shared("environment", key);
+    for (const ref of serviceReferencesIn(v.value, own, shared)) {
       if (!PRIVATE_VARS.test(ref.key)) continue;
       const provider = referencedService(siblings, ref.name);
       if (!provider || provider.id === consumer.id) continue;
@@ -54,13 +56,20 @@ export function lostLinks(
 }
 
 /** Memberships after a change: a server out of a network, a network gone, or a server leaving. */
-export function membersAfter(
-  before: MeshMembers,
-  change: { kind: "remove"; networkId: string; serverId: string } | { kind: "delete"; networkId: string } | { kind: "leave"; serverId: string },
-): MeshMembers {
+export type MeshChange =
+  | { kind: "remove"; networkId: string; serverId: string }
+  | { kind: "delete"; networkId: string }
+  | { kind: "leave"; serverId: string }
+  /** The server switches to "No public address". */
+  | { kind: "nat"; serverId: string };
+
+export function membersAfter(before: MeshMembers, change: MeshChange): MeshMembers {
   const after: MeshMembers = new Map([...before].map(([id, m]) => [id, { ...m, networks: [...m.networks] }]));
   if (change.kind === "leave") after.delete(change.serverId);
-  else if (change.kind === "remove") {
+  else if (change.kind === "nat") {
+    const m = after.get(change.serverId);
+    if (m) m.nat = true;
+  } else if (change.kind === "remove") {
     const m = after.get(change.serverId);
     if (m) m.networks = m.networks.filter((n) => n !== change.networkId);
   } else for (const m of after.values()) m.networks = m.networks.filter((n) => n !== change.networkId);

@@ -311,11 +311,19 @@ async function runSync(scope: Set<string> | null, kicks: Set<string>) {
     for (const row of leaving.filter((r) => r.mesh && r.mesh.state !== "off")) {
       try {
         await teardownMesh(await reachable(row.id));
-        await setMesh(row.id, { state: "off", message: null, configHash: null, agent: null, syncedAt: new Date().toISOString() });
-        // Its slot (and the environment addresses in it) are free for another server; joining
-        // again takes a new one. Service addresses stay: they belong to the services.
-        await db.delete(schema.meshAddress).where(sql`${schema.meshAddress.serverId} = ${row.id} and ${schema.meshAddress.key} like 'env:%'`);
-        await db.update(schema.server).set({ meshIndex: null }).where(eq(schema.server.id, row.id));
+        await db.transaction(async (tx) => {
+          // The same lock as joining: an admin who joined again while this ran keeps the slot.
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtext('serve-mesh'))`);
+          const [cur] = await tx.select({ mesh: schema.server.mesh }).from(schema.server).where(eq(schema.server.id, row.id));
+          if (!cur?.mesh || cur.mesh.enabled) return;
+          // Its slot (and the environment addresses in it) are free for another server; joining
+          // again takes a new one. Service addresses stay: they belong to the services.
+          await tx.delete(schema.meshAddress).where(sql`${schema.meshAddress.serverId} = ${row.id} and ${schema.meshAddress.key} like 'env:%'`);
+          await tx
+            .update(schema.server)
+            .set({ meshIndex: null, mesh: { ...cur.mesh, state: "off", message: null, configHash: null, agent: null, syncedAt: new Date().toISOString() } })
+            .where(eq(schema.server.id, row.id));
+        });
       } catch (error) {
         await setMesh(row.id, { message: `Could not remove the private network: ${(error as Error).message}` });
       }

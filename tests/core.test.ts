@@ -119,7 +119,7 @@ describe("helpers", () => {
   });
 });
 
-import { composeSecurityIssues, containedPath, safeRedirectUrl } from "@/server/security";
+import { composeNetworkIssues, composeSecurityIssues, containedPath, safeRedirectUrl } from "@/server/security";
 
 describe("security", () => {
   it("rejects redirect URLs that could inject nginx config", () => {
@@ -150,6 +150,56 @@ describe("security", () => {
     expect(issues).toHaveLength(3);
     expect(issues.join()).toContain("privileged");
     expect(issues.join()).toContain("docker.sock");
+  });
+});
+
+describe("compose networks", () => {
+  it("refuses outside networks and Serve's own names", () => {
+    const issues = composeNetworkIssues(`services:
+  spy:
+    image: x
+    container_name: serve-db
+    hostname: serve
+    networks:
+      serve:
+        aliases: [serve-worker]
+      internal:
+        aliases: [cache]
+  side:
+    image: y
+    network_mode: "container:serve-worker"
+networks:
+  serve:
+    external: true
+  other:
+    name: serve-env-abc
+  internal: {}
+`);
+    expect(issues).toHaveLength(6);
+    expect(issues.join()).toContain("serve-db");
+    expect(issues.join()).toContain('alias "serve-worker"');
+    expect(issues.join()).toContain("network serve");
+    expect(issues.join()).toContain("network other");
+    expect(issues.join()).not.toContain("cache");
+  });
+  it("allows the stack's own networks and ordinary names", () => {
+    expect(
+      composeNetworkIssues(`services:
+  web:
+    image: x
+    container_name: server-app
+    networks: [back]
+  db:
+    image: y
+    networks:
+      back:
+        aliases: [database]
+networks:
+  back: {}
+`),
+    ).toEqual([]);
+    // Part of the host checks too, so organizations other than Root get the same answer.
+    expect(composeSecurityIssues("services:\n  a:\n    image: x\nnetworks:\n  s:\n    external: true\n")).toHaveLength(1);
   });
 });
 

@@ -336,8 +336,8 @@ export function ServiceSettings(props: Props) {
                     <TriangleAlert className="mt-px size-3.5 flex-none text-warn" />
                     <span>
                       Previews get this app&apos;s variables, so they use its production database
-                      {props.previewDatabase.previewVars.length ? ` unless one of your preview variables (${props.previewDatabase.previewVars.join(", ")}) replaces it` : ""}. Give
-                      each preview its own copy under Preview database below, or set{" "}
+                      {props.previewDatabase.previewVars.length ? ` unless one of your preview variables (${props.previewDatabase.previewVars.join(", ")}) replaces it` : ""}. Turn
+                      on &quot;Copy a database for each preview&quot; below, or set{" "}
                       <Link href={`/projects/${props.projectId}/services/${service.id}/variables`} className="text-accent hover:underline">
                         preview variables
                       </Link>

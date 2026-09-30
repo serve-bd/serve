@@ -323,7 +323,7 @@ export function ServiceSettings(props: Props) {
                   checked={v.autoDeploy}
                   onCheckedChange={(c) => set({ autoDeploy: c })}
                 />
-                {!service.isPreview && (
+                {!service.isPreview && service.type === "app" && (
                   <SwitchRow
                     title="Preview deployments"
                     description="Deploy every pull request to its own temporary URL, and remove it when the pull request closes. Enable pull request events on the webhook."
@@ -331,7 +331,7 @@ export function ServiceSettings(props: Props) {
                     onCheckedChange={(c) => set({ previewsEnabled: c })}
                   />
                 )}
-                {!service.isPreview && v.previewsEnabled && props.previewDatabase && !props.previewDatabase.config && (
+                {!service.isPreview && service.type === "app" && v.previewsEnabled && props.previewDatabase && !props.previewDatabase.config && (
                   <p className="flex gap-2 rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
                     <TriangleAlert className="mt-px size-3.5 flex-none text-warn" />
                     <span>
@@ -354,7 +354,7 @@ export function ServiceSettings(props: Props) {
           </Section>
         )}
 
-        {show("source") && service.source?.type === "git" && !service.isPreview && props.previewDatabase && (
+        {show("source") && service.type === "app" && service.source?.type === "git" && !service.isPreview && props.previewDatabase && (
           <PreviewDatabaseSection
             serviceId={service.id}
             config={props.previewDatabase.config}

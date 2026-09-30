@@ -575,7 +575,11 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       patch.hostname = hostname;
     }
     if (data.autoDeploy !== undefined) patch.autoDeploy = data.autoDeploy;
-    if (data.previewsEnabled !== undefined) patch.previewsEnabled = data.previewsEnabled;
+    if (data.previewsEnabled !== undefined) {
+      // A preview is built as an app from the repository: compose stacks have none.
+      if (data.previewsEnabled && service.type !== "app") throw new UserError("Preview deployments are only for apps built from a repository.");
+      patch.previewsEnabled = data.previewsEnabled;
+    }
     if (data.source) {
       if (data.source.type === "git") {
         await assertCredential(data.source.credentialId, ctx.org.id);

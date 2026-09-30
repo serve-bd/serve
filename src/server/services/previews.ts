@@ -37,7 +37,7 @@ async function orgId(projectId: string) {
 
 /** Create or update the preview service for a pull request and deploy it. */
 export async function deployPreview(parent: Service, pr: PullRequest) {
-  if (parent.source?.type !== "git") return null;
+  if (parent.type !== "app" || parent.source?.type !== "git") return null;
   let preview = await previewFor(parent.id, pr.number);
   // Previews never own the parent's repository webhook.
   const source = { ...parent.source, branch: pr.branch, repository: pr.repository || parent.source.repository, webhook: null };

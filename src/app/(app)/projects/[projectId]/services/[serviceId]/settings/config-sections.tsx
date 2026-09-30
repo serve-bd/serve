@@ -243,10 +243,21 @@ export function DeploySection({ runtime, save }: { runtime: RuntimeConfig; save:
             </Field>
             <Field label="Drain time" description="Old containers finish in-flight requests.">
               <InputGroup suffix="seconds">
-                <Input value={v.drainSeconds} onChange={(e) => set({ drainSeconds: digits(e.target.value) })} inputMode="numeric" disabled={v.deployStrategy === "recreate"} />
+                <Input
+                  value={v.drainSeconds}
+                  onChange={(e) => set({ drainSeconds: digits(e.target.value) })}
+                  inputMode="numeric"
+                  disabled={v.deployStrategy === "recreate" || runtime.ports.length > 0}
+                />
               </InputGroup>
             </Field>
           </div>
+          {runtime.ports.length > 0 && v.deployStrategy === "rolling" && (
+            <p className="text-xs leading-relaxed text-warn">
+              This app publishes host ports, and two containers cannot hold the same port: each deploy stops the old version first, like Recreate. Route traffic through a domain
+              instead to deploy with no downtime.
+            </p>
+          )}
           <Field label="Scheduled restart" optional description="Cron expression in the server timezone, like 0 4 * * * for 04:00 every day.">
             <Input value={v.restartSchedule} onChange={(e) => set({ restartSchedule: e.target.value })} placeholder="0 4 * * *" className="font-mono text-[13px]" />
           </Field>

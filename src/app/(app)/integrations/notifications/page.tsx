@@ -41,5 +41,5 @@ export default async function NotificationsPage() {
     lastDelivery: c.lastDeliveryAt ? { at: c.lastDeliveryAt.toISOString(), status: c.lastDeliveryStatus ?? "sent", error: c.lastDeliveryError } : null,
   }));
   const history: DeliveryRow[] = deliveries.map((d) => ({ ...d, createdAt: d.createdAt.toISOString(), nextAttemptAt: d.nextAttemptAt?.toISOString() ?? null }));
-  return <NotificationChannels channels={channels} deliveries={history} isAdmin={ctx.isAdmin} />;
+  return <NotificationChannels channels={channels} deliveries={history} isAdmin={ctx.can("integrations.manage")} />;
 }

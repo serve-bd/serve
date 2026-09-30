@@ -221,7 +221,12 @@ export function AppShell(props: ShellProps) {
 
   return (
     <PermissionsProvider value={props.access}>
-      <CommandPalette projects={props.projects} isInstanceAdmin={props.isInstanceAdmin} isOrgAdmin={!!props.isOrgAdmin}>
+      <CommandPalette
+        projects={props.projects}
+        isInstanceAdmin={props.isInstanceAdmin}
+        isOrgAdmin={!!props.isOrgAdmin}
+        canManageIntegrations={props.access.permissions.includes("integrations.manage")}
+      >
         <div className="flex min-h-screen">
           <aside className="sticky top-0 hidden h-screen w-[248px] shrink-0 border-r border-line bg-glass backdrop-blur-2xl lg:block">
             <SidebarContent props={props} />

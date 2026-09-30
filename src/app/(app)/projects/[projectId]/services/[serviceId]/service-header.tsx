@@ -120,16 +120,17 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     { href: `${base}/variables`, label: "Variables" },
     ...(service.previews !== null ? [{ href: `${base}/previews`, label: "Previews", count: service.previews }] : []),
     ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains & ports" }] : []),
-    ...(service.type === "database"
-      ? [{ href: `${base}/backups`, label: "Backups" }]
-      : service.type === "compose" || service.type === "app"
-        ? [
-            { href: `${base}/tasks`, label: "Tasks" },
-            { href: `${base}/backups`, label: "Backups" },
-          ]
-        : [{ href: `${base}/tasks`, label: "Tasks" }]),
+    ...(service.type !== "database" ? [{ href: `${base}/tasks`, label: "Tasks" }] : []),
+    ...(can("databases.backups") && ["database", "compose", "app"].includes(service.type) ? [{ href: `${base}/backups`, label: "Backups" }] : []),
     ...(can("services.manage") ? [{ href: `${base}/settings`, label: "Settings" }] : []),
   ];
+
+  // Brings the active tab into view on phones, only when it changes: live refreshes re-render the header.
+  const activeTab = tabs.find((t) => (t.exact ? pathname === t.href : pathname.startsWith(t.href)))?.href;
+  const nav = React.useRef<HTMLElement>(null);
+  React.useEffect(() => {
+    if (activeTab) nav.current?.querySelector(`a[href="${activeTab}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeTab]);
 
   /** Worst issue tone for a tab (the Overview tab only marks incidents). */
   const tabIssue = (href: string) => {
@@ -357,26 +358,34 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
               ) : null}
               .
             </p>
-            <div className="flex flex-none items-center gap-2">
-              <Link href={`${base}/settings/maintenance`} className="text-[13px] font-medium text-fg-2 hover:text-fg">
-                Edit page
-              </Link>
-              <Button size="sm" onClick={() => toggleMaintenance.run(false)} loading={toggleMaintenance.pending}>
-                Turn off
-              </Button>
-            </div>
+            {(can("services.manage") || can("services.deploy")) && (
+              <div className="flex flex-none items-center gap-2">
+                {can("services.manage") && (
+                  <Link href={`${base}/settings/maintenance`} className="text-[13px] font-medium text-fg-2 hover:text-fg">
+                    Edit page
+                  </Link>
+                )}
+                {can("services.deploy") && (
+                  <Button size="sm" onClick={() => toggleMaintenance.run(false)} loading={toggleMaintenance.pending}>
+                    Turn off
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
         {/* Phones: tabs scroll sideways; the fade shows there are more. */}
         <div className="-mx-4 border-b border-line sm:mx-0">
-          <nav className="scrollbar-none flex gap-1 overflow-x-auto px-1 pr-8 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] sm:px-0 sm:pr-0 sm:[mask-image:none] [&>a:first-child]:sm:pl-0 [&>a:first-child>span]:sm:left-0">
+          <nav
+            ref={nav}
+            className="scrollbar-none flex gap-1 overflow-x-auto px-1 pr-8 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] sm:px-0 sm:pr-0 sm:[mask-image:none] [&>a:first-child]:sm:pl-0 [&>a:first-child>span]:sm:left-0"
+          >
             {tabs.map((t) => {
               const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);
               return (
                 <Link
                   key={t.href}
                   href={t.href}
-                  ref={active ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
                   className={cn("relative px-3 pt-1 pb-3 text-[13px] font-medium whitespace-nowrap transition-colors", active ? "text-fg" : "text-muted hover:text-fg")}
                 >
                   <span className="inline-flex items-center gap-1.5">

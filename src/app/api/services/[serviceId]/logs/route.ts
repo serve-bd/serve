@@ -8,6 +8,9 @@ import { serverOf } from "@/server/servers/context";
 
 export const dynamic = "force-dynamic";
 
+/** An RFC3339 timestamp with its fraction padded to nanoseconds, so two of them compare as strings. */
+const sortable = (t: string) => t.replace(/(?:\.(\d+))?(Z|[+-]\d\d:\d\d)$/, (_, f: string | undefined, zone: string) => `.${(f ?? "").padEnd(9, "0")}${zone}`);
+
 /** Streams container logs as server-sent events. */
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/services/[serviceId]/logs">) {
   const { serviceId } = await ctx.params;
@@ -20,6 +23,9 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
     return new Response("Not found", { status: 404 });
   }
   const tail = Math.min(Math.max(Number(request.nextUrl.searchParams.get("tail") ?? 300), 10), 5000);
+  // A reconnect resumes after the last line the page has: everything since then, and nothing it already shows.
+  const sinceParam = request.nextUrl.searchParams.get("since");
+  const since = sinceParam && !Number.isNaN(Date.parse(sinceParam)) ? sortable(sinceParam) : null;
   let docker;
   let all;
   try {
@@ -37,31 +43,56 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
   const streams: NodeJS.ReadableStream[] = [];
   let closed = false;
 
+  let ping: ReturnType<typeof setInterval> | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  const stop = () => {
+    closed = true;
+    clearInterval(ping);
+    clearTimeout(retry);
+    for (const s of streams) (s as unknown as { destroy?: () => void }).destroy?.();
+  };
+
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
+      // Ends the response: the page reconnects and follows the containers running then (a redeploy replaces them).
+      const finish = () => {
+        if (closed) return;
+        stop();
+        try {
+          controller.close();
+        } catch {}
+      };
       const send = (event: string, data: unknown) => {
         if (closed) return;
         try {
           controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
         } catch {
-          closed = true;
+          stop();
         }
       };
       if (!containers.length) {
-        send("info", { message: only ? `No container is running for ${only}.` : "No containers are running for this service." });
+        // Said once: resumed connections keep quiet while there is still nothing to show.
+        if (!since) send("info", { message: only ? `No container is running for ${only}.` : "No containers are running for this service." });
+        retry = setTimeout(finish, 15000);
       }
       const multi = containers.length > 1;
       for (const c of containers) {
+        if (closed) break;
         const label = c.Labels["com.docker.compose.service"] ?? (multi ? c.Names[0].replace(/^\//, "").split("-").pop() : null);
         try {
           const raw = (await docker.getContainer(c.Id).logs({
             follow: true,
             stdout: true,
             stderr: true,
-            tail,
+            ...(since ? { since: Math.floor(Date.parse(since) / 1000) } : { tail }),
             timestamps: true,
           })) as unknown as NodeJS.ReadableStream;
           streams.push(raw);
+          // One that ended while attaching this one: the page reconnects anyway.
+          if (closed) {
+            stop();
+            break;
+          }
           const out = new PassThrough();
           const err = new PassThrough();
           const tty = (await docker.getContainer(c.Id).inspect()).Config.Tty;
@@ -73,33 +104,35 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
               buf += chunk.toString("utf8");
               const lines = buf.split("\n");
               buf = lines.pop() ?? "";
-              const batch = lines.filter(Boolean).map((l) => {
-                const sp = l.indexOf(" ");
-                return { t: l.slice(0, sp), m: l.slice(sp + 1), s: label, e: isErr };
-              });
+              const batch = lines
+                .filter(Boolean)
+                .map((l) => {
+                  const sp = l.indexOf(" ");
+                  return { t: l.slice(0, sp), m: l.slice(sp + 1), s: label, e: isErr };
+                })
+                // Docker's since is in whole seconds: drop the lines of that second the page already has.
+                .filter((l) => !since || sortable(l.t) > since);
               if (batch.length) send("logs", batch);
             });
           };
           forward(out, false);
           forward(err, true);
-          raw.on("end", () => send("info", { message: `${label ?? "container"} stopped streaming` }));
+          raw.on("end", () => {
+            if (c.State === "running") send("info", { message: `${label ?? "container"} stopped streaming` });
+            // A running or restarting container stopped (a redeploy replaced it, or it crashed): reattach and resume.
+            // A stopped one's logs just stay.
+            if (c.State === "running" || c.State === "restarting") finish();
+          });
         } catch (e) {
           send("info", { message: `Could not attach to ${c.Names[0]}: ${(e as Error).message}` });
         }
       }
-      const ping = setInterval(() => send("ping", {}), 15000);
-      request.signal.addEventListener("abort", () => {
-        closed = true;
-        clearInterval(ping);
-        for (const s of streams) (s as unknown as { destroy?: () => void }).destroy?.();
-        try {
-          controller.close();
-        } catch {}
-      });
+      if (closed) return;
+      ping = setInterval(() => send("ping", {}), 15000);
+      request.signal.addEventListener("abort", finish);
     },
     cancel() {
-      closed = true;
-      for (const s of streams) (s as unknown as { destroy?: () => void }).destroy?.();
+      stop();
     },
   });
 

@@ -38,5 +38,5 @@ export default async function RegistriesPage() {
     createdAt: r.createdAt.toISOString(),
     services: users.filter((u) => u.registryId === r.id).map((u) => ({ id: u.id, name: u.name, projectId: u.projectId })),
   }));
-  return <Registries registries={registries} isAdmin={ctx.isAdmin} />;
+  return <Registries registries={registries} isAdmin={ctx.can("integrations.manage")} />;
 }

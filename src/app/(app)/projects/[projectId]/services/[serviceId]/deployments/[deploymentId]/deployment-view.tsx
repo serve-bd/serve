@@ -15,6 +15,7 @@ import { useAction } from "@/hooks/use-action";
 import { cancelDeployment, redeployDeployment, rollbackTo } from "@/server/actions/services";
 import { formatDuration } from "@/lib/utils";
 import { triggerText } from "@/lib/labels";
+import { useCan } from "@/components/permissions";
 
 type Dep = {
   id: string;
@@ -64,6 +65,7 @@ export function DeploymentView({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const can = useCan();
   const [lines, setLines] = React.useState<LogLine[]>([]);
   const [state, setState] = React.useState<LogState>({ status: deployment.status, error: null, startedAt: null, finishedAt: null });
   const [now, setNow] = React.useState(() => Date.now());
@@ -195,31 +197,33 @@ export function DeploymentView({
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {active ? (
-              <Button variant="danger-ghost" size="sm" onClick={() => cancel.run()} loading={cancel.pending || cancelling} disabled={cancelling}>
-                {!(cancel.pending || cancelling) && <Ban />} {cancelling ? "Cancelling…" : "Cancel"}
-              </Button>
-            ) : (
-              <>
-                {serviceType === "app" && state.status === "success" && !isCurrent && deployment.image && (
-                  <Button
-                    size="sm"
-                    onClick={async () => {
-                      if (await confirm({ title: "Roll back to this deployment?", description: "Its image starts again without rebuilding.", confirmLabel: "Roll back" }))
-                        rollback.run();
-                    }}
-                    loading={rollback.pending}
-                  >
-                    <RotateCcw /> Roll back
-                  </Button>
-                )}
-                <Button size="sm" onClick={() => redeploy.run()} loading={redeploy.pending}>
-                  <RefreshCw /> Redeploy
+          {can("services.deploy") && (
+            <div className="flex items-center gap-2">
+              {active ? (
+                <Button variant="danger-ghost" size="sm" onClick={() => cancel.run()} loading={cancel.pending || cancelling} disabled={cancelling}>
+                  {!(cancel.pending || cancelling) && <Ban />} {cancelling ? "Cancelling…" : "Cancel"}
                 </Button>
-              </>
-            )}
-          </div>
+              ) : (
+                <>
+                  {serviceType === "app" && state.status === "success" && !isCurrent && deployment.image && (
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        if (await confirm({ title: "Roll back to this deployment?", description: "Its image starts again without rebuilding.", confirmLabel: "Roll back" }))
+                          rollback.run();
+                      }}
+                      loading={rollback.pending}
+                    >
+                      <RotateCcw /> Roll back
+                    </Button>
+                  )}
+                  <Button size="sm" onClick={() => redeploy.run()} loading={redeploy.pending}>
+                    <RefreshCw /> Redeploy
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
         </div>
         {state.status === "failed" && state.error && (
           <pre className="mt-4 max-h-48 overflow-auto rounded-xl bg-bad-soft px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-bad">{state.error}</pre>

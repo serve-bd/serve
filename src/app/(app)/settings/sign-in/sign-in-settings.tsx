@@ -259,7 +259,8 @@ function ProviderItem({ row, organizations }: { row: ProviderRow; organizations:
         method={`a linked ${titles[row.id]} account`}
         onConfirm={(signOut) => toggle.run(false, signOut)}
       />
-      <ProviderDialog key={`${open}:${JSON.stringify(c)}`} row={row} organizations={organizations} open={open} onOpenChange={setOpen} />
+      {/* Remounted on open, so the form starts from the stored settings; live updates while it is open keep what was typed. */}
+      <ProviderDialog key={`${row.id}:${open}`} row={row} organizations={organizations} open={open} onOpenChange={setOpen} />
     </div>
   );
 }

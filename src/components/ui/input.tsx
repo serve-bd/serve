@@ -32,6 +32,12 @@ function useAutomatedBrowser() {
   );
 }
 
+/** Whether `el` submits `form` when clicked: a submit button of that form, wherever it sits. */
+function submitsForm(el: EventTarget | null, form: HTMLFormElement) {
+  const button = el instanceof Element ? el.closest("button, input") : null;
+  return (button instanceof HTMLButtonElement || button instanceof HTMLInputElement) && (button.type === "submit" || button.type === "image") && button.form === form;
+}
+
 /** Values that mark a real sign-in field, where the browser's password manager should help. */
 const ACCOUNT_AUTOCOMPLETE = new Set(["username", "email", "current-password", "new-password", "one-time-code", "name"]);
 
@@ -48,13 +54,44 @@ export const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<typ
   const [touched, setArmed] = React.useState(false);
   const armed = touched || automated;
   const account = typeof autoComplete === "string" && ACCOUNT_AUTOCOMPLETE.has(autoComplete);
+  const own = React.useRef<HTMLInputElement | null>(null);
+  const setRef = React.useCallback(
+    (el: HTMLInputElement | null) => {
+      own.current = el;
+      if (typeof ref === "function") ref(el);
+      else if (ref) ref.current = el;
+    },
+    [ref],
+  );
+  const keepReadOnly = !!props.readOnly;
+  // Read-only fields are left out of form validation (required, type="email", minLength…). Arm an
+  // untouched field as its form is submitted, before the browser validates: a click on a submit
+  // button or Enter in one of its fields. Set on the element too, since React renders too late.
+  React.useEffect(() => {
+    if (armed || account) return;
+    const arm = (e: Event) => {
+      const input = own.current;
+      const form = input?.form;
+      if (!input || !form) return;
+      const submitting = e.type === "keydown" ? (e as KeyboardEvent).key === "Enter" && (e.target as HTMLInputElement | null)?.form === form : submitsForm(e.target, form);
+      if (!submitting) return;
+      if (!keepReadOnly) input.readOnly = false;
+      setArmed(true);
+    };
+    document.addEventListener("click", arm, true);
+    document.addEventListener("keydown", arm, true);
+    return () => {
+      document.removeEventListener("click", arm, true);
+      document.removeEventListener("keydown", arm, true);
+    };
+  }, [armed, account, keepReadOnly]);
   if (account) return <BaseInput ref={ref} type={type} autoComplete={autoComplete} className={cn(inputClass, className as string)} {...props} />;
   const secret = type === "password";
   // Without CSS masking support, fall back to a password field that managers never fill.
   const masked = secret && masking;
   return (
     <BaseInput
-      ref={ref}
+      ref={setRef}
       type={masked ? "text" : type}
       autoComplete={autoComplete ?? (secret && !masked ? "new-password" : "off")}
       autoCorrect="off"

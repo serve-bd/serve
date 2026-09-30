@@ -6,6 +6,7 @@ import { Button } from "./button";
 import { Input } from "./input";
 import { Check, Copy } from "lucide-react";
 import { actionsRunning, onActionsChange } from "@/hooks/use-action";
+import { copyText } from "./clipboard";
 
 /** The text to type, as a chip that copies itself when clicked. */
 function CopyChip({ text }: { text: string }) {
@@ -16,7 +17,8 @@ function CopyChip({ text }: { text: string }) {
       title="Click to copy"
       onClick={(e) => {
         e.preventDefault();
-        void navigator.clipboard?.writeText(text).then(() => {
+        void copyText(text).then((ok) => {
+          if (!ok) return;
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         });

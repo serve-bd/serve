@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     // Installation changed from GitHub's side: match it to one of this organization's apps.
     if (!(await getSession())) return redirectToGitPage(base, { error: "Sign in to finish the GitHub setup." });
     const ctx = await requireOrg();
-    if (!ctx.isAdmin) return redirectToGitPage(base, { error: "You need to be an organization admin." });
+    if (!ctx.can("integrations.manage")) return redirectToGitPage(base, { error: "You need permission to manage integrations." });
     candidates = await db
       .select()
       .from(schema.gitCredential)

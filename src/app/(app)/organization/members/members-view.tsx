@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
+import { copyText } from "@/components/ui/clipboard";
 import { useAction } from "@/hooks/use-action";
 import { inviteMember, removeMember, revokeInvitation, setMemberProjects, setMemberRole } from "@/server/actions/org";
 import { createPasswordResetLink } from "@/server/actions/email";
@@ -73,9 +74,11 @@ export function MembersView({
   const isAdmin = myRoleId === "owner" || myRoleId === "admin";
   const options = grantable(roles, myRoleId, myPermissions);
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? "Viewer";
+  // Developer when this member may give it, else the first role they may give.
+  const defaultRole = options.some((o) => o.id === "developer") ? "developer" : (options[0]?.id ?? "");
   const [open, setOpen] = React.useState(false);
   const [email, setEmail] = React.useState("");
-  const [roleId, setRoleId] = React.useState("developer");
+  const [roleId, setRoleId] = React.useState(defaultRole);
   const [link, setLink] = React.useState<string | null>(null);
   const [sent, setSent] = React.useState<{ ok: boolean; error: string | null } | null>(null);
   const [resetLink, setResetLink] = React.useState<{ name: string; url: string } | null>(null);
@@ -128,7 +131,7 @@ export function MembersView({
                 onClick={() => {
                   setLink(null);
                   setEmail("");
-                  setRoleId("developer");
+                  setRoleId(defaultRole);
                   setOpen(true);
                 }}
               >
@@ -251,8 +254,8 @@ export function MembersView({
                   size="sm"
                   variant="ghost"
                   onClick={async () => {
-                    await navigator.clipboard.writeText(inviteLink(i.id));
-                    toast.success("Invite link copied");
+                    if (await copyText(inviteLink(i.id))) toast.success("Invite link copied");
+                    else toast.error(`Could not copy. The invite link is ${inviteLink(i.id)}`);
                   }}
                 >
                   <Link2 /> Copy link

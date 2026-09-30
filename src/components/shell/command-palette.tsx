@@ -43,11 +43,14 @@ export function CommandPalette({
   projects,
   isInstanceAdmin,
   isOrgAdmin = false,
+  canManageIntegrations = false,
 }: {
   children: React.ReactNode;
   projects: { id: string; name: string; color: string }[];
   isInstanceAdmin: boolean;
   isOrgAdmin?: boolean;
+  /** The role has integrations.manage, like the sidebar's Integrations group. */
+  canManageIntegrations?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const router = useRouter();
@@ -146,12 +149,16 @@ export function CommandPalette({
                     <Command.Item onSelect={() => go("/certificates")} className={itemClass}>
                       <ShieldCheck /> Certificates
                     </Command.Item>
-                    <Command.Item onSelect={() => go("/integrations/cloudflare")} className={itemClass}>
-                      <Cloud /> Cloudflare
-                    </Command.Item>
-                    <Command.Item onSelect={() => go("/integrations/git")} className={itemClass}>
-                      <FolderGit2 /> Git providers
-                    </Command.Item>
+                    {canManageIntegrations && (
+                      <Command.Item onSelect={() => go("/integrations/cloudflare")} className={itemClass}>
+                        <Cloud /> Cloudflare
+                      </Command.Item>
+                    )}
+                    {canManageIntegrations && (
+                      <Command.Item onSelect={() => go("/integrations/git")} className={itemClass}>
+                        <FolderGit2 /> Git providers
+                      </Command.Item>
+                    )}
                     <Command.Item onSelect={() => go("/organization/members")} className={itemClass}>
                       <Users /> Members
                     </Command.Item>

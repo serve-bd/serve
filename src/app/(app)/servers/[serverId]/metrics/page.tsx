@@ -5,6 +5,6 @@ export const metadata = { title: "Metrics" };
 
 export default async function MetricsPage(props: PageProps<"/servers/[serverId]/metrics">) {
   const { serverId } = await props.params;
-  const { row } = await loadServerView(serverId);
-  return <ServerMetrics serverId={serverId} retentionHours={row.metricsRetentionHours} />;
+  const { row, manage } = await loadServerView(serverId);
+  return <ServerMetrics serverId={serverId} retentionHours={row.metricsRetentionHours} canManage={manage} />;
 }

@@ -77,7 +77,7 @@ function TopList({ services, metric }: { services: Top[]; metric: "cpu" | "memor
   );
 }
 
-export function ServerMetrics({ serverId, retentionHours }: { serverId: string; retentionHours: number }) {
+export function ServerMetrics({ serverId, retentionHours, canManage }: { serverId: string; retentionHours: number; canManage: boolean }) {
   const [hours, setHours] = React.useState(6);
   const { data } = useSWR<{ series: Point[]; now: Now | null }>(`/api/servers/${serverId}/metrics?hours=${hours}`, { refreshInterval: 10_000 });
   const { data: top } = useSWR<{ services: Top[] }>(`/api/servers/${serverId}/metrics/top`, { refreshInterval: 30_000 });
@@ -127,9 +127,11 @@ export function ServerMetrics({ serverId, retentionHours }: { serverId: string; 
               <Info className="size-3.5 flex-none text-warn" />
               <span>
                 Only the last {retentionHours} hours are kept.{" "}
-                <Link href="/settings/advanced" className="text-accent hover:underline">
-                  Keep more history
-                </Link>
+                {canManage && (
+                  <Link href={`/servers/${serverId}`} className="text-accent hover:underline">
+                    Keep more history
+                  </Link>
+                )}
               </span>
             </>
           ) : (

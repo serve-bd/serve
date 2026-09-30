@@ -18,7 +18,7 @@ export default async function NewChannelPage(props: PageProps<"/integrations/not
     <ChannelEditor
       channelId={null}
       kind={info.id}
-      isAdmin={ctx.isAdmin}
+      isAdmin={ctx.can("integrations.manage")}
       isRoot={ctx.isRoot}
       hasServers={await orgHasServers(ctx.org.id)}
       emailReady={emailReady}

@@ -46,7 +46,8 @@ export default async function GitPage() {
 
   return (
     <GitProviders
-      isAdmin={ctx.isAdmin}
+      isAdmin={ctx.can("integrations.manage")}
+      isInstanceAdmin={ctx.isInstanceAdmin}
       credentials={credentials}
       baseUrl={base}
       publicUrl={isPublicUrl(base)}

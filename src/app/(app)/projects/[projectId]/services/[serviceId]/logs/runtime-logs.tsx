@@ -10,6 +10,9 @@ import { cn } from "@/lib/utils";
 
 type Incoming = { t: string; m: string; s: string | null; e: boolean };
 
+/** Docker's RFC3339 timestamp with its fraction padded to nanoseconds, so two of them compare as strings. */
+const sortable = (t: string) => t.replace(/(?:\.(\d+))?(Z|[+-]\d\d:\d\d)$/, (_, f: string | undefined, zone: string) => `.${(f ?? "").padEnd(9, "0")}${zone}`);
+
 /** Merges a batch into the log in time order: the first lines of each container arrive one container at a time. */
 function mergeByTime(prev: LogLine[], next: LogLine[]) {
   const merged = prev.concat(next);
@@ -42,13 +45,17 @@ export function RuntimeLogs({
   React.useEffect(() => {
     let es: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout>;
+    // Newest line received: a reconnect resumes after it, keeping what is on screen.
+    let last: string | null = null;
     const connect = () => {
       const query = new URLSearchParams({ tail: "500" });
       if (container) query.set("container", container);
+      if (last) query.set("since", last);
       es = new EventSource(`/api/services/${serviceId}/logs?${query}`);
       es.onopen = () => setConnected(true);
       es.addEventListener("logs", (ev) => {
         const batch = JSON.parse((ev as MessageEvent).data) as Incoming[];
+        for (const l of batch) if (l.t && (!last || sortable(l.t) > sortable(last))) last = l.t;
         buffer.current.push(...batch.map((l) => ({ text: l.m, time: l.t, source: l.s, error: l.e })));
       });
       es.addEventListener("info", (ev) => {

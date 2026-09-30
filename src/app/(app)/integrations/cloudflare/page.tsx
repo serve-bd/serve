@@ -84,7 +84,7 @@ export default async function CloudflarePage() {
       title="Cloudflare"
       description={<>Manage DNS records, SSL modes and certificates for your Cloudflare zones without leaving the dashboard.</>}
       accounts={withZones}
-      isAdmin={ctx.isAdmin}
+      isAdmin={ctx.can("integrations.manage")}
     />
   );
 }

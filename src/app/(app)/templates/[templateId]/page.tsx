@@ -8,7 +8,7 @@ export const metadata = { title: "Edit template" };
 
 export default async function EditTemplatePage(props: PageProps<"/templates/[templateId]">) {
   const ctx = await requireOrg();
-  if (!ctx.isAdmin) redirect("/templates");
+  if (!ctx.can("integrations.manage")) redirect("/templates");
   const { templateId } = await props.params;
   const initial = await existingTemplateInitial(ctx.org.id, templateId);
   if (!initial) notFound();

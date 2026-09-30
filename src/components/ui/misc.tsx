@@ -5,6 +5,8 @@ import { Check, Copy } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { useNow } from "@/hooks/use-client";
 import { Tooltip } from "./tooltip";
+import { copyText } from "./clipboard";
+import { toast } from "./toast";
 
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("overflow-hidden rounded-2xl border border-line bg-surface shadow-sm", className)} {...props} />;
@@ -95,7 +97,10 @@ export function CopyButton({ value, className, label = "Copy" }: { value: string
         onClick={async (e) => {
           e.preventDefault();
           e.stopPropagation();
-          await navigator.clipboard.writeText(value);
+          if (!(await copyText(value))) {
+            toast.error("Could not copy. Select the text and copy it by hand.");
+            return;
+          }
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         }}

@@ -54,6 +54,7 @@ export default async function SharedVariablesPage(props: PageProps<"/shared-vari
           key={`${scope}:${project?.id ?? ""}:${environment?.id ?? ""}`}
           scope={scope}
           canEdit={canEdit}
+          canDeploy={ctx.can("services.deploy")}
           projects={projects}
           environments={projectEnvs.map((e) => ({ id: e.id, name: e.name }))}
           project={project}

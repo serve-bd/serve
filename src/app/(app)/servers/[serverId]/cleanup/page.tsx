@@ -10,7 +10,7 @@ export const metadata = { title: "Docker cleanup" };
 export default async function CleanupPage(props: PageProps<"/servers/[serverId]/cleanup">) {
   await connection();
   const { serverId } = await props.params;
-  const { server } = await loadServer(serverId);
+  const { server, ctx } = await loadServer(serverId);
   const [settings, data] = await Promise.all([
     getSettings(),
     withTimeout(
@@ -23,6 +23,7 @@ export default async function CleanupPage(props: PageProps<"/servers/[serverId]/
   return (
     <CleanupView
       serverId={serverId}
+      isInstanceAdmin={ctx.isInstanceAdmin}
       usage={data?.[0] ?? null}
       disk={data?.[1]?.disk ?? null}
       history={history}

@@ -28,11 +28,17 @@ export function AccountView({
   user,
   providers = [],
   linkError = null,
+  hasPassword = true,
+  canEmailPasswordLink = false,
 }: {
   user: { name: string; email: string; twoFactorEnabled: boolean };
   /** Sign-in providers that are on, which the user may link. */
   providers?: { id: string; label: string }[];
   linkError?: string | null;
+  /** False for accounts that only sign in through a provider. */
+  hasPassword?: boolean;
+  /** Email works and password sign-in is on, so a link to set a password can be sent. */
+  canEmailPasswordLink?: boolean;
 }) {
   const router = useRouter();
   const [name, setName] = React.useState(user.name);
@@ -80,41 +86,45 @@ export function AccountView({
         </form>
       </Card>
 
-      <Card>
-        <form
-          method="post"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setChanging(true);
-            const { error } = await authClient.changePassword({ currentPassword: current, newPassword: next, revokeOtherSessions: true });
-            setChanging(false);
-            if (error) return toast.error(error.message ?? "Could not change password");
-            toast.success("Password changed. Other devices were signed out.");
-            setCurrent("");
-            setNext("");
-            void load();
-          }}
-        >
-          <CardHeader title="Password" />
-          <CardBody className="grid grid-cols-1 gap-4 py-5 sm:grid-cols-2">
-            <Field label="Current password">
-              <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required autoComplete="current-password" />
-            </Field>
-            <Field label="New password" description="At least 8 characters.">
-              <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} required minLength={8} autoComplete="new-password" />
-            </Field>
-          </CardBody>
-          <CardFooter className="justify-end">
-            <Button type="submit" size="sm" variant="primary" loading={changing} disabled={!current || next.length < 8}>
-              Change password
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
+      {hasPassword ? (
+        <Card>
+          <form
+            method="post"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setChanging(true);
+              const { error } = await authClient.changePassword({ currentPassword: current, newPassword: next, revokeOtherSessions: true });
+              setChanging(false);
+              if (error) return toast.error(error.message ?? "Could not change password");
+              toast.success("Password changed. Other devices were signed out.");
+              setCurrent("");
+              setNext("");
+              void load();
+            }}
+          >
+            <CardHeader title="Password" />
+            <CardBody className="grid grid-cols-1 gap-4 py-5 sm:grid-cols-2">
+              <Field label="Current password">
+                <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required autoComplete="current-password" />
+              </Field>
+              <Field label="New password" description="At least 8 characters.">
+                <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} required minLength={8} autoComplete="new-password" />
+              </Field>
+            </CardBody>
+            <CardFooter className="justify-end">
+              <Button type="submit" size="sm" variant="primary" loading={changing} disabled={!current || next.length < 8}>
+                Change password
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+      ) : (
+        <SetPasswordCard email={user.email} canEmail={canEmailPasswordLink} />
+      )}
 
       <SignInMethods providers={providers} error={linkError} />
 
-      <TwoFactorCard enabled={user.twoFactorEnabled} />
+      <TwoFactorCard enabled={user.twoFactorEnabled} hasPassword={hasPassword} />
 
       <Card className="overflow-hidden">
         <CardHeader
@@ -168,7 +178,40 @@ export function AccountView({
   );
 }
 
-function TwoFactorCard({ enabled }: { enabled: boolean }) {
+/** For accounts without a password: changing one needs the current one, so offer a link to set it. */
+function SetPasswordCard({ email, canEmail }: { email: string; canEmail: boolean }) {
+  const [sending, setSending] = React.useState(false);
+  return (
+    <Card>
+      <CardHeader title="Password" description="You sign in through a linked provider. This account has no password yet." />
+      <CardBody className="py-5 text-[13px] leading-relaxed text-fg-2">
+        {canEmail
+          ? `To set one, we email a link to ${email}. Setting the password signs you out of every device.`
+          : "Email is not set up or password sign-in is off, so a link cannot be sent. An instance admin can create a password reset link for you."}
+      </CardBody>
+      {canEmail && (
+        <CardFooter className="justify-end">
+          <Button
+            size="sm"
+            variant="primary"
+            loading={sending}
+            onClick={async () => {
+              setSending(true);
+              const { error } = await authClient.requestPasswordReset({ email, redirectTo: "/reset-password" });
+              setSending(false);
+              if (error) return toast.error(error.message ?? "Could not send the link");
+              toast.success(`Link sent to ${email}`);
+            }}
+          >
+            Email me a link
+          </Button>
+        </CardFooter>
+      )}
+    </Card>
+  );
+}
+
+function TwoFactorCard({ enabled, hasPassword }: { enabled: boolean; hasPassword: boolean }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const productName = useProductName();
@@ -222,16 +265,18 @@ function TwoFactorCard({ enabled }: { enabled: boolean }) {
         title="Two-factor authentication"
         description="Require a code from an authenticator app when signing in."
         actions={
-          <Button
-            size="sm"
-            variant={enabled ? "secondary" : "primary"}
-            onClick={() => {
-              reset();
-              setOpen(true);
-            }}
-          >
-            <ShieldCheck /> {enabled ? "Disable" : "Enable"}
-          </Button>
+          hasPassword && (
+            <Button
+              size="sm"
+              variant={enabled ? "secondary" : "primary"}
+              onClick={() => {
+                reset();
+                setOpen(true);
+              }}
+            >
+              <ShieldCheck /> {enabled ? "Disable" : "Enable"}
+            </Button>
+          )
         }
       />
       <CardBody>
@@ -239,6 +284,7 @@ function TwoFactorCard({ enabled }: { enabled: boolean }) {
           <span className={`size-2 rounded-full ${enabled ? "bg-ok" : "bg-idle"}`} />
           {enabled ? "Enabled" : "Not enabled"}
         </p>
+        {!hasPassword && <p className="mt-2 text-[13px] text-muted">It protects password sign-in and needs your password to turn on or off. Set a password first.</p>}
       </CardBody>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="sm">

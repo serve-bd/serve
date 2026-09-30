@@ -94,12 +94,19 @@ export function DatabaseOverview(props: {
               <>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
                   <Field label="Port">
-                    <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} className="font-mono" inputMode="numeric" />
+                    <Input
+                      value={port}
+                      onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
+                      className="font-mono"
+                      inputMode="numeric"
+                      disabled={props.canManage === false}
+                    />
                   </Field>
                   <Field label="Reachable by">
                     <Select
                       value={bind}
                       onValueChange={(b) => setBind(b as typeof bind)}
+                      disabled={props.canManage === false}
                       options={[
                         { value: "127.0.0.1", label: "This machine", description: "localhost on the server only, safest" },
                         { value: "0.0.0.0", label: "Everyone", description: "Any network that reaches the server" },

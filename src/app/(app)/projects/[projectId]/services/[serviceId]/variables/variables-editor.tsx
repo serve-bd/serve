@@ -165,7 +165,12 @@ export function VariablesEditor({
                         onClick={() => {
                           if (raw === null) setRaw(toRaw(vars));
                           else {
-                            setVars(parseEnv(raw).map((v) => withId({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? true, runtime: true })));
+                            setVars(
+                              parseEnv(raw).map((v) => {
+                                const was = vars.find((x) => x.key === v.key);
+                                return withId({ ...v, buildTime: was?.buildTime ?? true, runtime: was?.runtime ?? true });
+                              }),
+                            );
                             setRaw(null);
                           }
                         }}

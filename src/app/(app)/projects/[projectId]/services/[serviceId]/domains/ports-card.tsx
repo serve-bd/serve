@@ -53,7 +53,10 @@ export function PortsCard({
   /** Ports the running containers listen on, per compose service ("" for an app). */
   listening?: Record<string, ListeningPort[]>;
 }) {
-  const canEdit = useCan()("domains.manage");
+  const can = useCan();
+  // Ports are saved in the service settings; publishing them takes a deploy.
+  const canEdit = can("services.manage");
+  const canDeploy = can("services.deploy");
   const [ports, setPorts] = React.useState<Row[]>(initial);
   const compose = kind === "compose";
   const pickService = compose && composeServices.length > 1;
@@ -97,19 +100,18 @@ export function PortsCard({
   const taken = busy.filter((p) => p > 0);
   const busyCount = taken.length;
 
+  const deploy = useAction(() => deployService(serviceId), { success: "Redeploying to publish the ports." });
   const save = useAction(
-    async () => {
-      const res = compose
-        ? await updateService(serviceId, { compose: { ports: valid.map((p) => ({ ...p, service: p.service ?? composeServices[0] })) } })
-        : await updateService(serviceId, { runtime: { ports: valid } });
-      if (!res.ok) return res;
-      return deployService(serviceId);
-    },
+    () =>
+      compose
+        ? updateService(serviceId, { compose: { ports: valid.map((p) => ({ ...p, service: p.service ?? composeServices[0] })) } })
+        : updateService(serviceId, { runtime: { ports: valid } }),
     {
-      success: "Ports saved. Redeploying to publish them.",
+      success: canDeploy ? "Ports saved" : "Ports saved. They are published on the next deploy.",
       onSuccess: () => {
         setPorts(valid);
         setSaved(JSON.stringify(valid));
+        if (canDeploy) void deploy.run();
       },
     },
   );
@@ -336,7 +338,7 @@ export function PortsCard({
           </fieldset>
         </CardBody>
         {!canEdit ? (
-          <ReadOnlyFooter permission="domains.manage" />
+          <ReadOnlyFooter permission="services.manage" />
         ) : (
           <CardFooter>
             <div className="flex min-w-0 items-center gap-3">
@@ -353,8 +355,8 @@ export function PortsCard({
                   Discard
                 </Button>
               )}
-              <Button type="submit" variant="primary" size="sm" disabled={!dirty || !!clash || incomplete} loading={save.pending}>
-                Save and redeploy
+              <Button type="submit" variant="primary" size="sm" disabled={!dirty || !!clash || incomplete} loading={save.pending || deploy.pending}>
+                {canDeploy ? "Save and redeploy" : "Save"}
               </Button>
             </div>
           </CardFooter>

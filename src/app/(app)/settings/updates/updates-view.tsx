@@ -48,24 +48,43 @@ export function UpdatesView({
   const confirm = useConfirm();
   const productName = useProductName();
   const [run, setRun] = React.useState(initialRun);
+  // A refresh brings newer stored progress: take it over the last polled value.
+  const [seenRun, setSeenRun] = React.useState(initialRun);
+  if (initialRun !== seenRun) {
+    setSeenRun(initialRun);
+    setRun(initialRun);
+  }
   const [live, setLive] = React.useState<string | null>(null);
+  // Set once "Update now" succeeds, until polling sees the run it started (an id other than `startedFrom`).
+  const [starting, setStarting] = React.useState(false);
+  const startedFrom = React.useRef<string | null>(null);
   const checkNow = useAction(checkUpdatesNow, { success: (c) => (c.latest ? `Latest release: v${c.latest}` : "No releases published yet") });
   const toggle = useAction(setUpdateCheckEnabled, { success: "Saved" });
-  const start = useAction(startSelfUpdate, { success: "Update started" });
+  const start = useAction(startSelfUpdate, {
+    success: "Update started",
+    onSuccess: () => {
+      startedFrom.current = run?.id ?? null;
+      setStarting(true);
+    },
+  });
   const active = run?.state === "backing-up" || run?.state === "running";
 
   // While an update runs the dashboard restarts; keep polling and reload once it is back.
   React.useEffect(() => {
-    if (!active && !start.pending) return;
+    if (!active && !start.pending && !starting) return;
     const t = setInterval(async () => {
       const res = await updateStatus().catch(() => null);
       if (!res?.ok) return;
-      setRun(res.data.run);
+      const next = res.data.run;
+      // Before the new run shows up, the stored one is the previous update: keep waiting.
+      if (starting && (!next || next.id === startedFrom.current)) return;
+      setStarting(false);
+      setRun(next);
       setLive(res.data.live);
-      if (res.data.run && res.data.run.state !== "backing-up" && res.data.run.state !== "running") router.refresh();
+      if (next && next.state !== "backing-up" && next.state !== "running") router.refresh();
     }, 3000);
     return () => clearInterval(t);
-  }, [active, start.pending, router]);
+  }, [active, start.pending, starting, router]);
 
   const log = `${run?.log ?? ""}${live ?? ""}`.trim();
 

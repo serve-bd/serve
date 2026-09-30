@@ -70,6 +70,12 @@ function duration(d: Deployment) {
   return ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
+/** Web page of a repository from its HTTPS or SSH (git@host:owner/repo) URL; null when it has none. */
+function repoWebUrl(repository: string) {
+  const web = repository.replace(/^git@([^:]+):/, "https://$1/").replace(/\.git$/, "");
+  return /^https?:\/\//.test(web) ? web : null;
+}
+
 function compact(n: number) {
   return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
@@ -441,9 +447,13 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
             {service.source?.kind === "git" && (
               <>
                 <Row label="Repository" mono>
-                  <a href={service.source.repository.replace(/\.git$/, "")} target="_blank" rel="noreferrer" className="hover:text-accent">
-                    {service.source.repository.replace(/^https?:\/\/(www\.)?/, "").replace(/\.git$/, "")}
-                  </a>
+                  {repoWebUrl(service.source.repository) ? (
+                    <a href={repoWebUrl(service.source.repository)!} target="_blank" rel="noreferrer" className="hover:text-accent">
+                      {repoWebUrl(service.source.repository)!.replace(/^https?:\/\/(www\.)?/, "")}
+                    </a>
+                  ) : (
+                    service.source.repository
+                  )}
                 </Row>
                 <Row label="Branch" mono>
                   {service.source.branch}

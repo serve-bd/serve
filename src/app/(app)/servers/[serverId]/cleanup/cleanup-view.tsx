@@ -39,6 +39,7 @@ function duration(ms: number) {
 
 export function CleanupView({
   serverId,
+  isInstanceAdmin,
   usage,
   disk,
   history,
@@ -46,6 +47,7 @@ export function CleanupView({
   settings,
 }: {
   serverId: string;
+  isInstanceAdmin: boolean;
   usage: Usage;
   disk: { total: number; used: number } | null;
   history: CleanupRun[];
@@ -172,11 +174,18 @@ export function CleanupView({
           title="History"
           description={
             <>
-              Recent cleanup runs on this server. Change the schedule in{" "}
-              <Link href="/settings/advanced" className="text-accent hover:underline">
-                Settings
-              </Link>
-              .
+              Recent cleanup runs on this server.{" "}
+              {isInstanceAdmin ? (
+                <>
+                  Change the schedule in{" "}
+                  <Link href="/settings/advanced" className="text-accent hover:underline">
+                    Settings
+                  </Link>
+                  .
+                </>
+              ) : (
+                "An instance admin can change the schedule."
+              )}
             </>
           }
         />

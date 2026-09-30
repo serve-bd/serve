@@ -9,6 +9,7 @@ import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@
 import { Badge, CopyButton, Skeleton, TimeAgo } from "@/components/ui/misc";
 import { StatusDot } from "@/components/ui/status";
 import { useAction } from "@/hooks/use-action";
+import { useCan } from "@/components/permissions";
 import { cn, formatBytes } from "@/lib/utils";
 import { restartContainer } from "@/server/actions/services";
 import type { ContainerDetails } from "@/server/services/container-info";
@@ -33,6 +34,7 @@ export function ContainerDialog({
   containerId: string | null;
   onOpenChange: (open: boolean) => void;
 }) {
+  const can = useCan();
   const { data, error, isLoading, mutate } = useSWR(containerId ? `/api/services/${serviceId}/containers/${containerId}` : null, fetcher, { refreshInterval: 5000 });
   const restart = useAction(() => restartContainer(serviceId, containerId!), { success: "Container restarted", onSuccess: () => mutate() });
   const d = data?.id.startsWith(containerId ?? "-") ? data : undefined;
@@ -167,14 +169,16 @@ export function ContainerDialog({
         </DialogBody>
         <DialogFooter className="sm:justify-between">
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Link
-              href={`${base}/logs${d?.composeService ? `?container=${encodeURIComponent(d.composeService)}` : ""}`}
-              className={buttonVariants({ size: "sm" })}
-              onClick={() => onOpenChange(false)}
-            >
-              <ScrollText /> Logs
-            </Link>
-            {d?.state === "running" && (
+            {can("logs.view") && (
+              <Link
+                href={`${base}/logs${d?.composeService ? `?container=${encodeURIComponent(d.composeService)}` : ""}`}
+                className={buttonVariants({ size: "sm" })}
+                onClick={() => onOpenChange(false)}
+              >
+                <ScrollText /> Logs
+              </Link>
+            )}
+            {d?.state === "running" && can("console.access") && (
               <Link
                 href={`${base}/console${d.composeService ? `?container=${encodeURIComponent(d.composeService)}` : ""}`}
                 className={buttonVariants({ size: "sm" })}
@@ -184,9 +188,11 @@ export function ContainerDialog({
               </Link>
             )}
           </div>
-          <Button size="sm" onClick={() => restart.run()} loading={restart.pending} disabled={!d}>
-            <RotateCw /> Restart container
-          </Button>
+          {can("services.deploy") && (
+            <Button size="sm" onClick={() => restart.run()} loading={restart.pending} disabled={!d}>
+              <RotateCw /> Restart container
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

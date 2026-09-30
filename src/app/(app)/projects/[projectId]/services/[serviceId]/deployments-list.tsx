@@ -11,11 +11,13 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { cancelDeployment, redeployDeployment, rollbackTo } from "@/server/actions/services";
 import { cn, formatDuration } from "@/lib/utils";
+import { useCan } from "@/components/permissions";
 import { useServiceLive } from "./service-header";
 
 export function DeploymentsList({ serviceId, projectId, type }: { serviceId: string; projectId: string; type: string }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const can = useCan();
   const { data, mutate } = useServiceLive(serviceId);
   const base = `/projects/${projectId}/services/${serviceId}`;
   // Redeploys of a preview open that preview's deployment page.
@@ -87,47 +89,51 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                       <TimeAgo date={d.createdAt} className="pt-0.5" />
                     </span>
                   </Link>
-                  <div className="absolute top-3 right-3 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                    <Menu>
-                      <MenuTrigger className="rounded-lg bg-surface p-1.5 text-muted shadow-sm ring-1 ring-line hover:text-fg" aria-label="Deployment actions">
-                        <MoreHorizontal className="size-4" />
-                      </MenuTrigger>
-                      <MenuContent>
-                        {active ? (
-                          <MenuItem danger onClick={() => cancel.run(d.id)}>
-                            <Ban /> Cancel deployment
-                          </MenuItem>
-                        ) : (
-                          <>
-                            {type === "app" && !d.preview && d.status === "success" && !current && d.image && (
+                  {can("services.deploy") && (
+                    <div className="absolute top-3 right-3 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <Menu>
+                        <MenuTrigger className="rounded-lg bg-surface p-1.5 text-muted shadow-sm ring-1 ring-line hover:text-fg" aria-label="Deployment actions">
+                          <MoreHorizontal className="size-4" />
+                        </MenuTrigger>
+                        <MenuContent>
+                          {active ? (
+                            <MenuItem danger onClick={() => cancel.run(d.id)}>
+                              <Ban /> Cancel deployment
+                            </MenuItem>
+                          ) : (
+                            <>
+                              {type === "app" && !d.preview && d.status === "success" && !current && d.image && (
+                                <MenuItem
+                                  onClick={async () => {
+                                    if (
+                                      await confirm({
+                                        title: "Roll back to this deployment?",
+                                        description: "The image from this deployment is started again without rebuilding. Current variables are used.",
+                                        confirmLabel: "Roll back",
+                                      })
+                                    ) {
+                                      target.current = serviceId;
+                                      void rollback.run(d.id);
+                                    }
+                                  }}
+                                >
+                                  <RotateCcw /> Roll back to this
+                                </MenuItem>
+                              )}
                               <MenuItem
-                                onClick={async () => {
-                                  if (
-                                    await confirm({
-                                      title: "Roll back to this deployment?",
-                                      description: "The image from this deployment is started again without rebuilding. Current variables are used.",
-                                      confirmLabel: "Roll back",
-                                    })
-                                  )
-                                    rollback.run(d.id);
+                                onClick={() => {
+                                  target.current = d.preview?.id ?? serviceId;
+                                  void redeploy.run(d.id);
                                 }}
                               >
-                                <RotateCcw /> Roll back to this
+                                <RefreshCw /> Redeploy
                               </MenuItem>
-                            )}
-                            <MenuItem
-                              onClick={() => {
-                                target.current = d.preview?.id ?? serviceId;
-                                void redeploy.run(d.id);
-                              }}
-                            >
-                              <RefreshCw /> Redeploy
-                            </MenuItem>
-                          </>
-                        )}
-                      </MenuContent>
-                    </Menu>
-                  </div>
+                            </>
+                          )}
+                        </MenuContent>
+                      </Menu>
+                    </div>
+                  )}
                 </li>
               );
             })}

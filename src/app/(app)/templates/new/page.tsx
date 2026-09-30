@@ -8,7 +8,7 @@ export const metadata = { title: "New template" };
 
 export default async function NewTemplatePage(props: PageProps<"/templates/new">) {
   const ctx = await requireOrg();
-  if (!ctx.isAdmin) redirect("/templates");
+  if (!ctx.can("integrations.manage")) redirect("/templates");
   const { from, service } = await props.searchParams;
   const initial = await newTemplateInitial(ctx.org.id, typeof from === "string" ? from : undefined, typeof service === "string" ? service : undefined);
   return (

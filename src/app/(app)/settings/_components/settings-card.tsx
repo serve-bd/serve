@@ -40,10 +40,22 @@ export function SettingsCard<T extends Record<string, unknown>>({
     <K extends keyof T>(key: K) =>
     (value: T[K]) =>
       setValues((v) => ({ ...v, [key]: value }));
+  // Set by a successful save: once its refresh has landed, show what was stored (the server may
+  // clamp or default what was typed, like 0 builds or an empty port).
+  const adopt = React.useRef(false);
   const save = useAction(() => (onSave ? onSave(values) : saveServerSettings(transform ? transform(values) : (values as Values))), {
     success: "Settings saved",
-    onSuccess: () => setSaved(JSON.stringify(values)),
+    onSuccess: () => {
+      adopt.current = true;
+      setSaved(JSON.stringify(values));
+    },
   });
+  React.useEffect(() => {
+    if (save.pending || !adopt.current) return;
+    adopt.current = false;
+    setValues(initial);
+    setSaved(JSON.stringify(initial));
+  }, [save.pending, initial]);
   return (
     <Card>
       <form

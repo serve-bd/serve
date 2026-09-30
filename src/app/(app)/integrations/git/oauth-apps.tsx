@@ -178,7 +178,7 @@ function Step({ n, title, active, done, children }: { n: number; title: string; 
   );
 }
 
-export function OAuthSetupDialog({ provider, base, onClose }: { provider: OAuthProvider | null; base: OAuthBase; onClose: () => void }) {
+export function OAuthSetupDialog({ provider, base, isInstanceAdmin, onClose }: { provider: OAuthProvider | null; base: OAuthBase; isInstanceAdmin: boolean; onClose: () => void }) {
   const [step, setStep] = React.useState<1 | 2>(1);
   const [form, setForm] = React.useState({ name: "", baseUrl: "", clientId: "", clientSecret: "", groupPath: "" });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -217,9 +217,13 @@ export function OAuthSetupDialog({ provider, base, onClose }: { provider: OAuthP
                 <TriangleAlert className="mt-0.5 size-4 flex-none text-warn" />
                 <span>
                   {base.error}{" "}
-                  <Link href="/settings/dashboard" className="font-medium text-accent hover:underline">
-                    Open Settings → Dashboard
-                  </Link>
+                  {isInstanceAdmin ? (
+                    <Link href="/settings/dashboard" className="font-medium text-accent hover:underline">
+                      Open Settings → Dashboard
+                    </Link>
+                  ) : (
+                    "An instance admin can change it."
+                  )}
                 </span>
               </p>
             )}

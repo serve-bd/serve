@@ -173,6 +173,7 @@ export function ServiceSettings(props: Props) {
   const pendingApply = usePendingApply(service.id);
   const needsRestart = React.useCallback((what: string) => addPendingApply(service.id, what), [service.id]);
   const applyDb = useAction(() => applyDatabaseChanges(service.id), { success: "Restarting the database with the new settings", onSuccess: () => clearPendingApply(service.id) });
+  const saveDataMount = useAction((dataMountPath: string | null) => updateDatabaseSettings(service.id, { dataMountPath }));
   const isDb = service.type === "database";
   const running = service.status === "running" || service.status === "deploying" || service.status === "restarting";
   /** Runtime saves on a database also need a restart. */
@@ -185,8 +186,7 @@ export function ServiceSettings(props: Props) {
     const r = await save.run({ runtime: { volumes } });
     if (r === undefined) return undefined;
     if (isDb && dataMountPath !== undefined) {
-      const d = await updateDatabaseSettings(service.id, { dataMountPath });
-      if (!d.ok) return undefined;
+      if ((await saveDataMount.run(dataMountPath)) === undefined) return undefined;
     }
     if (isDb) needsRestart("Storage");
     return r;

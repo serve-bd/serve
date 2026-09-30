@@ -50,7 +50,7 @@ export default async function ZonePage(props: PageProps<"/integrations/cloudflar
           sslMode={sslMode}
           alwaysHttps={alwaysHttps}
           serverIp={settings.serverIp}
-          isAdmin={ctx.isAdmin}
+          isAdmin={ctx.can("integrations.manage")}
         />
       </PageBody>
     </>

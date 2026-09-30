@@ -63,5 +63,5 @@ export default async function StoragePage() {
       lastUpload: last ? new Date(last).toISOString() : null,
     };
   });
-  return <StorageDestinations destinations={destinations} isAdmin={ctx.isAdmin} />;
+  return <StorageDestinations destinations={destinations} isAdmin={ctx.can("integrations.manage")} />;
 }

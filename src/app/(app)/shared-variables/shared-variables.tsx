@@ -57,6 +57,7 @@ const scopeText: Record<Scope, { title: string; description: string }> = {
 export function SharedVariables({
   scope,
   canEdit,
+  canDeploy,
   projects,
   environments,
   project,
@@ -65,6 +66,7 @@ export function SharedVariables({
 }: {
   scope: Scope;
   canEdit: boolean;
+  canDeploy: boolean;
   projects: { id: string; name: string }[];
   environments: { id: string; name: string }[];
   project: { id: string; name: string } | null;
@@ -261,10 +263,12 @@ export function SharedVariables({
           {canEdit && target && (
             <CardFooter>
               <span className="mr-auto hidden text-xs text-muted sm:inline">{dirty ? "Unsaved changes" : "Changes apply on the next deploy."}</span>
-              <Button size="sm" variant="ghost" onClick={() => redeploy.run()} loading={redeploy.pending} disabled={dirty}>
-                Redeploy
-                <span className="hidden sm:inline"> affected services</span>
-              </Button>
+              {canDeploy && (
+                <Button size="sm" variant="ghost" onClick={() => redeploy.run()} loading={redeploy.pending} disabled={dirty}>
+                  Redeploy
+                  <span className="hidden sm:inline"> affected services</span>
+                </Button>
+              )}
               <Button size="sm" variant="primary" onClick={() => save.run()} loading={save.pending} disabled={!dirty}>
                 Save
               </Button>

@@ -287,6 +287,7 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
 export function GitProviders({
   credentials,
   isAdmin,
+  isInstanceAdmin,
   baseUrl,
   publicUrl,
   oauthApps,
@@ -294,6 +295,7 @@ export function GitProviders({
 }: {
   credentials: Cred[];
   isAdmin: boolean;
+  isInstanceAdmin: boolean;
   baseUrl: string;
   publicUrl: boolean;
   oauthApps: OAuthAppRow[];
@@ -488,7 +490,7 @@ export function GitProviders({
           dialogs.setTokenOpen(true);
         }}
       />
-      <OAuthSetupDialog provider={oauthSetup} base={oauthBase} onClose={() => setOauthSetup(null)} />
+      <OAuthSetupDialog provider={oauthSetup} base={oauthBase} isInstanceAdmin={isInstanceAdmin} onClose={() => setOauthSetup(null)} />
       <Dialog open={connecting} onOpenChange={setConnecting}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader title="Connect another GitHub account" description="Each GitHub account or organization gets its own GitHub App." />

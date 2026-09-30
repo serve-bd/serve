@@ -30,7 +30,7 @@ export default async function TemplatesPage() {
       <PageHeader title="Templates" description="One-click services for this organization. Built-in templates plus your own compose files." />
       <PageBody>
         <TemplatesView
-          canManage={ctx.isAdmin}
+          canManage={ctx.can("integrations.manage")}
           custom={custom.map((t) => ({
             id: t.id,
             name: t.name,

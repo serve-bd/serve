@@ -69,10 +69,12 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
               ? `${service.source.repository.replace(/^https?:\/\/(www\.)?/, "").replace(/\.git$/, "")} · ${service.source.branch}`
               : service.source?.type === "image"
                 ? service.source.image
-                : service.database
-                  ? `${service.database.engine} ${service.database.version}`
-                  : // Compose stacks: the icon and name already say what it is.
-                    "",
+                : service.source?.type === "dockerfile"
+                  ? "Dockerfile"
+                  : service.database
+                    ? `${service.database.engine} ${service.database.version}`
+                    : // Compose stacks: the icon and name already say what it is.
+                      "",
         }}
         initialLive={JSON.parse(JSON.stringify(live))}
         server={servers.length > 1 && server ? { id: service.serverId, name: server.name } : null}

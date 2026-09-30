@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Container,
   Database,
+  FileCode,
   GitBranch,
   Globe,
   KeyRound,
@@ -44,7 +45,7 @@ import type { DbEngine } from "@/server/services/types";
 import { NixpacksHint } from "@/components/nixpacks-hint";
 import { toVolumes, type VolumeRow, volumeName, volumeRowsIssue } from "./volume-rows";
 
-type Kind = "git" | "image" | "database" | "compose";
+type Kind = "git" | "image" | "dockerfile" | "database" | "compose";
 /** How a Git repository is reached: by URL, with an SSH deploy key, or through a connected account. */
 type GitAccess = "public" | "key" | "account";
 
@@ -104,6 +105,7 @@ const starts: { id: Kind; key: string; access?: GitAccess; title: string; body: 
   { id: "git", key: "git-public", access: "public", title: "Public repository", body: "Any public Git URL. No credentials needed.", icon: <Globe /> },
   { id: "git", key: "git-key", access: "key", title: "Private repository", body: "Over SSH with a deploy key. You set the URL and branch.", icon: <KeyRound /> },
   { id: "image", key: "image", title: "Docker image", body: "A ready-made image from Docker Hub or any registry.", icon: <Container /> },
+  { id: "dockerfile", key: "dockerfile", title: "Dockerfile", body: "Paste a Dockerfile and Serve builds it; no repository needed.", icon: <FileCode /> },
   { id: "compose", key: "compose", title: "Docker Compose", body: "A multi-container stack from a compose file.", icon: <Layers /> },
   { id: "database", key: "database", title: "Database", body: "PostgreSQL, MySQL, Redis and more, with backups.", icon: <Database /> },
 ];
@@ -551,7 +553,6 @@ function ImageForm({ props, onBack, onDatabase }: { props: Props; onBack: () => 
   const [storage, setStorage] = React.useState(false);
   const [volumes, setVolumes] = React.useState<VolumeRow[]>([{ mountPath: "", name: "" }]);
   const volumesIssue = storage ? volumeRowsIssue(volumes) : null;
-  const setVolume = (i: number, patch: Partial<VolumeRow>) => setVolumes((all) => all.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   const { run, pending } = useAction(createAppService, {
     refresh: false,
     success: "Service created. Review the settings, then deploy.",
@@ -619,10 +620,33 @@ function ImageForm({ props, onBack, onDatabase }: { props: Props; onBack: () => 
           </Field>
         </div>
       )}
-      <button type="button" onClick={() => setStorage((s) => !s)} className="flex w-fit items-center gap-1 text-[13px] font-medium text-accent" aria-expanded={storage}>
-        <ChevronRight className={cn("size-3.5 transition-transform", storage && "rotate-90")} /> Persistent storage
+      <StorageFields open={storage} onOpenChange={setStorage} volumes={volumes} onChange={setVolumes} issue={volumesIssue} />
+      <EnvTextarea value={env} onChange={setEnv} />
+    </FormShell>
+  );
+}
+
+/** Persistent storage rows of the create forms: named volumes at container paths. */
+function StorageFields({
+  open,
+  onOpenChange,
+  volumes,
+  onChange,
+  issue,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  volumes: VolumeRow[];
+  onChange: React.Dispatch<React.SetStateAction<VolumeRow[]>>;
+  issue: string | null;
+}) {
+  const setVolume = (i: number, patch: Partial<VolumeRow>) => onChange((all) => all.map((v, j) => (j === i ? { ...v, ...patch } : v)));
+  return (
+    <>
+      <button type="button" onClick={() => onOpenChange(!open)} className="flex w-fit items-center gap-1 text-[13px] font-medium text-accent" aria-expanded={open}>
+        <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} /> Persistent storage
       </button>
-      {storage && (
+      {open && (
         <div className="flex animate-rise flex-col gap-3">
           <p className="text-[12.5px] text-muted">Paths the image stores data in are kept automatically.</p>
           {volumes.map((v, i) => (
@@ -653,24 +677,82 @@ function ImageForm({ props, onBack, onDatabase }: { props: Props; onBack: () => 
                 size="sm"
                 className="h-9 flex-none"
                 aria-label="Remove"
-                onClick={() => setVolumes((all) => (all.length > 1 ? all.filter((_, j) => j !== i) : [{ mountPath: "", name: "" }]))}
+                onClick={() => onChange((all) => (all.length > 1 ? all.filter((_, j) => j !== i) : [{ mountPath: "", name: "" }]))}
               >
                 <Trash2 />
               </Button>
             </div>
           ))}
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" size="sm" onClick={() => setVolumes((all) => [...all, { mountPath: "", name: "" }])}>
+            <Button type="button" size="sm" onClick={() => onChange((all) => [...all, { mountPath: "", name: "" }])}>
               <Plus /> Add path
             </Button>
-            {volumesIssue && <span className="text-xs text-bad">{volumesIssue}</span>}
+            {issue && <span className="text-xs text-bad">{issue}</span>}
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+function DockerfileForm({ props, onBack }: { props: Props; onBack: () => void }) {
+  const router = useRouter();
+  const [content, setContent] = React.useState(sampleDockerfile);
+  const [name, setName] = React.useState("");
+  const [port, setPort] = React.useState("");
+  const [env, setEnv] = React.useState("");
+  const [storage, setStorage] = React.useState(false);
+  const [volumes, setVolumes] = React.useState<VolumeRow[]>([{ mountPath: "", name: "" }]);
+  const volumesIssue = storage ? volumeRowsIssue(volumes) : null;
+  const { run, pending } = useAction(createAppService, {
+    refresh: false,
+    success: "Service created. Review the settings, then deploy.",
+    onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
+  });
+  return (
+    <FormShell
+      title="Build a Dockerfile"
+      description={<>The server builds the Dockerfile on every deploy and runs the image. Build-time variables are passed as build arguments.</>}
+      onBack={onBack}
+      onSubmit={() =>
+        run({
+          projectId: props.projectId,
+          environmentId: props.environmentId,
+          serverId: props.serverId,
+          name: name || "app",
+          source: { type: "dockerfile", content },
+          port: port ? Number(port) : null,
+          envVars: parseEnv(env),
+          volumes: storage ? toVolumes(volumes) : [],
+        })
+      }
+      footer={
+        <Button type="submit" variant="primary" size="sm" loading={pending} disabled={!content.trim() || !!volumesIssue}>
+          Create service
+        </Button>
+      }
+    >
+      <Field label="Dockerfile" description="The build has no other files: COPY and ADD of local files fail. Fetch what you need with RUN, or use a repository instead.">
+        <CodeEditor value={content} onChange={setContent} minRows={12} aria-label="Dockerfile" />
+      </Field>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field label="Service name">
+          <Input value={name} onChange={(e) => setName(typedServiceName(e.target.value))} placeholder="app" />
+        </Field>
+        <Field label="Port" optional description="Uses the port the image exposes when empty.">
+          <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder="8080" inputMode="numeric" />
+        </Field>
+      </div>
+      <StorageFields open={storage} onOpenChange={setStorage} volumes={volumes} onChange={setVolumes} issue={volumesIssue} />
       <EnvTextarea value={env} onChange={setEnv} />
     </FormShell>
   );
 }
+
+const sampleDockerfile = `FROM nginx:alpine
+RUN echo '<h1>Hello from Serve</h1>' > /usr/share/nginx/html/index.html
+EXPOSE 80
+`;
 
 function DatabaseForm({ props, onBack, initialEngine }: { props: Props; onBack: () => void; initialEngine?: DbEngine }) {
   const router = useRouter();
@@ -1207,6 +1289,7 @@ function WizardSteps({ props, step, setStep }: { props: Props; step: Step; setSt
   if ("template" in step) return <TemplateConfigure props={props} template={props.templates.find((t) => t.id === step.template)!} onBack={back} />;
   if (step.kind === "git") return <GitForm props={props} onBack={back} access={step.access} />;
   if (step.kind === "image") return <ImageForm props={props} onBack={back} onDatabase={(engine) => setStep({ kind: "database", engine })} />;
+  if (step.kind === "dockerfile") return <DockerfileForm props={props} onBack={back} />;
   if (step.kind === "database") return <DatabaseForm props={props} onBack={back} initialEngine={step.engine} />;
   return <ComposeForm props={props} onBack={back} />;
 }

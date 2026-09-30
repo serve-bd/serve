@@ -15,6 +15,7 @@ import { settingsNav } from "../settings-nav";
 import { monitorSummary } from "@/server/monitoring/queries";
 import { monitorUrl } from "@/server/monitoring/checks";
 import { normalizeDistribution } from "@/server/deploy/distribution";
+import { buildsImage } from "@/server/services/types";
 
 export async function generateMetadata(props: PageProps<"/projects/[projectId]/services/[serviceId]/settings/[section]">) {
   const { section } = await props.params;
@@ -91,7 +92,8 @@ async function distributionProps(service: typeof schema.service.$inferSelect, se
       : Promise.resolve([]),
   ]);
   return {
-    gitSource: service.source?.type === "git",
+    // Built images (git and Dockerfile sources) can come from a build server and a registry.
+    gitSource: buildsImage(service.source?.type),
     servers: servers.map((s) => ({ id: s.id, name: s.name, status: s.status, isLocal: s.isLocal })),
     registries,
     initial: normalizeDistribution(service.serverId, service.distribution),
@@ -151,7 +153,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
         previewDomain: service.previewDomain,
         isPreview: !!service.parentServiceId,
         source: service.source
-          ? service.source.type === "git"
+          ? service.source.type === "git" || service.source.type === "dockerfile"
             ? service.source
             : { type: "image", image: service.source.image, registryUsername: service.source.registryUsername ?? null, hasPassword: !!service.source.registryPassword }
           : null,

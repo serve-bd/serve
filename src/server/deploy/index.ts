@@ -4,8 +4,8 @@ import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import type Docker from "dockerode";
-import type { BuildConfig, PortMapping } from "@/server/services/types";
-import { ensureNetwork, imageExists, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
+import { type BuildConfig, buildsImage, defaultBuild, type PortMapping } from "@/server/services/types";
+import { ensureNetwork, imageExists, imageExistsFor, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
 import { forgetServer, getServer, serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
 import { buildSlotFree } from "@/server/limits";
@@ -25,7 +25,8 @@ import { getRegistry, pushImage, registryAuth, type RegistryRow } from "@/server
 import { defaultRepository, imageRef, normalizeRepository, renderTag } from "@/server/registries/refs";
 import { replicaCount, replicaEnv, shortReplicaPicks } from "@/lib/refs";
 import type { DeploymentTarget } from "@/server/services/types";
-import { createSpec, dockerRestartPolicy, startContainer, volumeName, waitHealthy } from "./containers";
+import { createSpec, dockerRestartPolicy, gpuError, startContainer, volumeName, waitHealthy } from "./containers";
+import { serverPlatform } from "./options";
 import { prepareMounts } from "@/server/services/mounts";
 import { adoptAnonymousVolumes, imageVolumePaths, statefulMounts, uncoveredPaths, volumesFor } from "./image-volumes";
 import { databasePlan } from "@/server/databases/options";
@@ -110,22 +111,34 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
   const source = service.source;
   if (!source) throw new Error("This service has no source configured.");
 
+  const platform = service.runtime.platform ?? null;
+  const foreign = await foreignPlatform(platform, server, log.line);
   if (source.type === "image") {
-    log.step(`Pulling ${source.image}`);
-    const password = decryptOrNull(source.registryPassword);
-    const auth = source.registryUsername && password ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) } : null;
-    await pullImage(source.image, log.line, auth, d);
-    checkCancelled(signal);
     const ref = source.image.includes(":") || source.image.includes("@") ? source.image : `${source.image}:latest`;
+    if (service.runtime.pullPolicy === "missing" && (await imageExistsFor(ref, platform, d))) {
+      log.step(`Using ${source.image} already on ${server.local ? "the server" : server.name} (pull policy: if missing)`);
+    } else {
+      log.step(`Pulling ${source.image}${platform ? ` for ${platform}` : ""}`);
+      const password = decryptOrNull(source.registryPassword);
+      const auth = source.registryUsername && password ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) } : null;
+      await pullImage(source.image, log.line, auth, d, platform);
+    }
+    checkCancelled(signal);
     await d.getImage(ref).tag({ repo: imageRepo(service.slug), tag: dep.id });
+    if (foreign) await dropForeignTag(ref, d);
     return { image: target, detectedPort: await imagePort(target, d), registryImage: null, rollback: false };
   }
 
-  // Git source: clone and build.
+  // Git source: clone and build. Dockerfile source: build the saved Dockerfile in an empty context.
   const env = await resolveEnv(service);
   log.redact(env.secrets);
   const workDir = path.join(paths.builds, dep.id);
-  const build: BuildConfig = { ...service.build!, noCache: service.build?.noCache || service.build?.noCacheOnce };
+  const saved = service.build ?? defaultBuild();
+  const build: BuildConfig = {
+    ...saved,
+    noCache: saved.noCache || saved.noCacheOnce,
+    ...(source.type === "dockerfile" ? { builder: "dockerfile" as const, dockerfile: "Dockerfile", rootDir: "/" } : {}),
+  };
   if (service.build?.noCacheOnce) {
     // One-shot "build without cache": consume the flag so later deploys use the cache again.
     await db
@@ -141,15 +154,24 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
   const timer = timeoutMinutes ? setTimeout(() => buildController.abort(new Error(`The build exceeded ${timeoutMinutes} minutes.`)), timeoutMinutes * 60_000) : undefined;
   const buildSignal = buildController.signal;
   try {
-    log.step("Cloning repository");
-    if (build.noCache) log.line("Building without cache");
-    const clone = await cloneRepository(source, workDir, log.line, buildSignal, await orgIdOf(service), { submodules: build.submodules });
-    await setDeployment(dep.id, {
-      commitSha: clone.commitSha,
-      commitMessage: clone.commitMessage,
-      commitAuthor: clone.commitAuthor,
-      branch: source.branch,
-    });
+    if (source.type === "git") {
+      log.step("Cloning repository");
+      if (build.noCache) log.line("Building without cache");
+      const clone = await cloneRepository(source, workDir, log.line, buildSignal, await orgIdOf(service), { submodules: build.submodules });
+      await setDeployment(dep.id, {
+        commitSha: clone.commitSha,
+        commitMessage: clone.commitMessage,
+        commitAuthor: clone.commitAuthor,
+        branch: source.branch,
+      });
+    } else {
+      log.step("Preparing the Dockerfile");
+      if (build.noCache) log.line("Building without cache");
+      // A fresh directory holding only the Dockerfile: there are no local files to COPY.
+      await fs.rm(workDir, { recursive: true, force: true });
+      await fs.mkdir(workDir, { recursive: true });
+      await fs.writeFile(path.join(workDir, "Dockerfile"), source.content);
+    }
     checkCancelled(signal);
 
     const contextDir = containedPath(workDir, build.rootDir || "/", "Root directory");
@@ -175,6 +197,7 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
       redact: env.secrets,
       dockerEnv: await server.cliEnv(),
       cacheScope: buildCacheScope(await orgIdOf(service)),
+      platform,
     });
     log.line(`Build finished in ${((Date.now() - started) / 1000).toFixed(1)}s`);
     return { image: target, detectedPort: result.detectedPort ?? (await imagePort(target, d)), registryImage: null, rollback: false };
@@ -191,6 +214,26 @@ async function prepareAppImage(service: Service, dep: Deployment, log: DeployLog
 async function orgIdOf(service: Service) {
   const [row] = await db.select({ organizationId: schema.project.organizationId }).from(schema.project).where(eq(schema.project.id, service.projectId));
   return row?.organizationId ?? null;
+}
+
+/**
+ * Whether `platform` differs from the server's own, with a warning: images of another platform run
+ * under emulation, which is slow and works only where binfmt handlers are installed.
+ */
+async function foreignPlatform(platform: string | null, server: ServerCtx, log: (line: string) => void) {
+  if (!platform) return false;
+  const own = serverPlatform((await server.docker.info().catch(() => null))?.Architecture);
+  if (!own || own === platform) return false;
+  log(`Warning: ${server.name} is ${own} and this service uses ${platform}. It runs under emulation, which is slow and needs QEMU (binfmt) on the server.`);
+  return true;
+}
+
+/** After a pull for another platform: the shared tag (like alpine:3) must not keep pointing at it for everything else on the server. */
+async function dropForeignTag(ref: string, d: Docker) {
+  await d
+    .getImage(ref)
+    .remove({ noprune: true })
+    .catch(() => {});
 }
 
 function registryOf(image: string) {
@@ -243,7 +286,8 @@ async function ensureImageOn(target: ServerCtx, service: Service, prepared: Prep
   const [repo, tag] = [prepared.image.slice(0, prepared.image.lastIndexOf(":")), prepared.image.slice(prepared.image.lastIndexOf(":") + 1)];
   if (prepared.registryImage) {
     log.line(`Pulling ${prepared.registryImage}`);
-    await pullImage(prepared.registryImage, log.line, registry ? registryAuth(registry) : null, d);
+    await foreignPlatform(service.runtime.platform ?? null, target, log.line);
+    await pullImage(prepared.registryImage, log.line, registry ? registryAuth(registry) : null, d, service.runtime.platform);
     await d.getImage(prepared.registryImage).tag({ repo, tag });
     // Keep only Serve's own tag, so image retention can clean this image up later.
     await d
@@ -254,12 +298,19 @@ async function ensureImageOn(target: ServerCtx, service: Service, prepared: Prep
   }
   const source = service.source;
   if (!prepared.rollback && source?.type === "image") {
-    log.line(`Pulling ${source.image}`);
-    const password = decryptOrNull(source.registryPassword);
-    const auth = source.registryUsername && password ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) } : null;
-    await pullImage(source.image, log.line, auth, d);
     const ref = source.image.includes(":") || source.image.includes("@") ? source.image : `${source.image}:latest`;
+    const platform = service.runtime.platform ?? null;
+    const foreign = await foreignPlatform(platform, target, log.line);
+    if (service.runtime.pullPolicy === "missing" && (await imageExistsFor(ref, platform, d))) {
+      log.line(`Using ${source.image} already on ${target.name}`);
+    } else {
+      log.line(`Pulling ${source.image}`);
+      const password = decryptOrNull(source.registryPassword);
+      const auth = source.registryUsername && password ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) } : null;
+      await pullImage(source.image, log.line, auth, d, platform);
+    }
     await d.getImage(ref).tag({ repo, tag });
+    if (foreign) await dropForeignTag(ref, d);
     return;
   }
   throw new Error(
@@ -312,6 +363,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     service.runtime.volumes.some((v) => v.kind === "bind") && "host path mounts",
     service.runtime.ports.length > 0 && "published host ports",
     (service.runtime.privileged || !!service.runtime.capAdd?.length) && "privileged mode or extra capabilities",
+    (!!service.runtime.gpus || !!service.runtime.devices?.length) && "GPUs or host devices",
   ].filter(Boolean);
   if (hostUses.length && (await orgIdOf(service)) !== (await getSetting("rootOrganizationId"))) {
     throw new Error(`Only services of the Root organization may use ${hostUses.join(", ")}. Remove them in the service settings.`);
@@ -338,11 +390,11 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   await saveTargets();
 
   // Git builds may happen on a dedicated build server; image sources are pulled where they run.
-  const buildServer = sourceType === "git" && dist.buildServerId && !dep.rollbackOf ? await connectTo(dist.buildServerId, log, "build") : server;
+  const buildServer = buildsImage(sourceType) && dist.buildServerId && !dep.rollbackOf ? await connectTo(dist.buildServerId, log, "build") : server;
   const prepared = await prepareAppImage(service, dep, log, buildServer, signal);
   checkCancelled(signal);
   const { image, detectedPort } = prepared;
-  if (registry && sourceType === "git" && !prepared.rollback) {
+  if (registry && buildsImage(sourceType) && !prepared.rollback) {
     prepared.registryImage = await pushToRegistry(service, dep, dist, registry, image, buildServer, log, signal);
     await setDeployment(dep.id, { registryImage: prepared.registryImage });
     checkCancelled(signal);
@@ -638,7 +690,9 @@ async function runPreDeploy(opts: {
   });
   const container = await d.createContainer(spec);
   try {
-    await container.start();
+    await container.start().catch((error: Error) => {
+      throw gpuError(error, opts.runtime) ?? error;
+    });
     const stream = (await container.logs({ follow: true, stdout: true, stderr: true })) as unknown as NodeJS.ReadableStream;
     const { PassThrough } = await import("node:stream");
     const out = new PassThrough();

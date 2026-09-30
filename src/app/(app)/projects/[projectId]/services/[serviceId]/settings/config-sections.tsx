@@ -11,7 +11,8 @@ import { useRouter } from "@/hooks/use-router";
 import { useConfirm } from "@/components/ui/confirm";
 import { deployWithoutCache, type updateService } from "@/server/actions/services";
 import { type BuildConfig, DEFAULT_CRASH_LIMIT, type KeyValue, type RuntimeConfig } from "@/server/services/types";
-import { CAPABILITIES } from "@/server/deploy/options";
+import { CAPABILITIES, joinArgs, PLATFORMS, splitArgs } from "@/server/deploy/options";
+import { toast } from "@/components/ui/toast";
 import { digits, KeyValueEditor, linesOf, num, Section } from "./section";
 import { NixpacksHint } from "@/components/nixpacks-hint";
 
@@ -350,6 +351,9 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
         port: String(runtime.port ?? ""),
         replicas: String(runtime.replicas),
         command: runtime.command ?? "",
+        entrypoint: runtime.entrypoint?.length ? joinArgs(runtime.entrypoint) : "",
+        platform: runtime.platform ?? "",
+        pullPolicy: runtime.pullPolicy ?? "always",
         workingDir: runtime.workingDir ?? "",
         user: runtime.user ?? "",
         restartPolicy: runtime.restartPolicy,
@@ -357,12 +361,29 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
         stopSignal: runtime.stopSignal ?? "SIGTERM",
         stopTimeout: String(runtime.stopTimeout ?? 10),
       }}
-      onSave={(v) =>
-        save({
+      footerAction={(v, set) =>
+        (v.command || v.entrypoint) && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => set({ command: "", entrypoint: "" })}>
+            Use image defaults
+          </Button>
+        )
+      }
+      onSave={(v) => {
+        let entrypoint: string[] | null = null;
+        try {
+          entrypoint = v.entrypoint.trim() ? splitArgs(v.entrypoint) : null;
+        } catch (e) {
+          toast.error("Entrypoint", (e as Error).message);
+          return Promise.resolve(undefined);
+        }
+        return save({
           runtime: {
             port: num(v.port),
             replicas: Math.max(1, Number(v.replicas) || 1),
             command: v.command.trim() || null,
+            entrypoint,
+            platform: (v.platform || null) as RuntimeConfig["platform"],
+            pullPolicy: v.pullPolicy,
             workingDir: v.workingDir.trim() || null,
             user: v.user.trim() || null,
             restartPolicy: v.restartPolicy,
@@ -371,8 +392,8 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
             stopSignal: v.stopSignal as RuntimeConfig["stopSignal"],
             stopTimeout: num(v.stopTimeout),
           },
-        })
-      }
+        });
+      }}
     >
       {(v, set) => (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -384,6 +405,26 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
           </Field>
           <Field label="Start command" optional description="Overrides the image's command.">
             <Input value={v.command} onChange={(e) => set({ command: e.target.value })} placeholder="node server.js" className="font-mono text-[13px]" />
+          </Field>
+          <Field label="Entrypoint" optional description="Replaces the image's entrypoint. Quote arguments with spaces.">
+            <Input value={v.entrypoint} onChange={(e) => set({ entrypoint: e.target.value })} placeholder="/docker-entrypoint.sh" className="font-mono text-[13px]" />
+          </Field>
+          <Field label="Platform" description="Architecture to pull or build for. Another one than the server's runs under emulation.">
+            <Select
+              value={v.platform}
+              onValueChange={(p) => set({ platform: p })}
+              options={[{ value: "", label: "The server's own" }, ...PLATFORMS.map((p) => ({ value: p, label: p }))]}
+            />
+          </Field>
+          <Field label="Pull policy" description="For image sources.">
+            <Select
+              value={v.pullPolicy}
+              onValueChange={(p) => set({ pullPolicy: p as NonNullable<RuntimeConfig["pullPolicy"]> })}
+              options={[
+                { value: "always", label: "Pull on every deploy" },
+                { value: "missing", label: "Only if missing on the server" },
+              ]}
+            />
           </Field>
           <Field label="Working directory" optional>
             <Input value={v.workingDir} onChange={(e) => set({ workingDir: e.target.value })} placeholder="/app" className="font-mono text-[13px]" />
@@ -490,6 +531,13 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
         logMaxFiles: String(runtime.logMaxFiles ?? 5),
         privileged: runtime.privileged ?? false,
         capAdd: runtime.capAdd ?? ([] as string[]),
+        ulimits: (runtime.ulimits ?? []).map((u) => `${u.name}=${u.soft === u.hard ? u.soft : `${u.soft}:${u.hard}`}`).join("\n"),
+        sysctls: Object.entries(runtime.sysctls ?? {}).map(([key, value]) => ({ key, value })),
+        dns: (runtime.dns ?? []).join("\n"),
+        dnsSearch: (runtime.dnsSearch ?? []).join(" "),
+        dnsOptions: (runtime.dnsOptions ?? []).join(" "),
+        gpus: runtime.gpus == null ? "" : String(runtime.gpus),
+        devices: (runtime.devices ?? []).map((d) => [d.host, d.container ?? "", d.permissions ?? ""].join(":").replace(/:+$/, "")).join("\n"),
       }}
       onSave={(v) =>
         save({
@@ -499,7 +547,19 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
             labels: v.labels.filter((l) => l.key.trim()),
             logMaxSizeMb: num(v.logMaxSizeMb),
             logMaxFiles: num(v.logMaxFiles),
-            ...(isRootAdmin ? { privileged: v.privileged, capAdd: v.capAdd as (typeof CAPABILITIES)[number][] } : {}),
+            ulimits: linesOf(v.ulimits).map(parseUlimit),
+            sysctls: Object.fromEntries(v.sysctls.filter((s) => s.key.trim()).map((s) => [s.key.trim(), s.value.trim()])),
+            dns: linesOf(v.dns),
+            dnsSearch: words(v.dnsSearch),
+            dnsOptions: words(v.dnsOptions),
+            ...(isRootAdmin
+              ? {
+                  privileged: v.privileged,
+                  capAdd: v.capAdd as (typeof CAPABILITIES)[number][],
+                  gpus: v.gpus === "" ? null : v.gpus === "all" ? "all" : Number(v.gpus),
+                  devices: linesOf(v.devices).map(parseDevice),
+                }
+              : {}),
           },
         })
       }
@@ -528,6 +588,25 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
           <Field label="Container labels" optional description="For external tools. Labels starting with serve. are reserved.">
             <KeyValueEditor value={v.labels} onChange={(labels) => set({ labels })} keyPlaceholder="com.example.team" valuePlaceholder="web" addLabel="Add label" />
           </Field>
+          <Field label="Resource limits (ulimits)" optional description="One per line: name=limit or name=soft:hard, like nofile=65536. -1 is unlimited.">
+            <Textarea value={v.ulimits} onChange={(e) => set({ ulimits: e.target.value })} rows={2} placeholder="nofile=65536" className="font-mono text-[12.5px]" />
+          </Field>
+          <Field label="Kernel parameters (sysctls)" optional description="Only the container's own: net.*, kernel.shm*, kernel.msg*, kernel.sem and fs.mqueue.*.">
+            <KeyValueEditor value={v.sysctls} onChange={(sysctls) => set({ sysctls })} keyPlaceholder="net.core.somaxconn" valuePlaceholder="1024" addLabel="Add parameter" />
+          </Field>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="DNS servers" optional description="IP addresses, one per line (at most 3). Empty: Docker's resolver.">
+              <Textarea value={v.dns} onChange={(e) => set({ dns: e.target.value })} rows={2} placeholder="1.1.1.1" className="font-mono text-[12.5px]" />
+            </Field>
+            <div className="flex flex-col gap-4">
+              <Field label="DNS search domains" optional>
+                <Input value={v.dnsSearch} onChange={(e) => set({ dnsSearch: e.target.value })} placeholder="corp.internal" className="font-mono text-[13px]" />
+              </Field>
+              <Field label="DNS options" optional>
+                <Input value={v.dnsOptions} onChange={(e) => set({ dnsOptions: e.target.value })} placeholder="ndots:2 timeout:1" className="font-mono text-[13px]" />
+              </Field>
+            </div>
+          </div>
           {isRootAdmin && (
             <div className="flex flex-col gap-3 rounded-xl border border-warn/25 bg-warn-soft/40 p-4">
               <p className="text-xs font-medium text-warn">Host access · Root organization only</p>
@@ -554,10 +633,35 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
                   })}
                 </div>
               </Field>
+              <Field label="GPUs" optional description="NVIDIA GPUs for the container. The server needs the NVIDIA driver and Container Toolkit.">
+                <Select
+                  value={v.gpus}
+                  onValueChange={(g) => set({ gpus: g })}
+                  options={[{ value: "", label: "None" }, { value: "all", label: "All" }, ...[1, 2, 3, 4, 8].map((n) => ({ value: String(n), label: String(n) }))]}
+                />
+              </Field>
+              <Field label="Devices" optional description="One per line: host path, then optionally :container path and :permissions (r, rw or rwm).">
+                <Textarea value={v.devices} onChange={(e) => set({ devices: e.target.value })} rows={2} placeholder="/dev/ttyUSB0" className="font-mono text-[12.5px]" />
+              </Field>
             </div>
           )}
         </>
       )}
     </Section>
   );
+}
+
+const words = (text: string) => text.split(/[\s,]+/).filter(Boolean);
+
+/** "nofile=65536" or "nofile=1024:4096"; the server explains anything invalid. */
+function parseUlimit(line: string) {
+  const [name, value = ""] = line.split("=");
+  const [soft, hard = soft] = value.split(":").map((n) => Number(n.trim()));
+  return { name: name.trim(), soft, hard };
+}
+
+/** "/dev/ttyUSB0", "/dev/ttyUSB0:/dev/serial" or "/dev/ttyUSB0:/dev/serial:rw". */
+function parseDevice(line: string) {
+  const [host, container, permissions] = line.split(":").map((p) => p.trim());
+  return { host, ...(container ? { container } : {}), ...(permissions ? { permissions: permissions as "rwm" | "r" | "rw" } : {}) };
 }

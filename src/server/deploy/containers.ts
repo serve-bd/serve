@@ -65,7 +65,10 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
 
   return {
     name: spec.name,
+    // Query parameter: Docker refuses an image of another platform instead of running it by accident.
+    ...(runtime.platform ? { platform: runtime.platform } : {}),
     Image: spec.image,
+    Entrypoint: runtime.entrypoint?.length ? runtime.entrypoint : undefined,
     Env: Object.entries(spec.env).map(([k, v]) => `${k}=${v}`),
     Cmd: spec.cmd ?? (runtime.command ? splitCommand(runtime.command) : undefined),
     WorkingDir: runtime.workingDir || undefined,
@@ -107,6 +110,16 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
       // Only settable by Root organization admins (checked when saving).
       Privileged: runtime.privileged || undefined,
       CapAdd: runtime.capAdd?.length ? runtime.capAdd : undefined,
+      // Host hardware: Root organization only as well.
+      Devices: runtime.devices?.length
+        ? runtime.devices.map((dev) => ({ PathOnHost: dev.host, PathInContainer: dev.container || dev.host, CgroupPermissions: dev.permissions ?? "rwm" }))
+        : undefined,
+      DeviceRequests: runtime.gpus ? [{ Driver: "nvidia", Count: runtime.gpus === "all" ? -1 : runtime.gpus, Capabilities: [["gpu"]] }] : undefined,
+      Ulimits: runtime.ulimits?.length ? runtime.ulimits.map((u) => ({ Name: u.name, Soft: u.soft, Hard: u.hard })) : undefined,
+      Sysctls: runtime.sysctls && Object.keys(runtime.sysctls).length ? runtime.sysctls : undefined,
+      Dns: runtime.dns?.length ? runtime.dns : undefined,
+      DnsSearch: runtime.dnsSearch?.length ? runtime.dnsSearch : undefined,
+      DnsOptions: runtime.dnsOptions?.length ? runtime.dnsOptions : undefined,
     },
     NetworkingConfig: {
       EndpointsConfig: {
@@ -123,8 +136,18 @@ export const localContainerTarget = (): ContainerTarget => ({ docker, proxyConta
 
 export async function startContainer(spec: ContainerSpec, target: ContainerTarget = localContainerTarget()) {
   const container = await target.docker.createContainer(createSpec(spec));
-  await container.start();
+  await container.start().catch((error: Error) => {
+    throw gpuError(error, spec.runtime) ?? error;
+  });
   return container;
+}
+
+/** A clear error when GPUs were asked for and the server cannot provide them. */
+export function gpuError(error: Error, runtime: Pick<RuntimeConfig, "gpus">): Error | null {
+  if (!runtime.gpus || !/could not select device driver|nvidia-container|nvidia/i.test(error.message)) return null;
+  return new Error(
+    `This server cannot give containers GPUs: the NVIDIA driver or the NVIDIA Container Toolkit is missing (${error.message.trim()}). Install them on the server, or turn off GPUs in Advanced settings.`,
+  );
 }
 
 async function sleep(ms: number, signal?: AbortSignal) {

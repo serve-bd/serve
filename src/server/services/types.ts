@@ -26,7 +26,23 @@ export type ImageSource = {
   registryPassword?: string | null;
 };
 
-export type SourceConfig = GitSource | ImageSource;
+/** A Dockerfile saved in Serve, built without a repository (its build context holds nothing else). */
+export type DockerfileSource = {
+  type: "dockerfile";
+  content: string;
+};
+
+export type SourceConfig = GitSource | ImageSource | DockerfileSource;
+
+export type SourceType = SourceConfig["type"];
+
+/** Largest Dockerfile Serve stores for a Dockerfile source. */
+export const DOCKERFILE_MAX_BYTES = 64 * 1024;
+
+/** Sources Serve builds an image from (build servers, registries and the build cache apply). */
+export function buildsImage(type: SourceType | null | undefined): boolean {
+  return type === "git" || type === "dockerfile";
+}
 
 /**
  * Where an app is built and where it runs. Null (or all defaults) keeps the
@@ -181,7 +197,36 @@ export type RuntimeConfig = {
   /** Root organization only. */
   privileged?: boolean;
   capAdd?: string[];
+  /** Replaces the image's entrypoint; unset or null keeps it. */
+  entrypoint?: string[] | null;
+  /** NVIDIA GPUs: "all" or a count. Root organization only. */
+  gpus?: "all" | number | null;
+  /** Host devices passed into the container. Root organization only. */
+  devices?: DeviceMapping[];
+  ulimits?: Ulimit[];
+  /** Namespaced kernel parameters (net.*, kernel.shm*, kernel.msg*, kernel.sem, fs.mqueue.*). */
+  sysctls?: Record<string, string>;
+  /** DNS servers (IP addresses), search domains and resolver options like ndots:2. */
+  dns?: string[];
+  dnsSearch?: string[];
+  dnsOptions?: string[];
+  /** Image platform to pull or build; unset uses the server's own. */
+  platform?: Platform | null;
+  /** Image sources: pull on every deploy (default) or only when the server lacks the image. */
+  pullPolicy?: "always" | "missing";
 };
+
+export type Platform = "linux/amd64" | "linux/arm64" | "linux/arm/v7";
+
+export type DeviceMapping = {
+  /** Path on the server, under /dev. */
+  host: string;
+  /** Path in the container; defaults to the host path. */
+  container?: string;
+  permissions?: "rwm" | "r" | "rw";
+};
+
+export type Ulimit = { name: string; soft: number; hard: number };
 
 export type DbEngine = "postgres" | "mysql" | "mariadb" | "mongodb" | "redis" | "valkey" | "clickhouse";
 

@@ -39,7 +39,8 @@ import { updateDatabaseSettings } from "@/server/actions/databases";
 
 type Source =
   | { type: "git"; repository: string; branch: string; credentialId?: string | null; webhook?: RepoWebhook | null }
-  | { type: "image"; image: string; registryUsername: string | null; hasPassword: boolean };
+  | { type: "image"; image: string; registryUsername: string | null; hasPassword: boolean }
+  | { type: "dockerfile"; content: string };
 
 type Props = {
   projectId: string;
@@ -416,6 +417,19 @@ export function ServiceSettings(props: Props) {
               </div>
             </>
           )}
+        </Section>
+      )}
+
+      {show("source") && service.source?.type === "dockerfile" && (
+        <Section
+          id="source"
+          title="Dockerfile"
+          description="Built on every deploy. The build has no other files: COPY and ADD of local files fail. Build-time variables are passed as build arguments."
+          footerNote="Applies on the next deploy"
+          initial={{ content: service.source.content }}
+          onSave={(v) => save.run({ source: { type: "dockerfile", content: v.content } })}
+        >
+          {(v, set) => <CodeEditor value={v.content} onChange={(content) => set({ content })} minRows={12} maxHeight="40rem" aria-label="Dockerfile" />}
         </Section>
       )}
 

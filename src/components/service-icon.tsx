@@ -1,4 +1,4 @@
-import { Box, Container, Database, GitBranch, Layers } from "lucide-react";
+import { Box, Container, Database, FileCode, GitBranch, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { templateBrand } from "@/lib/template-brand";
 
@@ -23,7 +23,7 @@ export function ServiceIcon({
   type: string;
   engine?: string | null;
   icon?: string | null;
-  source?: "git" | "image" | null;
+  source?: "git" | "image" | "dockerfile" | null;
   size?: "sm" | "md" | "lg";
   className?: string;
 }) {
@@ -46,7 +46,8 @@ export function ServiceIcon({
       </span>
     );
   }
-  const Icon = type === "compose" ? Layers : source === "image" ? Container : source === "git" ? GitBranch : type === "database" ? Database : Box;
+  const Icon =
+    type === "compose" ? Layers : source === "image" ? Container : source === "git" ? GitBranch : source === "dockerfile" ? FileCode : type === "database" ? Database : Box;
   return (
     <span className={cn("flex shrink-0 items-center justify-center border border-line bg-surface-2 text-fg-2 shadow-sm", dims, className)}>
       <Icon />

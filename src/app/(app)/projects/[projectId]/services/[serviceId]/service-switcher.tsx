@@ -7,7 +7,15 @@ import { Menu, MenuContent, MenuLabel, MenuLinkItem, MenuTrigger } from "@/compo
 import { ServiceIcon } from "@/components/service-icon";
 import { StatusDot } from "@/components/ui/status";
 
-export type SiblingService = { id: string; name: string; type: string; icon: string | null; engine: string | null; sourceType: "git" | "image" | null; status: string };
+export type SiblingService = {
+  id: string;
+  name: string;
+  type: string;
+  icon: string | null;
+  engine: string | null;
+  sourceType: "git" | "image" | "dockerfile" | null;
+  status: string;
+};
 
 /** Tabs a service of this type has, so switching can keep the one in view. */
 function hasTab(type: string, tab: string) {

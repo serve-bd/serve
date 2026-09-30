@@ -1,4 +1,4 @@
-import type { DistributionConfig } from "@/server/services/types";
+import { buildsImage, type DistributionConfig, type SourceType } from "@/server/services/types";
 
 /**
  * Build once, run on many servers. A service keeps its own server (the primary:
@@ -29,20 +29,20 @@ export function normalizeDistribution(primaryId: string, dist: DistributionConfi
   };
 }
 
-/** True when a git build must travel through a registry: built elsewhere or run on more than one server. */
-export function needsRegistry(dist: Distribution, sourceType: "git" | "image" | null | undefined) {
-  if (sourceType !== "git") return false;
+/** True when a built image must travel through a registry: built elsewhere or run on more than one server. */
+export function needsRegistry(dist: Distribution, sourceType: SourceType | null | undefined) {
+  if (!buildsImage(sourceType)) return false;
   return !!dist.buildServerId || dist.extraServerIds.length > 0;
 }
 
 /** Why a distribution cannot deploy, or null. Checked when saving and again before each deployment. */
-export function distributionProblem(dist: Distribution, sourceType: "git" | "image" | null | undefined): string | null {
+export function distributionProblem(dist: Distribution, sourceType: SourceType | null | undefined): string | null {
   if (needsRegistry(dist, sourceType) && !dist.registryId) {
     return dist.buildServerId
       ? "Choose a registry: the image is built on another server, so the service's server has to pull it from a registry."
       : "Choose a registry: extra servers pull the built image from it.";
   }
-  if (dist.registryId && sourceType === "git" && !dist.repository) return "Enter the repository to push to, like team/app.";
+  if (dist.registryId && buildsImage(sourceType) && !dist.repository) return "Enter the repository to push to, like team/app.";
   if (dist.extraServerIds.length > 10) return "A service can run on up to 10 extra servers.";
   return null;
 }

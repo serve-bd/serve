@@ -19,6 +19,8 @@ export type BuildContext = {
   dockerEnv?: Record<string, string>;
   /** Prefix for BuildKit cache mount ids and the nixpacks cache key (per organization). */
   cacheScope: string;
+  /** Target platform, like linux/arm64; unset builds for the server's own. */
+  platform?: string | null;
 };
 
 export type BuildResult = {
@@ -268,7 +270,7 @@ ${staticStage("source", build.publishDir || ".")}`,
 }
 
 async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileContent?: string) {
-  const args = ["build", "--progress=plain", "-t", ctx.image];
+  const args = ["build", "--progress=plain", "-t", ctx.image, ...(ctx.platform ? ["--platform", ctx.platform] : [])];
   let tempDockerfile: string | null = null;
   // Cache mounts get the organization's prefix; the file is rewritten only when it has any.
   const own = dockerfileContent ? null : await fs.readFile(path.join(ctx.contextDir, dockerfile), "utf8").catch(() => null);
@@ -335,7 +337,7 @@ export async function buildImage(ctx: BuildContext): Promise<BuildResult> {
   if (builder === "nixpacks") {
     if (!(await commandExists("nixpacks"))) throw new Error("Nixpacks is not installed on this server.");
     ctx.log("Building with Nixpacks");
-    const args = ["build", ctx.contextDir, "--name", ctx.image, "--cache-key", ctx.cacheScope];
+    const args = ["build", ctx.contextDir, "--name", ctx.image, "--cache-key", ctx.cacheScope, ...(ctx.platform ? ["--platform", ctx.platform] : [])];
     if (build.installCommand) args.push("--install-cmd", build.installCommand);
     if (build.buildCommand) args.push("--build-cmd", build.buildCommand);
     if (build.startCommand) args.push("--start-cmd", build.startCommand);

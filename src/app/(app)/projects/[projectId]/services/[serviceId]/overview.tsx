@@ -167,9 +167,11 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                       {current.commitMessage ||
                         (service.source?.kind === "image"
                           ? service.source.image
-                          : service.source?.kind === "compose"
-                            ? (service.source.template ?? "Compose stack")
-                            : (triggerLabel[current.trigger] ?? "Deployment"))}
+                          : service.source?.kind === "dockerfile"
+                            ? "Built from the Dockerfile"
+                            : service.source?.kind === "compose"
+                              ? (service.source.template ?? "Compose stack")
+                              : (triggerLabel[current.trigger] ?? "Deployment"))}
                     </p>
                     <StatusLabel status={current.status} kind="deployment" className="flex-none rounded-full bg-surface-2 px-2 py-0.5 text-xs" />
                   </div>
@@ -477,6 +479,11 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
             {service.source?.kind === "image" && (
               <Row label="Image" mono>
                 {service.source.image}
+              </Row>
+            )}
+            {service.source?.kind === "dockerfile" && (
+              <Row label="Dockerfile" mono>
+                {service.source.base ? `FROM ${service.source.base}` : "Saved in Serve"}
               </Row>
             )}
             {service.source?.kind === "compose" && (

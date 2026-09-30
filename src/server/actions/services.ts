@@ -11,7 +11,7 @@ import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { projectInOrg, serviceInOrg } from "@/server/services/access";
 import { generatedHostname, newWebhookSecret, queueDeployment, serviceNameTaken, uniqueServiceName, uniqueServiceSlug } from "@/server/services/create";
-import { defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig } from "@/server/services/types";
+import { buildsImage, defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig } from "@/server/services/types";
 import { engines } from "@/server/databases/engines";
 import { resolveTemplate, templateVarValue } from "@/server/services/custom-templates";
 import { normalizeRepoUrl, repoUrlProblem } from "@/server/deploy/git";
@@ -33,7 +33,9 @@ import { resolveServerForOrg, serverPublicIp } from "@/server/servers/access";
 import { HOSTNAME_RE } from "@/lib/hostname";
 import { SERVICE_NAME_RE, toServiceName } from "@/lib/service-name";
 import { CAPABILITIES } from "@/server/deploy/options";
+import { containerOptionsSchema } from "@/server/deploy/runtime-schema";
 import { volumeSchema } from "@/server/services/volume-schema";
+import { dockerfileSourceSchema } from "@/server/services/source-schema";
 
 async function assertEnvironment(projectId: string, environmentId: string) {
   const [env] = await db
@@ -152,6 +154,7 @@ const appSchema = z.object({
       registryUsername: z.string().trim().optional().nullable(),
       registryPassword: z.string().optional().nullable(),
     }),
+    dockerfileSourceSchema,
   ]),
   build: z
     .object({
@@ -193,12 +196,14 @@ export async function createAppService(input: z.input<typeof appSchema>) {
     const source: SourceConfig =
       data.source.type === "git"
         ? { type: "git", repository: normalizeRepoUrl(data.source.repository), branch: data.source.branch, credentialId: data.source.credentialId ?? null }
-        : {
-            type: "image",
-            image: data.source.image,
-            registryUsername: data.source.registryUsername || null,
-            registryPassword: data.source.registryPassword ? encrypt(data.source.registryPassword) : null,
-          };
+        : data.source.type === "dockerfile"
+          ? { type: "dockerfile", content: data.source.content }
+          : {
+              type: "image",
+              image: data.source.image,
+              registryUsername: data.source.registryUsername || null,
+              registryPassword: data.source.registryPassword ? encrypt(data.source.registryPassword) : null,
+            };
 
     const id = newId();
     data.name = await uniqueServiceName(data.environmentId, data.name);
@@ -212,7 +217,12 @@ export async function createAppService(input: z.input<typeof appSchema>) {
       slug,
       type: "app",
       source,
-      build: data.source.type === "git" ? { ...defaultBuild(), ...(data.build as Partial<BuildConfig>) } : null,
+      build:
+        data.source.type === "git"
+          ? { ...defaultBuild(), ...(data.build as Partial<BuildConfig>) }
+          : data.source.type === "dockerfile"
+            ? { ...defaultBuild(), builder: "dockerfile" }
+            : null,
       runtime: withReservation({ ...defaultRuntime(data.port ?? null), volumes: data.volumes ?? [] }, reserved),
       webhookSecret: newWebhookSecret(),
     });
@@ -437,6 +447,7 @@ const updateSchema = z.object({
         registryUsername: z.string().nullable().optional(),
         registryPassword: z.string().nullable().optional(),
       }),
+      dockerfileSourceSchema,
     ])
     .optional(),
   build: z
@@ -528,6 +539,7 @@ const updateSchema = z.object({
         .nullable(),
       privileged: z.boolean(),
       capAdd: z.array(z.enum(CAPABILITIES)).max(20),
+      ...containerOptionsSchema,
     })
     .partial()
     .optional(),
@@ -636,6 +648,10 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       if (data.source.type === "git") {
         await assertCredential(data.source.credentialId, ctx.org.id);
         patch.source = { type: "git", repository: normalizeRepoUrl(data.source.repository), branch: data.source.branch, credentialId: data.source.credentialId ?? null };
+      } else if (data.source.type === "dockerfile") {
+        if (service.type !== "app") throw new UserError("Only apps can be built from a Dockerfile.");
+        patch.source = { type: "dockerfile", content: data.source.content };
+        if (!service.build) patch.build = { ...defaultBuild(), builder: "dockerfile" };
       } else {
         const prev = service.source?.type === "image" ? service.source : null;
         patch.source = {
@@ -663,6 +679,10 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       if (runtime.replicas > 1 && runtime.ports.length) throw new UserError("Published host ports only work with a single replica.");
       const grantsHost = (data.runtime.privileged === true && !service.runtime.privileged) || data.runtime.capAdd?.some((c) => !(service.runtime.capAdd ?? []).includes(c));
       if (grantsHost) assertHostAccess(ctx, "Privileged mode and extra capabilities");
+      const grantsHardware =
+        (!!data.runtime.gpus && data.runtime.gpus !== service.runtime.gpus) ||
+        (!!data.runtime.devices?.length && JSON.stringify(data.runtime.devices) !== JSON.stringify(service.runtime.devices ?? []));
+      if (grantsHardware) assertHostAccess(ctx, "GPUs and host devices");
       if (data.runtime.labels?.some((l) => /^(serve\.|com\.docker\.)/.test(l.key))) throw new UserError("Labels starting with serve. or com.docker. are reserved.");
       if (data.runtime.restartSchedule) {
         const { CronExpressionParser } = await import("cron-parser");
@@ -772,7 +792,7 @@ export async function deployWithoutCache(serviceId: string) {
   return act(async () => {
     const ctx = await requirePermission("services.deploy");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
-    if (service.type !== "app" || service.source?.type !== "git" || !service.build) throw new UserError("Only services built from a repository have a build cache.");
+    if (service.type !== "app" || !buildsImage(service.source?.type) || !service.build) throw new UserError("Only services Serve builds have a build cache.");
     await db
       .update(schema.service)
       .set({ build: { ...service.build, noCacheOnce: true } })

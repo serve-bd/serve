@@ -64,10 +64,10 @@ export async function imageExists(ref: string, d: Docker = docker): Promise<bool
 
 export type RegistryAuth = { username: string; password: string; serveraddress?: string };
 
-/** Pull an image and report compact progress through `log`. */
-export async function pullImage(ref: string, log?: LogFn, auth?: RegistryAuth | null, d: Docker = docker) {
+/** Pull an image and report compact progress through `log`. `platform` picks one of a multi-platform image. */
+export async function pullImage(ref: string, log?: LogFn, auth?: RegistryAuth | null, d: Docker = docker, platform?: string | null) {
   const image = ref.includes(":") || ref.includes("@") ? ref : `${ref}:latest`;
-  const stream = await d.pull(image, auth ? { authconfig: auth } : {});
+  const stream = await d.pull(image, { ...(auth ? { authconfig: auth } : {}), ...(platform ? { platform } : {}) });
   await new Promise<void>((resolve, reject) => {
     const seen = new Set<string>();
     d.modem.followProgress(
@@ -89,6 +89,29 @@ export async function pullImage(ref: string, log?: LogFn, auth?: RegistryAuth | 
       },
     );
   });
+}
+
+/**
+ * Whether the server has the image, for `platform` when given (os/architecture[/variant]). With
+ * the containerd image store one tag holds several platforms: the inspect asks for this one.
+ */
+export async function imageExistsFor(ref: string, platform: string | null | undefined, d: Docker = docker): Promise<boolean> {
+  if (!platform) return imageExists(ref, d);
+  const [os, architecture, variant] = platform.split("/");
+  type Info = { Os?: string; Architecture?: string; Variant?: string };
+  const info = await new Promise<Info | null>((resolve) =>
+    d.modem.dial(
+      {
+        path: `/images/${ref}/json?`,
+        method: "GET",
+        options: { platform: JSON.stringify({ os, architecture, ...(variant ? { variant } : {}) }) },
+        statusCodes: { 200: true, 404: "no such image", 500: "server error" },
+      },
+      (error: unknown, data: unknown) => resolve(error ? null : (data as Info)),
+    ),
+  );
+  // Daemons without the platform parameter answer with the image's only platform.
+  return !!info && info.Os === os && info.Architecture === architecture && (!variant || info.Variant === variant);
 }
 
 export async function listServiceContainers(serviceId: string, all = true, d: Docker = docker) {

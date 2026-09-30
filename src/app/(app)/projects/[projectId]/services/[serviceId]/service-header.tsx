@@ -50,7 +50,7 @@ type Props = {
     type: string;
     icon: string | null;
     engine: string | null;
-    sourceType: "git" | "image" | null;
+    sourceType: "git" | "image" | "dockerfile" | null;
     sourceLabel: string;
     environmentId: string;
     isPreview: boolean;

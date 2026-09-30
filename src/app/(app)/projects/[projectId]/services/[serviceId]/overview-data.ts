@@ -9,6 +9,7 @@ import { composeServiceNames } from "@/server/deploy/compose";
 import { getTemplate } from "@/server/services/templates";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { readComposeMounts } from "@/lib/compose-mounts";
+import { dockerfileBase } from "@/lib/dockerfile";
 
 type Service = typeof schema.service.$inferSelect;
 
@@ -106,15 +107,17 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
           ? { kind: "git" as const, repository: service.source.repository, branch: service.source.branch }
           : service.source?.type === "image"
             ? { kind: "image" as const, image: service.source.image }
-            : service.compose
-              ? {
-                  kind: "compose" as const,
-                  template: template?.name ?? null,
-                  mode: service.compose.mode,
-                  path: service.compose.path,
-                  services: composeServiceNames(service.compose.content),
-                }
-              : null,
+            : service.source?.type === "dockerfile"
+              ? { kind: "dockerfile" as const, base: dockerfileBase(service.source.content) }
+              : service.compose
+                ? {
+                    kind: "compose" as const,
+                    template: template?.name ?? null,
+                    mode: service.compose.mode,
+                    path: service.compose.path,
+                    services: composeServiceNames(service.compose.content),
+                  }
+                : null,
     },
     server: { id: server.id, name: server.name, isLocal: server.isLocal },
     environment: environment[0]?.name ?? "production",

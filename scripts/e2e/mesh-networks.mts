@@ -36,7 +36,10 @@ const check = (name: string, ok: boolean, detail = "") => {
 };
 
 // ---------------------------------------------------------------- networks
-const servers = await db.select().from(schema.server).where(inArray(schema.server.id, [A, B, C, D]));
+const servers = await db
+  .select()
+  .from(schema.server)
+  .where(inArray(schema.server.id, [A, B, C, D]));
 for (const s of servers) if (!s.mesh?.enabled) throw new Error(`${s.name} has not joined the private network`);
 const keyOf = new Map(servers.map((s) => [s.mesh!.publicKey, s.id]));
 const tag = Date.now().toString(36).slice(-4);
@@ -94,7 +97,9 @@ await db.insert(schema.environment).values({ id: envId, projectId, name: "produc
 
 async function service(values: Partial<typeof schema.service.$inferInsert> & { name: string; type: "app" | "database"; serverId: string }, env: Record<string, string> = {}) {
   const id = newId();
-  await db.insert(schema.service).values({ id, projectId, environmentId: envId, slug: await uniqueServiceSlug(values.name), runtime: defaultRuntime(), webhookSecret: newWebhookSecret(), ...values });
+  await db
+    .insert(schema.service)
+    .values({ id, projectId, environmentId: envId, slug: await uniqueServiceSlug(values.name), runtime: defaultRuntime(), webhookSecret: newWebhookSecret(), ...values });
   for (const [key, value] of Object.entries(env)) await db.insert(schema.envVar).values({ id: newId(), serviceId: id, key, value: encrypt(value) });
   return id;
 }
@@ -116,13 +121,27 @@ async function deploy(serviceId: string, label: string) {
   throw new Error(`${label}: timed out`);
 }
 
-const tool = (serverId: string) => ({ source: { type: "image" as const, image: "postgres:17-alpine" }, runtime: { ...defaultRuntime(5432), command: "while true; do nc -l -p 5432 >/dev/null 2>&1; done" }, serverId });
+const tool = (serverId: string) => ({
+  source: { type: "image" as const, image: "postgres:17-alpine" },
+  runtime: { ...defaultRuntime(5432), command: "while true; do nc -l -p 5432 >/dev/null 2>&1; done" },
+  serverId,
+});
 const pg = await service({
   name: "postgres",
   type: "database",
   serverId: A,
   runtime: { ...defaultRuntime(5432), restartPolicy: "unless-stopped" },
-  database: { engine: "postgres", version: "17", username: "app", password: encrypt("s3cret-pass-123"), database: "app", publicPort: null, backupSchedule: null, backupRetention: 7, s3DestinationId: null },
+  database: {
+    engine: "postgres",
+    version: "17",
+    username: "app",
+    password: encrypt("s3cret-pass-123"),
+    database: "app",
+    publicPort: null,
+    backupSchedule: null,
+    backupRetention: 7,
+    s3DestinationId: null,
+  },
 });
 const onB = await service({ name: "client-b", type: "app", ...tool(B) }, { DATABASE_URL: "${{postgres.DATABASE_URL}}" });
 const onC = await service({ name: "client-c", type: "app", ...tool(C) });

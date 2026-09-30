@@ -51,7 +51,7 @@ export function ResetPasswordForm({ token, invalid }: { token: string | null; in
 
   return (
     <AuthCard title="Choose a new password" description="Use at least 8 characters.">
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <form method="post" onSubmit={onSubmit} className="flex flex-col gap-4">
         <Field label="New password">
           <PasswordInput name="password" required autoFocus autoComplete="new-password" minLength={8} className="h-10" />
         </Field>

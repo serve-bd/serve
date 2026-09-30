@@ -76,6 +76,7 @@ export function InviteActions({ invitationId, email, signedInAs, hasAccount }: {
 
   return (
     <form
+      method="post"
       className="flex flex-col gap-4"
       onSubmit={async (e) => {
         e.preventDefault();

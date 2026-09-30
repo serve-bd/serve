@@ -137,6 +137,7 @@ export function ConnectCloudflareDialog({ open, onOpenChange }: { open: boolean;
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <form
+          method="post"
           onSubmit={(e) => {
             e.preventDefault();
             void run();

@@ -209,6 +209,7 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
       <Dialog open={tokenOpen} onOpenChange={setTokenOpen}>
         <DialogContent>
           <form
+            method="post"
             onSubmit={(e) => {
               e.preventDefault();
               void add.run();
@@ -252,6 +253,7 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
       <Dialog open={keyOpen} onOpenChange={setKeyOpen}>
         <DialogContent>
           <form
+            method="post"
             onSubmit={(e) => {
               e.preventDefault();
               if (!publicKey) void key.run();

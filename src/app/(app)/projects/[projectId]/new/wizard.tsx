@@ -139,6 +139,7 @@ function FormShell({
 }) {
   return (
     <form
+      method="post"
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit();
@@ -856,6 +857,7 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
 
   return (
     <form
+      method="post"
       onSubmit={(e) => {
         e.preventDefault();
         void run({

@@ -88,7 +88,7 @@ export function LoginForm({
   if (needsCode) {
     return (
       <AuthCard title="Two-factor authentication" description={useBackup ? "Enter one of your backup codes." : "Enter the 6-digit code from your authenticator app."}>
-        <form onSubmit={verify} className="flex flex-col gap-4">
+        <form method="post" onSubmit={verify} className="flex flex-col gap-4">
           <Field label={useBackup ? "Backup code" : "Code"}>
             <Input
               key={useBackup ? "backup" : "totp"}
@@ -149,7 +149,7 @@ export function LoginForm({
         <p className="text-[13px] leading-relaxed text-muted">No sign-in method is available. An admin can allow password sign-in again with SERVE_ALLOW_PASSWORD_LOGIN=1.</p>
       )}
       {password && (
-        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+        <form method="post" onSubmit={onSubmit} className="flex flex-col gap-4">
           <Field label="Email">
             <Input name="email" type="email" required autoFocus autoComplete="email" placeholder="you@company.com" className="h-10" />
           </Field>

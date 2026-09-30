@@ -338,6 +338,7 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg">
         <form
+          method="post"
           onSubmit={(e) => {
             e.preventDefault();
             void save.run();

@@ -199,6 +199,7 @@ function RegistryDialog({ registry, onClose }: { registry: RegistryItem | null; 
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-xl">
         <form
+          method="post"
           onSubmit={(e) => {
             e.preventDefault();
             void save.run();

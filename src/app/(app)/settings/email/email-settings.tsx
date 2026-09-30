@@ -91,6 +91,7 @@ export function EmailSettingsForm({ initial, mailrooms }: { initial: Initial; ma
   return (
     <Card>
       <form
+        method="post"
         onSubmit={(e) => {
           e.preventDefault();
           void save.run();

@@ -52,6 +52,7 @@ function FormCard({
   return (
     <Card>
       <form
+        method="post"
         onSubmit={(e) => {
           e.preventDefault();
           void form.submit();

@@ -52,6 +52,7 @@ export function AccountView({
     <div className="flex flex-col gap-6">
       <Card>
         <form
+          method="post"
           onSubmit={async (e) => {
             e.preventDefault();
             setSaving(true);
@@ -81,6 +82,7 @@ export function AccountView({
 
       <Card>
         <form
+          method="post"
           onSubmit={async (e) => {
             e.preventDefault();
             setChanging(true);
@@ -240,7 +242,7 @@ function TwoFactorCard({ enabled }: { enabled: boolean }) {
       </CardBody>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="sm">
-          <form onSubmit={submit}>
+          <form method="post" onSubmit={submit}>
             <DialogHeader
               title={enabled ? "Disable two-factor authentication" : step === "password" ? "Enable two-factor authentication" : "Scan the QR code"}
               description={step === "scan" ? "Scan with 1Password, Google Authenticator or any TOTP app, then enter the code." : "Confirm your password to continue."}

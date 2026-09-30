@@ -203,6 +203,7 @@ export function OAuthSetupDialog({ provider, base, onClose }: { provider: OAuthP
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-xl">
         <form
+          method="post"
           onSubmit={(e) => {
             e.preventDefault();
             if (step === 1) setStep(2);

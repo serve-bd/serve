@@ -41,7 +41,7 @@ export function SetupForm() {
         </>
       }
     >
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <form method="post" onSubmit={onSubmit} className="flex flex-col gap-4">
         <Field label="Name">
           <Input name="name" required autoFocus autoComplete="name" placeholder="Ada Lovelace" className="h-10" />
         </Field>

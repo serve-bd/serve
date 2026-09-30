@@ -293,6 +293,7 @@ function DestinationDialog({ destination, onClose }: { destination: Dest | null;
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-xl">
         <form
+          method="post"
           onSubmit={(e) => {
             e.preventDefault();
             void save.run();

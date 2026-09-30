@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUpRight, CircleAlert, CircleCheck, Download, Info, Package, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowUpRight, Check, CircleAlert, CircleCheck, Download, Info, Loader2, Package, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardBody, CardHeader, CopyButton, TimeAgo } from "@/components/ui/misc";
 import { cn } from "@/lib/utils";
@@ -55,6 +55,8 @@ export function UpdatesView({
     setRun(initialRun);
   }
   const [live, setLive] = React.useState<string | null>(null);
+  // Polls that fail while an update runs: the dashboard is restarting on the new version.
+  const [unreachable, setUnreachable] = React.useState(false);
   // Set once "Update now" succeeds, until polling sees the run it started (an id other than `startedFrom`).
   const [starting, setStarting] = React.useState(false);
   const startedFrom = React.useRef<string | null>(null);
@@ -74,7 +76,11 @@ export function UpdatesView({
     if (!active && !start.pending && !starting) return;
     const t = setInterval(async () => {
       const res = await updateStatus().catch(() => null);
-      if (!res?.ok) return;
+      if (!res?.ok) {
+        setUnreachable(true);
+        return;
+      }
+      setUnreachable(false);
       const next = res.data.run;
       // Before the new run shows up, the stored one is the previous update: keep waiting.
       if (starting && (!next || next.id === startedFrom.current)) return;
@@ -87,6 +93,8 @@ export function UpdatesView({
   }, [active, start.pending, starting, router]);
 
   const log = `${run?.log ?? ""}${live ?? ""}`.trim();
+  const lastLine = log.split("\n").filter(Boolean).at(-1) ?? "";
+  const busy = active || starting;
 
   return (
     <>
@@ -174,7 +182,9 @@ export function UpdatesView({
                 )}
               </div>
               {check.notes && <pre className="max-h-48 overflow-auto rounded-lg bg-surface px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap text-fg-2">{check.notes}</pre>}
-              {mode === "compose" ? (
+              {busy ? (
+                <UpdateProgress state={starting && !active ? "backing-up" : (run?.state ?? "backing-up")} unreachable={unreachable} lastLine={lastLine} />
+              ) : mode === "compose" ? (
                 <div className="flex flex-wrap items-center gap-3">
                   <Button
                     variant="primary"
@@ -211,6 +221,25 @@ export function UpdatesView({
         </CardBody>
       </Card>
 
+      {run && (
+        <Card>
+          <CardHeader
+            title={`Update to v${run.to}`}
+            description={
+              <>
+                Started <TimeAgo date={run.startedAt} /> from v{run.from}
+              </>
+            }
+            actions={<Badge tone={runLabel[run.state].tone}>{runLabel[run.state].label}</Badge>}
+          />
+          <CardBody className="py-4">
+            <pre className="max-h-80 overflow-auto rounded-xl bg-log-bg px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-log-fg">
+              {log || "Waiting for the worker to start the update…"}
+            </pre>
+          </CardBody>
+        </Card>
+      )}
+
       <Card>
         <CardHeader title="What an update changes" description={`One update moves every part below to the versions tested with that release of ${productName}.`} />
         <div className="divide-y divide-line">
@@ -228,25 +257,6 @@ export function UpdatesView({
           ))}
         </div>
       </Card>
-
-      {run && (
-        <Card>
-          <CardHeader
-            title={`Update to v${run.to}`}
-            description={
-              <>
-                Started <TimeAgo date={run.startedAt} /> from v{run.from}
-              </>
-            }
-            actions={<Badge tone={runLabel[run.state].tone}>{runLabel[run.state].label}</Badge>}
-          />
-          <CardBody className="py-4">
-            <pre className="max-h-80 overflow-auto rounded-xl bg-log-bg px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-log-fg">
-              {log || "Waiting for the worker…"}
-            </pre>
-          </CardBody>
-        </Card>
-      )}
     </>
   );
 }
@@ -269,5 +279,39 @@ function ManualSteps() {
         <span className="font-mono text-[12px]">install.sh</span> to update from here.
       </span>
     </p>
+  );
+}
+
+const STEPS = [
+  { id: "backing-up", label: "Backing up this instance" },
+  { id: "running", label: "Installing the new version and restarting" },
+  { id: "done", label: "Back online" },
+] as const;
+
+/** Where a running update is, shown in place of the Update now button. */
+function UpdateProgress({ state, unreachable, lastLine }: { state: UpdateRun["state"]; unreachable: boolean; lastLine: string }) {
+  const at = state === "backing-up" ? 0 : state === "running" ? 1 : 2;
+  return (
+    <div className="flex flex-col gap-3 rounded-lg bg-surface px-4 py-3">
+      <ol className="flex flex-col gap-2">
+        {STEPS.map((step, i) => (
+          <li key={step.id} className={cn("flex items-center gap-2.5 text-[13px]", i === at ? "text-fg" : i < at ? "text-fg-2" : "text-faint")}>
+            <span className="flex size-4 flex-none items-center justify-center">
+              {i < at ? (
+                <Check className="size-3.5 text-ok" />
+              ) : i === at ? (
+                <Loader2 className="size-3.5 animate-spin text-accent" />
+              ) : (
+                <span className="size-1.5 rounded-full bg-line-strong" />
+              )}
+            </span>
+            {step.label}
+          </li>
+        ))}
+      </ol>
+      <p className="truncate font-mono text-[11.5px] text-muted" title={lastLine}>
+        {unreachable ? "The dashboard is restarting on the new version. This page reloads when it is back." : lastLine || "Starting…"}
+      </p>
+    </div>
   );
 }

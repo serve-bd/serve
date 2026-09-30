@@ -5,6 +5,8 @@ import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { AppShell } from "@/components/shell/app-shell";
 import { SCHEMA_VERSION } from "@/server/version";
+import { currentVersion } from "@/server/instance/version";
+import { updateAvailable } from "@/server/instance/updates";
 
 function workerOnline(heartbeat: string | null) {
   return !!heartbeat && Date.now() - new Date(heartbeat).getTime() < 60_000;
@@ -43,6 +45,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       instanceName={settings.instanceName}
       workerOnline={workerOnline(settings.workerHeartbeat)}
       workerOutdated={workerOnline(settings.workerHeartbeat) && settings.workerSchemaVersion !== SCHEMA_VERSION}
+      version={currentVersion()}
+      updateTo={ctx.isInstanceAdmin && updateAvailable(settings.updateCheck) ? settings.updateCheck?.latest : null}
     >
       {children}
     </AppShell>

@@ -60,6 +60,9 @@ type ShellProps = {
   workerOnline: boolean;
   /** The worker runs older code than the dashboard (restart or rebuild it). */
   workerOutdated?: boolean;
+  /** The running version, and a newer release when one is out (shown to instance admins only). */
+  version: string;
+  updateTo?: string | null;
   children: React.ReactNode;
 };
 
@@ -130,10 +133,11 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-14 items-center justify-between px-4">
+      <div className="flex h-14 items-center justify-between gap-2 px-4">
         <Link href="/" onClick={onNavigate} className="flex min-w-0">
           <Logo />
         </Link>
+        <VersionTag version={props.version} updateTo={props.updateTo} admin={props.isInstanceAdmin} onNavigate={onNavigate} />
       </div>
       <div className="px-3">
         <OrgSwitcher current={props.org} orgs={props.orgs} canCreate={props.canCreateOrg} />
@@ -272,5 +276,29 @@ export function AppShell(props: ShellProps) {
         </div>
       </CommandPalette>
     </PermissionsProvider>
+  );
+}
+
+/** The running version beside the logo; for instance admins a newer release turns it into a link to Updates. */
+function VersionTag({ version, updateTo, admin, onNavigate }: { version: string; updateTo?: string | null; admin: boolean; onNavigate?: () => void }) {
+  if (updateTo && admin)
+    return (
+      <Link
+        href="/settings/updates"
+        onClick={onNavigate}
+        title={`Update to v${updateTo}`}
+        className="flex flex-none items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20"
+      >
+        <span className="size-1.5 rounded-full bg-accent" aria-hidden />
+        Update
+      </Link>
+    );
+  const tag = <span className="font-mono text-[11px] text-faint">v{version}</span>;
+  return admin ? (
+    <Link href="/settings/updates" onClick={onNavigate} title="Updates" className="flex-none rounded px-1 transition-colors hover:text-muted">
+      {tag}
+    </Link>
+  ) : (
+    <span className="flex-none px-1">{tag}</span>
   );
 }

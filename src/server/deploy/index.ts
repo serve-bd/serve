@@ -25,7 +25,7 @@ import { getRegistry, pushImage, registryAuth, type RegistryRow } from "@/server
 import { defaultRepository, imageRef, normalizeRepository, renderTag } from "@/server/registries/refs";
 import { replicaCount, replicaEnv, shortReplicaPicks } from "@/lib/refs";
 import type { DeploymentTarget } from "@/server/services/types";
-import { createSpec, startContainer, volumeName, waitHealthy } from "./containers";
+import { createSpec, dockerRestartPolicy, startContainer, volumeName, waitHealthy } from "./containers";
 import { prepareMounts } from "@/server/services/mounts";
 import { databasePlan } from "@/server/databases/options";
 import { ensureDatabaseTls } from "@/server/databases/tls";
@@ -509,11 +509,17 @@ async function runOnServer(opts: {
     if (needsStopFirst && old.length) {
       // Bring the previous version back so a failed deploy does not take the app down.
       log.line("Restarting the previous version");
-      for (const c of old)
+      for (const c of old) {
+        // The crash limit may have set its restart policy to "no".
+        await d
+          .getContainer(c.Id)
+          .update({ RestartPolicy: dockerRestartPolicy(runtime.restartPolicy) })
+          .catch(() => {});
         await d
           .getContainer(c.Id)
           .start()
           .catch(() => {});
+      }
     }
     throw error;
   }

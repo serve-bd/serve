@@ -28,3 +28,35 @@ describe("storage backup paths", () => {
     expect(blockedPath("/srv/media", remote, "svc1")).toBe(false);
   });
 });
+
+describe("storage backups through symbolic links", () => {
+  it("judges a linked folder by where it really is", async () => {
+    const { execSync } = await import("node:child_process");
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const { stackStorage } = await import("@/server/backups/storage");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "serve-links-"));
+    const project = path.join(root, "services/svc1/compose");
+    fs.mkdirSync(path.join(project, "data"), { recursive: true });
+    fs.symlinkSync("/etc", path.join(project, "escape"));
+    const bind = (Source: string) => ({ Type: "bind", Source, Destination: "/x" });
+    const docker = {
+      listContainers: async () => [
+        {
+          Id: "c1",
+          Names: ["/web"],
+          Labels: { "com.docker.compose.project.working_dir": project },
+          Mounts: [bind(path.join(project, "data")), bind(path.join(project, "escape"))],
+        },
+      ],
+    };
+    const exec = async (command: string) => ({ code: 0, stdout: execSync(command, { shell: "/bin/sh" }).toString() });
+    try {
+      const found = await stackStorage({ docker: docker as never, paths: { root, service: (id) => path.join(root, "services", id) }, exec }, "svc1");
+      expect(found.map((f) => f.source)).toEqual([path.join(project, "data")]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

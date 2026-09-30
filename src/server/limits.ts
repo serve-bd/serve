@@ -41,7 +41,7 @@ export async function orgUsage(organizationId: string, limits?: OrgLimits): Prom
     .innerJoin(schema.project, eq(schema.project.id, schema.service.projectId))
     .where(eq(schema.project.organizationId, organizationId));
   const ids = services.map((s) => s.id);
-  const [[projects], [domains], [builds], [backups], [disk]] = await Promise.all([
+  const [[projects], [domains], [builds], [backups], [disk], [own]] = await Promise.all([
     db.select({ n: sql<number>`count(*)::int` }).from(schema.project).where(eq(schema.project.organizationId, organizationId)),
     ids.length ? db.select({ n: sql<number>`count(*)::int` }).from(schema.domain).where(inArray(schema.domain.serviceId, ids)) : [{ n: 0 }],
     ids.length
@@ -57,6 +57,7 @@ export async function orgUsage(organizationId: string, limits?: OrgLimits): Prom
           .where(and(inArray(schema.backup.serviceId, ids), eq(schema.backup.status, "success")))
       : [{ bytes: 0 }],
     db.select({ bytes: schema.organizationLimit.diskBytes }).from(schema.organizationLimit).where(eq(schema.organizationLimit.organizationId, organizationId)),
+    db.select({ n: sql<number>`count(*)::int` }).from(schema.server).where(eq(schema.server.ownerOrganizationId, organizationId)),
   ]);
   let cpu = 0;
   let memory = 0;
@@ -79,7 +80,21 @@ export async function orgUsage(organizationId: string, limits?: OrgLimits): Prom
     backupStorage: Number(backups?.bytes ?? 0) / 1e9,
     concurrentBuilds: builds?.n ?? 0,
     servers: new Set(services.map((s) => s.serverId)).size,
+    ownServers: own?.n ?? 0,
   };
+}
+
+/** Throws when the organization may not add another server of its own (null: the instance, never limited). */
+export async function requireRoomForServer(organizationId: string | null) {
+  if (!organizationId) return;
+  const limits = await effectiveLimits(organizationId);
+  if (limits.ownServers == null) return;
+  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.server).where(eq(schema.server.ownerOrganizationId, organizationId));
+  const used = row?.n ?? 0;
+  if (used >= limits.ownServers) {
+    const { UserError } = await import("@/server/action");
+    throw new UserError(`This organization has reached its limit of servers it adds (${used} of ${limits.ownServers}). Remove one, or ask an administrator to raise it.`);
+  }
 }
 
 /** Whether the organization may use this server (allow list and number of servers). */

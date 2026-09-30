@@ -19,6 +19,7 @@ const watchingSince = (store.__serveCrashSince ??= Date.now());
 export async function enforceCrashLimits(reachable: Set<string>) {
   const apps = await db.select().from(schema.service).where(eq(schema.service.type, "app"));
   const seen = new Set<string>();
+  const stopped = new Set<string>();
   const now = Date.now();
   for (const s of apps) {
     const limit = crashLimitOf(s.runtime);
@@ -50,6 +51,22 @@ export async function enforceCrashLimits(reachable: Set<string>) {
         );
         tracks.set(c.Id, track);
         if (crashes < limit) continue;
+        // The last replica on the main server: mark the service crashed first, so the status check
+        // does not send a second, vaguer "crashed" notice once it sees every container stopped.
+        const othersUp = containers.some(
+          (o) => o.Id !== c.Id && !stopped.has(o.Id) && o.Labels[LABEL.deployment] === s.currentDeploymentId && (o.State === "running" || o.State === "restarting"),
+        );
+        if (server.id === s.serverId && !othersUp && s.status !== "crashed") {
+          const { setServiceStatus } = await import("@/server/deploy");
+          await setServiceStatus(s.id, "crashed");
+        }
+        stopped.add(c.Id);
+        // Restart policy "no" first: otherwise Docker starts it again when the daemon or machine restarts.
+        // Starting or restarting the service puts the service's policy back.
+        await server.docker
+          .getContainer(c.Id)
+          .update({ RestartPolicy: { Name: "no" } })
+          .catch(() => {});
         await server.docker
           .getContainer(c.Id)
           .stop({ t: 5 })

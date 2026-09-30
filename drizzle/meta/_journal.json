@@ -288,6 +288,13 @@
       "when": 1790783429390,
       "tag": "0040_preview_vars",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790784218576,
+      "tag": "0041_restore_stopped",
+      "breakpoints": true
     }
   ]
 }

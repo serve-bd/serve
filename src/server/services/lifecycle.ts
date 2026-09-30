@@ -8,6 +8,7 @@ import { paths } from "@/server/paths";
 import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { composeDownByProject } from "@/server/deploy/compose";
 import { deployDatabase, setServiceStatus } from "@/server/deploy";
+import { dockerRestartPolicy } from "@/server/deploy/containers";
 
 async function getService(id: string) {
   const service = await db.query.service.findFirst({ where: eq(schema.service.id, id) });
@@ -25,6 +26,15 @@ async function relevantOn(service: Service, server: ServerCtx) {
   // An extra server whose last deploy failed still runs its previous version.
   if (!current.length && server.id !== service.serverId) return containers.filter((c) => c.Labels[LABEL.kind] !== "predeploy");
   return current;
+}
+
+/** An app replica the crash limit stopped has restart policy "no": starting the service puts its own back. */
+async function restorePolicy(service: Service, target: ServerCtx, containerId: string) {
+  if (service.type !== "app") return;
+  await target.docker
+    .getContainer(containerId)
+    .update({ RestartPolicy: dockerRestartPolicy(service.runtime.restartPolicy) })
+    .catch(() => {});
 }
 
 /** Extra servers are best effort: one that is offline must not block the others. */
@@ -67,12 +77,13 @@ export async function startService(serviceId: string): Promise<"started" | "need
   const start = async (target: ServerCtx) => {
     const containers = target.id === server.id ? relevant : await relevantOn(service, target);
     await Promise.all(
-      containers.map((c) =>
-        target.docker
+      containers.map(async (c) => {
+        await restorePolicy(service, target, c.Id);
+        await target.docker
           .getContainer(c.Id)
           .start()
-          .catch(() => {}),
-      ),
+          .catch(() => {});
+      }),
     );
   };
   await start(server);
@@ -100,12 +111,13 @@ export async function restartService(serviceId: string) {
   const restart = async (target: ServerCtx) => {
     const containers = target.id === server.id ? relevant : await relevantOn(service, target);
     await Promise.all(
-      containers.map((c) =>
-        target.docker
+      containers.map(async (c) => {
+        await restorePolicy(service, target, c.Id);
+        await target.docker
           .getContainer(c.Id)
           .restart({ t: 10 })
-          .catch(() => {}),
-      ),
+          .catch(() => {});
+      }),
     );
   };
   await restart(server);

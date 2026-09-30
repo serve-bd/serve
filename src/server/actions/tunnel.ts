@@ -6,6 +6,7 @@ import { eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { db, schema } from "@/server/db";
+import { requireRoomForServer } from "@/server/limits";
 import { encrypt } from "@/server/crypto";
 import { newId, slugify } from "@/server/id";
 import { enqueue } from "@/server/queue";
@@ -45,6 +46,7 @@ export async function createTunnelServer(input: z.input<typeof tunnelInput>) {
     const ctx = await requireServerCreator();
     const owner = ownerFor(ctx);
     const data = tunnelInput.parse(input);
+    await requireRoomForServer(owner);
     if (!/^https?:$/.test(new URL(data.origin).protocol)) throw new UserError("Open the dashboard over http or https.");
     const key = generateKeyPair(`serve-${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
     const keyId = newId();

@@ -85,7 +85,8 @@ type Target = {
   retention: number;
   retentionS3: number;
   dump(file: string): Promise<number>;
-  restore(file: string, log: (line: string) => void): Promise<{ out: string; format: string }>;
+  /** `onStopped`: the containers a storage restore stopped (empty once they run again). */
+  restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>): Promise<{ out: string; format: string }>;
 };
 
 async function databaseCommands(service: ServiceRow): Promise<Commands> {
@@ -272,7 +273,7 @@ export async function targetOf(service: ServiceRow, key: string | null): Promise
     stem: `${service.slug}-${fileSafe(parsed.name)}-${keyHash(key)}`,
     extension: "tar.gz",
     dump: (file) => dumpStorage(docker, source, file),
-    restore: async (file, log) => ({ out: await restoreStorage(docker, service.id, source, file, log), format: "tar.gz" }),
+    restore: async (file, log, onStopped) => ({ out: await restoreStorage(docker, service.id, source, file, log, onStopped), format: "tar.gz" }),
   };
 }
 
@@ -447,7 +448,15 @@ export async function restoreBackup(backupId: string) {
       await fs.promises.mkdir(path.dirname(file), { recursive: true });
       await s3Download(s3, s3Key(s3.prefix, service.slug, backup.filename), file);
     }
-    const { out: clean, format } = await t.restore(file, (line) => void logLine(backupId, line));
+    const { out: clean, format } = await t.restore(
+      file,
+      (line) => void logLine(backupId, line),
+      async (ids) =>
+        void (await db
+          .update(schema.backup)
+          .set({ restoreStopped: ids.length ? ids : null })
+          .where(eq(schema.backup.id, backupId))),
+    );
     await logLine(backupId, `Format: ${format}`);
     if (clean) await logLine(backupId, clean.slice(-2000));
     await db.update(schema.backup).set({ restoreStatus: "success", restoredAt: new Date() }).where(eq(schema.backup.id, backupId));

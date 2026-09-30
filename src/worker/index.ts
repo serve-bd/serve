@@ -34,7 +34,6 @@ import { failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBack
 import { periodicUpdateCheck, reconcileUpdate, runUpdate } from "@/server/instance/updates";
 import { syncMesh } from "@/server/mesh";
 import { startStoppedContainers } from "@/server/backups/storage";
-import { parseBackupKey } from "@/server/backups/compose";
 import { currentVersion } from "@/server/instance/version";
 import { attemptDelivery, flushHeldNotifications, pruneDeliveries, retryDueDeliveries } from "@/server/notifications/deliver";
 
@@ -376,14 +375,13 @@ async function recover() {
     .update(schema.backup)
     .set({ restoreStatus: "failed", restoredAt: new Date() })
     .where(and(eq(schema.backup.restoreStatus, "running"), notWaiting))
-    .returning({ id: schema.backup.id, serviceId: schema.backup.serviceId, target: schema.backup.target });
+    .returning({ id: schema.backup.id, serviceId: schema.backup.serviceId, stopped: schema.backup.restoreStopped });
   for (const r of restores) {
-    if (!wasRunning.has(r.id)) continue;
-    const key = r.target ? parseBackupKey(r.target) : null;
-    if (!key || key.kind === "db") continue;
+    if (!wasRunning.has(r.id) || !r.stopped?.length) continue;
     const [service] = await db.select().from(schema.service).where(eq(schema.service.id, r.serviceId));
     const server = service ? await getServer(service.serverId).catch(() => null) : null;
-    if (server) await startStoppedContainers(server.docker, r.serviceId, { kind: key.kind, source: key.name }).catch(() => {});
+    if (server) await startStoppedContainers(server.docker, r.stopped).catch(() => {});
+    await db.update(schema.backup).set({ restoreStopped: null }).where(eq(schema.backup.id, r.id));
   }
 
   // Certificates interrupted mid-issue get another attempt.

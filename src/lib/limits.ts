@@ -23,6 +23,8 @@ export type OrgLimits = {
   concurrentBuilds?: number | null;
   /** Different servers the organization's services may run on. */
   servers?: number | null;
+  /** Servers the organization adds itself. Each can take a relay port and a private network slot of the instance. */
+  ownServers?: number | null;
   /** Only these servers may be used. Null means every server the organization can see. */
   allowedServers?: string[] | null;
   /** CPU (cores) a service without its own limit counts as, and gets, when a CPU limit applies. */
@@ -46,6 +48,7 @@ export const limitCatalog: { key: CountedLimit; label: string; unit?: string; st
   { key: "backupStorage", label: "Backup storage", unit: "GB", step: 0.5, description: "Size of kept backups." },
   { key: "concurrentBuilds", label: "Builds at once", description: "More builds wait in the queue." },
   { key: "servers", label: "Servers", description: "Different servers the services run on." },
+  { key: "ownServers", label: "Servers it adds", description: "Servers the organization adds itself, over SSH or connecting out." },
 ];
 
 export const DEFAULT_RESERVATION = { cpu: 0.5, memory: 512 };

@@ -7,6 +7,7 @@ import { act, UserError } from "@/server/action";
 import { ForbiddenError, type OrgContext } from "@/server/auth";
 import { ownerFor, requireServerAdmin, requireServerCreator } from "@/server/servers/access";
 import { db, schema } from "@/server/db";
+import { requireRoomForServer } from "@/server/limits";
 import { encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
@@ -150,6 +151,7 @@ export async function createServer(input: Pick<z.input<typeof serverSchema>, "na
       .pick({ name: true, description: true, host: true, port: true, username: true, privateKeyId: true, dataDir: true })
       .parse({ dataDir: "/data/serve", ...input });
     const owner = ownerFor(ctx);
+    await requireRoomForServer(owner);
     if (owner) await assertPublicHost(data.host);
     await usableKey(ctx, data.privateKeyId, owner);
     const id = newId();

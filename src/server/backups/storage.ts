@@ -40,18 +40,24 @@ export function blockedPath(raw: string, paths?: StoragePaths, serviceId?: strin
  * Volumes and host directories mounted by the stack's containers, from Docker itself: exact
  * volume names and absolute host paths, whatever the compose file wrote.
  */
-export async function stackStorage(server: { docker: Docker; paths: StoragePaths }, serviceId: string): Promise<StorageSource[]> {
+export async function stackStorage(
+  server: { docker: Docker; paths: StoragePaths; exec?: (command: string) => Promise<{ code: number | null; stdout: string }> },
+  serviceId: string,
+): Promise<StorageSource[]> {
   const { docker } = server;
   const rows = await docker.listContainers({ all: true, filters: { label: [`${LABEL.service}=${serviceId}`] } });
   const out = new Map<string, StorageSource>();
   const projectDirs = rows.map((r) => r.Labels?.["com.docker.compose.project.working_dir"]).filter((d): d is string => !!d);
+  const dirs = [...new Set(rows.flatMap((r) => (r.Mounts ?? []).filter((m) => m.Type === "bind" && m.Source).map((m) => m.Source)))];
+  const real = await realPaths(server, dirs);
   for (const row of rows) {
     const name = row.Labels?.["com.docker.compose.service"] ?? row.Names?.[0]?.replace(/^\//, "") ?? row.Id.slice(0, 12);
     for (const m of row.Mounts ?? []) {
       const kind = m.Type === "volume" && m.Name ? "volume" : m.Type === "bind" && m.Source ? "dir" : null;
       if (!kind) continue;
       const source = kind === "volume" ? (m.Name as string) : m.Source;
-      if (kind === "dir" && blockedPath(source, server.paths, serviceId, projectDirs)) continue;
+      // A folder reached through a symbolic link is judged by where it really is, too.
+      if (kind === "dir" && (blockedPath(source, server.paths, serviceId, projectDirs) || blockedPath(real.get(source) ?? source, server.paths, serviceId, projectDirs))) continue;
       const key = `${kind}:${source}`;
       const entry = out.get(key) ?? { kind, source, containers: [], destinations: [] };
       if (!entry.containers.includes(name)) entry.containers.push(name);
@@ -60,6 +66,20 @@ export async function stackStorage(server: { docker: Docker; paths: StoragePaths
     }
   }
   return [...out.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.source.localeCompare(b.source));
+}
+
+/** Where each host folder really is, following symbolic links, read on the server. Unknown ones are left out. */
+async function realPaths(server: { exec?: (command: string) => Promise<{ code: number | null; stdout: string }> }, dirs: string[]) {
+  const out = new Map<string, string>();
+  if (!server.exec || !dirs.length) return out;
+  const quote = (v: string) => `'${v.replaceAll("'", `'\\''`)}'`;
+  const res = await server.exec(`for p in ${dirs.map(quote).join(" ")}; do realpath -e -- "$p" 2>/dev/null || echo; done`).catch(() => null);
+  const lines = res?.stdout.split("\n") ?? [];
+  dirs.forEach((d, i) => {
+    const r = lines[i]?.trim();
+    if (r?.startsWith("/")) out.set(d, r);
+  });
+  return out;
 }
 
 /** Containers of the stack that mount a source, to stop them while it is restored. */
@@ -142,7 +162,14 @@ const STAGING = ".serve-restore";
  *   2. Stop the stack's containers that use it, swap the staged files in, start them again (even
  *      when the swap fails).
  */
-export async function restoreStorage(docker: Docker, serviceId: string, s: { kind: "volume" | "dir"; source: string }, file: string, log: (line: string) => void) {
+export async function restoreStorage(
+  docker: Docker,
+  serviceId: string,
+  s: { kind: "volume" | "dir"; source: string },
+  file: string,
+  log: (line: string) => void,
+  onStopped?: (ids: string[]) => Promise<void>,
+) {
   if (!(await imageExists(STORAGE_HELPER_IMAGE, docker))) await pullImage(STORAGE_HELPER_IMAGE, undefined, null, docker);
   log("Unpacking the backup");
   await runHelper(
@@ -155,6 +182,8 @@ if ! tar xzf - -C ${STAGING} || [ ! -d ${STAGING}/data ]; then rm -rf ${STAGING}
     file,
   );
   const users = await containersUsing(docker, serviceId, s);
+  // Recorded before they stop: if the worker dies now, it starts exactly these again.
+  await onStopped?.(users.map((u) => u.Id));
   for (const u of users) {
     log(`Stopping ${u.Labels?.["com.docker.compose.service"] ?? u.Names[0]}`);
     await docker
@@ -177,19 +206,24 @@ if ! tar xzf - -C ${STAGING} || [ ! -d ${STAGING}/data ]; then rm -rf ${STAGING}
         .start()
         .catch(() => {});
     }
+    await onStopped?.([]).catch(() => {});
   }
 }
 
 /**
- * After a restore was cut off (the worker restarted): starts the stack's stopped containers that
- * use that volume or folder. Others, like one-shot jobs that exited, are left alone.
+ * After a restore was cut off (the worker restarted): starts the containers it had stopped, when
+ * they are still stopped. Containers someone else stopped stay as they are.
  */
-export async function startStoppedContainers(docker: Docker, serviceId: string, s: { kind: "volume" | "dir"; source: string }) {
-  const rows = await docker.listContainers({ all: true, filters: { label: [`${LABEL.service}=${serviceId}`], status: ["exited", "created"] } });
-  const users = rows.filter((r) => (r.Mounts ?? []).some((m) => (s.kind === "volume" ? m.Type === "volume" && m.Name === s.source : m.Type === "bind" && m.Source === s.source)));
-  for (const r of users)
+export async function startStoppedContainers(docker: Docker, ids: string[]) {
+  for (const id of ids) {
+    const info = await docker
+      .getContainer(id)
+      .inspect()
+      .catch(() => null);
+    if (!info || info.State.Running) continue;
     await docker
-      .getContainer(r.Id)
+      .getContainer(id)
       .start()
       .catch(() => {});
+  }
 }

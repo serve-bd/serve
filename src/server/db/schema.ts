@@ -820,6 +820,8 @@ export const backup = pgTable(
     /** Last restore of this backup. */
     restoreStatus: text("restore_status").$type<"running" | "success" | "failed">(),
     restoredAt: timestamp("restored_at", { withTimezone: true }),
+    /** Containers a running storage restore stopped, so a worker restart starts exactly those again. */
+    restoreStopped: text("restore_stopped").array(),
     /** Progress and output of the backup, import and restore steps. */
     log: text("log"),
     createdAt: createdAt(),

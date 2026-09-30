@@ -93,7 +93,7 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
     HostConfig: {
       Binds: binds,
       PortBindings: bindings,
-      RestartPolicy: restart === "no" ? { Name: "no" } : restart === "on-failure" ? { Name: "on-failure", MaximumRetryCount: 5 } : { Name: restart },
+      RestartPolicy: dockerRestartPolicy(restart),
       NanoCpus: runtime.cpuLimit ? Math.round(runtime.cpuLimit * 1e9) : undefined,
       Memory: runtime.memoryLimit ? runtime.memoryLimit * 1024 * 1024 : undefined,
       MemoryReservation: runtime.memoryReservation ? runtime.memoryReservation * 1024 * 1024 : undefined,
@@ -290,4 +290,9 @@ export async function waitHealthy(
   throw new Error(
     `Healthcheck timed out after ${Math.round(timeoutMs / 1000)}s.${runtime.port ? ` Make sure the app listens on 0.0.0.0:${runtime.port}.` : ""}${tail ? `\n--- last logs ---\n${tail}` : ""}`,
   );
+}
+
+/** Docker's restart policy for a service's setting. */
+export function dockerRestartPolicy(restart: string) {
+  return restart === "no" ? { Name: "no" } : restart === "on-failure" ? { Name: "on-failure", MaximumRetryCount: 5 } : { Name: restart };
 }

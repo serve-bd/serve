@@ -2,6 +2,7 @@ import YAML from "yaml";
 import { proxyPaths } from "@/server/paths";
 import { sizeToBytes, type ProxyDefaults, type TraefikSettings } from "./config";
 import type { HostModel, SiteModel } from "./model";
+import { safeRedirectUrl } from "@/lib/unknown-redirect";
 
 /**
  * Traefik rendering: static configuration as command-line arguments and one
@@ -61,13 +62,18 @@ export function traefikStaticArgs(cfg: TraefikSettings, opts: { email: string | 
 
 /** Shared routers, middlewares and the error-page service. */
 export function traefikBaseDynamic(opts: { pagesUrl: string; resolver: boolean; dashboard: TraefikSettings["dashboard"]; defaults: Required<ProxyDefaults> }) {
+  // Unknown hosts: the pages server's 404 page, or a redirect (Traefik answers ACME challenges before any router).
+  const redirect = safeRedirectUrl(opts.defaults.unknownRedirect);
+  const target = () => (redirect ? { service: "noop@internal", middlewares: ["serve-unknown-redirect"] } : { service: "serve-pages" });
   const routers: Obj = opts.defaults.catchAll
     ? {
-        "serve-catchall-web": { rule: "PathPrefix(`/`)", priority: 1, entryPoints: ["web"], service: "serve-pages" },
-        "serve-catchall-secure": { rule: "PathPrefix(`/`)", priority: 1, entryPoints: ["websecure"], service: "serve-pages", tls: {} },
+        "serve-catchall-web": { rule: "PathPrefix(`/`)", priority: 1, entryPoints: ["web"], ...target() },
+        "serve-catchall-secure": { rule: "PathPrefix(`/`)", priority: 1, entryPoints: ["websecure"], ...target(), tls: {} },
       }
     : {};
   const middlewares: Obj = { "serve-redirect-https": { redirectScheme: { scheme: "https", permanent: true } } };
+  // `$` is not allowed in the URL, so the replacement has no group references.
+  if (opts.defaults.catchAll && redirect) middlewares["serve-unknown-redirect"] = { redirectRegex: { regex: "^.*$", replacement: redirect, permanent: false } };
   if (opts.defaults.unavailablePage) {
     middlewares["serve-errors"] = { errors: { status: ["500-599"], service: "serve-pages", query: "/__unavailable" } };
     middlewares["serve-unavailable"] = { replacePath: { path: "/__unavailable" } };
@@ -96,7 +102,7 @@ function hostRule(h: HostModel, deny: string[] | undefined) {
 }
 
 export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; trusted: string[]; defaults?: Required<ProxyDefaults> }) {
-  const defaults = opts.defaults ?? { catchAll: true, unavailablePage: true, httpsRedirect: true };
+  const defaults = opts.defaults ?? { catchAll: true, unknownRedirect: null, unavailablePage: true, httpsRedirect: true };
   const o = site.options;
   const p = site.name;
   const routers: Obj = {};

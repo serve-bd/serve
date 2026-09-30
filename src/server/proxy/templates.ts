@@ -2,6 +2,7 @@ import { proxyPaths } from "@/server/paths";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import type { ProxyMaintenance } from "@/server/services/maintenance";
 import { allTrusted, clientIpHeaderNames, type VisitorIp } from "@/lib/trusted-proxies";
+import { safeRedirectUrl } from "@/lib/unknown-redirect";
 
 /**
  * Proxy images are pinned to exact versions. A Serve release moves them, and the proxy on every
@@ -81,7 +82,16 @@ export type NginxMainOptions = {
   serverTokens?: boolean;
   /** Serve's default server with the 404 page for unknown hosts (default on). */
   catchAll?: boolean;
+  /** With the catch-all on: unknown hosts get a 302 redirect to this URL instead (checked by safeRedirectUrl). */
+  unknownRedirect?: string | null;
 };
+
+/** What the default server answers outside its own paths: the 404 page, or a redirect to a safe URL. */
+function unknownHosts(redirect?: string | null) {
+  const url = safeRedirectUrl(redirect);
+  // The URL has no quotes, backslashes or `$`; escape anyway so it can never leave the string.
+  return url ? `return 302 "${url.replace(/[\\"]/g, "\\$&")}";` : "return 404;";
+}
 
 export function mainConfig(opts: NginxMainOptions) {
   return `# Managed by Serve. Changes will be overwritten.
@@ -170,7 +180,7 @@ ${
         }
 
         location / {
-            return 404;
+            ${unknownHosts(opts.unknownRedirect)}
         }
 
         error_page 404 /__serve_not_found.html;

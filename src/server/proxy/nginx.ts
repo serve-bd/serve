@@ -169,7 +169,8 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
       }
     }
     const n = config.nginx ?? {};
-    const main = mainConfig({ ...n, maxBodySize: n.maxBodySize || DEFAULT_MAX_BODY_SIZE, catchAll: defaultsOf(n.defaults).catchAll });
+    const { catchAll, unknownRedirect } = defaultsOf(n.defaults);
+    const main = mainConfig({ ...n, maxBodySize: n.maxBodySize || DEFAULT_MAX_BODY_SIZE, catchAll, unknownRedirect });
     const mainChanged = await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "nginx.conf"), main);
     const paramsChanged = await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "proxy_params.conf"), proxyParams);
     if (mainChanged || paramsChanged) {

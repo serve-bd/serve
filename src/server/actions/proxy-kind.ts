@@ -18,9 +18,11 @@ import {
   customFilePattern,
   nginxSettingsSchema,
   PROXY_KINDS,
+  proxyDefaultsSchema,
   proxyFileSchema,
   proxyLabels,
   traefikSettingsSchema,
+  type ProxyDefaults,
   type ProxyFile,
   type ProxyKind,
   type RunningKind,
@@ -201,14 +203,23 @@ export async function deleteProxyFile(serverId: string, kindInput: string, name:
   });
 }
 
-/** Turn Serve's built-in catch-all, 503 page or HTTPS redirects on or off. */
-export async function saveProxyDefaults(serverId: string, kindInput: string, defaults: { catchAll?: boolean; unavailablePage?: boolean; httpsRedirect?: boolean }) {
+/** Turn Serve's built-in catch-all (404 page or redirect), 503 page or HTTPS redirects on or off. */
+export async function saveProxyDefaults(serverId: string, kindInput: string, input: ProxyDefaults) {
   return act(async () => {
     const { ctx } = await requireServerAdmin(serverId);
     const kind = runningKind(kindInput);
     await serverRow(serverId);
+    const parsed = proxyDefaultsSchema.safeParse(input);
+    if (!parsed.success) throw new UserError(parsed.error.issues[0]?.message ?? "Invalid settings.");
+    const defaults = parsed.data;
     const { config } = await proxyStateOf(serverId);
-    const clean = { catchAll: defaults.catchAll !== false, unavailablePage: defaults.unavailablePage !== false, httpsRedirect: defaults.httpsRedirect !== false };
+    const catchAll = defaults.catchAll !== false;
+    const clean = {
+      catchAll,
+      unknownRedirect: catchAll ? (defaults.unknownRedirect ?? null) : null,
+      unavailablePage: defaults.unavailablePage !== false,
+      httpsRedirect: defaults.httpsRedirect !== false,
+    };
     await apply(serverId, kind, { ...config, [kind]: { ...config[kind], defaults: clean } }, "the change");
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.proxy.config", message: `Updated ${proxyLabels[kind]} built-in defaults` });
     return null;

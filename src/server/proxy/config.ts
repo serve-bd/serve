@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { redirectUrlError, safeRedirectUrl } from "@/lib/unknown-redirect";
 import { PROXY_IMAGE } from "./templates";
 
 /**
@@ -17,6 +18,8 @@ export type ProxyFile = { name: string; content: string };
 export type ProxyDefaults = {
   /** Serve's 404 page for unknown hosts. */
   catchAll?: boolean;
+  /** With the catch-all on: a 302 redirect to this URL for unknown hosts instead of the 404 page. */
+  unknownRedirect?: string | null;
   /** Serve's 503 page for stopped or unreachable services. */
   unavailablePage?: boolean;
   /** Caddy's automatic HTTP→HTTPS redirects / a Traefik entry point redirect for every request. */
@@ -96,7 +99,12 @@ export const customFilePattern: Record<RunningKind, RegExp> = {
   traefik: /^[a-z0-9][a-z0-9._-]{0,60}\.ya?ml$/,
 };
 
-export const defaultsOf = (d?: ProxyDefaults) => ({ catchAll: d?.catchAll !== false, unavailablePage: d?.unavailablePage !== false, httpsRedirect: d?.httpsRedirect !== false });
+export const defaultsOf = (d?: ProxyDefaults): Required<ProxyDefaults> => ({
+  catchAll: d?.catchAll !== false,
+  unknownRedirect: safeRedirectUrl(d?.unknownRedirect),
+  unavailablePage: d?.unavailablePage !== false,
+  httpsRedirect: d?.httpsRedirect !== false,
+});
 
 /* -------------------------------------------------------------------------- */
 /*                                 Validation                                 */
@@ -105,6 +113,22 @@ export const defaultsOf = (d?: ProxyDefaults) => ({ catchAll: d?.catchAll !== fa
 const seconds = (max: number) => z.number().int().min(1).max(max).nullable().optional();
 /** One-line raw text must not break out of the generated file's structure. */
 const noNul = (v: string) => !v.includes("\u0000");
+
+export const proxyDefaultsSchema = z.object({
+  catchAll: z.boolean().optional(),
+  unknownRedirect: z
+    .string()
+    .trim()
+    .superRefine((v, c) => {
+      const error = v ? redirectUrlError(v) : null;
+      if (error) c.addIssue({ code: "custom", message: error });
+    })
+    .transform((v) => v || null)
+    .nullable()
+    .optional(),
+  unavailablePage: z.boolean().optional(),
+  httpsRedirect: z.boolean().optional(),
+});
 
 function balanced(text: string) {
   let depth = 0;
@@ -128,7 +152,7 @@ export const nginxSettingsSchema = z.object({
   proxyReadTimeout: seconds(86_400),
   gzipLevel: z.number().int().min(1).max(9).nullable().optional(),
   serverTokens: z.boolean().optional(),
-  defaults: z.object({ catchAll: z.boolean().optional(), unavailablePage: z.boolean().optional(), httpsRedirect: z.boolean().optional() }).optional(),
+  defaults: proxyDefaultsSchema.optional(),
 });
 
 export const caddySettingsSchema = z.object({
@@ -142,7 +166,7 @@ export const caddySettingsSchema = z.object({
   writeTimeout: seconds(86_400),
   idleTimeout: seconds(86_400),
   rawGlobal: z.string().max(20_000).refine(noNul).refine(balanced, "Braces { } must be balanced").nullable().optional(),
-  defaults: z.object({ catchAll: z.boolean().optional(), unavailablePage: z.boolean().optional(), httpsRedirect: z.boolean().optional() }).optional(),
+  defaults: proxyDefaultsSchema.optional(),
 });
 
 export const traefikSettingsSchema = z.object({
@@ -168,7 +192,7 @@ export const traefikSettingsSchema = z.object({
     .optional(),
   acmeChallenge: z.enum(["http", "tls", "dns-cloudflare"]).optional(),
   cloudflareAccountId: z.string().nullable().optional(),
-  defaults: z.object({ catchAll: z.boolean().optional(), unavailablePage: z.boolean().optional(), httpsRedirect: z.boolean().optional() }).optional(),
+  defaults: proxyDefaultsSchema.optional(),
 });
 
 export const proxyFileSchema = z.object({

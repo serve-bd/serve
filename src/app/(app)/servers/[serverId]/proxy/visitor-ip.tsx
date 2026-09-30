@@ -59,9 +59,7 @@ export function VisitorIpCard({ serverId, kind, initial, disabled }: { serverId:
       <CardBody className="flex flex-col gap-4 py-5">
         <SwitchRow
           title="Trust proxies in front of this server"
-          description={
-            value.on ? "Requests from the addresses below may set the visitor IP." : "Off: only Cloudflare Tunnel traffic carries the visitor IP."
-          }
+          description={value.on ? "Requests from the addresses below may set the visitor IP." : "Off: only Cloudflare Tunnel traffic carries the visitor IP."}
           checked={value.on}
           onCheckedChange={(on) => set({ on })}
           disabled={disabled}

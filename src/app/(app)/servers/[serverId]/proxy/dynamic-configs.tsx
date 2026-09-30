@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge, Card, CardBody, CardFooter, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, Textarea } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm";
@@ -18,6 +19,7 @@ import { getSiteFile, reloadProxyNow } from "@/server/actions/server-proxy";
 import { deleteProxyFile, saveProxyContainer, saveProxyDefaults, saveProxyFile } from "@/server/actions/proxy-kind";
 import type { ProxyDefaults, ProxyFile, RunningKind } from "@/server/proxy/config";
 import { cn, formatBytes } from "@/lib/utils";
+import { MAX_REDIRECT_URL, redirectUrlError } from "@/lib/unknown-redirect";
 
 export type ManagedFile = { file: string; kind: "main" | "dashboard" | "service" | "custom" | "other"; label: string; href: string | null; size: number; updatedAt: string };
 
@@ -289,18 +291,44 @@ export function ErrorBox({ message }: { message: string }) {
   );
 }
 
+type UnknownHosts = "page" | "redirect" | "off";
+
+const unknownOf = (d: Required<ProxyDefaults>): UnknownHosts => (!d.catchAll ? "off" : d.unknownRedirect ? "redirect" : "page");
+
+const UNKNOWN_OPTIONS: { value: UnknownHosts; label: string }[] = [
+  { value: "page", label: "Built-in 404 page" },
+  { value: "redirect", label: "Redirect to a URL" },
+  { value: "off", label: "Off — my config files handle them" },
+];
+
+const UNKNOWN_HELP: Record<UnknownHosts, string> = {
+  page: "Hostnames with no domain on this server get the built-in 404 page.",
+  redirect: "Hostnames with no domain on this server get a temporary (302) redirect to this exact URL.",
+  off: "Nothing is added for hostnames with no domain on this server.",
+};
+
 /** Serve's catch-all, 503 page and HTTPS redirects, each of which can be handed to custom files. */
 export function BuiltInDefaultsCard({ serverId, kind, initial, disabled }: { serverId: string; kind: RunningKind; initial: Required<ProxyDefaults>; disabled: boolean }) {
   const router = useRouter();
   const [value, setValue] = React.useState(initial);
+  const [unknown, setUnknown] = React.useState<UnknownHosts>(unknownOf(initial));
+  const [url, setUrl] = React.useState(initial.unknownRedirect ?? "");
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
-  const dirty = JSON.stringify(value) !== JSON.stringify(initial);
+  const next: Required<ProxyDefaults> = { ...value, catchAll: unknown !== "off", unknownRedirect: unknown === "redirect" ? url.trim() : null };
+  const dirty = JSON.stringify(next) !== JSON.stringify(initial);
+  const urlError = unknown === "redirect" ? redirectUrlError(url.trim()) : null;
   const off = <span className="text-warn"> Off: your custom files must handle this.</span>;
+  const discard = () => {
+    setValue(initial);
+    setUnknown(unknownOf(initial));
+    setUrl(initial.unknownRedirect ?? "");
+    setError(null);
+  };
   const save = async () => {
     setPending(true);
     setError(null);
-    const res = await saveProxyDefaults(serverId, kind, value);
+    const res = await saveProxyDefaults(serverId, kind, next);
     setPending(false);
     if (!res.ok) return setError(res.error);
     toast.success("Built-in defaults applied");
@@ -310,13 +338,34 @@ export function BuiltInDefaultsCard({ serverId, kind, initial, disabled }: { ser
     <Card>
       <CardHeader title="Built-in defaults" description={<>What is added automatically. Turn one off to handle it in a custom file instead.</>} />
       <CardBody className="flex flex-col gap-3 py-5">
-        <SwitchRow
-          title="Catch-all 404 page"
-          description={<>Unknown hostnames get the built-in 404 page.{!value.catchAll && off}</>}
-          checked={value.catchAll}
-          onCheckedChange={(x) => setValue({ ...value, catchAll: x })}
-          disabled={disabled}
-        />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field
+            label="Unknown hostnames"
+            description={
+              <>
+                {UNKNOWN_HELP[unknown]}
+                {unknown === "off" && off}
+              </>
+            }
+          >
+            <Select value={unknown} onValueChange={(x) => setUnknown(x as UnknownHosts)} options={UNKNOWN_OPTIONS} disabled={disabled} aria-label="Unknown hostnames" />
+          </Field>
+          {unknown === "redirect" && (
+            <Field label="Redirect to" error={url.trim() ? urlError : null}>
+              <Input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://example.com"
+                maxLength={MAX_REDIRECT_URL}
+                spellCheck={false}
+                autoCapitalize="off"
+                className="font-mono text-[12.5px]"
+                disabled={disabled}
+              />
+            </Field>
+          )}
+        </div>
         <SwitchRow
           title="Unavailable page"
           description={<>Stopped or unreachable services answer with the built-in 503 page.{!value.unavailablePage && off}</>}
@@ -344,11 +393,11 @@ export function BuiltInDefaultsCard({ serverId, kind, initial, disabled }: { ser
         <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : "Validated by the proxy before it applies"}</span>
         <div className="flex flex-none gap-2">
           {dirty && (
-            <Button variant="ghost" size="sm" onClick={() => (setValue(initial), setError(null))}>
+            <Button variant="ghost" size="sm" onClick={discard}>
               Discard
             </Button>
           )}
-          <Button variant="primary" size="sm" onClick={save} disabled={!dirty || disabled} loading={pending}>
+          <Button variant="primary" size="sm" onClick={save} disabled={!dirty || disabled || !!urlError} loading={pending}>
             Test and apply
           </Button>
         </div>

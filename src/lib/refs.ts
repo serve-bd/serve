@@ -84,7 +84,7 @@ export function scopeReader(maps: { environment: Record<string, string>; project
  * Per-replica references, filled in for each container: ${{replica.index}}, ${{replica.number}},
  * ${{replica.count}}, and ${{replica.pick(a,b,c)}} (replica 1 gets a, replica 2 gets b, ...).
  */
-export const REPLICA_REF = /\$\{\{\s*replica\.(?:(index|number|count)|pick\(([^)]*)\))\s*\}\}/gi;
+export const REPLICA_REF = /\$\{\{\s*replica\.(?:(index|number|count)|pick\(((?:[^)\\]|\\.)*)\))\s*\}\}/gi;
 
 /**
  * The environment of one replica: fills the replica references and sets SERVE_REPLICA_INDEX
@@ -100,11 +100,43 @@ export function replicaEnv(env: Record<string, string>, index: number, count: nu
   return out;
 }
 
-const pickList = (list: string) => list.split(",").map((x) => x.trim());
+/**
+ * Values of a pick list, split on commas. Spaces around a value are ignored; `\,` `\)` `\\` and
+ * `\ ` stand for the characters themselves (replicaPick escapes them).
+ */
+function pickList(list: string) {
+  const out: string[] = [];
+  let cur: { ch: string; esc: boolean }[] = [];
+  const flush = () => {
+    while (cur.length && !cur[0].esc && /\s/.test(cur[0].ch)) cur.shift();
+    while (cur.length && !cur.at(-1)!.esc && /\s/.test(cur.at(-1)!.ch)) cur.pop();
+    out.push(cur.map((c) => c.ch).join(""));
+    cur = [];
+  };
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] === "\\" && i + 1 < list.length) cur.push({ ch: list[++i], esc: true });
+    else if (list[i] === ",") flush();
+    else cur.push({ ch: list[i], esc: false });
+  }
+  flush();
+  return out;
+}
 
 /** Variables whose ${{replica.pick(...)}} has fewer values than there are replicas. */
 export function shortReplicaPicks(env: Record<string, string>, count: number): string[] {
   return Object.entries(env)
     .filter(([, v]) => [...v.matchAll(REPLICA_REF)].some((m) => m[2] !== undefined && pickList(m[2]).length < count))
     .map(([k]) => k);
+}
+
+/** The values of a variable that is exactly ${{replica.pick(...)}}, or null. */
+export function parseReplicaPick(value: string): string[] | null {
+  const m = /^\$\{\{\s*replica\.pick\(((?:[^)\\]|\\.)*)\)\s*\}\}$/i.exec(value.trim());
+  return m ? pickList(m[1]) : null;
+}
+
+/** ${{replica.pick(...)}} for a list of values, escaping what would end a value or the list. */
+export function replicaPick(values: string[]) {
+  const escapeValue = (v: string) => v.replace(/[\\,)]/g, "\\$&").replace(/^\s+|\s+$/g, (ws) => ws.replace(/./g, "\\$&"));
+  return `\${{replica.pick(${values.map(escapeValue).join(",")})}}`;
 }

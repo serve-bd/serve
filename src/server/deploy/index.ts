@@ -478,7 +478,7 @@ async function runOnServer(opts: {
           serviceId: service.id,
           deploymentId: dep.id,
           kind: "app",
-          env: replicaEnv(env.runtime, replicaOffset + i, replicaTotal),
+          env: replicaEnv({ ...env.runtime, ...env.replicas[replicaOffset + i + 1] }, replicaOffset + i, replicaTotal),
           runtime,
           aliases: networkAliases(service),
           network,

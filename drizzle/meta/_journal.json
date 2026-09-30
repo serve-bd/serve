@@ -260,6 +260,13 @@
       "when": 1790773612916,
       "tag": "0036_compose_backups",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790776860430,
+      "tag": "0037_replica_vars",
+      "breakpoints": true
     }
   ]
 }

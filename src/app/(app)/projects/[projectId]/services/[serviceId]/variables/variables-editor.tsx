@@ -14,6 +14,7 @@ import { saveEnvVars } from "@/server/actions/services";
 import { parseEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
 import { referenceOf } from "@/lib/refs";
+import { CollapseButton, type ReplicaVar, ReplicaVars, useCollapsed } from "./replica-vars";
 
 /** `hidden`: the value is kept on the server and not sent here (the role cannot see secrets); `from` is its stored key. */
 type Var = { key: string; value: string; buildTime: boolean; runtime: boolean; id?: number; hidden?: boolean; from?: string };
@@ -38,6 +39,8 @@ export function VariablesEditor({
   initial,
   references,
   composeVars = [],
+  replicas = 0,
+  replicaVars = {},
   canEdit = true,
   canSeeSecrets = true,
 }: {
@@ -48,14 +51,20 @@ export function VariablesEditor({
   references: Reference[];
   /** ${VARIABLES} the compose file uses without a default. */
   composeVars?: string[];
+  /** Replicas across all servers; 0 when the service has none (compose, databases). */
+  replicas?: number;
+  replicaVars?: Record<number, ReplicaVar[]>;
   canEdit?: boolean;
   /** Without it, values arrive hidden and saving keeps them unless replaced. */
   canSeeSecrets?: boolean;
 }) {
   const [vars, setVars] = React.useState<Var[]>(() => initial.map(withId));
+  // Rows as last saved: their values are masked until revealed. New and edited values stay readable while typing.
+  const [savedValues, setSavedValues] = React.useState(() => new Map(vars.map((v) => [v.id!, v.value])));
   const [raw, setRaw] = React.useState<string | null>(null);
   const [revealed, setRevealed] = React.useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [collapsed, toggleCollapsed] = useCollapsed(`serve:vars-collapsed:${serviceId}`);
   const [baseline, setBaseline] = React.useState(() =>
     JSON.stringify(
       initial.filter((v) => v.key).map((v) => ({ key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime, ...(v.hidden ? { keep: v.from ?? v.key } : {}) })),
@@ -72,10 +81,13 @@ export function VariablesEditor({
     success: (d) => (d.deploymentId ? "Saved. Redeploying…" : "Variables saved"),
     onSuccess: () => {
       setBaseline(JSON.stringify(current.filter((v) => v.key)));
+      const saved = raw !== null ? current.map(withId) : vars;
       if (raw !== null) {
-        setVars(current.map(withId));
+        setVars(saved);
         setRaw(null);
       }
+      setSavedValues(new Map(saved.map((v) => [v.id!, v.value])));
+      setRevealed(new Set());
       setConfirmOpen(false);
     },
   });
@@ -113,28 +125,36 @@ export function VariablesEditor({
         )}
         <Card className="overflow-hidden">
           <CardHeader
-            title={<span className="flex items-center gap-2">Environment variables {!canEdit && <Badge>Read only</Badge>}</span>}
-            description="Encrypted at rest. Changes apply on the next deploy."
+            className={cn(collapsed && "items-center border-b-0")}
+            title={
+              <span className="flex items-center gap-2">
+                Environment variables {!canEdit && <Badge>Read only</Badge>}
+                {collapsed && <span className="text-[12px] font-normal text-muted">{current.filter((v) => v.key).length} variables</span>}
+              </span>
+            }
+            description={collapsed ? undefined : "Encrypted at rest. Changes apply on the next deploy."}
             actions={
-              canSeeSecrets &&
-              canEdit && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    if (raw === null) setRaw(toRaw(vars));
-                    else {
-                      setVars(parseEnv(raw).map((v) => withId({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? true, runtime: true })));
-                      setRaw(null);
-                    }
-                  }}
-                >
-                  <Code2 /> {raw === null ? "Raw editor" : "Table view"}
-                </Button>
-              )
+              <>
+                {!collapsed && canSeeSecrets && canEdit && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (raw === null) setRaw(toRaw(vars));
+                      else {
+                        setVars(parseEnv(raw).map((v) => withId({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? true, runtime: true })));
+                        setRaw(null);
+                      }
+                    }}
+                  >
+                    <Code2 /> {raw === null ? "Raw editor" : "Table view"}
+                  </Button>
+                )}
+                <CollapseButton collapsed={collapsed} onClick={toggleCollapsed} label="environment variables" />
+              </>
             }
           />
-          {raw !== null ? (
+          {collapsed ? null : raw !== null ? (
             <div className="p-4">
               <Textarea
                 value={raw}
@@ -174,7 +194,8 @@ export function VariablesEditor({
                 <span />
               </div>
               {vars.map((v) => {
-                const shown = revealed.has(v.id!);
+                const editing = savedValues.get(v.id!) !== v.value;
+                const shown = editing || revealed.has(v.id!);
                 const isRef = v.value.includes("${{");
                 return (
                   <div
@@ -202,7 +223,7 @@ export function VariablesEditor({
                         disabled={!canEdit}
                         title={v.hidden ? "Your role cannot see secret values." : undefined}
                       />
-                      {!isRef && !v.hidden && (canSeeSecrets || !v.from) && (
+                      {!isRef && !editing && !v.hidden && (canSeeSecrets || !v.from) && (
                         <button
                           type="button"
                           onClick={() =>
@@ -254,7 +275,7 @@ export function VariablesEditor({
               )}
             </div>
           )}
-          {canEdit ? (
+          {collapsed && !dirty ? null : canEdit ? (
             <CardFooter className={cn("transition-opacity", !dirty && "opacity-60")}>
               <span className="text-xs text-muted">
                 {dirty ? "You have unsaved changes." : `${current.filter((v) => v.key).length} variables${canSeeSecrets ? "" : " · values hidden for your role"}`}
@@ -265,7 +286,9 @@ export function VariablesEditor({
                     size="sm"
                     variant="ghost"
                     onClick={() => {
-                      setVars(initial.map(withId));
+                      const rows = initial.map(withId);
+                      setVars(rows);
+                      setSavedValues(new Map(rows.map((v) => [v.id!, v.value])));
                       setRaw(null);
                     }}
                   >
@@ -285,6 +308,17 @@ export function VariablesEditor({
             </CardFooter>
           )}
         </Card>
+        {replicas > 0 && (
+          <ReplicaVars
+            serviceId={serviceId}
+            replicas={replicas}
+            initial={replicaVars}
+            keys={current.filter((v) => v.key && v.runtime).map((v) => v.key)}
+            canEdit={canEdit}
+            canSeeSecrets={canSeeSecrets}
+            canRedeploy={canRedeploy}
+          />
+        )}
       </div>
 
       <div className="flex flex-col gap-4">

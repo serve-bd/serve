@@ -62,6 +62,8 @@ export type ResolvedEnv = {
   secrets: string[];
   /** References that could not be resolved. */
   missing: string[];
+  /** Runtime variables of single replicas, by replica number (from 1); they win over `runtime`. */
+  replicas: Record<number, Record<string, string>>;
 };
 
 /** Resolve service variables, shared variables and ${{ref}} references. */
@@ -182,13 +184,20 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   delete build.SERVE_REPLICA_INDEX;
   delete build.SERVE_REPLICA_COUNT;
 
+  const replicas: Record<number, Record<string, string>> = {};
+  for (const [n, vars] of Object.entries(service.replicaVars ?? {})) {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(vars)) out[k] = expand(decryptOrNull(v) ?? "");
+    if (Object.keys(out).length) replicas[Number(n)] = out;
+  }
+
   const secretKey = /SECRET|TOKEN|PASS|KEY|URL|DSN|AUTH|PRIVATE|CREDENTIAL/i;
-  const values = Object.entries(runtime).concat(Object.entries(build));
+  const values = Object.entries(runtime).concat(Object.entries(build), ...Object.values(replicas).map((r) => Object.entries(r)));
   const secrets = values.filter(([k, v]) => v.length >= 6 && (secretKey.test(k) || v.length >= 20)).map(([, v]) => v);
   // Shared values of any scope that ended up in the environment are redacted too.
   for (const [k, v] of [...Object.entries(sharedMap), ...Object.entries(projectMap), ...Object.entries(orgMap)]) {
     if (v.length >= 6 && secretKey.test(k) && values.some(([, x]) => x.includes(v))) secrets.push(v);
   }
 
-  return { runtime, build, secrets: [...new Set(secrets)], missing: [...missing] };
+  return { runtime, build, secrets: [...new Set(secrets)], missing: [...missing], replicas };
 }

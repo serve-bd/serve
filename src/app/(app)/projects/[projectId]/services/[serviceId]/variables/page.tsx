@@ -85,10 +85,21 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
           const value = decryptOrNull(v.value) ?? "";
           // A value made only of references is not secret; anything with literal text (a password
           // next to a reference) stays on the server for roles without secret access.
-          return canSeeSecrets || /^(\$\{\{[^}]+\}\})+$/.test(value.trim())
+          // replica.pick lists hold literal values (tokens, often), so they count as secret too.
+          return canSeeSecrets || (/^(\$\{\{[^}]+\}\})+$/.test(value.trim()) && !/replica\.pick\(/i.test(value))
             ? { key: v.key, value, buildTime: v.buildTime, runtime: v.runtime }
             : { key: v.key, value: "", buildTime: v.buildTime, runtime: v.runtime, hidden: true, from: v.key };
         })}
+        replicas={service.type === "app" ? Math.max(1, service.runtime.replicas || 1) * (1 + (service.distribution?.extraServerIds?.length ?? 0)) : 0}
+        replicaVars={Object.fromEntries(
+          Object.entries(service.replicaVars ?? {}).map(([n, vars]) => [
+            Number(n),
+            Object.entries(vars).map(([key, enc]) => {
+              const value = decryptOrNull(enc) ?? "";
+              return canSeeSecrets || /^(\$\{\{[^}]+\}\})+$/.test(value.trim()) ? { key, value } : { key, value: "", hidden: true };
+            }),
+          ]),
+        )}
         canEdit={ctx.can("variables.edit")}
         canSeeSecrets={canSeeSecrets}
         references={references}

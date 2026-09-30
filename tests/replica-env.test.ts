@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replicaEnv, shortReplicaPicks } from "@/lib/refs";
+import { parseReplicaPick, replicaEnv, replicaPick, shortReplicaPicks } from "@/lib/refs";
 
 describe("replicaEnv", () => {
   it("fills replica references and sets the built-in variables", () => {
@@ -35,5 +35,18 @@ describe("replicaEnv", () => {
     const env = { A: "${{replica.pick(1,2,3,4)}}", B: "${{replica.pick(x,y)}}", C: "${{replica.index}}" };
     expect(shortReplicaPicks(env, 4)).toEqual(["B"]);
     expect(shortReplicaPicks(env, 2)).toEqual([]);
+  });
+
+  it("keeps any text through replicaPick and parseReplicaPick", () => {
+    const values = ["token,with,commas", "a (b) c", "back\\slash", " padded ", "", "https://x.io/?a=1&b=2", '{"json": [1, 2]}'];
+    const value = replicaPick(values);
+    expect(parseReplicaPick(value)).toEqual(values);
+    expect(values.map((_, i) => replicaEnv({ V: value }, i, values.length).V)).toEqual(values);
+  });
+
+  it("parses hand-written lists and ignores other values", () => {
+    expect(parseReplicaPick("${{ replica.pick(eu, us , asia) }}")).toEqual(["eu", "us", "asia"]);
+    expect(parseReplicaPick("x-${{replica.pick(a,b)}}")).toBeNull();
+    expect(parseReplicaPick("plain")).toBeNull();
   });
 });

@@ -402,6 +402,7 @@ export function ServiceSettings(props: Props) {
                     builder: "compose",
                     repo: service.source.repository,
                     branch: service.source.branch,
+                    server: props.server.id,
                     ...(service.source.credentialId ? { credential: service.source.credentialId } : {}),
                   })}`
                 : undefined

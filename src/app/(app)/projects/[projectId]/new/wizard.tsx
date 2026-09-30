@@ -57,6 +57,8 @@ type Props = {
   credentials: { id: string; name: string; provider: string; oauth?: boolean }[];
   nixpacks: boolean;
   initialType: string | null;
+  /** Server picked in "Deploy to" when the page opens, e.g. the server of the app a link came from. */
+  initialServerId?: string | null;
   initialTemplate: string | null;
   /** Git form filled in from a link (an existing app's "deploy its compose file"). */
   initialGit?: { repository: string; branch: string; credentialId: string | null; builder: string | null } | null;
@@ -984,7 +986,7 @@ function ServerBar({ servers, value, onChange }: { servers: Props["servers"]; va
 
 /** Renders the page header too, so the server picker can sit in its actions. */
 export function NewServiceWizard({ header, ...props }: Props & { header: { title: string; description: string; breadcrumbs: Crumb[] } }) {
-  const [serverId, setServerId] = React.useState(props.servers[0]?.id ?? "local");
+  const [serverId, setServerId] = React.useState(props.initialServerId ?? props.servers[0]?.id ?? "local");
   const p = { ...props, serverId };
   return (
     <>

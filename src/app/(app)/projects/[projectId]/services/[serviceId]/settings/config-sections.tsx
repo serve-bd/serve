@@ -1,13 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { ChevronRight, Layers, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import { useAction } from "@/hooks/use-action";
+import { useRouter } from "@/hooks/use-router";
+import { useConfirm } from "@/components/ui/confirm";
 import { deployWithoutCache, type updateService } from "@/server/actions/services";
 import type { BuildConfig, KeyValue, RuntimeConfig } from "@/server/services/types";
 import { CAPABILITIES } from "@/server/deploy/options";
@@ -36,64 +37,42 @@ export function BuildSection({
   composeHref?: string;
 }) {
   const fresh = useAction(() => deployWithoutCache(serviceId), { success: "Deploying without cache" });
+  const router = useRouter();
+  const confirm = useConfirm();
   return (
-    <Section
-      id="build"
-      title="Build"
-      description="How the image is built from your repository."
-      footerNote={REDEPLOY}
-      initial={{
-        builder: build.builder,
-        rootDir: build.rootDir,
-        dockerfile: build.dockerfile,
-        target: build.target ?? "",
-        installCommand: build.installCommand ?? "",
-        buildCommand: build.buildCommand ?? "",
-        startCommand: build.startCommand ?? "",
-        publishDir: build.publishDir ?? "",
-        buildArgs: build.buildArgs ?? ([] as KeyValue[]),
-        noCache: build.noCache ?? false,
-        submodules: build.submodules ?? true,
-        buildTimeoutMinutes: String(build.buildTimeoutMinutes ?? ""),
-        watchPaths: (build.watchPaths ?? []).join("\n"),
-      }}
-      onSave={(v) =>
-        save({
-          build: {
-            builder: v.builder,
-            rootDir: v.rootDir,
-            dockerfile: v.dockerfile,
-            target: v.target || null,
-            installCommand: v.installCommand || null,
-            buildCommand: v.buildCommand || null,
-            startCommand: v.startCommand || null,
-            publishDir: v.publishDir || null,
-            buildArgs: v.buildArgs.filter((a) => a.key.trim()),
-            noCache: v.noCache,
-            submodules: v.submodules,
-            buildTimeoutMinutes: num(v.buildTimeoutMinutes),
-            watchPaths: linesOf(v.watchPaths),
-          },
-        })
-      }
-      footerAction={() => (
-        <Button size="sm" onClick={() => fresh.run()} loading={fresh.pending}>
-          <RefreshCw /> Deploy without cache
-        </Button>
-      )}
-    >
-      {(v, set) => (
-        <>
+    <>
+      <Section
+        id="build"
+        title="Build"
+        description="How the image is built from your repository."
+        footerNote={REDEPLOY}
+        initial={{ builder: build.builder, rootDir: build.rootDir, dockerfile: build.dockerfile, target: build.target ?? "" }}
+        onSave={(v) => save({ build: { builder: v.builder, rootDir: v.rootDir, dockerfile: v.dockerfile, target: v.target || null } })}
+      >
+        {(v, set) => (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Builder" description={nixpacks ? undefined : <NixpacksHint />}>
               <Select
                 value={v.builder}
-                onValueChange={(b) => set({ builder: b as BuildConfig["builder"] })}
+                onValueChange={async (b) => {
+                  if (b !== "compose") return set({ builder: b as BuildConfig["builder"] });
+                  if (
+                    composeHref &&
+                    (await confirm({
+                      title: "Deploy the compose file as a new service?",
+                      description:
+                        "A compose file runs as its own service, with every container shown on its own. The new service form opens with this repository filled in. This app stays as it is until you delete it.",
+                      confirmLabel: "Continue",
+                    }))
+                  )
+                    router.push(composeHref);
+                }}
                 options={[
                   { value: "auto", label: "Automatic", description: "Dockerfile if present, otherwise detect" },
                   { value: "dockerfile", label: "Dockerfile" },
                   { value: "nixpacks", label: "Nixpacks", disabled: !nixpacks, description: nixpacks ? undefined : "Not installed (how to add it is below)" },
                   { value: "static", label: "Static site" },
+                  ...(composeHref ? [{ value: "compose", label: "Docker Compose", description: "Runs the repository's compose file as a new service" }] : []),
                 ]}
               />
             </Field>
@@ -112,59 +91,112 @@ export function BuildSection({
                 </Field>
               </>
             )}
-            <Field label="Install command" optional>
-              <Input value={v.installCommand} onChange={(e) => set({ installCommand: e.target.value })} placeholder="npm ci" className="font-mono text-[13px]" />
-            </Field>
-            <Field label="Build command" optional>
-              <Input value={v.buildCommand} onChange={(e) => set({ buildCommand: e.target.value })} placeholder="npm run build" className="font-mono text-[13px]" />
-            </Field>
-            <Field label="Start command" optional>
-              <Input value={v.startCommand} onChange={(e) => set({ startCommand: e.target.value })} placeholder="npm start" className="font-mono text-[13px]" />
-            </Field>
-            <Field label="Output directory" optional description="For static sites.">
-              <Input value={v.publishDir} onChange={(e) => set({ publishDir: e.target.value })} placeholder="dist" className="font-mono text-[13px]" />
-            </Field>
-            <Field label="Build timeout" optional description="Stop builds that run longer.">
-              <InputGroup suffix="minutes">
-                <Input value={v.buildTimeoutMinutes} onChange={(e) => set({ buildTimeoutMinutes: digits(e.target.value) })} placeholder="No limit" inputMode="numeric" />
-              </InputGroup>
-            </Field>
           </div>
-          {composeHref && (
-            <Link
-              href={composeHref}
-              className="flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-[13px] transition-colors hover:border-line-strong"
-            >
-              <Layers className="size-4 flex-none text-muted" />
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="font-medium text-fg">Has a docker-compose.yml?</span>
-                <span className="text-xs text-muted">Deploy the repository's compose file as a stack: every container runs and shows on its own.</span>
-              </span>
-              <ChevronRight className="size-4 flex-none text-faint" />
-            </Link>
+        )}
+      </Section>
+
+      {build.builder !== "dockerfile" && (
+        <Section
+          id="commands"
+          title="Commands"
+          description={build.builder === "auto" ? "Used when the repository has no Dockerfile. Leave empty to detect them." : "Leave empty to detect them from the project."}
+          footerNote={REDEPLOY}
+          initial={{
+            installCommand: build.installCommand ?? "",
+            buildCommand: build.buildCommand ?? "",
+            startCommand: build.startCommand ?? "",
+            publishDir: build.publishDir ?? "",
+          }}
+          onSave={(v) =>
+            save({
+              build: { installCommand: v.installCommand || null, buildCommand: v.buildCommand || null, startCommand: v.startCommand || null, publishDir: v.publishDir || null },
+            })
+          }
+        >
+          {(v, set) => (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Install command" optional>
+                <Input value={v.installCommand} onChange={(e) => set({ installCommand: e.target.value })} placeholder="npm ci" className="font-mono text-[13px]" />
+              </Field>
+              <Field label="Build command" optional>
+                <Input value={v.buildCommand} onChange={(e) => set({ buildCommand: e.target.value })} placeholder="npm run build" className="font-mono text-[13px]" />
+              </Field>
+              {build.builder !== "static" && (
+                <Field label="Start command" optional>
+                  <Input value={v.startCommand} onChange={(e) => set({ startCommand: e.target.value })} placeholder="npm start" className="font-mono text-[13px]" />
+                </Field>
+              )}
+              {build.builder !== "nixpacks" && (
+                <Field label="Output directory" optional description="For static sites.">
+                  <Input value={v.publishDir} onChange={(e) => set({ publishDir: e.target.value })} placeholder="dist" className="font-mono text-[13px]" />
+                </Field>
+              )}
+            </div>
           )}
-          <Field label="Build arguments" optional description="Passed as --build-arg. Use variables marked Build time for secrets.">
-            <KeyValueEditor value={v.buildArgs} onChange={(buildArgs) => set({ buildArgs })} keyPlaceholder="NODE_VERSION" valuePlaceholder="22" addLabel="Add argument" />
-          </Field>
-          <Field label="Watch paths" optional description="One glob per line, like src/** or !docs/**. Pushes that change none of them do not deploy. Applies to push webhooks.">
-            <Textarea
-              value={v.watchPaths}
-              onChange={(e) => set({ watchPaths: e.target.value })}
-              rows={3}
-              placeholder={"apps/web/**\npackages/ui/**"}
-              className="font-mono text-[12.5px]"
-            />
-          </Field>
-          <SwitchRow title="Git submodules" description="Clone submodules together with the repository." checked={v.submodules} onCheckedChange={(c) => set({ submodules: c })} />
-          <SwitchRow
-            title="Always build without cache"
-            description="Slower, but every build starts from fresh base images."
-            checked={v.noCache}
-            onCheckedChange={(c) => set({ noCache: c })}
-          />
-        </>
+        </Section>
       )}
-    </Section>
+
+      <Section
+        id="build-options"
+        title="Build options"
+        description="Arguments, when to build, and the build cache."
+        footerNote={REDEPLOY}
+        initial={{
+          buildArgs: build.buildArgs ?? ([] as KeyValue[]),
+          noCache: build.noCache ?? false,
+          submodules: build.submodules ?? true,
+          buildTimeoutMinutes: String(build.buildTimeoutMinutes ?? ""),
+          watchPaths: (build.watchPaths ?? []).join("\n"),
+        }}
+        onSave={(v) =>
+          save({
+            build: {
+              buildArgs: v.buildArgs.filter((a) => a.key.trim()),
+              noCache: v.noCache,
+              submodules: v.submodules,
+              buildTimeoutMinutes: num(v.buildTimeoutMinutes),
+              watchPaths: linesOf(v.watchPaths),
+            },
+          })
+        }
+        footerAction={() => (
+          <Button size="sm" onClick={() => fresh.run()} loading={fresh.pending}>
+            <RefreshCw /> Deploy without cache
+          </Button>
+        )}
+      >
+        {(v, set) => (
+          <>
+            <Field label="Build arguments" optional description="Passed as --build-arg. Use variables marked Build time for secrets.">
+              <KeyValueEditor value={v.buildArgs} onChange={(buildArgs) => set({ buildArgs })} keyPlaceholder="NODE_VERSION" valuePlaceholder="22" addLabel="Add argument" />
+            </Field>
+            <Field label="Watch paths" optional description="One glob per line, like src/** or !docs/**. Pushes that change none of them do not deploy. Applies to push webhooks.">
+              <Textarea
+                value={v.watchPaths}
+                onChange={(e) => set({ watchPaths: e.target.value })}
+                rows={3}
+                placeholder={"apps/web/**\npackages/ui/**"}
+                className="font-mono text-[12.5px]"
+              />
+            </Field>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Build timeout" optional description="Stop builds that run longer.">
+                <InputGroup suffix="minutes">
+                  <Input value={v.buildTimeoutMinutes} onChange={(e) => set({ buildTimeoutMinutes: digits(e.target.value) })} placeholder="No limit" inputMode="numeric" />
+                </InputGroup>
+              </Field>
+            </div>
+            <SwitchRow title="Git submodules" description="Clone submodules together with the repository." checked={v.submodules} onCheckedChange={(c) => set({ submodules: c })} />
+            <SwitchRow
+              title="Always build without cache"
+              description="Slower, but every build starts from fresh base images."
+              checked={v.noCache}
+              onCheckedChange={(c) => set({ noCache: c })}
+            />
+          </>
+        )}
+      </Section>
+    </>
   );
 }
 

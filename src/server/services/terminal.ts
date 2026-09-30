@@ -130,8 +130,25 @@ export async function openSession(opts: {
 }) {
   evictOldest(opts.userId);
   const docker = opts.docker ?? localDocker;
-  const exec = await docker.getContainer(opts.containerId).exec({
-    Cmd: opts.cmd ?? ["sh", "-c", SHELL],
+  let containerId = opts.containerId;
+  let cmd = opts.cmd ?? ["sh", "-c", SHELL];
+  let onClose = opts.onClose;
+  // Minimal images (distroless, scratch) have no shell: attach a helper that shares the container's
+  // processes, network and volumes instead, so there is still somewhere to look around.
+  if (!opts.cmd && !(await hasShell(docker, opts.containerId))) {
+    const helper = await startDebugHelper(docker, opts.containerId);
+    containerId = helper;
+    cmd = ["sh", "-c", DEBUG_SHELL];
+    onClose = () => {
+      opts.onClose?.();
+      void docker
+        .getContainer(helper)
+        .remove({ force: true })
+        .catch(() => {});
+    };
+  }
+  const exec = await docker.getContainer(containerId).exec({
+    Cmd: cmd,
     AttachStdin: true,
     AttachStdout: true,
     AttachStderr: true,
@@ -143,10 +160,61 @@ export async function openSession(opts: {
     resize: async (cols, rows) => void (await exec.resize({ w: cols, h: rows }).catch(() => {})),
     exitCode: async () => (await exec.inspect().catch(() => null))?.ExitCode ?? null,
   };
-  const session = track(opts, backend, stream);
+  const session = track({ ...opts, onClose }, backend, stream);
   await resizeSession(session, opts.cols, opts.rows);
   scheduleIdle(session);
   return session;
+}
+
+/** Whether `sh` runs in the container (it exits 126/127 when the image has none). */
+async function hasShell(docker: Docker, containerId: string) {
+  try {
+    const exec = await docker.getContainer(containerId).exec({ Cmd: ["sh", "-c", "exit 0"], AttachStdout: true, AttachStderr: true });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    await new Promise<void>((resolve) => {
+      stream.on("end", resolve);
+      stream.on("close", resolve);
+      stream.on("error", resolve);
+      stream.resume();
+    });
+    return (await exec.inspect()).ExitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
+const DEBUG_IMAGE = "alpine:3.22.6";
+
+const DEBUG_SHELL = [
+  "export TERM=xterm-256color COLORTERM=truecolor",
+  `printf '\\033[33mThis image has no shell.\\033[0m You are in a helper container that shares its processes, network and volumes.\\r\\n'`,
+  `printf 'Its files are under /proc/1/root (you start there). Tools: apk add <package>. Closing this tab removes the helper.\\r\\n\\r\\n'`,
+  "cd /proc/1/root 2>/dev/null || cd /",
+  "exec sh -l",
+].join("; ");
+
+/** A throwaway Alpine container in the target's PID and network namespaces, with its volumes. */
+async function startDebugHelper(docker: Docker, containerId: string) {
+  const target = await docker.getContainer(containerId).inspect();
+  if (!target.State.Running) throw new Error("The container is not running.");
+  if (!(await imageExists(DEBUG_IMAGE, docker))) await pullImage(DEBUG_IMAGE, undefined, null, docker);
+  const helper = await docker.createContainer({
+    name: `serve-debug-${target.Id.slice(0, 12)}-${crypto.randomBytes(3).toString("hex")}`,
+    Image: DEBUG_IMAGE,
+    Cmd: ["sleep", "infinity"],
+    Labels: { [LABEL.managed]: "true", [LABEL.kind]: "debug-shell" },
+    HostConfig: {
+      PidMode: `container:${target.Id}`,
+      NetworkMode: `container:${target.Id}`,
+      VolumesFrom: [target.Id],
+      // Reading another process's root (/proc/1/root) needs ptrace access when it runs as another user.
+      CapAdd: ["SYS_PTRACE"],
+      AutoRemove: true,
+      RestartPolicy: { Name: "no" },
+    },
+  });
+  await helper.start();
+  return helper.id;
 }
 
 export function getSession(id: string, userId: string) {

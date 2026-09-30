@@ -15,8 +15,9 @@ import type { ComposeBackupConfig } from "@/server/services/types";
 async function stack(serviceId: string) {
   const ctx = await requirePermission("databases.backups");
   const { service } = await serviceInOrg(serviceId, ctx.org.id);
-  if (service.type !== "compose" || !service.compose) throw new UserError("Not a compose stack.");
-  return { ctx, service, content: service.compose.content };
+  // Apps get storage backups too; database containers are found only in compose files.
+  if (service.type !== "compose" && service.type !== "app") throw new UserError("Backups of volumes and folders are for apps and compose stacks.");
+  return { ctx, service, content: service.type === "compose" ? (service.compose?.content ?? "") : "" };
 }
 
 export type BackupOption = { key: string; kind: "db" | "volume" | "dir"; name: string; detail: string; containers: string[] };

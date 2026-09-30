@@ -568,7 +568,7 @@ export function ServiceSettings(props: Props) {
 
         {show("danger") && (
           <Card id="danger" className="scroll-mt-6 border-bad/30">
-            <CardHeader title="Delete service" description="Stops and removes all containers, images and domains for this service." />
+            <CardHeader title="Delete service" description="Stops and removes all containers, images, domains and backups on this server for this service. Backup copies in S3 stay." />
             <CardBody className="flex flex-col gap-3">
               <label className="flex items-center gap-2 text-[13px] text-fg-2">
                 <Checkbox checked={removeVolumes} onCheckedChange={(c) => setRemoveVolumes(!!c)} />

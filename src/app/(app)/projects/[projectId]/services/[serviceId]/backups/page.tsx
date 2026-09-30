@@ -22,7 +22,7 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
   const { projectId, serviceId } = await props.params;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
-  if (!service.database && service.type !== "compose") redirect(`/projects/${projectId}/services/${serviceId}`);
+  if (!service.database && service.type !== "compose" && service.type !== "app") redirect(`/projects/${projectId}/services/${serviceId}`);
   // Backups hold the database's data: only roles that may manage them see the page.
   if (!ctx.can("databases.backups")) return <NoAccess permission="databases.backups" />;
   const destinations = await db
@@ -58,6 +58,7 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
         <ComposeBackups
           serviceId={service.id}
           slug={service.slug}
+          stack={service.type === "compose"}
           isAdmin={ctx.isAdmin}
           running={service.status === "running"}
           configs={configs}

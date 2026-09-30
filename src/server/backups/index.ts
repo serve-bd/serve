@@ -237,7 +237,8 @@ export async function targetOf(service: ServiceRow, key: string | null): Promise
     };
   }
   const parsed = parseBackupKey(key);
-  if (!parsed || service.type !== "compose") throw new Error("This backup does not belong to a compose stack.");
+  if (!parsed || (service.type !== "compose" && service.type !== "app")) throw new Error("This backup does not belong to this service.");
+  if (parsed.kind === "db" && service.type !== "compose") throw new Error("Database backups of containers are for compose stacks.");
   const cfg = service.composeBackups?.[key];
   const base = {
     s3DestinationId: cfg?.s3DestinationId ?? null,

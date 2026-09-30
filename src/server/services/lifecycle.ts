@@ -1,3 +1,4 @@
+import path from "node:path";
 import fs from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
@@ -152,7 +153,12 @@ export async function destroyService(opts: {
         .remove({ force: true })
         .catch(() => {});
   }
-  if (!opts.keepFiles) await fs.rm(paths.service(opts.serviceId), { recursive: true, force: true }).catch(() => {});
+  if (!opts.keepFiles) {
+    await fs.rm(paths.service(opts.serviceId), { recursive: true, force: true }).catch(() => {});
+    // Its backup list is gone with the service, so the local files could never be used again.
+    // Copies in S3 stay: they are the off-site history and can be imported elsewhere.
+    await fs.rm(path.join(paths.backups, opts.serviceId), { recursive: true, force: true }).catch(() => {});
+  }
   if (!server.local) await server.fs.rm(server.paths.service(opts.serviceId)).catch(() => {});
   await docker.pruneImages({ filters: { dangling: { true: true }, label: [`${LABEL.service}=${opts.serviceId}`] } }).catch(() => {});
   if (opts.environmentId) {

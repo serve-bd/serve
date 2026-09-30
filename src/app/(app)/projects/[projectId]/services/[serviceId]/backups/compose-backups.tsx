@@ -39,6 +39,8 @@ function describeSchedule(cfg: ComposeBackupConfig | undefined) {
 export function ComposeBackups(props: {
   serviceId: string;
   slug: string;
+  /** A compose stack (database containers too); an app backs up only its volumes and folders. */
+  stack: boolean;
   isAdmin: boolean;
   running: boolean;
   configs: Record<string, ComposeBackupConfig>;
@@ -76,16 +78,31 @@ export function ComposeBackups(props: {
         <Plus /> Add backup <ChevronDown className="opacity-70" />
       </MenuTrigger>
       <MenuContent align="end" className="max-w-[min(22rem,calc(100vw-2rem))]">
-        <MenuLabel>Database backup</MenuLabel>
-        {props.databases.length === 0 && <p className="px-2.5 py-1.5 text-xs text-muted">No database containers found in the compose file.</p>}
-        {props.databases.map((o) => (
-          <OptionItem key={o.key} option={o} slug={props.slug} added={!!props.configs[o.key]} onPick={() => add.run(props.serviceId, o.key)} />
-        ))}
-        <MenuSeparator />
+        {props.stack && (
+          <>
+            <MenuLabel>Database backup</MenuLabel>
+            {props.databases.length === 0 && <p className="px-2.5 py-1.5 text-xs text-muted">No database containers found in the compose file.</p>}
+            {props.databases.map((o) => (
+              <OptionItem key={o.key} option={o} slug={props.slug} added={!!props.configs[o.key]} onPick={() => add.run(props.serviceId, o.key)} />
+            ))}
+            <MenuSeparator />
+          </>
+        )}
         <MenuLabel>Storage backup</MenuLabel>
-        {props.storage.length === 0 && <p className="px-2.5 py-1.5 text-xs text-muted">Start the stack once to list its volumes and folders.</p>}
+        {props.storage.length === 0 && (
+          <p className="px-2.5 py-1.5 text-xs text-muted">
+            {props.stack ? "Start the stack once to list its volumes and folders." : "This app mounts no volumes or folders. Add one in Settings → Persistent storage."}
+          </p>
+        )}
         {props.storage.map((o) => (
-          <OptionItem key={o.key} option={o} slug={props.slug} added={!!props.configs[o.key]} onPick={() => add.run(props.serviceId, o.key)} />
+          <OptionItem
+            key={o.key}
+            option={o}
+            slug={props.slug}
+            databases={props.databases.map((d) => d.name)}
+            added={!!props.configs[o.key]}
+            onPick={() => add.run(props.serviceId, o.key)}
+          />
         ))}
       </MenuContent>
     </Menu>
@@ -95,17 +112,25 @@ export function ComposeBackups(props: {
     const suggested = props.databases.filter((o) => !props.configs[o.key]);
     return (
       <Card>
-        <CardHeader title="Backups" description="Database dumps and copies of volumes and folders, on a schedule, kept here and in S3." actions={props.isAdmin ? addMenu : null} />
+        <CardHeader
+          title="Backups"
+          description={
+            props.stack
+              ? "Database dumps and copies of volumes and folders, on a schedule, kept here and in S3."
+              : "Copies of this app's volumes and folders, on a schedule, kept here and in S3."
+          }
+          actions={props.isAdmin ? addMenu : null}
+        />
         <div className="flex flex-col items-center gap-3 px-5 pt-6 pb-8 text-center">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-fg/[0.05] text-muted [&_svg]:size-5">
-            <Database />
-          </span>
+          <span className="flex size-10 items-center justify-center rounded-xl bg-fg/[0.05] text-muted [&_svg]:size-5">{props.stack ? <Database /> : <HardDrive />}</span>
           <div className="flex flex-col gap-1">
             <p className="text-[14px] font-medium text-fg">Nothing is backed up yet</p>
             <p className="max-w-md text-[13px] text-muted">
               {suggested.length
                 ? `This stack runs ${suggested.map((o) => o.name).join(", ")}. Add a database backup to dump it on a schedule.`
-                : "Add a database or storage backup to protect this stack's data."}
+                : props.stack
+                  ? "Add a database or storage backup to protect this stack's data."
+                  : "Add a storage backup to copy this app's volumes and folders on a schedule."}
             </p>
           </div>
           {props.isAdmin && suggested.length > 0 && (
@@ -129,7 +154,15 @@ export function ComposeBackups(props: {
   return (
     <div className="flex flex-col gap-6">
       <Card>
-        <CardHeader title="Backups" description="Database dumps and copies of volumes and folders, on a schedule, kept here and in S3." actions={props.isAdmin ? addMenu : null} />
+        <CardHeader
+          title="Backups"
+          description={
+            props.stack
+              ? "Database dumps and copies of volumes and folders, on a schedule, kept here and in S3."
+              : "Copies of this app's volumes and folders, on a schedule, kept here and in S3."
+          }
+          actions={props.isAdmin ? addMenu : null}
+        />
         <div className="flex gap-2 overflow-x-auto px-5 py-4 [scrollbar-width:none]">
           {keys.map((key) => {
             const p = parse(key);
@@ -172,7 +205,7 @@ export function ComposeBackups(props: {
         description={
           kind === "db"
             ? `Dumps of the ${name} container, taken with the database's own tools.${option ? ` Image ${option.detail}.` : ""}`
-            : `A .tar.gz copy of ${kind === "volume" ? "the volume" : "the folder"} ${name}${option ? `, mounted at ${option.detail} in ${option.containers.join(", ")}` : ""}. Taken while the stack runs; restoring stops the containers that use it.`
+            : `A .tar.gz copy of ${kind === "volume" ? "the volume" : "the folder"} ${name}${option ? `, mounted at ${option.detail} in ${option.containers.join(", ")}` : ""}. Taken while it runs; restoring stops the containers that use it.`
         }
         restoreWhat={kind === "db" ? `The current data in ${name}` : `Everything in ${name}`}
         schedule={props.configs[current]?.schedule ?? null}
@@ -209,16 +242,27 @@ export function ComposeBackups(props: {
   );
 }
 
-function OptionItem({ option, slug, added, onPick }: { option: BackupOption; slug: string; added: boolean; onPick: () => void }) {
+function OptionItem({ option, slug, added, databases, onPick }: { option: BackupOption; slug: string; added: boolean; databases?: string[]; onPick: () => void }) {
   const Icon = kindIcon[option.kind];
+  // A database's own data volume: a copy of live files can be inconsistent, a dump is not.
+  const dbFiles = option.kind !== "db" && option.containers.some((c) => databases?.includes(c));
   return (
     <MenuItem disabled={added} onClick={onPick} className="items-start">
       <Icon className="mt-0.5" />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate" title={option.name}>
-          {shortName(option, slug)}
+          {option.kind === "db" ? `${option.name} database` : `${option.kind === "volume" ? "Volume" : "Folder"} ${shortName(option, slug)}`}
         </span>
-        <span className="truncate font-mono text-[11px] text-muted">{option.kind === "db" ? option.detail : `${option.containers.join(", ")} → ${option.detail}`}</span>
+        <span className="truncate text-[11px] text-muted">
+          {option.kind === "db" ? (
+            <span className="font-mono">{option.detail}</span>
+          ) : (
+            <>
+              {option.containers.join(", ")} at <span className="font-mono">{option.detail}</span>
+            </>
+          )}
+        </span>
+        {dbFiles && <span className="text-[11px] text-warn">Live database files. Prefer the database backup.</span>}
       </span>
       {added && <Check className="mt-0.5 text-accent" />}
     </MenuItem>

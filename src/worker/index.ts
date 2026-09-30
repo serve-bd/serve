@@ -278,7 +278,7 @@ async function scheduleBackups() {
   const stacks = await db
     .select()
     .from(schema.service)
-    .where(and(eq(schema.service.type, "compose"), isNotNull(schema.service.composeBackups)));
+    .where(and(inArray(schema.service.type, ["compose", "app"]), isNotNull(schema.service.composeBackups)));
   // One entry per schedule: a database service, or one backup of a compose stack (target key).
   const due = [
     ...databases.map((s) => ({ service: s, target: null as string | null, cron: s.database?.backupSchedule })),

@@ -102,7 +102,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains & ports" }] : []),
     ...(service.type === "database"
       ? [{ href: `${base}/backups`, label: "Backups" }]
-      : service.type === "compose"
+      : service.type === "compose" || service.type === "app"
         ? [
             { href: `${base}/tasks`, label: "Tasks" },
             { href: `${base}/backups`, label: "Backups" },

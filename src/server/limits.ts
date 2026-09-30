@@ -136,9 +136,13 @@ export async function requireRoom(organizationId: string, room: Room): Promise<{
     throw new UserError(problem.message);
   }
   if (room.serverId) {
-    const servers = await usedServerIds(organizationId);
-    const problem = serverProblem(limits, servers, room.serverId);
-    if (problem) throw new UserError(problem);
+    // Its own servers are outside the allow list and the servers limit: those govern shared servers.
+    const [own] = await db.select({ owner: schema.server.ownerOrganizationId }).from(schema.server).where(eq(schema.server.id, room.serverId));
+    if (own?.owner !== organizationId) {
+      const servers = await usedServerIds(organizationId);
+      const problem = serverProblem(limits, servers, room.serverId);
+      if (problem) throw new UserError(problem);
+    }
   }
   return reservation;
 }

@@ -4,6 +4,7 @@ import { isEmailConfigured } from "@/server/email/send";
 import { defaultChannelEvents, providerDefaults, providerInfo } from "@/lib/notifications";
 import { ChannelEditor } from "../../editor";
 import { scopeTree } from "../../editor-data";
+import { orgHasServers } from "@/server/servers/access";
 
 export const metadata = { title: "Add notification channel" };
 
@@ -19,6 +20,7 @@ export default async function NewChannelPage(props: PageProps<"/integrations/not
       kind={info.id}
       isAdmin={ctx.isAdmin}
       isRoot={ctx.isRoot}
+      hasServers={await orgHasServers(ctx.org.id)}
       emailReady={emailReady}
       tree={tree}
       savedSecrets={[]}

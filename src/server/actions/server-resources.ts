@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireInstanceAdmin } from "@/server/auth";
+import { requireServerAdmin } from "@/server/servers/access";
 import { LABEL } from "@/server/docker/client";
 import { logActivity } from "@/server/activity";
 import { getServer, LOCAL_SERVER_ID } from "@/server/servers/context";
@@ -17,8 +17,8 @@ const input = z.object({
 /** Start, stop or restart a container Serve does not manage, on any server. */
 export async function controlUnmanagedContainer(raw: z.input<typeof input>) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
     const { serverId, id, action } = input.parse(raw);
+    const { ctx } = await requireServerAdmin(serverId);
     const server = await getServer(serverId).catch(() => {
       throw new UserError("Server not found.");
     });

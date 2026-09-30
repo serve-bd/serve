@@ -7,6 +7,7 @@ import { isEmailConfigured } from "@/server/email/send";
 import { providerInfo } from "@/lib/notifications";
 import { ChannelEditor } from "../editor";
 import { scopeTree } from "../editor-data";
+import { orgHasServers } from "@/server/servers/access";
 
 export const metadata = { title: "Notification channel" };
 
@@ -30,6 +31,7 @@ export default async function ChannelPage(props: PageProps<"/integrations/notifi
       kind={channel.kind}
       isAdmin={ctx.isAdmin}
       isRoot={ctx.isRoot}
+      hasServers={await orgHasServers(ctx.org.id)}
       emailReady={emailReady}
       tree={tree}
       savedSecrets={Object.keys(stored).filter((k) => secretKeys.has(k) && !!stored[k])}

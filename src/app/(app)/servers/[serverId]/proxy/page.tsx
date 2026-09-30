@@ -33,11 +33,13 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
   const settings = await getSettings();
   const kind = row.proxyKind as ProxyKind;
   const cfg = row.proxyConfig ?? {};
-  const cloudflareAccounts = settings.rootOrganizationId
+  // Accounts of the server's owner (Root for instance servers).
+  const accountOrg = row.ownerOrganizationId ?? settings.rootOrganizationId;
+  const cloudflareAccounts = accountOrg
     ? await db
         .select({ id: schema.cloudflareAccount.id, name: schema.cloudflareAccount.name })
         .from(schema.cloudflareAccount)
-        .where(eq(schema.cloudflareAccount.organizationId, settings.rootOrganizationId))
+        .where(eq(schema.cloudflareAccount.organizationId, accountOrg))
     : [];
   const ids = data.files.flatMap((f) => (f.serviceId ? [f.serviceId] : []));
   const services = ids.length

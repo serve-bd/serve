@@ -1,4 +1,5 @@
 import { requireOrg } from "@/server/auth";
+import { canAddServers } from "@/server/servers/access";
 import { PageHeader } from "@/components/shell/page-header";
 import { SectionNav } from "@/components/shell/section-nav";
 import { ProductName } from "@/components/brand";
@@ -20,9 +21,13 @@ export default async function KeysLayout({ children }: LayoutProps<"/keys">) {
           groups={[
             {
               title: ctx.org.name,
-              items: [{ href: "/keys/api-tokens", label: "API tokens", icon: "KeyRound" }],
+              items: [
+                { href: "/keys/api-tokens", label: "API tokens", icon: "KeyRound" as const },
+                // An organization's SSH keys reach the servers it brings.
+                ...(!ctx.isRoot && canAddServers(ctx) ? [{ href: "/keys/ssh", label: "SSH keys", icon: "LockKeyhole" as const }] : []),
+              ],
             },
-            ...(ctx.isInstanceAdmin ? [{ title: "Instance", items: [{ href: "/keys/ssh", label: "SSH keys", icon: "LockKeyhole" as const }] }] : []),
+            ...(ctx.isRoot && canAddServers(ctx) ? [{ title: "Instance", items: [{ href: "/keys/ssh", label: "SSH keys", icon: "LockKeyhole" as const }] }] : []),
           ]}
         />
         <div className="flex min-w-0 flex-1 flex-col gap-6">{children}</div>

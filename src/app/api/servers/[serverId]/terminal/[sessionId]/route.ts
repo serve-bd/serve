@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { requireInstanceAdmin } from "@/server/auth";
+import { requireOrg } from "@/server/auth";
+import { canManageServer } from "@/server/servers/access";
+import { getServerRow } from "@/server/servers/context";
 import { closeSession, getSession, hostScope, resizeSession, subscribe, writeSession } from "@/server/services/terminal";
 
 export const dynamic = "force-dynamic";
@@ -9,8 +11,9 @@ type Ctx = RouteContext<"/api/servers/[serverId]/terminal/[sessionId]">;
 
 async function load(ctx: Ctx) {
   const { serverId, sessionId } = await ctx.params;
-  const admin = await requireInstanceAdmin().catch(() => null);
-  if (!admin) return null;
+  const admin = await requireOrg().catch(() => null);
+  const row = admin ? await getServerRow(serverId).catch(() => null) : null;
+  if (!admin || !row || !canManageServer(admin, row)) return null;
   const session = getSession(sessionId, admin.user.id);
   return session && session.scope === hostScope(serverId) ? session : null;
 }

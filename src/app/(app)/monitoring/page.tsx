@@ -16,7 +16,7 @@ const statusText = { up: "Up", down: "Down", pending: "Checking", paused: "Pause
 
 export default async function MonitoringPage() {
   const ctx = await requireOrg();
-  // Server incidents (disk, memory, CPU) belong to the Root organization.
+  // Server incidents (disk, memory, CPU) belong to the server's owner: the Root organization for instance servers.
   const [allMonitors, allOpen, allRecent] = await Promise.all([
     orgMonitors(ctx.org.id),
     incidentRows({ organizationId: ctx.org.id, openOnly: true, limit: 50 }),

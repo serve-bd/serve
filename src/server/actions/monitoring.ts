@@ -1,9 +1,11 @@
 "use server";
 
+import { requireServerAdmin } from "@/server/servers/access";
+
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireInstanceAdmin, requirePermission } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
@@ -93,7 +95,7 @@ const alertsSchema = z.object({
 /** Resource alert thresholds of a server (Root admins). */
 export async function saveServerAlerts(serverId: string, input: z.input<typeof alertsSchema>) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const data = alertsSchema.parse(input);
     if (data.diskCritical < data.diskWarn) throw new UserError("The critical disk level must be at or above the warning level.");
     const [server] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, serverId));

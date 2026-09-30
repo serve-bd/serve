@@ -37,6 +37,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       orgs={orgs.map((o) => ({ ...o, isRoot: o.id === settings.rootOrganizationId }))}
       projects={projects}
       isInstanceAdmin={ctx.isInstanceAdmin}
+      isOrgAdmin={ctx.isAdmin}
       access={{ permissions: [...ctx.permissions], roleName: ctx.roleName, isAdmin: ctx.isAdmin }}
       canCreateOrg={ctx.isInstanceAdmin || settings.allowOrganizationCreation}
       instanceName={settings.instanceName}

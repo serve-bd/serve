@@ -9,6 +9,7 @@ import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { getSettings } from "@/server/settings";
+import { serverAllowsOrg } from "@/server/servers/access";
 import { applyCertificate, deleteCertificateFiles, saveCustomCertificate } from "@/server/ssl/certificates";
 import { logActivity } from "@/server/activity";
 
@@ -31,7 +32,7 @@ const requestSchema = z.object({
 async function allowedServer(serverId: string | undefined, orgId: string) {
   const id = serverId || LOCAL_SERVER_ID;
   const [server] = await db.select().from(schema.server).where(eq(schema.server.id, id));
-  if (!server || (server.organizationIds && !server.organizationIds.includes(orgId))) throw new UserError("Server not found.");
+  if (!server || !serverAllowsOrg(server, orgId)) throw new UserError("Server not found.");
   return server.id;
 }
 

@@ -20,6 +20,8 @@ type Row = {
   isLocal: boolean;
   /** In the private network. */
   mesh: boolean;
+  /** Organization that owns it, shown to Root admins; null for instance servers. */
+  owner?: string | null;
   status: ServerStatus;
   statusMessage: string | null;
   info: ServerInfo;
@@ -100,6 +102,7 @@ function ServerCard({ server: s }: { server: Row }) {
             <span className="truncate text-[15px] font-semibold text-fg">{s.name}</span>
             {s.isLocal && <Badge tone="accent">This server</Badge>}
             {s.mesh && <Badge>Private network</Badge>}
+            {s.owner && <Badge tone="info">{s.owner}</Badge>}
           </div>
           <span className="truncate font-mono text-[12px] text-muted">
             {s.isLocal ? (s.publicIp ?? "Local Docker") : s.tunnel ? `${s.username}@${s.host} · via tunnel` : `${s.username}@${s.host}${s.port === 22 ? "" : `:${s.port}`}`}

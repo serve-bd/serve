@@ -1,9 +1,10 @@
 "use server";
 
+import { ownerFor, requireServerAdmin, requireServerCreator } from "@/server/servers/access";
+
 import { eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireInstanceAdmin } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { encrypt } from "@/server/crypto";
 import { newId, slugify } from "@/server/id";
@@ -41,7 +42,8 @@ const joinCommand = (origin: string, token: string) => `curl -fsSL '${new URL(`/
 /** Add a server without a public address. It joins by running the returned command. */
 export async function createTunnelServer(input: z.input<typeof tunnelInput>) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const ctx = await requireServerCreator();
+    const owner = ownerFor(ctx);
     const data = tunnelInput.parse(input);
     if (!/^https?:$/.test(new URL(data.origin).protocol)) throw new UserError("Open Serve over http or https.");
     const key = generateKeyPair(`serve-${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
@@ -56,6 +58,7 @@ export async function createTunnelServer(input: z.input<typeof tunnelInput>) {
       if (!relayPort) throw new UserError("No more servers can connect out.");
       await tx.insert(schema.privateKey).values({
         id: keyId,
+        organizationId: owner,
         name: `${data.name} key`,
         description: "Made for a server that connects out; its join command authorizes it.",
         publicKey: key.publicKey,
@@ -71,6 +74,8 @@ export async function createTunnelServer(input: z.input<typeof tunnelInput>) {
         port: data.sshPort,
         username: data.username,
         privateKeyId: keyId,
+        ownerOrganizationId: owner,
+        organizationIds: owner ? [] : [ctx.org.id],
         status: "pending",
         statusMessage: "Waiting for the server to connect",
         tunnel: {
@@ -95,7 +100,7 @@ export async function createTunnelServer(input: z.input<typeof tunnelInput>) {
 /** A new join command for a server that connects out (the old one stops working). */
 export async function newJoinCommand(serverId: string, origin: string, address?: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const [row] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
     if (!row?.tunnel) throw new UserError("This server does not connect out.");
     const next = address !== undefined ? tunnelInput.shape.address.parse(address) : row.tunnel.address;

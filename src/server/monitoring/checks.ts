@@ -253,10 +253,11 @@ type Resource = "disk" | "memory" | "cpu";
  */
 export async function checkServerResources() {
   const settings = await getSettings();
-  const org = settings.rootOrganizationId;
-  if (!org) return;
   const servers = await db.select().from(schema.server);
   for (const server of servers) {
+    // An organization's server alerts that organization; instance servers alert Root.
+    const org = server.ownerOrganizationId ?? settings.rootOrganizationId;
+    if (!org) continue;
     const config = await alertsFor(server.id);
     const keys = { disk: `resource:${server.id}:disk`, memory: `resource:${server.id}:memory`, cpu: `resource:${server.id}:cpu` } as const;
     if (!config.enabled) {

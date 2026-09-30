@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { asc } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
+import { canManageServer } from "@/server/servers/access";
 import { db, schema } from "@/server/db";
 import { meshNetworks } from "@/server/mesh";
 import { meshServerAddress } from "@/lib/mesh";
@@ -13,8 +14,8 @@ export const metadata = { title: "Private networks" };
 export default async function PrivateNetworksPage(props: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { view } = await props.searchParams;
   const ctx = await requireOrg();
-  if (!ctx.isInstanceAdmin) redirect("/");
-  const [networks, servers, settings] = await Promise.all([
+  if (!ctx.isInstanceAdmin && !ctx.isAdmin) redirect("/");
+  const [allNetworks, allServers, settings] = await Promise.all([
     meshNetworks(),
     db
       .select({
@@ -24,11 +25,17 @@ export default async function PrivateNetworksPage(props: { searchParams: Promise
         status: schema.server.status,
         mesh: schema.server.mesh,
         meshIndex: schema.server.meshIndex,
+        ownerOrganizationId: schema.server.ownerOrganizationId,
       })
       .from(schema.server)
       .orderBy(asc(schema.server.name)),
     getSettings(),
   ]);
+  // Root admins see everything; an organization's admins see its own networks and servers.
+  const servers = allServers.filter((s) => canManageServer(ctx, s));
+  const networks = ctx.isInstanceAdmin
+    ? allNetworks
+    : allNetworks.filter((n) => n.organizationId === ctx.org.id).map((n) => ({ ...n, servers: n.servers.filter((s) => servers.some((x) => x.id === s.id)) }));
   return (
     <>
       <PageHeader

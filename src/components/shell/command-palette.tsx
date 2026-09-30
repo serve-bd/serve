@@ -42,10 +42,12 @@ export function CommandPalette({
   children,
   projects,
   isInstanceAdmin,
+  isOrgAdmin = false,
 }: {
   children: React.ReactNode;
   projects: { id: string; name: string; color: string }[];
   isInstanceAdmin: boolean;
+  isOrgAdmin?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const router = useRouter();
@@ -159,12 +161,12 @@ export function CommandPalette({
                     <Command.Item onSelect={() => go("/activity")} className={itemClass}>
                       <Activity /> Activity
                     </Command.Item>
-                    {isInstanceAdmin && (
+                    {(isInstanceAdmin || isOrgAdmin) && (
                       <Command.Item onSelect={() => go("/servers")} className={itemClass}>
                         <Server /> Servers
                       </Command.Item>
                     )}
-                    {isInstanceAdmin && (
+                    {(isInstanceAdmin || isOrgAdmin) && (
                       <Command.Item onSelect={() => go("/private-networks")} className={itemClass}>
                         <Waypoints /> Private networks
                       </Command.Item>

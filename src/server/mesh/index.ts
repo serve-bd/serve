@@ -514,7 +514,7 @@ export type MeshOverview = {
 };
 
 /** Every private network with its servers, by name. */
-export async function meshNetworks(): Promise<Omit<MeshNetworkView, "member">[]> {
+export async function meshNetworks(): Promise<(Omit<MeshNetworkView, "member"> & { organizationId: string | null })[]> {
   const [networks, links] = await Promise.all([
     db.select().from(schema.privateNetwork),
     db
@@ -527,6 +527,7 @@ export async function meshNetworks(): Promise<Omit<MeshNetworkView, "member">[]>
     .map((n) => ({
       id: n.id,
       name: n.name,
+      organizationId: n.organizationId,
       servers: links
         .filter((l) => l.networkId === n.id)
         .map((l) => ({ id: l.id, name: l.name, joined: !!l.mesh?.enabled && l.meshIndex !== null }))
@@ -586,7 +587,10 @@ export async function meshOverview(serverId: string, readStatus = true): Promise
     : [];
   return {
     enabled: !!row?.mesh?.enabled,
-    networks: networks.map((n) => ({ ...n, member: n.servers.some((s) => s.id === serverId) })),
+    // Networks of the server's owner (and any it is already in): an organization's server joins only its networks.
+    networks: networks
+      .filter((n) => n.organizationId === (row?.ownerOrganizationId ?? null) || n.servers.some((s) => s.id === serverId))
+      .map(({ organizationId: _o, ...n }) => ({ ...n, member: n.servers.some((s) => s.id === serverId) })),
     state: row?.mesh?.state ?? null,
     message: row?.mesh?.message ?? null,
     endpoint: row?.mesh?.endpoint ?? null,

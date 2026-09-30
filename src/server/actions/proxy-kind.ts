@@ -1,8 +1,10 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { requireServerAdmin } from "@/server/servers/access";
+
+import { and, eq } from "drizzle-orm";
+import { getSettings } from "@/server/settings";
 import { act, UserError } from "@/server/action";
-import { requireInstanceAdmin } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { logActivity } from "@/server/activity";
 import { enqueue } from "@/server/queue";
@@ -38,7 +40,7 @@ async function serverRow(serverId: string) {
 /** Queue a switch to another reverse proxy; progress is stored on the server row. */
 export async function setProxyKind(serverId: string, kind: ProxyKind) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     if (!PROXY_KINDS.includes(kind)) throw new UserError("Unknown proxy.");
     const row = await serverRow(serverId);
     if (row.proxySwitch?.state === "running" && Date.now() - new Date(row.proxySwitch.startedAt).getTime() < 10 * 60_000) {
@@ -57,7 +59,7 @@ export async function setProxyKind(serverId: string, kind: ProxyKind) {
 /** Current proxy kind and switch progress (polled while a switch runs). */
 export async function getProxySwitch(serverId: string) {
   return act(async () => {
-    await requireInstanceAdmin();
+    await requireServerAdmin(serverId);
     const [row] = await db.select({ kind: schema.server.proxyKind, sw: schema.server.proxySwitch }).from(schema.server).where(eq(schema.server.id, serverId));
     if (!row) throw new UserError("Server not found.");
     return { kind: row.kind as ProxyKind, switch: row.sw };
@@ -87,7 +89,7 @@ function cleanError(message: string) {
 /** Save one proxy kind's settings for a server; applied (and validated) when that proxy is running. */
 export async function saveProxySettings(serverId: string, kind: ProxyKind, input: unknown) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx, row } = await requireServerAdmin(serverId);
     await serverRow(serverId);
     if (kind === "none") throw new UserError("This server runs no proxy.");
     const { config } = await proxyStateOf(serverId);
@@ -115,7 +117,12 @@ export async function saveProxySettings(serverId: string, kind: ProxyKind, input
         }
       }
       if (rest.acmeChallenge === "dns-cloudflare" && rest.cloudflareAccountId) {
-        const [account] = await db.select({ id: schema.cloudflareAccount.id }).from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, rest.cloudflareAccountId));
+        // Only an account of the server's owner (Root for instance servers) may issue its certificates.
+        const owner = row.ownerOrganizationId ?? (await getSettings()).rootOrganizationId;
+        const [account] = await db
+          .select({ id: schema.cloudflareAccount.id })
+          .from(schema.cloudflareAccount)
+          .where(and(eq(schema.cloudflareAccount.id, rest.cloudflareAccountId), eq(schema.cloudflareAccount.organizationId, owner ?? "")));
         if (!account) throw new UserError("Cloudflare account not found.");
       }
       next.traefik = { ...config.traefik, ...rest, dashboard: dash };
@@ -151,7 +158,7 @@ const fileHint: Record<RunningKind, string> = {
 /** Add or change (and optionally rename) a custom configuration file. */
 export async function saveProxyFile(serverId: string, kindInput: string, input: { originalName?: string | null; name: string; content: string }) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const kind = runningKind(kindInput);
     await serverRow(serverId);
     const parsed = proxyFileSchema.safeParse({ name: input.name, content: input.content });
@@ -182,7 +189,7 @@ export async function saveProxyFile(serverId: string, kindInput: string, input: 
 
 export async function deleteProxyFile(serverId: string, kindInput: string, name: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const kind = runningKind(kindInput);
     await serverRow(serverId);
     const { config } = await proxyStateOf(serverId);
@@ -196,7 +203,7 @@ export async function deleteProxyFile(serverId: string, kindInput: string, name:
 /** Turn Serve's built-in catch-all, 503 page or HTTPS redirects on or off. */
 export async function saveProxyDefaults(serverId: string, kindInput: string, defaults: { catchAll?: boolean; unavailablePage?: boolean; httpsRedirect?: boolean }) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const kind = runningKind(kindInput);
     await serverRow(serverId);
     const { config } = await proxyStateOf(serverId);
@@ -210,7 +217,7 @@ export async function saveProxyDefaults(serverId: string, kindInput: string, def
 /** Change the proxy container itself (image, arguments, environment, volumes, ports). `null` resets to Serve's defaults. */
 export async function saveProxyContainer(serverId: string, kindInput: string, input: unknown) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const kind = runningKind(kindInput);
     await serverRow(serverId);
     const { config } = await proxyStateOf(serverId);

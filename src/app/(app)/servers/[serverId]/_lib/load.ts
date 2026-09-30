@@ -2,14 +2,15 @@ import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 import { requireOrg } from "@/server/auth";
 import { getServer, getServerRow } from "@/server/servers/context";
+import { canManageServer } from "@/server/servers/access";
 
-/** Server row + context for pages under /servers/[serverId]. Root admins only. */
+/** Server row + context for pages under /servers/[serverId]: Root admins, or admins of the organization that owns it. */
 export const loadServer = cache(async (serverId: string) => {
   const ctx = await requireOrg();
-  if (!ctx.isInstanceAdmin) redirect("/");
   const row = await getServerRow(serverId).catch(() => null);
   if (!row) notFound();
-  return { row, server: () => getServer(serverId) };
+  if (!canManageServer(ctx, row)) redirect("/");
+  return { row, ctx, server: () => getServer(serverId) };
 });
 
 /** Runs a server call with a time limit, so an unreachable server never hangs a page. */

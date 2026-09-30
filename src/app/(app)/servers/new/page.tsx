@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, isNull } from "drizzle-orm";
+import { canAddServers, ownerFor } from "@/server/servers/access";
 import { env } from "@/server/env";
 import { tunnelPort } from "@/server/tunnel";
 import { requireOrg } from "@/server/auth";
@@ -11,10 +12,13 @@ export const metadata = { title: "Add server" };
 
 export default async function NewServerPage() {
   const ctx = await requireOrg();
-  if (!ctx.isInstanceAdmin) redirect("/");
+  if (!canAddServers(ctx)) redirect("/servers");
+  // The new server belongs to this organization (the instance in Root), and so do the keys it can use.
+  const owner = ownerFor(ctx);
   const keys = await db
     .select({ id: schema.privateKey.id, name: schema.privateKey.name, publicKey: schema.privateKey.publicKey, fingerprint: schema.privateKey.fingerprint })
     .from(schema.privateKey)
+    .where(owner ? eq(schema.privateKey.organizationId, owner) : isNull(schema.privateKey.organizationId))
     .orderBy(desc(schema.privateKey.createdAt));
   const [local] = await db.select({ publicIp: schema.server.publicIp }).from(schema.server).where(eq(schema.server.isLocal, true));
   // The address a server without a public IP connects out to: this machine's public IP by default.

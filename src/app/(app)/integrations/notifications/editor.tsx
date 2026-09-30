@@ -88,6 +88,8 @@ export function ChannelEditor(props: {
   tree: ScopeProject[];
   isAdmin: boolean;
   isRoot: boolean;
+  /** The organization brought servers of its own: their alerts come to it. */
+  hasServers?: boolean;
   emailReady: boolean;
 }) {
   const provider = providerInfo(props.kind)!;
@@ -107,7 +109,7 @@ export function ChannelEditor(props: {
     refresh: !!props.channelId,
   });
 
-  const events = notifyEventCatalog.filter((e) => props.isRoot || (e.group !== "Serve" && e.group !== "Servers"));
+  const events = notifyEventCatalog.filter((e) => props.isRoot || (e.group !== "Serve" && (e.group !== "Servers" || props.hasServers)));
   const groups = notifyEventGroups.filter((g) => events.some((e) => e.group === g));
 
   return (
@@ -231,7 +233,7 @@ export function ChannelEditor(props: {
               </CardFooter>
             </Card>
 
-            <ScopeCard tree={props.tree} scope={form.scope} onChange={(scope) => set({ scope })} isRoot={props.isRoot} />
+            <ScopeCard tree={props.tree} scope={form.scope} onChange={(scope) => set({ scope })} isRoot={props.isRoot} hasServers={!!props.hasServers} />
 
             {!alerting && <MessageCard template={form.template} onChange={(template) => set({ template })} />}
 
@@ -336,7 +338,19 @@ function ConfigField({ field, value, saved, onChange }: { field: ProviderField; 
   );
 }
 
-function ScopeCard({ tree, scope, onChange, isRoot }: { tree: ScopeProject[]; scope: ChannelScope | null; onChange: (s: ChannelScope | null) => void; isRoot: boolean }) {
+function ScopeCard({
+  tree,
+  scope,
+  onChange,
+  isRoot,
+  hasServers,
+}: {
+  tree: ScopeProject[];
+  scope: ChannelScope | null;
+  onChange: (s: ChannelScope | null) => void;
+  isRoot: boolean;
+  hasServers: boolean;
+}) {
   const some = !!scope && scope.projectIds.length + scope.environmentIds.length + scope.serviceIds.length > 0;
   const [mode, setMode] = React.useState<"all" | "some">(some ? "some" : "all");
   const s: ChannelScope = scope ?? { projectIds: [], environmentIds: [], serviceIds: [], includeGlobal: true };
@@ -410,8 +424,14 @@ function ScopeCard({ tree, scope, onChange, isRoot }: { tree: ScopeProject[]; sc
             </div>
           ))}
         <SwitchRow
-          title={isRoot ? "Events outside projects" : "Certificate events"}
-          description={isRoot ? "Servers, certificates and this instance itself are not part of a project." : "Certificates are not part of a project."}
+          title={isRoot ? "Events outside projects" : hasServers ? "Server and certificate events" : "Certificate events"}
+          description={
+            isRoot
+              ? "Servers, certificates and this instance itself are not part of a project."
+              : hasServers
+                ? "Your servers and certificates are not part of a project."
+                : "Certificates are not part of a project."
+          }
           checked={s.includeGlobal}
           onCheckedChange={(includeGlobal) => onChange({ ...s, includeGlobal })}
         />

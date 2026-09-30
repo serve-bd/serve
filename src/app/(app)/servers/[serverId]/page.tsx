@@ -1,4 +1,4 @@
-import { asc, count, eq } from "drizzle-orm";
+import { asc, count, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { hostInfo, serverHealth } from "@/server/system";
@@ -14,13 +14,20 @@ export const metadata = { title: "Server" };
 
 export default async function ServerGeneralPage(props: PageProps<"/servers/[serverId]">) {
   const { serverId } = await props.params;
-  const { row, server } = await loadServer(serverId);
+  const { row, ctx, server } = await loadServer(serverId);
   const reachable = row.isLocal || row.status === "ready";
 
   const [settings, keys, orgs, [{ services }]] = await Promise.all([
     getSettings(),
-    db.select({ id: schema.privateKey.id, name: schema.privateKey.name }).from(schema.privateKey).orderBy(asc(schema.privateKey.name)),
-    db.select({ id: schema.organization.id, name: schema.organization.name }).from(schema.organization).orderBy(asc(schema.organization.createdAt)),
+    // Keys of the server's owner (instance keys for instance servers).
+    db
+      .select({ id: schema.privateKey.id, name: schema.privateKey.name })
+      .from(schema.privateKey)
+      .where(row.ownerOrganizationId ? eq(schema.privateKey.organizationId, row.ownerOrganizationId) : isNull(schema.privateKey.organizationId))
+      .orderBy(asc(schema.privateKey.name)),
+    ctx.isInstanceAdmin
+      ? db.select({ id: schema.organization.id, name: schema.organization.name }).from(schema.organization).orderBy(asc(schema.organization.createdAt))
+      : Promise.resolve([]),
     db.select({ services: count() }).from(schema.service).where(eq(schema.service.serverId, serverId)),
   ]);
 
@@ -60,6 +67,7 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
     statusMessage: row.statusMessage,
     lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
     organizationIds: row.organizationIds,
+    ownerOrganizationId: row.ownerOrganizationId,
     services,
   };
 
@@ -88,7 +96,11 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
         serverId={row.id}
         limits={{ buildConcurrency: row.buildConcurrency, imageRetention: row.imageRetention, metricsRetentionHours: row.metricsRetentionHours }}
       />
-      <AccessCard server={details} organizations={orgs} />
+      {ctx.isInstanceAdmin ? (
+        <AccessCard server={details} organizations={orgs} />
+      ) : (
+        <p className="px-1 text-[13px] text-muted">This server belongs to {ctx.org.name}. Only this organization deploys to it, unless a Root admin shares it with another one.</p>
+      )}
       {!row.isLocal && <DangerZone server={details} />}
     </>
   );

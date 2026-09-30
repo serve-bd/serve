@@ -52,6 +52,8 @@ type ShellProps = {
   orgs: OrgItem[];
   projects: { id: string; name: string; color: string }[];
   isInstanceAdmin: boolean;
+  /** Admins of this organization: they manage the servers it brings. */
+  isOrgAdmin?: boolean;
   access: { permissions: Permission[]; roleName: string; isAdmin: boolean };
   canCreateOrg: boolean;
   instanceName: string;
@@ -171,11 +173,11 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
             ))}
         </NavGroup>
 
-        {props.isInstanceAdmin && (
+        {(props.isInstanceAdmin || props.isOrgAdmin) && (
           <NavGroup title="Server">
             <NavLink item={{ href: "/servers", label: "Servers", icon: Server }} pathname={pathname} onNavigate={onNavigate} />
             <NavLink item={{ href: "/private-networks", label: "Private networks", icon: Waypoints }} pathname={pathname} onNavigate={onNavigate} />
-            <NavLink item={{ href: "/settings", label: "Settings", icon: Settings }} pathname={pathname} onNavigate={onNavigate} />
+            {props.isInstanceAdmin && <NavLink item={{ href: "/settings", label: "Settings", icon: Settings }} pathname={pathname} onNavigate={onNavigate} />}
           </NavGroup>
         )}
       </nav>
@@ -218,7 +220,7 @@ export function AppShell(props: ShellProps) {
 
   return (
     <PermissionsProvider value={props.access}>
-      <CommandPalette projects={props.projects} isInstanceAdmin={props.isInstanceAdmin}>
+      <CommandPalette projects={props.projects} isInstanceAdmin={props.isInstanceAdmin} isOrgAdmin={!!props.isOrgAdmin}>
         <div className="flex min-h-screen">
           <aside className="sticky top-0 hidden h-screen w-[248px] shrink-0 border-r border-line bg-glass backdrop-blur-2xl lg:block">
             <SidebarContent props={props} />

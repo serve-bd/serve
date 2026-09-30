@@ -1,10 +1,11 @@
 "use server";
 
-import { count, eq, or, sql } from "drizzle-orm";
+import { and, count, eq, ne, or, sql } from "drizzle-orm";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireInstanceAdmin } from "@/server/auth";
+import { ForbiddenError, type OrgContext } from "@/server/auth";
+import { ownerFor, requireServerAdmin, requireServerCreator } from "@/server/servers/access";
 import { db, schema } from "@/server/db";
 import { encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
@@ -34,9 +35,16 @@ function keyComment(name: string) {
   );
 }
 
+/** Keys a server of `owner` may use: its organization's own, or the instance's for Root admins. */
+async function usableKey(ctx: Pick<OrgContext, "isInstanceAdmin">, keyId: string, owner: string | null) {
+  const [key] = await db.select({ organizationId: schema.privateKey.organizationId }).from(schema.privateKey).where(eq(schema.privateKey.id, keyId));
+  if (!key) throw new UserError("SSH key not found.");
+  if (key.organizationId !== owner && !(key.organizationId === null && ctx.isInstanceAdmin)) throw new UserError("This SSH key belongs to another organization.");
+}
+
 export async function createPrivateKey(input: z.input<typeof keySchema>) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const ctx = await requireServerCreator();
     const data = keySchema.parse(input);
     // The public key's comment is the name as typed; spaces and odd characters become dashes.
     const comment = keyComment(data.name);
@@ -49,6 +57,7 @@ export async function createPrivateKey(input: z.input<typeof keySchema>) {
     const id = newId();
     await db.insert(schema.privateKey).values({
       id,
+      organizationId: ownerFor(ctx),
       name: data.name,
       description: data.description || null,
       publicKey: key.publicKey,
@@ -63,7 +72,10 @@ export async function createPrivateKey(input: z.input<typeof keySchema>) {
 
 export async function deletePrivateKey(id: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const ctx = await requireServerCreator();
+    const [owned] = await db.select({ organizationId: schema.privateKey.organizationId }).from(schema.privateKey).where(eq(schema.privateKey.id, id));
+    if (!owned) return null;
+    if (!ctx.isInstanceAdmin && owned.organizationId !== ctx.org.id) throw new ForbiddenError("This SSH key belongs to another organization.");
     const [{ n }] = await db.select({ n: count() }).from(schema.server).where(eq(schema.server.privateKeyId, id));
     if (n > 0) throw new UserError(`This key is used by ${n} server${n === 1 ? "" : "s"}. Give them another key first.`);
     const [key] = await db.delete(schema.privateKey).where(eq(schema.privateKey.id, id)).returning();
@@ -117,6 +129,8 @@ const serverSchema = z.object({
   proxyHttpPort: z.number().int().min(1).max(65535),
   proxyHttpsPort: z.number().int().min(1).max(65535),
   organizationIds: z.array(z.string()).nullable(),
+  /** Root admins only: hand the server to an organization, or back to the instance (null). */
+  ownerOrganizationId: z.string().nullable(),
   buildConcurrency: z.number().int().min(1, "At least 1 build").max(16, "At most 16 builds"),
   imageRetention: z.number().int().min(1, "Keep at least 1 image").max(50),
   metricsRetentionHours: z
@@ -130,10 +144,12 @@ const empty = (v: string | null | undefined) => (v ? v : null);
 
 export async function createServer(input: Pick<z.input<typeof serverSchema>, "name" | "description" | "host" | "port" | "username" | "privateKeyId"> & { dataDir?: string }) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const ctx = await requireServerCreator();
     const data = serverSchema
       .pick({ name: true, description: true, host: true, port: true, username: true, privateKeyId: true, dataDir: true })
       .parse({ dataDir: "/data/serve", ...input });
+    const owner = ownerFor(ctx);
+    await usableKey(ctx, data.privateKeyId, owner);
     const id = newId();
     const looksLikeIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(data.host);
     await db.insert(schema.server).values({
@@ -146,6 +162,9 @@ export async function createServer(input: Pick<z.input<typeof serverSchema>, "na
       privateKeyId: data.privateKeyId,
       dataDir: data.dataDir,
       publicIp: looksLikeIp ? data.host : null,
+      // An organization's server is its own; an instance server starts with Root only, and Root admins share it.
+      ownerOrganizationId: owner,
+      organizationIds: owner ? [] : [ctx.org.id],
     });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.create", message: `Added server ${data.name} (${data.host})` });
     return { id };
@@ -154,10 +173,34 @@ export async function createServer(input: Pick<z.input<typeof serverSchema>, "na
 
 export async function updateServer(id: string, input: Partial<z.input<typeof serverSchema>>) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
-    const [before] = await db.select().from(schema.server).where(eq(schema.server.id, id));
-    if (!before) throw new UserError("Server not found.");
+    const { ctx, row: before } = await requireServerAdmin(id);
     const data = serverSchema.partial().parse(input);
+    if ((data.organizationIds !== undefined || data.ownerOrganizationId !== undefined) && !ctx.isInstanceAdmin) {
+      throw new ForbiddenError("Only admins of the Root organization can share a server or change its owner.");
+    }
+    if (data.ownerOrganizationId !== undefined && data.ownerOrganizationId !== before.ownerOrganizationId) {
+      if (before.isLocal && data.ownerOrganizationId) throw new UserError("The server Serve runs on stays with the instance.");
+      if (data.ownerOrganizationId) {
+        const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, data.ownerOrganizationId));
+        if (!org) throw new UserError("Organization not found.");
+      }
+      // Its key moves with it, so the new owner can manage it; a key other servers use must stay.
+      const keyId = data.privateKeyId ?? before.privateKeyId;
+      if (keyId) {
+        const [key] = await db.select({ organizationId: schema.privateKey.organizationId }).from(schema.privateKey).where(eq(schema.privateKey.id, keyId));
+        if (key && key.organizationId !== data.ownerOrganizationId) {
+          const others = await db
+            .select({ name: schema.server.name })
+            .from(schema.server)
+            .where(and(eq(schema.server.privateKeyId, keyId), ne(schema.server.id, id)));
+          if (others.length) throw new UserError(`Its SSH key is also used by ${others.map((o) => o.name).join(", ")}. Give this server its own key first.`);
+          await db.update(schema.privateKey).set({ organizationId: data.ownerOrganizationId }).where(eq(schema.privateKey.id, keyId));
+        }
+      }
+    }
+    if (data.privateKeyId && data.privateKeyId !== before.privateKeyId) {
+      await usableKey(ctx, data.privateKeyId, data.ownerOrganizationId === undefined ? before.ownerOrganizationId : data.ownerOrganizationId);
+    }
     if (before.isLocal && (data.host || data.port || data.username || data.privateKeyId || data.dataDir)) {
       throw new UserError("The connection of this server cannot change: Serve runs on it.");
     }
@@ -203,9 +246,7 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
 /** Connects, checks Docker (optionally installs it) and starts the proxy. */
 export async function validateServer(id: string, opts: { installDocker?: boolean } = {}) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
-    const [row] = await db.select().from(schema.server).where(eq(schema.server.id, id));
-    if (!row) throw new UserError("Server not found.");
+    const { ctx, row } = await requireServerAdmin(id);
     if (row.isLocal) throw new UserError("This server is always connected.");
     await db.update(schema.server).set({ status: "validating", statusMessage: "Queued", setupLog: "" }).where(eq(schema.server.id, id));
     await enqueue("server.setup", { serverId: id, installDocker: opts.installDocker === true }, { concurrencyKey: `server:${id}` });
@@ -222,7 +263,7 @@ export async function validateServer(id: string, opts: { installDocker?: boolean
 /** Forgets the pinned SSH host key (after reinstalling the server). */
 export async function resetHostKey(id: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(id);
     const [row] = await db.update(schema.server).set({ hostKey: null }).where(eq(schema.server.id, id)).returning();
     if (!row) throw new UserError("Server not found.");
     forgetServer(id);
@@ -233,9 +274,7 @@ export async function resetHostKey(id: string) {
 
 export async function deleteServer(id: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
-    const [row] = await db.select().from(schema.server).where(eq(schema.server.id, id));
-    if (!row) throw new UserError("Server not found.");
+    const { ctx, row } = await requireServerAdmin(id);
     if (row.isLocal) throw new UserError("The server Serve runs on cannot be removed.");
     const [{ n }] = await db.select({ n: count() }).from(schema.service).where(eq(schema.service.serverId, id));
     if (n > 0) throw new UserError(`${n} service${n === 1 ? " runs" : "s run"} on this server. Move or delete ${n === 1 ? "it" : "them"} first.`);

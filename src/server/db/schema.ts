@@ -200,9 +200,11 @@ export const orgRole = pgTable(
 /*                                   Servers                                  */
 /* -------------------------------------------------------------------------- */
 
-/** SSH keys Serve uses to reach remote servers. Managed by Root admins. */
+/** SSH keys Serve uses to reach remote servers. Instance keys (no organization) are managed by Root admins. */
 export const privateKey = pgTable("private_key", {
   id: id(),
+  /** Organization that owns the key; its admins manage it and only its servers use it. Null: the instance's (also after the organization is deleted, with its servers). */
+  organizationId: text("organization_id").references(() => organization.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   description: text("description"),
   /** OpenSSH public key line. */
@@ -311,7 +313,12 @@ export const server = pgTable("server", {
   proxyStopped: boolean("proxy_stopped").notNull().default(false),
   /** Ports were saved in Serve (the local server otherwise uses SERVE_PROXY_HTTP(S)_PORT). */
   proxyPortsCustomized: boolean("proxy_ports_customized").notNull().default(false),
-  /** Organizations allowed to deploy here; null means every organization. */
+  /**
+   * Organization that brought this server: its admins manage it. Null: the instance's server,
+   * managed by Root admins. Servers of a deleted organization go back to the instance.
+   */
+  ownerOrganizationId: text("owner_organization_id").references(() => organization.id, { onDelete: "set null" }),
+  /** Organizations allowed to deploy here besides the owner (set by Root admins); null means every organization. */
   organizationIds: text("organization_ids").array(),
   /** Slot in the private network: the server owns 10.240.<index>.0/24 and 10.241.<index>.0/24. */
   meshIndex: integer("mesh_index").unique(),
@@ -1112,6 +1119,8 @@ export const privateNetwork = pgTable(
   "private_network",
   {
     id: id(),
+    /** Organization whose admins manage it; only its servers join. Null: the instance's, managed by Root admins. */
+    organizationId: text("organization_id").references(() => organization.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     createdAt: createdAt(),
   },

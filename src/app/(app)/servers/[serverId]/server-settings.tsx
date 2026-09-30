@@ -40,6 +40,8 @@ export type ServerDetails = {
   statusMessage: string | null;
   lastSeenAt: string | null;
   organizationIds: string[] | null;
+  /** Organization that brought the server; null: the instance's. */
+  ownerOrganizationId: string | null;
   services: number;
 };
 
@@ -252,30 +254,57 @@ export function BuildsLimitsCard({ serverId, limits }: { serverId: string; limit
   );
 }
 
+const INSTANCE = "instance";
+
 export function AccessCard({ server, organizations }: { server: ServerDetails; organizations: { id: string; name: string }[] }) {
   return (
     <SettingsCard
-      title="Organization access"
-      description="Which organizations may deploy services to this server."
-      initial={{ all: server.organizationIds === null, ids: server.organizationIds ?? [] }}
-      onSave={(v) => updateServer(server.id, { organizationIds: v.all ? null : v.ids })}
+      title="Owner and sharing"
+      description="Who manages this server, and which organizations may deploy to it. Only Root admins change this."
+      initial={{ owner: server.ownerOrganizationId ?? INSTANCE, all: server.organizationIds === null, ids: server.organizationIds ?? [] }}
+      onSave={(v) => updateServer(server.id, { ownerOrganizationId: v.owner === INSTANCE ? null : v.owner, organizationIds: v.all ? null : v.ids.filter((id) => id !== v.owner) })}
     >
       {(v, set) => (
         <>
-          <SwitchRow title="Every organization" description="New organizations get access automatically." checked={v.all} onCheckedChange={set("all")} />
+          {!server.isLocal && (
+            <Field
+              label="Owner"
+              description={
+                v.owner !== INSTANCE
+                  ? "Admins of this organization manage the server: its settings, proxy, terminal and private networks. It always deploys here."
+                  : "Root admins manage the server."
+              }
+            >
+              <Select
+                value={v.owner}
+                onValueChange={set("owner")}
+                options={[{ value: INSTANCE, label: "The instance (Root admins)" }, ...organizations.map((o) => ({ value: o.id, label: o.name }))]}
+              />
+            </Field>
+          )}
+          <SwitchRow
+            title="Share with every organization"
+            description="Every organization, also ones created later, may deploy here."
+            checked={v.all}
+            onCheckedChange={set("all")}
+          />
           {!v.all && (
-            <div className="flex flex-col divide-y divide-line overflow-hidden rounded-xl border border-line">
-              {organizations.map((o) => {
-                const checked = v.ids.includes(o.id);
-                return (
-                  <label key={o.id} className="flex cursor-pointer items-center gap-3 px-3.5 py-2.5 text-[13px] hover:bg-surface-2">
-                    <Checkbox checked={checked} onCheckedChange={(on) => set("ids")(on ? [...v.ids, o.id] : v.ids.filter((x) => x !== o.id))} />
-                    <span className="truncate text-fg">{o.name}</span>
-                  </label>
-                );
-              })}
-              {v.ids.length === 0 && <p className="px-3.5 py-2.5 text-xs text-warn">No organization can deploy here.</p>}
-            </div>
+            <Field label={v.owner !== INSTANCE ? "Also shared with" : "Shared with"}>
+              <div className="flex flex-col divide-y divide-line overflow-hidden rounded-xl border border-line">
+                {organizations
+                  .filter((o) => o.id !== v.owner)
+                  .map((o) => {
+                    const checked = v.ids.includes(o.id);
+                    return (
+                      <label key={o.id} className="flex cursor-pointer items-center gap-3 px-3.5 py-2.5 text-[13px] hover:bg-surface-2">
+                        <Checkbox checked={checked} onCheckedChange={(on) => set("ids")(on ? [...v.ids, o.id] : v.ids.filter((x) => x !== o.id))} />
+                        <span className="truncate text-fg">{o.name}</span>
+                      </label>
+                    );
+                  })}
+                {v.owner === INSTANCE && v.ids.length === 0 && <p className="px-3.5 py-2.5 text-xs text-warn">No organization can deploy here.</p>}
+              </div>
+            </Field>
           )}
         </>
       )}

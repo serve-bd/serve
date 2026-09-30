@@ -3,7 +3,8 @@
 import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireInstanceAdmin } from "@/server/auth";
+import { ForbiddenError, type OrgContext, requireOrg } from "@/server/auth";
+import { canManageServer, ownerFor, requireServerAdmin, requireServerCreator } from "@/server/servers/access";
 import { db, schema } from "@/server/db";
 import { encrypt } from "@/server/crypto";
 import { enqueue } from "@/server/queue";
@@ -29,12 +30,35 @@ const meshInput = z.object({
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+type Ctx = Pick<OrgContext, "isInstanceAdmin" | "isAdmin" | "org">;
+
+/** Root admins manage every network; an organization's admins manage its own. */
+const canManageNetwork = (ctx: Ctx, network: { organizationId: string | null }) =>
+  ctx.isInstanceAdmin || (ctx.isAdmin && !!network.organizationId && network.organizationId === ctx.org.id);
+
+async function requireNetworkAdmin(networkId: string) {
+  const ctx = await requireOrg();
+  const [network] = await db.select().from(schema.privateNetwork).where(eq(schema.privateNetwork.id, networkId));
+  if (!network) throw new UserError("Private network not found.");
+  if (!canManageNetwork(ctx, network)) throw new ForbiddenError("Only admins of the organization that owns this private network, or Root admins, can change it.");
+  return { ctx, network };
+}
+
+/**
+ * Whether a server may be in a network: an organization's networks hold only its own servers, and
+ * the instance's networks only instance servers. Root admins may connect anything.
+ */
+function assertSameOwner(ctx: Ctx, network: { organizationId: string | null; name: string }, server: { ownerOrganizationId: string | null; name: string }) {
+  if (ctx.isInstanceAdmin) return;
+  if (network.organizationId !== server.ownerOrganizationId) throw new UserError(`${server.name} belongs to another organization, so it cannot join ${network.name}.`);
+}
+
 /** A new private network; the name must be free (any case). */
-async function insertNetwork(tx: Tx, name: string) {
+async function insertNetwork(tx: Tx, name: string, organizationId: string | null = null) {
   const [taken] = await tx.select({ id: schema.privateNetwork.id }).from(schema.privateNetwork).where(sql`lower(${schema.privateNetwork.name}) = lower(${name})`);
   if (taken) throw new UserError(`A private network named "${name}" already exists.`);
   try {
-    const [row] = await tx.insert(schema.privateNetwork).values({ id: newId(), name }).returning();
+    const [row] = await tx.insert(schema.privateNetwork).values({ id: newId(), name, organizationId }).returning();
     return row;
   } catch (error) {
     // Someone took the name at the same moment.
@@ -48,7 +72,7 @@ const uniqueViolation = (error: unknown) => [(error as { code?: string }).code, 
 /** Join or leave the private network, or change the address other servers use. */
 export async function saveMesh(serverId: string, input: z.input<typeof meshInput>) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const data = meshInput.parse(input);
     const saved = await db.transaction(async (tx) => {
       // One change at a time, so two servers never take the same slot.
@@ -67,10 +91,14 @@ export async function saveMesh(serverId: string, input: z.input<typeof meshInput
       if (!row.mesh?.enabled) {
         // Joining: into exactly the chosen networks (kept ones from before leaving included when still picked).
         const ids = [...new Set(data.networks ?? [])];
-        if (data.newNetwork) ids.push((await insertNetwork(tx, data.newNetwork)).id);
+        if (data.newNetwork) ids.push((await insertNetwork(tx, data.newNetwork, row.ownerOrganizationId)).id);
         if (!ids.length) throw new UserError("Choose a private network for this server.");
-        const known = new Set((await tx.select({ id: schema.privateNetwork.id }).from(schema.privateNetwork).where(inArray(schema.privateNetwork.id, ids))).map((n) => n.id));
-        if (ids.some((id) => !known.has(id))) throw new UserError("That private network no longer exists. Reload the page.");
+        const networks = await tx.select().from(schema.privateNetwork).where(inArray(schema.privateNetwork.id, ids));
+        if (ids.some((id) => !networks.some((n) => n.id === id))) throw new UserError("That private network no longer exists. Reload the page.");
+        for (const n of networks) {
+          if (!canManageNetwork(ctx, n)) throw new ForbiddenError(`You cannot add servers to ${n.name}.`);
+          assertSameOwner(ctx, n, row);
+        }
         await tx.delete(schema.privateNetworkMember).where(eq(schema.privateNetworkMember.serverId, serverId));
         await tx
           .insert(schema.privateNetworkMember)
@@ -128,7 +156,7 @@ export async function saveMesh(serverId: string, input: z.input<typeof meshInput
 /** Rewrite every server's configuration now (after fixing a firewall, for example). */
 export async function resyncMesh(serverId: string) {
   return act(async () => {
-    await requireInstanceAdmin();
+    await requireServerAdmin(serverId);
     const [row] = await db.select({ mesh: schema.server.mesh }).from(schema.server).where(eq(schema.server.id, serverId));
     if (!row?.mesh) throw new UserError("This server is not in the private network.");
     // Forget the last written configuration so the next run writes it again.
@@ -144,7 +172,7 @@ export async function resyncMesh(serverId: string) {
 /** Addresses a server can be reached at, to pick from instead of typing one. */
 export async function meshAddressOptions(serverId: string) {
   return act(async () => {
-    await requireInstanceAdmin();
+    await requireServerAdmin(serverId);
     const [row] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
     if (!row) throw new UserError("Server not found.");
     const options: { address: string; label: string }[] = [];
@@ -175,14 +203,18 @@ export async function meshAddressOptions(serverId: string) {
 /** Create a private network, optionally with servers in it. */
 export async function createNetwork(name: string, serverIds: string[] = []) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const ctx = await requireServerCreator();
     const parsed = networkName.parse(name);
     const network = await db.transaction(async (tx) => {
-      const row = await insertNetwork(tx, parsed);
+      const row = await insertNetwork(tx, parsed, ownerFor(ctx));
       const ids = [...new Set(serverIds)];
       if (ids.length) {
-        const found = await tx.select({ id: schema.server.id }).from(schema.server).where(inArray(schema.server.id, ids));
+        const found = await tx.select().from(schema.server).where(inArray(schema.server.id, ids));
         if (found.length !== ids.length) throw new UserError("A server no longer exists. Reload the page.");
+        for (const s of found) {
+          if (!canManageServer(ctx, s)) throw new ForbiddenError(`You cannot manage ${s.name}.`);
+          assertSameOwner(ctx, row, s);
+        }
         await tx.insert(schema.privateNetworkMember).values(ids.map((serverId) => ({ networkId: row.id, serverId })));
       }
       return row;
@@ -195,7 +227,7 @@ export async function createNetwork(name: string, serverIds: string[] = []) {
 
 export async function renameNetwork(networkId: string, name: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireNetworkAdmin(networkId);
     const parsed = networkName.parse(name);
     const old = await db.transaction(async (tx) => {
       const [row] = await tx.select().from(schema.privateNetwork).where(eq(schema.privateNetwork.id, networkId));
@@ -222,7 +254,7 @@ export async function renameNetwork(networkId: string, name: string) {
 /** Delete a private network: its servers stop reaching each other unless they share another one. */
 export async function deleteNetwork(networkId: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireNetworkAdmin(networkId);
     // The same lock as joining, so a server never joins a network while it is being deleted.
     const [row] = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext('serve-mesh'))`);
@@ -238,11 +270,11 @@ export async function deleteNetwork(networkId: string) {
 /** Put a server in a private network or take it out. */
 export async function setNetworkMember(networkId: string, serverId: string, member: boolean) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
-    const [network] = await db.select().from(schema.privateNetwork).where(eq(schema.privateNetwork.id, networkId));
-    if (!network) throw new UserError("Private network not found.");
-    const [server] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, serverId));
+    const { ctx, network } = await requireNetworkAdmin(networkId);
+    const [server] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
     if (!server) throw new UserError("Server not found.");
+    if (!canManageServer(ctx, server)) throw new ForbiddenError(`You cannot manage ${server.name}.`);
+    if (member) assertSameOwner(ctx, network, server);
     if (member)
       await db
         .insert(schema.privateNetworkMember)
@@ -280,7 +312,7 @@ export type MeshImpact = {
 /** What stops working if a server leaves a network, a network is deleted, or a server leaves the private network. */
 export async function meshChangeImpact(change: MeshChange) {
   return act(async (): Promise<MeshImpact> => {
-    const ctx = await requireInstanceAdmin();
+    const ctx = "networkId" in change ? (await requireNetworkAdmin(change.networkId)).ctx : (await requireServerAdmin(change.serverId)).ctx;
     const { meshMemberIds } = await import("@/server/mesh/members");
     const { lostLinks, membersAfter } = await import("@/server/mesh/impact");
     const { decryptOrNull } = await import("@/server/crypto");
@@ -357,12 +389,14 @@ export async function meshChangeImpact(change: MeshChange) {
       .map((l) => {
         const c = byId.get(l.consumerId)!;
         const p = byId.get(l.providerId)!;
+        // Organization admins learn that another organization's service is affected, not its names.
+        const hidden = !ctx.isInstanceAdmin && !ownProject.has(c.projectId);
         return {
-          consumer: c.name,
-          consumerServer: serverName.get(c.serverId) ?? "",
-          provider: p.name,
-          providerServer: serverName.get(p.serverId) ?? "",
-          project: projectName.get(c.projectId) ?? "",
+          consumer: hidden ? "A service of another organization" : c.name,
+          consumerServer: hidden ? "" : (serverName.get(c.serverId) ?? ""),
+          provider: hidden && !ownProject.has(p.projectId) ? "another service" : p.name,
+          providerServer: hidden ? "" : (serverName.get(p.serverId) ?? ""),
+          project: hidden ? "Another organization" : (projectName.get(c.projectId) ?? ""),
           href: ownProject.has(c.projectId) ? `/projects/${c.projectId}/services/${c.id}/variables` : null,
           variables: l.variables.sort(),
         };
@@ -376,8 +410,15 @@ const canvasPositions = z.record(z.string().max(32), z.object({ x: z.number().fi
 /** Remember where servers and networks sit on the private networks canvas (merged: only moved ones are sent). */
 export async function saveNetworkCanvas(positions: Record<string, { x: number; y: number }>) {
   return act(async () => {
-    await requireInstanceAdmin();
-    const moved = Object.fromEntries(Object.entries(canvasPositions.parse(positions)).map(([id, p]) => [id, { x: Math.round(p.x), y: Math.round(p.y) }]));
+    const ctx = await requireOrg();
+    if (!ctx.isInstanceAdmin && !ctx.isAdmin) throw new ForbiddenError("Only admins can arrange private networks.");
+    // Organization admins place only their own servers and networks.
+    const mine = ctx.isInstanceAdmin ? null : await managedIds(ctx);
+    const moved = Object.fromEntries(
+      Object.entries(canvasPositions.parse(positions))
+        .filter(([id]) => !mine || mine.has(id))
+        .map(([id, p]) => [id, { x: Math.round(p.x), y: Math.round(p.y) }]),
+    );
     if (!Object.keys(moved).length) return null;
     // One statement, so two admins moving different cards never undo each other.
     await db.execute(sql`
@@ -390,8 +431,18 @@ export async function saveNetworkCanvas(positions: Record<string, { x: number; y
 /** Forget the private networks canvas layout. */
 export async function resetNetworkCanvas() {
   return act(async () => {
-    await requireInstanceAdmin();
+    const ctx = await requireOrg();
+    if (!ctx.isInstanceAdmin) throw new ForbiddenError("Only admins of the Root organization can reset the layout.");
     await db.delete(schema.setting).where(eq(schema.setting.key, "networkCanvas"));
     return null;
   });
+}
+
+/** Ids of the servers and networks an organization admin manages (canvas cards). */
+async function managedIds(ctx: Ctx) {
+  const [servers, networks] = await Promise.all([
+    db.select({ id: schema.server.id, ownerOrganizationId: schema.server.ownerOrganizationId }).from(schema.server),
+    db.select({ id: schema.privateNetwork.id, organizationId: schema.privateNetwork.organizationId }).from(schema.privateNetwork),
+  ]);
+  return new Set([...servers.filter((s) => canManageServer(ctx, s)).map((s) => s.id), ...networks.filter((n) => canManageNetwork(ctx, n)).map((n) => n.id)]);
 }

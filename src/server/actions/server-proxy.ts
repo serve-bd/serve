@@ -1,5 +1,7 @@
 "use server";
 
+import { requireServerAdmin } from "@/server/servers/access";
+
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requireInstanceAdmin } from "@/server/auth";
@@ -67,7 +69,7 @@ function cleanNginxError(output: string) {
 
 export async function reloadProxyNow(serverId: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const server = await serverCtx(serverId);
     try {
       await reloadProxy(server);
@@ -82,7 +84,7 @@ export async function reloadProxyNow(serverId: string) {
 
 export async function restartProxyNow(serverId: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const server = await serverCtx(serverId);
     await restartProxy(server);
     await audit(ctx.user.id, ctx.org.id, "server.proxy.restart", `Restarted the proxy container on ${server.name}`);
@@ -93,7 +95,7 @@ export async function restartProxyNow(serverId: string) {
 /** Recreate (if needed) and regenerate every site file on one server's proxy. */
 export async function rebuildProxyNow(serverId: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const server = await serverCtx(serverId);
     try {
       await syncServerProxy(server);
@@ -108,14 +110,14 @@ export async function rebuildProxyNow(serverId: string) {
 
 export async function testProxy(serverId: string) {
   return act(async () => {
-    await requireInstanceAdmin();
+    await requireServerAdmin(serverId);
     return testProxyConfig(await serverCtx(serverId));
   });
 }
 
 export async function getSiteFile(serverId: string, file: string) {
   return act(async () => {
-    await requireInstanceAdmin();
+    await requireServerAdmin(serverId);
     const server = await serverCtx(serverId);
     try {
       return await readSiteFile(server, file);
@@ -127,7 +129,7 @@ export async function getSiteFile(serverId: string, file: string) {
 
 export async function getProxyLogs(serverId: string) {
   return act(async () => {
-    await requireInstanceAdmin();
+    await requireServerAdmin(serverId);
     return proxyLogs(await serverCtx(serverId), 300);
   });
 }
@@ -135,7 +137,7 @@ export async function getProxyLogs(serverId: string) {
 /** Stop the proxy; every site on the server goes offline until it is started again. */
 export async function stopProxyNow(serverId: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const server = await serverCtx(serverId);
     await stopProxy(server);
     await audit(ctx.user.id, ctx.org.id, "server.proxy.stop", `Stopped the proxy on ${server.name}`);
@@ -145,7 +147,7 @@ export async function stopProxyNow(serverId: string) {
 
 export async function startProxyNow(serverId: string) {
   return act(async () => {
-    const ctx = await requireInstanceAdmin();
+    const { ctx } = await requireServerAdmin(serverId);
     const server = await serverCtx(serverId);
     try {
       await startProxy(server);

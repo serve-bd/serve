@@ -1,5 +1,7 @@
 "use server";
 
+import { requireServerAdmin } from "@/server/servers/access";
+
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requireInstanceAdmin } from "@/server/auth";
@@ -164,7 +166,7 @@ export async function resyncProxy() {
 /** Queues a full cleanup on one server (the local server by default). */
 export async function runCleanup(serverId: string = LOCAL_SERVER_ID) {
   return act(async () => {
-    await requireInstanceAdmin();
+    await requireServerAdmin(serverId);
     const [server] = await db.select({ id: schema.server.id }).from(schema.server).where(eq(schema.server.id, serverId));
     if (!server) throw new UserError("Server not found.");
     await enqueue("cleanup", { full: true, serverId }, { concurrencyKey: `cleanup:${serverId}` });

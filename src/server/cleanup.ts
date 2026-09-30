@@ -143,7 +143,9 @@ async function scheduleOn(serverId: string) {
       const after = await serverSnapshot(ctx).catch(() => null);
       const nowPercent = after?.disk.total ? Math.round((after.disk.used / after.disk.total) * 100) : Math.round(percent);
       const where = ctx.local ? "" : ` on ${ctx.name}`;
-      await notify(settings.rootOrganizationId, "server.disk", {
+      // An organization's server tells that organization; instance servers tell Root.
+      const [owner] = await db.select({ id: schema.server.ownerOrganizationId }).from(schema.server).where(eq(schema.server.id, serverId));
+      await notify(owner?.id ?? settings.rootOrganizationId, "server.disk", {
         ok: false,
         title: `Disk is ${Math.round(percent)}% full${where}`,
         body: `Serve ran an automatic cleanup and freed ${formatSize(result.reclaimed)}. The disk is now ${nowPercent}% full.`,

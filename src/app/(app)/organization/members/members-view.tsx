@@ -51,6 +51,7 @@ export function MembersView({
   invitations,
   emailEnabled = false,
   canResetPasswords = false,
+  addsDirectly = false,
 }: {
   baseUrl: string;
   me: string;
@@ -64,6 +65,8 @@ export function MembersView({
   emailEnabled?: boolean;
   /** Root admins can create reset links for instances without email. */
   canResetPasswords?: boolean;
+  /** Root admins add people who already have an account without an invite. */
+  addsDirectly?: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -81,6 +84,11 @@ export function MembersView({
 
   const invite = useAction(() => inviteMember({ email, roleId }), {
     onSuccess: (d) => {
+      if (!d.id) {
+        toast.success(`${email} was added`);
+        setOpen(false);
+        return;
+      }
       setLink(inviteLink(d.id));
       setSent(d.emailed || d.emailError ? { ok: d.emailed, error: d.emailError } : null);
     },
@@ -271,7 +279,7 @@ export function MembersView({
           >
             <DialogHeader
               title="Invite someone"
-              description={emailEnabled ? "They get an email with a link to create an account or sign in and join." : "They get a link to create an account or sign in and join."}
+              description={`${emailEnabled ? "They get an email with a link to create an account or sign in and join." : "They get a link to create an account or sign in and join."}${addsDirectly ? " Someone who already has an account is added at once." : ""}`}
             />
             <DialogBody>
               {link ? (

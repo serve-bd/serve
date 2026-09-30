@@ -127,7 +127,8 @@ async function joinProviderOrganizations(provider: SsoProvider, userId: string) 
   const rules = githubRules(provider);
   if (rules.length) {
     const matched = new Set(matchedGithubOrgs());
-    for (const r of rules) if (matched.has(r.org) && r.organizationId) await joinOrganization(userId, r.organizationId, r.role, r.roleId, `as a member of the ${r.org} GitHub organization`);
+    for (const r of rules)
+      if (matched.has(r.org) && r.organizationId) await joinOrganization(userId, r.organizationId, r.role, r.roleId, `as a member of the ${r.org} GitHub organization`);
     return;
   }
   if (provider.defaultOrganizationId) await joinOrganization(userId, provider.defaultOrganizationId, provider.defaultRole, provider.defaultRoleId ?? null, "through sign-in");

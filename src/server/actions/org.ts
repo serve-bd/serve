@@ -118,6 +118,18 @@ export async function inviteMember(input: { email: string; roleId?: string; role
       .update(schema.invitation)
       .set({ status: "canceled" })
       .where(and(eq(schema.invitation.organizationId, ctx.org.id), eq(schema.invitation.email, email), eq(schema.invitation.status, "pending")));
+    // Root admins add someone who already has an account at once, without an invite link.
+    if (ctx.isInstanceAdmin) {
+      const [existing] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, email));
+      if (existing) {
+        await db
+          .insert(schema.member)
+          .values({ id: newId(), organizationId: ctx.org.id, userId: existing.id, role: memberRoleFor(roleId), roleId: memberRoleFor(roleId) === "member" ? roleId : null })
+          .onConflictDoNothing();
+        await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "member.added", message: `Added ${email} as ${granted.name}` });
+        return { id: null, added: true, emailed: false, emailError: null };
+      }
+    }
     const id = newId();
     await db.insert(schema.invitation).values({
       id,
@@ -147,7 +159,7 @@ export async function inviteMember(input: { email: string; roleId?: string; role
         emailError = (e as Error).message;
       }
     }
-    return { id, emailed, emailError };
+    return { id, added: false, emailed, emailError };
   });
 }
 

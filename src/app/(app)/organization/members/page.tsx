@@ -45,6 +45,7 @@ export default async function MembersPage() {
           baseUrl={await publicBaseUrl()}
           emailEnabled={await isEmailConfigured()}
           canResetPasswords={ctx.isInstanceAdmin}
+          addsDirectly={ctx.isInstanceAdmin}
           me={ctx.user.id}
           myRoleId={ctx.roleId}
           myPermissions={[...ctx.permissions]}

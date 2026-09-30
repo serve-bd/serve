@@ -49,8 +49,8 @@ type Props = {
 export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
   return useSWR<ServiceLive>(`/api/services/${serviceId}/live`, {
     fallbackData: fallback,
-    refreshInterval: (d) =>
-      d && (["building", "deploying", "restarting"].includes(d.status) || d.deployments.some((x) => ["queued", "building", "deploying"].includes(x.status))) ? 1500 : 6000,
+    // Status changes arrive as live events; this only catches containers changing on their own.
+    refreshInterval: 15_000,
   });
 }
 

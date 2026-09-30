@@ -34,8 +34,8 @@ function elapsed(from: string, now: number) {
 export function DeploymentsIndicator() {
   const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
   const { data } = useSWR<{ deployments: Live[] }>("/api/deployments/active", {
-    // Quick to notice a new deployment started anywhere; faster still while one runs.
-    refreshInterval: (d) => (d?.deployments.some((x) => ACTIVE.has(x.status)) ? 2000 : 4000),
+    // Deployments starting and finishing arrive as live events; this is only a fallback.
+    refreshInterval: 30_000,
   });
   const [now, setNow] = React.useState(() => Date.now());
   const list = (data?.deployments ?? []).filter((d) => !dismissed.has(d.id));

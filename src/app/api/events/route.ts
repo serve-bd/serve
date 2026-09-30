@@ -1,8 +1,11 @@
 import type { NextRequest } from "next/server";
 import { requireOrg } from "@/server/auth";
-import { subscribe } from "@/server/events";
+import { subscribe, type LiveEvent } from "@/server/events";
 
 export const dynamic = "force-dynamic";
+
+const INSTANCE_WIDE = new Set<LiveEvent["t"]>(["server", "setting"]);
+const NO_PROJECT = new Set<LiveEvent["t"]>(["tunnel", "certificate", "server", "setting"]);
 
 /**
  * Server-sent events for live dashboards: which project and service just changed, for this
@@ -24,9 +27,11 @@ export async function GET(request: NextRequest) {
       };
       send("retry: 3000\n\n");
       const unsubscribe = subscribe((e) => {
-        if (e.org !== ctx.org.id) return;
-        // Tunnel events name no project (a tunnel serves a whole server), so every member gets them.
-        if (reach && e.t !== "tunnel" && (!e.project || !reach.has(e.project))) return;
+        // Instance-wide rows (servers, settings) carry no organization and reach every member.
+        if (e.org !== ctx.org.id && !(e.org === null && INSTANCE_WIDE.has(e.t))) return;
+        // Events that name no project (tunnels, certificates, servers) say only that something changed.
+        if (reach && e.project && !reach.has(e.project)) return;
+        if (reach && !e.project && !NO_PROJECT.has(e.t)) return;
         send(`event: change\ndata: ${JSON.stringify({ t: e.t, project: e.project, service: e.service })}\n\n`);
       });
       // Keeps proxies and tunnels from closing an idle connection.

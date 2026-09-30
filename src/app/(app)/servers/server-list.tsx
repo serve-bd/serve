@@ -1,8 +1,6 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "@/hooks/use-router";
 import { ArrowRight, Plus, Server } from "lucide-react";
 import { Badge, Card, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
@@ -32,15 +30,6 @@ type Row = {
 };
 
 export function ServerList({ servers }: { servers: Row[] }) {
-  const router = useRouter();
-  // Keep status pills fresh while a server is being set up.
-  const busy = servers.some((s) => s.status === "validating");
-  React.useEffect(() => {
-    if (!busy) return;
-    const t = setInterval(() => router.refresh(), 2500);
-    return () => clearInterval(t);
-  }, [busy, router]);
-
   if (servers.length <= 1 && servers[0]?.isLocal) {
     return (
       <div className="flex flex-col gap-6">

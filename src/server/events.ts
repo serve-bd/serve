@@ -1,7 +1,13 @@
 import { sql } from "@/server/db";
 
 /** A change announced by the database triggers (see drizzle/0024_live_events.sql). */
-export type LiveEvent = { t: "deployment" | "service" | "domain" | "tunnel"; op: string; org: string | null; project: string | null; service: string | null };
+export type LiveEvent = {
+  t: "deployment" | "service" | "domain" | "backup" | "task_run" | "tunnel" | "certificate" | "server" | "setting";
+  op: string;
+  org: string | null;
+  project: string | null;
+  service: string | null;
+};
 
 type Listener = (e: LiveEvent) => void;
 

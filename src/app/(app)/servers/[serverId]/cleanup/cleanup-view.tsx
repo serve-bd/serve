@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "@/hooks/use-router";
 import { Brush, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
@@ -54,26 +53,19 @@ export function CleanupView({
   lastAt: string | null;
   settings: AutoSettings;
 }) {
-  const router = useRouter();
   const confirm = useConfirm();
   const [waitingSince, setWaitingSince] = React.useState<string | null | undefined>(undefined);
   const start = useAction(runCleanup, { refresh: false });
 
-  // Poll until the worker records a new run, then report what it freed.
+  // The new run arrives as a live event that refreshes the page; give up if it never comes.
   React.useEffect(() => {
     if (waitingSince === undefined) return;
-    const started = Date.now();
-    const t = setInterval(() => {
-      if (Date.now() - started > 90_000) {
-        clearInterval(t);
-        setWaitingSince(undefined);
-        toast.error("Cleanup is taking longer than expected. Check that the worker is running.");
-        return;
-      }
-      router.refresh();
-    }, 2000);
-    return () => clearInterval(t);
-  }, [waitingSince, router]);
+    const t = setTimeout(() => {
+      setWaitingSince(undefined);
+      toast.error("Cleanup is taking longer than expected. Check that the worker is running.");
+    }, 90_000);
+    return () => clearTimeout(t);
+  }, [waitingSince]);
 
   const latest = history[0];
   React.useEffect(() => {

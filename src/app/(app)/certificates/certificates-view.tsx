@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "@/hooks/use-router";
 import {
   AlertTriangle,
   ChevronRight,
@@ -418,19 +417,12 @@ export function CertificatesView({
   proxyManaged?: { name: string; proxy: string }[];
   serverIp: string | null;
 }) {
-  const router = useRouter();
   const confirm = useConfirm();
   const [open, setOpen] = React.useState(false);
   const [logsFor, setLogsFor] = React.useState<string | null>(null);
   const renew = useAction(renewCertificate, { success: "Renewal started" });
   const auto = useAction((id: string, on: boolean) => setCertificateAutoRenew(id, on));
   const remove = useAction(deleteCertificate, { success: "Certificate deleted" });
-
-  React.useEffect(() => {
-    if (!certificates.some((c) => ["issuing", "pending"].includes(c.status))) return;
-    const t = setInterval(() => router.refresh(), 2500);
-    return () => clearInterval(t);
-  }, [certificates, router]);
 
   return (
     <div className="flex flex-col gap-4">

@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import { useConfirm } from "@/components/ui/confirm";
-import { useRouter } from "@/hooks/use-router";
 import { useAction } from "@/hooks/use-action";
 import { formatBytes } from "@/lib/utils";
 import { removeInstanceBackup, revealEncryptionKey, saveInstanceBackupSettings, startInstanceBackup } from "@/server/actions/instance";
@@ -40,18 +39,10 @@ export function InstanceBackups({
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
 }) {
-  const router = useRouter();
   const confirm = useConfirm();
   const run = useAction(startInstanceBackup, { success: "Backup started" });
   const remove = useAction(removeInstanceBackup, { success: "Backup deleted" });
   const running = backups.some((b) => b.status === "running");
-
-  // Refresh while a backup runs so its row updates.
-  React.useEffect(() => {
-    if (!running) return;
-    const t = setInterval(() => router.refresh(), 3000);
-    return () => clearInterval(t);
-  }, [running, router]);
 
   return (
     <>

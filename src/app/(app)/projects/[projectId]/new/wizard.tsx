@@ -11,6 +11,8 @@ import {
   Container,
   Database,
   GitBranch,
+  Globe,
+  KeyRound,
   Layers,
   Lock,
   Plus,
@@ -43,6 +45,8 @@ import { NixpacksHint } from "@/components/nixpacks-hint";
 import { toVolumes, type VolumeRow, volumeName, volumeRowsIssue } from "./volume-rows";
 
 type Kind = "git" | "image" | "database" | "compose";
+/** How a Git repository is reached: by URL, with an SSH deploy key, or through a connected account. */
+type GitAccess = "public" | "key" | "account";
 
 export type CatalogTemplate = {
   id: string;
@@ -95,11 +99,13 @@ type Props = {
   }[];
 };
 
-const starts: { id: Kind; title: string; body: string; icon: React.ReactNode }[] = [
-  { id: "git", title: "Git repository", body: "Build and deploy from GitHub, GitLab or any Git URL, on every push.", icon: <GitBranch /> },
-  { id: "image", title: "Docker image", body: "Run a ready-made image from Docker Hub or any registry.", icon: <Container /> },
-  { id: "compose", title: "Docker Compose", body: "A multi-container stack from a compose file or a repository.", icon: <Layers /> },
-  { id: "database", title: "Database", body: "PostgreSQL, MySQL, Redis and more, with backups.", icon: <Database /> },
+const starts: { id: Kind; key: string; access?: GitAccess; title: string; body: string; icon: React.ReactNode }[] = [
+  { id: "git", key: "git-account", access: "account", title: "Git provider", body: "GitHub, GitLab, Gitea or Bitbucket. Deploys on every push.", icon: <GithubMark /> },
+  { id: "git", key: "git-public", access: "public", title: "Public repository", body: "Any public Git URL. No credentials needed.", icon: <Globe /> },
+  { id: "git", key: "git-key", access: "key", title: "Private repository", body: "Over SSH with a deploy key. You set the URL and branch.", icon: <KeyRound /> },
+  { id: "image", key: "image", title: "Docker image", body: "A ready-made image from Docker Hub or any registry.", icon: <Container /> },
+  { id: "compose", key: "compose", title: "Docker Compose", body: "A multi-container stack from a compose file.", icon: <Layers /> },
+  { id: "database", key: "database", title: "Database", body: "PostgreSQL, MySQL, Redis and more, with backups.", icon: <Database /> },
 ];
 
 function repoName(url: string) {
@@ -164,9 +170,7 @@ function FormShell({
         onSubmit();
       }}
     >
-      <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg">
-        <ArrowLeft className="size-3.5" /> All services
-      </button>
+      <BackRow onBack={onBack} />
       <div className={stepGrid}>
         <Card>
           <CardHeader title={title} description={description} />
@@ -199,13 +203,24 @@ function EnvTextarea({ value, onChange }: { value: string; onChange: (v: string)
   );
 }
 
-function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
+function GitForm({ props, onBack, access }: { props: Props; onBack: () => void; access?: GitAccess }) {
   const router = useRouter();
-  const preferred = props.credentials.find((c) => c.provider === "github-app") ?? props.credentials.find((c) => c.provider !== "ssh");
+  // The kind of access picked on the first page narrows the accounts offered; a link from an app keeps them all.
+  const usable = props.credentials.filter((c) => (access === "key" ? c.provider === "ssh" : access === "account" ? c.provider !== "ssh" : !access));
+  const preferred = usable.find((c) => c.provider === "github-app") ?? usable[0];
   const initial = props.initialGit;
   const [credentialId, setCredentialId] = React.useState<string>(
-    initial ? (initial.credentialId && props.credentials.some((c) => c.id === initial.credentialId) ? initial.credentialId : "public") : (preferred?.id ?? "public"),
+    initial
+      ? initial.credentialId && props.credentials.some((c) => c.id === initial.credentialId)
+        ? initial.credentialId
+        : "public"
+      : access === "public"
+        ? "public"
+        : access
+          ? (preferred?.id ?? "")
+          : (preferred?.id ?? "public"),
   );
+  const missing = access === "key" || access === "account" ? !usable.length : false;
   const [query, setQuery] = React.useState("");
   const [repository, setRepository] = React.useState(initial?.repository ?? "");
   const [branch, setBranch] = React.useState(initial?.branch ?? "main");
@@ -272,7 +287,15 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
 
   return (
     <FormShell
-      title="Add a Git repository"
+      title={
+        access === "public"
+          ? "Add a public repository"
+          : access === "key"
+            ? "Add a private repository"
+            : access === "account"
+              ? "Add a repository from your account"
+              : "Add a Git repository"
+      }
       description={<>The server clones the repository, {compose ? "then runs every service of its compose file." : "builds an image and deploys it with zero downtime."}</>}
       onBack={onBack}
       onSubmit={() =>
@@ -299,31 +322,52 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
             })
       }
       footer={
-        <Button type="submit" variant="primary" size="sm" loading={pending || stack.pending} disabled={!repository.trim()}>
+        <Button type="submit" variant="primary" size="sm" loading={pending || stack.pending} disabled={!repository.trim() || missing || !credentialId}>
           {compose ? "Create stack" : "Create service"}
         </Button>
       }
     >
-      <Field label="Access">
-        <Select
-          value={credentialId}
-          onValueChange={setCredentialId}
-          options={[
-            { value: "public", label: "Public repository", description: "No credentials needed" },
-            ...props.credentials.map((c) => ({
-              value: c.id,
-              label: c.name,
-              description:
-                c.provider === "github-app"
-                  ? "GitHub App · deploys on push"
-                  : c.provider === "ssh"
-                    ? "SSH deploy key"
-                    : `${gitProviderNames[c.provider] ?? c.provider} ${c.oauth ? "OAuth" : "token"} · deploys on push`,
-            })),
-          ]}
-        />
-      </Field>
-      {!props.credentials.some((c) => c.provider === "github-app") && (
+      {access !== "public" && !missing && (
+        <Field label={access === "key" ? "Deploy key" : access === "account" ? "Account" : "Access"}>
+          <Select
+            value={credentialId}
+            onValueChange={setCredentialId}
+            options={[
+              ...(access ? [] : [{ value: "public", label: "Public repository", description: "No credentials needed" }]),
+              ...usable.map((c) => ({
+                value: c.id,
+                label: c.name,
+                description:
+                  c.provider === "github-app"
+                    ? "GitHub App · deploys on push"
+                    : c.provider === "ssh"
+                      ? "SSH deploy key"
+                      : `${gitProviderNames[c.provider] ?? c.provider} ${c.oauth ? "OAuth" : "token"} · deploys on push`,
+              })),
+            ]}
+          />
+        </Field>
+      )}
+      {missing && (
+        <a
+          href="/integrations/git"
+          className="flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-[13px] transition-colors hover:border-line-strong"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-fg text-bg">
+            {access === "key" ? <KeyRound className="size-4" /> : <GithubMark className="size-4" />}
+          </span>
+          <span className="flex flex-1 flex-col">
+            <span className="font-medium text-fg">{access === "key" ? "Add a deploy key first" : "Connect a Git account first"}</span>
+            <span className="text-xs text-muted">
+              {access === "key"
+                ? "In Git providers, create an SSH key and add its public key to the repository as a deploy key."
+                : "In Git providers, connect GitHub, GitLab, Gitea or Bitbucket to browse your repositories."}
+            </span>
+          </span>
+          <ChevronRight className="size-4 text-faint" />
+        </a>
+      )}
+      {!access && !props.credentials.some((c) => c.provider === "github-app") && (
         <a
           href="/integrations/git"
           className="-mt-2 flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-[13px] transition-colors hover:border-line-strong"
@@ -419,7 +463,7 @@ function GitForm({ props, onBack }: { props: Props; onBack: () => void }) {
               setName((n) => n || repoName(repository));
               void loadBranches(repository);
             }}
-            placeholder="https://github.com/vercel/next.js"
+            placeholder={access === "key" ? "git@github.com:owner/repo.git" : "https://github.com/vercel/next.js"}
             required
             className="font-mono text-[13px]"
           />
@@ -824,19 +868,19 @@ function StartCard({ icon, title, body, onClick }: { icon: React.ReactNode; titl
     <button
       type="button"
       onClick={onClick}
-      className="group flex items-center gap-4 rounded-2xl border border-line bg-surface p-5 text-left shadow-sm transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md"
+      className="group flex items-start gap-4 rounded-2xl border border-line bg-surface p-5 text-left shadow-sm transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-md"
     >
       {icon}
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="text-[15px] font-semibold text-fg">{title}</span>
         <span className="text-[13px] leading-snug text-muted">{body}</span>
       </span>
-      <ChevronRight className="size-4 flex-none text-faint transition-transform group-hover:translate-x-0.5" />
+      <ChevronRight className="mt-0.5 size-4 flex-none self-center text-faint transition-transform group-hover:translate-x-0.5" />
     </button>
   );
 }
 
-function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Kind, engine?: DbEngine) => void; onTemplate: (id: string) => void }) {
+function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Kind, engine?: DbEngine, access?: GitAccess) => void; onTemplate: (id: string) => void }) {
   const [query, setQuery] = React.useState("");
   const hasCustom = props.templates.some((t) => t.custom);
   const [category, setCategory] = React.useState("All");
@@ -864,11 +908,11 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
             .filter((k) => k.id !== "database")
             .map((k) => (
               <StartCard
-                key={k.id}
+                key={k.key}
                 icon={<span className="flex size-11 flex-none items-center justify-center rounded-xl bg-accent-soft text-accent [&_svg]:size-[22px]">{k.icon}</span>}
                 title={k.title}
                 body={k.body}
-                onClick={() => onStart(k.id)}
+                onClick={() => onStart(k.id, undefined, k.access)}
               />
             ))}
         </div>
@@ -1003,9 +1047,7 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
         });
       }}
     >
-      <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg">
-        <ArrowLeft className="size-3.5" /> All services
-      </button>
+      <BackRow onBack={onBack} />
       <div className={stepGrid}>
         <Card>
           <div className="flex items-start gap-4 border-b border-line px-5 py-5">
@@ -1089,6 +1131,24 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
   );
 }
 
+const ServerBarContext = React.createContext<React.ReactNode>(null);
+
+/** "All services" on the left, the server picker on the right. */
+function BackRow({ onBack }: { onBack: () => void }) {
+  const serverBar = React.useContext(ServerBarContext);
+  return (
+    // Same columns as the form below, so the picker lines up with the form's right edge.
+    <div className={cn(stepGrid, "mb-4")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button type="button" onClick={onBack} className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-fg">
+          <ArrowLeft className="size-3.5" /> All services
+        </button>
+        {serverBar}
+      </div>
+    </div>
+  );
+}
+
 function ServerBar({ servers, value, onChange }: { servers: Props["servers"]; value: string; onChange: (id: string) => void }) {
   const current = servers.find((s) => s.id === value);
   return (
@@ -1120,19 +1180,18 @@ export function NewServiceWizard({ header, ...props }: Props & { header: { title
   const p = { ...props, serverId };
   return (
     <>
-      <PageHeader
-        {...header}
-        // Where it deploys only matters once a kind of service is chosen.
-        actions={step && props.servers.length > 1 ? <ServerBar servers={props.servers} value={serverId} onChange={setServerId} /> : undefined}
-      />
+      <PageHeader {...header} />
       <PageBody>
-        <WizardSteps props={p} step={step} setStep={setStep} />
+        {/* Where it deploys only matters once a kind of service is chosen: it sits next to the way back. */}
+        <ServerBarContext.Provider value={props.servers.length > 1 ? <ServerBar servers={props.servers} value={serverId} onChange={setServerId} /> : null}>
+          <WizardSteps props={p} step={step} setStep={setStep} />
+        </ServerBarContext.Provider>
       </PageBody>
     </>
   );
 }
 
-type Step = { kind: Kind; engine?: DbEngine } | { template: string } | null;
+type Step = { kind: Kind; engine?: DbEngine; access?: GitAccess } | { template: string } | null;
 
 function initialStep(props: Props): Step {
   return props.initialType && starts.some((k) => k.id === props.initialType)
@@ -1144,9 +1203,9 @@ function initialStep(props: Props): Step {
 
 function WizardSteps({ props, step, setStep }: { props: Props; step: Step; setStep: (s: Step) => void }) {
   const back = () => setStep(null);
-  if (!step) return <Catalog props={props} onStart={(kind, engine) => setStep({ kind, engine })} onTemplate={(id) => setStep({ template: id })} />;
+  if (!step) return <Catalog props={props} onStart={(kind, engine, access) => setStep({ kind, engine, access })} onTemplate={(id) => setStep({ template: id })} />;
   if ("template" in step) return <TemplateConfigure props={props} template={props.templates.find((t) => t.id === step.template)!} onBack={back} />;
-  if (step.kind === "git") return <GitForm props={props} onBack={back} />;
+  if (step.kind === "git") return <GitForm props={props} onBack={back} access={step.access} />;
   if (step.kind === "image") return <ImageForm props={props} onBack={back} onDatabase={(engine) => setStep({ kind: "database", engine })} />;
   if (step.kind === "database") return <DatabaseForm props={props} onBack={back} initialEngine={step.engine} />;
   return <ComposeForm props={props} onBack={back} />;

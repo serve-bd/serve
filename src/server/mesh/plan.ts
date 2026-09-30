@@ -7,7 +7,28 @@ const envNetworkName = (environmentId: string) => `serve-env-${environmentId}`;
 
 /** Pure planning for the private network: which addresses exist and what each server's agent does. */
 
-export type PlanServer = { id: string; index: number; endpoint: string | null; port: number; publicKey: string };
+export type PlanServer = {
+  id: string;
+  index: number;
+  endpoint: string | null;
+  port: number;
+  publicKey: string;
+  /** Private networks the server is in: it only talks to servers sharing one. */
+  networks: string[];
+};
+
+/** Two servers reach each other's private names: the same server, or both joined and sharing a private network. */
+export function privatelyConnected(members: Map<string, string[]>, a: string, b: string) {
+  if (a === b) return true;
+  const na = members.get(a);
+  const nb = members.get(b);
+  return !!na && !!nb && na.some((n) => nb.includes(n));
+}
+
+/** Two servers of the mesh that share a private network. */
+export function linked(a: Pick<PlanServer, "id" | "networks">, b: Pick<PlanServer, "id" | "networks">) {
+  return a.id !== b.id && a.networks.some((n) => b.networks.includes(n));
+}
 
 export type PlanService = {
   id: string;
@@ -61,21 +82,22 @@ export function serviceKeys(s: PlanService): { key: string; compose: string | nu
 const placements = (s: PlanService) => [s.serverId, ...s.extraServerIds];
 
 /**
- * Addresses the network needs right now. Only environments with services on two or more
- * servers of the network take part: each of those servers gets a source address for the
- * environment, and every service of it gets an address on its own server.
+ * Addresses the network needs right now. An environment takes part on each of its servers that
+ * shares a private network with another of its servers: those get a source address for the
+ * environment, and the services on them get an address each.
  */
 export function neededAddresses(servers: PlanServer[], services: PlanService[]): Need[] {
-  const inMesh = new Set(servers.map((s) => s.id));
+  const byServer = new Map(servers.map((s) => [s.id, s]));
   const byEnv = new Map<string, PlanService[]>();
   for (const s of services) byEnv.set(s.environmentId, [...(byEnv.get(s.environmentId) ?? []), s]);
   const needs: Need[] = [];
   for (const [environmentId, list] of byEnv) {
-    const where = new Set(list.flatMap(placements).filter((id) => inMesh.has(id)));
-    if (where.size < 2) continue;
-    for (const serverId of [...where].sort()) needs.push({ serverId, key: environmentKey(environmentId), serviceId: null, environmentId });
+    const where = [...new Set(list.flatMap(placements))].map((id) => byServer.get(id)).filter((s) => !!s);
+    const taking = new Set(where.filter((a) => where.some((b) => linked(a, b))).map((s) => s.id));
+    if (!taking.size) continue;
+    for (const serverId of [...taking].sort()) needs.push({ serverId, key: environmentKey(environmentId), serviceId: null, environmentId });
     for (const s of list) {
-      if (!inMesh.has(s.serverId)) continue;
+      if (!taking.has(s.serverId)) continue;
       for (const { key } of serviceKeys(s)) needs.push({ serverId: s.serverId, key, serviceId: s.id, environmentId: null });
     }
   }
@@ -114,11 +136,14 @@ export function allocateAddress(index: number, kind: "svc" | "env", taken: Set<s
   return null;
 }
 
-/** What one server's agent does: its WireGuard peers, the addresses it holds, forwarding and source rules. */
+/** What one server's agent does: its WireGuard peers (servers sharing a private network), the addresses it holds, forwarding and source rules. */
 export function agentConfig(self: PlanServer & { privateKey: string }, servers: PlanServer[], services: PlanService[], addresses: PlanAddress[], needs: Need[]): AgentConfig {
   const needed = new Set(needs.map((n) => `${n.serverId}|${n.key}`));
   const live = addresses.filter((a) => needed.has(`${a.serverId}|${a.key}`));
   const byId = new Map(services.map((s) => [s.id, s]));
+  // Servers sharing a private network with this one: its peers, and the only ones it serves or uses.
+  const peers = servers.filter((s) => linked(self, s));
+  const near = new Set(peers.map((s) => s.id));
 
   const exposures: AgentConfig["exposures"] = [];
   const sources: AgentConfig["sources"] = [];
@@ -136,7 +161,7 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
     const s = byId.get(id);
     if (!s) continue;
     const allow = live
-      .filter((x) => x.serverId !== self.id && x.key === environmentKey(s.environmentId))
+      .filter((x) => near.has(x.serverId) && x.key === environmentKey(s.environmentId))
       .map((x) => x.ip)
       .sort();
     exposures.push({
@@ -163,8 +188,7 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
     address: meshServerAddress(self.index),
     mtu: MESH_MTU,
     routes: MESH_ROUTES,
-    peers: servers
-      .filter((s) => s.id !== self.id)
+    peers: peers
       .sort((a, b) => a.index - b.index)
       .map((s) => ({
         serverId: s.id,
@@ -175,7 +199,7 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
     localAddresses: [...exposures.map((e) => e.ip), ...sources.map((s) => s.ip)].sort(),
     exposures,
     sources,
-    imports: imports(self.id, services, live),
+    imports: imports(self.id, near, services, live),
   };
   return { ...config, hash: createHash("sha256").update(JSON.stringify(config)).digest("hex").slice(0, 16) };
 }
@@ -187,12 +211,13 @@ export const linkName = (ip: string) => `serve-link-${ip.replaceAll(".", "-")}`;
  * Services of this server's environments that run on other servers of the network: each gets a
  * link container on the environment network, answering to the same names as the service itself.
  */
-function imports(serverId: string, services: PlanService[], live: PlanAddress[]): AgentConfig["imports"] {
+function imports(serverId: string, near: Set<string>, services: PlanService[], live: PlanAddress[]): AgentConfig["imports"] {
   const envs = new Set(live.filter((a) => a.serverId === serverId && a.key.startsWith("env:")).map((a) => a.key.slice(4)));
   const out: AgentConfig["imports"] = [];
   for (const s of services) {
     // Reached directly on the environment network when it also runs here.
-    if (!envs.has(s.environmentId) || placements(s).includes(serverId)) continue;
+    // Services on servers that share no private network with this one stay out of reach.
+    if (!envs.has(s.environmentId) || placements(s).includes(serverId) || !near.has(s.serverId)) continue;
     for (const { key, compose } of serviceKeys(s)) {
       const ip = live.find((a) => a.serverId === s.serverId && a.key === key)?.ip;
       if (ip) out.push({ name: linkName(ip), ip, network: envNetworkName(s.environmentId), aliases: meshAliases(s, compose) });

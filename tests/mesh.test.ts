@@ -7,9 +7,28 @@ import { describe, expect, it } from "vitest";
 import { handshakeAge, meshEndpoint, meshEndpointProblem } from "@/lib/mesh";
 import { LINKS_JQ, RULES_JQ, WG_JQ } from "@/server/mesh/agent";
 import { generateMeshKeys } from "@/server/mesh/keys";
-import { addressChanges, agentConfig, allocateAddress, environmentKey, neededAddresses, type PlanAddress, type PlanServer, type PlanService, serviceKey } from "@/server/mesh/plan";
+import {
+  addressChanges,
+  agentConfig,
+  allocateAddress,
+  environmentKey,
+  linked,
+  neededAddresses,
+  type PlanAddress,
+  privatelyConnected,
+  type PlanServer,
+  type PlanService,
+  serviceKey,
+} from "@/server/mesh/plan";
 
-const server = (id: string, index: number, endpoint: string | null = `10.0.0.${index}`): PlanServer => ({ id, index, endpoint, port: 51820, publicKey: `pub-${id}` });
+const server = (id: string, index: number, endpoint: string | null = `10.0.0.${index}`, networks = ["n1"]): PlanServer => ({
+  id,
+  index,
+  endpoint,
+  port: 51820,
+  publicKey: `pub-${id}`,
+  networks,
+});
 const svc = (id: string, patch: Partial<PlanService> = {}): PlanService => ({
   id,
   environmentId: "env1",
@@ -28,6 +47,84 @@ const svc = (id: string, patch: Partial<PlanService> = {}): PlanService => ({
 const A = server("a", 1);
 const B = server("b", 2);
 const C = server("c", 3);
+
+describe("several private networks", () => {
+  // n1: a, b. n2: c, d. b is in both, so it talks to everyone; a and c never talk.
+  const a = server("a", 1, "10.0.0.1", ["n1"]);
+  const b = server("b", 2, "10.0.0.2", ["n1", "n2"]);
+  const c = server("c", 3, "10.0.0.3", ["n2"]);
+  const d = server("d", 4, "10.0.0.4", ["n2"]);
+  const all = [a, b, c, d];
+
+  it("links only servers that share a network", () => {
+    expect(linked(a, b)).toBe(true);
+    expect(linked(b, c)).toBe(true);
+    expect(linked(a, c)).toBe(false);
+    expect(linked(a, a)).toBe(false);
+    expect(linked(server("x", 9, null, []), a)).toBe(false);
+  });
+
+  it("wires an environment only between servers sharing a network", () => {
+    // a and c share nothing: the environment spans them but stays unwired.
+    expect(neededAddresses(all, [svc("db"), svc("app", { type: "app", serverId: "c" })])).toEqual([]);
+    // c and d share n2; a is left out.
+    const needs = neededAddresses(all, [svc("db"), svc("app", { type: "app", serverId: "c" }), svc("cache", { serverId: "d" })]);
+    expect(needs.map((n) => `${n.serverId} ${n.key}`).sort()).toEqual(["c env:env1", "c svc:app", "d env:env1", "d svc:cache"]);
+  });
+
+  it("peers, exposes and imports only across shared networks", () => {
+    const services = [svc("db"), svc("api", { type: "app", serverId: "b" }), svc("web", { type: "app", serverId: "c" })];
+    const addresses: PlanAddress[] = [
+      { serverId: "a", key: serviceKey("db"), ip: "10.240.1.1" },
+      { serverId: "b", key: serviceKey("api"), ip: "10.240.1.2" },
+      { serverId: "c", key: serviceKey("web"), ip: "10.240.1.3" },
+      { serverId: "a", key: environmentKey("env1"), ip: "10.241.1.2" },
+      { serverId: "b", key: environmentKey("env1"), ip: "10.241.2.2" },
+      { serverId: "c", key: environmentKey("env1"), ip: "10.241.3.2" },
+    ];
+    const needs = neededAddresses(all, services);
+    expect(needs.map((n) => `${n.serverId} ${n.key}`).sort()).toEqual(["a env:env1", "a svc:db", "b env:env1", "b svc:api", "c env:env1", "c svc:web"]);
+
+    const cfgA = agentConfig({ ...a, privateKey: "k" }, all, services, addresses, needs);
+    expect(cfgA.peers.map((p) => p.serverId)).toEqual(["b"]);
+    // Only b's environment address may reach the database; c's may not.
+    expect(cfgA.exposures).toEqual([{ ip: "10.240.1.1", service: "db", compose: null, deployment: null, network: "serve-env-env1", allow: ["10.241.2.2"] }]);
+    expect(cfgA.imports.map((i) => i.ip)).toEqual(["10.240.1.2"]);
+
+    const cfgC = agentConfig({ ...c, privateKey: "k" }, all, services, addresses, needs);
+    expect(cfgC.peers.map((p) => p.serverId)).toEqual(["b", "d"]);
+    // c uses b's api, but never a's database.
+    expect(cfgC.imports.map((i) => i.ip)).toEqual(["10.240.1.2"]);
+    expect(cfgC.peers.find((p) => p.serverId === "b")?.allowedIps).toEqual(["10.241.2.0/24", "10.240.1.2/32"]);
+    expect(cfgC.peers.find((p) => p.serverId === "d")?.allowedIps).toEqual(["10.241.4.0/24"]);
+
+    const cfgB = agentConfig({ ...b, privateKey: "k" }, all, services, addresses, needs);
+    expect(cfgB.peers.map((p) => p.serverId)).toEqual(["a", "c", "d"]);
+    expect(cfgB.exposures[0].allow).toEqual(["10.241.1.2", "10.241.3.2"]);
+    expect(cfgB.imports.map((i) => i.ip).sort()).toEqual(["10.240.1.1", "10.240.1.3"]);
+  });
+
+  it("gives a server in no network no peers", () => {
+    const lone = server("e", 5, "10.0.0.5", []);
+    const cfg = agentConfig({ ...lone, privateKey: "k" }, [...all, lone], [svc("x", { serverId: "e" })], [], []);
+    expect(cfg.peers).toEqual([]);
+    expect(cfg.imports).toEqual([]);
+  });
+
+  it("says which servers reach each other's private names", () => {
+    const members = new Map([
+      ["a", ["n1"]],
+      ["b", ["n1", "n2"]],
+      ["c", ["n2"]],
+      ["e", []],
+    ]);
+    expect(privatelyConnected(members, "a", "b")).toBe(true);
+    expect(privatelyConnected(members, "a", "c")).toBe(false);
+    expect(privatelyConnected(members, "e", "a")).toBe(false);
+    expect(privatelyConnected(members, "e", "e")).toBe(true);
+    expect(privatelyConnected(members, "a", "zzz")).toBe(false);
+  });
+});
 
 describe("private network planning", () => {
   it("only wires environments that span two servers of the network", () => {

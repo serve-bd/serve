@@ -204,6 +204,13 @@
       "when": 1790751081660,
       "tag": "0028_more_live_events",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790752209830,
+      "tag": "0029_private_networks",
+      "breakpoints": true
     }
   ]
 }

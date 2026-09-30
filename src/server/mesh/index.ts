@@ -12,20 +12,33 @@ import { newId } from "@/server/id";
 import { envNetworkName } from "@/server/docker/networks";
 import { meshMemberIds } from "./members";
 import { AGENT_CONTAINER, AGENT_DOCKERFILE, AGENT_IMAGE, AGENT_SCRIPT, AGENT_VERSION, LINKS_JQ, RULES_JQ, WG_JQ } from "./agent";
-import { addressChanges, type AgentConfig, agentConfig, allocateAddress, type Need, neededAddresses, type PlanAddress, type PlanServer, type PlanService } from "./plan";
+import { addressChanges, type AgentConfig, agentConfig, allocateAddress, linked, type Need, neededAddresses, type PlanAddress, type PlanServer, type PlanService } from "./plan";
 
 type Service = typeof schema.service.$inferSelect;
-type Member = ServerRow & { mesh: ServerMesh; meshIndex: number };
+type Member = ServerRow & { mesh: ServerMesh; meshIndex: number; networks: string[] };
 
-const isMember = (r: ServerRow): r is Member => !!r.mesh?.enabled && r.meshIndex !== null;
+const isMember = (r: ServerRow): r is ServerRow & { mesh: ServerMesh; meshIndex: number } => !!r.mesh?.enabled && r.meshIndex !== null;
 
-/** Servers in the private network (it may still be starting on some of them). */
+/** Servers that joined the private network (it may still be starting on some), with the private networks they are in. */
 export async function meshMembers(): Promise<Member[]> {
-  const rows = await db.select().from(schema.server).where(isNotNull(schema.server.meshIndex));
-  return rows.filter(isMember);
+  const [rows, links] = await Promise.all([db.select().from(schema.server).where(isNotNull(schema.server.meshIndex)), db.select().from(schema.privateNetworkMember)]);
+  return rows.filter(isMember).map((r) => ({
+    ...r,
+    networks: links
+      .filter((l) => l.serverId === r.id)
+      .map((l) => l.networkId)
+      .sort(),
+  }));
 }
 
-const toPlanServer = (r: Member): PlanServer => ({ id: r.id, index: r.meshIndex, endpoint: r.mesh.endpoint, port: r.mesh.port, publicKey: r.mesh.publicKey });
+const toPlanServer = (r: Member): PlanServer => ({
+  id: r.id,
+  index: r.meshIndex,
+  endpoint: r.mesh.endpoint,
+  port: r.mesh.port,
+  publicKey: r.mesh.publicKey,
+  networks: r.networks,
+});
 
 function toPlanService(s: Service): PlanService {
   let composeServices: string[] = [];
@@ -450,8 +463,18 @@ export type MeshPeerView = {
   message: string | null;
 };
 
+export type MeshNetworkView = {
+  id: string;
+  name: string;
+  /** This server is in it. */
+  member: boolean;
+  servers: { id: string; name: string; joined: boolean }[];
+};
+
 export type MeshOverview = {
   enabled: boolean;
+  /** Every private network, with the servers in each. */
+  networks: MeshNetworkView[];
   state: ServerMesh["state"] | null;
   message: string | null;
   endpoint: string | null;
@@ -476,12 +499,34 @@ export type MeshOverview = {
   }[];
 };
 
+/** Every private network with its servers, by name. */
+export async function meshNetworks(): Promise<Omit<MeshNetworkView, "member">[]> {
+  const [networks, links] = await Promise.all([
+    db.select().from(schema.privateNetwork),
+    db
+      .select({ networkId: schema.privateNetworkMember.networkId, id: schema.server.id, name: schema.server.name, mesh: schema.server.mesh, meshIndex: schema.server.meshIndex })
+      .from(schema.privateNetworkMember)
+      .innerJoin(schema.server, eq(schema.privateNetworkMember.serverId, schema.server.id)),
+  ]);
+  return networks
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((n) => ({
+      id: n.id,
+      name: n.name,
+      servers: links
+        .filter((l) => l.networkId === n.id)
+        .map((l) => ({ id: l.id, name: l.name, joined: !!l.mesh?.enabled && l.meshIndex !== null }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    }));
+}
+
 /** Everything the server page shows about the private network. */
 export async function meshOverview(serverId: string, readStatus = true): Promise<MeshOverview> {
   const { meshServerAddress } = await import("@/lib/mesh");
   const [row] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
   const members = await meshMembers();
-  const self = row && isMember(row) ? row : null;
+  const self = members.find((m) => m.id === serverId) ?? null;
+  const networks = await meshNetworks();
   let agent: AgentStatus | null = null;
   if (self && readStatus) {
     const ctx = await getServer(serverId).catch(() => null);
@@ -491,8 +536,9 @@ export async function meshOverview(serverId: string, readStatus = true): Promise
   const needs = plan ? neededAddresses(plan.servers, plan.services) : [];
   const needed = new Set(needs.map((n) => `${n.serverId}|${n.key}`));
   const rows = self ? await meshAddressesOf(serverId) : [];
+  // Only servers sharing a private network with this one are its peers.
   const peers: MeshPeerView[] = members
-    .filter((m) => m.id !== serverId)
+    .filter((m) => self && linked(toPlanServer(self), toPlanServer(m)))
     .sort((a, b) => a.meshIndex - b.meshIndex)
     .map((m) => {
       const seen = agent?.peers.find((p) => p.publicKey === m.mesh.publicKey);
@@ -525,6 +571,7 @@ export async function meshOverview(serverId: string, readStatus = true): Promise
     : [];
   return {
     enabled: !!row?.mesh?.enabled,
+    networks: networks.map((n) => ({ ...n, member: n.servers.some((s) => s.id === serverId) })),
     state: row?.mesh?.state ?? null,
     message: row?.mesh?.message ?? null,
     endpoint: row?.mesh?.endpoint ?? null,

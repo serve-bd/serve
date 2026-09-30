@@ -1,4 +1,4 @@
-import { type AnyPgColumn, bigint, boolean, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, bigint, boolean, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import type {
   BuildConfig,
@@ -1056,6 +1056,32 @@ export const meshAddress = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("mesh_address_key_idx").on(t.serverId, t.key), uniqueIndex("mesh_address_ip_idx").on(t.ip)],
+);
+
+/** A private network: servers in the same one reach each other's services; others do not. */
+export const privateNetwork = pgTable(
+  "private_network",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("private_network_name_idx").on(sql`lower(${t.name})`)],
+);
+
+/** A server can be in several private networks; it only takes part while it has joined (server.mesh). */
+export const privateNetworkMember = pgTable(
+  "private_network_member",
+  {
+    networkId: text("network_id")
+      .notNull()
+      .references(() => privateNetwork.id, { onDelete: "cascade" }),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => server.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.networkId, t.serverId] }), index("private_network_member_server_idx").on(t.serverId)],
 );
 
 export const serverAlerts = pgTable("server_alerts", {

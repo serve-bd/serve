@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requireInstanceAdmin } from "@/server/auth";
@@ -10,12 +10,36 @@ import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { MESH_DEFAULT_PORT, MESH_MAX_SERVERS, meshEndpointProblem } from "@/lib/mesh";
 import { generateMeshKeys } from "@/server/mesh/keys";
+import { newId } from "@/server/id";
+
+const networkName = z.string().trim().min(1, "Enter a name.").max(40, "Use 40 characters or fewer.");
 
 const meshInput = z.object({
   enabled: z.boolean(),
   endpoint: z.string().trim().max(253).optional(),
   port: z.number().int().min(1).max(65535).optional(),
+  /** On joining: private networks to put the server in (ids), and/or a new one to create for it. */
+  networks: z.array(z.string()).optional(),
+  newNetwork: networkName.optional(),
 });
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** A new private network; the name must be free (any case). */
+async function insertNetwork(tx: Tx, name: string) {
+  const [taken] = await tx.select({ id: schema.privateNetwork.id }).from(schema.privateNetwork).where(sql`lower(${schema.privateNetwork.name}) = lower(${name})`);
+  if (taken) throw new UserError(`A private network named "${name}" already exists.`);
+  try {
+    const [row] = await tx.insert(schema.privateNetwork).values({ id: newId(), name }).returning();
+    return row;
+  } catch (error) {
+    // Someone took the name at the same moment.
+    if (uniqueViolation(error)) throw new UserError(`A private network named "${name}" already exists.`);
+    throw error;
+  }
+}
+
+const uniqueViolation = (error: unknown) => [(error as { code?: string }).code, (error as { cause?: { code?: string } }).cause?.code].includes("23505");
 
 /** Join or leave the private network, or change the address other servers use. */
 export async function saveMesh(serverId: string, input: z.input<typeof meshInput>) {
@@ -36,6 +60,16 @@ export async function saveMesh(serverId: string, input: z.input<typeof meshInput
         return row;
       }
       if (!row.isLocal && row.status !== "ready") throw new UserError("Finish setting up this server first.");
+      if (!row.mesh?.enabled) {
+        // Joining: into exactly the chosen networks (kept ones from before leaving included when still picked).
+        const ids = [...new Set(data.networks ?? [])];
+        if (data.newNetwork) ids.push((await insertNetwork(tx, data.newNetwork)).id);
+        if (!ids.length) throw new UserError("Choose a private network for this server.");
+        const known = new Set((await tx.select({ id: schema.privateNetwork.id }).from(schema.privateNetwork).where(inArray(schema.privateNetwork.id, ids))).map((n) => n.id));
+        if (ids.some((id) => !known.has(id))) throw new UserError("That private network no longer exists. Reload the page.");
+        await tx.delete(schema.privateNetworkMember).where(eq(schema.privateNetworkMember.serverId, serverId));
+        await tx.insert(schema.privateNetworkMember).values(ids.map((networkId) => ({ networkId, serverId })));
+      }
       const endpoint = data.endpoint ?? row.mesh?.endpoint ?? "";
       const problem = meshEndpointProblem(endpoint);
       if (problem) throw new UserError(problem);
@@ -119,5 +153,87 @@ export async function meshAddressOptions(serverId: string) {
       }
     }
     return options;
+  });
+}
+
+/* ------------------------------- Networks -------------------------------- */
+
+/** Create a private network, optionally with servers in it. */
+export async function createNetwork(name: string, serverIds: string[] = []) {
+  return act(async () => {
+    const ctx = await requireInstanceAdmin();
+    const parsed = networkName.parse(name);
+    const network = await db.transaction(async (tx) => {
+      const row = await insertNetwork(tx, parsed);
+      const ids = [...new Set(serverIds)];
+      if (ids.length) {
+        const found = await tx.select({ id: schema.server.id }).from(schema.server).where(inArray(schema.server.id, ids));
+        if (found.length !== ids.length) throw new UserError("A server no longer exists. Reload the page.");
+        await tx.insert(schema.privateNetworkMember).values(ids.map((serverId) => ({ networkId: row.id, serverId })));
+      }
+      return row;
+    });
+    if (serverIds.length) await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.update", message: `Created the private network ${network.name}` });
+    return { id: network.id };
+  });
+}
+
+export async function renameNetwork(networkId: string, name: string) {
+  return act(async () => {
+    const ctx = await requireInstanceAdmin();
+    const parsed = networkName.parse(name);
+    const old = await db.transaction(async (tx) => {
+      const [row] = await tx.select().from(schema.privateNetwork).where(eq(schema.privateNetwork.id, networkId));
+      if (!row) throw new UserError("Private network not found.");
+      const [taken] = await tx
+        .select({ id: schema.privateNetwork.id })
+        .from(schema.privateNetwork)
+        .where(sql`lower(${schema.privateNetwork.name}) = lower(${parsed}) and ${schema.privateNetwork.id} <> ${networkId}`);
+      if (taken) throw new UserError(`A private network named "${parsed}" already exists.`);
+      await tx
+        .update(schema.privateNetwork)
+        .set({ name: parsed })
+        .where(eq(schema.privateNetwork.id, networkId))
+        .catch((error) => {
+          throw uniqueViolation(error) ? new UserError(`A private network named "${parsed}" already exists.`) : error;
+        });
+      return row;
+    });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.update", message: `Renamed the private network ${old.name} to ${parsed}` });
+    return null;
+  });
+}
+
+/** Delete a private network: its servers stop reaching each other unless they share another one. */
+export async function deleteNetwork(networkId: string) {
+  return act(async () => {
+    const ctx = await requireInstanceAdmin();
+    const [row] = await db.delete(schema.privateNetwork).where(eq(schema.privateNetwork.id, networkId)).returning();
+    if (!row) throw new UserError("Private network not found.");
+    await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.update", message: `Deleted the private network ${row.name}` });
+    return null;
+  });
+}
+
+/** Put a server in a private network or take it out. */
+export async function setNetworkMember(networkId: string, serverId: string, member: boolean) {
+  return act(async () => {
+    const ctx = await requireInstanceAdmin();
+    const [network] = await db.select().from(schema.privateNetwork).where(eq(schema.privateNetwork.id, networkId));
+    if (!network) throw new UserError("Private network not found.");
+    const [server] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, serverId));
+    if (!server) throw new UserError("Server not found.");
+    if (member) await db.insert(schema.privateNetworkMember).values({ networkId, serverId }).onConflictDoNothing();
+    else await db.delete(schema.privateNetworkMember).where(and(eq(schema.privateNetworkMember.networkId, networkId), eq(schema.privateNetworkMember.serverId, serverId)));
+    await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      action: "server.update",
+      message: member ? `Added ${server.name} to the private network ${network.name}` : `Removed ${server.name} from the private network ${network.name}`,
+    });
+    return null;
   });
 }

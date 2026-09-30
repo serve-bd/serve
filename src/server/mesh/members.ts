@@ -1,14 +1,14 @@
 import { sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 
-/** Ids of the servers in the private network (it may still be starting on some of them). */
-export async function meshMemberIds(): Promise<Set<string>> {
+/** Servers in the private network (it may still be starting on some), each with the private networks it is in. */
+export async function meshMemberIds(): Promise<Map<string, string[]>> {
   const rows = await db
     .select({ id: schema.server.id })
     .from(schema.server)
     .where(sql`${schema.server.meshIndex} is not null and coalesce((${schema.server.mesh}->>'enabled')::boolean, false)`);
-  return new Set(rows.map((r) => r.id));
+  const links = await db.select().from(schema.privateNetworkMember);
+  return new Map(rows.map((r) => [r.id, links.filter((l) => l.serverId === r.id).map((l) => l.networkId)]));
 }
 
-/** Two servers reach each other's private names: the same server, or both in the private network. */
-export const privatelyConnected = (members: Set<string>, a: string, b: string) => a === b || (members.has(a) && members.has(b));
+export { privatelyConnected } from "./plan";

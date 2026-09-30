@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { ArrowRight, Cable, EyeOff, KeyRound, LogOut, Pencil, RefreshCw, Waypoints } from "lucide-react";
+import { ArrowRight, Cable, Check, EyeOff, KeyRound, LogOut, Pencil, Plus, RefreshCw, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { meshAddressOptions, resyncMesh, saveMesh } from "@/server/actions/mesh"
 import { handshakeAge, MESH_DEFAULT_PORT, MESH_LINK_TIMEOUT, meshEndpointProblem } from "@/lib/mesh";
 import type { MeshOverview, MeshPeerView } from "@/server/mesh";
 import { cn, formatBytes } from "@/lib/utils";
+import { Networks } from "./networks";
 
 type Props = {
   serverId: string;
@@ -56,6 +57,7 @@ export function MeshView({ serverId, serverName, ready, initial, suggestedEndpoi
             joined={joined}
             initialEndpoint={mesh.endpoint ?? suggestedEndpoint}
             initialPort={mesh.port ?? MESH_DEFAULT_PORT}
+            networks={mesh.networks}
             onDone={() => {
               setEditing(false);
               void mutate();
@@ -64,7 +66,8 @@ export function MeshView({ serverId, serverName, ready, initial, suggestedEndpoi
           />
         )}
       </Card>
-      {joined && <Peers peers={mesh.peers} outside={outside} />}
+      {joined && <Networks serverId={serverId} serverName={serverName} networks={mesh.networks} refresh={() => void mutate()} />}
+      {joined && <Peers peers={mesh.peers} outside={outside} inAny={mesh.networks.some((n) => n.member)} />}
       {joined && <Addresses mesh={mesh} services={services} />}
     </>
   );
@@ -91,6 +94,7 @@ function JoinForm({
   joined,
   initialEndpoint,
   initialPort,
+  networks,
   onDone,
   onCancel,
 }: {
@@ -99,13 +103,24 @@ function JoinForm({
   joined: boolean;
   initialEndpoint: string;
   initialPort: number;
+  networks: MeshOverview["networks"];
   onDone: () => void;
   onCancel?: () => void;
 }) {
   const [endpoint, setEndpoint] = React.useState(initialEndpoint);
   const [port, setPort] = React.useState(String(initialPort));
   const [touched, setTouched] = React.useState(false);
-  const save = useAction(() => saveMesh(serverId, { enabled: true, endpoint, port: Number(port) || MESH_DEFAULT_PORT }), {
+  // Joining: the networks to go into. Kept memberships (from before leaving) come preselected;
+  // with a single network it is the obvious choice; with none, a first one is created.
+  const [picked, setPicked] = React.useState<string[]>(() => {
+    const kept = networks.filter((n) => n.member).map((n) => n.id);
+    return kept.length ? kept : networks.length === 1 ? [networks[0].id] : [];
+  });
+  const [newName, setNewName] = React.useState(networks.length ? "" : "Default");
+  const [adding, setAdding] = React.useState(networks.length === 0);
+  const newNetwork = adding && newName.trim() ? newName.trim() : undefined;
+  const networkProblem = !joined && !picked.length && !newNetwork ? "Choose a network, or create one" : null;
+  const save = useAction(() => saveMesh(serverId, { enabled: true, endpoint, port: Number(port) || MESH_DEFAULT_PORT, ...(joined ? {} : { networks: picked, newNetwork }) }), {
     success: joined ? "Private network updated" : "Joining the private network",
     onSuccess: onDone,
   });
@@ -128,7 +143,7 @@ function JoinForm({
       onSubmit={(e) => {
         e.preventDefault();
         setTouched(true);
-        if (!problem && !portProblem) void save.run();
+        if (!problem && !portProblem && !networkProblem) void save.run();
       }}
     >
       <CardBody className="flex flex-col gap-5 py-5">
@@ -176,6 +191,71 @@ function JoinForm({
             <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, "").slice(0, 5))} inputMode="numeric" className="font-mono" />
           </Field>
         </div>
+        {!joined && (
+          <Field
+            label="Networks"
+            description="Servers reach each other only when they share a network. Pick one or more, or create a new one."
+            error={touched ? networkProblem : null}
+          >
+            <div className="flex flex-wrap items-center gap-1.5">
+              {networks.map((n) => {
+                const on = picked.includes(n.id);
+                const others = n.servers.filter((x) => x.id !== serverId).length;
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setPicked((p) => (on ? p.filter((id) => id !== n.id) : [...p, n.id]))}
+                    className={cn(
+                      "inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-xs ring-1 transition-colors",
+                      on ? "bg-accent-soft text-accent-strong ring-accent/30" : "bg-surface-2 text-fg-2 ring-line hover:bg-hover",
+                    )}
+                  >
+                    {on && <Check className="size-3" />}
+                    {n.name}
+                    <span className="text-faint">
+                      {others} server{others === 1 ? "" : "s"}
+                    </span>
+                  </button>
+                );
+              })}
+              {!adding && (
+                <button
+                  type="button"
+                  onClick={() => setAdding(true)}
+                  className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-line px-3 text-xs text-muted transition-colors hover:bg-hover hover:text-fg"
+                >
+                  <Plus className="size-3" /> New network
+                </button>
+              )}
+            </div>
+            {adding && (
+              <div className="flex items-center gap-2 pt-1.5">
+                <Input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value.slice(0, 40))}
+                  placeholder="New network name"
+                  className="max-w-xs"
+                  autoComplete="off"
+                  aria-label="New network name"
+                />
+                {networks.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setAdding(false);
+                      setNewName("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            )}
+          </Field>
+        )}
         <p className="flex items-start gap-2 rounded-xl bg-surface-2 px-3.5 py-3 text-xs leading-relaxed text-muted">
           <Cable className="mt-px size-3.5 flex-none text-faint" />
           <span>
@@ -292,16 +372,22 @@ function linkState(p: MeshPeerView, now: number | null): "connected" | "waiting"
   return "waiting";
 }
 
-function Peers({ peers, outside }: { peers: MeshPeerView[]; outside: number }) {
+function Peers({ peers, outside, inAny }: { peers: MeshPeerView[]; outside: number; inAny: boolean }) {
   const now = useNow();
   return (
     <Card>
-      <CardHeader title="Servers" description="Other servers in the private network and the link to each of them." />
+      <CardHeader title="Servers" description="Servers that share a network with this one, and the link to each of them." />
       {peers.length === 0 ? (
         <EmptyState
           icon={<Waypoints />}
           title="No other servers yet"
-          description={outside > 0 ? "Open another server and turn on its private network to connect the two." : "Add another server, then turn on its private network."}
+          description={
+            !inAny
+              ? "Put this server in a network first."
+              : outside > 0
+                ? "Open another server, join the private network and pick the same network to connect the two."
+                : "Add another server, then put it in the same network."
+          }
           action={
             <Link href="/servers" className="inline-flex items-center gap-1 text-[13px] font-medium text-accent hover:underline">
               Servers <ArrowRight className="size-3.5" />
@@ -361,7 +447,7 @@ function Addresses({ mesh, services }: { mesh: MeshOverview; services: number })
           <h4 className="px-5 pt-4 pb-2 text-[11px] font-medium tracking-wide text-faint uppercase">Reachable from other servers</h4>
           {exposed.length === 0 ? (
             <p className="px-5 pb-5 text-[13px] text-muted">
-              {services === 0 ? "No services run on this server yet." : "None: no environment here also runs on another server of the network."}
+              {services === 0 ? "No services run on this server yet." : "None: no environment here also runs on a server that shares a network with this one."}
             </p>
           ) : (
             <ul className="pb-2">

@@ -51,7 +51,7 @@ Everything runs in Docker. A reverse proxy of your choice (nginx, Caddy or Traef
 **Servers**
 - Deploy to any number of Linux servers over SSH, next to the machine Serve runs on. Serve installs Docker and the proxy when needed.
 - Per-server proxy, certificates, domains, metrics, Docker cleanup and a root terminal. Move services between servers.
-- Private network between servers (WireGuard): services on different servers reach each other by their private names, encrypted, with no public ports. A service keeps its private address when it moves.
+- Private networks between servers (WireGuard): services on different servers reach each other by their private names, encrypted, with no public ports. Group servers into several networks to keep them apart. A service keeps its private address when it moves.
 
 **Operate**
 - Projects with environments (production, staging…), and shared variables at organization, project and environment level.
@@ -191,6 +191,8 @@ Only SSH needs to be reachable from the Serve machine. Open ports 80 and 443 on 
 ### Private network between servers
 
 Services on different servers reach each other by their private names once both servers are in the private network (a server → **Private network** → **Join**). `${{postgres.DATABASE_URL}}` then works when the database runs on another server.
+
+Servers are grouped into networks: two servers reach each other only when they share one. A server can be in several networks, so one database server can serve two groups of servers that never reach each other. Pick the networks when joining, and change them later on the server's **Private network** page (**Networks**).
 
 - Each server runs a small agent container (`serve-mesh`) that sets up WireGuard, the firewall rules and one `serve-link-*` container per service used from another server. The link answers to the service's names on the environment network and forwards to it.
 - Only services of the same environment reach each other; other environments and the servers themselves are blocked.

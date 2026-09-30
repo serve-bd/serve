@@ -1018,6 +1018,51 @@ export async function saveReplicaVars(serviceId: string, replica: number, vars: 
   });
 }
 
+/**
+ * Variables only pull request previews get, replacing the service's variables with the same name.
+ * `keep` keeps a stored value the editor did not receive. Open previews get the change at once.
+ */
+export async function savePreviewVars(serviceId: string, vars: { key: string; value: string; keep?: string }[]) {
+  return act(async () => {
+    const ctx = await requirePermission("variables.edit");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (service.type !== "app" || service.parentServiceId) throw new UserError("Only apps with pull request previews have preview variables.");
+    let before: Record<string, string> = {};
+    let after: Record<string, string> = {};
+    await db.transaction(async (tx) => {
+      const [row] = await tx.select({ previewVars: schema.service.previewVars }).from(schema.service).where(eq(schema.service.id, serviceId)).for("update");
+      before = row?.previewVars ?? {};
+      const next: Record<string, string> = {};
+      for (const v of vars) {
+        const key = v.key.trim();
+        if (!key) continue;
+        if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key)) throw new UserError(`"${key}" is not a valid variable name.`);
+        if (Object.hasOwn(next, key)) throw new UserError(`${key} is defined twice.`);
+        if (v.keep !== undefined) {
+          if (!Object.hasOwn(before, v.keep)) throw new UserError(`${v.keep} no longer exists. Reload the page.`);
+          next[key] = before[v.keep];
+        } else next[key] = encrypt(v.value);
+      }
+      after = next;
+      await tx
+        .update(schema.service)
+        .set({ previewVars: Object.keys(next).length ? next : null })
+        .where(eq(schema.service.id, serviceId));
+    });
+    const { syncPreviewVars } = await import("@/server/services/previews");
+    await syncPreviewVars(service, before, after);
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "service.preview-vars",
+      targetType: "service",
+      targetId: service.id,
+      message: `Saved preview variables of ${service.name}`,
+    });
+    return { deploymentId: null as string | null };
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                  Domains                                   */
 /* -------------------------------------------------------------------------- */

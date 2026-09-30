@@ -8,7 +8,7 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/component
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { useAction } from "@/hooks/use-action";
-import { saveReplicaVars } from "@/server/actions/services";
+import { savePreviewVars, saveReplicaVars } from "@/server/actions/services";
 import { cn } from "@/lib/utils";
 
 /** `hidden`: the role cannot see secrets; the stored value is kept unless replaced. */
@@ -82,6 +82,33 @@ export function ReplicaVars(props: {
   );
 }
 
+/**
+ * Variables pull request previews get instead of the service's: a staging database, test API keys.
+ * A preview must never write to the production database.
+ */
+export function PreviewVars(props: {
+  serviceId: string;
+  initial: ReplicaVar[];
+  keys: string[];
+  canEdit: boolean;
+  /** The preview database setting fills this variable itself. */
+  databaseVariable: string | null;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-0.5 px-1">
+        <h3 className="font-display text-[15px] font-semibold text-fg">Pull request previews</h3>
+        <p className="text-[13px] text-muted">
+          Variables previews get instead of the ones above, like a staging database or test API keys. Open previews get them at once and use them from their next deploy.
+          {props.databaseVariable && ` ${props.databaseVariable} is set by the preview database copy.`}
+        </p>
+      </div>
+      <ReplicaCard {...props} replica={0} unused={false} canRedeploy={false} />
+    </div>
+  );
+}
+
+/** Replica 0 stands for pull request previews. */
 function ReplicaCard({
   serviceId,
   replica,
@@ -104,7 +131,8 @@ function ReplicaCard({
   const [baseline, setBaseline] = React.useState(() => JSON.stringify(initial.map((v) => [v.key, v.value])));
   const [revealed, setRevealed] = React.useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const [collapsed, toggle] = useCollapsed(`serve:replica-vars:${serviceId}:${replica}`, initial.length === 0);
+  const preview = replica === 0;
+  const [collapsed, toggle] = useCollapsed(preview ? `serve:preview-vars:${serviceId}` : `serve:replica-vars:${serviceId}:${replica}`, initial.length === 0);
 
   const current = rows.filter((r) => r.key.trim());
   const dirty = JSON.stringify(current.map((r) => [r.key, r.value])) !== baseline || current.length !== rows.filter((r) => r.key || r.value).length;
@@ -116,15 +144,12 @@ function ReplicaCard({
   };
 
   const save = useAction(
-    (redeploy: boolean) =>
-      saveReplicaVars(
-        serviceId,
-        replica,
-        current.map((r) => (r.hidden && r.from ? { key: r.key, value: "", keep: r.from } : { key: r.key, value: r.value })),
-        redeploy,
-      ),
+    (redeploy: boolean) => {
+      const list = current.map((r) => (r.hidden && r.from ? { key: r.key, value: "", keep: r.from } : { key: r.key, value: r.value }));
+      return preview ? savePreviewVars(serviceId, list) : saveReplicaVars(serviceId, replica, list, redeploy);
+    },
     {
-      success: (d) => (d.deploymentId ? "Saved. Redeploying…" : `Replica ${replica} variables saved`),
+      success: (d) => (d.deploymentId ? "Saved. Redeploying…" : preview ? "Preview variables saved" : `Replica ${replica} variables saved`),
       onSuccess: () => {
         // A renamed hidden value is now stored under its new name.
         setRows(current.map((r) => (r.hidden ? { ...r, from: r.key } : r)));
@@ -144,13 +169,13 @@ function ReplicaCard({
         className={cn("items-center", collapsed && "border-b-0")}
         title={
           <span className="flex items-center gap-2">
-            Replica {replica}
+            {preview ? "Preview variables" : `Replica ${replica}`}
             {unused && <Badge tone="warn">Not running</Badge>}
             {collapsed && current.length > 0 && <span className="text-[12px] font-normal text-muted">{current.length === 1 ? "1 variable" : `${current.length} variables`}</span>}
           </span>
         }
         description={collapsed ? undefined : unused ? "No replica has this number now. Its variables apply again when you add replicas." : undefined}
-        actions={<CollapseButton collapsed={collapsed} onClick={toggle} label={`replica ${replica} variables`} />}
+        actions={<CollapseButton collapsed={collapsed} onClick={toggle} label={preview ? "preview variables" : `replica ${replica} variables`} />}
       />
       {!collapsed && (
         <>
@@ -176,7 +201,7 @@ function ReplicaCard({
                         type={shown || isRef ? "text" : "password"}
                         onChange={(e) => update(r.id, { value: e.target.value, hidden: false })}
                         placeholder={r.hidden ? (canEdit ? "Hidden. Type to replace it." : "Hidden") : canEdit ? "value" : ""}
-                        aria-label={`Value of ${r.key || "the variable"} for replica ${replica}`}
+                        aria-label={`Value of ${r.key || "the variable"} for ${preview ? "previews" : `replica ${replica}`}`}
                         className={cn("pr-9 font-mono text-[12.5px]", isRef && "text-accent")}
                         autoComplete="off"
                         disabled={!canEdit}
@@ -211,7 +236,13 @@ function ReplicaCard({
               })}
             </div>
           )}
-          {rows.length === 0 && <p className="px-5 py-4 text-[13px] text-muted">No variables of its own. This replica uses the variables above.</p>}
+          {rows.length === 0 && (
+            <p className="px-5 py-4 text-[13px] text-muted">
+              {preview
+                ? "None. Previews use the variables above, including the production database, if it is set there."
+                : "No variables of its own. This replica uses the variables above."}
+            </p>
+          )}
           {canEdit && (
             <div className={cn("flex flex-wrap gap-2 px-5 pb-3", rows.length > 0 && "border-t border-line pt-3")}>
               <Button size="sm" variant="ghost" onClick={() => add()}>
@@ -223,7 +254,7 @@ function ReplicaCard({
                     Replace a variable <ChevronDown className="text-muted" />
                   </MenuTrigger>
                   <MenuContent align="start" className="max-h-[min(60vh,26rem)] w-64 overflow-y-auto">
-                    <MenuLabel>Give replica {replica} its own value</MenuLabel>
+                    <MenuLabel>{preview ? "Give previews their own value" : `Give replica ${replica} its own value`}</MenuLabel>
                     {unusedKeys.map((k) => (
                       <MenuItem key={k} onClick={() => add(k)}>
                         <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{k}</span>

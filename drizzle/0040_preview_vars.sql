@@ -1,0 +1,1 @@
+ALTER TABLE "service" ADD COLUMN "preview_vars" jsonb;

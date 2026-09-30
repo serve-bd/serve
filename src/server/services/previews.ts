@@ -79,6 +79,12 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
     ]) {
       if (!rows.some((r) => r.key === key)) rows.push({ id: newId(), serviceId: id, key, value: encrypt(value), buildTime: true, runtime: true });
     }
+    // Preview variables replace the service's: a preview must not reach production data.
+    for (const [key, value] of Object.entries(parent.previewVars ?? {})) {
+      const same = rows.find((r) => r.key === key);
+      if (same) same.value = value;
+      else rows.push({ id: newId(), serviceId: id, key, value, buildTime: true, runtime: true });
+    }
     if (rows.length) await db.insert(schema.envVar).values(rows);
 
     if (parent.previewDatabase) databaseId = await createPreviewDatabase(preview, parent, pr.number);
@@ -111,6 +117,36 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
   }
   const deploymentId = await queueDeployment(preview.id, "webhook", deployment);
   return { preview, deploymentId };
+}
+
+/**
+ * Puts changed preview variables into the open previews: new values replace theirs, and a removed
+ * one goes back to the service's value (or away). The variable the preview database fills stays.
+ */
+export async function syncPreviewVars(parent: Service, before: Record<string, string>, after: Record<string, string>) {
+  const previews = await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.parentServiceId, parent.id));
+  if (!previews.length) return;
+  const own = await db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, parent.id));
+  const skip = parent.previewDatabase?.variable;
+  for (const p of previews) {
+    for (const [key, value] of Object.entries(after)) {
+      if (key === skip || before[key] === value) continue;
+      await db
+        .insert(schema.envVar)
+        .values({ id: newId(), serviceId: p.id, key, value, buildTime: true, runtime: true })
+        .onConflictDoUpdate({ target: [schema.envVar.serviceId, schema.envVar.key], set: { value, updatedAt: new Date() } });
+    }
+    for (const key of Object.keys(before)) {
+      if (key === skip || Object.hasOwn(after, key)) continue;
+      const original = own.find((v) => v.key === key);
+      if (original)
+        await db
+          .update(schema.envVar)
+          .set({ value: original.value, buildTime: original.buildTime, runtime: original.runtime, updatedAt: new Date() })
+          .where(and(eq(schema.envVar.serviceId, p.id), eq(schema.envVar.key, key)));
+      else await db.delete(schema.envVar).where(and(eq(schema.envVar.serviceId, p.id), eq(schema.envVar.key, key)));
+    }
+  }
 }
 
 export async function removePreview(parent: Service, prNumber: number) {

@@ -399,6 +399,8 @@ export const service = pgTable(
     composeBackups: jsonb("compose_backups").$type<Record<string, ComposeBackupConfig>>(),
     /** Variables of single replicas, by replica number (from 1): key → encrypted value. They win over the service's variables. */
     replicaVars: jsonb("replica_vars").$type<Record<string, Record<string, string>>>(),
+    /** Variables only pull request previews get (encrypted), replacing the service's variables with the same name. */
+    previewVars: jsonb("preview_vars").$type<Record<string, string>>(),
     compose: jsonb("compose").$type<ComposeConfig>(),
     /** Build server, registry and extra servers of an app (build once, run on many servers). */
     distribution: jsonb("distribution").$type<DistributionConfig>(),

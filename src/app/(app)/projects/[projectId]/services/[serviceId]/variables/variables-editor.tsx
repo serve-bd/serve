@@ -14,7 +14,7 @@ import { saveEnvVars } from "@/server/actions/services";
 import { parseEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
 import { referenceOf } from "@/lib/refs";
-import { CollapseButton, type ReplicaVar, ReplicaVars, useCollapsed } from "./replica-vars";
+import { CollapseButton, PreviewVars, type ReplicaVar, ReplicaVars, useCollapsed } from "./replica-vars";
 
 /** `hidden`: the value is kept on the server and not sent here (the role cannot see secrets); `from` is its stored key. */
 type Var = { key: string; value: string; buildTime: boolean; runtime: boolean; id?: number; hidden?: boolean; from?: string };
@@ -43,6 +43,8 @@ export function VariablesEditor({
   replicaVars = {},
   canEdit = true,
   canSeeSecrets = true,
+  previewVars = null,
+  previewDatabaseVariable = null,
 }: {
   serviceId: string;
   type: string;
@@ -57,6 +59,9 @@ export function VariablesEditor({
   canEdit?: boolean;
   /** Without it, values arrive hidden and saving keeps them unless replaced. */
   canSeeSecrets?: boolean;
+  /** Variables of pull request previews; null when the service has no previews. */
+  previewVars?: ReplicaVar[] | null;
+  previewDatabaseVariable?: string | null;
 }) {
   const [vars, setVars] = React.useState<Var[]>(() => initial.map(withId));
   // Rows as last saved: their values are masked until revealed. New and edited values stay readable while typing.
@@ -319,6 +324,15 @@ export function VariablesEditor({
             canEdit={canEdit}
             canSeeSecrets={canSeeSecrets}
             canRedeploy={canRedeploy}
+          />
+        )}
+        {previewVars && (
+          <PreviewVars
+            serviceId={serviceId}
+            initial={previewVars}
+            keys={current.filter((v) => v.key).map((v) => v.key)}
+            canEdit={canEdit}
+            databaseVariable={previewDatabaseVariable}
           />
         )}
       </div>

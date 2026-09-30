@@ -189,6 +189,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
           section === "source" && service.type === "app" && service.source?.type === "git" && !service.parentServiceId
             ? {
                 config: service.previewDatabase ?? null,
+                previewVars: Object.keys(service.previewVars ?? {}),
                 databases: (
                   await db
                     .select({ id: schema.service.id, name: schema.service.name, database: schema.service.database })

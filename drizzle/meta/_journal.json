@@ -281,6 +281,13 @@
       "when": 1790779255447,
       "tag": "0039_network_name_per_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790783429390,
+      "tag": "0040_preview_vars",
+      "breakpoints": true
     }
   ]
 }

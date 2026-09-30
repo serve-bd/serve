@@ -88,7 +88,7 @@ type Props = {
   /** Maintenance page (only loaded for the Maintenance page). */
   maintenance?: { config: MaintenanceConfig | null; domains: string[] };
   /** Database copies for previews (only loaded for the Source page of Git apps). */
-  previewDatabase?: { config: PreviewDatabaseConfig | null; databases: { id: string; name: string; engine: string; label: string }[] };
+  previewDatabase?: { config: PreviewDatabaseConfig | null; databases: { id: string; name: string; engine: string; label: string }[]; previewVars: string[] };
   /** Build server, registry and extra servers (only loaded for the Servers & registry page). */
   distribution?: Omit<React.ComponentProps<typeof DistributionSection>, "serviceId" | "projectId" | "slug" | "primary">;
 };
@@ -330,6 +330,20 @@ export function ServiceSettings(props: Props) {
                     checked={v.previewsEnabled}
                     onCheckedChange={(c) => set({ previewsEnabled: c })}
                   />
+                )}
+                {!service.isPreview && v.previewsEnabled && props.previewDatabase && !props.previewDatabase.config && (
+                  <p className="flex gap-2 rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
+                    <TriangleAlert className="mt-px size-3.5 flex-none text-warn" />
+                    <span>
+                      Previews get this app&apos;s variables, so they use its production database
+                      {props.previewDatabase.previewVars.length ? ` unless one of your preview variables (${props.previewDatabase.previewVars.join(", ")}) replaces it` : ""}. Give
+                      each preview its own copy under Preview database below, or set{" "}
+                      <Link href={`/projects/${props.projectId}/services/${service.id}/variables`} className="text-accent hover:underline">
+                        preview variables
+                      </Link>
+                      .
+                    </span>
+                  </p>
                 )}
               </>
             )}

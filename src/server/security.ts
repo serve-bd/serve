@@ -227,22 +227,37 @@ export async function pathsOutside(root: string, paths: string[]): Promise<strin
 /**
  * Names in a compose file that another service answers to on the networks the proxy shares with
  * it (its slug, or "<slug>-<name>" for stack services): taking one would receive that service's
- * traffic. `otherSlugs`: the slugs of every other service.
+ * traffic. `otherSlugs`: the slugs of every other service. `hostnames`: the custom private
+ * hostnames of the other services in the stack's environment; the stack's containers are on
+ * that network too, so inside the stack such a name would answer for two services.
  */
-export function composeNameClashes(content: string, otherSlugs: string[]): string[] {
+export function composeNameClashes(content: string, otherSlugs: string[], hostnames: string[] = []): string[] {
   const doc = parseCompose(content) as { services?: Record<string, Record<string, unknown>> } | null;
-  if (!doc || !otherSlugs.length) return [];
+  if (!doc || (!otherSlugs.length && !hostnames.length)) return [];
   const slugs = otherSlugs.map((s) => s.toLowerCase());
-  const taken = (name: unknown) => typeof name === "string" && slugs.some((slug) => name.toLowerCase() === slug || name.toLowerCase().startsWith(`${slug}-`));
+  const hosts = new Set(hostnames.map((h) => h.toLowerCase()));
+  const owner = (name: unknown) => {
+    if (typeof name !== "string") return null;
+    const lower = name.toLowerCase();
+    if (slugs.some((slug) => lower === slug || lower.startsWith(`${slug}-`))) return "belongs to another service";
+    return hosts.has(lower) ? "is the private hostname of another service in this environment" : null;
+  };
   const issues: string[] = [];
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
-    if (taken(name)) issues.push(`service ${name}: the name belongs to another service`);
+    const own = owner(name);
+    if (own) issues.push(`service ${name}: the name ${own}`);
     if (!svc || typeof svc !== "object") continue;
-    for (const key of ["container_name", "hostname"] as const) if (taken(svc[key])) issues.push(`${name}: ${key} "${svc[key]}" belongs to another service`);
+    for (const key of ["container_name", "hostname"] as const) {
+      const why = owner(svc[key]);
+      if (why) issues.push(`${name}: ${key} "${svc[key]}" ${why}`);
+    }
     const nets = svc.networks;
     if (nets && typeof nets === "object" && !Array.isArray(nets)) {
       for (const cfg of Object.values(nets as Record<string, { aliases?: unknown } | null>)) {
-        for (const a of Array.isArray(cfg?.aliases) ? cfg.aliases : []) if (taken(a)) issues.push(`${name}: alias "${a}" belongs to another service`);
+        for (const a of Array.isArray(cfg?.aliases) ? cfg.aliases : []) {
+          const why = owner(a);
+          if (why) issues.push(`${name}: alias "${a}" ${why}`);
+        }
       }
     }
   }

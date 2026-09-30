@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
-import { env } from "@/server/env";
-import { LABEL } from "@/server/docker/client";
+import type Docker from "dockerode";
+import { docker, LABEL } from "@/server/docker/client";
 import { run } from "@/server/process";
 import type { ServerCtx } from "@/server/servers/context";
 import type { ComposePort } from "@/server/services/types";
@@ -59,18 +59,11 @@ export function composeServicePorts(content: string): Record<string, number[]> {
 }
 
 /**
- * Attach every service to the shared Serve network with a predictable alias,
- * so the proxy can route to `<slug>-<service>`.
+ * Serve's labels, dashboard ports and subnet for a stack. The environment network is not declared
+ * here: compose would give it the bare service names too (see joinEnvNetwork). Isolated stacks get
+ * the `<slug>-<service>` alias on their own network, where the proxy joins.
  */
-export function transformCompose(
-  content: string,
-  slug: string,
-  serviceId: string,
-  subnet?: string | null,
-  network: string = env.network,
-  extraPorts: ComposePort[] = [],
-  isolated = false,
-): string {
+export function transformCompose(content: string, slug: string, serviceId: string, subnet?: string | null, extraPorts: ComposePort[] = [], isolated = false): string {
   const doc = parseCompose(content);
   for (const [name, svc] of Object.entries(doc.services ?? {})) {
     // Ports published from the dashboard (Domains & ports).
@@ -89,22 +82,19 @@ export function transformCompose(
       ];
     }
     if (svc.network_mode) continue;
-    const alias = composeAlias(slug, name);
-    if (Array.isArray(svc.networks)) {
-      const nets: Record<string, { aliases?: string[] } | null> = {};
-      for (const n of svc.networks) nets[n] = null;
-      svc.networks = nets;
-    }
-    const nets = (svc.networks as Record<string, { aliases?: string[] } | null>) ?? { default: null };
-    if (!Object.keys(nets).length) nets.default = null;
     if (isolated) {
+      if (Array.isArray(svc.networks)) {
+        const nets: Record<string, { aliases?: string[] } | null> = {};
+        for (const n of svc.networks) nets[n] = null;
+        svc.networks = nets;
+      }
+      const nets = (svc.networks as Record<string, { aliases?: string[] } | null>) ?? { default: null };
+      if (!Object.keys(nets).length) nets.default = null;
       // Only the stack's own network, where the proxy joins too; the alias keeps proxy names unique.
       const own = nets.default ?? {};
-      nets.default = { ...own, aliases: [...new Set([...(own.aliases ?? []), alias])] };
-    } else {
-      nets[network] = { aliases: [alias] };
+      nets.default = { ...own, aliases: [...new Set([...(own.aliases ?? []), composeAlias(slug, name)])] };
+      svc.networks = nets;
     }
-    svc.networks = nets;
 
     const labels = { [LABEL.managed]: "true", [LABEL.service]: serviceId, [LABEL.slug]: slug, [LABEL.kind]: "compose" };
     if (Array.isArray(svc.labels)) {
@@ -113,8 +103,7 @@ export function transformCompose(
       svc.labels = { ...(svc.labels ?? {}), ...labels };
     }
   }
-  if (!isolated) doc.networks = { ...(doc.networks ?? {}), [network]: { external: true, name: network } };
-  else doc.networks = { ...(doc.networks ?? {}) };
+  doc.networks = { ...(doc.networks ?? {}) };
   const nets = doc.networks as Record<string, Record<string, unknown> | null>;
   // Use a Serve-assigned subnet so stacks never exhaust Docker's default address pools.
   if (subnet && !nets.default) nets.default = { ipam: { config: [{ subnet }] } };
@@ -178,6 +167,8 @@ export type ComposeRun = {
    * caller uploads the project there and compose runs through SSH.
    */
   server?: ServerCtx;
+  /** The environment network the stack's services join (not for isolated stacks). */
+  envNetwork?: string;
 };
 
 export async function writeComposeFiles(opts: ComposeRun & { content: string }) {
@@ -190,20 +181,50 @@ function composeArgs(opts: Pick<ComposeRun, "projectName" | "dir" | "file">) {
   return ["compose", "-p", opts.projectName, "--project-directory", opts.dir, "-f", path.join(opts.dir, opts.file)];
 }
 
-const UP_ARGS = ["up", "-d", "--build", "--remove-orphans", "--wait", "--wait-timeout", "300"];
+const UP_ARGS = ["up", "-d", "--remove-orphans", "--wait", "--wait-timeout", "300"];
 
+/**
+ * `docker compose up` for a stack: containers are created first, joined to the environment
+ * network, then started. Every path that (re)creates a stack's containers goes through here.
+ */
 export async function composeUp(opts: ComposeRun) {
-  if (opts.server && !opts.server.local) {
-    await remoteCompose(opts.server, opts, UP_ARGS, opts.log, opts.signal, opts.redact);
-    return;
+  const compose = (args: string[]) =>
+    opts.server && !opts.server.local
+      ? remoteCompose(opts.server, opts, args, opts.log, opts.signal, opts.redact)
+      : run("docker", [...composeArgs(opts), ...args], { isolatedEnv: true, cwd: opts.dir, onLine: opts.log, signal: opts.signal, redact: opts.redact });
+  if (opts.envNetwork) {
+    await compose(["up", "--no-start", "--build", "--remove-orphans"]);
+    await joinEnvNetwork(opts.server?.docker ?? docker, opts.projectName, opts.envNetwork);
+    await compose(UP_ARGS);
+  } else {
+    await compose([...UP_ARGS, "--build"]);
   }
-  await run("docker", [...composeArgs(opts), ...UP_ARGS], {
-    isolatedEnv: true,
-    cwd: opts.dir,
-    onLine: opts.log,
-    signal: opts.signal,
-    redact: opts.redact,
-  });
+}
+
+/**
+ * Connects a stack's containers to the environment network with only the `<slug>-<service>`
+ * alias. Declared in the compose file, the network would also carry each bare service name, and
+ * two stacks with a `db` would answer for each other. Docker keeps the connection across
+ * restarts; compose recreating a container drops it, hence this after every create.
+ */
+export async function joinEnvNetwork(d: Docker, projectName: string, network: string) {
+  const containers = await d.listContainers({ all: true, filters: { label: [`com.docker.compose.project=${projectName}`, `${LABEL.kind}=compose`] } });
+  for (const c of containers) {
+    const service = c.Labels["com.docker.compose.service"];
+    if (!service || c.Labels["com.docker.compose.oneoff"] === "True") continue;
+    const info = await d.getContainer(c.Id).inspect();
+    const mode = info.HostConfig.NetworkMode ?? "";
+    if (mode === "host" || mode === "none" || mode.startsWith("container:") || mode.startsWith("service:")) continue;
+    const alias = composeAlias(projectName, service);
+    const current = info.NetworkSettings.Networks?.[network];
+    if (current) {
+      // Attached by an older version of Serve, through the compose file: with the bare names.
+      const own = new Set([alias, info.Name.replace(/^\//, ""), c.Id.slice(0, 12)]);
+      if (((current.Aliases ?? []) as string[]).every((a) => own.has(a))) continue;
+      await d.getNetwork(network).disconnect({ Container: c.Id, Force: true });
+    }
+    await d.getNetwork(network).connect({ Container: c.Id, EndpointConfig: { Aliases: [alias] } });
+  }
 }
 
 /** Runs `docker compose` on a remote server so relative paths resolve against its copy of the project. */

@@ -73,15 +73,29 @@ function assertHostAccess(ctx: OrgContext, what: string) {
  * its admins), the same rule every deploy checks: an instance admin working in another
  * organization gets the answer now, not on every deploy.
  */
-async function assertSafeCompose(ctx: OrgContext, content: string, serviceId: string | null = null) {
+async function assertSafeCompose(ctx: OrgContext, content: string, environmentId: string, serviceId: string | null = null) {
   const issues = composeSecurityIssues(content);
   if (issues.length && !(ctx.isInstanceAdmin && ctx.isRoot)) {
     const who = ctx.isRoot ? "only admins of the Root organization may use" : "only services of the Root organization may use";
     throw new UserError(`This compose file uses options ${who}: ${issues.slice(0, 3).join("; ")}.`);
   }
-  // Nobody's file may take a name another service answers to (the proxy would send it that traffic).
-  const others = (await db.select({ id: schema.service.id, slug: schema.service.slug }).from(schema.service)).filter((s) => s.id !== serviceId).map((s) => s.slug);
-  const clashes = composeNameClashes(content, others);
+  await assertComposeNames(content, environmentId, serviceId);
+}
+
+/**
+ * Nobody's file may take a name another service answers to (the proxy would send it that
+ * traffic), nor a private hostname of its environment (the name would answer for two services).
+ */
+async function assertComposeNames(content: string, environmentId: string, serviceId: string | null) {
+  const others = (
+    await db.select({ id: schema.service.id, slug: schema.service.slug, hostname: schema.service.hostname, environmentId: schema.service.environmentId }).from(schema.service)
+  ).filter((s) => s.id !== serviceId);
+  const hostnames = others.filter((s) => s.environmentId === environmentId && s.hostname).map((s) => s.hostname as string);
+  const clashes = composeNameClashes(
+    content,
+    others.map((s) => s.slug),
+    hostnames,
+  );
   if (clashes.length) throw new UserError(`This compose file uses names of other services: ${clashes.slice(0, 3).join("; ")}.`);
 }
 
@@ -311,7 +325,8 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
         throw new UserError(`The compose file is not valid: ${(e as Error).message}`);
       }
       // Built-in templates are reviewed; only those that touch the host need the Root organization.
-      if (!template || template.custom || template.hostAccess) await assertSafeCompose(ctx, content);
+      if (!template || template.custom || template.hostAccess) await assertSafeCompose(ctx, content, data.environmentId);
+      else await assertComposeNames(content, data.environmentId, null);
     } else if (!data.source) throw new UserError("Enter a repository.");
     await assertCredential(data.source?.credentialId, ctx.org.id);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
@@ -572,6 +587,20 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
           (x) => x.id !== service.id && (x.slug === hostname || hostname.startsWith(`${x.slug}-`) || (x.environmentId === service.environmentId && x.hostname === hostname)),
         );
         if (taken) throw new UserError(`${hostname} is already used by another service. Choose a different name.`);
+        // Stack containers are on the environment network too: a compose service called the same
+        // would answer to the name inside its stack.
+        const stacks = await db
+          .select({ name: schema.service.name, compose: schema.service.compose })
+          .from(schema.service)
+          .where(and(eq(schema.service.environmentId, service.environmentId), eq(schema.service.type, "compose"), ne(schema.service.id, service.id)));
+        const stack = stacks.find((s) => {
+          try {
+            return !!s.compose?.content && composeNameClashes(s.compose.content, [], [hostname]).length > 0;
+          } catch {
+            return false;
+          }
+        });
+        if (stack) throw new UserError(`The compose stack ${stack.name} in this environment has a service called ${hostname}. Choose a different name.`);
       }
       patch.hostname = hostname;
     }
@@ -667,7 +696,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         } catch (e) {
           throw new UserError(`The compose file is not valid: ${(e as Error).message}`);
         }
-        await assertSafeCompose(ctx, data.compose.content, serviceId);
+        await assertSafeCompose(ctx, data.compose.content, service.environmentId, serviceId);
       }
       if (data.compose.ports) {
         const ports = data.compose.ports;

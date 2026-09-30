@@ -807,8 +807,15 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
       .where(eq(schema.service.id, service.id));
   }
   // A name another service answers to would take its traffic: refused for everyone.
-  const otherSlugs = (await db.select({ id: schema.service.id, slug: schema.service.slug }).from(schema.service)).filter((s) => s.id !== service.id).map((s) => s.slug);
-  const clashes = composeNameClashes(content, otherSlugs);
+  const others = (
+    await db.select({ id: schema.service.id, slug: schema.service.slug, hostname: schema.service.hostname, environmentId: schema.service.environmentId }).from(schema.service)
+  ).filter((s) => s.id !== service.id);
+  const hostnames = others.filter((s) => s.environmentId === service.environmentId && s.hostname).map((s) => s.hostname as string);
+  const clashes = composeNameClashes(
+    content,
+    others.map((s) => s.slug),
+    hostnames,
+  );
   if (clashes.length) throw new Error(`The compose file uses names of other services: ${clashes.slice(0, 3).join("; ")}`);
   // Checked at every deploy, for files from git and files saved before a rule existed: only the
   // Root organization may use host-level options or reach into Serve's own networks.
@@ -870,13 +877,22 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   await assertPortsFree(server.docker, server.name, service.compose?.ports ?? [], service.id);
   const isolated = !!service.compose?.isolated;
   if (!isolated) await meshBeforeStart(service, server.id, log.line);
-  const transformed = transformCompose(content, service.slug, service.id, subnet, network, service.compose?.ports ?? [], isolated);
+  const transformed = transformCompose(content, service.slug, service.id, subnet, service.compose?.ports ?? [], isolated);
   // The stack's own network: named in the file, or compose's <project>_default.
   const declared = (parseCompose(transformed).networks as Record<string, { name?: string } | null> | undefined)?.default?.name;
   const stackNet = declared || stackNetworkName(service.slug);
   // Compose may recreate the stack network; the proxy must not hold it while that happens.
   await disconnectProxy(stackNet, server).catch(() => {});
-  const run = { projectName: service.slug, dir, file: ".serve-compose.yml", vars: composeVars(env.runtime), log: log.line, signal, redact: env.secrets };
+  const run = {
+    projectName: service.slug,
+    dir,
+    file: ".serve-compose.yml",
+    vars: composeVars(env.runtime),
+    log: log.line,
+    signal,
+    redact: env.secrets,
+    envNetwork: isolated ? undefined : network,
+  };
   // dockerfile_inline builds too.
   await writeComposeFiles({ ...run, content: transformed.includes("type=cache") ? scopeCacheMounts(transformed, buildCacheScope(await orgIdOf(service))) : transformed });
   await setDeployment(dep.id, { status: "deploying" });

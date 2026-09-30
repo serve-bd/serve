@@ -20,8 +20,8 @@ describe("built-in templates", () => {
       it("parses and transforms", () => {
         const doc = parseCompose(t.compose);
         expect(Object.keys(doc.services ?? {}), "expose.service exists").toContain(t.expose.service);
-        const out = YAML.parse(transformCompose(t.compose, `tpl-${t.id}`, "svc_test", "10.210.0.0/24", "serve"));
-        expect(out.networks.serve.external).toBe(true);
+        const out = YAML.parse(transformCompose(t.compose, `tpl-${t.id}`, "svc_test", "10.210.0.0/24"));
+        expect(out.services[t.expose.service].labels["serve.service"]).toBe("svc_test");
         expect(t.expose.port).toBeGreaterThan(0);
       });
 

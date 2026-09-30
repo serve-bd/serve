@@ -71,15 +71,22 @@ networks:
     expect(composeServiceNames(file)).toEqual(["web", "db", "host"]);
     expect(composeServicePorts(file)).toMatchObject({ web: [80], db: [5432] });
   });
-  it("attaches services to the shared network with aliases and labels", () => {
+  it("labels services and leaves the environment network out of the file", () => {
+    // Joined after compose creates the containers (joinEnvNetwork): declared here, the network
+    // would carry the bare service names too.
     const out = YAML.parse(transformCompose(file, "shop-ab12cd", "svc1", "10.210.3.0/24"));
-    expect(out.services.web.networks).toMatchObject({ front: null, serve: { aliases: ["shop-ab12cd-web"] } });
-    expect(out.services.db.networks.serve.aliases).toEqual(["shop-ab12cd-db"]);
-    expect(out.services.db.networks.default).toBeNull();
+    expect(out.services.web.networks).toEqual(["front"]);
+    expect(out.services.db.networks).toBeUndefined();
     expect(out.services.host.networks).toBeUndefined();
     expect(out.services.web.labels["serve.service"]).toBe("svc1");
-    expect(out.networks.serve).toEqual({ external: true, name: "serve" });
+    expect(Object.keys(out.networks)).toEqual(["front", "default"]);
     expect(out.networks.default.ipam.config[0].subnet).toBe("10.210.3.0/24");
+  });
+  it("gives isolated stacks the proxy alias on their own network", () => {
+    const out = YAML.parse(transformCompose(file, "shop-ab12cd", "svc1", "10.210.3.0/24", [], true));
+    expect(out.services.db.networks).toEqual({ default: { aliases: ["shop-ab12cd-db"] } });
+    expect(out.services.web.networks).toEqual({ front: null, default: { aliases: ["shop-ab12cd-web"] } });
+    expect(out.networks.default.labels["serve.stack-network"]).toBe("svc1");
   });
   it("rejects files without services", () => {
     expect(() => transformCompose("version: '3'", "x", "y")).toThrow();
@@ -309,7 +316,7 @@ describe("referenceName", () => {
 describe("transformCompose ports", () => {
   it("publishes dashboard ports on the chosen compose service only", () => {
     const out = YAML.parse(
-      transformCompose("services:\n  web:\n    image: nginx\n    ports: ['9000:9000']\n  db:\n    image: postgres\n", "stack", "svc1", null, "serve", [
+      transformCompose("services:\n  web:\n    image: nginx\n    ports: ['9000:9000']\n  db:\n    image: postgres\n", "stack", "svc1", null, [
         { service: "web", host: 8083, container: 80, protocol: "tcp", bindAddress: "127.0.0.1" },
       ]),
     );

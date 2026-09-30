@@ -35,6 +35,28 @@ describe("security fixes", () => {
     expect(composeNameClashes("services:\n  web:\n    image: nginx\n", ["api-x7k2p9"])).toEqual([]);
   });
 
+  it("refuses compose names equal to a private hostname of the environment", () => {
+    const file = `services:
+  pg:
+    image: postgres
+  app:
+    image: x
+    container_name: Cache
+    networks:
+      default:
+        aliases: [search]
+  web:
+    image: nginx
+`;
+    const issues = composeNameClashes(file, [], ["pg", "cache", "search"]);
+    expect(issues).toEqual([
+      "service pg: the name is the private hostname of another service in this environment",
+      'app: container_name "Cache" is the private hostname of another service in this environment',
+      'app: alias "search" is the private hostname of another service in this environment',
+    ]);
+    expect(composeNameClashes(file, [], ["redis"])).toEqual([]);
+  });
+
   it("flags host ports in a compose file", () => {
     expect(composeSecurityIssues("services:\n  a:\n    image: x\n    ports: ['8080:80']\n").join()).toMatch(/ports/);
     expect(composeSecurityIssues("services:\n  a:\n    image: x\n    expose: ['80']\n")).toEqual([]);

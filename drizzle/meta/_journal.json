@@ -190,6 +190,13 @@
       "when": 1790720529786,
       "tag": "0026_private_network",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790750933638,
+      "tag": "0027_tunnel_live_events",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,6 @@
 import * as React from "react";
 import { toast } from "@/components/ui/toast";
 import Link from "next/link";
-import { useRouter } from "@/hooks/use-router";
 import { ChevronRight, Cloud, Plus, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState } from "@/components/ui/misc";
@@ -22,7 +21,6 @@ type Tunnel = TunnelInfo;
 
 /** Tunnels from each server to this account: turn on, see status and details, remove. */
 function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Account; servers: ServerOption[]; tunnels: Tunnel[]; isAdmin: boolean }) {
-  const router = useRouter();
   // Servers whose "Create tunnel" is running. Clicks on several servers queue up; each keeps its spinner.
   const [busy, setBusy] = React.useState<ReadonlySet<string>>(new Set());
   const mine = tunnels.filter((t) => t.accountId === account.id);
@@ -33,17 +31,17 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
     setBusy((b) => ([...b].some((id) => has.has(id)) ? new Set([...b].filter((id) => !has.has(id))) : b));
   }, [withTunnel]);
   const starting = mine.some((t) => t.status === "pending" || t.status === "down");
-  // While a connector is coming up, ask Cloudflare every few seconds instead of waiting for the worker.
+  // While a connector is coming up, ask Cloudflare every few seconds instead of waiting for the worker's check.
   React.useEffect(() => {
     if (!starting) return;
     const started = Date.now();
     const timer = setInterval(async () => {
       if (Date.now() - started > 3 * 60_000) return clearInterval(timer);
-      await refreshTunnels();
-      router.refresh();
+      // A status change reaches the page as a live event, which refreshes it.
+      await refreshTunnels().catch(() => {});
     }, 4000);
     return () => clearInterval(timer);
-  }, [starting, router]);
+  }, [starting]);
   const enable = useAction(enableTunnel, {
     onSuccess: (r) => {
       const n = r.reconnected.length;

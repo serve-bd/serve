@@ -27,7 +27,6 @@ import {
   updateDomain,
 } from "@/server/actions/services";
 import { findCloudflareZone, refreshTunnels } from "@/server/actions/integrations";
-import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
 import { relativeRecordName } from "@/lib/dns-name";
 import { cn } from "@/lib/utils";
@@ -769,20 +768,19 @@ export function DomainsManager(props: Props) {
   const retry = useAction(retryCertificate, { success: "Requesting a new certificate" });
   const reconnect = useAction(reconnectDomainTunnel, { success: "Reconnected to the tunnel" });
   const makePrimary = useAction(setPrimaryDomain, { success: "Primary domain set. Redeploy so SERVE_PUBLIC_URL uses it." });
-  const router = useRouter();
   const used = new Set(props.domains.map((d) => d.tunnelId));
   const starting = props.tunnels.some((t) => used.has(t.id) && (t.status === "pending" || t.status === "down"));
-  // While a tunnel these domains use is coming up, ask Cloudflare every few seconds instead of waiting for the worker.
+  // While a tunnel these domains use is coming up, ask Cloudflare every few seconds instead of waiting for the worker's check.
   React.useEffect(() => {
     if (!starting) return;
     const started = Date.now();
     const timer = setInterval(async () => {
       if (Date.now() - started > 3 * 60_000) return clearInterval(timer);
+      // A status change reaches the page as a live event, which refreshes it.
       await refreshTunnels().catch(() => {});
-      router.refresh();
     }, 4000);
     return () => clearInterval(timer);
-  }, [starting, router]);
+  }, [starting]);
 
   return (
     <Card className="overflow-hidden">

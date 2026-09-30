@@ -25,7 +25,8 @@ export async function GET(request: NextRequest) {
       send("retry: 3000\n\n");
       const unsubscribe = subscribe((e) => {
         if (e.org !== ctx.org.id) return;
-        if (reach && (!e.project || !reach.has(e.project))) return;
+        // Tunnel events name no project (a tunnel serves a whole server), so every member gets them.
+        if (reach && e.t !== "tunnel" && (!e.project || !reach.has(e.project))) return;
         send(`event: change\ndata: ${JSON.stringify({ t: e.t, project: e.project, service: e.service })}\n\n`);
       });
       // Keeps proxies and tunnels from closing an idle connection.

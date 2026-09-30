@@ -185,11 +185,20 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
     log("==> Starting the network and proxy");
     const ctx = await getServer(serverId);
     await ensureNetwork(ctx.docker, ctx.network);
-    const { ensureServerProxy } = await import("@/server/proxy/nginx");
-    await ensureServerProxy(ctx, log);
-    log("Proxy running");
+    const { ensureServerProxy, ProxyConfigError } = await import("@/server/proxy/nginx");
+    // A proxy that cannot start (a port taken by another program) does not stop the server from
+    // running apps: it only keeps their domains from answering. The server is ready, with a warning.
+    let proxyProblem: string | null = null;
+    try {
+      await ensureServerProxy(ctx, log);
+      log("Proxy running");
+    } catch (error) {
+      if (!(error instanceof ProxyConfigError)) throw error;
+      proxyProblem = `The proxy is not running: ${error.message} Apps run, but their domains answer only once the proxy has free ports (Proxy settings of this server).`;
+      log(`Warning: ${proxyProblem}`);
+    }
 
-    await setStatus(serverId, "ready", null, { lastSeenAt: new Date() });
+    await setStatus(serverId, "ready", proxyProblem, { lastSeenAt: new Date() });
     log("==> Server is ready");
   } catch (error) {
     const message = (error as Error).message;

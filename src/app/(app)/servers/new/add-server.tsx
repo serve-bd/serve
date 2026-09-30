@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { ArrowLeft, ArrowRight, Cable, Check, CheckCircle2, Download, Globe, KeyRound, Loader2, Plus, RotateCw, Server, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Cable, Check, CheckCircle2, Download, Globe, KeyRound, Loader2, Plus, RotateCw, Server, TriangleAlert, XCircle } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
@@ -416,6 +416,8 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
   const waiting = progress?.status === "pending";
   const status = waiting ? "validating" : (progress?.status ?? "validating");
   const noDocker = /docker is not installed/i.test(progress?.statusMessage ?? "");
+  // Ready with a note: the server works, but its proxy could not start.
+  const warning = status === "ready" && progress?.statusMessage ? progress.statusMessage : null;
   const lines = (progress?.setupLog ?? "")
     .split("\n")
     .filter((l, i, all) => l || i < all.length - 1)
@@ -426,11 +428,13 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
       <div
         className={cn(
           "flex flex-col gap-3 rounded-xl px-3.5 py-3 sm:flex-row sm:items-start",
-          status === "ready" ? "bg-ok-soft" : status === "validating" ? "bg-info-soft" : "bg-bad-soft",
+          warning ? "bg-warn-soft" : status === "ready" ? "bg-ok-soft" : status === "validating" ? "bg-info-soft" : "bg-bad-soft",
         )}
       >
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          {status === "ready" ? (
+          {warning ? (
+            <TriangleAlert className="mt-0.5 size-4 flex-none text-warn" />
+          ) : status === "ready" ? (
             <CheckCircle2 className="mt-0.5 size-4 flex-none text-ok" />
           ) : status === "validating" ? (
             <RotateCw className="mt-0.5 size-4 flex-none animate-spin text-info" />
@@ -439,18 +443,28 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
           )}
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <p className="text-[13px] font-medium text-fg">
-              {status === "ready"
-                ? "Connected. The server is ready."
-                : status === "validating"
-                  ? waiting
-                    ? (progress?.statusMessage ?? "Waiting for the server to connect…")
-                    : progress?.statusMessage === "Queued"
-                      ? "Waiting for the worker…"
-                      : "Connecting and preparing the server…"
-                  : noDocker
-                    ? "Docker is not installed"
-                    : "Could not finish the setup"}
+              {warning
+                ? "Connected. The server is ready, but its proxy is not running."
+                : status === "ready"
+                  ? "Connected. The server is ready."
+                  : status === "validating"
+                    ? waiting
+                      ? (progress?.statusMessage ?? "Waiting for the server to connect…")
+                      : progress?.statusMessage === "Queued"
+                        ? "Waiting for the worker…"
+                        : "Connecting and preparing the server…"
+                    : noDocker
+                      ? "Docker is not installed"
+                      : "Could not finish the setup"}
             </p>
+            {warning && (
+              <p className="text-[12.5px] leading-relaxed break-words text-fg-2">
+                {warning}{" "}
+                <Link href={`/servers/${serverId}/proxy`} className="font-medium text-fg underline underline-offset-2">
+                  Change the proxy ports
+                </Link>
+              </p>
+            )}
             {status !== "validating" && status !== "ready" && progress?.statusMessage && (
               <p className="text-[12.5px] leading-relaxed break-words text-fg-2">
                 {noDocker ? "Docker can be installed with the official script from get.docker.com. It takes a few minutes." : progress.statusMessage}

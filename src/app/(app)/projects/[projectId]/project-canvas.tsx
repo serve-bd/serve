@@ -23,7 +23,7 @@ import {
   useReactFlow,
   ViewportPortal,
 } from "@xyflow/react";
-import { AlertTriangle, ArrowUpRight, LayoutGrid, Maximize, Minus, Plus, Server as ServerIcon } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, LayoutGrid, Maximize2, Minimize2, Minus, Plus, Scan, Server as ServerIcon } from "lucide-react";
 import { useRouter } from "@/hooks/use-router";
 import { ServiceIcon } from "@/components/service-icon";
 import { StatusLabel } from "@/components/ui/status";
@@ -33,6 +33,7 @@ import { useAction } from "@/hooks/use-action";
 import { resetCanvasLayout, saveCanvasPositions } from "@/server/actions/projects";
 import type { ServiceCardData } from "@/server/project-data";
 import { cn } from "@/lib/utils";
+import { useCanvasFullscreen } from "@/hooks/use-canvas-fullscreen";
 import { autoLayout, CARD_H, CARD_W, FRAME_PAD, FRAME_TOP, type Pos } from "@/lib/canvas-layout";
 
 type ServiceNode = Node<{ s: ServiceCardData; projectId: string }, "service">;
@@ -134,7 +135,7 @@ function UseEdgeView({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
           className={cn(
             "nodrag nopan pointer-events-auto absolute flex max-w-[180px] items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] leading-4 shadow-sm",
             data?.kind === "broken"
-              ? "border-bad/40 bg-bad-soft text-bad"
+              ? "border-bad/40 bg-[color-mix(in_oklab,var(--bad)_14%,var(--surface))] text-bad"
               : data?.kind === "private"
                 ? "border-accent/40 bg-surface text-accent-strong"
                 : "border-line bg-surface text-muted",
@@ -185,6 +186,7 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
   const router = useRouter();
   const confirm = useConfirm();
   const flow = useReactFlow();
+  const fs = useCanvasFullscreen(flow);
   const auto = React.useMemo(() => autoLayout(services), [services]);
   // Where each service sits: dragged here, saved before, or placed automatically.
   const place = React.useCallback((s: ServiceCardData, current?: Pos): Pos => current ?? saved[s.id] ?? auto[s.id], [saved, auto]);
@@ -216,7 +218,7 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
   });
 
   return (
-    <div className="serve-canvas relative size-full">
+    <div ref={fs.ref} className={cn("serve-canvas", fs.className)}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -251,7 +253,10 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
           <Plus />
         </ToolButton>
         <ToolButton label="Fit to screen" onClick={() => void flow.fitView({ padding: 0.2, duration: 300, maxZoom: 1 })}>
-          <Maximize />
+          <Scan />
+        </ToolButton>
+        <ToolButton label={fs.full ? "Exit full screen" : "Full screen"} onClick={fs.toggle}>
+          {fs.full ? <Minimize2 /> : <Maximize2 />}
         </ToolButton>
         {canManage && (
           <ToolButton

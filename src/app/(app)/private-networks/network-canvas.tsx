@@ -23,7 +23,7 @@ import {
   useConnection,
   useReactFlow,
 } from "@xyflow/react";
-import { LayoutGrid, Maximize, Minus, Network, Plus, Server as ServerIcon, X } from "lucide-react";
+import { LayoutGrid, Maximize2, Minimize2, Minus, Network, Plus, Scan, Server as ServerIcon, X } from "lucide-react";
 import { useRouter } from "@/hooks/use-router";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
@@ -34,6 +34,7 @@ import { resetNetworkCanvas, saveNetworkCanvas, setNetworkMember } from "@/serve
 import type { MeshNetworkView } from "@/server/mesh";
 import { type NetworkLayoutInput, networkLayout, NET_H, NET_W, SERVER_H, SERVER_W } from "@/lib/canvas-layout";
 import { cn } from "@/lib/utils";
+import { useCanvasFullscreen } from "@/hooks/use-canvas-fullscreen";
 
 type Pos = { x: number; y: number };
 export type CanvasServer = {
@@ -163,6 +164,7 @@ function Canvas({ networks, servers, saved }: Props) {
   const confirm = useConfirm();
   const meshConfirm = useMeshConfirm();
   const flow = useReactFlow();
+  const fs = useCanvasFullscreen(flow);
   const colorOf = React.useMemo(() => new Map(networks.map((n, i) => [n.id, COLORS[i % COLORS.length]])), [networks]);
   const input: NetworkLayoutInput = React.useMemo(
     () => ({ networks: networks.map((n) => ({ id: n.id, servers: n.servers.map((s) => s.id) })), servers: servers.map((s) => s.id) }),
@@ -263,7 +265,7 @@ function Canvas({ networks, servers, saved }: Props) {
   );
 
   return (
-    <div className="serve-canvas relative size-full">
+    <div ref={fs.ref} className={cn("serve-canvas", fs.className)}>
       <ReactFlow
         nodes={shown}
         edges={edges}
@@ -338,7 +340,10 @@ function Canvas({ networks, servers, saved }: Props) {
           <Plus />
         </ToolButton>
         <ToolButton label="Fit to screen" onClick={() => void flow.fitView({ padding: 0.2, duration: 300, maxZoom: 1 })}>
-          <Maximize />
+          <Scan />
+        </ToolButton>
+        <ToolButton label={fs.full ? "Exit full screen" : "Full screen"} onClick={fs.toggle}>
+          {fs.full ? <Minimize2 /> : <Maximize2 />}
         </ToolButton>
         <ToolButton
           label="Arrange automatically"

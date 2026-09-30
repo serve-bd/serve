@@ -1,9 +1,24 @@
 import { utils } from "ssh2";
 import { fingerprint } from "./ssh";
 
+/**
+ * New ed25519 key pair from ssh2. About 1 in 200 of its keys is malformed (a key that starts with
+ * a zero byte is written one byte short), and neither half then loads anywhere: make another.
+ */
+export function ed25519Pair(comment?: string) {
+  for (let i = 0; i < 20; i++) {
+    const pair = utils.generateKeyPairSync("ed25519", comment ? { comment } : undefined);
+    const pub = utils.parseKey(pair.public);
+    const priv = utils.parseKey(pair.private);
+    if (pub instanceof Error || priv instanceof Error || Array.isArray(pub) || Array.isArray(priv)) continue;
+    if (priv.getPublicSSH().equals(pub.getPublicSSH())) return pair;
+  }
+  throw new Error("Could not make an SSH key. Try again.");
+}
+
 /** New ed25519 key pair in OpenSSH format. */
 export function generateKeyPair(comment: string) {
-  const pair = utils.generateKeyPairSync("ed25519", { comment });
+  const pair = ed25519Pair(comment);
   const publicKey = pair.public.trim();
   return { privateKey: pair.private, publicKey, fingerprint: fingerprint(publicKey) };
 }

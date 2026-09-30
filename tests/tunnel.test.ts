@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { utils } from "ssh2";
+import { ed25519Pair } from "@/server/servers/keys";
 import { describe, expect, it } from "vitest";
 import { allocateRelayPort, hashToken, installScript, knownHostsLine, newJoinToken, normalizePublicKey, RELAY_PORTS, sh, tokenMatches } from "@/server/tunnel";
 
@@ -32,7 +33,7 @@ describe("server tunnels", () => {
   });
 
   it("accepts only public keys", () => {
-    const pair = utils.generateKeyPairSync("ed25519", { comment: "me@pc" });
+    const pair = ed25519Pair("me@pc");
     const normalized = normalizePublicKey(pair.public);
     expect(normalized).toMatch(/^ssh-ed25519 [A-Za-z0-9+/=]+$/);
     // The comment is dropped, so the same key always compares equal.
@@ -40,6 +41,14 @@ describe("server tunnels", () => {
     expect(normalizePublicKey(pair.private)).toBeNull();
     expect(normalizePublicKey("not a key")).toBeNull();
     expect(normalizePublicKey("")).toBeNull();
+  });
+
+  it("makes only keys that load, though ssh2 writes some one byte short", () => {
+    for (let i = 0; i < 1500; i++) {
+      const pair = ed25519Pair();
+      expect(utils.parseKey(pair.public)).not.toBeInstanceOf(Error);
+      expect(utils.parseKey(pair.private)).not.toBeInstanceOf(Error);
+    }
   });
 
   it("quotes values for the shell", () => {

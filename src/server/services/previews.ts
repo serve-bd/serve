@@ -35,7 +35,6 @@ async function orgId(projectId: string) {
   return p.organizationId;
 }
 
-/** Create or update the preview service for a pull request and deploy it. */
 /** The port the app's own domain routes to, so a preview answers on the same one. */
 async function appDomainPort(serviceId: string) {
   const own = await db.select({ port: schema.domain.port, redirectTo: schema.domain.redirectTo }).from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
@@ -107,6 +106,7 @@ async function addPreviewDomain(parent: Service, previewId: string, prNumber: nu
   return true;
 }
 
+/** Create or update the preview service for a pull request and deploy it. */
 export async function deployPreview(parent: Service, pr: PullRequest) {
   if (parent.type !== "app" || parent.source?.type !== "git") return null;
   let preview = await previewFor(parent.id, pr.number);

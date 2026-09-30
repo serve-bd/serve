@@ -4,7 +4,7 @@ import { docker } from "@/server/docker/client";
 import { proxyStateOf, proxyStatus } from "@/server/proxy/nginx";
 import { commandExists, run } from "@/server/process";
 import { serverSnapshot } from "@/server/metrics";
-import { getServer, LOCAL_SERVER_ID, type ServerCtx } from "@/server/servers/context";
+import { getServer, getServerRow, LOCAL_SERVER_ID, type ServerCtx } from "@/server/servers/context";
 
 export async function detectPublicIp(): Promise<string | null> {
   for (const url of ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]) {
@@ -153,7 +153,10 @@ export async function serverHealth(a: ServerCtx | HealthSettings | null | undefi
   const settings = (b ?? a) as HealthSettings;
   const ctx = b ? ((a as ServerCtx | null) ?? (await getServer(LOCAL_SERVER_ID))) : await getServer(LOCAL_SERVER_ID);
   const worker = !!settings.workerHeartbeat && Date.now() - new Date(settings.workerHeartbeat).getTime() < 60_000;
-  const reachable = ctx.local || ctx.row.status !== "unreachable";
+  // The connection keeps the row it was made with; the status changes after it (a server that was
+  // down and is back), so read it fresh.
+  const row = ctx.local ? ctx.row : ((await getServerRow(ctx.id).catch(() => null)) ?? ctx.row);
+  const reachable = ctx.local || row.status !== "unreachable";
   const withTimeout = <T>(p: Promise<T>, fallback: T) => Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), 8000))]);
   const [dockerOk, proxy, snap] = reachable
     ? await Promise.all([
@@ -173,7 +176,7 @@ export async function serverHealth(a: ServerCtx | HealthSettings | null | undefi
     : [false, false, null];
   const diskPercent = snap?.disk.total ? (snap.disk.used / snap.disk.total) * 100 : 0;
   const issues: string[] = [];
-  if (!reachable) issues.push(ctx.row.statusMessage ? `Unreachable: ${ctx.row.statusMessage}` : "The server is unreachable");
+  if (!reachable) issues.push(row.statusMessage ? `Unreachable: ${row.statusMessage}` : "The server is unreachable");
   else if (!dockerOk) issues.push("Docker is not reachable");
   if (reachable && !proxy) {
     const state = await proxyStateOf(ctx.id).catch(() => null);

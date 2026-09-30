@@ -2,7 +2,7 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { act, UserError } from "@/server/action";
-import { ForbiddenError, type OrgContext, requireInstanceAdmin } from "@/server/auth";
+import { ForbiddenError, isRootOwner, type OrgContext, requireInstanceAdmin } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
@@ -18,7 +18,8 @@ async function guard(organizationId: string) {
   const ctx = await requireInstanceAdmin();
   const [org] = await db.select({ id: schema.organization.id, name: schema.organization.name }).from(schema.organization).where(eq(schema.organization.id, organizationId));
   if (!org) throw new UserError("Organization not found.");
-  if (org.id === (await getSetting("rootOrganizationId")) && ctx.role !== "owner") {
+  // The Root role itself: `ctx.role` is the role in the active organization, which they may own.
+  if (org.id === (await getSetting("rootOrganizationId")) && !(await isRootOwner(ctx.user.id))) {
     throw new ForbiddenError("Only owners of the Root organization change its members here. Use Organization → Members instead.");
   }
   return { ctx, org };
@@ -30,8 +31,18 @@ async function roleIn(organizationId: string, roleId: string) {
   return role;
 }
 
-async function ownerCount(organizationId: string) {
-  const [row] = await db
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Runs `fn` with the organization's owners locked, so two changes at once cannot remove the last owner. */
+function withOwnersLocked<T>(organizationId: string, fn: (tx: Tx) => Promise<T>) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`serve-owners:${organizationId}`}))`);
+    return fn(tx);
+  });
+}
+
+async function ownerCount(organizationId: string, tx: Tx | typeof db = db) {
+  const [row] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(schema.member)
     .where(and(eq(schema.member.organizationId, organizationId), eq(schema.member.role, "owner")));
@@ -81,11 +92,13 @@ export async function setOrganizationMemberRole(organizationId: string, memberId
     const m = await memberOf(org.id, memberId);
     const role = await roleIn(org.id, roleId);
     const base = memberRoleFor(role.id);
-    if (m.role === "owner" && base !== "owner" && (await ownerCount(org.id)) <= 1) throw new UserError("An organization needs at least one owner.");
-    await db
-      .update(schema.member)
-      .set({ role: base, roleId: base === "member" ? role.id : null, ...(base === "member" ? {} : { projectIds: null }) })
-      .where(eq(schema.member.id, m.id));
+    await withOwnersLocked(org.id, async (tx) => {
+      if (m.role === "owner" && base !== "owner" && (await ownerCount(org.id, tx)) <= 1) throw new UserError("An organization needs at least one owner.");
+      await tx
+        .update(schema.member)
+        .set({ role: base, roleId: base === "member" ? role.id : null, ...(base === "member" ? {} : { projectIds: null }) })
+        .where(eq(schema.member.id, m.id));
+    });
     await log(ctx, org.id, "member.role", `Changed the role of ${m.email} in ${org.name} to ${role.name}`);
     return null;
   });
@@ -96,8 +109,10 @@ export async function removeOrganizationMember(organizationId: string, memberId:
   return act(async () => {
     const { ctx, org } = await guard(organizationId);
     const m = await memberOf(org.id, memberId);
-    if (m.role === "owner" && (await ownerCount(org.id)) <= 1) throw new UserError("An organization needs at least one owner. Make someone else owner first.");
-    await db.delete(schema.member).where(eq(schema.member.id, m.id));
+    await withOwnersLocked(org.id, async (tx) => {
+      if (m.role === "owner" && (await ownerCount(org.id, tx)) <= 1) throw new UserError("An organization needs at least one owner. Make someone else owner first.");
+      await tx.delete(schema.member).where(eq(schema.member.id, m.id));
+    });
     await log(ctx, org.id, "member.removed", `Removed ${m.email} from ${org.name}`);
     return null;
   });

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { and, asc, eq, gt, sql } from "drizzle-orm";
-import { instanceAdminPage } from "@/server/auth";
+import { instanceAdminPage, isRootOwner } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { effectiveLimits, orgUsage } from "@/server/limits";
 import { organizationRoles } from "@/server/permissions";
@@ -58,7 +58,7 @@ export default async function OrganizationDetailsPage({ params }: PageProps<"/se
       org={{ id: org.id, name: org.name, members: members.length, root, custom: !!limitRow[0]?.custom, limits, usage }}
       createdAt={org.createdAt.toISOString()}
       // The Root organization's members change here only for its owners; admins use Organization → Members.
-      canEdit={!root || ctx.role === "owner"}
+      canEdit={!root || (await isRootOwner(ctx.user.id))}
       me={ctx.user.id}
       roles={roles.map((r) => ({ id: r.id, name: r.name, description: r.description }))}
       members={members.map((m) => ({ ...m, roleId: effectiveRoleId(m.role, m.roleId), createdAt: m.createdAt.toISOString() }))}

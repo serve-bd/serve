@@ -40,14 +40,24 @@ async function firstOrganizationFor(userId: string) {
   return row?.organizationId ?? null;
 }
 
-export async function isInstanceAdmin(userId: string) {
+async function rootRole(userId: string) {
   const rootId = await getSetting("rootOrganizationId");
-  if (!rootId) return false;
+  if (!rootId) return null;
   const [m] = await db
     .select({ role: schema.member.role })
     .from(schema.member)
     .where(and(eq(schema.member.organizationId, rootId), eq(schema.member.userId, userId)));
-  return m?.role === "owner" || m?.role === "admin";
+  return m?.role ?? null;
+}
+
+export async function isInstanceAdmin(userId: string) {
+  const role = await rootRole(userId);
+  return role === "owner" || role === "admin";
+}
+
+/** Owner of the Root organization, whichever organization is active. */
+export async function isRootOwner(userId: string) {
+  return (await rootRole(userId)) === "owner";
 }
 
 /** Password sign-in may be switched off in Settings → Sign-in; SERVE_ALLOW_PASSWORD_LOGIN=1 forces it back on. */

@@ -3,7 +3,7 @@
 import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
 import { act, UserError } from "@/server/action";
-import { isInstanceAdmin, requireInstanceAdmin } from "@/server/auth";
+import { isInstanceAdmin, isRootOwner, requireInstanceAdmin } from "@/server/auth";
 import { encrypt } from "@/server/crypto";
 import { db, schema } from "@/server/db";
 import { logActivity } from "@/server/activity";
@@ -75,7 +75,7 @@ export async function createPasswordResetLink(userId: string) {
     const [user] = await db.select({ id: schema.user.id, email: schema.user.email }).from(schema.user).where(eq(schema.user.id, userId));
     if (!user) throw new UserError("User not found.");
     // A reset link signs in as that person: only a Root owner may create one for another Root admin or owner.
-    if (user.id !== ctx.user.id && ctx.role !== "owner" && (await isInstanceAdmin(user.id))) {
+    if (user.id !== ctx.user.id && (await isInstanceAdmin(user.id)) && !(await isRootOwner(ctx.user.id))) {
       throw new UserError("Only owners of the Root organization can create a reset link for a Root admin.");
     }
     // Same record better-auth's own reset flow creates, so /reset-password accepts it.

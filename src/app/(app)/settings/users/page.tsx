@@ -1,5 +1,5 @@
 import { asc, sql } from "drizzle-orm";
-import { instanceAdminPage } from "@/server/auth";
+import { instanceAdminPage, isRootOwner } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { organizationRoles } from "@/server/permissions";
 import { getSetting } from "@/server/settings";
@@ -10,6 +10,7 @@ export const metadata = { title: "Users" };
 
 export default async function UsersPage() {
   const ctx = await instanceAdminPage();
+  const rootOwner = await isRootOwner(ctx.user.id);
   const [users, memberships, orgs, rootId] = await Promise.all([
     db
       .select({
@@ -36,7 +37,7 @@ export default async function UsersPage() {
     <UsersView
       me={ctx.user.id}
       // Root members change only through its owners (or Organization → Members).
-      orgs={orgs.filter((o) => o.id !== rootId || ctx.role === "owner").map((o) => ({ ...o, root: o.id === rootId }))}
+      orgs={orgs.filter((o) => o.id !== rootId || rootOwner).map((o) => ({ ...o, root: o.id === rootId }))}
       roles={roles}
       users={users.map((u) => ({
         ...u,

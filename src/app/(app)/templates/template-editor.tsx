@@ -16,9 +16,9 @@ import { fetchComposeFromUrl, saveCustomTemplate } from "@/server/actions/templa
 import { composeVariables, guessVarKind } from "@/lib/compose-vars";
 import { cn } from "@/lib/utils";
 
-type VarKind = "value" | "password" | "secret" | "hex32" | "base64key" | "publicUrl" | "publicHost";
+type VarKind = "value" | "password" | "secret" | "hex32" | "hex16" | "base64key" | "publicUrl" | "publicHost";
 type VarRow = { key: string; kind: VarKind; value: string; label: string };
-type Generate = "password" | "secret" | "hex32" | "base64key";
+type Generate = "password" | "secret" | "hex32" | "hex16" | "base64key";
 export type TemplateVarDef = { key: string; generate?: Generate; value?: string; publicUrl?: boolean; publicHost?: boolean; label?: string };
 
 export type EditorInitial = {
@@ -38,6 +38,7 @@ const kindOptions: { value: VarKind; label: string; description: string }[] = [
   { value: "password", label: "Password", description: "24 random characters" },
   { value: "secret", label: "Secret", description: "Random 32-byte token" },
   { value: "hex32", label: "Hex key", description: "64 hex-safe characters" },
+  { value: "hex16", label: "32-character key", description: "32 hex characters (16 bytes)" },
   { value: "base64key", label: "App key (base64:)", description: "Laravel-style APP_KEY" },
   { value: "publicUrl", label: "Public URL", description: "https://domain, follows the domain" },
   { value: "publicHost", label: "Public hostname", description: "domain only, follows the domain" },

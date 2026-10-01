@@ -36,11 +36,13 @@ release's image is the fallback when GitHub cannot be reached.
 
    - `expose`: the compose service and port that get the generated domain.
    - `vars`: every `${VAR}` in `compose.yml` without a default. A var has one of
-     `generate` (`password`, `secret`, `hex32`, `base64key`), `publicUrl` (https://domain),
+     `generate` (`password`, `secret`, `hex32` = 64 hex characters, `hex16` = exactly 32 hex characters,
+     `base64key`), `publicUrl` (https://domain),
      `publicHost` (domain only) or `value`. `label` shows it on the configure step.
    - Optional: `popular` (shown first), `note` (shown before creating: first login, extra ports),
      `hostAccess` (mounts the Docker socket or host paths: only Root admins may create it),
      `minVersion` (the oldest Serve version that can run it).
+   - `hex16` needs Serve 0.1.9 or newer; older versions leave such a template out on their own.
 
 3. `compose.yml`: pin a major version where the project publishes one, add `restart: unless-stopped`,
    health checks on databases and `depends_on: { condition: service_healthy }` on what needs them.

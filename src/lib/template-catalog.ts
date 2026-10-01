@@ -12,7 +12,8 @@ export const CATALOG_SCHEMA = 1;
 const varSchema = z
   .object({
     key: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
-    generate: z.enum(["password", "secret", "hex32", "base64key"]).optional(),
+    // hex16: Serve 0.1.9+. Older versions do not know it and leave such templates out.
+    generate: z.enum(["password", "secret", "hex32", "hex16", "base64key"]).optional(),
     value: z.string().max(2000).optional(),
     /** Filled with the service's public URL (https://domain); follows the primary domain. */
     publicUrl: z.boolean().optional(),

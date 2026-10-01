@@ -19,7 +19,7 @@ const varSchema = z.object({
     .string()
     .trim()
     .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Variable names use letters, numbers and underscores"),
-  generate: z.enum(["password", "secret", "hex32", "base64key"]).optional(),
+  generate: z.enum(["password", "secret", "hex32", "hex16", "base64key"]).optional(),
   value: z.string().max(4000).optional(),
   publicUrl: z.boolean().optional(),
   publicHost: z.boolean().optional(),

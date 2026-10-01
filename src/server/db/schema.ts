@@ -529,7 +529,7 @@ export const sharedVar = pgTable(
 /** Compose templates an organization saved for its own one-click catalog. */
 export type CustomTemplateVar = {
   key: string;
-  generate?: "password" | "secret" | "hex32" | "base64key";
+  generate?: "password" | "secret" | "hex32" | "hex16" | "base64key";
   value?: string;
   publicUrl?: boolean;
   publicHost?: boolean;

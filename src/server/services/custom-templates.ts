@@ -54,6 +54,9 @@ export function templateVarValue(v: TemplateVar, hasDomain: boolean): string {
     case "hex32":
       // 32 random bytes as 64 hex characters (Rails SECRET_KEY_BASE and similar validate hex).
       return crypto.randomBytes(32).toString("hex");
+    case "hex16":
+      // 16 random bytes as exactly 32 hex characters, for apps that want a 32-character key.
+      return crypto.randomBytes(16).toString("hex");
     case "base64key":
       return `base64:${crypto.randomBytes(32).toString("base64")}`;
     default:

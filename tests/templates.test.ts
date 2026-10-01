@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import YAML from "yaml";
 import fs from "node:fs";
 import { composeVariables } from "@/lib/compose-vars";
@@ -8,6 +8,9 @@ import { composeSecurityIssues } from "@/server/security";
 import { buildCatalog, INDEX_FILE, serializeCatalog } from "../scripts/templates";
 
 // The same list as the organization template editor offers (services/templates.ts is server-only).
+vi.mock("server-only", () => ({}));
+vi.mock("@/server/db", () => ({ db: {}, schema: {} }));
+
 const templateCategories = ["Automation", "Analytics", "CMS", "Productivity", "Developer tools", "Monitoring", "Storage", "AI", "Communication", "Security", "Media", "Databases"];
 
 const { catalog, problems } = buildCatalog();
@@ -136,5 +139,18 @@ describe("guessVarKind", () => {
     expect(guessVarKind("INBOUND_WEBHOOK_SECRET")).toBe("secret");
     expect(guessVarKind("APP_URL")).toBe("publicUrl");
     expect(guessVarKind("SOME_TOKEN")).toBe("value");
+  });
+});
+
+describe("templateVarValue", () => {
+  it("makes keys of the promised length", async () => {
+    const { templateVarValue } = await import("@/server/services/custom-templates");
+    expect(templateVarValue({ key: "K", generate: "hex16" }, false)).toMatch(/^[0-9a-f]{32}$/);
+    expect(templateVarValue({ key: "K", generate: "hex32" }, false)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("accepts hex16 in the catalog", () => {
+    const t = { ...templates[0], vars: [{ key: "A", generate: "hex16" }] };
+    expect(parseCatalog(JSON.stringify({ schema: CATALOG_SCHEMA, templates: [t] }), "0.1.9")?.templates).toHaveLength(1);
   });
 });

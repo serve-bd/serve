@@ -4,7 +4,7 @@ import { z } from "zod";
  * Trusted proxies of a server: a CDN or load balancer in front of it whose visitor IP header
  * the proxy believes. Off (null on the server row) trusts only Cloudflare Tunnel traffic.
  */
-export const CLIENT_IP_HEADERS = ["x-forwarded-for", "x-real-ip", "cf-connecting-ip", "true-client-ip"] as const;
+export const CLIENT_IP_HEADERS = ["x-forwarded-for", "x-real-ip", "cf-connecting-ip", "true-client-ip", "proxy-protocol"] as const;
 export type ClientIpHeader = (typeof CLIENT_IP_HEADERS)[number];
 
 export const clientIpHeaderNames: Record<ClientIpHeader, string> = {
@@ -12,7 +12,15 @@ export const clientIpHeaderNames: Record<ClientIpHeader, string> = {
   "x-real-ip": "X-Real-IP",
   "cf-connecting-ip": "CF-Connecting-IP",
   "true-client-ip": "True-Client-IP",
+  "proxy-protocol": "PROXY protocol",
 };
+
+/**
+ * PROXY protocol: the proxy in front opens each connection with the visitor's address (v1 or v2)
+ * instead of setting a header. It works for TLS it passes through unchanged, where no header can
+ * be added. Only connections from the trusted ranges may send it.
+ */
+export const usesProxyProtocol = (v: Pick<VisitorIp, "header">) => v.header === "proxy-protocol";
 
 export type TrustedProxies = {
   /** Normalized CIDR ranges (single addresses as /32 or /128). */
@@ -20,6 +28,8 @@ export type TrustedProxies = {
   header: ClientIpHeader;
   /** Also trust Cloudflare's published ranges (its proxy, not the tunnel). */
   cloudflare: boolean;
+  /** Also trust a proxy on the machine itself, like a system nginx that owns ports 80 and 443. */
+  machine?: boolean;
 };
 
 /**
@@ -30,6 +40,12 @@ export type TrustedProxies = {
 export type VisitorIp = { tunnel: string[]; ranges: string[]; header: ClientIpHeader | null };
 
 export const allTrusted = (v: VisitorIp) => [...new Set([...v.tunnel, ...v.ranges])];
+
+/**
+ * Sources whose X-Forwarded-For is believed. With PROXY protocol the trusted ranges vouch for the
+ * connection, not for headers: a visitor's own X-Forwarded-For passes through them unchanged.
+ */
+export const headerTrusted = (v: VisitorIp) => (usesProxyProtocol(v) ? v.tunnel : allTrusted(v));
 
 export const MAX_TRUSTED_RANGES = 100;
 /** Shorter prefixes cover so much of the internet that anyone could claim any visitor IP. */
@@ -151,6 +167,7 @@ export const trustedProxiesSchema = z
     ranges: z.array(z.string().max(100)).max(MAX_TRUSTED_RANGES * 2),
     header: z.enum(CLIENT_IP_HEADERS),
     cloudflare: z.boolean(),
+    machine: z.boolean().optional(),
   })
   .transform((v, ctx): TrustedProxies => {
     const r = normalizeTrustedRanges(v.ranges);
@@ -158,11 +175,15 @@ export const trustedProxiesSchema = z
       ctx.addIssue({ code: "custom", message: r.error, path: ["ranges"] });
       return z.NEVER;
     }
-    if (!r.ranges.length && !v.cloudflare) {
-      ctx.addIssue({ code: "custom", message: "Add the IP ranges of your proxy, or turn on Cloudflare.", path: ["ranges"] });
+    if (v.header === "proxy-protocol" && v.cloudflare) {
+      ctx.addIssue({ code: "custom", message: "Cloudflare's proxy does not send PROXY protocol. Choose a header for Cloudflare.", path: ["cloudflare"] });
       return z.NEVER;
     }
-    return { ranges: r.ranges, header: v.header, cloudflare: v.cloudflare };
+    if (!r.ranges.length && !v.cloudflare && !v.machine) {
+      ctx.addIssue({ code: "custom", message: "Add the IP ranges of your proxy, or choose Cloudflare or a proxy on this machine.", path: ["ranges"] });
+      return z.NEVER;
+    }
+    return { ranges: r.ranges, header: v.header, cloudflare: v.cloudflare, ...(v.machine ? { machine: true } : {}) };
   });
 
 /** An address from a header entry ("192.0.2.1:443", "[2001:db8::1]:443", "::ffff:192.0.2.1"), or null. */

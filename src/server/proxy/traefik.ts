@@ -17,7 +17,7 @@ export const TRAEFIK_API = "http://127.0.0.1:8080";
 
 type Obj = Record<string, unknown>;
 
-export function traefikStaticArgs(cfg: TraefikSettings, opts: { email: string | null; staging: boolean; trusted: string[]; hasDnsToken: boolean }) {
+export function traefikStaticArgs(cfg: TraefikSettings, opts: { email: string | null; staging: boolean; trusted: string[]; proxyProtocol?: string[]; hasDnsToken: boolean }) {
   const args = [
     "--global.checknewversion=false",
     "--global.sendanonymoususage=false",
@@ -36,6 +36,10 @@ export function traefikStaticArgs(cfg: TraefikSettings, opts: { email: string | 
   if (opts.trusted.length) {
     // Tunnel traffic arrives from cloudflared on this network: trust its forwarded headers, nobody else's.
     for (const ep of ["web", "websecure"]) args.push(`--entrypoints.${ep}.forwardedHeaders.trustedIPs=${opts.trusted.join(",")}`);
+  }
+  if (opts.proxyProtocol?.length) {
+    // Connections from these ranges may open with PROXY protocol; others (the tunnel) connect as they are.
+    for (const ep of ["web", "websecure"]) args.push(`--entrypoints.${ep}.proxyProtocol.trustedIPs=${opts.proxyProtocol.join(",")}`);
   }
   if (cfg.accessLog !== false) {
     args.push(

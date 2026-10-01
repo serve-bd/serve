@@ -30,7 +30,7 @@ real_ip_header CF-Connecting-IP;
   if (!trusted.length) return null;
   return `# Managed by Serve — visitor IPs from the trusted proxies of this server${safe ? " and Cloudflare Tunnel traffic" : ""}.
 ${trusted.map((s) => `set_real_ip_from ${s};`).join("\n")}
-real_ip_header ${clientIpHeaderNames[v.header]};
+real_ip_header ${v.header === "proxy-protocol" ? "proxy_protocol" : clientIpHeaderNames[v.header]};
 ${v.header === "x-forwarded-for" ? "real_ip_recursive on;\n" : ""}`;
 }
 
@@ -87,7 +87,23 @@ export type NginxMainOptions = {
   catchAll?: boolean;
   /** With the catch-all on: unknown hosts get a 302 redirect to this URL instead (checked by safeRedirectUrl). */
   unknownRedirect?: string | null;
+  /** Also listen for PROXY protocol connections (PROXY_PROTOCOL_PORTS). */
+  proxyProtocol?: boolean;
 };
+
+/**
+ * Ports inside the proxy container that expect PROXY protocol. With PROXY protocol on, the server's
+ * HTTP and HTTPS ports lead here; 80 and 443 stay plain for Cloudflare Tunnels and the proxy's own checks.
+ */
+export const PROXY_PROTOCOL_PORTS = { http: 81, https: 444 } as const;
+
+/** listen directives of a server block: plain, and with PROXY protocol on its own ports. */
+function listen(kind: "http" | "https", proxyProtocol: boolean | undefined, flags = "", indent = "    ") {
+  const ssl = kind === "https" ? " ssl" : "";
+  const lines = [`listen ${kind === "https" ? 443 : 80}${ssl}${flags};`];
+  if (proxyProtocol) lines.push(`listen ${PROXY_PROTOCOL_PORTS[kind]}${ssl} proxy_protocol${flags};`);
+  return lines.join(`\n${indent}`);
+}
 
 /** What the default server answers outside its own paths: the 404 page, or a redirect to a safe URL. */
 function unknownHosts(redirect?: string | null) {
@@ -169,7 +185,7 @@ ${
     ? "    # Unknown hosts: handled by custom files (Serve's 404 page is off).\n\n"
     : `    # Fallback for unknown hosts.
     server {
-        listen 80 default_server;
+        ${listen("http", opts.proxyProtocol, " default_server", "        ")}
         server_name _;
 
         location ^~ /.well-known/acme-challenge/ {
@@ -195,7 +211,7 @@ ${
     }
 
     server {
-        listen 443 ssl default_server;
+        ${listen("https", opts.proxyProtocol, " default_server", "        ")}
         server_name _;
         ssl_reject_handshake on;
     }
@@ -210,7 +226,7 @@ ${
     ? `
     # Health check and ACME challenges for Serve (not the default server).
     server {
-        listen 80;
+        ${listen("http", opts.proxyProtocol, "", "        ")}
         server_name localhost 127.0.0.1;
 
         location ^~ /.well-known/acme-challenge/ {
@@ -306,6 +322,8 @@ export type SiteServer = {
   maintenance?: (ProxyMaintenance & { geoVar?: string | null }) | null;
   /** Visitor IP directives of a Cloudflare Tunnel host (tunnelRealIp), in its plain-HTTP server. */
   realIp?: string | null;
+  /** Also listen for PROXY protocol connections (PROXY_PROTOCOL_PORTS). */
+  proxyProtocol?: boolean;
 };
 
 /** nginx variable name for a service's maintenance allow list. */
@@ -520,7 +538,7 @@ export function serverBlocks(s: SiteServer) {
   const acme = acmeLocation(!!rules);
   const settings = serverSettings(s.options);
   blocks.push(`server {
-    listen 80;
+    ${listen("http", s.proxyProtocol)}
     server_name ${s.hostname};
 
 ${s.realIp ? `${s.realIp}\n\n` : ""}${settings}${rules}${acme}
@@ -532,7 +550,7 @@ ${redirectHttp ? `    location / {\n        return 301 https://$host$request_uri
     // With per-location headers, HSTS is emitted inside the location; keep it here otherwise.
     const hsts = s.options && !s.redirectTo && (s.upstream ?? s.directTarget) ? "" : `    add_header Strict-Transport-Security "max-age=31536000" always;\n`;
     blocks.push(`server {
-    listen 443 ssl;
+    ${listen("https", s.proxyProtocol)}
     http2 on;
     server_name ${s.hostname};
 

@@ -1,7 +1,7 @@
 import { proxyPaths } from "@/server/paths";
 import { sizeToBytes, type CaddySettings, type ProxyDefaults } from "./config";
 import type { HostModel, SiteModel } from "./model";
-import { allTrusted, clientIpHeaderNames, type VisitorIp } from "@/lib/trusted-proxies";
+import { allTrusted, clientIpHeaderNames, usesProxyProtocol, type VisitorIp } from "@/lib/trusted-proxies";
 import { safeRedirectUrl } from "@/lib/unknown-redirect";
 
 /**
@@ -36,6 +36,10 @@ export function caddyMainConfig(cfg: CaddySettings, opts: { email: string | null
   global.push("log {", `\tlevel ${cfg.logLevel ?? "INFO"}`, "}");
   const servers: string[] = [`protocols h1 h2${cfg.http3 ? " h3" : ""}`];
   servers.push(...clientIpOptions(opts.visitor));
+  if (usesProxyProtocol(opts.visitor) && opts.visitor.ranges.length) {
+    // Connections from the trusted ranges may open with PROXY protocol, before TLS; others (the tunnel) connect as they are.
+    servers.push("listener_wrappers {", tab(["proxy_protocol {", tab([`allow ${opts.visitor.ranges.join(" ")}`]), "}", "tls"]), "}");
+  }
   const timeouts: string[] = [];
   if (cfg.readTimeout) timeouts.push(`read_body ${cfg.readTimeout}s`);
   if (cfg.writeTimeout) timeouts.push(`write ${cfg.writeTimeout}s`);
@@ -107,7 +111,7 @@ import ${proxyPaths.sites}/custom/*.caddy
 }
 
 /** Header Caddy reads for every request that is safe to trust from the tunnel too. */
-const tunnelSafe = (v: VisitorIp) => !v.header || v.header === "x-forwarded-for" || v.header === "cf-connecting-ip";
+const tunnelSafe = (v: VisitorIp) => !v.header || v.header === "x-forwarded-for" || v.header === "cf-connecting-ip" || usesProxyProtocol(v);
 
 /** The tunnel network when Caddy's trusted_proxies leave it out (X-Real-IP, True-Client-IP): tunnel hosts then read CF-Connecting-IP themselves. */
 export function tunnelTrustFor(v: VisitorIp) {
@@ -116,7 +120,8 @@ export function tunnelTrustFor(v: VisitorIp) {
 
 /** Where Caddy takes the visitor IP from (client_ip in matchers, logs and client_ip_hash). */
 function clientIpOptions(v: VisitorIp) {
-  if (!v.header) {
+  // PROXY protocol sets the connection's own address: headers are believed from the tunnel alone.
+  if (!v.header || usesProxyProtocol(v)) {
     if (!v.tunnel.length) return [];
     // Tunnel traffic arrives from cloudflared on this network: trust its visitor IP headers, nobody else's.
     return [`trusted_proxies static ${v.tunnel.join(" ")}`, "client_ip_headers CF-Connecting-IP X-Forwarded-For"];

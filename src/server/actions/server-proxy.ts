@@ -162,7 +162,7 @@ export async function startProxyNow(serverId: string) {
 }
 
 /** Turn trusted proxies on (ranges, header, Cloudflare) or off (null) and apply them to the server's proxy. */
-export async function saveTrustedProxies(serverId: string, input: { ranges: string[]; header: string; cloudflare: boolean } | null) {
+export async function saveTrustedProxies(serverId: string, input: { ranges: string[]; header: string; cloudflare: boolean; machine?: boolean } | null) {
   return act(async () => {
     const { ctx, row } = await requireServerAdmin(serverId);
     let next = null;
@@ -180,7 +180,7 @@ export async function saveTrustedProxies(serverId: string, input: { ranges: stri
       throw new UserError(`The change could not be applied: ${(error as Error).message}`);
     }
     const what = next
-      ? `${[`${next.ranges.length} range${next.ranges.length === 1 ? "" : "s"}`, ...(next.cloudflare ? ["Cloudflare"] : [])].join(" and ")}, ${clientIpHeaderNames[next.header]}`
+      ? `${[`${next.ranges.length} range${next.ranges.length === 1 ? "" : "s"}`, ...(next.cloudflare ? ["Cloudflare"] : []), ...(next.machine ? ["this machine"] : [])].join(" and ")}, ${clientIpHeaderNames[next.header]}`
       : null;
     await audit(ctx.user.id, ctx.org.id, "server.proxy.trusted", what ? `Trusted proxies on ${server.name}: ${what}` : `Turned off trusted proxies on ${server.name}`);
     return null;

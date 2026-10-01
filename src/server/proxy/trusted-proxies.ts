@@ -3,8 +3,8 @@ import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { getSetting, updateSettings } from "@/server/settings";
 import type { ServerCtx } from "@/server/servers/context";
-import { allTrusted, clientIpFrom, normalizeTrustedRanges, type VisitorIp } from "@/lib/trusted-proxies";
-import { trustedSubnets } from "./model";
+import { clientIpFrom, headerTrusted, normalizeTrustedRanges, type VisitorIp } from "@/lib/trusted-proxies";
+import { machineAddresses, trustedSubnets } from "./model";
 
 /**
  * Cloudflare's proxy ranges as published when this release was made. The worker refreshes them
@@ -46,7 +46,8 @@ export async function visitorIpOf(ctx: ServerCtx): Promise<VisitorIp> {
   const [tunnel, [row]] = await Promise.all([trustedSubnets(ctx), db.select({ trusted: schema.server.trustedProxies }).from(schema.server).where(eq(schema.server.id, ctx.id))]);
   const t = row?.trusted;
   if (!t) return { tunnel, ranges: [], header: null };
-  return { tunnel, ranges: [...new Set([...t.ranges, ...(t.cloudflare ? await cloudflareRanges() : [])])], header: t.header };
+  const extra = [...(t.cloudflare ? await cloudflareRanges() : []), ...(t.machine ? await machineAddresses(ctx) : [])];
+  return { tunnel, ranges: [...new Set([...t.ranges, ...extra])], header: t.header };
 }
 
 /** Whether any server trusts Cloudflare's proxy (only then are its ranges fetched). */
@@ -94,7 +95,7 @@ function dashboardTrust() {
       .then(async (ctx): Promise<DashboardTrust> => {
         const [visitor, [row]] = await Promise.all([visitorIpOf(ctx), db.select({ kind: schema.server.proxyKind }).from(schema.server).where(eq(schema.server.id, ctx.id))]);
         const kind = row?.kind ?? "nginx";
-        return { ranges: allTrusted(visitor), realIp: !!visitor.header && visitor.header !== "x-forwarded-for" && (kind === "nginx" || kind === "caddy") };
+        return { ranges: headerTrusted(visitor), realIp: !!visitor.header && visitor.header !== "x-forwarded-for" && (kind === "nginx" || kind === "caddy") };
       })
       .catch(() => ({ ranges: [], realIp: false }));
     localTrusted = { at: Date.now(), trust };

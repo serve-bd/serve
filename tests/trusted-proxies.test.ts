@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { clientIpFrom, inRanges, normalizeTrustedRange, normalizeTrustedRanges, trustedProxiesSchema, type VisitorIp } from "@/lib/trusted-proxies";
-import { realIpConfig, serverBlocks, tunnelRealIp } from "@/server/proxy/templates";
+import { clientIpFrom, headerTrusted, inRanges, normalizeTrustedRange, normalizeTrustedRanges, trustedProxiesSchema, type VisitorIp } from "@/lib/trusted-proxies";
+import { mainConfig, realIpConfig, serverBlocks, tunnelRealIp } from "@/server/proxy/templates";
 import { caddyMainConfig, renderCaddySite, tunnelTrustFor } from "@/server/proxy/caddy";
 import { renderTraefikSite, traefikStaticArgs } from "@/server/proxy/traefik";
 import type { SiteModel } from "@/server/proxy/model";
@@ -156,5 +156,56 @@ describe("Caddy and Traefik visitor IP config", () => {
     expect(args).toContain(`--entrypoints.websecure.forwardedHeaders.trustedIPs=${TUNNEL},203.0.113.0/24`);
     const yml = renderTraefikSite(site, { resolver: false, trusted: [TUNNEL, "203.0.113.0/24"] });
     expect(yml).toMatch(/excludedIPs:\n\s+- 172\.30\.0\.0\/24\n\s+- 203\.0\.113\.0\/24/);
+  });
+});
+
+describe("PROXY protocol", () => {
+  const pp = on("proxy-protocol", ["172.18.0.1/32"]);
+
+  it("validates the setting", () => {
+    expect(trustedProxiesSchema.safeParse({ ranges: [], header: "proxy-protocol", cloudflare: false, machine: true }).data).toEqual({
+      ranges: [],
+      header: "proxy-protocol",
+      cloudflare: false,
+      machine: true,
+    });
+    // Cloudflare's proxy sends headers, not PROXY protocol.
+    expect(trustedProxiesSchema.safeParse({ ranges: [], header: "proxy-protocol", cloudflare: true }).success).toBe(false);
+    expect(trustedProxiesSchema.safeParse({ ranges: [], header: "x-forwarded-for", cloudflare: false }).success).toBe(false);
+  });
+
+  it("believes X-Forwarded-For from the tunnel alone", () => {
+    expect(headerTrusted(pp)).toEqual([TUNNEL]);
+    expect(headerTrusted(on("x-forwarded-for"))).toEqual([TUNNEL, "203.0.113.0/24"]);
+  });
+
+  it("reads the visitor from PROXY protocol in nginx, on separate ports", () => {
+    const conf = realIpConfig(pp)!;
+    expect(conf).toContain("set_real_ip_from 172.18.0.1/32;\nreal_ip_header proxy_protocol;");
+    expect(conf).not.toContain(TUNNEL);
+    const site = serverBlocks({ hostname: "a.example.com", upstream: "u", forceHttps: false, tls: { cert: "c", key: "k" }, proxyProtocol: true });
+    expect(site).toContain("    listen 80;\n    listen 81 proxy_protocol;\n    server_name a.example.com;");
+    expect(site).toContain("    listen 443 ssl;\n    listen 444 ssl proxy_protocol;\n    http2 on;");
+    expect(serverBlocks({ hostname: "a.example.com", upstream: "u", forceHttps: false })).not.toContain("proxy_protocol");
+    const main = mainConfig({ maxBodySize: "100m", proxyProtocol: true });
+    expect(main).toContain("listen 80 default_server;\n        listen 81 proxy_protocol default_server;");
+    expect(main).toContain("listen 443 ssl default_server;\n        listen 444 ssl proxy_protocol default_server;");
+    expect(mainConfig({ maxBodySize: "100m" })).not.toContain("proxy_protocol");
+  });
+
+  it("wraps Caddy's listeners and keeps headers for the tunnel", () => {
+    const conf = caddyMainConfig({}, { email: null, staging: false, visitor: pp });
+    expect(conf).toContain("listener_wrappers {\n\t\t\tproxy_protocol {\n\t\t\t\tallow 172.18.0.1/32\n\t\t\t}\n\t\t\ttls\n\t\t}");
+    expect(conf).toContain(`trusted_proxies static ${TUNNEL}\n\t\tclient_ip_headers CF-Connecting-IP X-Forwarded-For\n`);
+    expect(tunnelTrustFor(pp)).toEqual([]);
+    expect(caddyMainConfig({}, { email: null, staging: false, visitor: on("x-forwarded-for") })).not.toContain("listener_wrappers");
+  });
+
+  it("turns on PROXY protocol for Traefik's entry points", () => {
+    const args = traefikStaticArgs({}, { email: null, staging: false, trusted: [TUNNEL], proxyProtocol: ["172.18.0.1/32"], hasDnsToken: false });
+    expect(args).toContain("--entrypoints.web.proxyProtocol.trustedIPs=172.18.0.1/32");
+    expect(args).toContain("--entrypoints.websecure.proxyProtocol.trustedIPs=172.18.0.1/32");
+    expect(args).toContain(`--entrypoints.web.forwardedHeaders.trustedIPs=${TUNNEL}`);
+    expect(traefikStaticArgs({}, { email: null, staging: false, trusted: [], hasDnsToken: false }).join(" ")).not.toContain("proxyProtocol");
   });
 });

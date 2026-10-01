@@ -16,6 +16,7 @@ import {
   errorPages,
   pagesServerConfig,
   PROXY_IMAGE,
+  PROXY_PROTOCOL_PORTS,
   proxyParams,
   proxyParamsPlain,
   realIpConfig,
@@ -34,7 +35,7 @@ import crypto from "node:crypto";
 import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type ProxyFile, type ProxyKind, type RunningKind, type ServerProxyConfig } from "./config";
 import { appTargets, certificateStamp, dashboardModel, serviceModel, type SiteModel } from "./model";
 import { forgetDashboardTrusted, visitorIpOf } from "./trusted-proxies";
-import { allTrusted, type TrustedProxies } from "@/lib/trusted-proxies";
+import { headerTrusted, usesProxyProtocol, type TrustedProxies } from "@/lib/trusted-proxies";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { caddyMainConfig, renderCaddySite, tunnelTrustFor } from "./caddy";
@@ -171,7 +172,7 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
     }
     const n = config.nginx ?? {};
     const { catchAll, unknownRedirect } = defaultsOf(n.defaults);
-    const main = mainConfig({ ...n, maxBodySize: n.maxBodySize || DEFAULT_MAX_BODY_SIZE, catchAll, unknownRedirect });
+    const main = mainConfig({ ...n, maxBodySize: n.maxBodySize || DEFAULT_MAX_BODY_SIZE, catchAll, unknownRedirect, proxyProtocol: usesProxyProtocol(visitor) });
     const mainChanged = await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "nginx.conf"), main);
     const paramsChanged = await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "proxy_params.conf"), proxyParams);
     if (mainChanged || paramsChanged) {
@@ -292,6 +293,14 @@ async function baseContainerSpec(ctx: ServerCtx, kind: RunningKind, config: Serv
     `${p.proxyLogs}:${proxyPaths.logs}`,
   ];
   if (kind === "nginx") {
+    // nginx refuses plain connections on a PROXY protocol port: the machine's ports lead to its own
+    // PROXY protocol ports, and 80/443 stay plain for Cloudflare Tunnels inside Docker's network.
+    if (usesProxyProtocol(await visitorIpOf(ctx))) {
+      if (ports["80/tcp"]) ports[`${PROXY_PROTOCOL_PORTS.http}/tcp`] = ports["80/tcp"];
+      if (ports["443/tcp"]) ports[`${PROXY_PROTOCOL_PORTS.https}/tcp`] = ports["443/tcp"];
+      delete ports["80/tcp"];
+      delete ports["443/tcp"];
+    }
     return {
       Image: PROXY_IMAGE,
       Cmd: undefined as string[] | undefined,
@@ -322,9 +331,16 @@ async function baseContainerSpec(ctx: ServerCtx, kind: RunningKind, config: Serv
     };
   }
   const token = await traefikDnsToken(ctx.id, config);
+  const visitor = await visitorIpOf(ctx);
   return {
     Image: proxyImages.traefik,
-    Cmd: traefikStaticArgs(config.traefik ?? {}, { email: settings.acmeEmail, staging: settings.acmeStaging, trusted: allTrusted(await visitorIpOf(ctx)), hasDnsToken: !!token }),
+    Cmd: traefikStaticArgs(config.traefik ?? {}, {
+      email: settings.acmeEmail,
+      staging: settings.acmeStaging,
+      trusted: headerTrusted(visitor),
+      proxyProtocol: usesProxyProtocol(visitor) ? visitor.ranges : [],
+      hasDnsToken: !!token,
+    }),
     Env: token ? [`CF_DNS_API_TOKEN=${token}`] : [],
     ports,
     Binds: [...shared, `${path.posix.join(p.proxy, "traefik-data")}:/data`],
@@ -767,7 +783,9 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
   const containers = service.type === "app" && !stopped ? await appTargets(server, service) : [];
   const errorPages = defaultsOf((await proxyStateOf(server.id)).config.nginx?.defaults).unavailablePage;
   const maintenance = maintenanceOf(service.id, service.maintenance);
-  const tunnelIp = service.domains.some((d) => d.tunnelId) ? tunnelRealIp(await visitorIpOf(server)) : null;
+  const visitor = await visitorIpOf(server);
+  const tunnelIp = service.domains.some((d) => d.tunnelId) ? tunnelRealIp(visitor) : null;
+  const proxyProtocol = usesProxyProtocol(visitor);
   const upstreamName = upstreamNamer(await serverUpstreamKeys(server.id));
   const cfg = service.proxy;
   const options: SiteOptions | null = cfg ? ({ ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null } as SiteOptions) : null;
@@ -813,6 +831,7 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
       ...(errorPages ? {} : { errorPages: false }),
       ...(maintenance ? { maintenance: { ...maintenance, geoVar: maintenance.allow.length ? maintenanceVar(service.id) : null } } : {}),
       ...(d.tunnelId && tunnelIp ? { realIp: tunnelIp } : {}),
+      ...(proxyProtocol ? { proxyProtocol } : {}),
     });
   }
 
@@ -835,7 +854,8 @@ async function renderNginxDashboard(): Promise<string | null> {
   const certs = settings.rootOrganizationId ? await usableCertificates(settings.rootOrganizationId, LOCAL_SERVER_ID) : [];
   const upstream: SiteUpstream = { name: "serve_dashboard", servers: [env.dashboardUpstream] };
   const tls = settings.dashboardHttps ? tlsFor(settings.dashboardDomain, null, certs) : null;
-  const tunnelIp = settings.dashboardTunnelId ? tunnelRealIp(await visitorIpOf(await local())) : null;
+  const visitor = await visitorIpOf(await local());
+  const tunnelIp = settings.dashboardTunnelId ? tunnelRealIp(visitor) : null;
   return [
     "# Managed by Serve — dashboard.",
     ...certificateStamp(certs, [tls]),
@@ -847,6 +867,7 @@ async function renderNginxDashboard(): Promise<string | null> {
       tls,
       allow: settings.dashboardAllowlist,
       ...(tunnelIp ? { realIp: tunnelIp } : {}),
+      ...(usesProxyProtocol(visitor) ? { proxyProtocol: true } : {}),
     }),
   ].join("\n");
 }
@@ -860,7 +881,7 @@ async function renderModel(kind: RunningKind, ctx: ServerCtx, model: SiteModel |
   if (kind === "caddy")
     return stamp + renderCaddySite(model, defaultsOf(config.caddy?.defaults), !!visitor.header || model.name === "_dashboard", visitor.header ? tunnelTrustFor(visitor) : []);
   const settings = await getSettings();
-  return stamp + renderTraefikSite(model, { resolver: !!settings.acmeEmail, trusted: allTrusted(visitor), defaults: defaultsOf(config.traefik?.defaults) });
+  return stamp + renderTraefikSite(model, { resolver: !!settings.acmeEmail, trusted: headerTrusted(visitor), defaults: defaultsOf(config.traefik?.defaults) });
 }
 
 /** The site Serve generates for a service (ignoring a custom override). */

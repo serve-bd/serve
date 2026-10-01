@@ -21,11 +21,21 @@ const headerHints: Record<ClientIpHeader, string> = {
   "x-real-ip": "When your load balancer sets only this header.",
   "cf-connecting-ip": "Only when Cloudflare is the only proxy in front.",
   "true-client-ip": "When your CDN sets this header.",
+  "proxy-protocol": "For a proxy that passes TLS through unchanged (nginx stream, HAProxy, a TCP load balancer). It must send PROXY protocol on both ports.",
 };
 
-type Form = { on: boolean; ranges: string; header: ClientIpHeader; cloudflare: boolean };
+/** Traefik reads X-Forwarded-For only, or PROXY protocol. */
+const traefikHeaders: ClientIpHeader[] = ["x-forwarded-for", "proxy-protocol"];
 
-const formOf = (t: TrustedProxies | null): Form => ({ on: !!t, ranges: (t?.ranges ?? []).join("\n"), header: t?.header ?? "x-forwarded-for", cloudflare: t?.cloudflare ?? false });
+type Form = { on: boolean; ranges: string; header: ClientIpHeader; cloudflare: boolean; machine: boolean };
+
+const formOf = (t: TrustedProxies | null): Form => ({
+  on: !!t,
+  ranges: (t?.ranges ?? []).join("\n"),
+  header: t?.header ?? "x-forwarded-for",
+  cloudflare: t?.cloudflare ?? false,
+  machine: t?.machine ?? false,
+});
 
 /** Proxies in front of the server (a CDN or load balancer) whose visitor IP header the proxy believes. */
 export function VisitorIpCard({ serverId, kind, initial, disabled }: { serverId: string; kind: RunningKind; initial: TrustedProxies | null; disabled: boolean }) {
@@ -38,14 +48,16 @@ export function VisitorIpCard({ serverId, kind, initial, disabled }: { serverId:
   const parsed = normalizeTrustedRanges(value.ranges.split("\n"));
   const rangeError = "error" in parsed ? parsed.error : null;
   const count = "ranges" in parsed ? parsed.ranges.length : 0;
-  const empty = value.on && !rangeError && !count && !value.cloudflare;
+  const header = kind === "traefik" && !traefikHeaders.includes(value.header) ? "x-forwarded-for" : value.header;
+  const proxyProtocol = header === "proxy-protocol";
+  const cloudflare = value.cloudflare && !proxyProtocol;
+  const empty = value.on && !rangeError && !count && !cloudflare && !value.machine;
 
   const save = async () => {
     setPending(true);
     setError(null);
-    // Traefik reads X-Forwarded-For only: save what the form shows, not an older choice.
-    const header = kind === "traefik" ? "x-forwarded-for" : value.header;
-    const res = await saveTrustedProxies(serverId, value.on ? { ranges: value.ranges.split("\n"), header, cloudflare: value.cloudflare } : null);
+    // Save what the form shows (Traefik has fewer choices), not an older choice.
+    const res = await saveTrustedProxies(serverId, value.on ? { ranges: value.ranges.split("\n"), header, cloudflare, machine: value.machine } : null);
     setPending(false);
     if (!res.ok) return setError(res.error);
     toast.success(value.on ? "Trusted proxies applied" : "Trusted proxies turned off");
@@ -71,7 +83,7 @@ export function VisitorIpCard({ serverId, kind, initial, disabled }: { serverId:
             <Field
               label="Proxy addresses"
               description="One per line: the IPs or ranges your CDN or load balancer connects from, like 203.0.113.0/24 or 10.0.0.5."
-              error={rangeError ?? (empty ? "Add the addresses of your proxy, or choose Cloudflare below." : null)}
+              error={rangeError ?? (empty ? "Add the addresses of your proxy, or choose one below." : null)}
             >
               <Textarea
                 value={value.ranges}
@@ -84,24 +96,45 @@ export function VisitorIpCard({ serverId, kind, initial, disabled }: { serverId:
               />
             </Field>
             <label className="flex items-start gap-2 text-[13px] text-fg-2">
-              <Checkbox checked={value.cloudflare} onCheckedChange={(c) => set({ cloudflare: !!c })} disabled={disabled} className="mt-0.5" />
+              <Checkbox checked={value.machine} onCheckedChange={(c) => set({ machine: !!c })} disabled={disabled} className="mt-0.5" />
               <span>
-                I use Cloudflare&apos;s proxy (orange cloud)
+                The proxy runs on this machine
                 <span className="block text-xs text-muted">
-                  Trusts Cloudflare&apos;s published addresses, kept up to date. Not needed without Cloudflare, for DNS-only records or for a tunnel.
+                  A system nginx or HAProxy that owns ports 80 and 443 and passes them on to this proxy&apos;s ports. Serve trusts the address it connects from.
                 </span>
               </span>
             </label>
-            <Field label="Visitor IP header" description={kind === "traefik" ? "Traefik reads X-Forwarded-For only." : headerHints[value.header]}>
+            {!proxyProtocol && (
+              <label className="flex items-start gap-2 text-[13px] text-fg-2">
+                <Checkbox checked={value.cloudflare} onCheckedChange={(c) => set({ cloudflare: !!c })} disabled={disabled} className="mt-0.5" />
+                <span>
+                  I use Cloudflare&apos;s proxy (orange cloud)
+                  <span className="block text-xs text-muted">
+                    Trusts Cloudflare&apos;s published addresses, kept up to date. Not needed without Cloudflare, for DNS-only records or for a tunnel.
+                  </span>
+                </span>
+              </label>
+            )}
+            <Field
+              label="Visitor IP from"
+              description={kind === "traefik" && header === "x-forwarded-for" ? "Traefik reads X-Forwarded-For, or PROXY protocol." : headerHints[header]}
+            >
               <Select
-                value={kind === "traefik" ? "x-forwarded-for" : value.header}
+                value={header}
                 onValueChange={(h) => set({ header: h as ClientIpHeader })}
-                options={CLIENT_IP_HEADERS.map((h) => ({ value: h, label: clientIpHeaderNames[h] }))}
-                disabled={disabled || kind === "traefik"}
-                aria-label="Visitor IP header"
+                options={(kind === "traefik" ? traefikHeaders : CLIENT_IP_HEADERS).map((h) => ({ value: h, label: clientIpHeaderNames[h] }))}
+                disabled={disabled}
+                aria-label="Visitor IP from"
                 className="sm:max-w-xs"
               />
             </Field>
+            {proxyProtocol && (
+              <p className="text-xs leading-relaxed text-muted">
+                {kind === "nginx"
+                  ? "This server's HTTP and HTTPS ports then accept only connections that start with PROXY protocol. Custom server blocks also need listen 81 proxy_protocol; and listen 444 ssl proxy_protocol; to answer there."
+                  : "Connections from the addresses above may start with PROXY protocol; other connections work as before."}
+              </p>
+            )}
             {kind === "caddy" && (value.header === "x-real-ip" || value.header === "true-client-ip") && (
               <p className="text-xs leading-relaxed text-muted">Caddy reads one header for all traffic, so Cloudflare Tunnel visitors then show the tunnel&apos;s address.</p>
             )}

@@ -2,8 +2,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/misc";
-import { StatusDot, statusText } from "@/components/ui/status";
-import { projectColor } from "@/components/shell/project-color";
+import { QuietDot, statusText } from "@/components/ui/status";
 import { serverReachable } from "@/lib/server-services";
 import { cn } from "@/lib/utils";
 import type { ProjectSummary } from "./project-card";
@@ -47,12 +46,11 @@ export function ProjectRow({ project }: { project: ProjectSummary }) {
   const running = project.services.filter((s) => s.status === "running").length;
   return (
     <Link href={`/projects/${project.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-hover/60">
-      <span className="size-2.5 flex-none rounded-[3px]" style={{ background: projectColor(project.color) }} />
       <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-fg">{project.name}</span>
       <span className="flex max-w-[45%] flex-wrap justify-end gap-x-2 gap-y-1.5" aria-hidden>
         {project.services.map((s) => (
           <span key={s.id} title={`${s.name}: ${statusText(s.status)}`} className="flex">
-            <StatusDot status={s.status} />
+            <QuietDot status={s.status} />
           </span>
         ))}
       </span>
@@ -71,7 +69,7 @@ function Meter({ label, value }: { label: string; value: number | null }) {
       </span>
       <span className="h-1 overflow-hidden rounded-full bg-sunken">
         <span
-          className={cn("block h-full rounded-full", pct !== null && pct >= 90 ? "bg-bad" : pct !== null && pct >= 75 ? "bg-warn" : "bg-accent")}
+          className={cn("block h-full rounded-full", pct !== null && pct >= 90 ? "bg-bad" : pct !== null && pct >= 75 ? "bg-warn" : "bg-fg/35")}
           style={{ width: `${pct ?? 0}%` }}
         />
       </span>
@@ -89,7 +87,7 @@ export function ServerRow({ server: s }: { server: ServerCardData }) {
   return (
     <Link href={`/servers/${s.id}`} className="flex flex-col gap-2.5 px-5 py-3 transition-colors hover:bg-hover/60">
       <span className="flex items-center gap-2.5">
-        <StatusDot status={status} kind="server" />
+        <QuietDot status={status} kind="server" />
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-fg">{s.name}</span>
         <span className="flex-none text-xs text-faint">{!reachable ? `${statusText(s.status, "server")} · ${s.services} services` : `${s.running}/${s.services} running`}</span>
       </span>

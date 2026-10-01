@@ -63,3 +63,11 @@ export function StatusLabel({ status, kind = "service", className }: { status: s
 export function statusText(status: string, kind: keyof typeof maps = "service") {
   return maps[kind][status]?.label ?? status;
 }
+
+const HEALTHY = new Set(["running", "success", "ready", "active"]);
+
+/** A status light that stays grey when all is well, so only problems and work in progress show colour. */
+export function QuietDot({ status, kind = "service", className }: { status: string; kind?: keyof typeof maps; className?: string }) {
+  if (HEALTHY.has(status)) return <Led color="var(--faint)" off className={className} />;
+  return <StatusDot status={status} kind={kind} className={className} />;
+}

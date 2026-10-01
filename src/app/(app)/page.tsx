@@ -125,11 +125,11 @@ export default async function OverviewPage() {
       />
       <PageBody className="flex flex-col gap-6">
         {(broken.length > 0 || down.length > 0) && (
-          <Card className="border-bad/30">
+          <Card>
             <CardHeader
               title={
-                <span className="flex items-center gap-2 text-bad">
-                  <AlertTriangle className="size-4" /> Needs attention
+                <span className="flex items-center gap-2">
+                  <AlertTriangle className="size-4 text-bad" /> Needs attention
                 </span>
               }
             />
@@ -140,7 +140,7 @@ export default async function OverviewPage() {
                   <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg">
                     <span className="font-medium">{s.name}</span> <span className="text-muted">in {s.project.name}</span>
                   </span>
-                  <span className="flex-none text-xs text-bad">{statusText(s.status)}</span>
+                  <span className="flex-none text-xs text-muted">{statusText(s.status)}</span>
                 </Link>
               ))}
               {down.map((s) => (
@@ -149,7 +149,7 @@ export default async function OverviewPage() {
                   <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg">
                     <span className="font-medium">{s.name}</span> <span className="text-muted">server</span>
                   </span>
-                  <span className="flex-none text-xs text-bad">{statusText(s.status, "server")}</span>
+                  <span className="flex-none text-xs text-muted">{statusText(s.status, "server")}</span>
                 </Link>
               ))}
             </div>

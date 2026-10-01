@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { StatusDot } from "@/components/ui/status";
+import { QuietDot } from "@/components/ui/status";
 import { useNow } from "@/hooks/use-client";
 import { formatDuration } from "@/lib/utils";
 
@@ -63,7 +63,7 @@ export function DeployTimeline({ rows }: { rows: DeploymentTableRow[] }) {
                       {now ? new Date(d.createdAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}
                     </time>
                     <span className="relative z-10 flex h-[18px] items-center justify-center bg-surface group-hover:bg-transparent">
-                      <StatusDot status={d.status} kind="deployment" />
+                      <QuietDot status={d.status} kind="deployment" />
                     </span>
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <span className="flex min-w-0 items-baseline gap-2">

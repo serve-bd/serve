@@ -139,6 +139,7 @@ async function prepareAppImage(
   // Git source: clone and build. Dockerfile source: build the saved Dockerfile in an empty context.
   const env = await resolveEnv(service);
   log.redact(env.secrets);
+  stopOnFailedSecrets(env);
   // Said before the build: an empty build variable often breaks it, long before the container starts.
   if (env.missing.length) log.line(`Warning: unresolved variable references (left empty): ${env.missing.join(", ")}`);
   const workDir = path.join(paths.builds, dep.id);
@@ -449,6 +450,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
 
   const env = await resolveEnv({ ...service, runtime });
   log.redact(env.secrets);
+  stopOnFailedSecrets(env);
   const replicaTotal = replicaCount(runtime.replicas, dist.extraServerIds.length);
   const short = shortReplicaPicks(env.runtime, replicaTotal);
   if (short.length) log.line(`Warning: replica.pick in ${short.join(", ")} has fewer values than the ${replicaTotal} replicas. The others get an empty value.`);
@@ -890,6 +892,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
   const cfg = service.compose!;
   const env = await resolveEnv(service);
   log.redact(env.secrets);
+  stopOnFailedSecrets(env);
   const serviceDir = paths.service(service.id);
   let dir = path.join(serviceDir, "compose");
   let content = cfg.content;
@@ -1243,4 +1246,15 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       });
     }
   }
+}
+
+/**
+ * A secret from a secret manager that could not be read stops the deploy before anything
+ * changes: starting the app with an empty password or key is worse than keeping the old version.
+ */
+function stopOnFailedSecrets(env: { failedSecrets: string[] }) {
+  if (!env.failedSecrets.length) return;
+  throw new Error(
+    `Could not read ${env.failedSecrets.length === 1 ? "a secret" : `${env.failedSecrets.length} secrets`} from a secret manager:\n${env.failedSecrets.map((f) => `  ${f}`).join("\n")}`,
+  );
 }

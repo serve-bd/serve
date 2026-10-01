@@ -22,13 +22,14 @@ export function composeVarSuffix(composeService: string) {
   return composeService.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
 }
 
-export const REF = /\$\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g;
+// Secret manager paths add "/", ":" and the other characters secret names allow (+=@).
+export const REF = /\$\{\{\s*([A-Za-z0-9_.\-/:+=@]+)\s*\}\}/g;
 
 /** Variables that hold private names: they only work on the same server or across a shared private network. */
 export const PRIVATE_VARS = /^(HOST|PORT|DATABASE_URL|REDIS_URL|MONGO_URL|POSTGRES_URL|MYSQL_URL|SERVE_PRIVATE_DOMAIN)$/;
 
 /** Names that mean shared variables, not a service: they win over services with the same name. */
-export const SCOPE_NAMES = new Set(["shared", "environment", "project", "org", "team", "replica"]);
+export const SCOPE_NAMES = new Set(["shared", "environment", "project", "org", "team", "replica", "secrets"]);
 
 /**
  * The sibling service a `${{name.KEY}}` reference points at, matched like variable resolution does:

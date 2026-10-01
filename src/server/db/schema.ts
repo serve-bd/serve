@@ -18,6 +18,7 @@ import type { ChannelScope, MessageTemplate, NotificationKind, QuietHours, Sever
 import type { OrgLimits } from "@/lib/limits";
 import type { TrustedProxies } from "@/lib/trusted-proxies";
 import type { DashboardLayout } from "@/lib/dashboard";
+import type { SecretProviderAccess, SecretProviderConfig, SecretProviderKind } from "@/lib/secret-providers";
 
 const id = () => text("id").primaryKey();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -1376,4 +1377,28 @@ export const dashboardLayout = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.organizationId] })],
+);
+
+/**
+ * An external secret manager. Variables reference its secrets as ${{secrets.<name>.<path>}};
+ * values are fetched at deploy time and never stored here.
+ */
+export const secretProvider = pgTable(
+  "secret_provider",
+  {
+    id: id(),
+    organizationId: orgRef(),
+    /** Used in references: lowercase letters, digits and dashes. */
+    name: text("name").notNull(),
+    kind: text("kind").$type<SecretProviderKind>().notNull(),
+    /** Addresses and options; nothing secret. */
+    config: jsonb("config").$type<SecretProviderConfig>().notNull().default({}),
+    /** Encrypted JSON with the token or keys. */
+    credentials: text("credentials").notNull(),
+    /** Projects and environments that may use it. Empty lists mean all. */
+    access: jsonb("access").$type<SecretProviderAccess>().notNull().default({ projectIds: [], environmentIds: [] }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("secret_provider_org_name_idx").on(t.organizationId, t.name)],
 );

@@ -8,6 +8,8 @@ import { pickPrimaryDomain } from "@/lib/domains";
 import { privateHost } from "@/lib/hostname";
 import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
 import { runServerIds } from "@/server/deploy/distribution";
+import { resolveSecretRefs } from "@/server/secrets/resolve";
+import { SECRETS_SCOPE } from "@/lib/secret-providers";
 
 type Service = typeof schema.service.$inferSelect;
 type Domain = typeof schema.domain.$inferSelect;
@@ -74,6 +76,8 @@ export type ResolvedEnv = {
   secrets: string[];
   /** References that could not be resolved. */
   missing: string[];
+  /** Secret manager references that could not be read: the deploy stops on these. */
+  failedSecrets: string[];
   /** Runtime variables of single replicas, by replica number (from 1); they win over `runtime`. */
   replicas: Record<number, Record<string, string>>;
 };
@@ -145,6 +149,19 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     // Preferred form: names with spaces or symbols become dashed ("postgresql-sd").
     if (!lookup.has(referenceName(s.name)) && !slugs.has(referenceName(s.name))) lookup.set(referenceName(s.name), provided);
   }
+  // Secret manager values, fetched now for the references this service's values use.
+  const ownValues = own.map((v) => decrypt(v.value));
+  const secretRefs = scope
+    ? await resolveSecretRefs(scope.organizationId, scope.projectId, service.environmentId, [
+        ...ownValues,
+        ...Object.values(sharedMap),
+        ...Object.values(projectMap),
+        ...Object.values(orgMap),
+        ...Object.values(service.replicaVars ?? {}).flatMap((vars) => Object.values(vars).map((v) => decryptOrNull(v) ?? "")),
+      ])
+    : { found: new Map<string, string>(), errors: [] as { ref: string; message: string }[] };
+  lookup.set(SECRETS_SCOPE, Object.fromEntries(secretRefs.found));
+
   // Scope names win over services with the same name.
   lookup.set("shared", sharedMap);
   lookup.set("environment", sharedMap);
@@ -226,5 +243,16 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     if (v.length >= 6 && secretKey.test(k) && values.some(([, x]) => x.includes(v))) secrets.push(v);
   }
 
-  return { runtime, build, secrets: [...new Set(secrets)], missing: [...missing], replicas };
+  // Values from a secret manager are always redacted.
+  for (const v of secretRefs.found.values()) if (v.length >= 4) secrets.push(v);
+  const failedRefs = new Set(secretRefs.errors.map((e) => e.ref));
+  return {
+    runtime,
+    build,
+    secrets: [...new Set(secrets)],
+    // A secret that failed is reported once, with its reason, in failedSecrets.
+    missing: [...missing].filter((m) => !failedRefs.has(m)),
+    failedSecrets: secretRefs.errors.map((e) => `\${{${e.ref}}}: ${e.message}`),
+    replicas,
+  };
 }

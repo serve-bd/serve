@@ -8,11 +8,18 @@ import { usePathname } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import {
+  Activity,
+  AlertTriangle,
+  Bell,
   Blocks,
   Cloud,
   Container,
   FolderGit2,
+  Gauge,
   Globe,
+  HardDriveUpload,
+  HeartPulse,
+  KeyRound,
   LayoutGrid,
   LayoutTemplate,
   LogOut,
@@ -20,19 +27,13 @@ import {
   Moon,
   Search,
   Server,
+  Settings,
   ShieldCheck,
   Sun,
   User,
   Users,
-  Gauge,
-  Bell,
-  HardDriveUpload,
-  KeyRound,
   Variable,
-  Activity,
-  AlertTriangle,
-  HeartPulse,
-  Settings,
+  Vault,
   Waypoints,
 } from "lucide-react";
 import { Logo } from "@/components/brand";
@@ -82,6 +83,7 @@ const integrationNav: NavItem[] = [
   { href: "/integrations/git", label: "Git providers", icon: FolderGit2 },
   { href: "/integrations/storage", label: "S3 storage", icon: HardDriveUpload },
   { href: "/integrations/registries", label: "Registries", icon: Container },
+  { href: "/integrations/secrets", label: "Secret managers", icon: Vault },
   { href: "/integrations/notifications", label: "Notifications", icon: Bell },
 ];
 

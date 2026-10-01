@@ -832,6 +832,19 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   const extra = service.runtime.volumes ?? [];
   if (extra.some((v) => v.kind !== "volume")) await prepareMounts(server, service.id, extra, line);
 
+  // The public port's allowlist (or its removal) goes in the server's firewall before the port
+  // opens: when the firewall cannot take it, the deploy fails and the old container stays.
+  if (cfg.publicPort || cfg.publicAllow?.length) {
+    const { applyDatabaseAllowlists } = await import("@/server/databases/allowlist");
+    const restricted = !!cfg.publicAllow?.length && !!cfg.publicPort && cfg.publicBind !== "127.0.0.1";
+    try {
+      await applyDatabaseAllowlists(server.id);
+      if (restricted) line(`Port ${cfg.publicPort} accepts only ${cfg.publicAllow!.join(", ")}`);
+    } catch (error) {
+      if (restricted) throw new Error(`The allowlist for port ${cfg.publicPort} could not be applied, so the port was not opened: ${(error as Error).message}`);
+      line(`Warning: the firewall rules were not refreshed: ${(error as Error).message}`);
+    }
+  }
   log?.step("Starting database");
   await ensureNetwork(d, server.network);
   const network = await ensureEnvNetwork(service.environmentId, server);
@@ -876,14 +889,6 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
     server,
   );
   line(`${engine.label} is ready`);
-  // The public port's allowlist (or its removal) in the server's firewall.
-  if (cfg.publicPort || cfg.publicAllow?.length) {
-    const { applyDatabaseAllowlists } = await import("@/server/databases/allowlist");
-    await applyDatabaseAllowlists(server.id).then(
-      () => cfg.publicAllow?.length && cfg.publicPort && cfg.publicBind !== "127.0.0.1" && line(`Port ${cfg.publicPort} accepts only ${cfg.publicAllow.join(", ")}`),
-      (e: Error) => line(`Warning: the allowlist was not applied: ${e.message}`),
-    );
-  }
   await setServiceStatus(service.id, "running");
   await meshAfterStart(server.id, line);
 }

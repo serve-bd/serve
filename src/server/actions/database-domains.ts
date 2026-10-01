@@ -41,16 +41,16 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
 
     if (hostname) {
       if (!hostnamePattern.test(hostname)) throw new UserError("Enter a domain like db.example.com.");
-      const [web] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, hostname));
-      if (web) throw new UserError("That domain is already used by a website or app.");
-      const [other] = await db
-        .select({ name: schema.service.name })
-        .from(schema.service)
-        .where(and(ne(schema.service.id, service.id), eq(schema.service.type, "database"), sql`lower(${schema.service.database}->>'domain') = ${hostname}`));
-      if (other) throw new UserError(`${other.name} already uses that domain.`);
-      await assertNotDashboardHost(ctx, hostname);
+      // Ownership first: the checks below must not tell an organization what names others use.
       const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, hostname);
       if (!ownership.verified) throw new UserError(ownershipMessage(hostname, ownership));
+      await assertNotDashboardHost(ctx, hostname);
+      const [web] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, hostname));
+      const [other] = await db
+        .select({ name: schema.service.name, projectId: schema.service.projectId })
+        .from(schema.service)
+        .where(and(ne(schema.service.id, service.id), eq(schema.service.type, "database"), sql`lower(${schema.service.database}->>'domain') = ${hostname}`));
+      if (web || other) throw new UserError("That domain is already in use.");
     }
 
     // Through a tunnel: one of this server's tunnels, of the Cloudflare account that holds the domain.
@@ -77,7 +77,10 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
         ...next,
         publicPort: cfg.publicPort ?? (await freePublicPort(service, engine.port)),
         publicBind: "0.0.0.0",
-        tls: { enabled: true, mode: cfg.tls?.mode ?? "prefer" },
+        // TLS the domain turns on is required, so a client cannot be talked down to plain text.
+        // Generated URLs carry it for PostgreSQL and MongoDB; MySQL URLs cannot say so and
+        // ClickHouse keeps plain ports, so those stay optional. A mode the user chose is kept.
+        tls: { enabled: true, mode: cfg.tls?.enabled ? (cfg.tls.mode ?? "prefer") : cfg.engine === "postgres" || cfg.engine === "mongodb" ? "require" : "prefer" },
         domainOpened: { public: publicOpened, publicBind: opened.publicBind ?? cfg.publicBind ?? null, tls: opened.tls || !cfg.tls?.enabled },
       };
     } else if (cfg.domainOpened) {

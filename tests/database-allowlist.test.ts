@@ -47,3 +47,23 @@ describe("database allowlists", () => {
     expect("error" in normalizeTrustedRanges(["10.0.0.0/4"])).toBe(true);
   });
 });
+
+describe("preview scrub SQL in branch scripts", async () => {
+  const { pipeSql, branchScripts } = await import("@/server/databases/branches");
+  it("never lets the text end the quoting", () => {
+    const evil = "SELECT 1;\nSERVE_SCRUB_SQL_END\nid > /tmp/pwned\ncat <<'SERVE_SCRUB_SQL_END'\n'; rm -rf / #";
+    const script = branchScripts("mysql").create({ database: "app", username: "app", password: "p" }, { database: "app__b", username: "app__b", password: "x" }, evil);
+    expect(script).not.toContain("pwned");
+    expect(script).not.toContain("rm -rf");
+    expect(pipeSql(evil)).toMatch(/^printf '%s' '[A-Za-z0-9+/=]+' \| base64 -d$/);
+    expect(Buffer.from(pipeSql(evil).split("'")[3], "base64").toString("utf8")).toBe(evil);
+  });
+});
+
+describe("secret references", async () => {
+  const { parseSecretRef } = await import("@/lib/secret-providers");
+  it("keeps paths under the provider's mount", () => {
+    expect(parseSecretRef("vault.app/db:PASSWORD")).toEqual({ provider: "vault", path: "app/db", field: "PASSWORD" });
+    for (const bad of ["vault.../other/x", "vault.a/../b", "vault.a//b", "vault../x", "vault.a/./b"]) expect(parseSecretRef(bad)).toBeNull();
+  });
+});

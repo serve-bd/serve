@@ -17,6 +17,7 @@ import { notify } from "@/server/notify";
 import { enqueue } from "@/server/queue";
 import { certificateCovers } from "./match";
 import { isCloudflareIp, resolveA } from "@/server/dns";
+import { publicRequest } from "@/server/net/public-fetch";
 
 type Cert = typeof schema.certificate.$inferSelect;
 
@@ -106,8 +107,9 @@ async function port80ReachesProxy(ctx: ServerCtx, cert: Cert, log: (l: string) =
   await ctx.fs.writeFile(file, token);
   try {
     for (const domain of domains) {
-      const body = await fetch(`http://${domain}/.well-known/acme-challenge/${name}`, { redirect: "manual", signal: AbortSignal.timeout(10_000) })
-        .then((r) => (r.ok ? r.text() : null))
+      // The domain's address is the organization's choice: only public addresses are asked.
+      const body = await publicRequest(`http://${domain}/.well-known/acme-challenge/${name}`, { method: "GET", timeoutMs: 10_000 })
+        .then((r) => (r.status >= 200 && r.status < 300 ? r.text : null))
         .catch(() => null);
       if (body?.trim() !== token) return false;
     }

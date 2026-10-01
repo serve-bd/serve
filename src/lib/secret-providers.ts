@@ -116,6 +116,15 @@ export function parseSecretRef(rest: string): { provider: string; path: string; 
   const path = colon === -1 ? tail : tail.slice(0, colon);
   const field = colon === -1 ? null : tail.slice(colon + 1);
   if (!path || field === "") return null;
+  // A path is a name under the provider's mount or folder: no segment may leave it. AWS parameter
+  // names start with a slash, so one leading slash is fine.
+  if (
+    path
+      .replace(/^\//, "")
+      .split("/")
+      .some((seg) => seg === "" || seg === "." || seg === "..")
+  )
+    return null;
   return { provider, path, field };
 }
 

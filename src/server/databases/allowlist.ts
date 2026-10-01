@@ -125,7 +125,9 @@ export async function syncDatabaseAllowlists() {
   for (const s of servers) {
     if (s.status !== "ready") continue;
     const entries = await allowEntries(s.id);
-    if (!entries.length && (applied.get(s.id) ?? "[]") === "[]") continue;
+    // A server this worker has not seen yet gets its rules set once, even to none: an allowlist
+    // removed while no worker ran would otherwise leave its DROP rules behind.
+    if (!entries.length && applied.get(s.id) === "[]") continue;
     await applyDatabaseAllowlists(s.id).catch((e) => console.error(`[db-allowlist] ${s.id}: ${(e as Error).message}`));
   }
 }

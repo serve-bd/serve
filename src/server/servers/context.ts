@@ -1,5 +1,6 @@
 import net from "node:net";
 import http from "node:http";
+import util from "node:util";
 import { spawn } from "node:child_process";
 import Docker from "dockerode";
 import { eq } from "drizzle-orm";
@@ -105,6 +106,10 @@ function remoteDocker(target: SshTarget) {
       }
   }, 15_000);
   sweep.unref();
+  // docker-modem formats every request's options with util.inspect (showHidden, no depth limit), even
+  // with debug output off. Walking the live SSH sockets is slow and, inside Next.js, throws on objects
+  // it reaches, which fails every Docker call to the server. Show the agent as a plain label.
+  (agent as unknown as Record<symbol, unknown>)[util.inspect.custom] = () => "[SSH agent]";
   const docker = new Docker({ protocol: "http", host: "docker", port: 80, agent } as Docker.DockerOptions);
   disposers.set(docker, () => {
     clearInterval(sweep);

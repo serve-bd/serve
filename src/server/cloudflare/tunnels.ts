@@ -110,7 +110,9 @@ export async function ensureTunnelContainer(tunnel: Tunnel, retry = true): Promi
  */
 async function connectorNetwork(ctx: Awaited<ReturnType<typeof getServer>>) {
   const state = await ensureTunnelNetwork(ctx.docker, ctx.network);
-  const network = state ? tunnelNetworkName(ctx.network) : ctx.network;
+  // On the shared network, a tunnel's ingress (edited in Cloudflare) could reach other organizations' containers.
+  if (!state) throw new Error("The tunnel network could not be created on this server.");
+  const network = tunnelNetworkName(ctx.network);
   await connectProxy(network, ctx);
   return { network, created: state === "created" };
 }
@@ -121,7 +123,7 @@ async function connectorSpec(tunnel: Tunnel, name: string, network: string) {
     Image: TUNNEL_IMAGE,
     // The token stays out of the command line (and `docker ps`).
     Env: [`TUNNEL_TOKEN=${decrypt(tunnel.token)}`],
-    Cmd: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "run"],
+    Cmd: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:2000", "run"],
     Labels: { [LABEL.managed]: "true", [LABEL.kind]: "tunnel", "serve.tunnel": tunnel.id, [INSTANCE_LABEL]: await instanceId() },
     HostConfig: {
       RestartPolicy: { Name: "unless-stopped" },

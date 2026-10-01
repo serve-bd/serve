@@ -21,7 +21,9 @@ import {
   proxyParamsPlain,
   realIpConfig,
   serverBlocks,
+  tunnelGeo,
   tunnelRealIp,
+  tunnelVar,
   upstreamBlock,
   type SiteOptions,
   type SiteServer,
@@ -836,11 +838,15 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
       ...(errorPages ? {} : { errorPages: false }),
       ...(maintenance ? { maintenance: { ...maintenance, geoVar: maintenance.allow.length ? maintenanceVar(service.id) : null } } : {}),
       ...(d.tunnelId && tunnelIp ? { realIp: tunnelIp } : {}),
+      ...(d.tunnelId && visitor.tunnel.length ? { tunnelOnly: { variable: tunnelVar(service.id) } } : {}),
       ...(proxyProtocol ? { proxyProtocol } : {}),
     });
   }
 
-  const geo = maintenance?.allow.length ? [maintenanceGeo(maintenanceVar(service.id), maintenance.allow)] : [];
+  const geo = [
+    ...(maintenance?.allow.length ? [maintenanceGeo(maintenanceVar(service.id), maintenance.allow)] : []),
+    ...(servers.some((s) => s.tunnelOnly) ? [tunnelGeo(tunnelVar(service.id), visitor.tunnel)] : []),
+  ];
   const stamp = certificateStamp(
     certs,
     servers.map((s) => s.tls),
@@ -864,6 +870,7 @@ async function renderNginxDashboard(): Promise<string | null> {
   return [
     "# Managed by Serve — dashboard.",
     ...certificateStamp(certs, [tls]),
+    ...(settings.dashboardTunnelId && visitor.tunnel.length ? [tunnelGeo(tunnelVar("dashboard"), visitor.tunnel)] : []),
     upstreamBlock(upstream),
     serverBlocks({
       hostname: settings.dashboardDomain,
@@ -872,6 +879,7 @@ async function renderNginxDashboard(): Promise<string | null> {
       tls,
       allow: settings.dashboardAllowlist,
       ...(tunnelIp ? { realIp: tunnelIp } : {}),
+      ...(settings.dashboardTunnelId && visitor.tunnel.length ? { tunnelOnly: { variable: tunnelVar("dashboard") } } : {}),
       ...(usesProxyProtocol(visitor) ? { proxyProtocol: true } : {}),
     }),
   ].join("\n");
@@ -884,9 +892,15 @@ async function renderModel(kind: RunningKind, ctx: ServerCtx, model: SiteModel |
   const visitor = await visitorIpOf(ctx);
   // The dashboard always gets X-Real-IP: it reads the visitor from there when the header is not X-Forwarded-For.
   if (kind === "caddy")
-    return stamp + renderCaddySite(model, defaultsOf(config.caddy?.defaults), !!visitor.header || model.name === "_dashboard", visitor.header ? tunnelTrustFor(visitor) : []);
+    return (
+      stamp +
+      renderCaddySite(model, defaultsOf(config.caddy?.defaults), !!visitor.header || model.name === "_dashboard", visitor.header ? tunnelTrustFor(visitor) : [], visitor.tunnel)
+    );
   const settings = await getSettings();
-  return stamp + renderTraefikSite(model, { resolver: !!settings.acmeEmail, trusted: headerTrusted(visitor), defaults: defaultsOf(config.traefik?.defaults) });
+  return (
+    stamp +
+    renderTraefikSite(model, { resolver: !!settings.acmeEmail, trusted: headerTrusted(visitor), defaults: defaultsOf(config.traefik?.defaults), tunnelSubnets: visitor.tunnel })
+  );
 }
 
 /** The site Serve generates for a service (ignoring a custom override). */

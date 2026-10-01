@@ -389,6 +389,8 @@ export async function resetHostKey(id: string) {
     const [row] = await db.update(schema.server).set({ hostKey: null }).where(eq(schema.server.id, id)).returning();
     if (!row) throw new UserError("Server not found.");
     forgetServer(id);
+    // Nothing connects until the key is pinned again: the setup run does that now.
+    if (!row.isLocal) await enqueue("server.setup", { serverId: id }, { concurrencyKey: `server:${id}` });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.update", message: `Reset the SSH host key of ${row.name}` });
     return null;
   });

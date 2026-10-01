@@ -65,7 +65,8 @@ export type Ownership =
 export async function domainOwnership(org: { id: string; isRoot: boolean }, hostname: string): Promise<Ownership> {
   if (org.isRoot) return { verified: true, via: "root" };
   if (!(await getSetting("domainVerification"))) return { verified: true, via: "off" };
-  if (ownershipExempt(hostname, await trustedWildcardsFor(org.id))) return { verified: true, via: "exempt" };
+  // A wildcard there would claim every name nobody has taken yet: single names only.
+  if (!hostname.startsWith("*.") && ownershipExempt(hostname, await trustedWildcardsFor(org.id))) return { verified: true, via: "exempt" };
 
   const candidates = ownershipCandidates(hostname);
   const [known] = await db

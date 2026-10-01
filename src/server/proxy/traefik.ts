@@ -98,14 +98,18 @@ export function traefikBaseDynamic(opts: { pagesUrl: string; resolver: boolean; 
   })}`;
 }
 
-function hostRule(h: HostModel, deny: string[] | undefined) {
-  const base = `Host(\`${h.hostname}\`)`;
-  if (!deny?.length) return base;
+function hostRule(h: HostModel, deny: string[] | undefined, tunnelSubnets?: string[]) {
+  // Traefik's Host() takes no wildcard: those become a regular expression.
+  const host = h.hostname.startsWith("*.") ? `HostRegexp(\`^[^.]+\\.${h.hostname.slice(2).replace(/\./g, "\\\\.")}$\`)` : `Host(\`${h.hostname}\`)`;
+  const parts = [host];
+  // A tunnel host reached on the server's own ports would skip Cloudflare: only the tunnel network matches.
+  if (tunnelSubnets?.length) parts.push(`(${tunnelSubnets.map((s) => `ClientIP(\`${s}\`)`).join(" || ")})`);
   // Traefik has no deny list: denied clients do not match the site and get the 404 page.
-  return `${base} && !(${deny.map((d) => `ClientIP(\`${d}\`)`).join(" || ")})`;
+  if (deny?.length) parts.push(`!(${deny.map((d) => `ClientIP(\`${d}\`)`).join(" || ")})`);
+  return parts.join(" && ");
 }
 
-export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; trusted: string[]; defaults?: Required<ProxyDefaults> }) {
+export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; trusted: string[]; defaults?: Required<ProxyDefaults>; tunnelSubnets?: string[] }) {
   const defaults = opts.defaults ?? { catchAll: true, unknownRedirect: null, unavailablePage: true, httpsRedirect: true };
   const o = site.options;
   const p = site.name;
@@ -195,7 +199,7 @@ export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; tr
 
   site.hosts.forEach((h, i) => {
     const base = `${p}-${i}`;
-    const rule = hostRule(h, o?.deny);
+    const rule = hostRule(h, o?.deny, h.tunnel ? opts.tunnelSubnets : undefined);
     const tls = h.https ? (h.tls ? {} : opts.resolver ? { certResolver: "le" } : {}) : undefined;
     if (h.tls) certificates.push({ certFile: h.tls.cert, keyFile: h.tls.key });
 

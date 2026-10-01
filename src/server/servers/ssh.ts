@@ -112,7 +112,8 @@ function openConn(t: SshTarget, opts: { onHostKey?: (key: string) => void; timeo
     hostVerifier: (blob: Buffer) => {
       presented = formatHostKey(blob);
       opts.onHostKey?.(presented);
-      return !t.hostKey || t.hostKey === presented;
+      // Without a pinned key only the setup run (which reports and pins the key) may connect.
+      return t.hostKey ? t.hostKey === presented : !!opts.onHostKey;
     },
   };
   const conn: Conn = { client, ready: null as unknown as Promise<Client>, channels: 0, idle: null, sftp: null, closed: false };

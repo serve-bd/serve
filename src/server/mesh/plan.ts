@@ -166,7 +166,7 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
     if (a.key.startsWith("env:")) {
       const environmentId = a.key.slice(4);
       const subnets = services
-        .filter((s) => s.environmentId === environmentId && s.type === "compose" && s.serverId === self.id && s.composeSubnet)
+        .filter((s) => s.environmentId === environmentId && s.type === "compose" && s.serverId === self.id && s.composeSubnet && !s.isolated)
         .map((s) => s.composeSubnet!)
         .sort();
       sources.push({ ip: a.ip, networks: [envNetworkName(environmentId)], subnets });

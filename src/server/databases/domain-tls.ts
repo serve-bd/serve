@@ -110,19 +110,23 @@ export async function databaseDomainCert(ctx: ServerCtx, service: Service): Prom
  * A container that already has it mounted restarts (its start step copies the files again);
  * one without it is deployed again to mount it.
  */
-export async function refreshDatabaseCertificates(serverId: string, names: string[]) {
-  const rows = await db
-    .select()
-    .from(schema.service)
-    .where(
-      and(
-        eq(schema.service.serverId, serverId),
-        eq(schema.service.type, "database"),
-        isNull(schema.service.parentServiceId),
-        sql`coalesce(${schema.service.database}->>'domain', '') <> ''`,
-        sql`coalesce(${schema.service.database}->>'domainTunnelId', '') = ''`,
-      ),
-    );
+export async function refreshDatabaseCertificates(serverId: string, names: string[], organizationId: string) {
+  const rows = (
+    await db
+      .select({ service: schema.service })
+      .from(schema.service)
+      .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+      .where(
+        and(
+          eq(schema.project.organizationId, organizationId),
+          eq(schema.service.serverId, serverId),
+          eq(schema.service.type, "database"),
+          isNull(schema.service.parentServiceId),
+          sql`coalesce(${schema.service.database}->>'domain', '') <> ''`,
+          sql`coalesce(${schema.service.database}->>'domainTunnelId', '') = ''`,
+        ),
+      )
+  ).map((r) => r.service);
   const affected = rows.filter((s) => s.database?.domain && s.database.tls?.enabled && certificateCovers(names, s.database.domain));
   if (!affected.length) return;
   const ctx = await getServer(serverId);

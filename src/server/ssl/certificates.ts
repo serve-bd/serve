@@ -21,8 +21,9 @@ import { publicRequest } from "@/server/net/public-fetch";
 
 type Cert = typeof schema.certificate.$inferSelect;
 
-const CERTBOT_IMAGE = "certbot/certbot:latest";
-const CERTBOT_CF_IMAGE = "certbot/dns-cloudflare:latest";
+// Pinned by digest: they run with every private key mounted.
+const CERTBOT_IMAGE = "certbot/certbot:v5.8.0@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20";
+const CERTBOT_CF_IMAGE = "certbot/dns-cloudflare:v5.8.0@sha256:c45edb002b883da1a1235abb205dff474a7a1a459d878e8d5fdc7f9d83073aea";
 
 export function parseCertificate(pem: string) {
   const first = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/)?.[0];
@@ -166,11 +167,18 @@ async function certbotOn(ctx: ServerCtx, cert: Cert, log: (l: string) => void) {
     const [account] = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, cert.cloudflareAccountId));
     if (!account) throw new Error("The Cloudflare account for this certificate was removed.");
     // One file per certificate: a run that ends does not delete the file of another still running.
-    const credsFile = path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${cert.id}.ini`);
-    // Earlier versions kept one file per account: it goes too.
-    credsFiles.push(credsFile, path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${account.id}.ini`));
+    // Outside the letsencrypt directory, which the proxy mounts: the token is for certbot alone.
+    const credsDir = path.posix.join(ctx.paths.letsencrypt, "..", "letsencrypt-creds");
+    const credsFile = path.posix.join(credsDir, `${cert.id}.ini`);
+    // Earlier versions kept the files inside the letsencrypt directory, one per account: those go too.
+    credsFiles.push(
+      credsFile,
+      path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${cert.id}.ini`),
+      path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${account.id}.ini`),
+    );
     await ctx.fs.writeFile(credsFile, `dns_cloudflare_api_token = ${decrypt(account.apiToken)}\n`, 0o600);
-    args.push("--dns-cloudflare", "--dns-cloudflare-credentials", `/etc/letsencrypt/serve-cloudflare/${cert.id}.ini`, "--dns-cloudflare-propagation-seconds", "30");
+    args.splice(args.indexOf("certonly"), 0, "-v", `${credsDir}:/etc/serve-creds:ro`);
+    args.push("--dns-cloudflare", "--dns-cloudflare-credentials", `/etc/serve-creds/${cert.id}.ini`, "--dns-cloudflare-propagation-seconds", "30");
   } else {
     await ensureServerProxy(ctx, log);
     args.push("--webroot", "-w", "/var/www/acme");
@@ -251,7 +259,7 @@ export async function applyCertificate(cert: Cert) {
       .catch(() => {});
     // Databases on domains serve the certificate themselves: they load a new or renewed one.
     const { refreshDatabaseCertificates } = await import("@/server/databases/domain-tls");
-    await refreshDatabaseCertificates(cert.serverId, cert.domains).catch(() => {});
+    await refreshDatabaseCertificates(cert.serverId, cert.domains, cert.organizationId).catch(() => {});
   }
 }
 

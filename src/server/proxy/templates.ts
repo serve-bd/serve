@@ -324,7 +324,21 @@ export type SiteServer = {
   realIp?: string | null;
   /** Also listen for PROXY protocol connections (PROXY_PROTOCOL_PORTS). */
   proxyProtocol?: boolean;
+  /** Served through a Cloudflare Tunnel: only connections from these subnets (the tunnel network) are answered. */
+  tunnelOnly?: { variable: string } | null;
 };
+
+/** nginx variable name for a service's "came through the tunnel" flag. */
+export const tunnelVar = (serviceId: string) => `serve_tn_${serviceId.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+
+/**
+ * http-level `geo` block: 1 for connections from the tunnel network. Checked on the address the
+ * connection really came from, before the visitor IP from CF-Connecting-IP replaces it.
+ */
+export function tunnelGeo(variable: string, subnets: string[]) {
+  const lines = subnets.filter(safeCidr).map((s) => `    ${s} 1;`);
+  return `geo $realip_remote_addr $${variable} {\n    default 0;\n${lines.join("\n")}\n}\n`;
+}
 
 /** nginx variable name for a service's maintenance allow list. */
 export const maintenanceVar = (serviceId: string) => `serve_mt_${serviceId.replace(/[^a-zA-Z0-9_]/g, "_")}`;
@@ -536,7 +550,9 @@ export function serverBlocks(s: SiteServer) {
   const redirectHttp = s.tls && s.forceHttps;
   const rules = accessRules([...(s.allow ?? []), ...(s.options?.allow ?? [])], s.options?.deny);
   const acme = acmeLocation(!!rules);
-  const settings = serverSettings(s.options);
+  // A tunnel host reached on the server's own ports would skip Cloudflare (its Access rules, its WAF).
+  const tunnelGuard = s.tunnelOnly ? `    if ($${s.tunnelOnly.variable} = 0) {\n        return 403;\n    }\n\n` : "";
+  const settings = tunnelGuard + serverSettings(s.options);
   blocks.push(`server {
     ${listen("http", s.proxyProtocol)}
     server_name ${s.hostname};

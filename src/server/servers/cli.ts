@@ -59,7 +59,7 @@ export async function dockerCliEnv(t: SshTarget): Promise<Record<string, string>
       `  IdentityFile ${keyFile}`,
       `  IdentitiesOnly yes`,
       `  UserKnownHostsFile ${knownHosts}`,
-      `  StrictHostKeyChecking ${t.hostKey ? "yes" : "accept-new"}`,
+      `  StrictHostKeyChecking yes`,
       `  ControlMaster auto`,
       // Unix sockets have a ~100 byte path limit, so control sockets live in a short temp dir.
       `  ControlPath ${await controlDir()}/%C`,

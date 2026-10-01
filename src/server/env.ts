@@ -25,7 +25,8 @@ export const env = {
   },
   /** Absolute host path where Serve stores all of its state. */
   get dataDir() {
-    return path.resolve(process.env.SERVE_DATA_DIR ?? "/data/serve");
+    // A path on the host, not a project file: the ignore comment keeps the build from tracing the whole project.
+    return path.resolve(/*turbopackIgnore: true*/ process.env.SERVE_DATA_DIR ?? "/data/serve");
   },
   get network() {
     return process.env.SERVE_NETWORK ?? "serve";

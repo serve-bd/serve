@@ -16,28 +16,31 @@ export function currentCommit(): string | null {
   return cachedCommit;
 }
 
+/** Development only (release images carry SERVE_COMMIT). The ignore comments keep the build from tracing the whole project. */
 function readGitHead(dir: string): string | null {
   try {
     let gitDir = path.join(dir, ".git");
     // Worktrees and submodules keep a "gitdir: <path>" file instead of a directory.
-    if (fs.statSync(gitDir).isFile())
+    if (fs.statSync(/*turbopackIgnore: true*/ gitDir).isFile())
       gitDir = path.resolve(
-        dir,
+        /*turbopackIgnore: true*/ dir,
         fs
-          .readFileSync(gitDir, "utf8")
+          .readFileSync(/*turbopackIgnore: true*/ gitDir, "utf8")
           .replace(/^gitdir:\s*/, "")
           .trim(),
       );
-    const head = fs.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
+    const head = fs.readFileSync(/*turbopackIgnore: true*/ path.join(gitDir, "HEAD"), "utf8").trim();
     if (!head.startsWith("ref:")) return head;
     const ref = head.slice(4).trim();
     // Worktrees keep branch refs in the shared git directory.
-    const common = fs.existsSync(path.join(gitDir, "commondir")) ? path.resolve(gitDir, fs.readFileSync(path.join(gitDir, "commondir"), "utf8").trim()) : gitDir;
+    const common = fs.existsSync(/*turbopackIgnore: true*/ path.join(gitDir, "commondir"))
+      ? path.resolve(/*turbopackIgnore: true*/ gitDir, fs.readFileSync(/*turbopackIgnore: true*/ path.join(gitDir, "commondir"), "utf8").trim())
+      : gitDir;
     for (const base of [gitDir, common]) {
       const loose = path.join(base, ref);
-      if (fs.existsSync(loose)) return fs.readFileSync(loose, "utf8").trim();
+      if (fs.existsSync(/*turbopackIgnore: true*/ loose)) return fs.readFileSync(/*turbopackIgnore: true*/ loose, "utf8").trim();
     }
-    const packed = fs.readFileSync(path.join(common, "packed-refs"), "utf8");
+    const packed = fs.readFileSync(/*turbopackIgnore: true*/ path.join(common, "packed-refs"), "utf8");
     return (
       packed
         .split("\n")

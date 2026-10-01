@@ -139,6 +139,8 @@ async function prepareAppImage(
   // Git source: clone and build. Dockerfile source: build the saved Dockerfile in an empty context.
   const env = await resolveEnv(service);
   log.redact(env.secrets);
+  // Said before the build: an empty build variable often breaks it, long before the container starts.
+  if (env.missing.length) log.line(`Warning: unresolved variable references (left empty): ${env.missing.join(", ")}`);
   const workDir = path.join(paths.builds, dep.id);
   const saved = service.build ?? defaultBuild();
   const build: BuildConfig = {

@@ -68,7 +68,7 @@ export async function recoverInterruptedDeployment(dep: { id: string; serviceId:
     .from(schema.service)
     .where(eq(schema.service.id, dep.serviceId));
   const containers = await listServiceContainers(dep.serviceId, true, d);
-  if (!service || service.type !== "app" || service.currentDeploymentId === dep.id || !dep.startedAt) return containers.some((c) => c.State === "running");
+  if (service?.type !== "app" || service.currentDeploymentId === dep.id || !dep.startedAt) return containers.some((c) => c.State === "running");
   const since = dep.startedAt.getTime();
   for (const c of containers.filter((c) => c.Labels[LABEL.deployment] === dep.id)) await removeContainer(c.Id, 0, d);
   for (const c of containers.filter((c) => c.Labels[LABEL.deployment] !== dep.id && c.State === "exited")) {

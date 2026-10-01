@@ -123,7 +123,7 @@ export function UpdateSchedule({ initial, canAutoUpdate }: { initial: UpdateSche
           description={
             canAutoUpdate
               ? "At the time you pick, a new release is installed the same way as Update now: a backup first, and a roll back if it does not start."
-              : "Needs the Docker Compose install. This installation is updated by hand."
+              : "Not here: this copy runs from source code (pnpm), so it cannot replace itself. Servers installed with install.sh can."
           }
           checked={s.autoUpdate}
           disabled={!canAutoUpdate}

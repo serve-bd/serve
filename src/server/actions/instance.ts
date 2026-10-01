@@ -114,7 +114,8 @@ export async function saveUpdateSettings(input: z.input<typeof updateSettingsSch
   return act(async () => {
     const ctx = await requireInstanceAdmin();
     const data = updateSettingsSchema.parse(input);
-    if (data.autoUpdate && installMode() !== "compose") throw new UserError("Automatic updates need the Docker Compose install. Update this installation by hand.");
+    if (data.autoUpdate && installMode() !== "compose")
+      throw new UserError("Automatic updates work on servers installed with install.sh. This copy runs from source code and is updated by hand.");
     const before = await getSettings();
     await updateSettings({
       updateCheckEnabled: data.checkEnabled,

@@ -13,6 +13,9 @@ import { serverPublicIp } from "@/server/servers/access";
 import { logActivity } from "@/server/activity";
 import { DOMAIN_ROUTES, hostnamePattern } from "@/lib/database-domains";
 
+/** Marks the DNS records Serve creates for database domains, so it only ever removes its own. */
+const DNS_COMMENT = "Serve database domain";
+
 /**
  * Put a database on a domain (or take it off with null): the server's database router answers
  * for it on the engine's usual port, over TLS, with a certificate for the domain. When the domain
@@ -32,6 +35,7 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
     if (!tunnelMode && !DOMAIN_ROUTES[cfg.engine])
       throw new UserError("MySQL and MariaDB cannot share a port by domain. Use a Cloudflare Tunnel, or Public access with its own port.");
     const previousTunnel = cfg.domainTunnelId ?? null;
+    const previousHost = cfg.domain ?? null;
     const warnings: string[] = [];
 
     if (hostname) {
@@ -73,7 +77,7 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
       try {
         const cf = await Cloudflare.forAccount(tunnelAccount);
         const zone = await cf.zoneFor(hostname);
-        if (zone) await cf.upsertTunnelRecord(zone.id, hostname, tunnel.cfTunnelId);
+        if (zone) await cf.upsertTunnelRecord(zone.id, hostname, tunnel.cfTunnelId, DNS_COMMENT);
       } catch (e) {
         warnings.push(`DNS record not created: ${(e as Error).message}`);
       }
@@ -92,7 +96,7 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
             const cf = await Cloudflare.forAccount(accountId);
             const zone = await cf.zoneFor(hostname);
             if (zone) {
-              const record = await cf.upsertARecord(zone.id, hostname, ip, false, "Serve database domain");
+              const record = await cf.upsertARecord(zone.id, hostname, ip, false, DNS_COMMENT);
               if (!record)
                 warnings.push(`${hostname} already has an A record for this server. Make sure it is DNS only (grey cloud): Cloudflare's proxy does not carry database traffic.`);
             }
@@ -104,6 +108,18 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
       }
       const cert = await ensureDatabaseCertificate(hostname, service.serverId, ctx.org.id);
       if ("error" in cert) warnings.push(cert.error);
+    }
+    // A domain given up: remove the DNS records Serve made for it (never anyone else's).
+    if (previousHost && previousHost !== hostname) {
+      const accountId = await cloudflareAccountFor([previousHost], ctx.org.id).catch(() => null);
+      if (accountId)
+        try {
+          const cf = await Cloudflare.forAccount(accountId);
+          const zone = await cf.zoneFor(previousHost);
+          if (zone) for (const r of await cf.dnsRecords(zone.id, { name: previousHost })) if (r.comment === DNS_COMMENT) await cf.deleteDnsRecord(zone.id, r.id);
+        } catch (e) {
+          warnings.push(`The DNS record of ${previousHost} was not removed: ${(e as Error).message}`);
+        }
     }
     await queueRouterSync(service.serverId);
     await logActivity({

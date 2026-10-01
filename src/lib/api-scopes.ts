@@ -1,55 +1,70 @@
-/** Permissions an API token can carry. Higher scopes include lower ones. */
-export const API_SCOPES = ["read", "read:sensitive", "deploy", "write", "admin"] as const;
-export type ApiScope = (typeof API_SCOPES)[number];
+import { PERMISSIONS, type Permission } from "./permissions";
 
-export const SCOPE_INFO: Record<ApiScope, { label: string; description: string }> = {
-  read: { label: "Read", description: "List services and deployments, read status and logs. No secrets." },
-  "read:sensitive": { label: "Read sensitive data", description: "Also read environment variable values and connection strings." },
-  deploy: { label: "Deploy", description: "Trigger deployments and start, stop or restart services." },
-  write: { label: "Write", description: "Change services and variables. Includes Read and Deploy." },
-  admin: { label: "Admin", description: "Full access to everything the organization can do." },
+/*
+ * What an API token may do: a list of the same permissions roles are made of, plus "admin" for
+ * what only organization admins (and, for a Root admin, instance admins) may do. A token never
+ * does more than its owner's role allows at the moment it is used.
+ *
+ * Tokens made before fine-grained permissions carry one of the old scopes (read, read:sensitive,
+ * deploy, write, admin); they keep doing exactly what they did.
+ */
+
+export type TokenGrant = Permission | "admin";
+export const TOKEN_GRANTS: readonly TokenGrant[] = [...PERMISSIONS, "admin"];
+
+export const ADMIN_GRANT_INFO = {
+  label: "Admin",
+  description: "Everything an organization admin may do: members, roles, settings, and for a Root admin the instance itself. Includes every permission.",
 };
 
-const IMPLIES: Record<ApiScope, ApiScope[]> = {
-  read: [],
-  "read:sensitive": ["read"],
-  deploy: ["read"],
-  write: ["read", "deploy"],
-  admin: ["read", "read:sensitive", "deploy", "write"],
+const READ: Permission[] = ["projects.view", "logs.view"];
+
+/** The old coarse scopes, as permissions. */
+export const LEGACY_SCOPES: Record<string, TokenGrant[]> = {
+  read: READ,
+  "read:sensitive": [...READ, "variables.view-secrets"],
+  deploy: [...READ, "services.deploy"],
+  write: [...READ, "services.deploy", "services.manage", "variables.edit", "domains.manage"],
+  admin: ["admin"],
 };
 
-export function isApiScope(value: string): value is ApiScope {
-  return (API_SCOPES as readonly string[]).includes(value);
-}
+export const isTokenGrant = (value: string): value is TokenGrant => (TOKEN_GRANTS as readonly string[]).includes(value);
 
-/** Every scope a token effectively has, including implied ones. */
-export function expandScopes(scopes: readonly string[]): Set<ApiScope> {
-  const out = new Set<ApiScope>();
-  for (const s of scopes) {
-    if (!isApiScope(s)) continue;
-    out.add(s);
-    for (const implied of IMPLIES[s]) out.add(implied);
+/** Permissions and the admin flag a token's stored grants give (before the owner's role limits them). */
+export function tokenGrants(stored: readonly string[]): { permissions: Set<Permission>; admin: boolean } {
+  const permissions = new Set<Permission>();
+  let admin = false;
+  for (const s of stored) {
+    for (const g of LEGACY_SCOPES[s] ?? (isTokenGrant(s) ? [s] : [])) {
+      if (g === "admin") admin = true;
+      else permissions.add(g);
+    }
   }
+  if (admin) for (const p of PERMISSIONS) permissions.add(p);
+  return { permissions, admin };
+}
+
+/** What someone with these permissions may put on a token. */
+export function allowedGrants(permissions: ReadonlySet<Permission>, isAdmin: boolean): Set<TokenGrant> {
+  const out = new Set<TokenGrant>(permissions);
+  if (isAdmin) out.add("admin");
   return out;
 }
 
-export function hasScope(granted: readonly string[], needed: ApiScope) {
-  return expandScopes(granted).has(needed);
+/** Valid grants in canonical order; "admin" alone stands for everything. */
+export function normalizeGrants(input: readonly string[]): TokenGrant[] {
+  const { permissions, admin } = tokenGrants(input);
+  if (admin) return ["admin"];
+  return PERMISSIONS.filter((p) => permissions.has(p));
 }
 
-/** Scopes implied by another selected scope (shown checked and locked in the UI). */
-export function impliedScopes(selected: readonly string[]): Set<ApiScope> {
-  const out = new Set<ApiScope>();
-  for (const s of selected) if (isApiScope(s)) for (const implied of IMPLIES[s]) out.add(implied);
-  return out;
-}
-
-/** Smallest set of scopes with the same effect, in canonical order. */
-export function normalizeScopes(scopes: readonly string[]): ApiScope[] {
-  const valid = scopes.filter(isApiScope);
-  const implied = impliedScopes(valid);
-  return API_SCOPES.filter((s) => valid.includes(s) && !implied.has(s));
-}
+/** Quick picks in the token dialog. */
+export const TOKEN_PRESETS: { id: string; label: string; grants: TokenGrant[] }[] = [
+  { id: "read", label: "Read only", grants: ["projects.view", "logs.view"] },
+  { id: "deploy", label: "Deploy", grants: ["projects.view", "logs.view", "services.deploy"] },
+  { id: "manage", label: "Manage services", grants: ["projects.view", "logs.view", "services.deploy", "services.manage", "variables.edit", "domains.manage"] },
+  { id: "admin", label: "Admin", grants: ["admin"] },
+];
 
 export const EXPIRY_OPTIONS = [
   { value: "7", label: "7 days" },

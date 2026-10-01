@@ -33,6 +33,7 @@ import {
 } from "@/server/sso/config";
 import { cannotMessage, type Permission } from "@/lib/permissions";
 import { accessFrom, organizationRoles } from "@/server/permissions";
+import { type ApiPrincipal, apiPrincipal } from "@/server/api/principal";
 
 async function firstOrganizationFor(userId: string) {
   const [row] = await db
@@ -514,6 +515,8 @@ export const getSession = cache(async () => {
 
 /** Use in server components/actions: returns the user or redirects to login. */
 export async function requireUser(): Promise<SessionUser> {
+  const principal = apiPrincipal();
+  if (principal) return (await principalContext(principal)).user;
   const session = await getSession();
   if (!session) redirect("/login");
   return session.user;
@@ -537,8 +540,41 @@ export type OrgContext = {
   isRoot: boolean;
 };
 
+/** The context of an API token: its organization, with the token's permissions and project limits. */
+async function principalContext(p: ApiPrincipal): Promise<OrgContext> {
+  const [[user], [org], [membership]] = await Promise.all([
+    db.select().from(schema.user).where(eq(schema.user.id, p.userId)),
+    db.select().from(schema.organization).where(eq(schema.organization.id, p.organizationId)),
+    db
+      .select()
+      .from(schema.member)
+      .where(and(eq(schema.member.organizationId, p.organizationId), eq(schema.member.userId, p.userId))),
+  ]);
+  if (!user || !org || !membership) throw new ForbiddenError("The owner of this token is no longer a member of the organization.");
+  const access = accessFrom(membership, await organizationRoles(org.id));
+  const rootId = await getSetting("rootOrganizationId");
+  return {
+    user: user as SessionUser,
+    sessionId: `api:${p.tokenId}`,
+    org,
+    role: membership.role,
+    roleId: access.roleId,
+    roleName: access.roleName,
+    permissions: p.permissions,
+    projectIds: p.projectIds,
+    can: (permission) => p.permissions.has(permission),
+    canAccessProject: (projectId) => !p.projectIds || p.projectIds.includes(projectId),
+    isAdmin: p.admin,
+    // Instance settings: only a token with "admin" whose owner is an admin of the Root organization.
+    isInstanceAdmin: p.admin && (await isInstanceAdmin(user.id)),
+    isRoot: org.id === rootId,
+  };
+}
+
 /** Current user + active organization + membership. Redirects when missing. */
 export const requireOrg = cache(async (): Promise<OrgContext> => {
+  const principal = apiPrincipal();
+  if (principal) return principalContext(principal);
   const session = await getSession();
   if (!session) redirect("/login");
   const user = session.user;
@@ -603,6 +639,8 @@ export async function requirePermission(permission: Permission) {
  * the worker). Used by lookups that also enforce project access.
  */
 export async function sessionOrgContext(): Promise<OrgContext | null> {
+  const principal = apiPrincipal();
+  if (principal) return principalContext(principal);
   try {
     if (!(await getSession())) return null;
     return await requireOrg();

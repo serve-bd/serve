@@ -4,8 +4,8 @@ import { db, schema } from "@/server/db";
 import { UserError } from "@/server/action";
 
 /**
- * Whether the signed-in member may reach this project. Requests without a session
- * (API tokens, the worker) check access themselves, so they always pass here.
+ * Whether the signed-in member (or API token) may reach this project. Requests without either
+ * (the worker) check access themselves, so they always pass here.
  */
 async function projectAllowed(projectId: string, orgId: string) {
   const { sessionOrgContext } = await import("@/server/auth");

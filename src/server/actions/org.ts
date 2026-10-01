@@ -14,8 +14,8 @@ import { getSetting } from "@/server/settings";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
 import type { MemberRole } from "@/server/db/schema";
-import { expandScopes, normalizeScopes } from "@/lib/api-scopes";
-import { allowedScopes, BUILTIN_ROLE_INFO, canGrant, cannotMessage, isBuiltinRole, memberRoleFor, normalizePermissions } from "@/lib/permissions";
+import { allowedGrants, normalizeGrants } from "@/lib/api-scopes";
+import { BUILTIN_ROLE_INFO, canGrant, cannotMessage, isBuiltinRole, memberRoleFor, normalizePermissions } from "@/lib/permissions";
 import { organizationRoles } from "@/server/permissions";
 
 export async function switchOrganization(organizationId: string) {
@@ -373,9 +373,11 @@ export async function saveBuiltinPermissions(role: string, permissions: string[]
 
 const tokenSchema = z.object({
   name: z.string().trim().min(1, "Enter a name").max(60),
+  /** Permissions (see src/lib/permissions.ts) and "admin"; the old scope names still work. */
   scopes: z
     .array(z.string())
-    .transform(normalizeScopes)
+    .max(50)
+    .transform(normalizeGrants)
     .refine((s) => s.length > 0, "Choose at least one permission"),
   expiresInDays: z.number().int().min(1).max(3650).nullable(),
   projectIds: z.array(z.string()).max(200).nullable(),
@@ -386,9 +388,9 @@ export async function createApiToken(input: z.input<typeof tokenSchema>) {
   return act(async () => {
     const ctx = await requireOrg();
     const data = tokenSchema.parse(input);
-    const allowed = allowedScopes(ctx.permissions, ctx.isAdmin);
-    const denied = [...expandScopes(data.scopes)].filter((s) => !allowed.has(s));
-    if (denied.length) throw new UserError(`Your role does not allow the ${denied.join(", ")} scope${denied.length === 1 ? "" : "s"}.`);
+    const allowed = allowedGrants(ctx.permissions, ctx.isAdmin);
+    const denied = data.scopes.filter((s) => !allowed.has(s));
+    if (denied.length) throw new UserError(`Your role does not allow ${denied.join(", ")}.`);
     let projectIds: string[] | null = null;
     if (data.projectIds?.length) {
       const owned = await db

@@ -1,5 +1,3 @@
-import type { ApiScope } from "@/lib/api-scopes";
-
 /**
  * What a member of an organization may do. Roles are sets of these; the server
  * checks them on every action and route, and the UI hides what a role cannot do.
@@ -94,17 +92,6 @@ export function effectiveRoleId(memberRole: string, roleId: string | null | unde
   if (memberRole === "owner") return "owner";
   if (memberRole === "admin") return "admin";
   return roleId && roleId !== "owner" && roleId !== "admin" ? roleId : "developer";
-}
-
-/** API scopes a set of permissions allows; a token never does more than the person who owns it. */
-export function allowedScopes(permissions: ReadonlySet<Permission>, isAdmin: boolean): Set<ApiScope> {
-  const out = new Set<ApiScope>();
-  if (permissions.has("projects.view")) out.add("read");
-  if (permissions.has("variables.view-secrets")) out.add("read:sensitive");
-  if (permissions.has("services.deploy")) out.add("deploy");
-  if (permissions.has("services.manage") && permissions.has("variables.edit") && permissions.has("services.deploy")) out.add("write");
-  if (isAdmin) out.add("admin");
-  return out;
 }
 
 /** "Your role cannot …" for tooltips and errors. */

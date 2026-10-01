@@ -1,5 +1,5 @@
 import { and, asc, desc, eq } from "drizzle-orm";
-import { allowedScopes } from "@/lib/permissions";
+import { allowedGrants } from "@/lib/api-scopes";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { publicBaseUrl } from "@/server/git/github-app";
@@ -42,7 +42,7 @@ export default async function TokensPage() {
       <TokensView
         canManage={ctx.can("members.manage")}
         me={ctx.user.id}
-        allowed={[...allowedScopes(ctx.permissions, ctx.isAdmin)]}
+        allowed={[...allowedGrants(ctx.permissions, ctx.isAdmin)]}
         limitedToProjects={!!ctx.projectIds}
         baseUrl={baseUrl}
         projects={projects}

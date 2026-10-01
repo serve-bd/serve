@@ -2,20 +2,15 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { sha256 } from "@/server/crypto";
 import { serviceInOrg } from "@/server/services/access";
-import { expandScopes, SCOPE_INFO, type ApiScope } from "@/lib/api-scopes";
-import { allowedScopes } from "@/lib/permissions";
+import { tokenGrants } from "@/lib/api-scopes";
+import type { Permission } from "@/lib/permissions";
 import { memberAccess } from "@/server/permissions";
 import { dashboardVisitorIp } from "@/server/proxy/trusted-proxies";
+import type { ApiPrincipal } from "@/server/api/principal";
 
-export type ApiAuth = {
-  tokenId: string;
-  organizationId: string;
-  userId: string;
-  scopes: Set<ApiScope>;
-  /** Null means every project in the organization. */
-  projectIds: string[] | null;
+export type ApiAuth = ApiPrincipal & {
   canAccessProject: (projectId: string) => boolean;
-  has: (scope: ApiScope) => boolean;
+  can: (permission: Permission) => boolean;
 };
 
 const USAGE_INTERVAL = 60_000;
@@ -23,10 +18,11 @@ const USAGE_INTERVAL = 60_000;
 const json = (status: number, error: string) => Response.json({ error }, { status });
 
 /**
- * Authenticate a bearer API token and check it carries `scope`.
- * Returns either the auth context or a ready error response.
+ * Authenticate a bearer API token. Its permissions are the ones it was given that its owner's
+ * role still has right now: a role change or removal applies at once. Returns the auth context
+ * or a ready error response.
  */
-export async function requireToken(request: Request, scope: ApiScope): Promise<{ auth: ApiAuth; error?: never } | { auth?: never; error: Response }> {
+export async function authenticateToken(request: Request): Promise<{ auth: ApiAuth; error?: never } | { auth?: never; error: Response }> {
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token.startsWith("srv_")) return { error: json(401, "Invalid or missing API token") };
@@ -37,21 +33,11 @@ export async function requireToken(request: Request, scope: ApiScope): Promise<{
   if (!row) return { error: json(401, "Invalid or missing API token") };
   if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return { error: json(401, "Token expired") };
 
-  // A token never does more than its owner may do now: role changes and removal apply at once.
   const owner = await memberAccess(row.organizationId, row.userId);
   if (!owner) return { error: json(401, "The owner of this token is no longer a member of the organization") };
-  const allowed = allowedScopes(owner.permissions, owner.roleId === "owner" || owner.roleId === "admin");
-  const scopes = new Set([...expandScopes(row.scopes)].filter((s) => allowed.has(s)));
-  if (!scopes.has(scope)) {
-    return {
-      error: json(
-        403,
-        expandScopes(row.scopes).has(scope)
-          ? `The role of this token's owner no longer allows the "${scope}" scope (${SCOPE_INFO[scope].label}).`
-          : `This token is missing the "${scope}" scope (${SCOPE_INFO[scope].label}).`,
-      ),
-    };
-  }
+  const granted = tokenGrants(row.scopes);
+  const ownerAdmin = owner.roleId === "owner" || owner.roleId === "admin";
+  const permissions = new Set([...granted.permissions].filter((p) => owner.permissions.has(p)));
 
   if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > USAGE_INTERVAL) {
     void db
@@ -69,10 +55,11 @@ export async function requireToken(request: Request, scope: ApiScope): Promise<{
       tokenId: row.id,
       organizationId: row.organizationId,
       userId: row.userId,
-      scopes,
+      permissions,
+      admin: granted.admin && ownerAdmin,
       projectIds,
       canAccessProject: (projectId) => !projectIds || projectIds.includes(projectId),
-      has: (s) => scopes.has(s),
+      can: (p) => permissions.has(p),
     },
   };
 }

@@ -24,9 +24,10 @@ vi.mock("@/server/auth", () => ({ sessionOrgContext: async () => session.ctx }))
 const owner = { access: null as null | { roleId: string; roleName: string; permissions: Set<string>; projectIds: string[] | null } };
 vi.mock("@/server/permissions", () => ({ memberAccess: async () => owner.access }));
 
-import { allowedScopes, BUILTIN_PERMISSIONS, canGrant, effectiveRoleId, memberRoleFor, normalizePermissions, PERMISSIONS, type Permission } from "@/lib/permissions";
+import { BUILTIN_PERMISSIONS, canGrant, effectiveRoleId, memberRoleFor, normalizePermissions, PERMISSIONS, type Permission } from "@/lib/permissions";
 import { serviceInOrg } from "@/server/services/access";
-import { requireToken } from "@/server/api-auth";
+import { authenticateToken } from "@/server/api-auth";
+import { allowedGrants } from "@/lib/api-scopes";
 import { sha256 } from "@/server/crypto";
 
 describe("member access", async () => {
@@ -114,12 +115,11 @@ describe("who may grant which role", () => {
   });
 });
 
-describe("API token scopes follow the owner's role", () => {
-  it("maps permissions to scopes", () => {
-    expect([...allowedScopes(new Set(BUILTIN_PERMISSIONS.viewer), false)]).toEqual(["read"]);
-    expect([...allowedScopes(new Set(BUILTIN_PERMISSIONS.developer), false)].sort()).toEqual(["deploy", "read", "write"]);
-    expect(allowedScopes(new Set(PERMISSIONS), true).has("admin")).toBe(true);
-    expect(allowedScopes(new Set(PERMISSIONS), false).has("admin")).toBe(false);
+describe("API tokens follow the owner's role", () => {
+  it("lets a member hand out only the permissions they have", () => {
+    expect([...allowedGrants(new Set(BUILTIN_PERMISSIONS.viewer), false)]).toEqual([...BUILTIN_PERMISSIONS.viewer]);
+    expect(allowedGrants(new Set(PERMISSIONS), true).has("admin")).toBe(true);
+    expect(allowedGrants(new Set(PERMISSIONS), false).has("admin")).toBe(false);
   });
 
   const token = "srv_testtoken123";
@@ -130,28 +130,38 @@ describe("API token scopes follow the owner's role", () => {
     queue.length = 0;
   });
 
-  it("refuses a scope the owner's role lost", async () => {
+  it("drops permissions the owner's role lost", async () => {
     owner.access = { roleId: "viewer", roleName: "Viewer", permissions: new Set(BUILTIN_PERMISSIONS.viewer), projectIds: null };
     queue.push([{ ...row, tokenHash: sha256(token) }]);
-    const res = await requireToken(request(), "deploy");
-    expect(res.error?.status).toBe(403);
-    expect(await res.error?.json()).toMatchObject({ error: expect.stringContaining("no longer allows") });
+    const res = await authenticateToken(request());
+    expect(res.auth?.can("services.deploy")).toBe(false);
+    expect(res.auth?.can("projects.view")).toBe(true);
   });
 
   it("allows what both the token and the role allow, within the owner's projects", async () => {
     owner.access = { roleId: "developer", roleName: "Developer", permissions: new Set(BUILTIN_PERMISSIONS.developer), projectIds: ["p1"] };
     queue.push([{ ...row, tokenHash: sha256(token) }]);
-    const res = await requireToken(request(), "deploy");
-    expect(res.auth?.has("deploy")).toBe(true);
-    expect(res.auth?.has("read:sensitive")).toBe(false);
+    const res = await authenticateToken(request());
+    expect(res.auth?.can("services.deploy")).toBe(true);
+    expect(res.auth?.can("variables.view-secrets")).toBe(false);
+    expect(res.auth?.admin).toBe(false);
     expect(res.auth?.canAccessProject("p1")).toBe(true);
     expect(res.auth?.canAccessProject("p2")).toBe(false);
+  });
+
+  it("gives admin powers only when the owner is an admin", async () => {
+    owner.access = { roleId: "developer", roleName: "Developer", permissions: new Set(BUILTIN_PERMISSIONS.developer), projectIds: null };
+    queue.push([{ ...row, scopes: ["admin"], tokenHash: sha256(token) }]);
+    expect((await authenticateToken(request())).auth?.admin).toBe(false);
+    owner.access = { roleId: "admin", roleName: "Admin", permissions: new Set(PERMISSIONS), projectIds: null };
+    queue.push([{ ...row, scopes: ["admin"], tokenHash: sha256(token) }]);
+    expect((await authenticateToken(request())).auth?.admin).toBe(true);
   });
 
   it("stops working when the owner leaves", async () => {
     owner.access = null;
     queue.push([{ ...row, tokenHash: sha256(token) }]);
-    expect((await requireToken(request(), "read")).error?.status).toBe(401);
+    expect((await authenticateToken(request())).error?.status).toBe(401);
   });
 });
 

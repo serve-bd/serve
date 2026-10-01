@@ -14,7 +14,8 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { useNow } from "@/hooks/use-client";
 import { createApiToken, revokeApiToken } from "@/server/actions/org";
-import { API_SCOPES, EXPIRY_OPTIONS, impliedScopes, SCOPE_INFO, type ApiScope } from "@/lib/api-scopes";
+import { ADMIN_GRANT_INFO, EXPIRY_OPTIONS, normalizeGrants, TOKEN_PRESETS, tokenGrants, type TokenGrant } from "@/lib/api-scopes";
+import { PERMISSION_GROUPS, PERMISSION_INFO, PERMISSIONS, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 type Token = {
@@ -32,15 +33,17 @@ type Token = {
 };
 type Project = { id: string; name: string };
 
-const ENDPOINTS: { method: string; path: string; scope: ApiScope; description: string }[] = [
-  { method: "GET", path: "/api/v1/services", scope: "read", description: "List services" },
-  { method: "GET", path: "/api/v1/services/:id", scope: "read", description: "Service details, domains and variable names" },
-  { method: "GET", path: "/api/v1/deployments/:id", scope: "read", description: "Deployment status and log tail" },
-  { method: "GET", path: "/api/v1/services/:id/env", scope: "read:sensitive", description: "Variable values" },
-  { method: "POST", path: "/api/v1/services/:id/deploy", scope: "deploy", description: "Deploy the latest version" },
-  { method: "POST", path: "/api/v1/services/:id/restart", scope: "deploy", description: "Restart (also start, stop)" },
-  { method: "PATCH", path: "/api/v1/services/:id/env", scope: "write", description: "Set or remove variables" },
+const EXAMPLES: { method: string; path: string; description: string }[] = [
+  { method: "GET", path: "/api/v1/me", description: "What this token may do" },
+  { method: "GET", path: "/api/v1/projects", description: "Projects, then /projects/:id for environments and services" },
+  { method: "POST", path: "/api/v1/services", description: "Create an app, database or compose stack" },
+  { method: "POST", path: "/api/v1/services/:id/deploy", description: "Deploy the latest version" },
+  { method: "PATCH", path: "/api/v1/services/:id/variables", description: "Set or remove variables" },
+  { method: "POST", path: "/api/v1/services/:id/domains", description: "Add a domain" },
+  { method: "GET", path: "/api/v1/services/:id/logs", description: "Recent container logs" },
 ];
+
+const SENSITIVE: Permission[] = ["variables.view-secrets", "console.access", "members.manage", "integrations.manage"];
 
 const DAY = 86_400_000;
 
@@ -51,12 +54,20 @@ function expiryState(expiresAt: string | null, now: number | null) {
   return { tone: days <= 7 ? ("warn" as const) : ("neutral" as const), label: `Expires in ${days} day${days === 1 ? "" : "s"}` };
 }
 
-function ScopeBadges({ scopes }: { scopes: string[] }) {
+function GrantBadges({ scopes }: { scopes: string[] }) {
+  const { permissions, admin } = tokenGrants(scopes);
+  if (admin)
+    return (
+      <span className="flex">
+        <Badge tone="bad">{ADMIN_GRANT_INFO.label}</Badge>
+      </span>
+    );
+  const list = PERMISSIONS.filter((p) => permissions.has(p));
   return (
     <span className="flex flex-wrap gap-1">
-      {scopes.map((s) => (
-        <Badge key={s} tone={s === "admin" ? "bad" : s === "write" || s === "read:sensitive" ? "warn" : s === "deploy" ? "accent" : "neutral"}>
-          {SCOPE_INFO[s as ApiScope]?.label ?? s}
+      {list.map((p) => (
+        <Badge key={p} tone={SENSITIVE.includes(p) ? "warn" : p === "services.deploy" ? "accent" : "neutral"}>
+          {PERMISSION_INFO[p].label}
         </Badge>
       ))}
     </span>
@@ -86,7 +97,7 @@ function TokenRow({ token: t, projects, canRevoke, onRevoke }: { token: Token; p
             {expiry && <Badge tone={expiry.tone}>{expiry.label}</Badge>}
             {!t.expiresAt && <span className="text-xs text-faint">No expiry</span>}
           </div>
-          <ScopeBadges scopes={t.scopes} />
+          <GrantBadges scopes={t.scopes} />
           <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted">
             <code className="font-mono text-[11.5px] text-fg-2">{t.prefix}…</code>
             <span className="text-faint">·</span>
@@ -131,29 +142,31 @@ function CreateTokenDialog({
   onOpenChange: (open: boolean) => void;
   projects: Project[];
   baseUrl: string;
-  allowed: ApiScope[];
+  allowed: TokenGrant[];
   limitedToProjects: boolean;
 }) {
   const [name, setName] = React.useState("");
   const [expiry, setExpiry] = React.useState("90");
-  const [scopes, setScopes] = React.useState<ApiScope[]>(() => (["read", "deploy"] as ApiScope[]).filter((s) => allowed.includes(s)));
+  const [grants, setGrants] = React.useState<TokenGrant[]>(() => (["projects.view", "logs.view", "services.deploy"] as TokenGrant[]).filter((s) => allowed.includes(s)));
+  const admin = grants.includes("admin");
   // Members limited to some projects always pick projects.
   const [restrict, setRestrict] = React.useState(limitedToProjects);
   const [projectIds, setProjectIds] = React.useState<string[]>([]);
   const [created, setCreated] = React.useState<string | null>(null);
-  const implied = impliedScopes(scopes);
   const create = useAction(
     () =>
       createApiToken({
         name,
-        scopes,
+        scopes: normalizeGrants(grants),
         expiresInDays: expiry === "never" ? null : Number(expiry),
         projectIds: restrict ? projectIds : null,
       }),
     { onSuccess: (d) => setCreated(d.token) },
   );
-  const canCreate = name.trim() && scopes.length && (!restrict || projectIds.length);
-  const toggleScope = (s: ApiScope, on: boolean) => setScopes((all) => (on ? [...all, s] : all.filter((x) => x !== s)));
+  const canCreate = name.trim() && grants.length && (!restrict || projectIds.length);
+  const toggle = (g: TokenGrant, on: boolean) => setGrants((all) => (on ? [...all, g] : all.filter((x) => x !== g)));
+  const preset = TOKEN_PRESETS.find((p) => p.grants.length === grants.length && p.grants.every((g) => grants.includes(g)))?.id ?? null;
+  const reads = admin || grants.some((g) => SENSITIVE.includes(g as Permission));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -193,36 +206,65 @@ function CreateTokenDialog({
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <span className="text-[13px] font-medium text-fg">Permissions</span>
-                  <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
-                    {API_SCOPES.map((s) => {
-                      const denied = !allowed.includes(s);
-                      const locked = implied.has(s) || denied;
-                      const checked = !denied && (implied.has(s) || scopes.includes(s));
-                      return (
-                        <label
-                          key={s}
-                          className={cn("flex cursor-pointer items-start gap-3 px-3.5 py-3 transition-colors hover:bg-hover", locked && "cursor-default hover:bg-transparent")}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[13px] font-medium text-fg">Permissions</span>
+                    <div className="flex flex-wrap gap-1">
+                      {TOKEN_PRESETS.filter((p) => p.grants.every((g) => allowed.includes(g))).map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setGrants(p.grants)}
+                          className={cn(
+                            "rounded-full border px-2.5 py-0.5 text-[12px] transition-colors",
+                            preset === p.id ? "border-accent bg-accent-soft/60 text-fg" : "border-line text-muted hover:bg-hover hover:text-fg",
+                          )}
                         >
-                          <Checkbox checked={checked} disabled={locked} onCheckedChange={(on) => toggleScope(s, on)} className="mt-0.5" />
-                          <span className="flex min-w-0 flex-col gap-0.5">
-                            <span className="flex items-center gap-2 text-[13px] font-medium text-fg">
-                              {SCOPE_INFO[s].label}
-                              {denied ? (
-                                <span className="text-[11px] font-normal text-faint">Your role does not allow it</span>
-                              ) : (
-                                locked && <span className="text-[11px] font-normal text-faint">Included</span>
-                              )}
-                            </span>
-                            <span className="text-[12.5px] leading-snug text-muted">{SCOPE_INFO[s].description}</span>
-                          </span>
-                        </label>
-                      );
-                    })}
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  {(scopes.includes("admin") || scopes.includes("read:sensitive")) && (
+                  <div className="scrollbar-thin max-h-[340px] divide-y divide-line overflow-y-auto rounded-xl border border-line">
+                    {allowed.includes("admin") && (
+                      <label className="flex cursor-pointer items-start gap-3 px-3.5 py-3 transition-colors hover:bg-hover">
+                        <Checkbox checked={admin} onCheckedChange={(on) => setGrants(on ? ["admin"] : [])} className="mt-0.5" />
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          <span className="text-[13px] font-medium text-fg">{ADMIN_GRANT_INFO.label}</span>
+                          <span className="text-[12.5px] leading-snug text-muted">{ADMIN_GRANT_INFO.description}</span>
+                        </span>
+                      </label>
+                    )}
+                    {PERMISSION_GROUPS.map((group) => (
+                      <div key={group.title} className="flex flex-col py-1.5">
+                        <span className="px-3.5 pt-1.5 pb-1 text-[11px] font-medium tracking-wide text-faint uppercase">{group.title}</span>
+                        {group.permissions.map((p) => {
+                          const denied = !allowed.includes(p);
+                          const checked = admin || (!denied && grants.includes(p));
+                          return (
+                            <label
+                              key={p}
+                              className={cn(
+                                "flex cursor-pointer items-start gap-3 px-3.5 py-2 transition-colors hover:bg-hover",
+                                (denied || admin) && "cursor-default hover:bg-transparent",
+                              )}
+                            >
+                              <Checkbox checked={checked} disabled={denied || admin} onCheckedChange={(on) => toggle(p, on)} className="mt-0.5" />
+                              <span className="flex min-w-0 flex-col gap-0.5">
+                                <span className="flex items-center gap-2 text-[13px] font-medium text-fg">
+                                  {PERMISSION_INFO[p].label}
+                                  {denied && <span className="text-[11px] font-normal text-faint">Your role does not allow it</span>}
+                                </span>
+                                <span className="text-[12.5px] leading-snug text-muted">{PERMISSION_INFO[p].description}</span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                  {reads && (
                     <p className="flex items-start gap-2 text-[12.5px] text-warn">
-                      <AlertTriangle className="mt-0.5 size-3.5 flex-none" /> This token can read secrets. Keep it out of logs and public repositories.
+                      <AlertTriangle className="mt-0.5 size-3.5 flex-none" /> This token can read secrets or change who has access. Keep it out of logs and public repositories.
                     </p>
                   )}
                 </div>
@@ -291,8 +333,8 @@ export function TokensView({
   /** Sees and revokes every token of the organization. */
   canManage: boolean;
   me: string;
-  /** Scopes the member's role allows; a token cannot have more. */
-  allowed: ApiScope[];
+  /** Permissions the member's role allows; a token cannot have more. */
+  allowed: TokenGrant[];
   limitedToProjects: boolean;
   baseUrl: string;
 }) {
@@ -341,22 +383,25 @@ export function TokensView({
       </Card>
 
       <Card className="overflow-hidden">
-        <CardHeader title="Using the API" description="Send the token as a bearer token. Responses are JSON." />
+        <CardHeader
+          title="Using the API"
+          description="Everything the dashboard does. Send the token as a bearer token; answers are JSON."
+          actions={
+            <a href={`${baseUrl}/api/v1/openapi.json`} target="_blank" rel="noreferrer" className="text-[12.5px] font-medium text-accent hover:underline">
+              OpenAPI spec
+            </a>
+          }
+        />
         <CardBody className="flex flex-col gap-4 py-5">
           <pre className="scrollbar-thin overflow-x-auto rounded-xl bg-log-bg p-4 font-mono text-[12px] leading-relaxed text-log-fg">{`curl -X POST \\\n  -H "Authorization: Bearer $SERVE_TOKEN" \\\n  ${baseUrl}/api/v1/services/<service-id>/deploy`}</pre>
           <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
-            {ENDPOINTS.map((e) => (
+            {EXAMPLES.map((e) => (
               <div key={`${e.method} ${e.path}`} className="flex flex-col gap-1 px-3.5 py-2.5 sm:flex-row sm:items-center sm:gap-3">
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="w-12 flex-none font-mono text-[11px] font-semibold text-accent">{e.method}</span>
                   <code className="truncate font-mono text-[12px] text-fg">{e.path}</code>
                 </span>
-                <span className="flex min-w-0 flex-1 items-center justify-between gap-3 pl-14 sm:pl-0">
-                  <span className="truncate text-[12.5px] text-muted">{e.description}</span>
-                  <Badge tone="neutral" className="flex-none">
-                    {SCOPE_INFO[e.scope].label}
-                  </Badge>
-                </span>
+                <span className="min-w-0 flex-1 truncate pl-14 text-[12.5px] text-muted sm:pl-0">{e.description}</span>
               </div>
             ))}
           </div>

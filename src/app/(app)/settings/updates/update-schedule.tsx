@@ -105,7 +105,7 @@ export function UpdateSchedule({ initial, canAutoUpdate }: { initial: UpdateSche
     success: "Update settings saved",
   });
   return (
-    <div className="flex flex-col gap-4 border-t border-line pt-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <SwitchRow
           title="Check for updates"

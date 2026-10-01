@@ -88,6 +88,12 @@ networks:
     expect(out.services.web.networks).toEqual({ front: null, default: { aliases: ["shop-ab12cd-web"] } });
     expect(out.networks.default.labels["serve.stack-network"]).toBe("svc1");
   });
+  it("keeps text that looks like a date or a boolean quoted", () => {
+    const src = `services:\n  app:\n    image: x\n    environment:\n      EXPIRES: "2099-01-01T00:00:00Z"\n      FLAG: "on"\n`;
+    const out = transformCompose(src, "shop-ab12cd", "svc1");
+    expect(out).toContain('EXPIRES: "2099-01-01T00:00:00Z"');
+    expect(out).toContain('FLAG: "on"');
+  });
   it("rejects files without services", () => {
     expect(() => transformCompose("version: '3'", "x", "y")).toThrow();
   });

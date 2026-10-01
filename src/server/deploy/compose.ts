@@ -110,7 +110,9 @@ export function transformCompose(content: string, slug: string, serviceId: strin
   if (subnet && !nets.default) nets.default = { ipam: { config: [{ subnet }] } };
   // Marks the stack network the proxy must join (also after the proxy is recreated).
   if (isolated) nets.default = { ...(nets.default ?? {}), labels: { ...((nets.default?.labels as Record<string, string>) ?? {}), [STACK_NETWORK_LABEL]: serviceId } };
-  return YAML.stringify(doc);
+  // YAML 1.1 rules: text Docker Compose would read as a date or a boolean (2099-01-01T00:00:00Z,
+  // yes, on) stays quoted, so it reaches the container as written.
+  return YAML.stringify(doc, { version: "1.1" });
 }
 
 /** Pick the lowest free 10.210-10.219.x.0/24 subnet not used by other stacks or networks. */

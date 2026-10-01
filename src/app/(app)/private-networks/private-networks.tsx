@@ -14,6 +14,8 @@ import type { MeshNetworkView } from "@/server/mesh";
 import { NetworkNameDialog } from "../servers/[serverId]/network/networks";
 import { NetworkCanvas } from "./network-canvas";
 import { ViewToggle } from "@/components/view-toggle";
+import { PageBody, PageHeader } from "@/components/shell/page-header";
+import { HelpTip } from "@/components/ui/help-tip";
 import { useRouter } from "@/hooks/use-router";
 import { cn } from "@/lib/utils";
 
@@ -94,200 +96,213 @@ export function PrivateNetworks({
   // A shared server may be in its owner's networks, which this page does not show.
   const alone = servers.filter((s) => s.joined && !s.shared && !inSome.has(s.id));
 
+  const joined = servers.filter((s) => s.joined).length;
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[13px] text-muted">
-          {networks.length} network{networks.length === 1 ? "" : "s"} · {servers.filter((s) => s.joined).length} of {servers.length} server{servers.length === 1 ? "" : "s"} joined
-        </p>
-        <div className="flex items-center gap-2">
-          {servers.length > 0 && <ViewToggle view={view} views={["list", "canvas"]} onChange={setView} />}
-          <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
-            <Plus /> New network
-          </Button>
-        </div>
-      </div>
+    <>
+      <PageHeader
+        crumb="Private networks"
+        title={
+          <span className="flex items-center gap-1.5">
+            Private networks
+            <HelpTip label="About private networks">
+              Servers in the same network reach each other&apos;s services by their private names, over encrypted WireGuard links. Servers in different networks stay apart.
+            </HelpTip>
+          </span>
+        }
+        description={`${networks.length} network${networks.length === 1 ? "" : "s"} · ${joined} of ${servers.length} server${servers.length === 1 ? "" : "s"} joined`}
+        actions={
+          <>
+            {servers.length > 0 && <ViewToggle view={view} views={["list", "canvas"]} onChange={setView} />}
+            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+              <Plus /> <span className="hidden sm:inline">New network</span>
+            </Button>
+          </>
+        }
+      />
+      <PageBody>
+        <div className="flex flex-col gap-6">
+          {view === "canvas" && servers.length > 0 ? (
+            <div className="h-[70dvh] min-h-[380px] overflow-hidden rounded-2xl border border-line bg-sunken sm:h-[calc(100dvh-17rem)] sm:min-h-[460px]">
+              <NetworkCanvas networks={networks} servers={servers} saved={positions} canArrange={canArrange} />
+            </div>
+          ) : networks.length === 0 ? (
+            <Card>
+              <EmptyState
+                icon={<Network />}
+                title="No private networks yet"
+                description="Create a network, then add servers to it. Servers join the private network from their own page first."
+                action={
+                  <Button size="sm" onClick={() => setCreating(true)}>
+                    <Plus /> New network
+                  </Button>
+                }
+              />
+            </Card>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {networks.map((n) => {
+                const candidates = servers.filter((s) => !n.servers.some((m) => m.id === s.id));
+                return (
+                  <Card key={n.id} className="flex flex-col">
+                    <CardHeader
+                      title={
+                        <span className="flex min-w-0 items-center gap-2">
+                          <Network className="size-4 flex-none text-accent" />
+                          <span className="truncate">{n.name}</span>
+                        </span>
+                      }
+                      description={`${n.servers.length} server${n.servers.length === 1 ? "" : "s"}`}
+                      actions={
+                        <div className="flex items-center gap-1">
+                          <Menu>
+                            <MenuTrigger render={<Button size="xs" disabled={!candidates.length} />}>
+                              <Plus /> Add server
+                            </MenuTrigger>
+                            <MenuContent className="w-64">
+                              <MenuLabel>Add to {n.name}</MenuLabel>
+                              {candidates.map((s) => (
+                                <MenuItem key={s.id} disabled={!s.joined} onClick={() => void member.run(n.id, s.id, true)}>
+                                  <ServerIcon />
+                                  <span className="min-w-0 flex-1 truncate">{s.name}</span>
+                                  {!s.joined ? <span className="text-xs text-faint">not joined</span> : s.shared && <span className="text-xs text-info">shared</span>}
+                                </MenuItem>
+                              ))}
+                              {candidates.some((s) => !s.joined) && <p className="px-2 pt-1 pb-1.5 text-xs text-faint">Servers join from their Private network page.</p>}
+                            </MenuContent>
+                          </Menu>
+                          <Menu>
+                            <MenuTrigger render={<Button variant="ghost" size="xs" aria-label={`More for ${n.name}`} />}>
+                              <MoreHorizontal />
+                            </MenuTrigger>
+                            <MenuContent>
+                              <MenuItem onClick={() => setRenaming({ id: n.id, name: n.name })}>
+                                <Pencil /> Rename
+                              </MenuItem>
+                              <MenuSeparator />
+                              <MenuItem
+                                danger
+                                onClick={async () => {
+                                  if (
+                                    await meshConfirm(
+                                      { kind: "delete", networkId: n.id },
+                                      {
+                                        title: `Delete ${n.name}?`,
+                                        description: n.servers.length
+                                          ? `${n.servers.map((s) => s.name).join(", ")} stop reaching each other through it. Servers that share another network keep that link.`
+                                          : "No server is in it.",
+                                        confirmLabel: "Delete network",
+                                      },
+                                    )
+                                  )
+                                    void remove.run(n.id);
+                                }}
+                              >
+                                <Trash2 /> Delete
+                              </MenuItem>
+                            </MenuContent>
+                          </Menu>
+                        </div>
+                      }
+                    />
+                    {n.servers.length === 0 ? (
+                      <p className="px-5 py-6 text-center text-[13px] text-muted">No servers yet. Add one to start.</p>
+                    ) : (
+                      <ul className="divide-y divide-line">
+                        {n.servers.map((m) => {
+                          const s = byId.get(m.id) ?? { ...m, state: null, message: null, address: null, nat: false, shared: true };
+                          const st = stateOf(s);
+                          return (
+                            <li key={m.id} className="flex items-center gap-3 px-5 py-3">
+                              <span className={cn("size-2 flex-none rounded-full", st.dot)} aria-hidden />
+                              <div className="flex min-w-0 flex-1 flex-col">
+                                <Link href={s.shared ? `/servers/${m.id}` : `/servers/${m.id}/network`} className="truncate text-[13px] font-medium text-fg hover:underline">
+                                  {m.name}
+                                  {s.shared && <span className="ml-1.5 text-[11px] font-normal text-info">Shared</span>}
+                                </Link>
+                                <span className={cn("truncate text-xs", st.tone)} title={s.message ?? undefined}>
+                                  {s.address ? <span className="font-mono text-muted">{s.address} · </span> : null}
+                                  {st.label}
+                                  {s.nat && <span className="text-muted"> · no public address</span>}
+                                </span>
+                              </div>
+                              <Tooltip content={`Remove from ${n.name}`}>
+                                <Button
+                                  variant="ghost"
+                                  size="xs"
+                                  aria-label={`Remove ${m.name} from ${n.name}`}
+                                  onClick={async () => {
+                                    const others = n.servers.filter((x) => x.id !== m.id);
+                                    if (
+                                      !(await meshConfirm(
+                                        { kind: "remove", networkId: n.id, serverId: m.id },
+                                        {
+                                          title: `Remove ${m.name} from ${n.name}?`,
+                                          description: others.length
+                                            ? `${m.name} stops reaching ${others.map((x) => x.name).join(", ")} through ${n.name}. Servers that share another network keep that link.`
+                                            : `${m.name} is the only server in ${n.name}.`,
+                                          confirmLabel: "Remove",
+                                        },
+                                      ))
+                                    )
+                                      return;
+                                    void member.run(n.id, m.id, false);
+                                  }}
+                                >
+                                  <X />
+                                </Button>
+                              </Tooltip>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+          )}
 
-      {view === "canvas" && servers.length > 0 ? (
-        <div className="h-[70dvh] min-h-[380px] overflow-hidden rounded-2xl border border-line bg-sunken sm:h-[calc(100dvh-17rem)] sm:min-h-[460px]">
-          <NetworkCanvas networks={networks} servers={servers} saved={positions} canArrange={canArrange} />
-        </div>
-      ) : networks.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={<Network />}
-            title="No private networks yet"
-            description="Create a network, then add servers to it. Servers join the private network from their own page first."
-            action={
-              <Button size="sm" onClick={() => setCreating(true)}>
-                <Plus /> New network
-              </Button>
-            }
+          {alone.length > 0 && (
+            <Card>
+              <CardHeader title="Joined, but in no network" description="These servers run the private network but reach no other server. Add them to a network above." />
+              <ul className="divide-y divide-line">
+                {alone.map((s) => (
+                  <ServerLine key={s.id} server={s} />
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          {notJoined.length > 0 && (
+            <Card>
+              <CardHeader title="Not joined" description="Join a server from its Private network page: pick the address other servers use and its networks." />
+              <ul className="divide-y divide-line">
+                {notJoined.map((s) => (
+                  <ServerLine key={s.id} server={s} action />
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          <NetworkNameDialog
+            open={creating}
+            onOpenChange={setCreating}
+            title="New private network"
+            description="Add servers to it next."
+            confirmLabel="Create network"
+            onSubmit={(name) => create.run(name)}
           />
-        </Card>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {networks.map((n) => {
-            const candidates = servers.filter((s) => !n.servers.some((m) => m.id === s.id));
-            return (
-              <Card key={n.id} className="flex flex-col">
-                <CardHeader
-                  title={
-                    <span className="flex min-w-0 items-center gap-2">
-                      <Network className="size-4 flex-none text-accent" />
-                      <span className="truncate">{n.name}</span>
-                    </span>
-                  }
-                  description={`${n.servers.length} server${n.servers.length === 1 ? "" : "s"}`}
-                  actions={
-                    <div className="flex items-center gap-1">
-                      <Menu>
-                        <MenuTrigger render={<Button size="xs" disabled={!candidates.length} />}>
-                          <Plus /> Add server
-                        </MenuTrigger>
-                        <MenuContent className="w-64">
-                          <MenuLabel>Add to {n.name}</MenuLabel>
-                          {candidates.map((s) => (
-                            <MenuItem key={s.id} disabled={!s.joined} onClick={() => void member.run(n.id, s.id, true)}>
-                              <ServerIcon />
-                              <span className="min-w-0 flex-1 truncate">{s.name}</span>
-                              {!s.joined ? <span className="text-xs text-faint">not joined</span> : s.shared && <span className="text-xs text-info">shared</span>}
-                            </MenuItem>
-                          ))}
-                          {candidates.some((s) => !s.joined) && <p className="px-2 pt-1 pb-1.5 text-xs text-faint">Servers join from their Private network page.</p>}
-                        </MenuContent>
-                      </Menu>
-                      <Menu>
-                        <MenuTrigger render={<Button variant="ghost" size="xs" aria-label={`More for ${n.name}`} />}>
-                          <MoreHorizontal />
-                        </MenuTrigger>
-                        <MenuContent>
-                          <MenuItem onClick={() => setRenaming({ id: n.id, name: n.name })}>
-                            <Pencil /> Rename
-                          </MenuItem>
-                          <MenuSeparator />
-                          <MenuItem
-                            danger
-                            onClick={async () => {
-                              if (
-                                await meshConfirm(
-                                  { kind: "delete", networkId: n.id },
-                                  {
-                                    title: `Delete ${n.name}?`,
-                                    description: n.servers.length
-                                      ? `${n.servers.map((s) => s.name).join(", ")} stop reaching each other through it. Servers that share another network keep that link.`
-                                      : "No server is in it.",
-                                    confirmLabel: "Delete network",
-                                  },
-                                )
-                              )
-                                void remove.run(n.id);
-                            }}
-                          >
-                            <Trash2 /> Delete
-                          </MenuItem>
-                        </MenuContent>
-                      </Menu>
-                    </div>
-                  }
-                />
-                {n.servers.length === 0 ? (
-                  <p className="px-5 py-6 text-center text-[13px] text-muted">No servers yet. Add one to start.</p>
-                ) : (
-                  <ul className="divide-y divide-line">
-                    {n.servers.map((m) => {
-                      const s = byId.get(m.id) ?? { ...m, state: null, message: null, address: null, nat: false, shared: true };
-                      const st = stateOf(s);
-                      return (
-                        <li key={m.id} className="flex items-center gap-3 px-5 py-3">
-                          <span className={cn("size-2 flex-none rounded-full", st.dot)} aria-hidden />
-                          <div className="flex min-w-0 flex-1 flex-col">
-                            <Link href={s.shared ? `/servers/${m.id}` : `/servers/${m.id}/network`} className="truncate text-[13px] font-medium text-fg hover:underline">
-                              {m.name}
-                              {s.shared && <span className="ml-1.5 text-[11px] font-normal text-info">Shared</span>}
-                            </Link>
-                            <span className={cn("truncate text-xs", st.tone)} title={s.message ?? undefined}>
-                              {s.address ? <span className="font-mono text-muted">{s.address} · </span> : null}
-                              {st.label}
-                              {s.nat && <span className="text-muted"> · no public address</span>}
-                            </span>
-                          </div>
-                          <Tooltip content={`Remove from ${n.name}`}>
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              aria-label={`Remove ${m.name} from ${n.name}`}
-                              onClick={async () => {
-                                const others = n.servers.filter((x) => x.id !== m.id);
-                                if (
-                                  !(await meshConfirm(
-                                    { kind: "remove", networkId: n.id, serverId: m.id },
-                                    {
-                                      title: `Remove ${m.name} from ${n.name}?`,
-                                      description: others.length
-                                        ? `${m.name} stops reaching ${others.map((x) => x.name).join(", ")} through ${n.name}. Servers that share another network keep that link.`
-                                        : `${m.name} is the only server in ${n.name}.`,
-                                      confirmLabel: "Remove",
-                                    },
-                                  ))
-                                )
-                                  return;
-                                void member.run(n.id, m.id, false);
-                              }}
-                            >
-                              <X />
-                            </Button>
-                          </Tooltip>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </Card>
-            );
-          })}
+          <NetworkNameDialog
+            open={!!renaming}
+            onOpenChange={(o) => !o && setRenaming(null)}
+            title="Rename private network"
+            initial={renaming?.name ?? ""}
+            confirmLabel="Rename"
+            onSubmit={(name) => (renaming ? rename.run(renaming.id, name) : Promise.resolve(undefined))}
+          />
         </div>
-      )}
-
-      {alone.length > 0 && (
-        <Card>
-          <CardHeader title="Joined, but in no network" description="These servers run the private network but reach no other server. Add them to a network above." />
-          <ul className="divide-y divide-line">
-            {alone.map((s) => (
-              <ServerLine key={s.id} server={s} />
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      {notJoined.length > 0 && (
-        <Card>
-          <CardHeader title="Not joined" description="Join a server from its Private network page: pick the address other servers use and its networks." />
-          <ul className="divide-y divide-line">
-            {notJoined.map((s) => (
-              <ServerLine key={s.id} server={s} action />
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      <NetworkNameDialog
-        open={creating}
-        onOpenChange={setCreating}
-        title="New private network"
-        description="Add servers to it next."
-        confirmLabel="Create network"
-        onSubmit={(name) => create.run(name)}
-      />
-      <NetworkNameDialog
-        open={!!renaming}
-        onOpenChange={(o) => !o && setRenaming(null)}
-        title="Rename private network"
-        initial={renaming?.name ?? ""}
-        confirmLabel="Rename"
-        onSubmit={(name) => (renaming ? rename.run(renaming.id, name) : Promise.resolve(undefined))}
-      />
-    </div>
+      </PageBody>
+    </>
   );
 }
 

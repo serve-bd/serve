@@ -36,6 +36,8 @@ import { CAPABILITIES } from "@/server/deploy/options";
 import { containerOptionsSchema } from "@/server/deploy/runtime-schema";
 import { volumeListSchema } from "@/server/services/volume-schema";
 import { dockerfileSourceSchema } from "@/server/services/source-schema";
+import { getRegistry } from "@/server/registries";
+import { sameRegistryHost, splitImage } from "@/server/registries/browse";
 
 async function assertEnvironment(projectId: string, environmentId: string) {
   const [env] = await db
@@ -127,6 +129,17 @@ async function addGeneratedDomain(serviceId: string, slug: string, organizationI
 /*                                   Create                                   */
 /* -------------------------------------------------------------------------- */
 
+/** A saved registry an image pulls with: the organization's own, and the image must live in it. */
+async function assertImageRegistry(registryId: string | null | undefined, image: string, organizationId: string) {
+  if (!registryId) return;
+  const registry = await getRegistry(registryId, organizationId);
+  if (!registry) throw new UserError("That registry is not in this organization.");
+  const { host } = splitImage(image);
+  if (!sameRegistryHost(host, registry.host)) {
+    throw new UserError(`${image} is not in ${registry.name} (${registry.host}). Use an image from ${registry.host}, or no registry.`);
+  }
+}
+
 /** Letters, numbers and hyphens; other text (a template title) is turned into that form. */
 const serviceName = z
   .string()
@@ -151,6 +164,7 @@ const appSchema = z.object({
     z.object({
       type: z.literal("image"),
       image: z.string().trim().min(1, "Enter an image"),
+      registryId: z.string().optional().nullable(),
       registryUsername: z.string().trim().optional().nullable(),
       registryPassword: z.string().optional().nullable(),
     }),
@@ -186,6 +200,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
     await assertEnvironment(data.projectId, data.environmentId);
 
     if (data.source.type === "git") await assertCredential(data.source.credentialId, ctx.org.id);
+    if (data.source.type === "image") await assertImageRegistry(data.source.registryId, data.source.image, ctx.org.id);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
     const reserved = await requireRoom(ctx.org.id, { services: 1, type: "app", serverId: server.id });
 
@@ -197,8 +212,13 @@ export async function createAppService(input: z.input<typeof appSchema>) {
           : {
               type: "image",
               image: data.source.image,
-              registryUsername: data.source.registryUsername || null,
-              registryPassword: data.source.registryPassword ? encrypt(data.source.registryPassword) : null,
+              ...(data.source.registryId
+                ? { registryId: data.source.registryId, registryUsername: null, registryPassword: null }
+                : {
+                    registryId: null,
+                    registryUsername: data.source.registryUsername || null,
+                    registryPassword: data.source.registryPassword ? encrypt(data.source.registryPassword) : null,
+                  }),
             };
 
     const id = newId();
@@ -462,6 +482,7 @@ const updateSchema = z.object({
       z.object({
         type: z.literal("image"),
         image: z.string().trim().min(1),
+        registryId: z.string().nullable().optional(),
         registryUsername: z.string().nullable().optional(),
         registryPassword: z.string().nullable().optional(),
       }),
@@ -672,13 +693,19 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         if (!service.build) patch.build = { ...defaultBuild(), builder: "dockerfile" };
       } else {
         const prev = service.source?.type === "image" ? service.source : null;
-        patch.source = {
-          type: "image",
-          image: data.source.image,
-          registryUsername: data.source.registryUsername || null,
-          registryPassword:
-            data.source.registryPassword === undefined ? (prev?.registryPassword ?? null) : data.source.registryPassword ? encrypt(data.source.registryPassword) : null,
-        };
+        // Left out: keeps the registry it had (older clients do not send the field).
+        const registryId = data.source.registryId === undefined ? (prev?.registryId ?? null) : data.source.registryId;
+        await assertImageRegistry(registryId, data.source.image, ctx.org.id);
+        patch.source = registryId
+          ? { type: "image", image: data.source.image, registryId, registryUsername: null, registryPassword: null }
+          : {
+              type: "image",
+              image: data.source.image,
+              registryId: null,
+              registryUsername: data.source.registryUsername || null,
+              registryPassword:
+                data.source.registryPassword === undefined ? (prev?.registryPassword ?? null) : data.source.registryPassword ? encrypt(data.source.registryPassword) : null,
+            };
       }
     }
     if (data.build) patch.build = { ...defaultBuild(), ...service.build, ...data.build } as BuildConfig;

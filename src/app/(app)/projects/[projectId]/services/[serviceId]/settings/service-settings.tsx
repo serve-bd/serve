@@ -1,5 +1,6 @@
 "use client";
 
+import { ImagePicker, type PickerRegistry } from "@/components/image-picker";
 import { typedServiceName } from "@/lib/service-name";
 import { BranchField } from "@/components/branch-field";
 import * as React from "react";
@@ -39,7 +40,7 @@ import { updateDatabaseSettings } from "@/server/actions/databases";
 
 type Source =
   | { type: "git"; repository: string; branch: string; credentialId?: string | null; webhook?: RepoWebhook | null }
-  | { type: "image"; image: string; registryUsername: string | null; hasPassword: boolean }
+  | { type: "image"; image: string; registryId: string | null; registryUsername: string | null; hasPassword: boolean }
   | { type: "dockerfile"; content: string };
 
 type Props = {
@@ -67,6 +68,8 @@ type Props = {
   db: (Omit<DatabaseSettingsProps, "onNeedsRestart" | "serviceId" | "running" | "restartPolicy" | "stopTimeout"> & { dataPath: string; defaultDataPath: string }) | null;
   versions: string[];
   credentials: { id: string; name: string; provider: string }[];
+  /** Saved container registries an image service can pull with. */
+  imageRegistries: PickerRegistry[];
   nixpacks: boolean;
   webhookUrl: string;
   viaGithubApp: boolean;
@@ -386,35 +389,43 @@ export function ServiceSettings(props: Props) {
         <Section
           id="source"
           title="Image"
-          initial={{ image: service.source.image, registryUsername: service.source.registryUsername ?? "", registryPassword: "" }}
-          onSave={(v) =>
-            save.run({
+          initial={{
+            image: service.source.image,
+            registry: service.source.registryId ?? (service.source.registryUsername ? "manual" : ""),
+            registryUsername: service.source.registryUsername ?? "",
+            registryPassword: "",
+          }}
+          onSave={(v) => {
+            const saved = props.imageRegistries.some((r) => r.id === v.registry) ? v.registry : null;
+            const manual = v.registry === "manual";
+            return save.run({
               source: {
                 type: "image",
-                image: v.image,
-                registryUsername: v.registryUsername || null,
-                registryPassword: v.registryPassword ? v.registryPassword : v.registryUsername ? undefined : null,
+                image: v.image.trim(),
+                registryId: saved,
+                registryUsername: manual ? v.registryUsername || null : null,
+                registryPassword: !manual ? null : v.registryPassword ? v.registryPassword : v.registryUsername ? undefined : null,
               },
-            })
-          }
+            });
+          }}
         >
           {(v, set) => (
             <>
-              <Field label="Image">
-                <Input value={v.image} onChange={(e) => set({ image: e.target.value })} className="font-mono text-[13px]" />
-              </Field>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Registry username" optional>
-                  <Input value={v.registryUsername} onChange={(e) => set({ registryUsername: e.target.value })} autoComplete="off" />
-                </Field>
-                <Field
-                  label="Registry password"
-                  optional
-                  description={service.source?.type === "image" && service.source.hasPassword ? "Leave empty to keep the saved password." : undefined}
-                >
-                  <Input type="password" value={v.registryPassword} onChange={(e) => set({ registryPassword: e.target.value })} autoComplete="new-password" />
-                </Field>
-              </div>
+              <ImagePicker registries={props.imageRegistries} registry={v.registry} image={v.image} onChange={(registry, image) => set({ registry, image })} />
+              {v.registry === "manual" && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="Registry username" optional>
+                    <Input value={v.registryUsername} onChange={(e) => set({ registryUsername: e.target.value })} autoComplete="off" />
+                  </Field>
+                  <Field
+                    label="Registry password"
+                    optional
+                    description={service.source?.type === "image" && service.source.hasPassword ? "Leave empty to keep the saved password." : undefined}
+                  >
+                    <Input type="password" value={v.registryPassword} onChange={(e) => set({ registryPassword: e.target.value })} autoComplete="new-password" />
+                  </Field>
+                </div>
+              )}
             </>
           )}
         </Section>

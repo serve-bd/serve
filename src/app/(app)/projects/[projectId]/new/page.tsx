@@ -19,7 +19,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
   if (!ctx.can("services.manage")) return <NoAccess permission="services.manage" />;
   const project = await pageProject(projectId, ctx.org.id);
   const { current } = await resolveEnvironment(projectId, typeof env === "string" ? env : undefined);
-  const [credentials, nixpacks, servers, custom, templates] = await Promise.all([
+  const [credentials, nixpacks, servers, custom, templates, registries] = await Promise.all([
     db
       .select({
         id: schema.gitCredential.id,
@@ -33,6 +33,11 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
     serversForOrg(ctx.org.id),
     db.select().from(schema.customTemplate).where(eq(schema.customTemplate.organizationId, ctx.org.id)).orderBy(asc(schema.customTemplate.name)),
     getTemplates(),
+    db
+      .select({ id: schema.containerRegistry.id, name: schema.containerRegistry.name, host: schema.containerRegistry.host })
+      .from(schema.containerRegistry)
+      .where(eq(schema.containerRegistry.organizationId, ctx.org.id))
+      .orderBy(asc(schema.containerRegistry.name)),
   ]);
   const catalog: CatalogTemplate[] = [
     ...custom.map((t) => ({
@@ -73,6 +78,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
       environmentName={current.name}
       servers={servers.map((s) => ({ id: s.id, name: s.name, host: s.host, status: s.status, isLocal: s.isLocal }))}
       credentials={credentials}
+      registries={registries}
       nixpacks={nixpacks}
       initialServerId={typeof server === "string" && servers.some((s) => s.id === server) ? server : null}
       initialType={typeof type === "string" ? type : null}

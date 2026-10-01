@@ -4,7 +4,7 @@ import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import type Docker from "dockerode";
-import { type BuildConfig, buildsImage, defaultBuild, type PortMapping } from "@/server/services/types";
+import { type BuildConfig, buildsImage, defaultBuild, type ImageSource, type PortMapping } from "@/server/services/types";
 import { ensureNetwork, imageExists, imageExistsFor, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
 import { forgetServer, getServer, serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
@@ -127,8 +127,7 @@ async function prepareAppImage(
       log.step(`Using ${source.image} already on ${server.local ? "the server" : server.name} (pull policy: if missing)`);
     } else {
       log.step(`Pulling ${source.image}${platform ? ` for ${platform}` : ""}`);
-      const password = decryptOrNull(source.registryPassword);
-      const auth = source.registryUsername && password ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) } : null;
+      const auth = await imagePullAuth(source, log.line);
       await pullImage(source.image, log.line, auth, d, platform);
     }
     checkCancelled(signal);
@@ -261,6 +260,18 @@ async function dropForeignTag(ref: string, d: Docker) {
     .catch(() => {});
 }
 
+/** Login for pulling an image: its saved registry, else the credentials stored with the service. */
+async function imagePullAuth(source: ImageSource, log: (line: string) => void) {
+  if (source.registryId) {
+    const registry = await getRegistry(source.registryId);
+    if (registry) return registryAuth(registry);
+    log("The registry this image used was removed: pulling without a login.");
+    return null;
+  }
+  const password = decryptOrNull(source.registryPassword);
+  return source.registryUsername && password ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) } : null;
+}
+
 function registryOf(image: string) {
   const first = image.split("/")[0];
   return first.includes(".") || first.includes(":") ? first : "https://index.docker.io/v1/";
@@ -330,8 +341,7 @@ async function ensureImageOn(target: ServerCtx, service: Service, prepared: Prep
       log.line(`Using ${source.image} already on ${target.name}`);
     } else {
       log.line(`Pulling ${source.image}`);
-      const password = decryptOrNull(source.registryPassword);
-      const auth = source.registryUsername && password ? { username: source.registryUsername, password, serveraddress: registryOf(source.image) } : null;
+      const auth = await imagePullAuth(source, log.line);
       await pullImage(source.image, log.line, auth, d, platform);
     }
     await d.getImage(ref).tag({ repo, tag });

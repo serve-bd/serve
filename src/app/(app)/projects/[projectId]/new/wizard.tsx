@@ -31,6 +31,7 @@ import { Input, InputGroup, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, CardBody, CardFooter, CardHeader, Badge } from "@/components/ui/misc";
 import { ServiceIcon } from "@/components/service-icon";
+import { ImagePicker, type PickerRegistry, type RegistryChoice } from "@/components/image-picker";
 import { ReloadTemplates } from "@/components/reload-templates";
 import { TemplateLogo } from "@/components/template-logo";
 import { CodeEditor } from "@/components/code-editor";
@@ -78,6 +79,8 @@ type Props = {
   serverId?: string;
   environmentName: string;
   credentials: { id: string; name: string; provider: string; oauth?: boolean }[];
+  /** Saved container registries: the Docker image form lists their images and pulls with their login. */
+  registries: PickerRegistry[];
   nixpacks: boolean;
   initialType: string | null;
   /** Server picked in "Deploy to" when the page opens, e.g. the server of the app a link came from. */
@@ -549,7 +552,9 @@ function ImageForm({ props, onBack, onDatabase }: { props: Props; onBack: () => 
   const [name, setName] = React.useState("");
   const [port, setPort] = React.useState("");
   const [env, setEnv] = React.useState("");
-  const [priv, setPriv] = React.useState(false);
+  const [registry, setRegistry] = React.useState<RegistryChoice>("");
+  const priv = registry === "manual";
+  const savedRegistry = props.registries.some((r) => r.id === registry) ? registry : null;
   const [user, setUser] = React.useState("");
   const [pass, setPass] = React.useState("");
   const [storage, setStorage] = React.useState(false);
@@ -574,7 +579,7 @@ function ImageForm({ props, onBack, onDatabase }: { props: Props; onBack: () => 
           environmentId: props.environmentId,
           serverId: props.serverId,
           name: name || guessName || "app",
-          source: { type: "image", image, registryUsername: priv ? user : null, registryPassword: priv ? pass : null },
+          source: { type: "image", image: image.trim(), registryId: savedRegistry, registryUsername: priv ? user : null, registryPassword: priv ? pass : null },
           port: port ? Number(port) : null,
           envVars: parseEnv(env),
           volumes: storage ? toVolumes(volumes) : [],
@@ -586,9 +591,16 @@ function ImageForm({ props, onBack, onDatabase }: { props: Props; onBack: () => 
         </Button>
       }
     >
-      <Field label="Image" description="For example nginx:alpine, ghcr.io/owner/app:latest">
-        <Input value={image} onChange={(e) => setImage(e.target.value)} placeholder="traefik/whoami:latest" required autoFocus className="font-mono text-[13px]" />
-      </Field>
+      <ImagePicker
+        registries={props.registries}
+        registry={registry}
+        image={image}
+        onChange={(r, i) => {
+          setRegistry(r);
+          setImage(i);
+        }}
+        autoFocus
+      />
       {dbEngine && (
         <div className="flex animate-rise flex-col gap-3 rounded-xl border border-accent/40 bg-accent-soft/30 px-3.5 py-3 sm:flex-row sm:items-center">
           <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -608,10 +620,6 @@ function ImageForm({ props, onBack, onDatabase }: { props: Props; onBack: () => 
           <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder="80" inputMode="numeric" />
         </Field>
       </div>
-      <label className="flex items-center gap-2 text-[13px] text-fg-2">
-        <input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} className="accent-[var(--accent)]" />
-        This image is in a private registry
-      </label>
       {priv && (
         <div className="grid grid-cols-1 animate-rise gap-4 sm:grid-cols-2">
           <Field label="Username">

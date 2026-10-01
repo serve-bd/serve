@@ -21,6 +21,8 @@ export type ImageSource = {
   type: "image";
   /** Full image reference, e.g. ghcr.io/org/app:latest */
   image: string;
+  /** A saved registry of the organization whose login pulls the image (instead of the fields below). */
+  registryId?: string | null;
   registryUsername?: string | null;
   /** Encrypted registry password / token. */
   registryPassword?: string | null;

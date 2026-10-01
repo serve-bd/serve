@@ -107,7 +107,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   if (!ctx.can("services.manage")) return <NoAccess permission="services.manage" />;
-  const [credentials, nixpacks, servers, [server], [environment]] = await Promise.all([
+  const [credentials, nixpacks, servers, [server], [environment], imageRegistries] = await Promise.all([
     db
       .select({ id: schema.gitCredential.id, name: schema.gitCredential.name, provider: schema.gitCredential.provider })
       .from(schema.gitCredential)
@@ -119,6 +119,12 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
       .from(schema.server)
       .where(eq(schema.server.id, service.serverId)),
     db.select({ name: schema.environment.name }).from(schema.environment).where(eq(schema.environment.id, service.environmentId)),
+    service.source?.type === "image"
+      ? db
+          .select({ id: schema.containerRegistry.id, name: schema.containerRegistry.name, host: schema.containerRegistry.host })
+          .from(schema.containerRegistry)
+          .where(eq(schema.containerRegistry.organizationId, ctx.org.id))
+      : Promise.resolve([]),
   ]);
   const { publicBaseUrl } = await import("@/server/git/github-app");
   const base = await publicBaseUrl();
@@ -155,7 +161,13 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
         source: service.source
           ? service.source.type === "git" || service.source.type === "dockerfile"
             ? service.source
-            : { type: "image", image: service.source.image, registryUsername: service.source.registryUsername ?? null, hasPassword: !!service.source.registryPassword }
+            : {
+                type: "image",
+                image: service.source.image,
+                registryId: service.source.registryId ?? null,
+                registryUsername: service.source.registryUsername ?? null,
+                hasPassword: !!service.source.registryPassword,
+              }
           : null,
         build: service.build,
         runtime: service.runtime,
@@ -167,6 +179,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
       section={section}
       versions={service.database ? engines[service.database.engine].versions : []}
       credentials={credentials}
+      imageRegistries={imageRegistries}
       nixpacks={nixpacks}
       webhookUrl={`${base}/api/webhooks/git/${service.id}`}
       viaGithubApp={!!viaApp}

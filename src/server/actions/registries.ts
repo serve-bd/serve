@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { type OrgContext, requirePermission } from "@/server/auth";
@@ -14,7 +14,8 @@ import type { RegistryKind } from "@/server/db/schema";
 import { checkRegistryLogin, getRegistry, registryAuth } from "@/server/registries";
 import { authServer, normalizeHost, normalizeRepository, registryPresets, renderTag } from "@/server/registries/refs";
 import { distributionProblem, normalizeDistribution, runServerIds } from "@/server/deploy/distribution";
-import { usesRegistry } from "@/server/services/distribution-query";
+import { pullsFromRegistry, usesRegistry } from "@/server/services/distribution-query";
+import { listImages, listTags } from "@/server/registries/browse";
 import { serviceInOrg } from "@/server/services/access";
 import { resolveServerForOrg } from "@/server/servers/access";
 import { queueDeployment } from "@/server/services/create";
@@ -101,9 +102,12 @@ export async function deleteRegistry(id: string) {
     const ctx = await requirePermission("integrations.manage");
     const row = await getRegistry(id, ctx.org.id);
     if (!row) throw new UserError("Registry not found.");
-    const users = await db.select({ name: schema.service.name }).from(schema.service).where(usesRegistry(id));
+    const users = await db
+      .select({ name: schema.service.name })
+      .from(schema.service)
+      .where(or(usesRegistry(id), pullsFromRegistry(id)));
     if (users.length) {
-      throw new UserError(`${users.map((u) => u.name).join(", ")} ${users.length === 1 ? "pushes" : "push"} to this registry. Choose another one in their settings first.`);
+      throw new UserError(`${users.map((u) => u.name).join(", ")} ${users.length === 1 ? "uses" : "use"} this registry. Choose another one in their settings first.`);
     }
     await db.delete(schema.containerRegistry).where(eq(schema.containerRegistry.id, id));
     await logActivity({
@@ -206,5 +210,38 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     });
     const deploymentId = opts.deploy ? await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id }) : null;
     return { deploymentId, added, removed: gone };
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                Image picker                                */
+/* -------------------------------------------------------------------------- */
+
+/** The images of a saved registry, for the Docker image form. */
+export async function browseRegistryImages(registryId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const row = await getRegistry(registryId, ctx.org.id);
+    if (!row) throw new UserError("Registry not found.");
+    try {
+      return await listImages(row, ctx.isRoot);
+    } catch (error) {
+      throw new UserError(`Could not list the images of ${row.name}: ${(error as Error).message}`);
+    }
+  });
+}
+
+/** The tags of an image, newest first: from a saved registry, or a public one. */
+export async function browseImageTags(input: { registryId?: string | null; image: string }) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const image = z.string().trim().min(1).max(300).parse(input.image);
+    const row = input.registryId ? await getRegistry(input.registryId, ctx.org.id) : null;
+    if (input.registryId && !row) throw new UserError("Registry not found.");
+    try {
+      return { tags: await listTags(row, image, ctx.isRoot) };
+    } catch (error) {
+      throw new UserError(`Could not list the tags: ${(error as Error).message}`);
+    }
   });
 }

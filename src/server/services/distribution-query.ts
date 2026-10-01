@@ -6,3 +6,6 @@ export const runsAsExtraOn = (serverId: string) => sql<boolean>`coalesce(${schem
 
 /** Services that use a registry. */
 export const usesRegistry = (registryId: string) => sql<boolean>`${schema.service.distribution}->>'registryId' = ${registryId}`;
+
+/** Image services that pull with a registry's login. */
+export const pullsFromRegistry = (registryId: string) => sql<boolean>`${schema.service.source}->>'registryId' = ${registryId}`;

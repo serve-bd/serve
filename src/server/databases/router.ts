@@ -83,12 +83,24 @@ export async function ensureDatabaseCertificate(hostname: string, serverId: stri
   return cert;
 }
 
-/** Host ports other containers on the server already publish. */
+/** Host ports other containers or programs on the server (a system PostgreSQL, for example) already use. */
 async function busyPorts(ctx: ServerCtx, ports: number[]) {
   const busy = new Set<number>();
+  const own = new Set<number>();
   for (const c of await ctx.docker.listContainers({ all: false })) {
-    if (c.Names.some((n) => n === `/${ROUTER_CONTAINER}`)) continue;
-    for (const p of c.Ports ?? []) if (p.PublicPort && ports.includes(p.PublicPort)) busy.add(p.PublicPort);
+    const mine = c.Names.some((n) => n === `/${ROUTER_CONTAINER}`);
+    for (const p of c.Ports ?? []) if (p.PublicPort && ports.includes(p.PublicPort)) (mine ? own : busy).add(p.PublicPort);
+  }
+  // Programs on the machine itself. Docker's own listeners are skipped: containers were checked above,
+  // and the router's port stays held by Docker while the router restarts.
+  const res = await ctx.exec("ss -ltnpH 2>/dev/null || netstat -ltnp 2>/dev/null", { timeoutMs: 5000 }).catch(() => null);
+  if (res?.code === 0) {
+    for (const line of res.stdout.split("\n")) {
+      if (line.includes("docker-proxy")) continue;
+      const local = line.trim().split(/\s+/)[3] ?? "";
+      const port = Number(local.slice(local.lastIndexOf(":") + 1));
+      if (ports.includes(port) && !own.has(port)) busy.add(port);
+    }
   }
   return busy;
 }
@@ -257,3 +269,16 @@ export async function syncAllDatabaseRouters() {
 export const queueRouterSync = (serverId: string) => enqueue("dbrouter.sync", { serverId }, { concurrencyKey: `dbrouter:${serverId}`, maxAttempts: 2 });
 
 export type { Service };
+
+/** Host ports the server's router publishes, or null when it is not running (not created yet, or unreachable). */
+export async function routerPorts(serverId: string): Promise<Set<number> | null> {
+  try {
+    const ctx = await getServer(serverId);
+    const info = await ctx.docker.getContainer(ROUTER_CONTAINER).inspect();
+    if (!info.State.Running) return null;
+    const bound = (info.HostConfig.PortBindings ?? {}) as Record<string, { HostPort?: string }[] | null>;
+    return new Set(Object.values(bound).flatMap((b) => (b ?? []).map((x) => Number(x.HostPort))));
+  } catch {
+    return null;
+  }
+}

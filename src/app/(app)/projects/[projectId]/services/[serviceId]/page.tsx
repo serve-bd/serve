@@ -11,6 +11,7 @@ import { loadOverview } from "./overview-data";
 import { DatabaseOverview } from "./database-overview";
 import { engines } from "@/server/databases/engines";
 import { databaseUrl } from "@/server/databases/options";
+import { routerPorts } from "@/server/databases/router";
 import { decryptOrNull } from "@/server/crypto";
 import { publishedPorts } from "@/server/services/ports";
 import { monitorSummary } from "@/server/monitoring/queries";
@@ -51,6 +52,9 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
       .where(and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareAccount.organizationId, ctx.org.id)));
     const localPort = routes?.[0]?.target ?? engine.port;
+    // Ports the router could not take: another program on the server already listens there.
+    const routerBound = hostname && routes && !cfg.domainTunnelId && domainCert?.status === "active" ? await routerPorts(service.serverId) : null;
+    const blockedPorts = routerBound ? routes!.map((r) => r.port).filter((p) => !routerBound.has(p)) : [];
     const domain = service.parentServiceId
       ? undefined
       : {
@@ -65,6 +69,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           ports: (routes ?? []).map((r) => ({ port: r.port, label: r.label })),
           certificate: domainCert ? { status: domainCert.status, error: domainCert.error } : null,
           engineLabel: engine.label,
+          blockedPorts,
         };
     const branches = service.parentServiceId
       ? []

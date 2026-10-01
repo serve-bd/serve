@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Globe2, Lock } from "lucide-react";
+import { Globe2, Lock, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -28,6 +28,8 @@ export type DatabaseDomainInfo = {
   ports: { port: number; label: string }[];
   certificate: { status: string; error: string | null } | null;
   engineLabel: string;
+  /** Ports the router could not take, because another program on the server listens there. */
+  blockedPorts?: number[];
 };
 
 /** Reach the database at db.example.com on the engine's usual port, over TLS. */
@@ -155,6 +157,15 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                           : "No certificate yet"}
                   </span>
                 </p>
+                {!!info.blockedPorts?.length && (
+                  <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-fg-2">
+                    <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />
+                    <span>
+                      Port {info.blockedPorts.join(" and ")} is used by another program on this server, so the domain does not answer. Free the port, or
+                      {info.tunnels.length ? " choose Cloudflare Tunnel above" : " add a Cloudflare Tunnel to this server and choose it here"} (a tunnel needs no port).
+                    </span>
+                  </p>
+                )}
                 {info.url && (
                   <Field label="Connection URL" description="Clients must use TLS. Connections without TLS carry no domain name and are not routed.">
                     <SecretField value={info.url} hidden={hideSecrets} shape={info.url} />

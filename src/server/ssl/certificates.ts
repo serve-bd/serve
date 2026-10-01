@@ -118,8 +118,23 @@ async function port80ReachesProxy(ctx: ServerCtx, cert: Cert, log: (l: string) =
   }
 }
 
+/** One certbot run at a time per server: runs share /etc/letsencrypt and its lock. */
+const certbotRuns = new Map<string, Promise<unknown>>();
+
+function oneAtATime<T>(serverId: string, run: () => Promise<T>): Promise<T> {
+  const previous = certbotRuns.get(serverId) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(run);
+  certbotRuns.set(serverId, next);
+  void next.finally(() => certbotRuns.get(serverId) === next && certbotRuns.delete(serverId)).catch(() => {});
+  return next;
+}
+
 async function certbot(cert: Cert, log: (l: string) => void) {
   const ctx = await certificateServer(cert);
+  return oneAtATime(ctx.id, () => certbotOn(ctx, cert, log));
+}
+
+async function certbotOn(ctx: ServerCtx, cert: Cert, log: (l: string) => void) {
   const settings = await getSettings();
   if (!settings.acmeEmail) throw new Error("Set a Let's Encrypt email in Settings → General first.");
   const isDns = cert.provider === "letsencrypt-cloudflare";

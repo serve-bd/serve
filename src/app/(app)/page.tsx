@@ -92,7 +92,7 @@ export default async function OverviewPage() {
           </Link>
         }
       />
-      <PageBody className="flex flex-col gap-6">
+      <PageBody className="-mt-2 flex flex-col gap-6">
         {(broken.length > 0 || down.length > 0) && (
           <Card>
             <CardHeader

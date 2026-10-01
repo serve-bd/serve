@@ -12,13 +12,13 @@ Push to deploy, get a domain with HTTPS and manage it all from one dashboard.
 
 [![Release](https://img.shields.io/github/v/release/serve-bd/serve?label=release&color=0a84ff)](https://github.com/serve-bd/serve/releases/latest) [![CI](https://img.shields.io/github/actions/workflow/status/serve-bd/serve/ci.yml?branch=main&label=CI)](https://github.com/serve-bd/serve/actions/workflows/ci.yml) [![Image](https://img.shields.io/badge/image-ghcr.io%2Fserve--bd%2Fserve-2496ed?logo=docker&logoColor=white)](https://github.com/serve-bd/serve/pkgs/container/serve) [![Platforms](https://img.shields.io/badge/platforms-amd64%20%7C%20arm64-555)](https://github.com/serve-bd/serve/pkgs/container/serve) [![License](https://img.shields.io/github/license/serve-bd/serve?color=555)](LICENSE)
 
-[Install](#install) · [Features](#what-it-does) · [Screenshots](#screenshots) · [Releases](https://github.com/serve-bd/serve/releases)
+[Install](#install) · [Features](#what-it-does) · [Releases](https://github.com/serve-bd/serve/releases)
 
 <br>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/canvas-dark.png">
-  <img src="docs/images/canvas-light.png" alt="A project in Serve: web, api and jobs services linked to Postgres, Redis and Meilisearch" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
+  <img src="docs/images/overview-light.png" alt="The Serve overview: projects, servers, recent deploys and a year of deploy activity" width="100%">
 </picture>
 
 </div>
@@ -33,19 +33,6 @@ Push to deploy, get a domain with HTTPS and manage it all from one dashboard.
 - **Cloudflare:** DNS records and Tunnels, for servers without a public IP.
 - **Many servers** over SSH, including machines behind NAT, joined by an encrypted private network.
 - **Teams:** organizations, roles, project access, two-factor authentication and an activity log.
-
-## Screenshots
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/images/overview.png" alt="Overview with the latest deployments and projects"><p align="center"><sub>Every deployment and project at a glance</sub></p></td>
-    <td width="50%"><img src="docs/images/deployment.png" alt="A deployment with its build log"><p align="center"><sub>Live build and deploy logs</sub></p></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/images/metrics.png" alt="Requests, CPU and memory of a service"><p align="center"><sub>Requests, CPU, memory and network per service</sub></p></td>
-    <td width="50%"><img src="docs/images/templates.png" alt="The one-click service catalog"><p align="center"><sub>160+ one-click services</sub></p></td>
-  </tr>
-</table>
 
 ## Requirements
 

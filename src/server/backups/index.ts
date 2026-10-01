@@ -320,7 +320,7 @@ export async function targetOf(service: ServiceRow, key: string | null): Promise
       stem: `${service.slug}-${fileSafe(parsed.name)}-${keyHash(key)}`,
       extension: DUMP_EXTENSION[commands.engine],
       dump: (file) => dumpWith(commands, file),
-      restore: (file, log) => restoreWith(commands, file, log),
+      restore: (file, log, _onStopped, opts) => restoreWith(commands, file, log, opts),
     };
   }
   // Storage: only a volume or directory the stack's own containers mount.

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
+import { asc, sql } from "drizzle-orm";
 import { AlertTriangle, Blocks, Plus, Rocket } from "lucide-react";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -7,7 +7,7 @@ import { metricSeries, serverScope } from "@/server/metrics";
 import { projectSummaries, recentDeployments } from "@/server/queries";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardBody, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Card, CardBody, CardHeader, EmptyState } from "@/components/ui/misc";
 import { StatusDot, statusText } from "@/components/ui/status";
 import { serverReachable } from "@/lib/server-services";
 import { DeployTimeline } from "./_components/deploy-timeline";
@@ -41,24 +41,6 @@ async function serverCards(ids: string[], managed: Set<string>, organizationId: 
   );
 }
 
-/** Deployments of the last 24 hours, for the line under the headline. */
-async function deploysToday(organizationId: string, projectIds: string[] | null) {
-  if (projectIds && !projectIds.length) return 0;
-  const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(schema.deployment)
-    .innerJoin(schema.service, eq(schema.deployment.serviceId, schema.service.id))
-    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
-    .where(
-      and(
-        eq(schema.project.organizationId, organizationId),
-        gt(schema.deployment.createdAt, sql`now() - interval '24 hours'`),
-        projectIds ? inArray(schema.project.id, projectIds) : undefined,
-      ),
-    );
-  return row?.n ?? 0;
-}
-
 const BROKEN = new Set(["failed", "crashed"]);
 const BUSY = new Set(["building", "deploying", "restarting"]);
 
@@ -78,7 +60,7 @@ export const metadata = { title: "Overview" };
 export default async function OverviewPage() {
   const ctx = await requireOrg();
   const canCreate = ctx.can("projects.manage");
-  const [projects, deployments, servers, today] = await Promise.all([
+  const [projects, deployments, servers] = await Promise.all([
     projectSummaries(ctx.org.id, ctx.projectIds),
     recentDeployments(ctx.org.id, 5, undefined, ctx.projectIds),
     // Servers it manages, plus the ones every member sees: owned by or shared with this organization.
@@ -86,7 +68,6 @@ export default async function OverviewPage() {
       const ids = [...new Set([...listed, ...viewable])];
       return ids.length ? serverCards(ids, new Set(listed), ctx.org.id) : null;
     }),
-    deploysToday(ctx.org.id, ctx.projectIds),
   ]);
   const services = projects.flatMap((p) => p.services.map((s) => ({ ...s, project: p })));
   const running = services.filter((s) => s.status === "running").length;
@@ -94,7 +75,6 @@ export default async function OverviewPage() {
   const busy = services.filter((s) => BUSY.has(s.status)).length;
   const down = (servers ?? []).filter((s) => !serverReachable(s));
   const head = headline(services.length, running, broken.length, busy, down.length);
-  const last = deployments[0];
 
   return (
     <>
@@ -105,17 +85,6 @@ export default async function OverviewPage() {
             <StatusDot status={head.tone === "ok" ? "running" : head.tone === "bad" ? "failed" : head.tone === "busy" ? "deploying" : "stopped"} />
             {head.text}
           </span>
-        }
-        description={
-          last ? (
-            <>
-              Last deploy <TimeAgo date={last.createdAt} />: <span className="text-fg-2">{last.serviceName}</span>
-              {" · "}
-              {today} {today === 1 ? "deploy" : "deploys"} in the last 24 hours
-            </>
-          ) : (
-            "Deployments show up here as soon as you ship something."
-          )
         }
         actions={
           <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>

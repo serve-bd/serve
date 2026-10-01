@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
+import { NoAccess } from "@/components/no-access";
 import { db, schema } from "@/server/db";
 import { StorageDestinations, type Dest } from "./storage";
 
@@ -7,6 +8,7 @@ export const metadata = { title: "S3 storage" };
 
 export default async function StoragePage() {
   const ctx = await requireOrg();
+  if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
   const [rows, databases] = await Promise.all([
     db
       .select({

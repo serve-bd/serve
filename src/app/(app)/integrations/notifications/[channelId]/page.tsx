@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { requireOrg } from "@/server/auth";
+import { NoAccess } from "@/components/no-access";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import { isEmailConfigured } from "@/server/email/send";
@@ -14,6 +15,7 @@ export const metadata = { title: "Notification channel" };
 export default async function ChannelPage(props: PageProps<"/integrations/notifications/[channelId]">) {
   const { channelId } = await props.params;
   const ctx = await requireOrg();
+  if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
   const [channel] = await db
     .select()
     .from(schema.notificationChannel)

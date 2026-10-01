@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { authFor } from "@/server/auth";
+import { authFor, passwordLoginAllowed } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { createAccount, createOrganization, userCount } from "@/server/accounts";
 import { updateSettings } from "@/server/settings";
@@ -25,9 +25,18 @@ export async function setupInstance(input: z.infer<typeof setupSchema>) {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext('serve:setup'))`);
       if ((await userCount()) > 0) throw new UserError("This instance is already set up. Sign in instead.");
       const user = await createAccount(data);
-      const org = await createOrganization("Root", user.id);
-      await updateSettings({ rootOrganizationId: org.id });
-      return { user, org };
+      try {
+        const org = await createOrganization("Root", user.id);
+        await updateSettings({ rootOrganizationId: org.id });
+        return { user, org };
+      } catch (error) {
+        // The account is made outside this transaction: without its organization it would block setup forever.
+        await db
+          .delete(schema.user)
+          .where(eq(schema.user.id, user.id))
+          .catch(() => {});
+        throw error;
+      }
     });
     // Instance servers (the local one on a fresh install) start shared with Root only.
     await db
@@ -76,6 +85,7 @@ export async function acceptInviteWithSignup(input: z.infer<typeof inviteSignupS
     const data = inviteSignupSchema.parse(input);
     const inv = await findInvitation(data.invitationId);
     if (!inv) throw new UserError("This invite link is invalid or has expired. Ask for a new one.");
+    if (!(await passwordLoginAllowed())) throw new UserError("Password sign-in is turned off here. Sign in with single sign-on, then accept the invite.");
     const user = await createAccount({ name: data.name, email: inv.invitation.email, password: data.password });
     const org = await joinOrganization(data.invitationId, user.id, user.email);
     const h = await headers();

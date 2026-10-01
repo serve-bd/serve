@@ -63,7 +63,11 @@ function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean, 
       initScripts: engine.initScripts,
       config: { kind: engine.config.kind, placeholder: engine.config.placeholder, path: engine.config.kind === "file" ? engine.config.path : null },
       tls: !!engine.tlsArgs,
-      healthcheck: (check[0] === "CMD-SHELL" ? check[1] : check.slice(1).join(" ")).replaceAll(password, "••••••"),
+      healthcheck: password
+        ? (check[0] === "CMD-SHELL" ? check[1] : check.slice(1).join(" ")).replaceAll(password, "••••••")
+        : check[0] === "CMD-SHELL"
+          ? check[1]
+          : check.slice(1).join(" "),
     },
     // The connection URL carries the password: masked for roles that may not see secrets.
     internalUrl: databaseUrl(cfg, hideSecrets ? databaseCreds(cfg, "********") : creds, privateHost(service), engine.port),

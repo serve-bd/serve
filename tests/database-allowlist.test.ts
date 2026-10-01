@@ -15,7 +15,7 @@ describe("database allowlists", () => {
       "-A SERVE-DB-ALLOW -p tcp -m conntrack --ctstate DNAT --ctorigdstport 15432 --ctdir ORIGINAL -s 203.0.113.7/32 -j RETURN",
       "-A SERVE-DB-ALLOW -p tcp -m conntrack --ctstate DNAT --ctorigdstport 15432 --ctdir ORIGINAL -j DROP",
       "-A SERVE-DB-ALLOW-IN -p tcp --dport 15432 -s 203.0.113.7/32 -j RETURN",
-      "-A SERVE-DB-ALLOW-IN -p tcp --dport 15432 -j DROP",
+      "-A SERVE-DB-ALLOW-IN -p tcp --dport 15432 -m conntrack --ctstate NEW -j DROP",
     ]);
     const v6 = familyRules(entries, true);
     expect(v6.filter((l) => l.includes("RETURN") && !l.includes("-i lo")).every((l) => l.includes("2001:db8::/32"))).toBe(true);
@@ -23,7 +23,7 @@ describe("database allowlists", () => {
     expect(familyRules([{ port: 1, allow: ["203.0.113.7/32"] }], true)).toEqual([
       "-A SERVE-DB-ALLOW-IN -i lo -j RETURN",
       "-A SERVE-DB-ALLOW -p tcp -m conntrack --ctstate DNAT --ctorigdstport 1 --ctdir ORIGINAL -j DROP",
-      "-A SERVE-DB-ALLOW-IN -p tcp --dport 1 -j DROP",
+      "-A SERVE-DB-ALLOW-IN -p tcp --dport 1 -m conntrack --ctstate NEW -j DROP",
     ]);
   });
 

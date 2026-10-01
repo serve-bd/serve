@@ -48,9 +48,18 @@ export async function updateOrg(input: { name: string; logo?: string | null }) {
   return act(async () => {
     const ctx = await requirePermission("members.manage");
     const name = z.string().trim().min(2).max(60).parse(input.name);
+    const logo = z
+      .string()
+      .trim()
+      .url()
+      .max(2000)
+      .regex(/^https?:\/\//i, "Use an http(s) address.")
+      .nullable()
+      .optional()
+      .parse(input.logo || null);
     await db
       .update(schema.organization)
-      .set({ name, logo: input.logo ?? null })
+      .set({ name, logo: logo ?? null })
       .where(eq(schema.organization.id, ctx.org.id));
     return null;
   });
@@ -61,14 +70,16 @@ export async function deleteOrg() {
     const ctx = await requireOrg();
     if (ctx.role !== "owner") throw new UserError("Only the owner can delete an organization.");
     if (ctx.isRoot) throw new UserError("The Root organization manages this server and cannot be deleted.");
-    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id));
-    if (n > 0) throw new UserError("Delete all projects in this organization first.");
-    // Its servers would pass to the instance while its admins still have root on them.
-    const [{ servers }] = await db.select({ servers: sql<number>`count(*)::int` }).from(schema.server).where(eq(schema.server.ownerOrganizationId, ctx.org.id));
-    if (servers > 0) throw new UserError("Remove this organization's servers first.");
-    const [{ networks }] = await db.select({ networks: sql<number>`count(*)::int` }).from(schema.privateNetwork).where(eq(schema.privateNetwork.organizationId, ctx.org.id));
-    if (networks > 0) throw new UserError("Delete this organization's private networks first.");
+    // Counted inside the transaction, under a lock, so nothing is created while the organization goes.
     await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`serve-org:${ctx.org.id}`}))`);
+      const [{ n }] = await tx.select({ n: sql<number>`count(*)::int` }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id));
+      if (n > 0) throw new UserError("Delete all projects in this organization first.");
+      // Its servers would pass to the instance while its admins still have root on them.
+      const [{ servers }] = await tx.select({ servers: sql<number>`count(*)::int` }).from(schema.server).where(eq(schema.server.ownerOrganizationId, ctx.org.id));
+      if (servers > 0) throw new UserError("Remove this organization's servers first.");
+      const [{ networks }] = await tx.select({ networks: sql<number>`count(*)::int` }).from(schema.privateNetwork).where(eq(schema.privateNetwork.organizationId, ctx.org.id));
+      if (networks > 0) throw new UserError("Delete this organization's private networks first.");
       await tx.delete(schema.privateKey).where(eq(schema.privateKey.organizationId, ctx.org.id));
       await tx.delete(schema.organization).where(eq(schema.organization.id, ctx.org.id));
     });
@@ -174,8 +185,18 @@ export async function revokeInvitation(id: string) {
   });
 }
 
-async function ownerCount(orgId: string) {
-  const [{ n }] = await db
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Runs `fn` with the organization's owners locked, so two changes at once cannot remove the last owner. */
+function withOwnersLocked<T>(organizationId: string, fn: (tx: Tx) => Promise<T>) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`serve-owners:${organizationId}`}))`);
+    return fn(tx);
+  });
+}
+
+async function ownerCount(orgId: string, tx: Tx | typeof db = db) {
+  const [{ n }] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(schema.member)
     .where(and(eq(schema.member.organizationId, orgId), eq(schema.member.role, "owner")));
@@ -200,14 +221,15 @@ export async function setMemberRole(memberId: string, roleId: string) {
     assertCanChange(ctx, m);
     const role = await assertCanGrant(ctx, next);
     const base = memberRoleFor(next);
-    if (m.role === "owner" && base !== "owner" && (await ownerCount(ctx.org.id)) <= 1) throw new UserError("An organization needs at least one owner.");
-    if (m.userId === ctx.user.id && base !== "owner" && m.role === "owner" && (await ownerCount(ctx.org.id)) <= 1) {
-      throw new UserError("Make someone else owner first.");
-    }
-    await db
-      .update(schema.member)
-      .set({ role: base, roleId: base === "member" ? next : null, ...(base === "member" ? {} : { projectIds: null }) })
-      .where(eq(schema.member.id, memberId));
+    await withOwnersLocked(ctx.org.id, async (tx) => {
+      if (m.role === "owner" && base !== "owner" && (await ownerCount(ctx.org.id, tx)) <= 1) {
+        throw new UserError(m.userId === ctx.user.id ? "Make someone else owner first." : "An organization needs at least one owner.");
+      }
+      await tx
+        .update(schema.member)
+        .set({ role: base, roleId: base === "member" ? next : null, ...(base === "member" ? {} : { projectIds: null }) })
+        .where(eq(schema.member.id, memberId));
+    });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "member.role", message: `Changed a member's role to ${role.name}` });
     return null;
   });
@@ -260,10 +282,12 @@ export async function removeMember(memberId: string) {
       if (!ctx.can("members.manage")) throw new UserError(cannotMessage("members.manage"));
       assertCanChange(ctx, m);
     }
-    if (m.role === "owner" && (await ownerCount(ctx.org.id)) <= 1) {
-      throw new UserError("An organization needs at least one owner. Make someone else owner first.");
-    }
-    await db.delete(schema.member).where(eq(schema.member.id, memberId));
+    await withOwnersLocked(ctx.org.id, async (tx) => {
+      if (m.role === "owner" && (await ownerCount(ctx.org.id, tx)) <= 1) {
+        throw new UserError("An organization needs at least one owner. Make someone else owner first.");
+      }
+      await tx.delete(schema.member).where(eq(schema.member.id, memberId));
+    });
     if (self) {
       await db.update(schema.session).set({ activeOrganizationId: null }).where(eq(schema.session.id, ctx.sessionId));
     }

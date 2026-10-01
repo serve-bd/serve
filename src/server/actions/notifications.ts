@@ -2,7 +2,7 @@
 
 import { and, eq, inArray } from "drizzle-orm";
 import { act, UserError } from "@/server/action";
-import { requireOrg, requirePermission } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
@@ -133,7 +133,7 @@ export async function deleteNotificationChannel(id: string) {
  */
 export async function testNotificationChannel(id: string | null, form?: Pick<ChannelInput, "kind" | "config" | "template">) {
   return act(async () => {
-    const ctx = form ? await requirePermission("integrations.manage") : await requireOrg();
+    const ctx = await requirePermission("integrations.manage");
     const existing = id ? await ownChannel(id, ctx.org.id) : null;
     const kind = existing?.kind ?? form?.kind ?? "";
     const config = form ? checkConfig(kind, form.config, existing ? channelConfig(existing) : undefined) : channelConfig(existing!);

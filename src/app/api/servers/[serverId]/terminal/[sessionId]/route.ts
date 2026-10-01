@@ -70,7 +70,7 @@ const inputSchema = z.discriminatedUnion("type", [
 export async function POST(request: NextRequest, ctx: Ctx) {
   const session = await load(ctx);
   if (!session) return NextResponse.json({ error: "Session ended" }, { status: 404 });
-  const parsed = inputSchema.safeParse(await request.json().catch(() => null));
+  const parsed = inputSchema.safeParse(await (Number(request.headers.get("content-length") ?? 0) > 1024 * 1024 ? Promise.resolve(null) : request.json().catch(() => null)));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   if (parsed.data.type === "input") writeSession(session, parsed.data.data);
   else await resizeSession(session, parsed.data.cols, parsed.data.rows);

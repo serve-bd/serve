@@ -1,5 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
+import { NoAccess } from "@/components/no-access";
 import { db, schema } from "@/server/db";
 import { NotificationChannels, type ChannelCard, type DeliveryRow } from "./channels";
 
@@ -7,6 +8,7 @@ export const metadata = { title: "Notifications" };
 
 export default async function NotificationsPage() {
   const ctx = await requireOrg();
+  if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
   const [rows, deliveries] = await Promise.all([
     db.select().from(schema.notificationChannel).where(eq(schema.notificationChannel.organizationId, ctx.org.id)).orderBy(desc(schema.notificationChannel.createdAt)),
     db

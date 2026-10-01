@@ -11,7 +11,7 @@ import { databaseContainer } from "./container";
 import { databaseCreds, databaseUrl } from "./options";
 import { engines, mongoToolsTls, mongoTls, rcli } from "./engines";
 import { privateHost } from "@/lib/hostname";
-import { branchDatabaseName, previewBranchName } from "@/lib/database-branches";
+import { branchDatabaseName, previewBranchName, branchReference } from "@/lib/database-branches";
 
 type Service = typeof schema.service.$inferSelect;
 type Branch = typeof schema.databaseBranch.$inferSelect;
@@ -153,7 +153,8 @@ function keyValueScripts(bin: "redis-cli" | "valkey-cli") {
         "set -e",
         `${cli} -n ${n} FLUSHDB >/dev/null`,
         "cursor=0",
-        `while :; do cursor=$(${cli} -n 0 EVAL ${q(lua)} 0 "$cursor" ${n}); [ "$cursor" = "0" ] && break; done`,
+        // redis-cli exits 0 on an error reply, so the reply itself is checked: anything but a number stops the copy.
+        `while :; do cursor=$(${cli} -n 0 EVAL ${q(lua)} 0 "$cursor" ${n}); case "$cursor" in '' | *[!0-9]*) echo "$cursor" >&2; exit 1 ;; esac; [ "$cursor" = "0" ] && break; done`,
         `echo "SERVE_KEYS=$(${cli} -n ${n} DBSIZE)"`,
       ].join("\n");
     },
@@ -362,9 +363,18 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
   } catch (e) {
     const message = (e as Error).message.slice(0, 2000);
     await db.update(schema.databaseBranch).set({ status: "failed", error: message, updatedAt: new Date() }).where(eq(schema.databaseBranch.id, branch.id));
-    // With clean-up SQL, a preview never runs on data that was meant to be cleaned.
-    if (payload.preview && scrubSql?.trim()) return;
-    if (!payload.preview) throw e;
+    // A preview without its database would start with an empty DATABASE_URL: it is not deployed.
+    if (payload.preview) {
+      await logActivity({
+        projectId: service.projectId,
+        action: "preview.database-failed",
+        targetType: "service",
+        targetId: payload.preview.previewId,
+        message: `The preview was not deployed: copying ${service.name} into branch ${branch.name} failed (${message.split("\n")[0].slice(0, 300)}).`,
+      });
+      return;
+    }
+    throw e;
   }
   if (payload.preview) {
     const { queueDeployment } = await import("@/server/services/create");
@@ -402,7 +412,7 @@ export async function createPreviewBranch(preview: Service, source: Service, prN
   const branch = existing
     ? (await db.update(schema.databaseBranch).set({ status: "resetting", previewServiceId: preview.id }).where(eq(schema.databaseBranch.id, existing.id)).returning())[0]
     : await createBranch(source, name, { previewServiceId: preview.id });
-  const value = encrypt(`\${{${source.slug}.branches.${name}.DATABASE_URL}}`);
+  const value = encrypt(branchReference(source.slug, name));
   await db
     .insert(schema.envVar)
     .values({ id: newId(), serviceId: preview.id, key: variable, value, buildTime: false, runtime: true })

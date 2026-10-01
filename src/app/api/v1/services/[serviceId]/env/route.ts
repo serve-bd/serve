@@ -25,19 +25,23 @@ export async function GET(request: Request, ctx: Ctx) {
 
 const bodySchema = z.object({
   /** Keys to set; null removes the variable. Other variables are kept. */
-  variables: z.record(
-    z.string().regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/, "Invalid variable name"),
-    z
-      .string()
-      .max(64 * 1024)
-      .nullable(),
-  ),
+  variables: z
+    .record(
+      z.string().regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/, "Invalid variable name"),
+      z
+        .string()
+        .max(64 * 1024)
+        .nullable(),
+    )
+    .refine((v) => Object.keys(v).length <= 500, "At most 500 variables per request"),
   redeploy: z.boolean().optional(),
 });
+const MAX_BODY = 8 * 1024 * 1024;
 
 /** Set or remove variables. Scope: write. */
 export async function PATCH(request: Request, ctx: Ctx) {
   const { auth, error } = await requireToken(request, "write");
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return Response.json({ error: "Too large." }, { status: 413 });
   if (error) return error;
   const { serviceId } = await ctx.params;
   const row = await tokenService(auth, serviceId);

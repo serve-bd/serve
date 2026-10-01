@@ -1,5 +1,6 @@
 import { asc, eq, inArray } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
+import { NoAccess } from "@/components/no-access";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import { REF } from "@/lib/refs";
@@ -10,6 +11,7 @@ export const metadata = { title: "Secret managers" };
 
 export default async function SecretsPage() {
   const ctx = await requireOrg();
+  if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
   const [rows, projects] = await Promise.all([
     db
       .select({

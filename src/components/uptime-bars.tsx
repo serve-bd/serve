@@ -10,7 +10,8 @@ function tone(uptime: number | null) {
   return "bg-bad";
 }
 
-const formatDay = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+// A fixed locale: this renders on the server and in the browser, which may differ.
+const formatDay = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 /** One thin bar per day, oldest on the left. */
 export function UptimeBars({ bars, className, height = 28 }: { bars: UptimeBar[]; className?: string; height?: number }) {

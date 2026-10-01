@@ -29,11 +29,14 @@ export default async function MembersPage() {
       .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
       .where(eq(schema.member.organizationId, ctx.org.id))
       .orderBy(asc(schema.member.createdAt)),
-    db
-      .select()
-      .from(schema.invitation)
-      .where(and(eq(schema.invitation.organizationId, ctx.org.id), eq(schema.invitation.status, "pending"), gt(schema.invitation.expiresAt, new Date())))
-      .orderBy(asc(schema.invitation.createdAt)),
+    // Invite links are credentials: only roles that manage members see them.
+    ctx.can("members.manage")
+      ? db
+          .select()
+          .from(schema.invitation)
+          .where(and(eq(schema.invitation.organizationId, ctx.org.id), eq(schema.invitation.status, "pending"), gt(schema.invitation.expiresAt, new Date())))
+          .orderBy(asc(schema.invitation.createdAt))
+      : Promise.resolve([]),
     organizationRoles(ctx.org.id),
     db.select({ id: schema.project.id, name: schema.project.name }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id)).orderBy(asc(schema.project.name)),
   ]);

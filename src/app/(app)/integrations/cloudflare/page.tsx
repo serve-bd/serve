@@ -1,6 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { serversForOrg } from "@/server/servers/access";
 import { requireOrg } from "@/server/auth";
+import { NoAccess } from "@/components/no-access";
 import { db, schema } from "@/server/db";
 import { decrypt } from "@/server/crypto";
 import { Cloudflare, type CfZone } from "@/server/cloudflare/api";
@@ -11,6 +12,7 @@ export const metadata = { title: "Cloudflare" };
 
 export default async function CloudflarePage() {
   const ctx = await requireOrg();
+  if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
   const accounts = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, ctx.org.id));
   const withZones = await Promise.all(
     accounts.map(async (a) => {

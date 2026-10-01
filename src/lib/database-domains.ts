@@ -6,7 +6,7 @@
 
 export const hostnamePattern = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
-/** Port a tunnel leads to inside the database's container: ClickHouse's native protocol, the engine's own port otherwise. */
-export function tunnelTargetPort(engine: string, enginePort: number) {
-  return engine === "clickhouse" ? 9000 : enginePort;
+/** Port a tunnel leads to inside the database's container: the engine's own port (for ClickHouse its HTTP one, like every other URL Serve shows). */
+export function tunnelTargetPort(_engine: string, enginePort: number) {
+  return enginePort;
 }

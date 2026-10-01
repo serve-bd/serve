@@ -834,8 +834,8 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
 
   // The public port's allowlist (or its removal) goes in the server's firewall before the port
   // opens: when the firewall cannot take it, the deploy fails and the old container stays.
-  if (cfg.publicPort || cfg.publicAllow?.length) {
-    const { applyDatabaseAllowlists } = await import("@/server/databases/allowlist");
+  const { allowlistsPending, applyDatabaseAllowlists } = await import("@/server/databases/allowlist");
+  if ((cfg.publicPort || cfg.publicAllow?.length) && (await allowlistsPending(server.id))) {
     const restricted = !!cfg.publicAllow?.length && !!cfg.publicPort && cfg.publicBind !== "127.0.0.1";
     try {
       await applyDatabaseAllowlists(server.id);

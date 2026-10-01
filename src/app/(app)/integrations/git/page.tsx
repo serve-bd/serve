@@ -1,5 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
+import { NoAccess } from "@/components/no-access";
 import { db, schema } from "@/server/db";
 import { publicBaseUrl, readAppSecret } from "@/server/git/github-app";
 import { GitProviders } from "./git-providers";
@@ -10,6 +11,7 @@ export const metadata = { title: "Git providers" };
 
 export default async function GitPage() {
   const ctx = await requireOrg();
+  if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
   const rows = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.organizationId, ctx.org.id)).orderBy(desc(schema.gitCredential.createdAt));
   const base = await publicBaseUrl();
   const [oauthRows, oauthBase] = await Promise.all([

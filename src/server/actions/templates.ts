@@ -5,7 +5,7 @@ import net from "node:net";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requireOrg, requirePermission } from "@/server/auth";
+import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
@@ -174,7 +174,7 @@ export async function fetchComposeFromUrl(raw: string) {
 /** Loads the built-in template list from GitHub now. */
 export async function reloadTemplateCatalog() {
   return act(async () => {
-    await requireOrg();
+    await requirePermission("services.manage");
     const { count, error } = await reloadTemplates();
     if (error) throw new UserError(error);
     return { count };

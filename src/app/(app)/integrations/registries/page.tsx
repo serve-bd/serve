@@ -1,5 +1,6 @@
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
+import { NoAccess } from "@/components/no-access";
 import { db, schema } from "@/server/db";
 import { Registries, type RegistryItem } from "./registries";
 
@@ -7,6 +8,7 @@ export const metadata = { title: "Registries" };
 
 export default async function RegistriesPage() {
   const ctx = await requireOrg();
+  if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
   const [rows, users] = await Promise.all([
     db
       .select({

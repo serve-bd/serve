@@ -9,7 +9,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import { decryptOrNull } from "@/server/crypto";
+import { decryptOrNull, timingSafeEqual } from "@/server/crypto";
 import { db, schema } from "@/server/db";
 import { env } from "@/server/env";
 import type { MemberRole } from "@/server/db/schema";
@@ -230,7 +230,7 @@ async function trustedDevice(ctx: EndpointContext, userId: string) {
   if (!value) return false;
   const sign = (id: string) => createHmac("sha256", ctx.context.secret).update(`${userId}!${id}`).digest("base64url");
   const [token, trustId] = value.split("!");
-  if (!token || !trustId || token !== sign(trustId)) return false;
+  if (!token || !trustId || !timingSafeEqual(token, sign(trustId))) return false;
   const record = await ctx.context.internalAdapter.findVerificationValue(trustId);
   if (!record || record.value !== userId || record.expiresAt <= new Date()) return false;
   await ctx.context.internalAdapter.deleteVerificationByIdentifier(trustId);
@@ -361,6 +361,12 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, se
           const overall = tooManyAttempts(`email:${email}`, 100, 60 * 60_000);
           if (fromHere || overall) {
             throw new APIError("TOO_MANY_REQUESTS", { message: "Too many sign-in attempts. Try again in 15 minutes." });
+          }
+        }
+        if (ctx.path === "/request-password-reset") {
+          const email = String((ctx.body as { email?: unknown } | undefined)?.email ?? "").toLowerCase();
+          if (tooManyAttempts(`reset:${await clientIp(ctx.headers)}`, 5, 15 * 60_000) || tooManyAttempts(`reset:${email}`, 5, 15 * 60_000)) {
+            throw new APIError("TOO_MANY_REQUESTS", { message: "Too many reset requests. Try again in 15 minutes." });
           }
         }
         if (ctx.path.startsWith("/two-factor/verify-")) {

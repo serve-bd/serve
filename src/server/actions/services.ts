@@ -1,7 +1,8 @@
 "use server";
 
-import { and, isNotNull, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, isNotNull, eq, inArray, ne, sql as dsql } from "drizzle-orm";
 import { z } from "zod";
+import { PASSWORD_PATTERN } from "@/server/databases/password";
 import { normalizeTrustedRanges } from "@/lib/trusted-proxies";
 import { act, UserError } from "@/server/action";
 import { requirePermission } from "@/server/auth";
@@ -273,7 +274,7 @@ const dbSchema = z.object({
     .trim()
     .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Use letters, numbers and underscores")
     .optional(),
-  password: z.string().min(8).optional(),
+  password: z.string().regex(PASSWORD_PATTERN, "Use 12 to 128 letters, numbers, dots, dashes, underscores or tildes (these work in URLs).").optional(),
   serverId: z.string().nullable().optional(),
 });
 
@@ -1091,6 +1092,19 @@ export async function deleteService(serviceId: string, removeVolumes: boolean) {
 /** `keep`: keep the stored value of that key (the editor did not receive it). */
 type VarInput = { key: string; value: string; buildTime: boolean; runtime: boolean; keep?: string };
 
+/** Variables as the forms send them: names and values with a size cap, at most a few hundred. */
+const varsSchema = z
+  .array(
+    z.object({
+      key: z.string().max(200),
+      value: z.string().max(256 * 1024),
+      buildTime: z.boolean().default(true),
+      runtime: z.boolean().default(true),
+      keep: z.string().max(200).optional(),
+    }),
+  )
+  .max(500);
+
 async function writeEnvVars(serviceId: string, vars: VarInput[]) {
   const keys = new Set<string>();
   for (const v of vars) {
@@ -1106,9 +1120,10 @@ async function writeEnvVars(serviceId: string, vars: VarInput[]) {
   });
 }
 
-export async function saveEnvVars(serviceId: string, vars: VarInput[], redeploy: boolean) {
+export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy: boolean) {
   return act(async () => {
     const ctx = await requirePermission("variables.edit");
+    const vars = varsSchema.parse(input);
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const stored = await db.select({ key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId));
     const { decryptOrNull } = await import("@/server/crypto");
@@ -1140,9 +1155,10 @@ export async function saveEnvVars(serviceId: string, vars: VarInput[], redeploy:
  * Variables of one replica (number from 1), on top of the service's variables. `keep` keeps a
  * stored value the editor did not receive. An empty list removes the replica's variables.
  */
-export async function saveReplicaVars(serviceId: string, replica: number, vars: { key: string; value: string; keep?: string }[], redeploy: boolean) {
+export async function saveReplicaVars(serviceId: string, replica: number, input: { key: string; value: string; keep?: string }[], redeploy: boolean) {
   return act(async () => {
     const ctx = await requirePermission("variables.edit");
+    const vars = varsSchema.parse(input);
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "app") throw new UserError("Only apps have replicas.");
     if (!Number.isInteger(replica) || replica < 1 || replica > 100) throw new UserError("Unknown replica.");
@@ -1179,9 +1195,10 @@ export async function saveReplicaVars(serviceId: string, replica: number, vars: 
  * Variables only pull request previews get, replacing the service's variables with the same name.
  * `keep` keeps a stored value the editor did not receive. Open previews get the change at once.
  */
-export async function savePreviewVars(serviceId: string, vars: { key: string; value: string; keep?: string }[]) {
+export async function savePreviewVars(serviceId: string, input: { key: string; value: string; keep?: string }[]) {
   return act(async () => {
     const ctx = await requirePermission("variables.edit");
+    const vars = varsSchema.parse(input);
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "app" || service.parentServiceId) throw new UserError("Only apps with pull request previews have preview variables.");
     let before: Record<string, string> = {};
@@ -1263,7 +1280,12 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
     data.redirectTo = safeRedirectUrl(data.redirectTo);
     if (service.type === "compose" && !data.composeService && !data.redirectTo) throw new UserError("Pick which compose service receives traffic.");
     const [taken] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, data.hostname));
-    if (taken) throw new UserError("That domain is already connected to a service.");
+    // A database on the domain would lose it: the proxy would claim the name and its certificate.
+    const [databaseOnIt] = await db
+      .select({ id: schema.service.id })
+      .from(schema.service)
+      .where(and(eq(schema.service.type, "database"), dsql`lower(${schema.service.database}->>'domain') = ${data.hostname}`));
+    if (taken || databaseOnIt) throw new UserError("That domain is already connected to a service.");
     await assertNotDashboardHost(ctx, data.hostname);
     // Other organizations than Root prove they control the domain first (DNS TXT record or their Cloudflare zone).
     const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, data.hostname);
@@ -1633,20 +1655,6 @@ export async function applyDatabaseChanges(serviceId: string) {
 }
 
 /** Latest deployments for a list of services (used by live cards). */
-export async function latestDeployments(serviceIds: string[]) {
-  const ctx = await requirePermission("projects.view");
-  if (!serviceIds.length) return [];
-  const rows = await db
-    .select({ d: schema.deployment })
-    .from(schema.deployment)
-    .innerJoin(schema.service, eq(schema.deployment.serviceId, schema.service.id))
-    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
-    .where(and(inArray(schema.deployment.serviceId, serviceIds), eq(schema.project.organizationId, ctx.org.id)))
-    .orderBy(desc(schema.deployment.createdAt))
-    .limit(serviceIds.length * 3);
-  return rows.map((r) => r.d);
-}
-
 export async function checkDomainDns(domainId: string) {
   return act(async () => {
     const ctx = await requirePermission("projects.view");

@@ -22,3 +22,15 @@ export function verifyWebhookSignature(headers: Headers, raw: string, secret: st
     (query && timingSafeEqual(query, secret))
   );
 }
+
+/** Deliveries seen lately, so a captured signed request cannot be replayed to deploy again. */
+const seenDeliveries = new Map<string, number>();
+export function deliveryReplayed(headers: Headers) {
+  const id = headers.get("x-github-delivery") ?? headers.get("x-gitlab-event-uuid") ?? headers.get("x-gitea-delivery") ?? headers.get("x-request-id");
+  if (!id) return false;
+  const now = Date.now();
+  if (seenDeliveries.size > 5000) for (const [k, t] of seenDeliveries) if (t < now - 3_600_000) seenDeliveries.delete(k);
+  if ((seenDeliveries.get(id) ?? 0) > now - 3_600_000) return true;
+  seenDeliveries.set(id, now);
+  return false;
+}

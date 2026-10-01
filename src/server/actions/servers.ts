@@ -232,6 +232,9 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     const httpsPort = data.proxyHttpsPort ?? current?.proxyHttpsPort ?? before.proxyHttpsPort;
     const portsChanged = (data.proxyHttpPort !== undefined || data.proxyHttpsPort !== undefined) && (httpPort !== current?.proxyHttpPort || httpsPort !== current?.proxyHttpsPort);
     if (portsChanged && httpPort === httpsPort && httpPort !== 0) throw new UserError("HTTP and HTTPS need different ports.");
+    // With a proxy on the machine trusted, the proxy answers on 127.0.0.1 only: on 80/443 nothing could be in front of it.
+    if (portsChanged && before.trustedProxies?.machine && (httpPort === 80 || httpsPort === 443))
+      throw new UserError("Visitor IP trusts a proxy on this machine, which must own ports 80 and 443. Turn that off in Visitor IP first, or keep other ports.");
     const patch: Partial<typeof schema.server.$inferInsert> = {
       ...data,
       ...(portsChanged ? { proxyHttpPort: httpPort, proxyHttpsPort: httpsPort, proxyPortsCustomized: true } : { proxyHttpPort: undefined, proxyHttpsPort: undefined }),

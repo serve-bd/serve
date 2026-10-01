@@ -56,7 +56,7 @@ function RecordDialog({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            onSave({ type, name: full, content, proxied: proxiable && proxied, ttl: Number(ttl) || 1, priority: type === "MX" ? Number(priority) : undefined });
+            onSave({ type, name: full, content, proxied: proxiable && proxied, ttl: Number(ttl) || 1, priority: type === "MX" ? Number(priority) || 0 : undefined });
           }}
         >
           <DialogHeader title={record ? "Edit DNS record" : "Add DNS record"} description={full} />

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireOrg } from "@/server/auth";
+import { NoAccess } from "@/components/no-access";
 import { isEmailConfigured } from "@/server/email/send";
 import { defaultChannelEvents, providerDefaults, providerInfo } from "@/lib/notifications";
 import { ChannelEditor } from "../../editor";
@@ -13,6 +14,7 @@ export default async function NewChannelPage(props: PageProps<"/integrations/not
   const info = providerInfo(provider);
   if (!info) notFound();
   const ctx = await requireOrg();
+  if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
   const [tree, emailReady] = await Promise.all([scopeTree(ctx.org.id), provider === "email" ? isEmailConfigured() : true]);
   return (
     <ChannelEditor

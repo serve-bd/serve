@@ -43,7 +43,8 @@ export async function saveTask(serviceId: string, taskId: string | null, input: 
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const data = taskSchema.parse(input);
     if (taskId) {
-      await taskInOrg(taskId, ctx.org.id);
+      const task = await taskInOrg(taskId, ctx.org.id);
+      if (task.serviceId !== service.id) throw new UserError("Task not found.");
       await db.update(schema.scheduledTask).set(data).where(eq(schema.scheduledTask.id, taskId));
       return { id: taskId };
     }

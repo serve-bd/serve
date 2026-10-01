@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { deliveryReplayed } from "@/server/git/signature";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { timingSafeEqual } from "@/server/crypto";
@@ -16,6 +17,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/webhook
   const signature = request.headers.get("x-hub-signature-256") ?? "";
   const expected = `sha256=${crypto.createHmac("sha256", secret.webhookSecret).update(raw).digest("hex")}`;
   if (!timingSafeEqual(signature, expected)) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  if (deliveryReplayed(request.headers)) return NextResponse.json({ ok: true, skipped: "duplicate delivery" });
 
   const event = request.headers.get("x-github-event");
   let body: Record<string, unknown>;

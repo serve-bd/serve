@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { requireOrg } from "@/server/auth";
+import { NoAccess } from "@/components/no-access";
 import { db, schema } from "@/server/db";
 import { decrypt } from "@/server/crypto";
 import { Cloudflare } from "@/server/cloudflare/api";
@@ -11,6 +12,7 @@ import { ZoneManager } from "./zone-manager";
 export default async function ZonePage(props: PageProps<"/integrations/cloudflare/[accountId]/[zoneId]">) {
   const { accountId, zoneId } = await props.params;
   const ctx = await requireOrg();
+  if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
   const [account] = await db
     .select()
     .from(schema.cloudflareAccount)

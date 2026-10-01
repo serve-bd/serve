@@ -1,6 +1,6 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { imageExists, LABEL, pullImage } from "@/server/docker/client";
+import { demuxDockerBuffer, imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { getServer, type ServerCtx } from "@/server/servers/context";
 
 /*
@@ -33,7 +33,8 @@ export function familyRules(entries: AllowEntry[], v6: boolean) {
     for (const r of ranges) lines.push(`-A ${FORWARD_CHAIN} ${dnat} -s ${r} -j RETURN`);
     lines.push(`-A ${FORWARD_CHAIN} ${dnat} -j DROP`);
     for (const r of ranges) lines.push(`-A ${INPUT_CHAIN} -p tcp --dport ${e.port} -s ${r} -j RETURN`);
-    lines.push(`-A ${INPUT_CHAIN} -p tcp --dport ${e.port} -j DROP`);
+    // New connections only: a reply to a connection the machine opened from that port passes.
+    lines.push(`-A ${INPUT_CHAIN} -p tcp --dport ${e.port} -m conntrack --ctstate NEW -j DROP`);
   }
   return lines;
 }
@@ -94,9 +95,7 @@ async function onHost(ctx: ServerCtx, script: string) {
   try {
     await container.start();
     const { StatusCode } = (await container.wait()) as { StatusCode: number };
-    const logs = (await container.logs({ stdout: true, stderr: true })).toString("utf8");
-    // Docker's log stream has an 8-byte header per frame; keep the readable text.
-    const text = logs.replace(/[\u0000-\u0008\u000e-\u001f]/g, "").trim();
+    const text = demuxDockerBuffer(await container.logs({ stdout: true, stderr: true })).trim();
     if (StatusCode !== 0) throw new Error(text.split("\n").slice(-2).join(" ") || `exit code ${StatusCode}`);
   } finally {
     await container.remove({ force: true }).catch(() => {});
@@ -106,6 +105,11 @@ async function onHost(ctx: ServerCtx, script: string) {
 /** What each server last got, so ticks only clear rules once after the last allowlist goes. */
 const applied = (globalThis as unknown as { __serveDbAllow?: Map<string, string> }).__serveDbAllow ?? new Map<string, string>();
 (globalThis as unknown as { __serveDbAllow?: Map<string, string> }).__serveDbAllow = applied;
+
+/** Whether a server's firewall needs a run: something is listed, or rules may be left from before. */
+export async function allowlistsPending(serverId: string) {
+  return (await allowEntries(serverId)).length > 0 || applied.get(serverId) !== "[]";
+}
 
 /** Put a server's database allowlists in its firewall (and remove rules no longer wanted). */
 export async function applyDatabaseAllowlists(serverId: string) {

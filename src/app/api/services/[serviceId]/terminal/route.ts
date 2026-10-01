@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/service
   } catch {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
+  const parsed = bodySchema.safeParse(await (Number(request.headers.get("content-length") ?? 0) > 65_536 ? Promise.resolve({}) : request.json().catch(() => ({}))));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   let container;
   try {

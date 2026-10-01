@@ -373,8 +373,12 @@ export async function fetchBranches(repository: string, credentialId: string | n
         .where(and(eq(schema.gitCredential.id, credentialId), eq(schema.gitCredential.organizationId, ctx.org.id)));
       if (!cred) throw new UserError("Credential not found.");
     }
+    const normalized = normalizeRepoUrl(repository);
+    // git ls-remote runs on the dashboard host: other organizations may only ask public servers.
+    const host = normalized.includes("://") ? new URL(normalized).hostname : (/^[\w.-]+@([\w.-]+):/.exec(normalized)?.[1] ?? "");
+    if (!ctx.isRoot && (!host || (await hostIsPrivate(host)))) throw new UserError("That git server is on a private network or does not resolve.");
     try {
-      return await listRemoteBranches({ type: "git", repository: normalizeRepoUrl(repository), branch: "main", credentialId }, ctx.org.id);
+      return await listRemoteBranches({ type: "git", repository: normalized, branch: "main", credentialId }, ctx.org.id);
     } catch {
       throw new UserError("Could not reach the repository. Check the URL and access.");
     }

@@ -60,7 +60,11 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       new Promise<boolean>((resolve) => {
         setTyped("");
         setBusy(false);
-        setPending({ ...opts, resolve });
+        // A dialog still open answers "no" to its caller, instead of leaving it waiting forever.
+        setPending((previous) => {
+          previous?.resolve(false);
+          return { ...opts, resolve };
+        });
         setOpen(true);
       }),
     [],

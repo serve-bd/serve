@@ -27,6 +27,7 @@ export async function ProjectSettingsPage({ projectId, env, section }: { project
   ]);
   return (
     <ProjectSettings
+      key={current.id}
       section={section}
       project={{ id: project.id, name: project.name, description: project.description ?? "", color: project.color, groupServices: project.groupServices }}
       environments={envs.map((e) => ({ id: e.id, name: e.name, services: counts.filter((c) => c.environmentId === e.id).length }))}

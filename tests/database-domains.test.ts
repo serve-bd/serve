@@ -9,7 +9,7 @@ const ctx = { paths: { letsencrypt: "/data/serve/letsencrypt", certs: "/data/ser
 describe("database domains", () => {
   it("leads tunnels to the engine's port, ClickHouse's native one", () => {
     expect(tunnelTargetPort("postgres", 5432)).toBe(5432);
-    expect(tunnelTargetPort("clickhouse", 8123)).toBe(9000);
+    expect(tunnelTargetPort("clickhouse", 8123)).toBe(8123);
   });
 
   it("mounts only the domain's own certificate into the database", () => {

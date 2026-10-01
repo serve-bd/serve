@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { verifyWebhookSignature } from "@/server/git/signature";
+import { deliveryReplayed, verifyWebhookSignature } from "@/server/git/signature";
 import { applyPullRequest, applyPush, parsePullRequest, parsePush } from "@/server/git/events";
 
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/webhooks/git/[serviceId]">) {
@@ -12,6 +12,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/webhook
 
   const valid = verifyWebhookSignature(request.headers, raw, service.webhookSecret, request.nextUrl.searchParams.get("secret"));
   if (!valid) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  if (deliveryReplayed(request.headers)) return NextResponse.json({ ok: true, skipped: "duplicate delivery" });
 
   let body: Record<string, unknown>;
   try {

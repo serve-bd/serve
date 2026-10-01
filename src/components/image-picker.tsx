@@ -52,14 +52,15 @@ export function ImagePicker({
   const [typeName, setTypeName] = React.useState(false);
 
   // The images of the chosen registry.
+  const savedId = saved?.id ?? null;
   React.useEffect(() => {
     setImages(null);
     setImagesError(null);
     setTypeName(false);
-    if (!saved) return;
+    if (!savedId) return;
     let live = true;
     setLoadingImages(true);
-    browseRegistryImages(saved.id)
+    browseRegistryImages(savedId)
       .then((res) => {
         if (!live) return;
         if (res.ok) setImages({ list: res.data.images, listable: res.data.listable, note: res.data.note });
@@ -70,7 +71,7 @@ export function ImagePicker({
     return () => {
       live = false;
     };
-  }, [saved]);
+  }, [savedId]);
 
   const latest = useLatest({ onChange, registry, repo, tag });
 
@@ -83,7 +84,7 @@ export function ImagePicker({
     if (tagRepo.length < 2) return;
     let live = true;
     setLoadingTags(true);
-    browseImageTags({ registryId: saved?.id ?? null, image: tagRepo })
+    browseImageTags({ registryId: savedId, image: tagRepo })
       .then((res) => {
         if (!live) return;
         if (!res.ok) return setTagsError(res.error);
@@ -97,7 +98,7 @@ export function ImagePicker({
     return () => {
       live = false;
     };
-  }, [tagRepo, saved?.id]);
+  }, [tagRepo, savedId]);
 
   const registryOptions = [
     { value: "", label: "Public image", description: "Docker Hub or any public registry" },
@@ -108,17 +109,15 @@ export function ImagePicker({
 
   return (
     <div className="flex flex-col gap-4">
-      {
-        <Field label="Registry" description={saved ? `Pulls with the login saved for ${saved.name}.` : undefined}>
-          <Select
-            value={registry}
-            // An image belongs to its registry: a typed public name is kept only between the two kinds without a list.
-            onValueChange={(v) => onChange(v, v === registry || ((v === "" || v === "manual") && !saved) ? image : "")}
-            options={registryOptions}
-            aria-label="Registry"
-          />
-        </Field>
-      }
+      <Field label="Registry" description={saved ? `Pulls with the login saved for ${saved.name}.` : undefined}>
+        <Select
+          value={registry}
+          // An image belongs to its registry: a typed public name is kept only between the two kinds without a list.
+          onValueChange={(v) => onChange(v, v === registry || ((v === "" || v === "manual") && !saved) ? image : "")}
+          options={registryOptions}
+          aria-label="Registry"
+        />
+      </Field>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_14rem]">
         <Field
           label="Image"

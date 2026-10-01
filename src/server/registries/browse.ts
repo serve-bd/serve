@@ -52,10 +52,10 @@ const basic = (l: NonNullable<Login>) => `Basic ${Buffer.from(`${l.username}:${l
 
 async function get(url: string, headers: Record<string, string> = {}, init: RequestInit = {}) {
   const res = await fetch(url, {
-    ...init,
     headers: { accept: "application/json", "user-agent": "serve", ...headers },
     signal: AbortSignal.timeout(TIMEOUT_MS),
     redirect: "follow",
+    ...init,
   });
   const length = Number(res.headers.get("content-length") ?? 0);
   if (length > MAX_BYTES) throw new Error("The registry answered with too much data.");
@@ -190,21 +190,23 @@ const apiHost = (host: string) => (host === "docker.io" ? "registry-1.docker.io"
 async function registryGet(host: string, path: string, login: Login, scope: string, allowPrivate: boolean) {
   if (!allowPrivate && (await hostIsPrivate(host))) throw new Error("That registry is on a private network.");
   const url = `https://${apiHost(host)}${path}`;
-  const res = await get(url);
+  // No redirects: a public registry must not point the request at a private address.
+  const once = (u: string, headers: Record<string, string> = {}) => get(u, headers, { redirect: allowPrivate ? "follow" : "error" });
+  const res = await once(url);
   if (res.status !== 401) return res;
   const challenge = res.headers.get("www-authenticate") ?? "";
-  if (/^basic/i.test(challenge)) return login ? get(url, { authorization: basic(login) }) : res;
+  if (/^basic/i.test(challenge)) return login ? once(url, { authorization: basic(login) }) : res;
   const params = Object.fromEntries([...challenge.matchAll(/(\w+)="([^"]*)"/g)].map((m) => [m[1], m[2]]));
   if (!params.realm) return res;
   const realm = new URL(params.realm);
   if (realm.protocol !== "https:" || (!allowPrivate && (await hostIsPrivate(realm.hostname)))) throw new Error("The registry sent its login to an address Serve does not use.");
   realm.searchParams.set("service", params.service ?? "");
   realm.searchParams.set("scope", params.scope ?? scope);
-  const tokenRes = await get(realm.toString(), login ? { authorization: basic(login) } : {});
+  const tokenRes = await once(realm.toString(), login ? { authorization: basic(login) } : {});
   if (!tokenRes.ok) return tokenRes;
   const body = await json<{ token?: string; access_token?: string }>(tokenRes);
   const token = body.token ?? body.access_token;
-  return token ? get(url, { authorization: `Bearer ${token}` }) : res;
+  return token ? once(url, { authorization: `Bearer ${token}` }) : res;
 }
 
 /** The next page of a Registry API list, from its Link header. */
@@ -280,8 +282,10 @@ function sortImages(images: ImageEntry[]) {
 }
 
 /** Tags of an image, newest first. `row` is the saved registry it lives in (or null for a public image). */
-export async function listTags(row: RegistryRow | null, image: string, allowPrivate = false): Promise<TagEntry[]> {
+export async function listTags(saved: RegistryRow | null, image: string, allowPrivate = false): Promise<TagEntry[]> {
   const { host, repo } = splitImage(image);
+  // A saved login is only sent to its own registry, never to the host of a typed name.
+  const row = saved && sameRegistryHost(host, saved.host) ? saved : null;
   if (host === "docker.io") return sortTags(await hubTags(row, repo));
   if (row && host === "ghcr.io") {
     const tags = await githubTags(row, repo).catch(() => null);

@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { sameRegistryHost, sortTags, splitImage } from "@/server/registries/browse";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { listTags, sameRegistryHost, sortTags, splitImage } from "@/server/registries/browse";
+import type { RegistryRow } from "@/server/registries";
+
+vi.mock("@/server/crypto", () => ({ decrypt: (v: string) => v }));
+vi.mock("@/server/net/public-host", () => ({ hostIsPrivate: async () => false }));
 
 describe("splitImage", () => {
   it("reads host, repository and tag", () => {
@@ -42,5 +46,24 @@ describe("sortTags", () => {
       { name: "v1", updatedAt: "2026-03-01T00:00:00Z" },
     ]);
     expect(tags).toEqual([{ name: "v1", updatedAt: "2026-03-01T00:00:00Z" }]);
+  });
+});
+
+describe("listTags", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("never sends a saved login to the host of a typed image", async () => {
+    const seen: { url: string; auth: string | null }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      seen.push({ url, auth: new Headers(init.headers).get("authorization") });
+      if (!new Headers(init.headers).get("authorization")) {
+        return new Response("", { status: 401, headers: { "www-authenticate": 'Basic realm="x"' } });
+      }
+      return Response.json({ tags: ["1"] });
+    });
+    const ghcr = { kind: "ghcr", host: "ghcr.io", username: "me", password: "secret-token", namespace: null } as unknown as RegistryRow;
+    await listTags(ghcr, "registry.example.com/team/app", true).catch(() => {});
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((s) => !s.auth)).toBe(true);
   });
 });

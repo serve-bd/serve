@@ -66,7 +66,7 @@ const BUSY = new Set(["building", "deploying", "restarting"]);
 function headline(total: number, running: number, broken: number, busy: number, serversDown: number) {
   if (!total) return { text: "Nothing is deployed yet.", tone: "idle" as const };
   const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
-  if (broken) return { text: `${broken} of ${total} ${plural(total, "service", "services")} ${plural(broken, "needs", "need")} attention.`, tone: "bad" as const };
+  if (broken) return { text: `${broken} ${plural(broken, "service needs", "services need")} attention.`, tone: "bad" as const };
   if (serversDown) return { text: `${serversDown} ${plural(serversDown, "server is", "servers are")} not reachable.`, tone: "bad" as const };
   if (busy) return { text: `${running} of ${total} running, ${busy} deploying now.`, tone: "busy" as const };
   if (running === total) return { text: total === 1 ? "Your service is running." : `All ${total} services are running.`, tone: "ok" as const };

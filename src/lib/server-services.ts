@@ -11,3 +11,11 @@ export function serverServicesText(s: { services: number; running: number; statu
 
 /** Whether a server's last known state can be trusted (it answered on its last check). */
 export const serverReachable = (s: { status: string; isLocal?: boolean }) => !!s.isLocal || (s.status !== "unreachable" && s.status !== "error");
+
+/** Statuses read from the containers; on a server Serve cannot reach they are only the last thing it saw. */
+const CONTAINER_STATUSES = new Set(["running", "crashed", "restarting"]);
+
+/** The status to show for a service: "unknown" when its server cannot be reached and the status came from its containers. */
+export function shownServiceStatus(status: string, server: { status: string; isLocal?: boolean } | null | undefined) {
+  return server && !serverReachable(server) && CONTAINER_STATUSES.has(status) ? "unknown" : status;
+}

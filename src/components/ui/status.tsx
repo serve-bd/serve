@@ -11,6 +11,7 @@ const serviceTones: Record<string, Tone> = {
   idle: { led: "var(--idle)", label: "Not deployed", off: true },
   failed: { led: "var(--bad)", label: "Failed" },
   crashed: { led: "var(--bad)", label: "Crashed" },
+  unknown: { led: "var(--idle)", label: "Status unknown", off: true },
 };
 
 const deploymentTones: Record<string, Tone> = {

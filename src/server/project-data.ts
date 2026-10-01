@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { shownServiceStatus } from "@/lib/server-services";
 import { db, schema } from "@/server/db";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { type ServiceIssue, serviceIssues } from "@/server/services/issues";
@@ -54,7 +55,7 @@ export async function environmentServices(environmentId: string): Promise<Servic
     serviceIssues(ids),
     db.select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(inArray(schema.envVar.serviceId, ids)),
     db
-      .select({ id: schema.server.id, name: schema.server.name })
+      .select({ id: schema.server.id, name: schema.server.name, status: schema.server.status, isLocal: schema.server.isLocal })
       .from(schema.server)
       .where(
         inArray(
@@ -98,7 +99,10 @@ export async function environmentServices(environmentId: string): Promise<Servic
       name: s.name,
       type: s.type,
       icon: s.icon,
-      status: s.status,
+      status: shownServiceStatus(
+        s.status,
+        servers.find((x) => x.id === s.serverId),
+      ),
       engine: s.database?.engine ?? null,
       source:
         s.source?.type === "git"

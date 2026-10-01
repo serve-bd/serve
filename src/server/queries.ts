@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { shownServiceStatus } from "@/lib/server-services";
 import { db, schema } from "@/server/db";
 import type { ProjectSummary } from "@/app/(app)/_components/project-card";
 
@@ -19,8 +20,11 @@ export async function projectSummaries(orgId: string, projectIds: string[] | nul
       status: schema.service.status,
       projectId: schema.service.projectId,
       updatedAt: schema.service.updatedAt,
+      serverStatus: schema.server.status,
+      serverIsLocal: schema.server.isLocal,
     })
     .from(schema.service)
+    .innerJoin(schema.server, eq(schema.service.serverId, schema.server.id))
     .where(
       inArray(
         schema.service.projectId,
@@ -28,7 +32,9 @@ export async function projectSummaries(orgId: string, projectIds: string[] | nul
       ),
     );
   return projects.map((p) => {
-    const own = services.filter((s) => s.projectId === p.id);
+    const own = services
+      .filter((s) => s.projectId === p.id)
+      .map(({ serverStatus, serverIsLocal, ...s }) => ({ ...s, status: shownServiceStatus(s.status, { status: serverStatus, isLocal: serverIsLocal }) }));
     const latest = own.reduce((acc, s) => (s.updatedAt > acc ? s.updatedAt : acc), p.updatedAt);
     return { id: p.id, name: p.name, description: p.description, color: p.color, updatedAt: latest, services: own };
   });

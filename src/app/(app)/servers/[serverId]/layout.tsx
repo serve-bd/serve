@@ -66,6 +66,7 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
                     title: "Server",
                     items: [
                       { href: base, label: "General", icon: "Settings2", exact: true },
+                      { href: `${base}/services`, label: "Services", icon: "Layers3" },
                       ...(row.metricsEnabled ? [{ href: `${base}/metrics`, label: "Metrics", icon: "Activity" as const }] : []),
                     ],
                   },
@@ -75,6 +76,7 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
                     title: "Server",
                     items: [
                       { href: base, label: "General", icon: "Settings2", exact: true },
+                      { href: `${base}/services`, label: "Services", icon: "Layers3" },
                       { href: `${base}/domains`, label: "Domains", icon: "Globe" },
                       { href: `${base}/network`, label: "Private network", icon: "Waypoints", warn: row.mesh?.enabled === true && row.mesh.state === "error" },
                     ],

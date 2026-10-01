@@ -1,7 +1,8 @@
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { listServiceContainers, LABEL } from "@/server/docker/client";
-import { serverOf } from "@/server/servers/context";
+import { getServerRow, serverOf } from "@/server/servers/context";
+import { shownServiceStatus } from "@/lib/server-services";
 
 export type ServiceLive = Awaited<ReturnType<typeof serviceLive>>;
 
@@ -37,7 +38,7 @@ export async function serviceLive(serviceId: string) {
   const previews = await previewsLive(service);
   return {
     previews,
-    status: service.status,
+    status: shownServiceStatus(service.status, await getServerRow(service.serverId).catch(() => null)),
     currentDeploymentId: service.currentDeploymentId,
     domains: domains.map((d) => ({
       id: d.id,

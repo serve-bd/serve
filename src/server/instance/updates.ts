@@ -5,7 +5,7 @@ import { env } from "@/server/env";
 import { newId } from "@/server/id";
 import { getSettings, type UpdateCheck, type UpdateRun, updateSettings } from "@/server/settings";
 import { queueInstanceBackupRecord, runInstanceBackup } from "./backups";
-import { compareVersions, imageRepository, nextImage } from "./manifest";
+import { compareVersions, imageRepository, nextImage, scheduleDue } from "./manifest";
 import { ROLLED_BACK_EXIT, updaterScript } from "./updater-script";
 import { currentVersion, updateRepository } from "./version";
 import { notify } from "@/server/notify";
@@ -62,25 +62,47 @@ export function updateAvailable(check: UpdateCheck | null): boolean {
   return !!check?.latest && compareVersions(check.latest, currentVersion()) > 0;
 }
 
-/** Worker tick: re-check every few hours while checks are on. */
-export async function periodicUpdateCheck() {
+let lastCheckDue: string | null = null;
+
+/**
+ * Worker tick, every minute: check for a release when the check schedule fires (and once
+ * after a start with no check yet), and install it when the auto-update schedule fires.
+ */
+export async function periodicUpdateCheck(enqueueUpdate: (to: string) => Promise<unknown>) {
   const s = await getSettings();
-  if (!s.updateCheckEnabled) return;
-  const age = s.updateCheck ? Date.now() - new Date(s.updateCheck.checkedAt).getTime() : Number.POSITIVE_INFINITY;
-  if (age <= 6 * 3600_000) return;
-  const previous = s.updateCheck?.latest ?? null;
-  const check = await checkForUpdates();
-  // Tell once per new version, not on every check.
-  if (updateAvailable(check) && check.latest !== previous) {
-    await notify(s.rootOrganizationId, "instance.update.available", {
-      ok: true,
-      title: `Serve ${check.latest} is available`,
-      body: `This instance runs ${currentVersion()}. Open Settings → Updates to see what changed.`,
-      url: "/settings/updates",
-      status: "available",
-      data: { current: currentVersion(), latest: check.latest, releaseUrl: check.url },
-    });
+  const now = new Date();
+  if (s.updateCheckEnabled) {
+    const due = scheduleDue(s.updateCheckSchedule, now, s.timezone, lastCheckDue);
+    if (due || !s.updateCheck) {
+      if (due) lastCheckDue = due;
+      const previous = s.updateCheck?.latest ?? null;
+      const check = await checkForUpdates();
+      // Tell once per new version, not on every check.
+      if (updateAvailable(check) && check.latest !== previous && !s.autoUpdateEnabled) {
+        await notify(s.rootOrganizationId, "instance.update.available", {
+          ok: true,
+          title: `Serve ${check.latest} is available`,
+          body: `This instance runs ${currentVersion()}. Open Settings → Updates to see what changed.`,
+          url: "/settings/updates",
+          status: "available",
+          data: { current: currentVersion(), latest: check.latest, releaseUrl: check.url },
+        });
+      }
+    }
   }
+
+  if (!s.autoUpdateEnabled || installMode() !== "compose") return;
+  const due = scheduleDue(s.autoUpdateSchedule, now, s.timezone, s.autoUpdateLastDue);
+  if (!due) return;
+  // Stored, not kept in memory: a restart in the same minute must not start a second update.
+  await updateSettings({ autoUpdateLastDue: due });
+  const running = s.updateRun && (s.updateRun.state === "backing-up" || s.updateRun.state === "running");
+  if (running) return;
+  const check = await checkForUpdates();
+  if (!updateAvailable(check) || !check.latest) return;
+  const run = await beginUpdate(check.latest);
+  await appendLog(`Started automatically by the update schedule (${s.autoUpdateSchedule}).`);
+  await enqueueUpdate(run.to);
 }
 
 async function setRun(patch: Partial<UpdateRun>) {

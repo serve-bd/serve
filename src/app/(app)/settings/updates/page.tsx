@@ -59,7 +59,13 @@ export default async function UpdatesPage() {
       commit={currentCommit()}
       repository={updateRepository()}
       mode={installMode()}
-      enabled={s.updateCheckEnabled}
+      schedule={{
+        checkEnabled: s.updateCheckEnabled,
+        checkSchedule: s.updateCheckSchedule,
+        autoUpdate: s.autoUpdateEnabled,
+        autoSchedule: s.autoUpdateSchedule,
+        timezone: s.timezone,
+      }}
       check={s.updateCheck}
       available={updateAvailable(s.updateCheck)}
       run={s.updateRun}

@@ -75,7 +75,14 @@ export type Settings = {
   instanceBackups: InstanceBackup[];
   /** Look for new releases of Serve. */
   updateCheckEnabled: boolean;
+  /** When to look, as a cron expression in the instance timezone. */
+  updateCheckSchedule: string;
   updateCheck: UpdateCheck | null;
+  /** Install new releases on their own, when `autoUpdateSchedule` fires. */
+  autoUpdateEnabled: boolean;
+  autoUpdateSchedule: string;
+  /** The last firing of the auto-update schedule that was handled (ISO time). */
+  autoUpdateLastDue: string | null;
   /** The last self-update, while it runs and after. */
   updateRun: UpdateRun | null;
   /** Logos, favicon and accent colour (the product name is instanceName). Null means the defaults. */
@@ -177,7 +184,11 @@ export const defaultSettings: Settings = {
   instanceBackupS3DestinationId: null,
   instanceBackups: [],
   updateCheckEnabled: true,
+  updateCheckSchedule: "0 */6 * * *",
   updateCheck: null,
+  autoUpdateEnabled: false,
+  autoUpdateSchedule: "0 3 * * *",
+  autoUpdateLastDue: null,
   updateRun: null,
   branding: null,
   networkCanvas: {},

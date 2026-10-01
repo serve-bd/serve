@@ -87,10 +87,49 @@ export async function checkUpdatesNow() {
   });
 }
 
-export async function setUpdateCheckEnabled(enabled: boolean) {
+const cronSchema = (what: string) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .refine((v) => {
+      try {
+        CronExpressionParser.parse(v);
+        return v.split(/\s+/).length === 5;
+      } catch {
+        return false;
+      }
+    }, `The ${what} schedule is not a valid cron expression (five fields, like 0 3 * * *).`);
+
+const updateSettingsSchema = z.object({
+  checkEnabled: z.boolean(),
+  checkSchedule: cronSchema("check"),
+  autoUpdate: z.boolean(),
+  autoSchedule: cronSchema("update"),
+});
+
+/** How often to look for releases, and whether to install them on a schedule. */
+export async function saveUpdateSettings(input: z.input<typeof updateSettingsSchema>) {
   return act(async () => {
-    await requireInstanceAdmin();
-    await updateSettings({ updateCheckEnabled: enabled });
+    const ctx = await requireInstanceAdmin();
+    const data = updateSettingsSchema.parse(input);
+    if (data.autoUpdate && installMode() !== "compose") throw new UserError("Automatic updates need the Docker Compose install. Update this installation by hand.");
+    const before = await getSettings();
+    await updateSettings({
+      updateCheckEnabled: data.checkEnabled,
+      updateCheckSchedule: data.checkSchedule,
+      autoUpdateEnabled: data.autoUpdate,
+      autoUpdateSchedule: data.autoSchedule,
+    });
+    if (before.autoUpdateEnabled !== data.autoUpdate || before.autoUpdateSchedule !== data.autoSchedule) {
+      await logActivity({
+        userId: ctx.user.id,
+        organizationId: ctx.org.id,
+        action: "instance.auto-update",
+        message: data.autoUpdate ? `Turned on automatic updates (${data.autoSchedule})` : "Turned off automatic updates",
+      });
+    }
     return null;
   });
 }

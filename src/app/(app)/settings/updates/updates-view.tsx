@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Badge, Card, CardBody, CardHeader, Copyable, CopyButton, TimeAgo } from "@/components/ui/misc";
 import { cn } from "@/lib/utils";
 import { useProductName } from "@/components/brand";
-import { SwitchRow } from "@/components/ui/switch";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { useRouter } from "@/hooks/use-router";
-import { checkUpdatesNow, setUpdateCheckEnabled, startSelfUpdate, updateStatus } from "@/server/actions/instance";
+import { checkUpdatesNow, startSelfUpdate, updateStatus } from "@/server/actions/instance";
+import { UpdateSchedule, type UpdateScheduleSettings } from "./update-schedule";
 import type { UpdateCheck, UpdateRun } from "@/server/settings";
 
 const runLabel: Record<UpdateRun["state"], { label: string; tone: "info" | "ok" | "bad" }> = {
@@ -28,7 +28,7 @@ export function UpdatesView({
   commit,
   repository,
   mode,
-  enabled,
+  schedule,
   check,
   available,
   run: initialRun,
@@ -38,7 +38,7 @@ export function UpdatesView({
   commit: string | null;
   repository: string;
   mode: "compose" | "manual";
-  enabled: boolean;
+  schedule: UpdateScheduleSettings;
   check: UpdateCheck | null;
   available: boolean;
   run: UpdateRun | null;
@@ -61,7 +61,6 @@ export function UpdatesView({
   const [starting, setStarting] = React.useState(false);
   const startedFrom = React.useRef<string | null>(null);
   const checkNow = useAction(checkUpdatesNow, { success: (c) => (c.latest ? `Latest release: v${c.latest}` : "No releases published yet") });
-  const toggle = useAction(setUpdateCheckEnabled, { success: "Saved" });
   const start = useAction(startSelfUpdate, {
     success: "Update started",
     onSuccess: () => {
@@ -212,12 +211,7 @@ export function UpdatesView({
             </div>
           ) : null}
 
-          <SwitchRow
-            title="Check for updates"
-            description="Asks GitHub for the newest release every few hours. Nothing about this instance is sent."
-            checked={enabled}
-            onCheckedChange={(c) => toggle.run(c)}
-          />
+          <UpdateSchedule initial={schedule} canAutoUpdate={mode === "compose"} />
         </CardBody>
       </Card>
 

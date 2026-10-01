@@ -512,7 +512,8 @@ async function main() {
   every(60_000, "backups", scheduleBackups);
   every(60_000, "instance-backups", () => scheduleInstanceBackups((backupId) => enqueue("instance.backup", { backupId }, { concurrencyKey: "instance-backup" })));
   every(15_000, "update-status", reconcileUpdate, true);
-  every(30 * 60_000, "update-check", periodicUpdateCheck, true);
+  // Every minute: the check and auto-update schedules are cron expressions.
+  every(60_000, "update-check", () => periodicUpdateCheck((to) => enqueue("instance.update", { to }, { concurrencyKey: "instance-update" })), true);
   every(60_000, "tasks", scheduleTasks);
   every(20_000, "analytics", ingestAccessLog, true);
   every(6 * 3600_000, "certificates", renewDueCertificates, true);

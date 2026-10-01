@@ -40,6 +40,7 @@ export function ProjectSettings({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const serviceCount = environments.reduce((n, e) => n + e.services, 0);
   const [name, setName] = React.useState(project.name);
   const [description, setDescription] = React.useState(project.description);
   const [color, setColor] = React.useState(project.color);
@@ -168,10 +169,11 @@ export function ProjectSettings({
                       if (
                         await confirm({
                           title: `Delete the ${e.name} environment?`,
-                          description: "All its services, volumes and domains are deleted.",
+                          description: e.services ? "All its services, volumes and domains are deleted." : "It has no services.",
                           confirmLabel: "Delete environment",
                           danger: true,
-                          typeToConfirm: e.name,
+                          // Typing the name guards data; an empty environment has none to lose.
+                          typeToConfirm: e.services ? e.name : undefined,
                         })
                       )
                         removeEnv.run(e.id);
@@ -198,10 +200,11 @@ export function ProjectSettings({
                 if (
                   await confirm({
                     title: `Delete ${project.name}?`,
-                    description: "This permanently deletes all data in this project.",
+                    description: serviceCount ? "This permanently deletes all data in this project." : "This project has no services.",
                     confirmLabel: "Delete project",
                     danger: true,
-                    typeToConfirm: project.name,
+                    // Typing the name guards data; an empty project has none to lose.
+                    typeToConfirm: serviceCount ? project.name : undefined,
                   })
                 )
                   remove.run();

@@ -21,6 +21,8 @@ export type EngineInfo = {
   backupCommand: (c: EngineCreds) => string;
   /** Shell command run inside the container that restores a dump from stdin. */
   restoreCommand: (c: EngineCreds) => string;
+  /** MongoDB: restores only the users and roles of a dump from stdin, keeping Serve's account. */
+  restoreUsersCommand?: (c: EngineCreds) => string;
   backupExtension: string;
 
   /** Server process argv when Serve passes arguments (image default otherwise). */
@@ -96,6 +98,30 @@ const rcli = (bin: string, c: EngineCreds) => `${bin} -a ${sh(c.password)} --no-
 const mongoTls = (c: EngineCreds) => (c.tlsRequired ? " --tls --tlsAllowInvalidCertificates" : "");
 /** mongodump / mongorestore spell the TLS options differently from mongosh. */
 const mongoToolsTls = (c: EngineCreds) => (c.tlsRequired ? " --ssl --sslAllowInvalidCertificates --sslAllowInvalidHostnames" : "");
+/**
+ * Restores the users and roles of a dump (from stdin) without losing Serve's own account: a
+ * temporary admin restores them (merged, nothing is dropped), then sets Serve's account back to
+ * its password and root role, and removes itself. A dump user with Serve's name is replaced too.
+ */
+const mongoRestoreUsers = (c: EngineCreds) => {
+  const shell = (user: string, pass: string) => `mongosh --quiet${mongoTls(c)} -u ${user} -p ${pass} --authenticationDatabase admin`;
+  const reset = [
+    'const a = db.getSiblingDB("admin");',
+    'const roles = [{ role: "root", db: "admin" }];',
+    "if (a.getUser(process.env.SU)) a.updateUser(process.env.SU, { pwd: process.env.SP, roles });",
+    "else a.createUser({ user: process.env.SU, pwd: process.env.SP, roles });",
+    "a.dropUser(process.env.T);",
+  ].join(" ");
+  return [
+    `export SU=${sh(c.username)} SP=${sh(c.password)}`,
+    "export T=serve-restore-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n') TP=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')",
+    `${shell('"$SU"', '"$SP"')} --eval 'db.getSiblingDB("admin").createUser({ user: process.env.T, pwd: process.env.TP, roles: ["root"] })' >/dev/null || exit 1`,
+    `mongorestore${mongoToolsTls(c)} --archive --gzip --nsInclude='admin.system.users' --nsInclude='admin.system.roles' --nsInclude='admin.system.version' -u "$T" -p "$TP" --authenticationDatabase admin; rc=$?`,
+    `${shell('"$T"', '"$TP"')} --eval ${sh(reset)} >/dev/null || rc=1`,
+    "exit $rc",
+  ].join("\n");
+};
+
 /** Restores an RDB dump into a server that persists with (multi-part) AOF, then restarts. */
 const aofRestore = (cli: string, user: string) =>
   [
@@ -251,6 +277,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
     // of all databases from another install would replace the account Serve connects with.
     restoreCommand: (c) =>
       `mongorestore${mongoToolsTls(c)} --archive --gzip --drop --nsExclude='admin.system.*' -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
+    restoreUsersCommand: mongoRestoreUsers,
     backupExtension: "archive.gz",
     server: ["mongod"],
     runAs: "mongodb",

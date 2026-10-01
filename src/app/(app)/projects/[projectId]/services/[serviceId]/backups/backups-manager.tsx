@@ -34,24 +34,43 @@ type Backup = {
 
 const triggerLabel: Record<string, string> = { manual: "Manual", schedule: "Scheduled", import: "Imported", "pre-import": "Before restore" };
 
-/** Confirm body with a "back up first" checkbox, read through a ref when the dialog closes. */
-function SafetyToggle({ valueRef }: { valueRef: React.RefObject<boolean> }) {
+/** Confirm body with a "back up first" checkbox (and for MongoDB a users one), read through refs when the dialog closes. */
+function SafetyToggle({ valueRef, usersRef }: { valueRef: React.RefObject<boolean>; usersRef?: React.RefObject<boolean> }) {
   const [on, setOn] = React.useState(true);
+  const [users, setUsers] = React.useState(false);
   return (
-    <label className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] text-fg-2">
-      <Checkbox
-        checked={on}
-        onCheckedChange={(c) => {
-          setOn(!!c);
-          valueRef.current = !!c;
-        }}
-        className="mt-0.5"
-      />
-      <span>
-        Back up the current data first
-        <span className="block text-xs text-muted">If that backup fails, nothing is restored.</span>
-      </span>
-    </label>
+    <div className="flex flex-col gap-2">
+      <label className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] text-fg-2">
+        <Checkbox
+          checked={on}
+          onCheckedChange={(c) => {
+            setOn(!!c);
+            valueRef.current = !!c;
+          }}
+          className="mt-0.5"
+        />
+        <span>
+          Back up the current data first
+          <span className="block text-xs text-muted">If that backup fails, nothing is restored.</span>
+        </span>
+      </label>
+      {usersRef && (
+        <label className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] text-fg-2">
+          <Checkbox
+            checked={users}
+            onCheckedChange={(c) => {
+              setUsers(!!c);
+              usersRef.current = !!c;
+            }}
+            className="mt-0.5"
+          />
+          <span>
+            Also restore the dump&apos;s database users
+            <span className="block text-xs text-muted">Users and roles of the old server come back. The account Serve connects with keeps its password.</span>
+          </span>
+        </label>
+      )}
+    </div>
   );
 }
 
@@ -164,6 +183,8 @@ export function BackupsManager(props: {
   isAdmin: boolean;
   running: boolean;
   engineLabel: string;
+  /** MongoDB: restores can bring back the dump's users. */
+  restoresUsers?: boolean;
   extensions: string[];
   maxUpload: string | null;
   schedule: string | null;
@@ -179,10 +200,14 @@ export function BackupsManager(props: {
   });
 
   const run = useAction(() => createBackup(props.serviceId, props.target ?? null), { success: "Backup started", onSuccess: () => void mutate() });
-  const restore = useAction((id: string, backupFirst: boolean) => restoreFromBackup(id, { backupFirst }), { success: "Restore started", onSuccess: () => void mutate() });
+  const restore = useAction((id: string, backupFirst: boolean, users: boolean) => restoreFromBackup(id, { backupFirst, users }), {
+    success: "Restore started",
+    onSuccess: () => void mutate(),
+  });
   const remove = useAction(deleteBackup, { success: "Backup deleted", onSuccess: () => void mutate() });
   const backups = data?.backups ?? [];
   const safety = React.useRef(true);
+  const users = React.useRef(false);
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -212,14 +237,15 @@ export function BackupsManager(props: {
                   isAdmin={props.isAdmin}
                   onRestore={async (x) => {
                     safety.current = true;
+                    users.current = false;
                     const ok = await confirm({
                       title: "Restore this backup?",
                       description: `${props.restoreWhat ?? `The current data in ${props.engineLabel}`} is replaced with ${x.filename}.`,
                       confirmLabel: "Restore",
                       danger: true,
-                      children: <SafetyToggle valueRef={safety} />,
+                      children: <SafetyToggle valueRef={safety} usersRef={props.restoresUsers ? users : undefined} />,
                     });
-                    if (ok) await restore.run(x.id, safety.current);
+                    if (ok) await restore.run(x.id, safety.current, users.current);
                   }}
                   onDelete={async (x) => {
                     if (
@@ -242,6 +268,7 @@ export function BackupsManager(props: {
             serviceId={props.serviceId}
             running={props.running}
             engineLabel={props.engineLabel}
+            restoresUsers={props.restoresUsers}
             extensions={props.extensions}
             maxUpload={props.maxUpload}
             destinations={props.destinations}

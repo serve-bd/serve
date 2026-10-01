@@ -18,7 +18,7 @@ const MAX_BYTES = 20 * 1024 ** 3;
 
 /**
  * Streams an uploaded dump to disk (never held in memory), then queues the restore.
- * Body: the raw file. Query: ?filename=…&backupFirst=1
+ * Body: the raw file. Query: ?filename=…&backupFirst=1&users=1 (MongoDB: also its users)
  */
 export async function POST(request: Request, ctx: RouteContext<"/api/services/[serviceId]/backups/import">) {
   const { serviceId } = await ctx.params;
@@ -71,7 +71,11 @@ export async function POST(request: Request, ctx: RouteContext<"/api/services/[s
 
   const id = newId();
   await db.insert(schema.backup).values({ id, serviceId, trigger: "import", status: "running", filename, size, log: `Uploaded ${filename} (${size} bytes)\n` });
-  await enqueue("backup.import", { backupId: id, backupFirst: url.searchParams.get("backupFirst") === "1" }, { concurrencyKey: `backup:${serviceId}` });
+  await enqueue(
+    "backup.import",
+    { backupId: id, backupFirst: url.searchParams.get("backupFirst") === "1", users: url.searchParams.get("users") === "1" },
+    { concurrencyKey: `backup:${serviceId}` },
+  );
   await logActivity({
     userId: org.user.id,
     projectId: service.projectId,

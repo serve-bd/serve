@@ -22,6 +22,8 @@ export function ImportCard(props: {
   serviceId: string;
   running: boolean;
   engineLabel: string;
+  /** MongoDB: the dump's users can be restored too. */
+  restoresUsers?: boolean;
   extensions: string[];
   maxUpload: string | null;
   destinations: { id: string; name: string; bucket: string }[];
@@ -34,10 +36,11 @@ export function ImportCard(props: {
   const [dest, setDest] = React.useState(props.destinations[0]?.id ?? "");
   const [key, setKey] = React.useState("");
   const [backupFirst, setBackupFirst] = React.useState(true);
+  const [users, setUsers] = React.useState(false);
   const [progress, setProgress] = React.useState<number | null>(null);
   const [drag, setDrag] = React.useState(false);
   const input = React.useRef<HTMLInputElement>(null);
-  const remote = useAction(() => importBackupFromRemote(props.serviceId, source === "url" ? { kind: "url", url } : { kind: "s3", destinationId: dest, key }, backupFirst), {
+  const remote = useAction(() => importBackupFromRemote(props.serviceId, source === "url" ? { kind: "url", url } : { kind: "s3", destinationId: dest, key }, backupFirst, users), {
     success: "Import started",
     onSuccess: () => props.onStarted(),
   });
@@ -48,7 +51,7 @@ export function ImportCard(props: {
   const upload = (f: File) =>
     new Promise<void>((resolve) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `/api/services/${props.serviceId}/backups/import?filename=${encodeURIComponent(f.name)}${backupFirst ? "&backupFirst=1" : ""}`);
+      xhr.open("POST", `/api/services/${props.serviceId}/backups/import?filename=${encodeURIComponent(f.name)}${backupFirst ? "&backupFirst=1" : ""}${users ? "&users=1" : ""}`);
       xhr.upload.onprogress = (e) => e.lengthComputable && setProgress(e.loaded / e.total);
       xhr.onload = () => {
         setProgress(null);
@@ -174,6 +177,15 @@ export function ImportCard(props: {
             <span className="block text-xs text-muted">Recommended. The restore stops if this backup fails.</span>
           </span>
         </label>
+        {props.restoresUsers && (
+          <label className="flex items-start gap-2 text-[13px] text-fg-2">
+            <Checkbox checked={users} onCheckedChange={(c) => setUsers(!!c)} className="mt-0.5" />
+            <span>
+              Also restore the dump&apos;s database users
+              <span className="block text-xs text-muted">Users and roles of the old server come back. The account Serve connects with keeps its password.</span>
+            </span>
+          </label>
+        )}
         {!props.running && (
           <p className="flex items-start gap-1.5 text-xs text-warn">
             <TriangleAlert className="mt-px size-3.5 flex-none" /> Start the database to import.

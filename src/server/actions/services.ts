@@ -1513,7 +1513,7 @@ export async function createBackup(serviceId: string, target?: string | null) {
   });
 }
 
-export async function restoreFromBackup(backupId: string, opts: { backupFirst?: boolean } = {}) {
+export async function restoreFromBackup(backupId: string, opts: { backupFirst?: boolean; users?: boolean } = {}) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
     // Restoring overwrites live data: admins only, like the button.
@@ -1524,8 +1524,9 @@ export async function restoreFromBackup(backupId: string, opts: { backupFirst?: 
     if (service.status !== "running") throw new UserError(service.type === "database" ? "Start the database before restoring." : "Start the service before restoring.");
     await db.update(schema.backup).set({ restoreStatus: "running" }).where(eq(schema.backup.id, backupId));
     // With a safety backup, the import job takes the backup and restores only if it succeeded.
-    if (opts.backupFirst) await enqueue("backup.import", { backupId, backupFirst: true }, { concurrencyKey: `backup:${b.serviceId}` });
-    else await enqueue("backup.restore", { backupId }, { concurrencyKey: `backup:${b.serviceId}` });
+    const users = !!opts.users;
+    if (opts.backupFirst) await enqueue("backup.import", { backupId, backupFirst: true, users }, { concurrencyKey: `backup:${b.serviceId}` });
+    else await enqueue("backup.restore", { backupId, users }, { concurrencyKey: `backup:${b.serviceId}` });
     await logActivity({
       userId: ctx.user.id,
       projectId: service.projectId,

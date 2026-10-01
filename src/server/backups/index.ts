@@ -61,6 +61,9 @@ async function logLine(backupId: string, line: string) {
 type ServiceRow = typeof schema.service.$inferSelect;
 
 /** A database container and the commands that dump into and restore from it. */
+/** `users`: also restore the dump's database users (MongoDB). */
+export type RestoreOptions = { users?: boolean };
+
 type Commands = {
   docker: Docker;
   container: Docker.Container;
@@ -69,6 +72,8 @@ type Commands = {
   restore: string;
   /** Postgres: psql for plain SQL files instead of pg_restore. */
   restorePlain?: string;
+  /** MongoDB: restores the dump's users and roles, keeping Serve's account. */
+  restoreUsers?: string;
   /** Masked in any output. */
   password: string;
   /** Database the service uses: plain SQL dumps from elsewhere are restored into it. */
@@ -90,7 +95,7 @@ type Target = {
   retentionS3: number;
   dump(file: string): Promise<number>;
   /** `onStopped`: the containers a storage restore stopped (empty once they run again). */
-  restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>): Promise<{ out: string; format: string }>;
+  restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>, opts?: RestoreOptions): Promise<{ out: string; format: string }>;
 };
 
 async function databaseCommands(service: ServiceRow): Promise<Commands> {
@@ -106,6 +111,7 @@ async function databaseCommands(service: ServiceRow): Promise<Commands> {
     engine: cfg.engine,
     backup: engine.backupCommand(creds),
     restore: engine.restoreCommand(creds),
+    restoreUsers: engine.restoreUsersCommand?.(creds),
     restorePlain:
       cfg.engine === "postgres" ? `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(creds.username)} -d ${q(creds.database)}` : undefined,
     password: creds.password,
@@ -237,7 +243,7 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
 }
 
 /** Restores a dump into a database container; Redis and Valkey restart to load it. */
-async function restoreWith(t: Commands, file: string, log: (line: string) => void = () => {}) {
+async function restoreWith(t: Commands, file: string, log: (line: string) => void = () => {}, opts: RestoreOptions = {}) {
   // Mongo archives are gzip streams already; everything else ending in .gz is unpacked on the way in.
   const gz = /\.gz$/i.test(file) && t.engine !== "mongodb";
   const { command, format } = await restoreCommandFor(t, file, gz);
@@ -245,6 +251,10 @@ async function restoreWith(t: Commands, file: string, log: (line: string) => voi
   const filter = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb" ? await plainSqlFilter(t, file, gz, log) : undefined;
   // The command's output goes to the log while it runs, so a long or failing restore can be followed.
   const out = await runIn(t, command, fs.createReadStream(file), gz, log, filter);
+  if (opts.users && t.restoreUsers) {
+    log("Restoring the users of the dump; the account Serve connects with keeps its password");
+    await runIn(t, t.restoreUsers, fs.createReadStream(file), gz, log);
+  }
   if (t.engine === "redis" || t.engine === "valkey") {
     log("Restarting to load the dump");
     await t.container.restart();
@@ -290,7 +300,7 @@ export async function targetOf(service: ServiceRow, key: string | null): Promise
       retention: cfg.backupRetention,
       retentionS3: cfg.backupRetentionS3 ?? cfg.backupRetention,
       dump: async (file) => dumpWith(await databaseCommands(service), file),
-      restore: async (file, log) => restoreWith(await databaseCommands(service), file, log),
+      restore: async (file, log, _onStopped, opts) => restoreWith(await databaseCommands(service), file, log, opts),
     };
   }
   const parsed = parseBackupKey(key);
@@ -511,7 +521,7 @@ async function restoreCommandFor(t: Commands, file: string, gz: boolean) {
   return { command: t.restore, format: DUMP_EXTENSION[t.engine] };
 }
 
-export async function restoreBackup(backupId: string) {
+export async function restoreBackup(backupId: string, opts: RestoreOptions = {}) {
   const backup = await db.query.backup.findFirst({ where: eq(schema.backup.id, backupId), with: { service: true } });
   if (!backup?.filename || (!backup.target && !backup.service.database)) throw new Error("Backup not found");
   const service = backup.service;
@@ -535,6 +545,7 @@ export async function restoreBackup(backupId: string) {
           .update(schema.backup)
           .set({ restoreStopped: ids.length ? ids : null })
           .where(eq(schema.backup.id, backupId))),
+      opts,
     );
     // Database restores logged their format and output as they ran.
     if (format === "tar.gz" && clean) await logLine(backupId, clean.slice(-2000));
@@ -580,7 +591,7 @@ export function importFilename(engine: DatabaseConfig["engine"], slug: string, o
   return `${slug}-import-${stamp}-${base}`;
 }
 
-export async function importBackup(backupId: string, opts: { backupFirst?: boolean; url?: string; s3?: { destinationId: string; key: string } }) {
+export async function importBackup(backupId: string, opts: RestoreOptions & { backupFirst?: boolean; url?: string; s3?: { destinationId: string; key: string } }) {
   const backup = await db.query.backup.findFirst({ where: eq(schema.backup.id, backupId), with: { service: true } });
   if (!backup?.filename || (!backup.target && !backup.service.database)) throw new Error("Import not found");
   const service = backup.service;
@@ -646,5 +657,5 @@ export async function importBackup(backupId: string, opts: { backupFirst?: boole
       throw new Error("The safety backup failed, so nothing was restored.");
     }
   }
-  await restoreBackup(backupId);
+  await restoreBackup(backupId, { users: opts.users });
 }

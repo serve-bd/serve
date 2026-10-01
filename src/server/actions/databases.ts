@@ -233,7 +233,7 @@ const remoteImportSchema = z.union([
 ]);
 
 /** Imports a dump from a URL or an S3 destination, then restores it. */
-export async function importBackupFromRemote(serviceId: string, input: z.input<typeof remoteImportSchema>, backupFirst: boolean) {
+export async function importBackupFromRemote(serviceId: string, input: z.input<typeof remoteImportSchema>, backupFirst: boolean, users = false) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
     // Importing overwrites live data: admins only, like restoring.
@@ -264,7 +264,7 @@ export async function importBackupFromRemote(serviceId: string, input: z.input<t
     await db.insert(schema.backup).values({ id, serviceId, trigger: "import", status: "running", filename });
     await enqueue(
       "backup.import",
-      { backupId: id, backupFirst, ...(source.kind === "url" ? { url: source.url } : { s3: { destinationId: source.destinationId, key: source.key } }) },
+      { backupId: id, backupFirst, users, ...(source.kind === "url" ? { url: source.url } : { s3: { destinationId: source.destinationId, key: source.key } }) },
       { concurrencyKey: `backup:${serviceId}` },
     );
     await logActivity({

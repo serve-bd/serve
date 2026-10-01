@@ -81,6 +81,7 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
         isAdmin={ctx.isAdmin}
         running={service.status === "running"}
         engineLabel={engines[service.database.engine].label}
+        restoresUsers={!!engines[service.database.engine].restoreUsersCommand}
         extensions={IMPORT_EXTENSIONS[service.database.engine]}
         maxUpload={maxUpload}
         schedule={service.database.backupSchedule ?? null}

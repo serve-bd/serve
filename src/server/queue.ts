@@ -37,8 +37,8 @@ export type JobPayloads = {
   "certificate.issue": { certificateId: string };
   "certificate.renew-all": Record<string, never>;
   "backup.run": { backupId: string };
-  "backup.restore": { backupId: string };
-  "backup.import": { backupId: string; backupFirst?: boolean; url?: string; s3?: { destinationId: string; key: string } };
+  "backup.restore": { backupId: string; users?: boolean };
+  "backup.import": { backupId: string; backupFirst?: boolean; users?: boolean; url?: string; s3?: { destinationId: string; key: string } };
   "proxy.sync": Record<string, never>;
   cleanup: { full?: boolean; serverId?: string };
   "server.setup": { serverId: string; installDocker?: boolean };

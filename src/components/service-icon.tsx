@@ -1,6 +1,8 @@
+"use client";
+
 import { Box, Container, Database, FileCode, GitBranch, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { templateBrand } from "@/lib/template-brand";
+import { useTemplateBrand } from "@/components/template-brands";
 
 const engineColors: Record<string, string> = {
   postgres: "#336791",
@@ -28,7 +30,8 @@ export function ServiceIcon({
   className?: string;
 }) {
   const dims = { sm: "size-7 rounded-lg [&_svg]:size-3.5", md: "size-9 rounded-[10px] [&_svg]:size-4", lg: "size-11 rounded-xl [&_svg]:size-5" }[size];
-  const brand = !engine && icon && !icon.startsWith("custom:") ? templateBrand(icon) : null;
+  const iconBrand = useTemplateBrand(icon ?? "");
+  const brand = !engine && icon && !icon.startsWith("custom:") ? iconBrand : null;
   const color = engine ? engineColors[engine] : brand?.color;
   if (color) {
     return (

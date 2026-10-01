@@ -1,0 +1,21 @@
+{
+  "name": "SearXNG",
+  "description": "Private metasearch engine that aggregates results without tracking.",
+  "category": "Productivity",
+  "website": "https://docs.searxng.org",
+  "color": "#3050FF",
+  "expose": {
+    "service": "searxng",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "SEARXNG_BASE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "SEARXNG_SECRET",
+      "generate": "secret"
+    }
+  ]
+}

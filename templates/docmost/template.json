@@ -1,0 +1,25 @@
+{
+  "name": "Docmost",
+  "description": "Collaborative wiki and documentation, a Notion and Confluence alternative.",
+  "category": "CMS",
+  "website": "https://docmost.com",
+  "color": "#111827",
+  "expose": {
+    "service": "docmost",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "APP_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

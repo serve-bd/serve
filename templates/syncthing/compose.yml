@@ -1,0 +1,8 @@
+services:
+  syncthing:
+    image: syncthing/syncthing:latest
+    restart: unless-stopped
+    volumes:
+      - syncthing-data:/var/syncthing
+volumes:
+  syncthing-data:

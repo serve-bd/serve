@@ -1,0 +1,7 @@
+services:
+  browserless:
+    image: ghcr.io/browserless/chromium:latest
+    restart: unless-stopped
+    environment:
+      TOKEN: ${TOKEN}
+      CONCURRENT: "5"

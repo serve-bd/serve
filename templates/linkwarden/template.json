@@ -1,0 +1,25 @@
+{
+  "name": "Linkwarden",
+  "description": "Collect, organise and archive bookmarks with your team.",
+  "category": "Productivity",
+  "website": "https://linkwarden.app",
+  "color": "#0EA5E9",
+  "expose": {
+    "service": "linkwarden",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "NEXTAUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

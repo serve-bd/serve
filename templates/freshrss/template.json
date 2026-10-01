@@ -1,0 +1,12 @@
+{
+  "name": "FreshRSS",
+  "description": "Fast, self-hosted RSS and Atom feed reader.",
+  "category": "Productivity",
+  "website": "https://freshrss.org",
+  "color": "#0062BE",
+  "expose": {
+    "service": "freshrss",
+    "port": 80
+  },
+  "vars": []
+}

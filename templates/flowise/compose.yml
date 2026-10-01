@@ -1,0 +1,8 @@
+services:
+  flowise:
+    image: flowiseai/flowise:latest
+    restart: unless-stopped
+    volumes:
+      - flowise-data:/root/.flowise
+volumes:
+  flowise-data:

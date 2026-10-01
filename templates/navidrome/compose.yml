@@ -1,0 +1,10 @@
+services:
+  navidrome:
+    image: deluan/navidrome:latest
+    restart: unless-stopped
+    volumes:
+      - navidrome-data:/data
+      - navidrome-music:/music
+volumes:
+  navidrome-data:
+  navidrome-music:

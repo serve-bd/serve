@@ -1,0 +1,17 @@
+{
+  "name": "Wiki.js",
+  "description": "Modern, powerful wiki with a Markdown and visual editor.",
+  "category": "CMS",
+  "website": "https://js.wiki",
+  "color": "#1976D2",
+  "expose": {
+    "service": "wiki",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

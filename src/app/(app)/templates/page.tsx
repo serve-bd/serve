@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
-import { templates } from "@/server/services/templates";
+import { getTemplates } from "@/server/services/templates";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { TemplatesView } from "./templates-view";
 
@@ -9,6 +9,7 @@ export const metadata = { title: "Templates" };
 
 export default async function TemplatesPage() {
   const ctx = await requireOrg();
+  const templates = await getTemplates();
   const custom = await db
     .select({
       id: schema.customTemplate.id,

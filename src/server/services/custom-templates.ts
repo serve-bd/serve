@@ -35,7 +35,7 @@ export async function resolveTemplate(id: string, organizationId: string): Promi
       hostAccess: false,
     };
   }
-  const t = getTemplate(id);
+  const t = await getTemplate(id);
   return t ? { id: t.id, name: t.name, compose: t.compose, vars: t.vars, expose: t.expose, custom: false, hostAccess: !!t.hostAccess } : null;
 }
 

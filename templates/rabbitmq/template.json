@@ -1,0 +1,24 @@
+{
+  "name": "RabbitMQ",
+  "description": "Message broker with the management UI on the domain.",
+  "category": "Developer tools",
+  "website": "https://www.rabbitmq.com",
+  "color": "#FF6600",
+  "note": "Services connect over AMQP to <stack>-rabbitmq:5672 on the private network.",
+  "expose": {
+    "service": "rabbitmq",
+    "port": 15672
+  },
+  "vars": [
+    {
+      "key": "RABBITMQ_DEFAULT_USER",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "RABBITMQ_DEFAULT_PASS",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

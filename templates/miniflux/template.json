@@ -1,0 +1,27 @@
+{
+  "name": "Miniflux",
+  "description": "Minimalist, opinionated feed reader.",
+  "category": "Productivity",
+  "website": "https://miniflux.app",
+  "color": "#33373D",
+  "note": "Sign in as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "miniflux",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

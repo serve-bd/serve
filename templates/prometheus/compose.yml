@@ -1,0 +1,8 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - prometheus-data:/prometheus
+volumes:
+  prometheus-data:

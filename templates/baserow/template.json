@@ -1,0 +1,17 @@
+{
+  "name": "Baserow",
+  "description": "No-code database and spreadsheet collaboration tool.",
+  "category": "Productivity",
+  "website": "https://baserow.io",
+  "color": "#5190EF",
+  "expose": {
+    "service": "baserow",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "BASEROW_PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

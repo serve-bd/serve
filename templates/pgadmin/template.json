@@ -1,0 +1,23 @@
+{
+  "name": "pgAdmin",
+  "description": "Web administration tool for PostgreSQL.",
+  "category": "Databases",
+  "website": "https://www.pgadmin.org",
+  "color": "#336791",
+  "expose": {
+    "service": "pgadmin",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "PGADMIN_DEFAULT_EMAIL",
+      "value": "admin@example.com",
+      "label": "Login email"
+    },
+    {
+      "key": "PGADMIN_DEFAULT_PASSWORD",
+      "generate": "password",
+      "label": "Login password"
+    }
+  ]
+}

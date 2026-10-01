@@ -1,8 +1,57 @@
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
-import { composeVariables, templateCategories, templates } from "@/server/services/templates";
+import fs from "node:fs";
+import { composeVariables } from "@/lib/compose-vars";
+import { CATALOG_SCHEMA, parseCatalog } from "@/lib/template-catalog";
 import { parseCompose, transformCompose } from "@/server/deploy/compose";
 import { composeSecurityIssues } from "@/server/security";
+import { buildCatalog, INDEX_FILE, serializeCatalog } from "../scripts/templates";
+
+// The same list as the organization template editor offers (services/templates.ts is server-only).
+const templateCategories = ["Automation", "Analytics", "CMS", "Productivity", "Developer tools", "Monitoring", "Storage", "AI", "Communication", "Security", "Media", "Databases"];
+
+const { catalog, problems } = buildCatalog();
+const templates = catalog.templates;
+
+describe("template catalog", () => {
+  it("builds without problems", () => {
+    expect(problems).toEqual([]);
+  });
+
+  it("matches templates/index.json (run pnpm templates:build)", () => {
+    expect(fs.readFileSync(INDEX_FILE, "utf8")).toBe(serializeCatalog(catalog));
+  });
+
+  it("reads back what it writes", () => {
+    expect(parseCatalog(serializeCatalog(catalog), "0.1.7")?.templates.length).toBe(templates.length);
+  });
+});
+
+describe("parseCatalog", () => {
+  const good = templates[0];
+  const doc = (list: unknown[], schema = CATALOG_SCHEMA) => JSON.stringify({ schema, templates: list });
+
+  it("leaves out broken, duplicate and too-new templates but keeps the rest", () => {
+    const out = parseCatalog(
+      doc([good, { ...good, id: "broken", expose: null }, good, { ...good, id: "future", minVersion: "9.0.0" }, { ...good, id: "newvar", vars: [{ key: "A", magic: true }] }]),
+      "0.1.7",
+    );
+    expect(out?.templates.map((t) => t.id)).toEqual([good.id]);
+    expect(out?.skipped).toEqual(["broken", good.id, "future", "newvar"]);
+  });
+
+  it("rejects a file it cannot read", () => {
+    expect(parseCatalog("not json", "0.1.7")).toBeNull();
+    expect(parseCatalog(doc([good], CATALOG_SCHEMA + 1), "0.1.7")).toBeNull();
+    expect(parseCatalog(JSON.stringify({ templates: [] }), "0.1.7")).toBeNull();
+  });
+
+  it("refuses logos that could run code", () => {
+    for (const logo of ["<svg><script>alert(1)</script></svg>", '<svg onload="x()"></svg>', "<html></html>", '<svg><a href="javascript:x"></a></svg>']) {
+      expect(parseCatalog(doc([{ ...good, logo }]), "0.1.7")?.templates, logo).toEqual([]);
+    }
+  });
+});
 
 describe("built-in templates", () => {
   it("have unique ids", () => {

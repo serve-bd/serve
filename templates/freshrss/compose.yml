@@ -1,0 +1,13 @@
+services:
+  freshrss:
+    image: freshrss/freshrss:latest
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+      CRON_MIN: "*/20"
+    volumes:
+      - freshrss-data:/var/www/FreshRSS/data
+      - freshrss-extensions:/var/www/FreshRSS/extensions
+volumes:
+  freshrss-data:
+  freshrss-extensions:

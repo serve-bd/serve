@@ -1,0 +1,13 @@
+services:
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:11
+    restart: unless-stopped
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__server__ROOT_URL: ${ROOT_URL}
+      FORGEJO__database__DB_TYPE: sqlite3
+    volumes:
+      - forgejo-data:/data
+volumes:
+  forgejo-data:

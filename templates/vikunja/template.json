@@ -1,0 +1,25 @@
+{
+  "name": "Vikunja",
+  "description": "To-do lists, kanban boards and project planning.",
+  "category": "Productivity",
+  "website": "https://vikunja.io",
+  "color": "#196AFF",
+  "expose": {
+    "service": "vikunja",
+    "port": 3456
+  },
+  "vars": [
+    {
+      "key": "VIKUNJA_SERVICE_PUBLICURL",
+      "publicUrl": true
+    },
+    {
+      "key": "VIKUNJA_SERVICE_JWTSECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

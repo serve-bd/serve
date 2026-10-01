@@ -1,0 +1,22 @@
+{
+  "name": "Grafana",
+  "description": "Dashboards and visualisation for metrics and logs.",
+  "category": "Monitoring",
+  "website": "https://grafana.com",
+  "color": "#F46800",
+  "expose": {
+    "service": "grafana",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "GF_SECURITY_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "GF_SERVER_ROOT_URL",
+      "publicUrl": true
+    }
+  ]
+}

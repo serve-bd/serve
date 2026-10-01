@@ -1,0 +1,25 @@
+{
+  "name": "NocoDB",
+  "description": "Turn a database into a smart spreadsheet. An Airtable alternative.",
+  "category": "Productivity",
+  "website": "https://nocodb.com",
+  "color": "#7C3AED",
+  "expose": {
+    "service": "nocodb",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "NC_AUTH_JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "NC_PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "changedetection.io",
+  "description": "Watch websites for changes and get notified.",
+  "category": "Automation",
+  "website": "https://changedetection.io",
+  "color": "#3056D3",
+  "expose": {
+    "service": "changedetection",
+    "port": 5000
+  },
+  "vars": [
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

@@ -66,7 +66,7 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
   const finished = stats.filter((s) => s.status === "success" || s.status === "failed");
   const total = finished.reduce((a, s) => a + s.n, 0);
   const successes = stats.find((s) => s.status === "success")?.n ?? 0;
-  const template = service.compose?.template ? getTemplate(service.compose.template) : null;
+  const template = service.compose?.template ? await getTemplate(service.compose.template) : null;
   const iso = (d: Date | null) => d?.toISOString() ?? null;
   const shape = (d: (typeof deployments)[number]) => ({
     ...d,

@@ -1,0 +1,17 @@
+{
+  "name": "Homepage",
+  "description": "A modern, customisable start page for your services.",
+  "category": "Productivity",
+  "website": "https://gethomepage.dev",
+  "color": "#009BD5",
+  "expose": {
+    "service": "homepage",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "HOMEPAGE_ALLOWED_HOSTS",
+      "publicHost": true
+    }
+  ]
+}

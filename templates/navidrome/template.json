@@ -1,0 +1,12 @@
+{
+  "name": "Navidrome",
+  "description": "Music server and streamer compatible with Subsonic apps.",
+  "category": "Media",
+  "website": "https://www.navidrome.org",
+  "color": "#0084FF",
+  "expose": {
+    "service": "navidrome",
+    "port": 4533
+  },
+  "vars": []
+}

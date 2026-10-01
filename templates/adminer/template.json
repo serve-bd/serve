@@ -1,0 +1,12 @@
+{
+  "name": "Adminer",
+  "description": "Single-page database manager for MySQL, Postgres and more.",
+  "category": "Databases",
+  "website": "https://www.adminer.org",
+  "color": "#34567C",
+  "expose": {
+    "service": "adminer",
+    "port": 8080
+  },
+  "vars": []
+}

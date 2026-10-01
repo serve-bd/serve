@@ -1,0 +1,18 @@
+{
+  "name": "Gitea",
+  "description": "Lightweight self-hosted Git service with issues and CI.",
+  "category": "Developer tools",
+  "website": "https://about.gitea.com",
+  "color": "#609926",
+  "popular": true,
+  "expose": {
+    "service": "gitea",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "ROOT_URL",
+      "publicUrl": true
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+services:
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io:latest
+    restart: unless-stopped
+    environment:
+      BASE_URL: ${BASE_URL}
+    volumes:
+      - changedetection-data:/datastore
+volumes:
+  changedetection-data:

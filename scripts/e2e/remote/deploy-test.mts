@@ -142,7 +142,7 @@ try {
   }
 
   if (steps.includes("compose")) {
-    const t = getTemplate("uptime-kuma")!;
+    const t = (await getTemplate("uptime-kuma"))!;
     const id = await make({
       name: "rt kuma",
       type: "compose",

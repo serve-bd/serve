@@ -1,0 +1,12 @@
+{
+  "name": "Appsmith",
+  "description": "Build internal tools and admin panels with drag and drop.",
+  "category": "Developer tools",
+  "website": "https://www.appsmith.com",
+  "color": "#2A2F3D",
+  "expose": {
+    "service": "appsmith",
+    "port": 80
+  },
+  "vars": []
+}

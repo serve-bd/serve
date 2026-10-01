@@ -1,0 +1,12 @@
+{
+  "name": "Flowise",
+  "description": "Build LLM apps and AI agents with a drag-and-drop editor.",
+  "category": "AI",
+  "website": "https://flowiseai.com",
+  "color": "#4F46E5",
+  "expose": {
+    "service": "flowise",
+    "port": 3000
+  },
+  "vars": []
+}

@@ -1,0 +1,14 @@
+services:
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    restart: unless-stopped
+    volumes:
+      - abs-config:/config
+      - abs-metadata:/metadata
+      - abs-audiobooks:/audiobooks
+      - abs-podcasts:/podcasts
+volumes:
+  abs-config:
+  abs-metadata:
+  abs-audiobooks:
+  abs-podcasts:

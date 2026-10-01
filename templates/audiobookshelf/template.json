@@ -1,0 +1,12 @@
+{
+  "name": "Audiobookshelf",
+  "description": "Audiobook and podcast server with mobile apps.",
+  "category": "Media",
+  "website": "https://www.audiobookshelf.org",
+  "color": "#82612C",
+  "expose": {
+    "service": "audiobookshelf",
+    "port": 80
+  },
+  "vars": []
+}

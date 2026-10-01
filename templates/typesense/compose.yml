@@ -1,0 +1,9 @@
+services:
+  typesense:
+    image: typesense/typesense:28.0
+    restart: unless-stopped
+    command: ["--data-dir", "/data", "--api-key", "${TYPESENSE_API_KEY}", "--enable-cors"]
+    volumes:
+      - typesense-data:/data
+volumes:
+  typesense-data:

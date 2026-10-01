@@ -1,0 +1,8 @@
+services:
+  pocketbase:
+    image: ghcr.io/muchobien/pocketbase:latest
+    restart: unless-stopped
+    volumes:
+      - pocketbase-data:/pb_data
+volumes:
+  pocketbase-data:

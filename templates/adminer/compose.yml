@@ -1,0 +1,4 @@
+services:
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped

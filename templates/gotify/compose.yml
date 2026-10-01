@@ -1,0 +1,11 @@
+services:
+  gotify:
+    image: gotify/server:latest
+    restart: unless-stopped
+    environment:
+      GOTIFY_DEFAULTUSER_NAME: admin
+      GOTIFY_DEFAULTUSER_PASS: ${GOTIFY_DEFAULTUSER_PASS}
+    volumes:
+      - gotify-data:/app/data
+volumes:
+  gotify-data:

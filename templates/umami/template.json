@@ -1,0 +1,23 @@
+{
+  "name": "Umami",
+  "description": "Simple, privacy-focused web analytics. A Google Analytics alternative.",
+  "category": "Analytics",
+  "website": "https://umami.is",
+  "color": "#18181B",
+  "popular": true,
+  "note": "Sign in with admin / umami and change the password right away.",
+  "expose": {
+    "service": "umami",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "APP_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

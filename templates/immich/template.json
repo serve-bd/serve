@@ -1,0 +1,19 @@
+{
+  "name": "Immich",
+  "description": "Photo and video backup with face recognition. A Google Photos alternative.",
+  "category": "Storage",
+  "website": "https://immich.app",
+  "color": "#4250AF",
+  "popular": true,
+  "note": "Needs about 4 GB of RAM. Machine learning downloads models on first use.",
+  "expose": {
+    "service": "immich-server",
+    "port": 2283
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

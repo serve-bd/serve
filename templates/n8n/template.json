@@ -1,0 +1,26 @@
+{
+  "name": "n8n",
+  "description": "Workflow automation with a visual editor and 400+ integrations.",
+  "category": "Automation",
+  "website": "https://n8n.io",
+  "color": "#EA4B71",
+  "popular": true,
+  "expose": {
+    "service": "n8n",
+    "port": 5678
+  },
+  "vars": [
+    {
+      "key": "N8N_ENCRYPTION_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "WEBHOOK_URL",
+      "publicUrl": true
+    }
+  ]
+}

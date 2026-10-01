@@ -30,7 +30,7 @@ function detectVars(compose: string): TemplateVarDef[] {
 
 /** Initial editor state for a new template: blank, a built-in copy or an existing compose service. */
 export async function newTemplateInitial(orgId: string, from?: string, serviceId?: string): Promise<EditorInitial> {
-  const builtIn = from ? getTemplate(from) : null;
+  const builtIn = from ? await getTemplate(from) : null;
   if (builtIn) {
     return {
       ...blank,

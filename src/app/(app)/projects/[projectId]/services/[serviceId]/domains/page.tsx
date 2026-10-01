@@ -57,7 +57,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
     : [[], [], {} as Awaited<ReturnType<typeof listeningPorts>>];
   const content = service.compose?.content ?? "";
   // Main compose service first: the one a template exposes, else the file's first.
-  const template = service.compose?.template ? getTemplate(service.compose.template) : null;
+  const template = service.compose?.template ? await getTemplate(service.compose.template) : null;
   const names = composeServiceNames(content);
   // Otherwise the service a domain already routes to (custom templates, pasted stacks).
   const routed = domains.find((d) => d.composeService && names.includes(d.composeService))?.composeService;

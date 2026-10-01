@@ -1,0 +1,14 @@
+{
+  "name": "Jellyfin",
+  "description": "Stream your movies, shows and music. A Plex alternative.",
+  "category": "Media",
+  "website": "https://jellyfin.org",
+  "color": "#00A4DC",
+  "popular": true,
+  "note": "Put media in the jellyfin-media volume, or replace it with a directory mount in Persistent storage.",
+  "expose": {
+    "service": "jellyfin",
+    "port": 8096
+  },
+  "vars": []
+}

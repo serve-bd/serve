@@ -1,0 +1,12 @@
+{
+  "name": "Redis Insight",
+  "description": "Visual browser, profiler and CLI for Redis and Valkey.",
+  "category": "Databases",
+  "website": "https://redis.io/insight",
+  "color": "#DC382D",
+  "expose": {
+    "service": "redisinsight",
+    "port": 5540
+  },
+  "vars": []
+}

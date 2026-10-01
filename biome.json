@@ -13,7 +13,7 @@
       "!**/dist",
       "!**/.data*",
       "!**/drizzle/meta",
-      "!**/public/templates",
+      "!templates/index.json",
       "!**/next-env.d.ts",
       "!**/tsconfig.tsbuildinfo",
       "!**/pnpm-lock.yaml",

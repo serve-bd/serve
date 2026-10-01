@@ -1,0 +1,10 @@
+services:
+  node-red:
+    image: nodered/node-red:latest
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+    volumes:
+      - node-red-data:/data
+volumes:
+  node-red-data:

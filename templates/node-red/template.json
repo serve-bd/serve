@@ -1,0 +1,13 @@
+{
+  "name": "Node-RED",
+  "description": "Low-code, flow-based programming for events, APIs and IoT.",
+  "category": "Automation",
+  "website": "https://nodered.org",
+  "color": "#8F0000",
+  "note": "The editor has no login by default. Set adminAuth in settings.js (in the data volume) before sharing the domain.",
+  "expose": {
+    "service": "node-red",
+    "port": 1880
+  },
+  "vars": []
+}

@@ -1,0 +1,31 @@
+{
+  "name": "Paperless-ngx",
+  "description": "Scan, index and archive your documents with full-text search.",
+  "category": "Productivity",
+  "website": "https://docs.paperless-ngx.com",
+  "color": "#17541F",
+  "note": "Sign in as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "paperless",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "PAPERLESS_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "PAPERLESS_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "PAPERLESS_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

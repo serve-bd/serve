@@ -1,0 +1,17 @@
+{
+  "name": "ntfy",
+  "description": "Send push notifications to your phone or desktop over HTTP.",
+  "category": "Communication",
+  "website": "https://ntfy.sh",
+  "color": "#317F6F",
+  "expose": {
+    "service": "ntfy",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "NTFY_BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

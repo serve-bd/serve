@@ -1,0 +1,12 @@
+{
+  "name": "IT-Tools",
+  "description": "Handy tools for developers: encoders, converters, generators and more.",
+  "category": "Productivity",
+  "website": "https://it-tools.tech",
+  "color": "#18A058",
+  "expose": {
+    "service": "it-tools",
+    "port": 80
+  },
+  "vars": []
+}

@@ -1,0 +1,12 @@
+services:
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:latest
+    restart: unless-stopped
+    environment:
+      BASE_URL: ${BASE_URL}
+      ALLOW_SIGNUP: "false"
+      TZ: UTC
+    volumes:
+      - mealie-data:/app/data
+volumes:
+  mealie-data:

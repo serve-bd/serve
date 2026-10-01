@@ -1,0 +1,35 @@
+{
+  "name": "Directus",
+  "description": "Headless CMS and instant REST/GraphQL API for any SQL database.",
+  "category": "CMS",
+  "website": "https://directus.io",
+  "color": "#263238",
+  "expose": {
+    "service": "directus",
+    "port": 8055
+  },
+  "vars": [
+    {
+      "key": "SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

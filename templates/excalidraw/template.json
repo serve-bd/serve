@@ -1,0 +1,12 @@
+{
+  "name": "Excalidraw",
+  "description": "Virtual whiteboard for hand-drawn style diagrams.",
+  "category": "Productivity",
+  "website": "https://excalidraw.com",
+  "color": "#6965DB",
+  "expose": {
+    "service": "excalidraw",
+    "port": 80
+  },
+  "vars": []
+}

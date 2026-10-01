@@ -1,0 +1,11 @@
+services:
+  gitea:
+    image: gitea/gitea:1
+    restart: unless-stopped
+    environment:
+      GITEA__server__ROOT_URL: ${ROOT_URL}
+      GITEA__database__DB_TYPE: sqlite3
+    volumes:
+      - gitea-data:/data
+volumes:
+  gitea-data:

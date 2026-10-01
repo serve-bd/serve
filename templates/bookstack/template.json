@@ -1,0 +1,26 @@
+{
+  "name": "BookStack",
+  "description": "Organise documentation into shelves, books and pages.",
+  "category": "CMS",
+  "website": "https://www.bookstackapp.com",
+  "color": "#0288D1",
+  "note": "Sign in with admin@admin.com / password and change it right away.",
+  "expose": {
+    "service": "bookstack",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

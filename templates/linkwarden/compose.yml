@@ -1,0 +1,29 @@
+services:
+  linkwarden:
+    image: ghcr.io/linkwarden/linkwarden:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://linkwarden:${POSTGRES_PASSWORD}@postgres:5432/linkwarden
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: ${BASE_URL}/api/v1/auth
+    volumes:
+      - linkwarden-data:/data/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: linkwarden
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: linkwarden
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U linkwarden -d linkwarden"]
+      interval: 5s
+      retries: 20
+volumes:
+  linkwarden-data:
+  postgres-data:

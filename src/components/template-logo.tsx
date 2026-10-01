@@ -1,4 +1,6 @@
-import { templateBrand } from "@/lib/template-brand";
+"use client";
+
+import { useTemplateBrand } from "@/components/template-brands";
 import { cn } from "@/lib/utils";
 
 /** Rounded brand tile for a template: logo, custom image or a lettered tile. */
@@ -17,6 +19,7 @@ export function TemplateLogo({
   size?: "sm" | "md" | "lg";
   className?: string;
 }) {
+  const brand = useTemplateBrand(custom ? name.toLowerCase() : id);
   const dims = { sm: "size-7 rounded-lg text-[12px]", md: "size-10 rounded-xl text-[15px]", lg: "size-12 rounded-[14px] text-[17px]" }[size];
   if (iconUrl) {
     return (
@@ -25,7 +28,6 @@ export function TemplateLogo({
       </span>
     );
   }
-  const brand = templateBrand(custom ? name.toLowerCase() : id);
   return (
     <span
       className={cn("flex shrink-0 items-center justify-center font-semibold text-white shadow-sm", dims, className)}

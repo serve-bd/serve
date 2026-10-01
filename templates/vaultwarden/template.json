@@ -1,0 +1,24 @@
+{
+  "name": "Vaultwarden",
+  "description": "Bitwarden-compatible password manager server.",
+  "category": "Security",
+  "website": "https://github.com/dani-garcia/vaultwarden",
+  "color": "#175DDC",
+  "popular": true,
+  "note": "Bitwarden apps require HTTPS. Keep HTTPS on for the domain.",
+  "expose": {
+    "service": "vaultwarden",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DOMAIN",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_TOKEN",
+      "generate": "secret",
+      "label": "Admin token"
+    }
+  ]
+}

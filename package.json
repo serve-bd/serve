@@ -17,7 +17,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
-    "test": "vitest run"
+    "test": "vitest run",
+    "templates:build": "tsx scripts/templates.ts",
+    "templates:check": "tsx scripts/templates.ts --check"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

@@ -1,0 +1,22 @@
+{
+  "name": "Ghost",
+  "description": "Publishing platform for blogs, newsletters and memberships.",
+  "category": "CMS",
+  "website": "https://ghost.org",
+  "color": "#15171A",
+  "popular": true,
+  "expose": {
+    "service": "ghost",
+    "port": 2368
+  },
+  "vars": [
+    {
+      "key": "GHOST_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "MYSQL_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

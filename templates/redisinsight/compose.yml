@@ -1,0 +1,8 @@
+services:
+  redisinsight:
+    image: redis/redisinsight:latest
+    restart: unless-stopped
+    volumes:
+      - redisinsight-data:/data
+volumes:
+  redisinsight-data:

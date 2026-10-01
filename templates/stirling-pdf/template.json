@@ -1,0 +1,12 @@
+{
+  "name": "Stirling PDF",
+  "description": "Merge, split, convert, sign and OCR PDFs in the browser.",
+  "category": "Productivity",
+  "website": "https://www.stirlingpdf.com",
+  "color": "#B91C1C",
+  "expose": {
+    "service": "stirling-pdf",
+    "port": 8080
+  },
+  "vars": []
+}

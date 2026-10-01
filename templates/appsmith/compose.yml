@@ -1,0 +1,8 @@
+services:
+  appsmith:
+    image: index.docker.io/appsmith/appsmith-ce:latest
+    restart: unless-stopped
+    volumes:
+      - appsmith-stacks:/appsmith-stacks
+volumes:
+  appsmith-stacks:

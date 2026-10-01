@@ -1,0 +1,12 @@
+services:
+  code-server:
+    image: lscr.io/linuxserver/code-server:latest
+    restart: unless-stopped
+    environment:
+      PASSWORD: ${PASSWORD}
+      PUID: "1000"
+      PGID: "1000"
+    volumes:
+      - code-config:/config
+volumes:
+  code-config:

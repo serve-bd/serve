@@ -1,0 +1,10 @@
+services:
+  stirling-pdf:
+    image: stirlingtools/stirling-pdf:latest
+    restart: unless-stopped
+    volumes:
+      - stirling-tessdata:/usr/share/tessdata
+      - stirling-configs:/configs
+volumes:
+  stirling-tessdata:
+  stirling-configs:

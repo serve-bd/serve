@@ -1,0 +1,13 @@
+{
+  "name": "File Browser",
+  "description": "Upload, organise and share files from a web interface.",
+  "category": "Storage",
+  "website": "https://filebrowser.org",
+  "color": "#40C4FF",
+  "note": "The first admin password is printed in the logs on the first start.",
+  "expose": {
+    "service": "filebrowser",
+    "port": 80
+  },
+  "vars": []
+}

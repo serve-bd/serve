@@ -1,0 +1,12 @@
+{
+  "name": "Memos",
+  "description": "Lightweight, privacy-first note taking.",
+  "category": "Productivity",
+  "website": "https://usememos.com",
+  "color": "#16A34A",
+  "expose": {
+    "service": "memos",
+    "port": 5230
+  },
+  "vars": []
+}

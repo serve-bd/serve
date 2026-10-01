@@ -4,7 +4,7 @@ import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { pageProject } from "@/server/services/access";
 import { resolveEnvironment } from "@/server/project-data";
-import { templates } from "@/server/services/templates";
+import { getTemplates } from "@/server/services/templates";
 import { engineList } from "@/server/databases/engines";
 import { commandExists } from "@/server/process";
 import { serversForOrg } from "@/server/servers/access";
@@ -19,7 +19,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
   if (!ctx.can("services.manage")) return <NoAccess permission="services.manage" />;
   const project = await pageProject(projectId, ctx.org.id);
   const { current } = await resolveEnvironment(projectId, typeof env === "string" ? env : undefined);
-  const [credentials, nixpacks, servers, custom] = await Promise.all([
+  const [credentials, nixpacks, servers, custom, templates] = await Promise.all([
     db
       .select({
         id: schema.gitCredential.id,
@@ -32,6 +32,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
     commandExists("nixpacks"),
     serversForOrg(ctx.org.id),
     db.select().from(schema.customTemplate).where(eq(schema.customTemplate.organizationId, ctx.org.id)).orderBy(asc(schema.customTemplate.name)),
+    getTemplates(),
   ]);
   const catalog: CatalogTemplate[] = [
     ...custom.map((t) => ({

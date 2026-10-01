@@ -1,0 +1,13 @@
+{
+  "name": "Uptime Kuma",
+  "description": "Self-hosted uptime monitoring with status pages and alerts.",
+  "category": "Monitoring",
+  "website": "https://uptime.kuma.pet",
+  "color": "#5CDD8B",
+  "popular": true,
+  "expose": {
+    "service": "uptime-kuma",
+    "port": 3001
+  },
+  "vars": []
+}

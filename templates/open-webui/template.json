@@ -1,0 +1,19 @@
+{
+  "name": "Open WebUI",
+  "description": "ChatGPT-style interface for local models, bundled with Ollama.",
+  "category": "AI",
+  "website": "https://openwebui.com",
+  "color": "#18181B",
+  "popular": true,
+  "note": "The first account you create becomes the admin. Pull a model from Settings → Models.",
+  "expose": {
+    "service": "open-webui",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "WEBUI_SECRET_KEY",
+      "generate": "secret"
+    }
+  ]
+}

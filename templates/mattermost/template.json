@@ -1,0 +1,21 @@
+{
+  "name": "Mattermost",
+  "description": "Team chat and collaboration. A Slack alternative.",
+  "category": "Communication",
+  "website": "https://mattermost.com",
+  "color": "#0058CC",
+  "expose": {
+    "service": "mattermost",
+    "port": 8065
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SITE_URL",
+      "publicUrl": true
+    }
+  ]
+}

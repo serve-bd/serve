@@ -1,0 +1,14 @@
+{
+  "name": "Portainer",
+  "description": "Web UI to manage containers, images, volumes and networks.",
+  "category": "Developer tools",
+  "website": "https://www.portainer.io",
+  "color": "#13BEF9",
+  "hostAccess": true,
+  "note": "Has full control of Docker on the server. Create the admin account within 5 minutes of the first start.",
+  "expose": {
+    "service": "portainer",
+    "port": 9000
+  },
+  "vars": []
+}

@@ -1,0 +1,23 @@
+{
+  "name": "listmonk",
+  "description": "Newsletter and mailing list manager with a fast dashboard.",
+  "category": "Communication",
+  "website": "https://listmonk.app",
+  "color": "#0055D4",
+  "note": "Sign in as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "listmonk",
+    "port": 9000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "LISTMONK_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

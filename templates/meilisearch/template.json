@@ -1,0 +1,18 @@
+{
+  "name": "Meilisearch",
+  "description": "Lightning-fast, typo-tolerant search engine with a simple API.",
+  "category": "Developer tools",
+  "website": "https://www.meilisearch.com",
+  "color": "#FF5CAA",
+  "expose": {
+    "service": "meilisearch",
+    "port": 7700
+  },
+  "vars": [
+    {
+      "key": "MEILI_MASTER_KEY",
+      "generate": "secret",
+      "label": "Master key"
+    }
+  ]
+}

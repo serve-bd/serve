@@ -1,0 +1,13 @@
+{
+  "name": "Prometheus",
+  "description": "Metrics collection and alerting with a powerful query language.",
+  "category": "Monitoring",
+  "website": "https://prometheus.io",
+  "color": "#E6522C",
+  "note": "Starts with the default config that scrapes itself. The UI has no login; keep the domain private.",
+  "expose": {
+    "service": "prometheus",
+    "port": 9090
+  },
+  "vars": []
+}

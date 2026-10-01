@@ -1,0 +1,25 @@
+{
+  "name": "MinIO",
+  "description": "S3-compatible object storage. Console exposed on the domain.",
+  "category": "Storage",
+  "website": "https://min.io",
+  "color": "#C72E49",
+  "popular": true,
+  "note": "The S3 API listens on port 9000. Add a second domain for it in Domains & ports.",
+  "expose": {
+    "service": "minio",
+    "port": 9001
+  },
+  "vars": [
+    {
+      "key": "MINIO_ROOT_USER",
+      "value": "admin",
+      "label": "Root user"
+    },
+    {
+      "key": "MINIO_ROOT_PASSWORD",
+      "generate": "password",
+      "label": "Root password"
+    }
+  ]
+}

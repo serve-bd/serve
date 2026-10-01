@@ -1,0 +1,25 @@
+{
+  "name": "Plausible Analytics",
+  "description": "Lightweight, cookie-free website analytics.",
+  "category": "Analytics",
+  "website": "https://plausible.io",
+  "color": "#5850EC",
+  "expose": {
+    "service": "plausible",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Gotify",
+  "description": "Simple server for sending and receiving push messages.",
+  "category": "Communication",
+  "website": "https://gotify.net",
+  "color": "#1E88E5",
+  "note": "Sign in as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "gotify",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "GOTIFY_DEFAULTUSER_PASS",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

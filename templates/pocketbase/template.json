@@ -1,0 +1,13 @@
+{
+  "name": "PocketBase",
+  "description": "Open-source backend in one file: database, auth, files and realtime.",
+  "category": "Developer tools",
+  "website": "https://pocketbase.io",
+  "color": "#16161A",
+  "note": "Open the link printed in the logs to create the first superuser.",
+  "expose": {
+    "service": "pocketbase",
+    "port": 8090
+  },
+  "vars": []
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Syncthing",
+  "description": "Continuous peer-to-peer file synchronisation between devices.",
+  "category": "Storage",
+  "website": "https://syncthing.net",
+  "color": "#0891D1",
+  "note": "Set a GUI password first. For direct device connections publish port 22000 (TCP and UDP) in Domains & ports.",
+  "expose": {
+    "service": "syncthing",
+    "port": 8384
+  },
+  "vars": []
+}

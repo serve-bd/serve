@@ -1,0 +1,29 @@
+services:
+  nocodb:
+    image: nocodb/nocodb:latest
+    restart: unless-stopped
+    environment:
+      NC_DB: pg://postgres:5432?u=nocodb&p=${POSTGRES_PASSWORD}&d=nocodb
+      NC_AUTH_JWT_SECRET: ${NC_AUTH_JWT_SECRET}
+      NC_PUBLIC_URL: ${NC_PUBLIC_URL}
+    volumes:
+      - nocodb-data:/usr/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nocodb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: nocodb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nocodb -d nocodb"]
+      interval: 5s
+      retries: 20
+volumes:
+  nocodb-data:
+  postgres-data:

@@ -18,7 +18,8 @@ import { getServer, type ServerCtx } from "@/server/servers/context";
 
 export type AllowEntry = { port: number; allow: string[] };
 
-const HELPER_IMAGE = "alpine:3.22.6";
+// Pinned by digest: it runs privileged in the host's namespaces.
+const HELPER_IMAGE = "alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8";
 const FORWARD_CHAIN = "SERVE-DB-ALLOW";
 const INPUT_CHAIN = "SERVE-DB-ALLOW-IN";
 
@@ -53,14 +54,14 @@ export function allowlistScript(entries: AllowEntry[]) {
     "set -u",
     'fail() { echo "$*" >&2; exit 1; }',
     // Docker uses either iptables flavour; the rules must go where Docker's own rules are.
-    'pick() { for b in nft legacy; do if command -v "$1-$b" >/dev/null 2>&1 && { "$1-$b" -w -t filter -S DOCKER-USER >/dev/null 2>&1 || "$1-$b" -w -t nat -S DOCKER >/dev/null 2>&1; }; then echo "$1-$b"; return; fi; done; if command -v "$1-nft" >/dev/null 2>&1; then echo "$1-nft"; elif command -v "$1" >/dev/null 2>&1; then echo "$1"; fi; }',
+    'pick() { for b in nft legacy; do if command -v "$1-$b" >/dev/null 2>&1 && { "$1-$b" -w 10 -t filter -S DOCKER-USER >/dev/null 2>&1 || "$1-$b" -w 10 -t nat -S DOCKER >/dev/null 2>&1; }; then echo "$1-$b"; return; fi; done; if command -v "$1-nft" >/dev/null 2>&1; then echo "$1-nft"; elif command -v "$1" >/dev/null 2>&1; then echo "$1"; fi; }',
     "apply() {",
     // Connections Docker forwards pass DOCKER-USER; without it (another firewall backend), FORWARD.
-    "  HOOK=FORWARD; $T -w -S DOCKER-USER >/dev/null 2>&1 && HOOK=DOCKER-USER",
-    '  printf "%s" "$1" | $T-restore -w --noflush || fail "$T rejected the rules"',
-    `  $T -w -C $HOOK -j ${FORWARD_CHAIN} 2>/dev/null || $T -w -I $HOOK 1 -j ${FORWARD_CHAIN} || fail "could not hook $HOOK"`,
-    `  $T -w -C INPUT -j ${INPUT_CHAIN} 2>/dev/null || $T -w -I INPUT 1 -j ${INPUT_CHAIN} || fail "could not hook INPUT"`,
-    `  $T -w -C $HOOK -j ${FORWARD_CHAIN} 2>/dev/null && $T -w -C INPUT -j ${INPUT_CHAIN} 2>/dev/null || fail "the rules are not in place on $T"`,
+    "  HOOK=FORWARD; $T -w 10 -S DOCKER-USER >/dev/null 2>&1 && HOOK=DOCKER-USER",
+    '  printf "%s" "$1" | $T-restore -w 10 --noflush || fail "$T rejected the rules"',
+    `  $T -w 10 -C $HOOK -j ${FORWARD_CHAIN} 2>/dev/null || $T -w 10 -I $HOOK 1 -j ${FORWARD_CHAIN} || fail "could not hook $HOOK"`,
+    `  $T -w 10 -C INPUT -j ${INPUT_CHAIN} 2>/dev/null || $T -w 10 -I INPUT 1 -j ${INPUT_CHAIN} || fail "could not hook INPUT"`,
+    `  $T -w 10 -C $HOOK -j ${FORWARD_CHAIN} 2>/dev/null && $T -w 10 -C INPUT -j ${INPUT_CHAIN} 2>/dev/null || fail "the rules are not in place on $T"`,
     "}",
     `T=$(pick iptables); [ -n "$T" ] || { ${want ? 'fail "iptables is not installed on this server"' : "exit 0"}; }`,
     `apply '${ruleset(familyRules(entries, false))}'`,
@@ -94,7 +95,11 @@ async function onHost(ctx: ServerCtx, script: string) {
   });
   try {
     await container.start();
-    const { StatusCode } = (await container.wait()) as { StatusCode: number };
+    // iptables waits for its lock at most 10 s per call; the whole run gets a minute.
+    const { StatusCode } = (await Promise.race([
+      container.wait(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("the firewall helper did not finish in a minute")), 60_000).unref()),
+    ])) as { StatusCode: number };
     const text = demuxDockerBuffer(await container.logs({ stdout: true, stderr: true })).trim();
     if (StatusCode !== 0) throw new Error(text.split("\n").slice(-2).join(" ") || `exit code ${StatusCode}`);
   } finally {

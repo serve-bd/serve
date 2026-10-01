@@ -98,7 +98,9 @@ function clickhouseRestore(c: EngineCreds) {
 }
 
 /** redis-cli / valkey-cli with auth, over TLS when the server only speaks TLS. */
-export const rcli = (bin: string, c: EngineCreds) => `${bin} -a ${sh(c.password)} --no-auth-warning${c.tlsRequired ? " --tls --insecure" : ""}`;
+/** The client with its password in the environment, not on its command line (visible in ps). */
+export const rcli = (bin: string, c: EngineCreds) =>
+  `REDISCLI_AUTH=${sh(c.password)} VALKEYCLI_AUTH=${sh(c.password)} ${bin} --no-auth-warning${c.tlsRequired ? " --tls --insecure" : ""}`;
 export const mongoTls = (c: EngineCreds) => (c.tlsRequired ? " --tls --tlsAllowInvalidCertificates" : "");
 /** mongodump / mongorestore spell the TLS options differently from mongosh. */
 export const mongoToolsTls = (c: EngineCreds) => (c.tlsRequired ? " --ssl --sslAllowInvalidCertificates --sslAllowInvalidHostnames" : "");
@@ -210,10 +212,10 @@ export const engines: Record<DbEngine, EngineInfo> = {
       MYSQL_DATABASE: c.database,
       ...(c.username !== "root" ? { MYSQL_USER: c.username, MYSQL_PASSWORD: c.password } : {}),
     }),
-    healthcheck: (c) => ["CMD-SHELL", `mysqladmin ping -h 127.0.0.1 -uroot -p${sh(c.password)} --silent`],
+    healthcheck: (c) => ["CMD-SHELL", `MYSQL_PWD=${sh(c.password)} mysqladmin ping -h 127.0.0.1 -uroot --silent`],
     url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
-    backupCommand: (c) => `mysqldump -uroot -p${sh(c.password)} --single-transaction --routines --triggers --databases ${sh(c.database)}`,
-    restoreCommand: (c) => `mysql -uroot -p${sh(c.password)} ${sh(c.database)}`,
+    backupCommand: (c) => `MYSQL_PWD=${sh(c.password)} mysqldump -uroot --single-transaction --routines --triggers --databases ${sh(c.database)}`,
+    restoreCommand: (c) => `MYSQL_PWD=${sh(c.password)} mysql -uroot ${sh(c.database)}`,
     backupExtension: "sql",
     server: ["mysqld"],
     runAs: "mysql",
@@ -247,8 +249,8 @@ export const engines: Record<DbEngine, EngineInfo> = {
     }),
     healthcheck: () => ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"],
     url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
-    backupCommand: (c) => `mariadb-dump -uroot -p${sh(c.password)} --single-transaction --routines --triggers --databases ${sh(c.database)}`,
-    restoreCommand: (c) => `mariadb -uroot -p${sh(c.password)} ${sh(c.database)}`,
+    backupCommand: (c) => `MYSQL_PWD=${sh(c.password)} mariadb-dump -uroot --single-transaction --routines --triggers --databases ${sh(c.database)}`,
+    restoreCommand: (c) => `MYSQL_PWD=${sh(c.password)} mariadb -uroot ${sh(c.database)}`,
     backupExtension: "sql",
     server: ["mariadbd"],
     runAs: "mysql",

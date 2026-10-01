@@ -30,9 +30,9 @@ describe("database allowlists", () => {
   it("replaces Serve's chains at once, hooks them and checks they are in place", () => {
     const script = allowlistScript(entries);
     expect(script).toContain(":SERVE-DB-ALLOW - [0:0]");
-    expect(script).toContain("$T-restore -w --noflush");
-    expect(script).toContain("$T -w -I $HOOK 1 -j SERVE-DB-ALLOW");
-    expect(script).toContain("HOOK=FORWARD; $T -w -S DOCKER-USER >/dev/null 2>&1 && HOOK=DOCKER-USER");
+    expect(script).toContain("$T-restore -w 10 --noflush");
+    expect(script).toContain("$T -w 10 -I $HOOK 1 -j SERVE-DB-ALLOW");
+    expect(script).toContain("HOOK=FORWARD; $T -w 10 -S DOCKER-USER >/dev/null 2>&1 && HOOK=DOCKER-USER");
     expect(script).toContain('fail "the rules are not in place on $T"');
     // Local connections (an SSH tunnel to localhost) always pass.
     expect(script).toContain("-A SERVE-DB-ALLOW-IN -i lo -j RETURN");

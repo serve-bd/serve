@@ -168,6 +168,13 @@ export async function attemptDelivery(deliveryId: string, opts: { scheduleRetry?
     .where(eq(schema.notificationDelivery.id, deliveryId));
   if (!row || row.d.status === "sent") return row?.d ?? null;
   const attempts = row.d.attempts + 1;
+  // Claim the attempt: a retry job and the sweep for lost jobs could both pick this row up.
+  const [claimed] = await db
+    .update(schema.notificationDelivery)
+    .set({ attempts })
+    .where(and(eq(schema.notificationDelivery.id, deliveryId), eq(schema.notificationDelivery.attempts, row.d.attempts)))
+    .returning({ id: schema.notificationDelivery.id });
+  if (!claimed) return row.d;
   try {
     const { skipped } = await sendMessage(row.c.kind, channelConfig(row.c), row.d.message as unknown as OutgoingMessage);
     const [updated] = await db

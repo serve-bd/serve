@@ -66,7 +66,8 @@ FLUSH PRIVILEGES;
 SERVE_SQL`,
         // Without DEFINER clauses, routines and views run as whoever calls them: the branch's user.
         `${dump} -uroot --single-transaction --routines --triggers --events ${q(main.database)} | sed -e 's/DEFINER=\`[^\`]*\`@\`[^\`]*\`//g' | ${run(b.database)}`,
-        ...(scrubSql?.trim() ? [`${pipeSql(scrubSql)} | ${run(b.database)}`] : []),
+        // As the branch's user: the clean-up SQL can touch the branch and nothing else.
+        ...(scrubSql?.trim() ? [`${pipeSql(scrubSql)} | MYSQL_PWD=${q(b.password)} ${cli} -u${q(b.username)} ${q(b.database)}`] : []),
         `echo "SERVE_SIZE=$(${run()} -N -B -e "SELECT COALESCE(SUM(data_length + index_length), 0) FROM information_schema.tables WHERE table_schema = ${literal(b.database)}")"`,
       ].join("\n"),
     remove: (main: Main, b: BranchCreds) =>
@@ -129,7 +130,7 @@ done`,
       `ch -q ${q(`CREATE USER IF NOT EXISTS \`${b.username}\` IDENTIFIED WITH sha256_password BY ${literal(b.password)}`)}`,
       `ch -q ${q(`ALTER USER \`${b.username}\` IDENTIFIED WITH sha256_password BY ${literal(b.password)}`)}`,
       `ch -q ${q(`GRANT ALL ON \`${b.database}\`.* TO \`${b.username}\``)}`,
-      ...(scrubSql?.trim() ? [`${pipeSql(scrubSql)} | ch -d ${q(b.database)} --multiquery`] : []),
+      ...(scrubSql?.trim() ? [`${pipeSql(scrubSql)} | clickhouse-client -u ${q(b.username)} --password ${q(b.password)} -d ${q(b.database)} --multiquery`] : []),
       `echo "SERVE_SIZE=$(ch -q ${q(`SELECT sum(bytes_on_disk) FROM system.parts WHERE database = ${literal(b.database)} AND active`)})"`,
     ].join("\n");
   },
@@ -253,7 +254,10 @@ SERVE_SQL`,
     `${psql(branch.database)} <<'SERVE_SQL'
 ${ownershipSql(branch.username)}
 SERVE_SQL`,
-    ...(scrubSql?.trim() ? [`${pipeSql(scrubSql)} | ${psql(branch.database)}`] : []),
+    // As the branch's role, which owns the branch and nothing else.
+    ...(scrubSql?.trim()
+      ? [`${pipeSql(scrubSql)} | PGPASSWORD=${q(branch.password)} psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(branch.username)} -d ${q(branch.database)}`]
+      : []),
     `echo "SERVE_SIZE=$(${psql(main.database, false)} -At -c "SELECT pg_database_size(${literal(branch.database)})")"`,
   ].join("\n");
 }

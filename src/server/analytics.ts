@@ -50,6 +50,7 @@ async function ingestServerLog(ctx: ServerCtx) {
     if (!entry) continue;
     if (!entry.h || entry.h === "_" || entry.u?.startsWith("/.well-known/acme-challenge/") || entry.u === "/__serve/health") continue;
     const minute = new Date(entry.t);
+    if (Number.isNaN(minute.getTime())) continue;
     minute.setSeconds(0, 0);
     const key = `${entry.h.toLowerCase()}|${minute.toISOString()}`;
     const b = buckets.get(key) ?? { requests: 0, s2: 0, s3: 0, s4: 0, s5: 0, bytes: 0, ms: 0, max: 0 };

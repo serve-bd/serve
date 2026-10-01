@@ -191,7 +191,11 @@ function every(ms: number, name: string, fn: () => Promise<unknown>, runNow = fa
     if (busy || stopping) return;
     busy = true;
     try {
-      await fn();
+      // A tick stuck on a server that never answers must not stop every later tick.
+      await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("still running after an hour; letting the next tick run")), 3_600_000).unref()),
+      ]);
     } catch (error) {
       log(`${name} failed:`, (error as Error).message);
     } finally {

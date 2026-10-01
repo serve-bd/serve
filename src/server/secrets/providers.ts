@@ -196,16 +196,19 @@ function pick(data: Record<string, unknown>, field: string | null, where: string
 export async function fetchSecrets(c: ProviderClient, refs: { path: string; field: string | null }[]): Promise<Map<string, string | Error>> {
   const out = new Map<string, string | Error>();
   const keyOf = (r: { path: string; field: string | null }) => (r.field === null ? r.path : `${r.path}:${r.field}`);
+  // A few requests at a time: a service with many references must not trip the provider's rate limit.
   const each = async (fn: (r: { path: string; field: string | null }) => Promise<string>) => {
-    await Promise.all(
-      refs.map(async (r) => {
+    const queue = [...refs];
+    const worker = async () => {
+      for (let r = queue.shift(); r; r = queue.shift()) {
         try {
           out.set(keyOf(r), await fn(r));
         } catch (e) {
           out.set(keyOf(r), e instanceof SecretFetchError ? e : new SecretFetchError((e as Error).message));
         }
-      }),
-    );
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, refs.length) }, worker));
   };
 
   if (c.kind === "vault") {

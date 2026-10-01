@@ -229,9 +229,9 @@ export function scrubCommand(cfg: DatabaseConfig, password: string): string | nu
     case "postgres":
       return `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(creds.database)}`;
     case "mysql":
-      return `mysql -uroot -p${q(creds.password)} ${q(creds.database)}`;
+      return `MYSQL_PWD=${q(creds.password)} mysql -uroot ${q(creds.database)}`;
     case "mariadb":
-      return `mariadb -uroot -p${q(creds.password)} ${q(creds.database)}`;
+      return `MYSQL_PWD=${q(creds.password)} mariadb -uroot ${q(creds.database)}`;
     case "clickhouse":
       return engines.clickhouse.restoreCommand(creds);
     default:

@@ -115,6 +115,11 @@ export function databaseConfigIssues(cfg: DatabaseConfig): string[] {
   if (cfg.collation && !/^[a-z0-9_]{1,64}$/i.test(cfg.collation)) issues.push("The collation is not valid.");
   if (cfg.initdbArgs && /[\n\r]/.test(cfg.initdbArgs)) issues.push("Initdb arguments must be on one line.");
   if (cfg.dataMountPath && !/^\/[\w./-]*$/.test(cfg.dataMountPath)) issues.push("The data mount path must be absolute.");
+  if (
+    cfg.dataMountPath &&
+    (cfg.dataMountPath === "/" || [TLS_SOURCE, TLS_DIR, "/docker-entrypoint-initdb.d", "/etc/serve"].some((p) => cfg.dataMountPath!.replace(/\/+$/, "").startsWith(p)))
+  )
+    issues.push("The data mount path cannot be / or a directory Serve uses.");
   if (cfg.tls?.enabled && !engine.tlsArgs) issues.push(`Serve cannot turn on TLS for ${engine.label}.`);
   if (cfg.tls?.enabled && cfg.tls.mode === "require" && cfg.engine === "clickhouse")
     issues.push("ClickHouse keeps plain ports for the private network: TLS can be optional, not required.");

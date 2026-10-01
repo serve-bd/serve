@@ -1,4 +1,6 @@
+import { asc, eq } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
+import { db, schema } from "@/server/db";
 import { privateHost } from "@/lib/hostname";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
@@ -27,6 +29,13 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
     const hideSecrets = !ctx.can("variables.view-secrets");
     const creds = { username: cfg.username, password: hideSecrets ? "********" : (decryptOrNull(cfg.password) ?? ""), database: cfg.database };
     const monitoring = await monitorSummary(service.id);
+    const branches = service.parentServiceId
+      ? []
+      : await db
+          .select({ id: schema.databaseBranch.id, name: schema.databaseBranch.name, status: schema.databaseBranch.status, sizeBytes: schema.databaseBranch.sizeBytes })
+          .from(schema.databaseBranch)
+          .where(eq(schema.databaseBranch.serviceId, service.id))
+          .orderBy(asc(schema.databaseBranch.createdAt));
     return (
       <PageBody className="flex flex-col gap-6">
         <DatabaseOverview
@@ -45,6 +54,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           canManage={ctx.can("services.manage")}
           uptime={<UptimeCard summary={monitoring} settingsHref={`/projects/${projectId}/services/${service.id}/settings/monitoring`} />}
           uptimeInSide={!monitoring.monitor}
+          branches={branches}
         />
       </PageBody>
     );

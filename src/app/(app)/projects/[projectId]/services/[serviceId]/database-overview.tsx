@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { ChevronRight, Globe, Lock } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, GitBranch, Globe, Lock } from "lucide-react";
+import { cn, formatBytes } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
@@ -34,6 +36,8 @@ export function DatabaseOverview(props: {
   /** The role cannot see secret values: the password and URLs are masked and not copyable. */
   hideSecrets?: boolean;
   canManage?: boolean;
+  /** Branches live inside this container, so they are listed under it. */
+  branches?: { id: string; name: string; status: string; sizeBytes: number | null }[];
 }) {
   const { data } = useServiceLive(props.serviceId);
   const [openContainer, setOpenContainer] = React.useState<string | null>(null);
@@ -165,6 +169,24 @@ export function DatabaseOverview(props: {
               <p className="px-5 py-4 text-[13px] text-muted">
                 {data?.status === "idle" ? "Not deployed yet. Click Deploy to start it." : data?.status === "stopped" ? "Stopped." : "Starting soon…"}
               </p>
+            )}
+            {!!props.branches?.length && (
+              <div className="flex flex-col py-2">
+                <span className="px-5 pt-1 pb-1.5 text-[11px] font-medium tracking-wide text-faint uppercase">Branches in this container</span>
+                {props.branches.map((b) => (
+                  <Link
+                    key={b.id}
+                    href={`/projects/${props.projectId}/services/${props.serviceId}/branches`}
+                    className="group flex items-center gap-3 px-5 py-2 transition-colors hover:bg-hover"
+                  >
+                    <GitBranch className="size-3.5 flex-none text-muted" />
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-fg-2">{b.name}</span>
+                    <span className={cn("flex-none text-[11px]", b.status === "failed" ? "text-bad" : "text-faint")}>
+                      {b.status === "ready" ? (b.sizeBytes !== null ? formatBytes(b.sizeBytes) : "Ready") : b.status === "failed" ? "Failed" : "Copying…"}
+                    </span>
+                  </Link>
+                ))}
+              </div>
             )}
           </div>
         </Card>

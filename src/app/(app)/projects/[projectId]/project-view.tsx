@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { AlertTriangle, ArrowUpRight, Check, FolderInput, SquareCheck, ChevronDown, Copy, Layers3, Plus, Settings } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, ChevronDown, Copy, Layers3, Plus, Settings } from "lucide-react";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, EmptyState, TimeAgo } from "@/components/ui/misc";
@@ -21,22 +21,21 @@ import type { ServiceCardData } from "@/server/project-data";
 import { CloneEnvironmentDialog } from "./clone-environment";
 import { ProjectCanvas } from "./project-canvas";
 import { ViewToggle } from "@/components/view-toggle";
-import { MoveServicesDialog } from "@/components/move-services-dialog";
 import { cn } from "@/lib/utils";
 import { useCan } from "@/components/permissions";
 
 type Props = {
-  project: { id: string; name: string; description: string | null; color: string };
+  project: { id: string; name: string; description: string | null; color: string; groupServices: boolean };
   environments: { id: string; name: string }[];
   environment: { id: string; name: string };
   initialServices: ServiceCardData[];
-  view: "list" | "canvas";
+  view: "grid" | "list" | "canvas";
   /** Saved canvas positions of this environment. */
   positions: Record<string, { x: number; y: number }>;
 };
 
 function EnvironmentSwitcher({ project, environments, environment, view }: Pick<Props, "project" | "environments" | "environment" | "view">) {
-  const suffix = view === "canvas" ? "&view=canvas" : "";
+  const suffix = view === "grid" ? "" : `&view=${view}`;
   const can = useCan();
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -104,9 +103,15 @@ function EnvironmentSwitcher({ project, environments, environment, view }: Pick<
   );
 }
 
+const sourceKind = (s: ServiceCardData) => (s.source && s.type === "app" ? (s.source.includes("/") && !s.source.includes(":") ? "git" : "image") : null);
+
+function openDomain(e: React.MouseEvent, s: ServiceCardData) {
+  e.preventDefault();
+  window.open(`${s.domainHttps ? "https" : "http"}://${s.domain}`, "_blank", "noopener");
+}
+
 function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }) {
   const router = useRouter();
-  const sourceKind = s.source && s.type === "app" ? (s.source.includes("/") && !s.source.includes(":") ? "git" : "image") : null;
   return (
     <Link
       href={`/projects/${projectId}/services/${s.id}`}
@@ -120,7 +125,7 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
       )}
     >
       <div className="flex items-start gap-3 p-4">
-        <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind} />
+        <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind(s)} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-center gap-2">
             <span className="truncate text-[14px] font-semibold text-fg">{s.name}</span>
@@ -130,14 +135,7 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
       </div>
       <div className="flex flex-1 flex-col gap-2 px-4 pb-4">
         {s.domain ? (
-          <span
-            role="link"
-            onClick={(e) => {
-              e.preventDefault();
-              window.open(`${s.domainHttps ? "https" : "http"}://${s.domain}`, "_blank", "noopener");
-            }}
-            className="inline-flex w-fit max-w-full items-center gap-1 truncate text-[13px] text-accent hover:underline"
-          >
+          <span role="link" onClick={(e) => openDomain(e, s)} className="inline-flex w-fit max-w-full items-center gap-1 truncate text-[13px] text-accent hover:underline">
             <span className="truncate">{s.domain}</span>
             <ArrowUpRight className="size-3 shrink-0" />
           </span>
@@ -177,7 +175,55 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
   );
 }
 
-const VIEW_KEY = "serve-project-view";
+/** One service as a row of the list view. */
+function ServiceRow({ projectId, s }: { projectId: string; s: ServiceCardData }) {
+  const issue = s.issues[0];
+  return (
+    <Link href={`/projects/${projectId}/services/${s.id}`} className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-fg/[0.025] sm:gap-4">
+      <ServiceIcon type={s.type} engine={s.engine} icon={s.icon} source={sourceKind(s)} size="sm" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex items-center gap-1.5">
+          <span className="truncate text-[13.5px] font-semibold text-fg">{s.name}</span>
+          {issue && (
+            <span title={s.issues.map((i) => i.text).join("\n")} className={cn("flex-none", issue.tone === "bad" ? "text-bad" : "text-warn")}>
+              <AlertTriangle className="size-3.5" />
+            </span>
+          )}
+        </span>
+        <span className="truncate text-xs text-muted">{s.source ?? (s.engine ? s.engine : s.type)}</span>
+      </span>
+      <span className="hidden w-56 min-w-0 md:block">
+        {s.domain ? (
+          <span role="link" onClick={(e) => openDomain(e, s)} className="inline-flex max-w-full items-center gap-1 text-[13px] text-accent hover:underline">
+            <span className="truncate">{s.domain}</span>
+            <ArrowUpRight className="size-3 shrink-0" />
+          </span>
+        ) : (
+          <span className="text-[13px] text-faint">{s.type === "database" ? "Private network only" : "No domain"}</span>
+        )}
+      </span>
+      <span className="hidden w-32 truncate text-[13px] text-fg-2 lg:block">{s.serverName}</span>
+      <StatusLabel status={s.status} className="w-24 flex-none text-xs" />
+      <span className="hidden w-20 flex-none text-right text-xs text-faint sm:block">{s.lastDeploy ? <TimeAgo date={s.lastDeploy.createdAt} /> : null}</span>
+    </Link>
+  );
+}
+
+const GROUPS: { key: string; label: string }[] = [
+  { key: "app", label: "Applications" },
+  { key: "database", label: "Databases" },
+  { key: "compose", label: "Stacks" },
+];
+
+/** Services in their groups, in a fixed order; empty groups are left out. */
+function groupServices(services: ServiceCardData[]) {
+  const known = new Set<string>(GROUPS.map((g) => g.key));
+  return GROUPS.map((g) => ({ key: g.key, label: g.label, services: services.filter((s) => s.type === g.key) }))
+    .concat([{ key: "other", label: "Other", services: services.filter((s) => !known.has(s.type)) }])
+    .filter((g) => g.services.length);
+}
+
+const VIEW_KEY = "serve-project-view-v2";
 
 export function ProjectView({ project, environments, environment, initialServices, view, positions }: Props) {
   const can = useCan();
@@ -187,7 +233,7 @@ export function ProjectView({ project, environments, environment, initialService
       try {
         localStorage.setItem(VIEW_KEY, v);
       } catch {}
-      router.replace(`/projects/${project.id}?env=${environment.name}${v === "canvas" ? "&view=canvas" : ""}`, { scroll: false });
+      router.replace(`/projects/${project.id}?env=${environment.name}${v === "grid" ? "" : `&view=${v}`}`, { scroll: false });
     },
     [router, project.id, environment.name],
   );
@@ -200,7 +246,7 @@ export function ProjectView({ project, environments, environment, initialService
     try {
       stored = localStorage.getItem(VIEW_KEY);
     } catch {}
-    if (stored === "canvas" && view === "list" && !new URLSearchParams(window.location.search).has("view")) setView("canvas");
+    if ((stored === "canvas" || stored === "list") && view === "grid" && !new URLSearchParams(window.location.search).has("view")) setView(stored);
   }, [view, setView]);
   const { data } = useSWR<{ services: ServiceCardData[] }>(`/api/projects/${project.id}/services?env=${environment.id}`, {
     fallbackData: { services: initialServices },
@@ -209,25 +255,7 @@ export function ProjectView({ project, environments, environment, initialService
   });
   const services = data?.services ?? initialServices;
   const newHref = `/projects/${project.id}/new?env=${environment.name}`;
-  // Select mode: tick services, then move them together. Previews follow their parent.
-  const [selecting, setSelecting] = React.useState(false);
-  const [selected, setSelected] = React.useState<string[]>([]);
-  const [moving, setMoving] = React.useState(false);
-  const toggle = (id: string) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  const stopSelecting = () => {
-    setSelecting(false);
-    setSelected([]);
-  };
-  // Another environment: nothing of the old one stays selected.
-  const [selectionEnv, setSelectionEnv] = React.useState(environment.id);
-  if (selectionEnv !== environment.id) {
-    setSelectionEnv(environment.id);
-    setSelecting(false);
-    setSelected([]);
-  }
-  // Services that left the list (moved, deleted) drop out of the selection.
-  const shown = new Set(services.map((s) => s.id));
-  if (selected.some((id) => !shown.has(id))) setSelected(selected.filter((id) => shown.has(id)));
+  const groups = project.groupServices ? groupServices(services) : [{ key: "all", label: "", services }];
 
   return (
     <>
@@ -242,13 +270,8 @@ export function ProjectView({ project, environments, environment, initialService
         description={project.description ?? undefined}
         actions={
           <>
-            {services.length > 0 && <ViewToggle view={view} onChange={setView} />}
+            {services.length > 0 && <ViewToggle view={view} views={["grid", "list", "canvas"]} onChange={setView} />}
             <EnvironmentSwitcher project={project} environments={environments} environment={environment} view={view} />
-            {can("services.manage") && services.length > 0 && view === "list" && (
-              <Button size="sm" variant={selecting ? "primary" : "secondary"} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
-                <SquareCheck /> {selecting ? "Done" : "Select"}
-              </Button>
-            )}
             {can("projects.manage") && (
               <Link href={`/projects/${project.id}/settings?env=${environment.name}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
                 <Settings /> Settings
@@ -271,41 +294,32 @@ export function ProjectView({ project, environments, environment, initialService
       ) : (
         <PageBody>
           {services.length ? (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {services.map((s) => {
-                const on = selected.includes(s.id);
+            <div className="flex flex-col gap-8">
+              {groups.map((g) => {
                 return (
-                  <div key={s.id} className="relative">
-                    <ServiceCard projectId={project.id} s={s} />
-                    {selecting && (
-                      <button
-                        type="button"
-                        aria-pressed={on}
-                        aria-label={`${on ? "Unselect" : "Select"} ${s.name}`}
-                        onClick={() => toggle(s.id)}
-                        className={cn("absolute inset-0 cursor-pointer rounded-2xl transition-colors", on ? "bg-accent/[0.06] ring-2 ring-accent" : "hover:bg-fg/[0.02]")}
-                      >
-                        <span
-                          className={cn(
-                            "absolute top-4 right-4 flex size-5 items-center justify-center rounded-md border shadow-sm transition-colors",
-                            on ? "border-accent bg-accent text-accent-fg" : "border-line-strong bg-surface",
-                          )}
-                        >
-                          {on && <Check className="size-3.5" />}
-                        </span>
-                      </button>
+                  <section key={g.key} className="flex flex-col gap-3">
+                    {g.label && (
+                      <h2 className="flex items-center gap-2 text-[13px] font-semibold text-fg-2">
+                        {g.label}
+                        <span className="rounded-md bg-surface-2 px-1.5 py-px text-[11px] font-medium text-muted tabular-nums">{g.services.length}</span>
+                      </h2>
                     )}
-                  </div>
+                    {view === "list" ? (
+                      <Card className="divide-y divide-line overflow-hidden">
+                        {g.services.map((s) => (
+                          <ServiceRow key={s.id} projectId={project.id} s={s} />
+                        ))}
+                      </Card>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                        {g.services.map((s) => (
+                          <ServiceCard key={s.id} projectId={project.id} s={s} />
+                        ))}
+                      </div>
+                    )}
+                  </section>
                 );
               })}
-              <Link
-                href={newHref}
-                hidden={!can("services.manage")}
-                className="flex min-h-[168px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line-strong text-[13px] font-medium text-muted transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent"
-              >
-                <Plus className="size-5" />
-                Add a service
-              </Link>
             </div>
           ) : (
             <Card>
@@ -323,26 +337,6 @@ export function ProjectView({ project, environments, environment, initialService
               />
             </Card>
           )}
-          {selecting && (
-            <div className="sticky bottom-4 z-20 mx-auto mt-6 flex w-full max-w-md items-center gap-3 rounded-2xl border border-line bg-surface/95 px-4 py-3 shadow-lg backdrop-blur-xl">
-              <span className="min-w-0 flex-1 text-[13px] text-fg-2">{selected.length ? `${selected.length} selected` : "Tap services to select them"}</span>
-              <Button size="sm" variant="ghost" onClick={stopSelecting}>
-                Cancel
-              </Button>
-              <Button size="sm" variant="primary" disabled={!selected.length} onClick={() => setMoving(true)}>
-                <FolderInput /> Move{selected.length > 1 ? ` ${selected.length}` : ""}…
-              </Button>
-            </div>
-          )}
-          <MoveServicesDialog
-            serviceIds={selected}
-            environmentId={environment.id}
-            open={moving}
-            onOpenChange={(o) => {
-              setMoving(o);
-              if (!o && !selecting) setSelected([]);
-            }}
-          />
         </PageBody>
       )}
     </>

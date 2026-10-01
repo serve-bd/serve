@@ -20,6 +20,7 @@ const projectSchema = z.object({
     .string()
     .refine((c) => c in projectColors)
     .optional(),
+  groupServices: z.boolean().optional(),
 });
 
 export async function createProject(input: z.input<typeof projectSchema>) {
@@ -49,7 +50,12 @@ export async function updateProject(projectId: string, input: z.input<typeof pro
     const data = projectSchema.parse(input);
     await db
       .update(schema.project)
-      .set({ name: data.name, description: data.description || null, ...(data.color ? { color: data.color } : {}) })
+      .set({
+        name: data.name,
+        description: data.description || null,
+        ...(data.color ? { color: data.color } : {}),
+        ...(data.groupServices === undefined ? {} : { groupServices: data.groupServices }),
+      })
       .where(eq(schema.project.id, projectId));
     return null;
   });

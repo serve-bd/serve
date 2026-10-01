@@ -19,11 +19,11 @@ export default async function ProjectPage(props: PageProps<"/projects/[projectId
   const services = await environmentServices(current.id);
   return (
     <ProjectView
-      project={{ id: project.id, name: project.name, description: project.description, color: project.color }}
+      project={{ id: project.id, name: project.name, description: project.description, color: project.color, groupServices: project.groupServices }}
       environments={envs.map((e) => ({ id: e.id, name: e.name }))}
       environment={{ id: current.id, name: current.name }}
       initialServices={services}
-      view={view === "canvas" ? "canvas" : "list"}
+      view={view === "canvas" || view === "list" ? view : "grid"}
       positions={current.canvas?.positions ?? {}}
     />
   );

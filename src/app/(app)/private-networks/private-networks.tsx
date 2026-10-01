@@ -13,9 +13,11 @@ import { createNetwork, deleteNetwork, renameNetwork, setNetworkMember } from "@
 import type { MeshNetworkView } from "@/server/mesh";
 import { NetworkNameDialog } from "../servers/[serverId]/network/networks";
 import { NetworkCanvas } from "./network-canvas";
-import { type View, ViewToggle } from "@/components/view-toggle";
+import { ViewToggle } from "@/components/view-toggle";
 import { useRouter } from "@/hooks/use-router";
 import { cn } from "@/lib/utils";
+
+type View = "list" | "canvas";
 
 type ServerRow = {
   id: string;
@@ -99,7 +101,7 @@ export function PrivateNetworks({
           {networks.length} network{networks.length === 1 ? "" : "s"} · {servers.filter((s) => s.joined).length} of {servers.length} server{servers.length === 1 ? "" : "s"} joined
         </p>
         <div className="flex items-center gap-2">
-          {servers.length > 0 && <ViewToggle view={view} onChange={setView} />}
+          {servers.length > 0 && <ViewToggle view={view} views={["list", "canvas"]} onChange={setView} />}
           <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
             <Plus /> New network
           </Button>

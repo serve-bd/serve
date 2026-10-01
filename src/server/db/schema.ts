@@ -404,6 +404,8 @@ export const project = pgTable("project", {
   name: text("name").notNull(),
   description: text("description"),
   color: text("color").notNull().default("blue"),
+  /** Show the project's services in groups (applications, databases, stacks). */
+  groupServices: boolean("group_services").notNull().default(true),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

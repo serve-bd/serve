@@ -1,0 +1,1 @@
+ALTER TABLE "project" ADD COLUMN "group_services" boolean DEFAULT true NOT NULL;

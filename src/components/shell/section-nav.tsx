@@ -16,11 +16,13 @@ import {
   Network,
   Palette,
   Building2,
+  Layers3,
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
   SquareTerminal,
   Users,
+  Variable,
   Waypoints,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -41,16 +43,19 @@ const icons = {
   Network,
   Palette,
   Building2,
+  Layers3,
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
   SquareTerminal,
   Users,
+  Variable,
   Waypoints,
 };
 
 export type SectionNavItem = { href: string; label: string; icon: keyof typeof icons; warn?: boolean; exact?: boolean };
-export type SectionNavGroup = { title: string; items: SectionNavItem[] };
+/** `title` is left out when a section has only one group. */
+export type SectionNavGroup = { title?: string; items: SectionNavItem[] };
 
 /** Side navigation for a settings-like section; a section picker below `lg`. */
 export function SectionNav({ groups }: { groups: SectionNavGroup[] }) {
@@ -65,9 +70,9 @@ export function SectionNav({ groups }: { groups: SectionNavGroup[] }) {
       />
 
       <nav className="sticky top-6 hidden w-[208px] flex-none flex-col gap-5 self-start lg:flex">
-        {groups.map((g) => (
-          <div key={g.title} className="flex flex-col gap-0.5">
-            <p className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-faint uppercase">{g.title}</p>
+        {groups.map((g, gi) => (
+          <div key={g.title ?? gi} className="flex flex-col gap-0.5">
+            {g.title && <p className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-faint uppercase">{g.title}</p>}
             {g.items.map((item) => {
               const active = isActive(item);
               const Icon = icons[item.icon];

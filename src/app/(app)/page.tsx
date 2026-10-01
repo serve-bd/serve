@@ -1,16 +1,17 @@
 import Link from "next/link";
-import { asc, sql } from "drizzle-orm";
-import { ArrowRight, Blocks, Plus, Rocket } from "lucide-react";
+import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
+import { AlertTriangle, Blocks, Plus, Rocket } from "lucide-react";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { metricSeries, serverScope } from "@/server/metrics";
 import { projectSummaries, recentDeployments } from "@/server/queries";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, EmptyState } from "@/components/ui/misc";
-import { ProjectCard } from "./_components/project-card";
-import { DeploymentsTable } from "./_components/deployments-table";
-import { ServerCards } from "./_components/server-cards";
+import { Card, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { StatusDot, statusText } from "@/components/ui/status";
+import { serverReachable } from "@/lib/server-services";
+import { DeployTimeline } from "./_components/deploy-timeline";
+import { ProjectRow, RackPanel, ServerRow } from "./_components/racks";
 import { listedServerIds, viewableServerIds } from "@/server/servers/access";
 
 /** Server cards: full for servers the user manages; for the others only this organization's services and no address. */
@@ -40,38 +41,36 @@ async function serverCards(ids: string[], managed: Set<string>, organizationId: 
   );
 }
 
-function Section({
-  title,
-  description,
-  href,
-  action,
-  children,
-}: {
-  title: string;
-  description: React.ReactNode;
-  href?: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[15px] font-semibold text-fg">{title}</h2>
-          <p className="text-[13px] text-muted">{description}</p>
-        </div>
-        <div className="flex flex-none items-center gap-2">
-          {href && (
-            <Link href={href} className={buttonVariants({ size: "sm" })}>
-              View all <ArrowRight />
-            </Link>
-          )}
-          {action}
-        </div>
-      </div>
-      {children}
-    </section>
-  );
+/** Deployments of the last 24 hours, for the line under the headline. */
+async function deploysToday(organizationId: string, projectIds: string[] | null) {
+  if (projectIds && !projectIds.length) return 0;
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.deployment)
+    .innerJoin(schema.service, eq(schema.deployment.serviceId, schema.service.id))
+    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .where(
+      and(
+        eq(schema.project.organizationId, organizationId),
+        gt(schema.deployment.createdAt, sql`now() - interval '24 hours'`),
+        projectIds ? inArray(schema.project.id, projectIds) : undefined,
+      ),
+    );
+  return row?.n ?? 0;
+}
+
+const BROKEN = new Set(["failed", "crashed"]);
+const BUSY = new Set(["building", "deploying", "restarting"]);
+
+/** The state of everything, said in one sentence. */
+function headline(total: number, running: number, broken: number, busy: number, serversDown: number) {
+  if (!total) return { text: "Nothing is deployed yet.", tone: "idle" as const };
+  const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+  if (broken) return { text: `${broken} of ${total} ${plural(total, "service", "services")} ${plural(broken, "needs", "need")} attention.`, tone: "bad" as const };
+  if (serversDown) return { text: `${serversDown} ${plural(serversDown, "server is", "servers are")} not reachable.`, tone: "bad" as const };
+  if (busy) return { text: `${running} of ${total} running, ${busy} deploying now.`, tone: "busy" as const };
+  if (running === total) return { text: total === 1 ? "Your service is running." : `All ${total} services are running.`, tone: "ok" as const };
+  return { text: `${running} of ${total} services running, ${total - running} stopped.`, tone: "idle" as const };
 }
 
 export const metadata = { title: "Overview" };
@@ -79,68 +78,125 @@ export const metadata = { title: "Overview" };
 export default async function OverviewPage() {
   const ctx = await requireOrg();
   const canCreate = ctx.can("projects.manage");
-  const [projects, deployments, servers] = await Promise.all([
+  const [projects, deployments, servers, today] = await Promise.all([
     projectSummaries(ctx.org.id, ctx.projectIds),
-    recentDeployments(ctx.org.id, 8, undefined, ctx.projectIds),
+    recentDeployments(ctx.org.id, 14, undefined, ctx.projectIds),
     // Servers it manages, plus the ones every member sees: owned by or shared with this organization.
     Promise.all([listedServerIds(ctx), viewableServerIds(ctx)]).then(([listed, viewable]) => {
       const ids = [...new Set([...listed, ...viewable])];
       return ids.length ? serverCards(ids, new Set(listed), ctx.org.id) : null;
     }),
+    deploysToday(ctx.org.id, ctx.projectIds),
   ]);
+  const services = projects.flatMap((p) => p.services.map((s) => ({ ...s, project: p })));
+  const running = services.filter((s) => s.status === "running").length;
+  const broken = services.filter((s) => BROKEN.has(s.status));
+  const busy = services.filter((s) => BUSY.has(s.status)).length;
+  const down = (servers ?? []).filter((s) => !serverReachable(s));
+  const head = headline(services.length, running, broken.length, busy, down.length);
+  const last = deployments[0];
+
   return (
     <>
       <PageHeader crumb="Overview" />
-      <PageBody className="flex flex-col gap-10">
-        <Section title="Deployments" description="Latest deployments across your projects.">
-          <Card>
-            {deployments.length ? (
-              <DeploymentsTable rows={deployments} />
-            ) : (
-              <EmptyState icon={<Rocket />} title="No deployments yet" description="Deployments show up here as soon as you ship something." />
-            )}
-          </Card>
-        </Section>
+      <PageBody className="flex flex-col gap-8">
+        {/* The headline: how everything is, in words. */}
+        <div className="flex flex-wrap items-start justify-between gap-4 pt-1">
+          <div className="flex min-w-0 flex-col gap-2">
+            <h1 className="flex items-baseline gap-3 text-[24px] leading-tight font-semibold tracking-[-0.01em] text-fg sm:text-[30px]">
+              <StatusDot
+                status={head.tone === "ok" ? "running" : head.tone === "bad" ? "failed" : head.tone === "busy" ? "deploying" : "stopped"}
+                className="!size-2.5 relative -top-1 sm:-top-1.5"
+              />
+              {head.text}
+            </h1>
+            <p className="text-[13px] text-muted">
+              {last ? (
+                <>
+                  Last deploy <TimeAgo date={last.createdAt} />: <span className="text-fg-2">{last.serviceName}</span>
+                  {" · "}
+                  {today} {today === 1 ? "deploy" : "deploys"} in the last 24 hours
+                </>
+              ) : (
+                "Deployments show up here as soon as you ship something."
+              )}
+            </p>
+          </div>
+          <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>
+            <Plus /> New project
+          </Link>
+        </div>
 
-        <Section
-          title="Projects"
-          description="Apps, databases and services grouped by project."
-          href={projects.length ? "/projects" : undefined}
-          action={
-            projects.length > 0 && (
-              <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>
-                <Plus /> New project
-              </Link>
-            )
-          }
-        >
-          {projects.length ? (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {projects.slice(0, 6).map((p) => (
-                <ProjectCard key={p.id} project={p} />
+        {(broken.length > 0 || down.length > 0) && (
+          <section className="overflow-hidden rounded-2xl border border-bad/30 bg-bad/[0.04]">
+            <h2 className="flex items-center gap-2 border-b border-bad/20 px-4 py-2.5 text-[13px] font-semibold text-bad">
+              <AlertTriangle className="size-4" /> Needs attention
+            </h2>
+            <div className="divide-y divide-bad/15">
+              {broken.map((s) => (
+                <Link key={s.id} href={`/projects/${s.project.id}/services/${s.id}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-bad/[0.06]">
+                  <StatusDot status={s.status} />
+                  <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg">
+                    <span className="font-medium">{s.name}</span> <span className="text-muted">in {s.project.name}</span>
+                  </span>
+                  <span className="flex-none text-xs text-bad">{statusText(s.status)}</span>
+                </Link>
+              ))}
+              {down.map((s) => (
+                <Link key={s.id} href={`/servers/${s.id}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-bad/[0.06]">
+                  <StatusDot status={s.status} kind="server" />
+                  <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg">
+                    <span className="font-medium">{s.name}</span> <span className="text-muted">server</span>
+                  </span>
+                  <span className="flex-none text-xs text-bad">{statusText(s.status, "server")}</span>
+                </Link>
               ))}
             </div>
-          ) : (
-            <Card>
-              <EmptyState
-                icon={<Blocks />}
-                title="Create your first project"
-                description="Projects group apps, databases and services that work together."
-                action={
-                  <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>
-                    <Plus /> New project
-                  </Link>
-                }
-              />
-            </Card>
-          )}
-        </Section>
-
-        {servers && (
-          <Section title="Servers" description={<>Machines you deploy to, with usage over the last 6 hours.</>} href="/servers">
-            <ServerCards servers={servers} />
-          </Section>
+          </section>
         )}
+
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
+          <section className="flex min-w-0 flex-col gap-3">
+            <h2 className="text-[13px] font-semibold text-fg">Recent deploys</h2>
+            {deployments.length ? (
+              <DeployTimeline rows={deployments} />
+            ) : (
+              <Card>
+                <EmptyState icon={<Rocket />} title="No deployments yet" description="Deployments show up here as soon as you ship something." />
+              </Card>
+            )}
+          </section>
+
+          <div className="flex min-w-0 flex-col gap-6">
+            {projects.length ? (
+              <RackPanel title="Projects" href="/projects">
+                {projects.slice(0, 8).map((p) => (
+                  <ProjectRow key={p.id} project={p} />
+                ))}
+              </RackPanel>
+            ) : (
+              <Card>
+                <EmptyState
+                  icon={<Blocks />}
+                  title="Create your first project"
+                  description="Projects group apps, databases and services that work together."
+                  action={
+                    <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>
+                      <Plus /> New project
+                    </Link>
+                  }
+                />
+              </Card>
+            )}
+            {servers && servers.length > 0 && (
+              <RackPanel title="Servers" href="/servers">
+                {servers.map((s) => (
+                  <ServerRow key={s.id} server={s} />
+                ))}
+              </RackPanel>
+            )}
+          </div>
+        </div>
       </PageBody>
     </>
   );

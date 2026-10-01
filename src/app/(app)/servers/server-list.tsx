@@ -6,6 +6,7 @@ import { Badge, Card, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
 import type { ServerInfo, ServerStatus } from "@/server/db/schema";
 import { cn, formatBytes } from "@/lib/utils";
+import { serverReachable, serverServicesText } from "@/lib/server-services";
 
 type Row = {
   id: string;
@@ -88,7 +89,11 @@ function SharedCard({ server: s }: { server: SharedRow }) {
         <p className="text-xs leading-relaxed text-muted">{s.own ? "Admins of this organization manage it." : "You deploy services here. Its owner manages the server."}</p>
       </div>
       <div className="border-t border-line px-4 py-2.5 text-xs text-muted">
-        {s.services === 0 ? "None of your services" : `${s.running} of ${s.services} of your services running`}
+        {s.services === 0
+          ? "None of your services"
+          : serverReachable(s)
+            ? `${s.running} of ${s.services} of your services running`
+            : `${s.services} of your services · status unknown`}
       </div>
     </Link>
   );
@@ -147,7 +152,7 @@ function ServerCard({ server: s }: { server: Row }) {
         )}
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-xs text-muted">
-        <span>{s.services === 0 ? "No services" : `${s.running}/${s.services} service${s.services === 1 ? "" : "s"} running`}</span>
+        <span>{serverServicesText(s)}</span>
         {s.alerts > 0 ? (
           <span className="inline-flex items-center gap-1.5 font-medium text-warn">
             <span className="size-1.5 rounded-full bg-warn" />

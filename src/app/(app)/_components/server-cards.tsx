@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Server as ServerIcon } from "lucide-react";
 import { AreaChart } from "@/components/charts/area-chart";
 import { StatusDot } from "@/components/ui/status";
+import { serverReachable, serverServicesText } from "@/lib/server-services";
 import { cn } from "@/lib/utils";
 
 export type ServerCardData = {
@@ -59,11 +60,13 @@ export function ServerCards({ servers }: { servers: ServerCardData[] }) {
                   <StatusDot status={status} />
                 </div>
                 <p className="truncate text-xs text-muted">
-                  {s.isLocal ? "The server this dashboard runs on" : s.host} · {s.running}/{s.services} running
+                  {s.isLocal ? "The server this dashboard runs on" : s.host} · {serverServicesText(s, true)}
                 </p>
               </div>
             </div>
-            {s.metricsEnabled ? (
+            {!serverReachable(s) && !s.series.length ? (
+              <p className="mt-auto border-t border-line px-4 py-3 text-xs text-bad">Not reachable: no recent metrics.</p>
+            ) : s.metricsEnabled ? (
               <>
                 <div className="grid grid-cols-3 gap-2 px-4 pb-3">
                   <Stat label="CPU" value={last?.cpu ?? null} color="var(--accent)" />

@@ -273,13 +273,13 @@ export function ProjectView({ project, environments, environment, initialService
             {services.length > 0 && <ViewToggle view={view} views={["grid", "list", "canvas"]} onChange={setView} />}
             <EnvironmentSwitcher project={project} environments={environments} environment={environment} view={view} />
             {can("projects.manage") && (
-              <Link href={`/projects/${project.id}/settings?env=${environment.name}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
-                <Settings /> Settings
+              <Link href={`/projects/${project.id}/settings?env=${environment.name}`} className={buttonVariants({ variant: "secondary", size: "sm" })} aria-label="Settings">
+                <Settings /> <span className="hidden sm:inline">Settings</span>
               </Link>
             )}
             {can("services.manage") && (
-              <Link href={newHref} className={buttonVariants({ variant: "primary", size: "sm" })}>
-                <Plus /> New service
+              <Link href={newHref} className={buttonVariants({ variant: "primary", size: "sm" })} aria-label="New service">
+                <Plus /> <span className="hidden sm:inline">New service</span>
               </Link>
             )}
           </>

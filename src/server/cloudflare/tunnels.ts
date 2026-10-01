@@ -1,9 +1,12 @@
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { imageExists, LABEL, pullImage } from "@/server/docker/client";
-import { connectProxy } from "@/server/docker/networks";
+import { connectProxy, envNetworkName } from "@/server/docker/networks";
+import { engines } from "@/server/databases/engines";
+import { DOMAIN_ROUTES } from "@/lib/database-domains";
+import { privateHost } from "@/lib/hostname";
 import { tunnelNetworkName } from "@/server/proxy/names";
 import { ensureTunnelNetwork } from "@/server/proxy/tunnel-network";
 import { getServer } from "@/server/servers/context";
@@ -228,6 +231,27 @@ async function removeTunnelContainer(tunnel: Tunnel) {
   await Promise.race([remove(), new Promise((r) => setTimeout(r, 20_000))]);
 }
 
+/**
+ * Databases whose domain goes through this tunnel: the connector joins their networks so it
+ * reaches them, and each gets a TCP route to its container.
+ */
+export async function attachTunnelToDatabases(tunnel: Tunnel) {
+  const rows = await db
+    .select()
+    .from(schema.service)
+    .where(and(eq(schema.service.type, "database"), sql`${schema.service.database}->>'domainTunnelId' = ${tunnel.id}`));
+  const ctx = await getServer(tunnel.serverId);
+  const routes: { hostname: string; service: string }[] = [];
+  for (const s of rows) {
+    const cfg = s.database;
+    if (!cfg?.domain) continue;
+    await connectProxy(envNetworkName(s.environmentId), { docker: ctx.docker, proxyContainer: tunnelContainerName(tunnel), id: ctx.id }).catch(() => {});
+    const port = DOMAIN_ROUTES[cfg.engine]?.[0]?.target ?? engines[cfg.engine].port;
+    routes.push({ hostname: cfg.domain, service: `tcp://${privateHost(s)}:${port}` });
+  }
+  return routes;
+}
+
 /** Push the tunnel's routes: every domain on it goes to the server's proxy. */
 export async function syncTunnelIngress(tunnelId: string) {
   const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
@@ -238,10 +262,13 @@ export async function syncTunnelIngress(tunnelId: string) {
   const settings = await getSettings();
   if (settings.dashboardTunnelId === tunnelId && settings.dashboardDomain) domains.push({ hostname: settings.dashboardDomain });
   const origin = `http://${ctx.proxyContainer}:80`;
+  const databases = await attachTunnelToDatabases(tunnel);
   const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
   try {
     await cf.setTunnelIngress(await cfAccountIdOf(tunnel.cloudflareAccountId), tunnel.cfTunnelId, [
       ...domains.map((d) => ({ hostname: d.hostname, service: origin })),
+      // Databases on the tunnel: raw TCP straight to their container.
+      ...databases,
       { service: "http_status:404" },
     ]);
   } catch (error) {

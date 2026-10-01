@@ -19,20 +19,24 @@ import { DOMAIN_ROUTES, hostnamePattern } from "@/lib/database-domains";
  * is in a connected Cloudflare account, its DNS record is created too (DNS only: Cloudflare's
  * proxy does not carry database traffic).
  */
-export async function saveDatabaseDomain(serviceId: string, raw: string | null) {
+export async function saveDatabaseDomain(serviceId: string, raw: string | null, via: "router" | "tunnel" = "router") {
   return act(async () => {
     const ctx = await requirePermission("domains.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const cfg = service.database;
     if (service.type !== "database" || !cfg) throw new UserError("Only databases get a database domain.");
     if (service.parentServiceId) throw new UserError("Preview databases cannot have a domain.");
-    if (!DOMAIN_ROUTES[cfg.engine]) throw new UserError("MySQL and MariaDB cannot share a port by domain. Use Public access with its own port instead.");
     const hostname = raw?.trim().toLowerCase().replace(/\.$/, "") || null;
+    const tunnelMode = !!hostname && via === "tunnel";
+    // A tunnel carries any TCP: only the router needs a name in the TLS handshake.
+    if (!tunnelMode && !DOMAIN_ROUTES[cfg.engine])
+      throw new UserError("MySQL and MariaDB cannot share a port by domain. Use a Cloudflare Tunnel, or Public access with its own port.");
+    const previousTunnel = cfg.domainTunnelId ?? null;
     const warnings: string[] = [];
 
     if (hostname) {
       if (!hostnamePattern.test(hostname)) throw new UserError("Enter a domain like db.example.com.");
-      if (cfg.tls?.enabled && cfg.tls.mode === "require")
+      if (!tunnelMode && cfg.tls?.enabled && cfg.tls.mode === "require")
         throw new UserError("Turn off “Require TLS” for this database first: the domain already requires TLS, and the router reaches the database over the private network.");
       const [web] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, hostname));
       if (web) throw new UserError("That domain is already used by a website or app.");
@@ -46,12 +50,38 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null) 
       if (!ownership.verified) throw new UserError(ownershipMessage(hostname, ownership));
     }
 
+    // Through a tunnel: one of this server's tunnels, of the Cloudflare account that holds the domain.
+    let tunnel: typeof schema.cloudflareTunnel.$inferSelect | null = null;
+    let tunnelAccount: string | null = null;
+    if (tunnelMode && hostname) {
+      tunnelAccount = await cloudflareAccountFor([hostname], ctx.org.id);
+      if (!tunnelAccount) throw new UserError(`${hostname} is not in a connected Cloudflare account. A tunnel needs the domain's zone in Cloudflare.`);
+      [tunnel] = await db
+        .select()
+        .from(schema.cloudflareTunnel)
+        .where(and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareTunnel.cloudflareAccountId, tunnelAccount)));
+      if (!tunnel) throw new UserError("This server has no Cloudflare Tunnel for that account. Create one in Integrations → Cloudflare first.");
+    }
+
     await db
       .update(schema.service)
-      .set({ database: { ...cfg, domain: hostname }, updatedAt: new Date() })
+      .set({ database: { ...cfg, domain: hostname, domainTunnelId: tunnel?.id ?? null }, updatedAt: new Date() })
       .where(eq(schema.service.id, service.id));
 
-    if (hostname) {
+    const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
+    if (tunnel && tunnelAccount && hostname) {
+      try {
+        const cf = await Cloudflare.forAccount(tunnelAccount);
+        const zone = await cf.zoneFor(hostname);
+        if (zone) await cf.upsertTunnelRecord(zone.id, hostname, tunnel.cfTunnelId);
+      } catch (e) {
+        warnings.push(`DNS record not created: ${(e as Error).message}`);
+      }
+      await syncTunnelIngress(tunnel.id).catch((e) => warnings.push(`Tunnel route not saved: ${(e as Error).message}`));
+    }
+    if (previousTunnel && previousTunnel !== tunnel?.id) await syncTunnelIngress(previousTunnel).catch(() => {});
+
+    if (hostname && !tunnelMode) {
       // DNS: an A record to the server, when Cloudflare holds the zone.
       const accountId = await cloudflareAccountFor([hostname], ctx.org.id);
       if (accountId) {
@@ -83,7 +113,7 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null) 
       action: "database.domain",
       targetType: "service",
       targetId: service.id,
-      message: hostname ? `Put ${service.name} on ${hostname}` : `Took ${service.name} off its domain`,
+      message: hostname ? `Put ${service.name} on ${hostname}${tunnelMode ? " through a Cloudflare Tunnel" : ""}` : `Took ${service.name} off its domain`,
     });
     return { warnings };
   });

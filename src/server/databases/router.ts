@@ -37,6 +37,8 @@ async function domainDatabases(serverId: string) {
         eq(schema.service.type, "database"),
         isNull(schema.service.parentServiceId),
         sql`coalesce(${schema.service.database}->>'domain', '') <> ''`,
+        // Domains on a Cloudflare Tunnel are served by the tunnel, not the router.
+        sql`coalesce(${schema.service.database}->>'domainTunnelId', '') = ''`,
       ),
     );
 }
@@ -238,6 +240,18 @@ export async function syncAllDatabaseRouters() {
     .from(schema.service)
     .where(and(eq(schema.service.type, "database"), isNotNull(schema.service.database), sql`coalesce(${schema.service.database}->>'domain', '') <> ''`));
   for (const { serverId } of rows) await syncDatabaseRouter(serverId).catch((e) => console.error(`[db-router] ${serverId}: ${(e as Error).message}`));
+  // Tunnels carrying databases: a recreated connector rejoins their networks.
+  const tunnels = await db
+    .selectDistinct({ id: sql<string>`${schema.service.database}->>'domainTunnelId'` })
+    .from(schema.service)
+    .where(sql`coalesce(${schema.service.database}->>'domainTunnelId', '') <> ''`);
+  if (tunnels.length) {
+    const { attachTunnelToDatabases } = await import("@/server/cloudflare/tunnels");
+    for (const t of tunnels) {
+      const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, t.id));
+      if (tunnel) await attachTunnelToDatabases(tunnel).catch(() => {});
+    }
+  }
 }
 
 export const queueRouterSync = (serverId: string) => enqueue("dbrouter.sync", { serverId }, { concurrencyKey: `dbrouter:${serverId}`, maxAttempts: 2 });

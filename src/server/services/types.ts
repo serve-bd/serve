@@ -257,6 +257,11 @@ export type DatabaseConfig = {
    * router on the engine's usual port, over TLS. PostgreSQL, MongoDB, Redis, Valkey and ClickHouse.
    */
   domain?: string | null;
+  /**
+   * Serve the domain through this Cloudflare Tunnel (TCP) instead of the server's router: for
+   * servers without a public IP. Clients run `cloudflared access tcp`. Works for every engine.
+   */
+  domainTunnelId?: string | null;
   /** Cron expression for automatic backups. */
   backupSchedule?: string | null;
   backupRetention: number;

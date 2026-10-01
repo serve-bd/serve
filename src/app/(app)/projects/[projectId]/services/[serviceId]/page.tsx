@@ -44,10 +44,22 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           .sort((a, b) => Number(b.status === "active") - Number(a.status === "active"))[0]
       : undefined;
     const routes = DOMAIN_ROUTES[cfg.engine];
+    // Tunnels of this server: a domain can go through one instead of the router (no public IP needed).
+    const tunnels = await db
+      .select({ id: schema.cloudflareTunnel.id, account: schema.cloudflareAccount.name })
+      .from(schema.cloudflareTunnel)
+      .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
+      .where(and(eq(schema.cloudflareTunnel.serverId, service.serverId), eq(schema.cloudflareAccount.organizationId, ctx.org.id)));
+    const localPort = routes?.[0]?.target ?? engine.port;
     const domain = service.parentServiceId
       ? undefined
       : {
-          supported: !!routes,
+          supported: !!routes || tunnels.length > 0,
+          routerSupported: !!routes,
+          via: cfg.domainTunnelId ? ("tunnel" as const) : ("router" as const),
+          tunnels: tunnels.map((t) => ({ id: t.id, label: `Tunnel of ${t.account}` })),
+          tunnelCommand: hostname ? `cloudflared access tcp --hostname ${hostname} --url localhost:${localPort}` : null,
+          localUrl: databaseUrl(cfg, creds, "localhost", localPort),
           hostname,
           url: hostname ? domainUrl(cfg.engine, creds, hostname) : null,
           ports: (routes ?? []).map((r) => ({ port: r.port, label: r.label })),

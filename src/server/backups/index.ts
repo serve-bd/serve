@@ -106,7 +106,8 @@ async function databaseCommands(service: ServiceRow): Promise<Commands> {
     engine: cfg.engine,
     backup: engine.backupCommand(creds),
     restore: engine.restoreCommand(creds),
-    restorePlain: cfg.engine === "postgres" ? `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(creds.database)}` : undefined,
+    restorePlain:
+      cfg.engine === "postgres" ? `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(creds.username)} -d ${q(creds.database)}` : undefined,
     password: creds.password,
     database: creds.database,
   };
@@ -176,6 +177,9 @@ async function dumpWith(t: Commands, file: string) {
   return size;
 }
 
+/** Output lines that say nothing about the restore. */
+const NOISE = /Using a password on the command line interface can be insecure|^\s*$/;
+
 /**
  * Run a shell command in a database container with `input` on stdin. Returns its output with the
  * password masked; `onOutput` also gets it as it comes, about once a second.
@@ -189,13 +193,14 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
   const flush = () => {
     const lines = pending.split("\n");
     pending = lines.pop() ?? "";
-    const text = mask(lines.join("\n")).trim();
+    const text = mask(lines.filter((l) => !NOISE.test(l)).join("\n")).trim();
     if (text) onOutput?.(text);
   };
   const ticker = onOutput ? setInterval(flush, 1000) : null;
   const sink = new PassThrough();
   sink.on("data", (c: Buffer) => {
-    output += c.toString();
+    // Only the end is kept: a restore that reports progress for hours would otherwise fill memory.
+    output = (output + c.toString()).slice(-65536);
     if (onOutput) pending += c.toString();
   });
   t.docker.modem.demuxStream(stream, sink, sink);

@@ -108,7 +108,7 @@ export function dumpCommands(engine: Engine, c: ComposeCreds): { backup: string;
       return {
         backup: `${auth}pg_dump -U ${sh(c.username)} -d ${sh(c.database)} -Fc`,
         restore: `${auth}pg_restore -U ${sh(c.username)} -d ${sh(c.database)} --clean --if-exists --no-owner --no-privileges`,
-        restorePlain: `${auth}psql -X -v ON_ERROR_STOP=1 -q -U ${sh(c.username)} -d ${sh(c.database)}`,
+        restorePlain: `${auth}psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${sh(c.username)} -d ${sh(c.database)}`,
       };
     }
     case "mysql":

@@ -177,7 +177,8 @@ export async function ensureMetricsAgent(ctx: ServerCtx, log: Log = () => {}): P
         ReadonlyRootfs: true,
         Tmpfs: { "/tmp": "rw,size=1m" },
         Binds: ["/var/run/docker.sock:/var/run/docker.sock:ro", `${row.dataDir}:/host-data:ro`],
-        Memory: 64 * 1024 * 1024,
+        // A day of held-back samples of a busy server fits; a cap, not a reservation.
+        Memory: 256 * 1024 * 1024,
         LogConfig: { Type: "json-file", Config: { "max-size": "1m", "max-file": "2" } },
       },
     });

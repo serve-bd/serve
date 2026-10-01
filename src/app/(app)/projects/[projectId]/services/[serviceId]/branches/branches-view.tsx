@@ -33,6 +33,7 @@ const busyLabel: Partial<Record<Branch["status"], string>> = { creating: "Copyin
 export function BranchesView({
   serviceId,
   serviceName,
+  engine,
   refName,
   running,
   canManage,
@@ -41,6 +42,7 @@ export function BranchesView({
 }: {
   serviceId: string;
   serviceName: string;
+  engine: string;
   refName: string;
   running: boolean;
   canManage: boolean;
@@ -53,6 +55,7 @@ export function BranchesView({
   const reset = useAction(resetDatabaseBranch, { success: "Copying the data again" });
   const remove = useAction(deleteDatabaseBranch, { success: "Branch deleted" });
 
+  const keyValue = engine === "redis" || engine === "valkey";
   // The worker updates branches; refresh while one of them is busy.
   const busy = branches.some((b) => busyLabel[b.status]);
   React.useEffect(() => {
@@ -66,7 +69,11 @@ export function BranchesView({
       <Card className="overflow-hidden">
         <CardHeader
           title="Branches"
-          description={`Copies of ${serviceName}'s data, inside the same database server. Each branch has its own login, so a branch cannot change the main data.`}
+          description={
+            keyValue
+              ? `Copies of ${serviceName}'s keys in database numbers 1 to 15 of the same server. Redis has no logins per database, so a branch uses the main password: an app given a branch could still switch to the main data.`
+              : `Copies of ${serviceName}'s data, inside the same database server. Each branch has its own login, so a branch cannot change the main data.`
+          }
           actions={
             canManage && (
               <Button size="sm" variant="primary" disabled={!running} title={running ? undefined : "Start the database to branch it"} onClick={() => setCreating(true)}>
@@ -92,6 +99,7 @@ export function BranchesView({
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
                       <span className="truncate text-[14px] font-medium text-fg">{b.name}</span>
+                      {keyValue && <span className="text-xs text-muted">database {b.database}</span>}
                       {b.preview && (
                         <Link href={`/projects/${projectId}/services/${b.preview.id}`} className="text-xs text-muted hover:text-fg">
                           for PR #{b.preview.pr}

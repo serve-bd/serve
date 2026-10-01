@@ -91,7 +91,6 @@ export async function savePreviewDatabase(serviceId: string, input: z.input<type
         .where(and(eq(schema.service.id, data.sourceServiceId), eq(schema.service.environmentId, service.environmentId), eq(schema.service.type, "database")));
       if (!source?.database) throw new UserError("Choose a database of this environment.");
       if (data.scrubSql?.trim() && !scrubCommand(source.database, "x")) throw new UserError("Clean-up SQL works with PostgreSQL, MySQL, MariaDB and ClickHouse.");
-      if (data.mode === "branch" && source.database.engine !== "postgres") throw new UserError("Branches are available for PostgreSQL databases. Choose a separate copy instead.");
     }
     await db
       .update(schema.service)

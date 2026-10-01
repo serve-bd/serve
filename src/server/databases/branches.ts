@@ -8,8 +8,8 @@ import { enqueue, type JobPayloads } from "@/server/queue";
 import { serverOf } from "@/server/servers/context";
 import { execCommand } from "@/server/services/exec";
 import { databaseContainer } from "./container";
-import { databaseUrl } from "./options";
-import { engines } from "./engines";
+import { databaseCreds, databaseUrl } from "./options";
+import { engines, mongoToolsTls, mongoTls, rcli } from "./engines";
 import { privateHost } from "@/lib/hostname";
 import { branchDatabaseName, previewBranchName } from "@/lib/database-branches";
 
@@ -25,7 +25,161 @@ const ident = (s: string) => {
 const literal = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
 export function branchesSupported(service: Pick<Service, "type" | "database">) {
-  return service.type === "database" && service.database?.engine === "postgres";
+  return service.type === "database" && !!service.database;
+}
+
+/** Redis and Valkey branches are database numbers 1 to 15 of the same server. */
+export const isKeyValue = (engine: string) => engine === "redis" || engine === "valkey";
+/** Engines whose branches can run clean-up SQL after the copy. */
+export const branchScrubEngines = new Set(["postgres", "mysql", "mariadb", "clickhouse"]);
+export const maxBranches = (engine: string) => (isKeyValue(engine) ? 15 : 20);
+
+type Main = { username: string; password: string; database: string; tlsRequired?: boolean };
+type BranchCreds = { database: string; username: string; password: string };
+
+/* ------------------------------------------------------------- MySQL / MariaDB */
+
+function mysqlScripts(cli: "mysql" | "mariadb") {
+  const dump = cli === "mysql" ? "mysqldump" : "mariadb-dump";
+  const run = (database?: string) => `${cli} -uroot${database ? ` ${q(database)}` : ""}`;
+  const user = (b: BranchCreds) => `${literal(b.username)}@'%'`;
+  return {
+    create: (main: Main, b: BranchCreds, scrubSql: string | null) =>
+      [
+        "set -e",
+        // dash (Debian images) exits on an unknown set option, even with || true: test in a subshell first.
+        "(set -o pipefail) 2>/dev/null && set -o pipefail",
+        // Read by the client tools; keeps the password off the command line.
+        `export MYSQL_PWD=${q(main.password)}`,
+        `${run()} <<'SERVE_SQL'
+DROP DATABASE IF EXISTS \`${b.database}\`;
+CREATE DATABASE \`${b.database}\`;
+CREATE USER IF NOT EXISTS ${user(b)} IDENTIFIED BY ${literal(b.password)};
+ALTER USER ${user(b)} IDENTIFIED BY ${literal(b.password)};
+GRANT ALL PRIVILEGES ON \`${b.database}\`.* TO ${user(b)};
+FLUSH PRIVILEGES;
+SERVE_SQL`,
+        // Without DEFINER clauses, routines and views run as whoever calls them: the branch's user.
+        `${dump} -uroot --single-transaction --routines --triggers --events ${q(main.database)} | sed -e 's/DEFINER=\`[^\`]*\`@\`[^\`]*\`//g' | ${run(b.database)}`,
+        ...(scrubSql?.trim() ? [`${run(b.database)} <<'SERVE_SCRUB_SQL_END'\n${scrubSql}\nSERVE_SCRUB_SQL_END`] : []),
+        `echo "SERVE_SIZE=$(${run()} -N -B -e "SELECT COALESCE(SUM(data_length + index_length), 0) FROM information_schema.tables WHERE table_schema = ${literal(b.database)}")"`,
+      ].join("\n"),
+    remove: (main: Main, b: BranchCreds) =>
+      [
+        "set -e",
+        `export MYSQL_PWD=${q(main.password)}`,
+        `${run()} <<'SERVE_SQL'
+DROP DATABASE IF EXISTS \`${b.database}\`;
+DROP USER IF EXISTS ${user(b)};
+SERVE_SQL`,
+      ].join("\n"),
+  };
+}
+
+/* ------------------------------------------------------------------- MongoDB */
+
+const mongoScripts = {
+  create: (main: Main, b: BranchCreds) => {
+    const auth = `-u ${q(main.username)} -p ${q(main.password)} --authenticationDatabase admin`;
+    const c = { username: main.username, password: main.password, database: main.database, tlsRequired: !!main.tlsRequired };
+    const js = `const d = db.getSiblingDB(${JSON.stringify(b.database)});
+const roles = [{ role: "dbOwner", db: ${JSON.stringify(b.database)} }];
+if (d.getUser(${JSON.stringify(b.username)})) d.updateUser(${JSON.stringify(b.username)}, { pwd: ${JSON.stringify(b.password)}, roles });
+else d.createUser({ user: ${JSON.stringify(b.username)}, pwd: ${JSON.stringify(b.password)}, roles });
+print("SERVE_SIZE=" + d.stats().totalSize);`;
+    return [
+      "set -e",
+      // dash (Debian images) exits on an unknown set option, even with || true: test in a subshell first.
+      "(set -o pipefail) 2>/dev/null && set -o pipefail",
+      `mongosh --quiet${mongoTls(c)} ${auth} --eval ${q(`db.getSiblingDB(${JSON.stringify(b.database)}).dropDatabase()`)} >/dev/null`,
+      `mongodump --quiet${mongoToolsTls(c)} ${auth} --db ${q(main.database)} --archive | mongorestore --quiet${mongoToolsTls(c)} ${auth} --archive --nsFrom ${q(`${main.database}.*`)} --nsTo ${q(`${b.database}.*`)}`,
+      `mongosh --quiet${mongoTls(c)} ${auth} --eval ${q(js)}`,
+    ].join("\n");
+  },
+  remove: (main: Main, b: BranchCreds) => {
+    const c = { username: main.username, password: main.password, database: main.database, tlsRequired: !!main.tlsRequired };
+    const js = `const d = db.getSiblingDB(${JSON.stringify(b.database)}); try { d.dropUser(${JSON.stringify(b.username)}); } catch (e) {} d.dropDatabase();`;
+    return `set -e\nmongosh --quiet${mongoTls(c)} -u ${q(main.username)} -p ${q(main.password)} --authenticationDatabase admin --eval ${q(js)}`;
+  },
+};
+
+/* ---------------------------------------------------------------- ClickHouse */
+
+const clickhouseScripts = {
+  create: (main: Main, b: BranchCreds, scrubSql: string | null) => {
+    const ch = `clickhouse-client -u ${q(main.username)} --password ${q(main.password)}`;
+    const from = main.database.replace(/`/g, "");
+    const stores = "(engine LIKE '%MergeTree' OR engine IN ('Log', 'TinyLog', 'StripeLog', 'Memory'))";
+    return [
+      "set -e",
+      `ch() { ${ch} "$@"; }`,
+      `ch -q ${q(`DROP DATABASE IF EXISTS \`${b.database}\` SYNC`)}`,
+      `ch -q ${q(`CREATE DATABASE \`${b.database}\``)}`,
+      // Tables first, copied with their rows; then plain views, pointed at the branch's tables.
+      `ch -q ${q(`SELECT name FROM system.tables WHERE database = ${literal(from)} AND NOT is_temporary AND name NOT LIKE '.inner%' AND ${stores} ORDER BY name FORMAT TSVRaw`)} | while IFS= read -r t; do
+  ch -q "CREATE TABLE \\\`${b.database}\\\`.\\\`$t\\\` AS \\\`${from}\\\`.\\\`$t\\\`"
+  ch -q "INSERT INTO \\\`${b.database}\\\`.\\\`$t\\\` SELECT * FROM \\\`${from}\\\`.\\\`$t\\\`"
+done`,
+      `ch -q ${q(`SELECT replaceRegexpAll(create_table_query, '\\\\b${from}\\\\.', '${b.database}.') FROM system.tables WHERE database = ${literal(from)} AND engine = 'View' ORDER BY name FORMAT TSVRaw`)} | while IFS= read -r v; do ch -q "$v"; done`,
+      `ch -q ${q(`CREATE USER IF NOT EXISTS \`${b.username}\` IDENTIFIED WITH sha256_password BY ${literal(b.password)}`)}`,
+      `ch -q ${q(`ALTER USER \`${b.username}\` IDENTIFIED WITH sha256_password BY ${literal(b.password)}`)}`,
+      `ch -q ${q(`GRANT ALL ON \`${b.database}\`.* TO \`${b.username}\``)}`,
+      ...(scrubSql?.trim() ? [`ch -d ${q(b.database)} --multiquery <<'SERVE_SCRUB_SQL_END'\n${scrubSql}\nSERVE_SCRUB_SQL_END`] : []),
+      `echo "SERVE_SIZE=$(ch -q ${q(`SELECT sum(bytes_on_disk) FROM system.parts WHERE database = ${literal(b.database)} AND active`)})"`,
+    ].join("\n");
+  },
+  remove: (main: Main, b: BranchCreds) => {
+    const ch = `clickhouse-client -u ${q(main.username)} --password ${q(main.password)}`;
+    return ["set -e", `${ch} -q ${q(`DROP DATABASE IF EXISTS \`${b.database}\` SYNC`)}`, `${ch} -q ${q(`DROP USER IF EXISTS \`${b.username}\``)}`].join("\n");
+  },
+};
+
+/* ------------------------------------------------------------ Redis / Valkey */
+
+function keyValueScripts(bin: "redis-cli" | "valkey-cli") {
+  return {
+    create: (main: Main, b: BranchCreds) => {
+      const n = Number(b.database);
+      if (!Number.isInteger(n) || n < 1 || n > 15) throw new Error(`Unexpected database number ${b.database}`);
+      const cli = rcli(bin, { username: main.username, password: main.password, database: "0", tlsRequired: !!main.tlsRequired });
+      // A Lua loop in batches of 1000 keys: any key name works, and the server never blocks for long.
+      const lua = "local r = redis.call('SCAN', ARGV[1], 'COUNT', 1000) for _, k in ipairs(r[2]) do redis.call('COPY', k, k, 'DB', ARGV[2], 'REPLACE') end return r[1]";
+      return [
+        "set -e",
+        `${cli} -n ${n} FLUSHDB >/dev/null`,
+        "cursor=0",
+        `while :; do cursor=$(${cli} -n 0 EVAL ${q(lua)} 0 "$cursor" ${n}); [ "$cursor" = "0" ] && break; done`,
+        `echo "SERVE_KEYS=$(${cli} -n ${n} DBSIZE)"`,
+      ].join("\n");
+    },
+    remove: (main: Main, b: BranchCreds) => {
+      const n = Number(b.database);
+      if (!Number.isInteger(n) || n < 1 || n > 15) throw new Error(`Unexpected database number ${b.database}`);
+      return `set -e\n${rcli(bin, { username: main.username, password: main.password, database: "0", tlsRequired: !!main.tlsRequired })} -n ${n} FLUSHDB >/dev/null`;
+    },
+  };
+}
+
+/** The scripts that create and remove a branch inside a database container of this engine. */
+export function branchScripts(engine: string): { create: (main: Main, b: BranchCreds, scrubSql: string | null) => string; remove: (main: Main, b: BranchCreds) => string } {
+  switch (engine) {
+    case "postgres":
+      return { create: createScript, remove: deleteScript };
+    case "mysql":
+      return mysqlScripts("mysql");
+    case "mariadb":
+      return mysqlScripts("mariadb");
+    case "mongodb":
+      return mongoScripts;
+    case "clickhouse":
+      return clickhouseScripts;
+    case "redis":
+      return keyValueScripts("redis-cli");
+    case "valkey":
+      return keyValueScripts("valkey-cli");
+    default:
+      throw new Error(`Branches are not available for ${engine}.`);
+  }
 }
 
 /**
@@ -73,7 +227,8 @@ export function createScript(
 DROP DATABASE IF EXISTS ${ident(branch.database)};`;
   return [
     "set -e",
-    "set -o pipefail 2>/dev/null || true",
+    // dash (Debian images) exits on an unknown set option, even with || true: test in a subshell first.
+    "(set -o pipefail) 2>/dev/null && set -o pipefail",
     `export PGPASSWORD=${q(main.password)}`,
     `${psql(main.database)} <<'SERVE_SQL'
 ${dropDb}
@@ -122,8 +277,23 @@ async function run(service: Service, script: string, secrets: string[]) {
 
 /** Add a branch and queue its copy. */
 export async function createBranch(service: Service, name: string, opts: { userId?: string | null; previewServiceId?: string | null } = {}) {
-  if (!branchesSupported(service) || !service.database) throw new Error("Branches are available for PostgreSQL databases.");
-  const database = branchDatabaseName(service.database.database, name);
+  if (!branchesSupported(service) || !service.database) throw new Error("Branches are available for database services.");
+  const engine = service.database.engine;
+  let database = branchDatabaseName(service.database.database, name);
+  let username = database;
+  if (isKeyValue(engine)) {
+    // The lowest free database number; 0 is the main data.
+    const used = new Set(
+      (await db.select({ database: schema.databaseBranch.database }).from(schema.databaseBranch).where(eq(schema.databaseBranch.serviceId, service.id))).map((b) => b.database),
+    );
+    const free = Array.from({ length: 15 }, (_, i) => String(i + 1)).find((n) => !used.has(n));
+    if (!free) throw new Error("All 15 database numbers are in use. Delete a branch first.");
+    database = free;
+    username = "default";
+  } else if (engine === "mysql" || engine === "mariadb") {
+    // MySQL user names are at most 32 characters.
+    username = database.length <= 32 ? database : `${database.slice(0, 27)}_${crypto.createHash("sha256").update(database).digest("hex").slice(0, 4)}`;
+  }
   const [branch] = await db
     .insert(schema.databaseBranch)
     .values({
@@ -131,8 +301,9 @@ export async function createBranch(service: Service, name: string, opts: { userI
       serviceId: service.id,
       name,
       database,
-      username: database,
-      password: encrypt(crypto.randomBytes(18).toString("base64url")),
+      username,
+      // Redis and Valkey have no per-database logins: their branches use the main password.
+      password: encrypt(isKeyValue(engine) ? "" : crypto.randomBytes(18).toString("base64url")),
       createdBy: opts.userId ?? null,
       previewServiceId: opts.previewServiceId ?? null,
     })
@@ -150,12 +321,13 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
   const [service] = await db.select().from(schema.service).where(eq(schema.service.id, branch.serviceId));
   if (!service?.database) return;
   const mainPassword = decrypt(service.database.password);
-  const main = { username: service.database.username, password: mainPassword, database: service.database.database };
+  const main = { ...databaseCreds(service.database, mainPassword) };
   const branchPassword = decrypt(branch.password);
+  const scripts = branchScripts(service.database.engine);
 
   if (payload.op === "delete") {
     try {
-      if (service.status === "running") await run(service, deleteScript(main, branch), [mainPassword, branchPassword]);
+      if (service.status === "running") await run(service, scripts.remove(main, { ...branch, password: branchPassword }), [mainPassword, branchPassword]);
     } finally {
       // A stopped database keeps the data until it runs again; the row goes either way.
       await db.delete(schema.databaseBranch).where(eq(schema.databaseBranch.id, branch.id));
@@ -163,10 +335,10 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
     return;
   }
 
-  const scrubSql = payload.preview ? await previewScrubSql(payload.preview.previewId) : null;
+  const scrubSql = payload.preview && branchScrubEngines.has(service.database.engine) ? await previewScrubSql(payload.preview.previewId) : null;
   try {
     if (service.status !== "running") throw new Error(`${service.name} is not running. Start it, then reset the branch.`);
-    const out = await run(service, createScript(main, { database: branch.database, username: branch.username, password: branchPassword }, scrubSql), [
+    const out = await run(service, scripts.create(main, { database: branch.database, username: branch.username, password: branchPassword }, scrubSql), [
       mainPassword,
       branchPassword,
     ]);
@@ -234,20 +406,34 @@ export async function createPreviewBranch(preview: Service, source: Service, prN
 }
 
 /** Variables each ready branch provides, keyed like `branches.<name>.DATABASE_URL`. */
+/** The engine's own name for its URL variable, as the main database provides it too. */
+const URL_ALIAS: Record<string, string> = { postgres: "POSTGRES_URL", mysql: "MYSQL_URL", mariadb: "MYSQL_URL", mongodb: "MONGO_URL", redis: "REDIS_URL", valkey: "REDIS_URL" };
+
 export function branchVars(service: Service, branches: Branch[]): Record<string, string> {
   const cfg = service.database;
   if (!cfg) return {};
   const out: Record<string, string> = {};
   const host = privateHost(service);
-  const port = String(engines[cfg.engine].port);
+  const portNumber = engines[cfg.engine].port;
+  const port = String(portNumber);
   for (const b of branches) {
     if (b.status !== "ready" && b.status !== "resetting") continue;
-    const password = decrypt(b.password);
-    const url = databaseUrl({ ...cfg, username: b.username, database: b.database }, { username: b.username, password, database: b.database }, host, engines[cfg.engine].port);
+    const keyValue = isKeyValue(cfg.engine);
+    const password = keyValue ? decrypt(cfg.password) : decrypt(b.password);
+    let url: string;
+    if (keyValue) {
+      // Same server and password, another database number.
+      url = `${databaseUrl(cfg, databaseCreds(cfg, password), host, portNumber)}/${b.database}`;
+    } else {
+      url = databaseUrl({ ...cfg, username: b.username, database: b.database }, { ...databaseCreds(cfg, password), username: b.username, database: b.database }, host, portNumber);
+      // A MongoDB branch user lives in the branch database, not in admin.
+      if (cfg.engine === "mongodb") url = url.replace("authSource=admin", `authSource=${encodeURIComponent(b.database)}`);
+    }
     const p = `branches.${b.name}.`;
+    const alias = URL_ALIAS[cfg.engine];
     Object.assign(out, {
       [`${p}DATABASE_URL`]: url,
-      [`${p}POSTGRES_URL`]: url,
+      ...(alias ? { [`${p}${alias}`]: url } : {}),
       [`${p}HOST`]: host,
       [`${p}PORT`]: port,
       [`${p}USERNAME`]: b.username,

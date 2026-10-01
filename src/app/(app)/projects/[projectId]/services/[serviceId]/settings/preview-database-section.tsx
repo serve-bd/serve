@@ -47,8 +47,7 @@ export function PreviewDatabaseSection({
                 sourceServiceId: v.sourceServiceId,
                 variable: v.variable.trim() || "DATABASE_URL",
                 scrubSql: v.scrub ? v.scrubSql : null,
-                // Branches are PostgreSQL only; another engine falls back to a copy.
-                mode: v.mode === "branch" && databases.find((d) => d.id === v.sourceServiceId)?.engine === "postgres" ? "branch" : "service",
+                mode: v.mode === "branch" ? "branch" : "service",
               }
             : null,
         )
@@ -87,7 +86,7 @@ export function PreviewDatabaseSection({
                     <Input value={v.variable} onChange={(e) => set({ variable: e.target.value })} className="font-mono text-[13px]" />
                   </Field>
                 </div>
-                {engine === "postgres" && (
+                {!!engine && (
                   <Field label="How">
                     <div role="radiogroup" aria-label="How previews get their database" className="flex flex-col gap-2 sm:flex-row">
                       {(

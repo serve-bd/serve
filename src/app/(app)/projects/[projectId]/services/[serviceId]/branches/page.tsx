@@ -25,6 +25,7 @@ export default async function BranchesPage(props: PageProps<"/projects/[projectI
       <BranchesView
         serviceId={service.id}
         serviceName={service.name}
+        engine={service.database?.engine ?? "postgres"}
         // References use the slug: always unique, unlike a name.
         refName={service.slug || referenceName(service.name)}
         running={service.status === "running"}

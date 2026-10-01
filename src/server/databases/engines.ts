@@ -94,10 +94,10 @@ function clickhouseRestore(c: EngineCreds) {
 }
 
 /** redis-cli / valkey-cli with auth, over TLS when the server only speaks TLS. */
-const rcli = (bin: string, c: EngineCreds) => `${bin} -a ${sh(c.password)} --no-auth-warning${c.tlsRequired ? " --tls --insecure" : ""}`;
-const mongoTls = (c: EngineCreds) => (c.tlsRequired ? " --tls --tlsAllowInvalidCertificates" : "");
+export const rcli = (bin: string, c: EngineCreds) => `${bin} -a ${sh(c.password)} --no-auth-warning${c.tlsRequired ? " --tls --insecure" : ""}`;
+export const mongoTls = (c: EngineCreds) => (c.tlsRequired ? " --tls --tlsAllowInvalidCertificates" : "");
 /** mongodump / mongorestore spell the TLS options differently from mongosh. */
-const mongoToolsTls = (c: EngineCreds) => (c.tlsRequired ? " --ssl --sslAllowInvalidCertificates --sslAllowInvalidHostnames" : "");
+export const mongoToolsTls = (c: EngineCreds) => (c.tlsRequired ? " --ssl --sslAllowInvalidCertificates --sslAllowInvalidHostnames" : "");
 /**
  * Restores the users and roles of a dump (from stdin) without losing Serve's own account: a
  * temporary admin restores them (merged, nothing is dropped), then sets Serve's account back to

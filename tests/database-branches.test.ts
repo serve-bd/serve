@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // The scripts are plain text; the database module is never reached.
 vi.mock("@/server/db", () => ({ db: {}, schema: {} }));
 import { branchDatabaseName, branchNamePattern, branchReference, previewBranchName } from "@/lib/database-branches";
-import { createScript, deleteScript } from "@/server/databases/branches";
+import { branchScripts, createScript, deleteScript, maxBranches } from "@/server/databases/branches";
 
 describe("database branches", () => {
   it("names the branch database after the main one", () => {
@@ -28,5 +28,24 @@ describe("database branches", () => {
     expect(script).toContain("export PGPASSWORD='it'\\''s'");
     expect(script).toContain('CREATE DATABASE "app__x" OWNER "app__x";');
     expect(() => deleteScript(main, { database: 'x"; DROP', username: "x" })).toThrow();
+  });
+
+  it("has scripts for every engine", () => {
+    const main = { username: "root", password: "pw", database: "app" };
+    const b = { database: "app__x", username: "app__x", password: "bp" };
+    for (const engine of ["postgres", "mysql", "mariadb", "mongodb", "clickhouse"]) {
+      expect(branchScripts(engine).create(main, b, null)).toContain("app__x");
+      expect(branchScripts(engine).remove(main, b)).toContain("app__x");
+    }
+    expect(branchScripts("mysql").create(main, b, null)).toContain("export MYSQL_PWD='pw'");
+  });
+
+  it("uses database numbers 1 to 15 for Redis and Valkey", () => {
+    const main = { username: "default", password: "pw", database: "0" };
+    expect(branchScripts("redis").create(main, { database: "3", username: "default", password: "" }, null)).toContain("-n 3 FLUSHDB");
+    expect(() => branchScripts("valkey").create(main, { database: "0", username: "default", password: "" }, null)).toThrow();
+    expect(() => branchScripts("redis").remove(main, { database: "16", username: "default", password: "" })).toThrow();
+    expect(maxBranches("redis")).toBe(15);
+    expect(maxBranches("postgres")).toBe(20);
   });
 });

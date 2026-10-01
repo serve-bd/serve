@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardHeader } from "@/components/ui/misc";
 import { StatusDot, statusText } from "@/components/ui/status";
 import { projectColor } from "@/components/shell/project-color";
 import { serverReachable } from "@/lib/server-services";
@@ -18,18 +21,23 @@ export type ServerCardData = {
   series: { t: number; cpu: number; memory: number; memoryLimit: number; disk: number | null; diskTotal: number | null }[];
 };
 
-/** A panel of rack rows with a title and a link to the full list. */
-export function RackPanel({ title, href, children }: { title: string; href: string; children: React.ReactNode }) {
+/** A card of rows with a title and, optionally, a link to the full list. */
+export function RackPanel({ title, href, className, children }: { title: React.ReactNode; href?: string; className?: string; children: React.ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-line bg-surface">
-      <header className="flex items-center justify-between border-b border-line px-4 py-2.5">
-        <h2 className="text-[13px] font-semibold text-fg">{title}</h2>
-        <Link href={href} className="text-xs font-medium text-muted transition-colors hover:text-fg">
-          View all
-        </Link>
-      </header>
+    <Card className={className}>
+      <CardHeader
+        className="flex-nowrap items-center"
+        title={title}
+        actions={
+          href && (
+            <Link href={href} className={buttonVariants({ variant: "ghost", size: "xs" })}>
+              View all <ArrowRight />
+            </Link>
+          )
+        }
+      />
       <div className="divide-y divide-line">{children}</div>
-    </section>
+    </Card>
   );
 }
 
@@ -38,7 +46,7 @@ export function ProjectRow({ project }: { project: ProjectSummary }) {
   const total = project.services.length;
   const running = project.services.filter((s) => s.status === "running").length;
   return (
-    <Link href={`/projects/${project.id}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-hover/60">
+    <Link href={`/projects/${project.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-hover/60">
       <span className="size-2.5 flex-none rounded-[3px]" style={{ background: projectColor(project.color) }} />
       <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-fg">{project.name}</span>
       <span className="flex max-w-[45%] flex-wrap justify-end gap-x-2 gap-y-1.5" aria-hidden>
@@ -79,7 +87,7 @@ export function ServerRow({ server: s }: { server: ServerCardData }) {
   const reachable = serverReachable(s);
   const status = s.isLocal || s.status === "ready" ? "ready" : s.status;
   return (
-    <Link href={`/servers/${s.id}`} className="flex flex-col gap-2.5 px-4 py-3 transition-colors hover:bg-hover/60">
+    <Link href={`/servers/${s.id}`} className="flex flex-col gap-2.5 px-5 py-3 transition-colors hover:bg-hover/60">
       <span className="flex items-center gap-2.5">
         <StatusDot status={status} kind="server" />
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-fg">{s.name}</span>

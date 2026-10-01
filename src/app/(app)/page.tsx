@@ -7,7 +7,7 @@ import { metricSeries, serverScope } from "@/server/metrics";
 import { projectSummaries, recentDeployments } from "@/server/queries";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Card, CardBody, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { StatusDot, statusText } from "@/components/ui/status";
 import { serverReachable } from "@/lib/server-services";
 import { DeployTimeline } from "./_components/deploy-timeline";
@@ -98,43 +98,44 @@ export default async function OverviewPage() {
 
   return (
     <>
-      <PageHeader crumb="Overview" />
-      <PageBody className="flex flex-col gap-8">
-        {/* The headline: how everything is, in words. */}
-        <div className="flex flex-wrap items-start justify-between gap-4 pt-1">
-          <div className="flex min-w-0 flex-col gap-2">
-            <h1 className="flex items-baseline gap-3 text-[24px] leading-tight font-semibold tracking-[-0.01em] text-fg sm:text-[30px]">
-              <StatusDot
-                status={head.tone === "ok" ? "running" : head.tone === "bad" ? "failed" : head.tone === "busy" ? "deploying" : "stopped"}
-                className="!size-2.5 relative -top-1 sm:-top-1.5"
-              />
-              {head.text}
-            </h1>
-            <p className="text-[13px] text-muted">
-              {last ? (
-                <>
-                  Last deploy <TimeAgo date={last.createdAt} />: <span className="text-fg-2">{last.serviceName}</span>
-                  {" · "}
-                  {today} {today === 1 ? "deploy" : "deploys"} in the last 24 hours
-                </>
-              ) : (
-                "Deployments show up here as soon as you ship something."
-              )}
-            </p>
-          </div>
+      <PageHeader
+        crumb="Overview"
+        title={
+          <span className="flex items-center gap-3">
+            <StatusDot status={head.tone === "ok" ? "running" : head.tone === "bad" ? "failed" : head.tone === "busy" ? "deploying" : "stopped"} />
+            {head.text}
+          </span>
+        }
+        description={
+          last ? (
+            <>
+              Last deploy <TimeAgo date={last.createdAt} />: <span className="text-fg-2">{last.serviceName}</span>
+              {" · "}
+              {today} {today === 1 ? "deploy" : "deploys"} in the last 24 hours
+            </>
+          ) : (
+            "Deployments show up here as soon as you ship something."
+          )
+        }
+        actions={
           <Link href="/projects/new" className={buttonVariants({ variant: "primary", size: "sm" })} hidden={!canCreate}>
             <Plus /> New project
           </Link>
-        </div>
-
+        }
+      />
+      <PageBody className="flex flex-col gap-6">
         {(broken.length > 0 || down.length > 0) && (
-          <section className="overflow-hidden rounded-2xl border border-bad/30 bg-bad/[0.04]">
-            <h2 className="flex items-center gap-2 border-b border-bad/20 px-4 py-2.5 text-[13px] font-semibold text-bad">
-              <AlertTriangle className="size-4" /> Needs attention
-            </h2>
-            <div className="divide-y divide-bad/15">
+          <Card className="border-bad/30">
+            <CardHeader
+              title={
+                <span className="flex items-center gap-2 text-bad">
+                  <AlertTriangle className="size-4" /> Needs attention
+                </span>
+              }
+            />
+            <div className="divide-y divide-line">
               {broken.map((s) => (
-                <Link key={s.id} href={`/projects/${s.project.id}/services/${s.id}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-bad/[0.06]">
+                <Link key={s.id} href={`/projects/${s.project.id}/services/${s.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-hover/60">
                   <StatusDot status={s.status} />
                   <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg">
                     <span className="font-medium">{s.name}</span> <span className="text-muted">in {s.project.name}</span>
@@ -143,7 +144,7 @@ export default async function OverviewPage() {
                 </Link>
               ))}
               {down.map((s) => (
-                <Link key={s.id} href={`/servers/${s.id}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-bad/[0.06]">
+                <Link key={s.id} href={`/servers/${s.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-hover/60">
                   <StatusDot status={s.status} kind="server" />
                   <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg">
                     <span className="font-medium">{s.name}</span> <span className="text-muted">server</span>
@@ -152,20 +153,20 @@ export default async function OverviewPage() {
                 </Link>
               ))}
             </div>
-          </section>
+          </Card>
         )}
 
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
-          <section className="flex min-w-0 flex-col gap-3">
-            <h2 className="text-[13px] font-semibold text-fg">Recent deploys</h2>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
+          <Card className="min-w-0 self-start">
+            <CardHeader title="Recent deploys" />
             {deployments.length ? (
-              <DeployTimeline rows={deployments} />
+              <CardBody>
+                <DeployTimeline rows={deployments} />
+              </CardBody>
             ) : (
-              <Card>
-                <EmptyState icon={<Rocket />} title="No deployments yet" description="Deployments show up here as soon as you ship something." />
-              </Card>
+              <EmptyState icon={<Rocket />} title="No deployments yet" description="Deployments show up here as soon as you ship something." />
             )}
-          </section>
+          </Card>
 
           <div className="flex min-w-0 flex-col gap-6">
             {projects.length ? (

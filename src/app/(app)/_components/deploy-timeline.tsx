@@ -62,7 +62,7 @@ export function DeployTimeline({ rows }: { rows: DeploymentTableRow[] }) {
                     <time className="pt-px text-right font-mono text-[12px] text-faint tabular-nums" dateTime={new Date(d.createdAt).toISOString()}>
                       {now ? new Date(d.createdAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}
                     </time>
-                    <span className="relative z-10 flex h-[18px] items-center justify-center bg-bg group-hover:bg-transparent">
+                    <span className="relative z-10 flex h-[18px] items-center justify-center bg-surface group-hover:bg-transparent">
                       <StatusDot status={d.status} kind="deployment" />
                     </span>
                     <span className="flex min-w-0 flex-col gap-0.5">

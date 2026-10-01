@@ -10,11 +10,11 @@ const serviceTones: Record<string, Tone> = {
   stopped: { led: "var(--idle)", label: "Stopped", off: true },
   idle: { led: "var(--idle)", label: "Not deployed", off: true },
   failed: { led: "var(--bad)", label: "Failed" },
-  crashed: { led: "var(--bad)", label: "Crashed", pulse: true },
+  crashed: { led: "var(--bad)", label: "Crashed" },
 };
 
 const deploymentTones: Record<string, Tone> = {
-  queued: { led: "var(--idle)", label: "Queued", pulse: true },
+  queued: { led: "var(--idle)", label: "Queued" },
   building: { led: "var(--info)", label: "Building", pulse: true },
   deploying: { led: "var(--info)", label: "Deploying", pulse: true },
   success: { led: "var(--ok)", label: "Ready" },
@@ -24,7 +24,7 @@ const deploymentTones: Record<string, Tone> = {
 };
 
 const certTones: Record<string, Tone> = {
-  pending: { led: "var(--idle)", label: "Pending", pulse: true },
+  pending: { led: "var(--idle)", label: "Pending" },
   issuing: { led: "var(--info)", label: "Issuing", pulse: true },
   active: { led: "var(--ok)", label: "Active" },
   failed: { led: "var(--bad)", label: "Failed" },
@@ -35,7 +35,7 @@ const serverTones: Record<string, Tone> = {
   pending: { led: "var(--idle)", label: "Not validated", off: true },
   validating: { led: "var(--info)", label: "Validating", pulse: true },
   ready: { led: "var(--ok)", label: "Ready" },
-  unreachable: { led: "var(--bad)", label: "Unreachable", pulse: true },
+  unreachable: { led: "var(--bad)", label: "Unreachable" },
   error: { led: "var(--bad)", label: "Error" },
 };
 

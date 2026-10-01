@@ -16,7 +16,6 @@ Serve is a self-hosted platform for running apps, databases and services on your
 ## Requirements
 
 - A Linux server (Ubuntu, Debian, Fedora, Rocky…) with 2 GB of RAM or more (builds need it).
-- Ports 80, 443 and 8000 open.
 - Root access. The installer installs Docker if it is missing.
 
 Use a server dedicated to Serve: it controls Docker, which is equal to root on the host.
@@ -36,16 +35,6 @@ The installer asks for your sudo password if you are not root. On a new server i
 Then open `http://<server-ip>:<dashboard port>`, create the owner account and follow the setup guide.
 
 The installer writes its secrets to `/data/serve/.env` and starts three containers: the dashboard (`serve`), the worker (`serve-worker`) and Serve's database (`serve-db`). Everything Serve keeps lives in `/data/serve`. Do not move that directory. If other containers already run on the server, it asks before it restarts Docker.
-
-To skip the questions, set the answers first (for example in scripts):
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `SERVE_DASHBOARD_PORT` | `8000` | Host port of the dashboard |
-| `SERVE_PROXY_HTTP_PORT` / `SERVE_PROXY_HTTPS_PORT` | `80` / `443` | Host ports for traffic to your apps |
-| `SERVE_VERSION` | newest release | Release to install, like `0.1.0` |
-| `SERVE_IMAGE` | | Exact image to run (overrides `SERVE_VERSION`) |
-| `SERVE_YES` | | Set to `1` to ask nothing and use the defaults |
 
 ## After install
 
@@ -72,22 +61,9 @@ To restore, put the original `SERVE_ENCRYPTION_KEY` in `/data/serve/.env`, then 
 sudo bash /data/serve/restore-instance.sh serve-<date>-v<version>.tar.gz
 ```
 
-## Configuration
-
-Most settings are in the dashboard. A few come from `/data/serve/.env`:
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `SERVE_ENCRYPTION_KEY` | `BETTER_AUTH_SECRET` | Key that encrypts secrets at rest |
-| `BETTER_AUTH_URL` | `http://localhost:3000` | Public URL of the dashboard |
-| `SERVE_PROXY_HTTP_PORT` / `SERVE_PROXY_HTTPS_PORT` | `80` / `443` | Proxy ports of this server |
-| `SERVE_NETWORK_SUBNET` | `10.209.0.0/16` | Subnet of Serve's Docker network |
-| `SERVE_WEBHOOK_BASE_URL` | dashboard URL | Address Git providers send webhooks to, if different |
-| `SERVE_UPDATE_TOKEN` | | GitHub token for update checks, only if the repository is private |
-
-Restart after a change: `cd /data/serve && sudo docker compose up -d`.
-
 ## Ports
+
+You pick the dashboard and app ports during install. The defaults:
 
 | Port | Used for |
 | --- | --- |

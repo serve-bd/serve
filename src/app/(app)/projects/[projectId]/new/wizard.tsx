@@ -31,6 +31,7 @@ import { Input, InputGroup, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, CardBody, CardFooter, CardHeader, Badge } from "@/components/ui/misc";
 import { ServiceIcon } from "@/components/service-icon";
+import { ReloadTemplates } from "@/components/reload-templates";
 import { TemplateLogo } from "@/components/template-logo";
 import { CodeEditor } from "@/components/code-editor";
 import { toast } from "@/components/ui/toast";
@@ -1043,6 +1044,7 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
                 aria-label="Search services"
               />
             </div>
+            <ReloadTemplates className="size-9" />
           </div>
         </div>
         {list.length ? (

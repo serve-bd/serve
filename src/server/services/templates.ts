@@ -151,6 +151,32 @@ async function catalog(): Promise<State> {
   return state;
 }
 
+let lastReload = 0;
+
+/**
+ * Fetches the catalog now (the reload button) instead of waiting for the background refresh.
+ * Clicks within a few seconds share one request.
+ */
+export async function reloadTemplates(): Promise<{ count: number; error: string | null }> {
+  const current = await catalog();
+  const url = sourceUrl();
+  if (!url) return { count: current.templates.length, error: "Loading templates from GitHub is turned off on this instance (SERVE_TEMPLATES_URL)." };
+  let error: string | null = null;
+  if (refreshing) await refreshing;
+  else if (Date.now() - lastReload > 5_000) {
+    lastReload = Date.now();
+    refreshing = refresh(url)
+      .catch((err) => {
+        error = `Could not load the template list: ${(err as Error).message}. The saved list stays in use.`;
+      })
+      .finally(() => {
+        refreshing = null;
+      });
+    await refreshing;
+  }
+  return { count: (state ?? current).templates.length, error };
+}
+
 export async function getTemplates(): Promise<Template[]> {
   return (await catalog()).templates;
 }

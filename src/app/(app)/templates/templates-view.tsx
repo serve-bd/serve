@@ -7,6 +7,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge, Card, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { useConfirm } from "@/components/ui/confirm";
+import { ReloadTemplates } from "@/components/reload-templates";
 import { TemplateLogo } from "@/components/template-logo";
 import { useAction } from "@/hooks/use-action";
 import { deleteCustomTemplate } from "@/server/actions/templates";
@@ -48,6 +49,7 @@ export function TemplatesView({ canManage, custom, builtIn }: { canManage: boole
             <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-faint" />
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search templates" className="pl-8" aria-label="Search templates" />
           </div>
+          <ReloadTemplates className="size-9" />
           {canManage && (
             <Link href="/templates/new" className={buttonVariants({ variant: "primary", size: "sm" })}>
               <Plus /> New template

@@ -5,7 +5,7 @@ import net from "node:net";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requirePermission } from "@/server/auth";
+import { requireOrg, requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
@@ -13,6 +13,7 @@ import { parseCompose } from "@/server/deploy/compose";
 import { isPrivateAddress, publicGet } from "@/server/net/public-fetch";
 import { composeSecurityIssues } from "@/server/security";
 import { composeVariables } from "@/lib/compose-vars";
+import { reloadTemplates } from "@/server/services/templates";
 
 const varSchema = z.object({
   key: z
@@ -167,5 +168,15 @@ export async function fetchComposeFromUrl(raw: string) {
       throw new UserError(`That file is not a compose file: ${(e as Error).message}`);
     }
     return text;
+  });
+}
+
+/** Loads the built-in template list from GitHub now. */
+export async function reloadTemplateCatalog() {
+  return act(async () => {
+    await requireOrg();
+    const { count, error } = await reloadTemplates();
+    if (error) throw new UserError(error);
+    return { count };
   });
 }

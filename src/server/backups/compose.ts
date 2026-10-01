@@ -107,7 +107,7 @@ export function dumpCommands(engine: Engine, c: ComposeCreds): { backup: string;
       const auth = `${c.password ? `PGPASSWORD=${sh(c.password)} ` : ""}`;
       return {
         backup: `${auth}pg_dump -U ${sh(c.username)} -d ${sh(c.database)} -Fc`,
-        restore: `${auth}pg_restore -U ${sh(c.username)} -d ${sh(c.database)} --clean --if-exists --no-owner`,
+        restore: `${auth}pg_restore -U ${sh(c.username)} -d ${sh(c.database)} --clean --if-exists --no-owner --no-privileges`,
         restorePlain: `${auth}psql -X -v ON_ERROR_STOP=1 -q -U ${sh(c.username)} -d ${sh(c.database)}`,
       };
     }
@@ -118,7 +118,7 @@ export function dumpCommands(engine: Engine, c: ComposeCreds): { backup: string;
       const auth = `-u${sh(c.username)}${c.password ? ` -p${sh(c.password)}` : ""}`;
       return {
         backup: `${dump} ${auth} --single-transaction --routines --triggers${c.root ? "" : " --no-tablespaces"} --databases ${sh(c.database)}`,
-        restore: `${cli} ${auth}`,
+        restore: `${cli} ${auth}${c.database ? ` ${sh(c.database)}` : ""}`,
       };
     }
     case "mongodb": {

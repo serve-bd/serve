@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { databaseContainer } from "@/server/databases/container";
 import { PassThrough } from "node:stream";
+import readline from "node:readline";
 import zlib from "node:zlib";
+import { planSql, type SqlEngine, sqlFilterStream, sqlLineFilter } from "./sql-filter";
 import { pipeline } from "node:stream/promises";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type Docker from "dockerode";
@@ -69,6 +71,8 @@ type Commands = {
   restorePlain?: string;
   /** Masked in any output. */
   password: string;
+  /** Database the service uses: plain SQL dumps from elsewhere are restored into it. */
+  database: string;
 };
 
 /**
@@ -104,6 +108,7 @@ async function databaseCommands(service: ServiceRow): Promise<Commands> {
     restore: engine.restoreCommand(creds),
     restorePlain: cfg.engine === "postgres" ? `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(creds.database)}` : undefined,
     password: creds.password,
+    database: creds.database,
   };
 }
 
@@ -144,7 +149,7 @@ async function composeCommands(service: ServiceRow, name: string): Promise<Comma
   if (typeof creds === "string") throw new Error(creds);
   // Redis and Valkey often get their password on the command line: redis-server --requirepass x.
   if ((engine === "redis" || engine === "valkey") && !creds.password) creds.password = requirePass([...(info.Config.Entrypoint ?? []), ...(info.Config.Cmd ?? [])]);
-  return { docker, container, engine, ...dumpCommands(engine, creds), password: creds.password };
+  return { docker, container, engine, ...dumpCommands(engine, creds), password: creds.password, database: creds.database ?? "" };
 }
 
 /** Dumps through a database container into a file on this machine. The dump streams back. Returns the size. */
@@ -175,7 +180,7 @@ async function dumpWith(t: Commands, file: string) {
  * Run a shell command in a database container with `input` on stdin. Returns its output with the
  * password masked; `onOutput` also gets it as it comes, about once a second.
  */
-async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream, gz: boolean, onOutput?: (text: string) => void) {
+async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream, gz: boolean, onOutput?: (text: string) => void, filter?: NodeJS.ReadWriteStream) {
   const exec = await t.container.exec({ Cmd: ["sh", "-c", command], AttachStdin: true, AttachStdout: true, AttachStderr: true });
   const stream = await exec.start({ hijack: true, stdin: true });
   let output = "";
@@ -199,7 +204,8 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
     stream.on("close", resolve);
   });
   // A file that cannot be read to the end (a corrupt gzip) fails the restore, even when the command accepted what it got.
-  const readError = await (gz ? pipeline(input, zlib.createGunzip(), stream, { end: false }) : pipeline(input, stream, { end: false })).then(
+  const stages: NodeJS.ReadWriteStream[] = [...(gz ? [zlib.createGunzip()] : []), ...(filter ? [filter] : [])];
+  const readError = await pipeline([input, ...stages, stream as unknown as NodeJS.WritableStream], { end: false }).then(
     () => null,
     (e: Error) => e,
   );
@@ -231,8 +237,9 @@ async function restoreWith(t: Commands, file: string, log: (line: string) => voi
   const gz = /\.gz$/i.test(file) && t.engine !== "mongodb";
   const { command, format } = await restoreCommandFor(t, file, gz);
   log(`Format: ${format}${gz ? " (gzip)" : ""}`);
+  const filter = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb" ? await plainSqlFilter(t, file, gz, log) : undefined;
   // The command's output goes to the log while it runs, so a long or failing restore can be followed.
-  const out = await runIn(t, command, fs.createReadStream(file), gz, log);
+  const out = await runIn(t, command, fs.createReadStream(file), gz, log, filter);
   if (t.engine === "redis" || t.engine === "valkey") {
     log("Restarting to load the dump");
     await t.container.restart();
@@ -451,6 +458,28 @@ export async function deleteBackupFiles(b: typeof schema.backup.$inferSelect, s3
     const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, b.serviceId));
     if (svc) await s3Delete(s3, s3Key(s3.prefix, svc.slug, b.filename)).catch(() => {});
   }
+}
+
+/**
+ * Cleans a plain SQL dump on its way in (see sql-filter.ts): reads it once to find its databases,
+ * then leaves out users, roles and system databases. Says in the log what it changed.
+ */
+async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line: string) => void) {
+  const engine = t.engine as SqlEngine;
+  const src = fs.createReadStream(file);
+  const lines = readline.createInterface({ input: gz ? src.pipe(zlib.createGunzip()) : src, crlfDelay: Number.POSITIVE_INFINITY });
+  const plan = await planSql(engine, lines).finally(() => src.destroy());
+  const filter = sqlLineFilter(engine, plan, t.database);
+  const named = plan.databases.filter((d) => d !== "");
+  log(
+    named.length > 1
+      ? `The dump holds ${named.length} databases (${named.join(", ")}); each is restored as a database of its own.`
+      : named[0] && named[0] !== t.database
+        ? `Restoring the dump's database ${named[0]} into ${t.database}.`
+        : `Restoring into ${t.database || "the database"}.`,
+  );
+  log("Users, roles, grants and system databases of the dump are left out, so the account Serve connects with stays as it is.");
+  return sqlFilterStream(filter);
 }
 
 /** First bytes of a backup (after gunzip for .gz files), to tell dump formats apart. */

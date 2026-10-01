@@ -32,6 +32,7 @@ export function PreviewDatabaseSection({
     variable: config?.variable ?? "DATABASE_URL",
     scrub: !!config?.scrubSql,
     scrubSql: config?.scrubSql ?? "",
+    mode: config?.mode ?? "service",
   };
   return (
     <Section
@@ -41,7 +42,15 @@ export function PreviewDatabaseSection({
       initial={initial}
       onSave={(v) =>
         save.run(
-          v.enabled && v.sourceServiceId ? { sourceServiceId: v.sourceServiceId, variable: v.variable.trim() || "DATABASE_URL", scrubSql: v.scrub ? v.scrubSql : null } : null,
+          v.enabled && v.sourceServiceId
+            ? {
+                sourceServiceId: v.sourceServiceId,
+                variable: v.variable.trim() || "DATABASE_URL",
+                scrubSql: v.scrub ? v.scrubSql : null,
+                // Branches are PostgreSQL only; another engine falls back to a copy.
+                mode: v.mode === "branch" && databases.find((d) => d.id === v.sourceServiceId)?.engine === "postgres" ? "branch" : "service",
+              }
+            : null,
         )
       }
       footerNote={previewsEnabled ? "Applies to previews created from now on." : "Turn on preview deployments above for this to take effect."}
@@ -78,6 +87,30 @@ export function PreviewDatabaseSection({
                     <Input value={v.variable} onChange={(e) => set({ variable: e.target.value })} className="font-mono text-[13px]" />
                   </Field>
                 </div>
+                {engine === "postgres" && (
+                  <Field label="How">
+                    <div role="radiogroup" aria-label="How previews get their database" className="flex flex-col gap-2 sm:flex-row">
+                      {(
+                        [
+                          ["branch", "A branch", "A second database inside the same database server. Quick, and nothing new to run."],
+                          ["service", "A separate copy", "A new database service for each preview. Uses more memory."],
+                        ] as const
+                      ).map(([value, title, body]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={v.mode === value}
+                          onClick={() => set({ mode: value })}
+                          className={`flex flex-1 flex-col gap-0.5 rounded-xl border p-3 text-left transition-colors ${v.mode === value ? "border-accent bg-accent-soft/40" : "border-line hover:border-line-strong"}`}
+                        >
+                          <span className="text-[13px] font-medium text-fg">{title}</span>
+                          <span className="text-xs leading-relaxed text-muted">{body}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                )}
                 {sql ? (
                   <>
                     <SwitchRow

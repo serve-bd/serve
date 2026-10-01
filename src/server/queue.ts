@@ -23,6 +23,7 @@ export type JobType =
   | "notification.deliver"
   | "environment.copy-data"
   | "preview.database"
+  | "database.branch"
   | "mesh.sync"
   | "tunnel.sync";
 
@@ -48,6 +49,12 @@ export type JobPayloads = {
   "instance.update": { to: string };
   "notification.deliver": { deliveryId: string };
   "environment.copy-data": { environmentId: string; pairs: { from: string; to: string }[]; userId?: string | null };
+  "database.branch": {
+    branchId: string;
+    op: "create" | "reset" | "delete";
+    /** A pull request preview to deploy once its branch is ready. */
+    preview?: { previewId: string; deployment: { commitSha?: string | null; commitMessage?: string | null; branch?: string | null } };
+  };
   "preview.database": {
     previewId: string;
     databaseId: string;

@@ -72,6 +72,7 @@ const previewDbSchema = z
       .trim()
       .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Use letters, numbers and underscores"),
     scrubSql: z.string().max(100_000).nullable().optional(),
+    mode: z.enum(["service", "branch"]).optional(),
   })
   .nullable();
 
@@ -90,10 +91,15 @@ export async function savePreviewDatabase(serviceId: string, input: z.input<type
         .where(and(eq(schema.service.id, data.sourceServiceId), eq(schema.service.environmentId, service.environmentId), eq(schema.service.type, "database")));
       if (!source?.database) throw new UserError("Choose a database of this environment.");
       if (data.scrubSql?.trim() && !scrubCommand(source.database, "x")) throw new UserError("Clean-up SQL works with PostgreSQL, MySQL, MariaDB and ClickHouse.");
+      if (data.mode === "branch" && source.database.engine !== "postgres") throw new UserError("Branches are available for PostgreSQL databases. Choose a separate copy instead.");
     }
     await db
       .update(schema.service)
-      .set({ previewDatabase: data ? { sourceServiceId: data.sourceServiceId, variable: data.variable, scrubSql: data.scrubSql?.trim() || null } : null })
+      .set({
+        previewDatabase: data
+          ? { sourceServiceId: data.sourceServiceId, variable: data.variable, scrubSql: data.scrubSql?.trim() || null, mode: data.mode === "branch" ? "branch" : "service" }
+          : null,
+      })
       .where(eq(schema.service.id, serviceId));
     return null;
   });

@@ -1,3 +1,4 @@
+import { removePreviewBranches } from "@/server/databases/branches";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema, sql } from "@/server/db";
 import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
@@ -15,6 +16,8 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
     all.push(...children);
     parents = children.map((c) => c.id);
   }
+  // Branches made for these previews live in another database's container: drop them there.
+  await removePreviewBranches(all.map((s) => s.id));
   for (const s of all) {
     const active = await db
       .select({ id: schema.deployment.id, status: schema.deployment.status })

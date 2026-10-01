@@ -9,6 +9,7 @@ import { privateHost } from "@/lib/hostname";
 import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
 import { runServerIds } from "@/server/deploy/distribution";
 import { resolveSecretRefs } from "@/server/secrets/resolve";
+import { branchVars } from "@/server/databases/branches";
 import { SECRETS_SCOPE } from "@/lib/secret-providers";
 
 type Service = typeof schema.service.$inferSelect;
@@ -89,7 +90,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     .from(schema.environment)
     .innerJoin(schema.project, eq(schema.environment.projectId, schema.project.id))
     .where(eq(schema.environment.id, service.environmentId));
-  const [own, shared, siblings, siblingDomains, mesh] = await Promise.all([
+  const [own, shared, siblings, siblingDomains, mesh, branches] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, service.id)),
     db
       .select()
@@ -108,6 +109,12 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
       .where(eq(schema.service.environmentId, service.environmentId)),
     meshMemberIds(),
+    // Branches of the environment's Postgres databases: ${{postgres.branches.<name>.DATABASE_URL}}.
+    db
+      .select({ branch: schema.databaseBranch })
+      .from(schema.databaseBranch)
+      .innerJoin(schema.service, eq(schema.databaseBranch.serviceId, schema.service.id))
+      .where(eq(schema.service.environmentId, service.environmentId)),
   ]);
 
   const domainsBy = new Map<string, Domain[]>();
@@ -136,9 +143,16 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   // Slugs are unique and always win over a name that happens to match one.
   const slugs = new Set(siblings.map((s) => s.slug.toLowerCase()));
   for (const s of siblings) {
-    let provided = providedVars(s, domainsBy.get(s.id) ?? []);
+    let provided = {
+      ...providedVars(s, domainsBy.get(s.id) ?? []),
+      ...branchVars(
+        s,
+        branches.filter((b) => b.branch.serviceId === s.id).map((b) => b.branch),
+      ),
+    };
     if (s.id !== service.id && !reachesPrivately(mesh, mine, { serverId: s.serverId, servers: runsOn(s) })) {
-      const hidden = new Set(Object.keys(provided).filter((k) => PRIVATE_VARS.test(k)));
+      // Branch variables are named branches.<name>.KEY: their last part says whether they are private.
+      const hidden = new Set(Object.keys(provided).filter((k) => PRIVATE_VARS.test(k.split(".").pop() ?? k)));
       provided = Object.fromEntries(Object.entries(provided).filter(([k]) => !hidden.has(k)));
       for (const name of [s.slug, s.name, referenceName(s.name)]) remoteOnly.set(name.toLowerCase(), hidden);
     }

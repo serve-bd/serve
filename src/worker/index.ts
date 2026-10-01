@@ -37,6 +37,7 @@ import { shutdownTunnels, syncTunnels } from "@/server/tunnel/listener";
 import { checkContainerHealth, checkServerResources, pruneMonitoring, runUptimeChecks } from "@/server/monitoring/checks";
 import { enforceCrashLimits } from "@/server/monitoring/crash-limit";
 import { failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBackups } from "@/server/instance/backups";
+import { runBranchJob } from "@/server/databases/branches";
 import { periodicUpdateCheck, reconcileUpdate, runUpdate } from "@/server/instance/updates";
 import { syncMesh } from "@/server/mesh";
 import { startStoppedContainers } from "@/server/backups/storage";
@@ -69,6 +70,8 @@ async function handle(job: Job, signal: AbortSignal) {
       return copyEnvironmentData(job.payload as JobPayloads["environment.copy-data"]);
     case "preview.database":
       return preparePreviewDatabase(job.payload as JobPayloads["preview.database"]);
+    case "database.branch":
+      return runBranchJob(job.payload as JobPayloads["database.branch"]);
     case "certificate.issue":
       return issueCertificate(p.certificateId);
     case "certificate.renew-all":

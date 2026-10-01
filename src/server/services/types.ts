@@ -330,6 +330,11 @@ export type PreviewDatabaseConfig = {
   variable: string;
   /** SQL run on the copy after the restore, e.g. to replace personal data. */
   scrubSql?: string | null;
+  /**
+   * "service" (default): a temporary database service per preview. "branch": a branch inside the
+   * source database's own container (PostgreSQL only).
+   */
+  mode?: "service" | "branch";
 };
 
 /** Crashes in a row after which a replica is stopped, unless the app sets its own limit. */

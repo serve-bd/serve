@@ -125,6 +125,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains & ports" }] : []),
     ...(service.type !== "database" ? [{ href: `${base}/tasks`, label: "Tasks" }] : []),
     ...(can("databases.backups") && ["database", "compose", "app"].includes(service.type) ? [{ href: `${base}/backups`, label: "Backups" }] : []),
+    ...(service.type === "database" && service.engine === "postgres" && !service.isPreview ? [{ href: `${base}/branches`, label: "Branches" }] : []),
     ...(can("services.manage") ? [{ href: `${base}/settings`, to: `${base}/settings/general`, label: "Settings" }] : []),
   ];
 

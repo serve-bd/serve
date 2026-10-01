@@ -7,6 +7,7 @@ import { logActivity } from "@/server/activity";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
 import { generatedHostname, newWebhookSecret, queueDeployment } from "./create";
 import { createPreviewDatabase } from "./environments";
+import { branchesSupported, createPreviewBranch, enqueueBranchJob } from "@/server/databases/branches";
 import { teardownServices } from "./teardown";
 
 type Service = typeof schema.service.$inferSelect;
@@ -114,6 +115,7 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
   const source = { ...parent.source, branch: pr.branch, repository: pr.repository || parent.source.repository, webhook: null };
 
   let databaseId: string | null = null;
+  let branch: { id: string; serviceId: string; reset: boolean } | null = null;
   if (!preview) {
     // Previews count against the organization's limits like any service.
     await requireRoomFor(await orgId(parent.projectId), [{ type: "app", runtime: parent.runtime }]);
@@ -158,7 +160,8 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
     }
     if (rows.length) await db.insert(schema.envVar).values(rows);
 
-    if (parent.previewDatabase) databaseId = await createPreviewDatabase(preview, parent, pr.number);
+    if (parent.previewDatabase?.mode === "branch") branch = await previewBranch(preview, parent, pr.number);
+    else if (parent.previewDatabase) databaseId = await createPreviewDatabase(preview, parent, pr.number);
 
     if (!(await addPreviewDomain(parent, id, pr.number))) {
       const host = await generatedHostname(slug, parent.serverId);
@@ -188,6 +191,11 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
   }
 
   const deployment = { commitSha: pr.sha, commitMessage: pr.title, branch: pr.branch };
+  // A new preview with its own branch: fill it first; that job deploys the preview.
+  if (branch) {
+    await enqueueBranchJob({ branchId: branch.id, op: branch.reset ? "reset" : "create", preview: { previewId: preview.id, deployment } }, branch.serviceId);
+    return { preview, deploymentId: null };
+  }
   // A new preview with its own database: fill the copy first; that job deploys the preview.
   if (databaseId) {
     await enqueue("preview.database", { previewId: preview.id, databaseId, parentId: parent.id, deployment }, { concurrencyKey: `service:${databaseId}:copy` });
@@ -225,6 +233,19 @@ export async function syncPreviewVars(parent: Service, before: Record<string, st
       else await db.delete(schema.envVar).where(and(eq(schema.envVar.serviceId, p.id), eq(schema.envVar.key, key)));
     }
   }
+}
+
+/** The preview's branch of the source database, when previews branch instead of copying. */
+async function previewBranch(preview: Service, parent: Service, prNumber: number) {
+  const cfg = parent.previewDatabase;
+  if (!cfg) return null;
+  const [source] = await db
+    .select()
+    .from(schema.service)
+    .where(and(eq(schema.service.id, cfg.sourceServiceId), eq(schema.service.environmentId, parent.environmentId)));
+  if (!source || !branchesSupported(source)) return null;
+  const b = await createPreviewBranch(preview, source, prNumber, cfg.variable);
+  return { id: b.id, serviceId: source.id, reset: b.status === "resetting" };
 }
 
 export async function removePreview(parent: Service, prNumber: number) {

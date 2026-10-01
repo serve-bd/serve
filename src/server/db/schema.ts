@@ -1402,3 +1402,37 @@ export const secretProvider = pgTable(
   },
   (t) => [uniqueIndex("secret_provider_org_name_idx").on(t.organizationId, t.name)],
 );
+
+export type DatabaseBranchStatus = "creating" | "ready" | "resetting" | "failed" | "deleting";
+
+/**
+ * A branch of a Postgres database service: a second database inside the same container, filled
+ * with a copy of the main database, with its own login. Removed with the service.
+ */
+export const databaseBranch = pgTable(
+  "database_branch",
+  {
+    id: id(),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    /** Used in references: lowercase letters, digits and dashes. */
+    name: text("name").notNull(),
+    /** Database and role inside the container. */
+    database: text("database").notNull(),
+    username: text("username").notNull(),
+    /** Encrypted. */
+    password: text("password").notNull(),
+    status: text("status").$type<DatabaseBranchStatus>().notNull().default("creating"),
+    error: text("error"),
+    sizeBytes: bigint("size_bytes", { mode: "number" }),
+    /** When the data was last copied from the main database. */
+    copiedAt: timestamp("copied_at", { withTimezone: true }),
+    /** The pull request preview that uses this branch; removed when the preview closes. */
+    previewServiceId: text("preview_service_id").references((): AnyPgColumn => service.id, { onDelete: "set null" }),
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("database_branch_service_name_idx").on(t.serviceId, t.name), index("database_branch_preview_idx").on(t.previewServiceId)],
+);

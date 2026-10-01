@@ -38,6 +38,15 @@ const inputSchema = z.object({
 
 type Input = z.input<typeof inputSchema>;
 
+/**
+ * Stored credentials are reused only for the kind and address they were saved for: a test or an
+ * update that points elsewhere must bring its own, or the stored token would be sent there.
+ */
+function sameTarget(row: { kind: string; config: { url?: string | null } }, input: Input) {
+  const url = (u: string | null | undefined) => (u ?? "").trim().replace(/\/+$/, "").toLowerCase();
+  return row.kind === input.kind && url(row.config.url) === url(input.config?.url);
+}
+
 /** Drop empty config values, check required fields and URLs, and merge credentials with the stored ones. */
 async function prepare(organizationId: string, input: Input, stored: SecretProviderCredentials = {}) {
   const data = inputSchema.parse(input);
@@ -116,7 +125,7 @@ export async function updateSecretProvider(id: string, input: Input) {
   return act(async () => {
     const ctx = await requirePermission("integrations.manage");
     const row = await providerInOrg(id, ctx.org.id);
-    const stored = row.kind === input.kind ? (JSON.parse(decryptOrNull(row.credentials) ?? "{}") as SecretProviderCredentials) : {};
+    const stored = sameTarget(row, input) ? (JSON.parse(decryptOrNull(row.credentials) ?? "{}") as SecretProviderCredentials) : {};
     const p = await prepare(ctx.org.id, input, stored);
     await nameFree(ctx.org.id, p.name, id);
     await db
@@ -143,7 +152,7 @@ export async function testSecretProvider(input: Input, id?: string) {
   return act(async () => {
     const ctx = await requirePermission("integrations.manage");
     const row = id ? await providerInOrg(id, ctx.org.id) : null;
-    const stored = row && row.kind === input.kind ? (JSON.parse(decryptOrNull(row.credentials) ?? "{}") as SecretProviderCredentials) : {};
+    const stored = row && sameTarget(row, input) ? (JSON.parse(decryptOrNull(row.credentials) ?? "{}") as SecretProviderCredentials) : {};
     const p = await prepare(ctx.org.id, input, stored);
     const client = await providerClient({
       id: id ?? "test",

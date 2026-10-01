@@ -1,5 +1,8 @@
 // Must stay first: every other import may read the environment when it loads.
 import "dotenv/config";
+
+// A rejected promise nobody awaits must not take the worker down.
+process.on("unhandledRejection", (reason) => console.error("[worker] unhandled rejection:", reason instanceof Error ? reason.message : reason));
 import fs from "node:fs";
 import { checkLimitNotices, hasRoomFor, measureOrgDisk } from "@/server/limits";
 import { copyEnvironmentData, preparePreviewDatabase } from "@/server/services/environments";
@@ -162,7 +165,7 @@ async function loop() {
         if (job) {
           claimed = true;
           const buildServer = job.type === "deploy" ? await buildServerForDeployment((job.payload as { deploymentId: string }).deploymentId).catch(() => null) : null;
-          void execute(job, buildServer);
+          execute(job, buildServer).catch((error: Error) => log(`job ${job.id} could not be finished:`, error.message));
         }
       } catch (error) {
         log("claim failed", (error as Error).message);

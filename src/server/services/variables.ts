@@ -191,6 +191,10 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
 
   // Each value of a replica.pick list is filled in on its own and escaped again, so a filled-in
   // value with commas or brackets stays one value.
+  // Each reference expands once (a value made of thousands of references to itself would
+  // otherwise multiply at every level), and everything expanded stays under a megabyte.
+  const expanded = new Map<string, string>();
+  let budget = 1024 * 1024;
   const expand = (value: string, depth = 0): string => {
     let out = "";
     let last = 0;
@@ -222,7 +226,16 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
         missing.add(ref);
         return "";
       }
-      return depth < 5 ? expand(result, depth + 1) : result;
+      const cached = expanded.get(ref);
+      if (cached !== undefined) return cached;
+      const value = depth < 5 ? expand(result, depth + 1) : result;
+      budget -= value.length;
+      if (budget < 0) {
+        missing.add(`${ref} (the variables expand to more than 1 MB)`);
+        return "";
+      }
+      expanded.set(ref, value);
+      return value;
     });
 
   const runtime: Record<string, string> = {};

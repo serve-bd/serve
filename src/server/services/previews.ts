@@ -1,3 +1,4 @@
+import { withoutHostAccess } from "@/server/services/types";
 import { and, eq } from "drizzle-orm";
 import { requireRoomFor } from "@/server/limits";
 import { db, schema } from "@/server/db";
@@ -134,7 +135,8 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
         icon: parent.icon,
         source,
         build: parent.build,
-        runtime: { ...parent.runtime, replicas: 1, ports: [], volumes: parent.runtime.volumes.filter((v) => v.kind === "volume") },
+        // Branch code runs here: never with the parent's host-level access.
+        runtime: { ...withoutHostAccess(parent.runtime), replicas: 1, volumes: parent.runtime.volumes.filter((v) => v.kind === "volume") },
         autoDeploy: true,
         webhookSecret: newWebhookSecret(),
         parentServiceId: parent.id,

@@ -301,6 +301,16 @@ export type DatabaseConfig = {
   healthcheck?: { interval?: number | null; timeout?: number | null; retries?: number | null; startPeriod?: number | null } | null;
 };
 
+/** Whether a runtime has host-level access: host paths, host ports, privileges or hardware. */
+export function hasHostAccess(r: RuntimeConfig) {
+  return r.volumes.some((v) => v.kind === "bind") || r.ports.length > 0 || !!r.privileged || !!r.capAdd?.length || !!r.gpus || !!r.devices?.length;
+}
+
+/** A runtime without host-level access, for copies made by someone who may not grant it. */
+export function withoutHostAccess(r: RuntimeConfig): RuntimeConfig {
+  return { ...r, ports: [], volumes: r.volumes.filter((v) => v.kind !== "bind"), privileged: false, capAdd: [], gpus: null, devices: [] };
+}
+
 export type ComposeConfig = {
   /** Inline YAML, or the path of the compose file inside the git repository. */
   mode: "inline" | "git";
@@ -322,6 +332,8 @@ export type ComposeConfig = {
    * options may deploy. Any change by someone else clears it.
    */
   hostAccess?: boolean;
+  /** The host-level options a Root admin approved by deploying them, so a push cannot add more. */
+  hostAccessIssues?: string[];
 };
 
 export type ComposePort = PortMapping & { service: string };

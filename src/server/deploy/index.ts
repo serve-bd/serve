@@ -835,10 +835,10 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   // The public port's allowlist (or its removal) goes in the server's firewall before the port
   // opens: when the firewall cannot take it, the deploy fails and the old container stays.
   const { allowlistsPending, applyDatabaseAllowlists } = await import("@/server/databases/allowlist");
-  if ((cfg.publicPort || cfg.publicAllow?.length) && (await allowlistsPending(server.id))) {
+  if ((cfg.publicPort || cfg.publicAllow?.length) && (await allowlistsPending(server.id, service.id))) {
     const restricted = !!cfg.publicAllow?.length && !!cfg.publicPort && cfg.publicBind !== "127.0.0.1";
     try {
-      await applyDatabaseAllowlists(server.id);
+      await applyDatabaseAllowlists(server.id, service.id);
       if (restricted) line(`Port ${cfg.publicPort} accepts only ${cfg.publicAllow!.join(", ")}`);
     } catch (error) {
       if (restricted) throw new Error(`The allowlist for port ${cfg.publicPort} could not be applied, so the port was not opened: ${(error as Error).message}`);
@@ -985,6 +985,23 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     throw new Error(
       `The compose file uses options only admins of the Root organization may set up: ${issues.slice(0, 3).join("; ")}. An admin of the Root organization can save the stack's compose settings to allow them.`,
     );
+  }
+  // A file from git can change with every push: new host-level options need a Root admin to deploy them once.
+  if (issues.length) {
+    const approved = new Set(cfg.hostAccessIssues ?? []);
+    const added = issues.filter((i) => !approved.has(i));
+    if (added.length) {
+      const { isInstanceAdmin } = await import("@/server/auth");
+      if (!dep.createdBy || !(await isInstanceAdmin(dep.createdBy))) {
+        throw new Error(
+          `The compose file asks for host-level options no admin of the Root organization has deployed yet: ${added.slice(0, 3).join("; ")}. Such an admin deploys it once to approve them.`,
+        );
+      }
+      await db
+        .update(schema.service)
+        .set({ compose: { ...cfg, hostAccessIssues: issues } })
+        .where(eq(schema.service.id, service.id));
+    }
   }
   checkCancelled(signal);
 
@@ -1223,7 +1240,8 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       .filter((l) => l && !/^#\d+ (sha256|DONE|CACHED|\[internal\])/.test(l))
       .slice(-6)
       .join("\n");
-    const message = error instanceof Error ? (tail ? `${error.message}\n${tail}` : error.message) : String(error);
+    // Command output and container logs can hold secrets: masked like the log itself.
+    const message = log.scrub(error instanceof Error ? (tail ? `${error.message}\n${tail}` : error.message) : String(error));
     log.line("");
     log.line(cancelled ? "==> Deployment cancelled" : `==> Deployment failed: ${(error as Error).message ?? message}`);
     const hint = failureHint(message);

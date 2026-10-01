@@ -1,3 +1,4 @@
+import { withoutHostAccess } from "@/server/services/types";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -101,7 +102,7 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
       status: "idle",
       source: s.source?.type === "git" ? { ...s.source, webhook: null } : s.source,
       build: s.build ? { ...s.build, noCacheOnce: false } : null,
-      runtime: { ...s.runtime, ports: [] },
+      runtime: opts.hostAccess ? { ...s.runtime, ports: [] } : withoutHostAccess(s.runtime),
       database,
       compose: s.compose ? { ...s.compose, subnet: null, ports: [], hostAccess: !!opts.hostAccess && !!s.compose.hostAccess } : null,
       proxy: s.proxy,

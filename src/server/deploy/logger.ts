@@ -18,6 +18,11 @@ export class DeployLogger {
     this.redactions.push(...values.filter((v) => v && v.length >= 4));
   }
 
+  /** Text with every redacted value masked (for errors stored or sent outside the log). */
+  scrub(text: string) {
+    return this.clean(text);
+  }
+
   private clean(line: string) {
     let out = line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r/g, "");
     for (const secret of this.redactions) out = out.split(secret).join("********");

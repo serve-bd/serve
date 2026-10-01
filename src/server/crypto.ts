@@ -22,8 +22,10 @@ export function encrypt(plain: string): string {
 export function decrypt(payload: string): string {
   if (!payload.startsWith("v1:")) return payload;
   const [, iv, tag, data] = payload.split(":");
-  const decipher = crypto.createDecipheriv("aes-256-gcm", key(), Buffer.from(iv, "base64url"));
-  decipher.setAuthTag(Buffer.from(tag, "base64url"));
+  const tagBytes = Buffer.from(tag, "base64url");
+  if (tagBytes.length !== 16) throw new Error("Corrupt encrypted value.");
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key(), Buffer.from(iv, "base64url"), { authTagLength: 16 });
+  decipher.setAuthTag(tagBytes);
   return Buffer.concat([decipher.update(Buffer.from(data, "base64url")), decipher.final()]).toString("utf8");
 }
 
@@ -47,9 +49,8 @@ export function randomSecret(bytes = 24): string {
 /** Password without characters that tend to break connection strings. */
 export function randomPassword(length = 28): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-  const bytes = crypto.randomBytes(length);
   let out = "";
-  for (let i = 0; i < length; i++) out += alphabet[bytes[i] % alphabet.length];
+  for (let i = 0; i < length; i++) out += alphabet[crypto.randomInt(alphabet.length)];
   return out;
 }
 

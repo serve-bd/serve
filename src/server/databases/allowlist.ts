@@ -71,16 +71,28 @@ export function allowlistScript(entries: AllowEntry[]) {
   ].join("\n");
 }
 
-/** Public ports of a server's databases that have an allowlist. */
-export async function allowEntries(serverId: string): Promise<AllowEntry[]> {
+/**
+ * Public ports of a server's databases that have an allowlist: only ports a database's own
+ * container publishes right now, so a saved port can never close a port that belongs to
+ * something else on the server.
+ */
+export async function allowEntries(serverId: string, starting?: string): Promise<AllowEntry[]> {
   const rows = await db
-    .select({ database: schema.service.database })
+    .select({ id: schema.service.id, database: schema.service.database })
     .from(schema.service)
     .where(and(eq(schema.service.serverId, serverId), eq(schema.service.type, "database"), isNotNull(schema.service.database)));
-  return rows
-    .map((r) => r.database)
-    .filter((d) => !!d?.publicPort && d.publicBind !== "127.0.0.1" && !!d.publicAllow?.length)
-    .map((d) => ({ port: d!.publicPort!, allow: d!.publicAllow! }))
+  const wanted = rows.filter((r) => !!r.database?.publicPort && r.database.publicBind !== "127.0.0.1" && !!r.database.publicAllow?.length);
+  if (!wanted.length) return [];
+  const ctx = await getServer(serverId);
+  const running = await ctx.docker.listContainers({ all: false }).catch(() => []);
+  // `starting`: the database a deploy is about to start, whose port is published in a moment.
+  const publishes = (serviceId: string, port: number) =>
+    serviceId === starting || running.some((c) => c.Labels?.[LABEL.service] === serviceId && c.Ports?.some((p) => p.PublicPort === port));
+  const seen = new Set<number>();
+  return wanted
+    .filter((r) => publishes(r.id, r.database!.publicPort!))
+    .map((r) => ({ port: r.database!.publicPort!, allow: r.database!.publicAllow! }))
+    .filter((e) => !seen.has(e.port) && seen.add(e.port))
     .sort((a, b) => a.port - b.port);
 }
 
@@ -112,13 +124,13 @@ const applied = (globalThis as unknown as { __serveDbAllow?: Map<string, string>
 (globalThis as unknown as { __serveDbAllow?: Map<string, string> }).__serveDbAllow = applied;
 
 /** Whether a server's firewall needs a run: something is listed, or rules may be left from before. */
-export async function allowlistsPending(serverId: string) {
-  return (await allowEntries(serverId)).length > 0 || applied.get(serverId) !== "[]";
+export async function allowlistsPending(serverId: string, starting?: string) {
+  return (await allowEntries(serverId, starting)).length > 0 || applied.get(serverId) !== "[]";
 }
 
 /** Put a server's database allowlists in its firewall (and remove rules no longer wanted). */
-export async function applyDatabaseAllowlists(serverId: string) {
-  const entries = await allowEntries(serverId);
+export async function applyDatabaseAllowlists(serverId: string, starting?: string) {
+  const entries = await allowEntries(serverId, starting);
   const ctx = await getServer(serverId);
   await onHost(ctx, allowlistScript(entries));
   applied.set(serverId, JSON.stringify(entries));

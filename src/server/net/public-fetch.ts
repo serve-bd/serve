@@ -94,9 +94,12 @@ export async function publicGet(
  */
 export async function publicRequest(
   raw: string,
-  opts: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number } = {},
+  opts: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number; maxBytes?: number } = {},
 ): Promise<{ status: number; headers: http.IncomingHttpHeaders; text: string }> {
   const url = new URL(raw);
+  const maxBytes = opts.maxBytes ?? 65_536;
+  // The socket timeout only catches silence; a server that trickles bytes forever still ends here.
+  const deadline = (opts.timeoutMs ?? 15_000) * 4;
   if (url.protocol !== "https:" && url.protocol !== "http:") throw new PublicFetchError("Only http and https URLs are allowed.");
   const host = url.hostname.replace(/^\[|\]$/g, "");
   if (net.isIP(host) && isPrivateAddress(host)) throw new PublicFetchError("That address points at a private network.");
@@ -115,12 +118,16 @@ export async function publicRequest(
         let size = 0;
         res.on("data", (c: Buffer) => {
           size += c.length;
-          if (size <= 65_536) chunks.push(c);
+          if (size > maxBytes) return req.destroy(new PublicFetchError(`The answer is larger than ${Math.round(maxBytes / 1024)} KB.`));
+          chunks.push(c);
         });
         res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, text: Buffer.concat(chunks).toString("utf8") }));
         res.on("error", reject);
       },
     );
+    const timer = setTimeout(() => req.destroy(new PublicFetchError("The server did not finish answering in time.")), deadline);
+    timer.unref();
+    req.on("close", () => clearTimeout(timer));
     req.on("timeout", () => req.destroy(new PublicFetchError("The server did not answer in time.")));
     req.on("error", reject);
     if (body) req.write(body);

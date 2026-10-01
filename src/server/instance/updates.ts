@@ -105,15 +105,23 @@ export async function periodicUpdateCheck(enqueueUpdate: (to: string) => Promise
   await enqueueUpdate(run.to);
 }
 
-async function setRun(patch: Partial<UpdateRun>) {
-  const run = (await getSettings()).updateRun;
-  if (run) await updateSettings({ updateRun: { ...run, ...patch } });
+// Every write reads the run and writes it back whole: one at a time, so a log line that lands
+// late cannot put back a state the run has left.
+let runWrites: Promise<unknown> = Promise.resolve();
+function writeRun(change: (run: UpdateRun) => UpdateRun) {
+  const next = runWrites
+    .catch(() => {})
+    .then(async () => {
+      const run = (await getSettings()).updateRun;
+      if (run) await updateSettings({ updateRun: change(run) });
+    });
+  runWrites = next;
+  return next;
 }
 
-const appendLog = async (line: string) => {
-  const run = (await getSettings()).updateRun;
-  if (run) await updateSettings({ updateRun: { ...run, log: `${run.log}${line}\n`.slice(-20_000) } });
-};
+const setRun = (patch: Partial<UpdateRun>) => writeRun((run) => ({ ...run, ...patch }));
+
+const appendLog = (line: string) => writeRun((run) => ({ ...run, log: `${run.log}${line}\n`.slice(-20_000) })).catch(() => {});
 
 /** SERVE_IMAGE from the install's .env: the image the stack runs now. */
 async function installedImage(): Promise<string> {

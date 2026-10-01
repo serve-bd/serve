@@ -28,7 +28,9 @@ export async function ensureDatabaseTls(ctx: ServerCtx, serviceId: string, names
     const read = (f: string) => fs.readFile(path.join(tmp, f), "utf8");
     const [ca, caKey, cert, key] = await Promise.all([read("ca.crt"), read("ca.key"), read("server.crt"), read("server.key")]);
     await ctx.fs.writeFile(path.posix.join(dir, "ca.crt"), ca, 0o644);
-    await ctx.fs.writeFile(path.posix.join(dir, "ca.key"), caKey, 0o600);
+    // The signing key never enters the container (a file read in the database could reach it).
+    await ctx.fs.writeFile(path.posix.join(dir, "..", "tls-ca", "ca.key"), caKey, 0o600);
+    await ctx.fs.rm(path.posix.join(dir, "ca.key")).catch(() => {});
     await ctx.fs.writeFile(path.posix.join(dir, "server.crt"), cert, 0o644);
     // The start script copies these as root inside the container and hands them to the server user.
     await ctx.fs.writeFile(path.posix.join(dir, "server.key"), key, 0o600);

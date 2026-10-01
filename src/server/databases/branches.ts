@@ -336,12 +336,19 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
   const scripts = branchScripts(service.database.engine);
 
   if (payload.op === "delete") {
+    // The row goes only once the branch's login and data are gone: a stopped database keeps both,
+    // and a login Serve forgot would stay valid (preview branches hand theirs to pull request code).
     try {
-      if (service.status === "running") await run(service, scripts.remove(main, { ...branch, password: branchPassword }), [mainPassword, branchPassword]);
-    } finally {
-      // A stopped database keeps the data until it runs again; the row goes either way.
-      await db.delete(schema.databaseBranch).where(eq(schema.databaseBranch.id, branch.id));
+      if (service.status !== "running") throw new Error("The database is not running. Start it, then delete the branch again.");
+      await run(service, scripts.remove(main, { ...branch, password: branchPassword }), [mainPassword, branchPassword]);
+    } catch (e) {
+      await db
+        .update(schema.databaseBranch)
+        .set({ status: "failed", error: `Not deleted: ${(e as Error).message.slice(0, 1900)}`, updatedAt: new Date() })
+        .where(eq(schema.databaseBranch.id, branch.id));
+      return;
     }
+    await db.delete(schema.databaseBranch).where(eq(schema.databaseBranch.id, branch.id));
     return;
   }
 
@@ -408,6 +415,8 @@ export async function removePreviewBranches(previewIds: string[]) {
  * URL put into the preview's variable as a reference. Returns the branch to fill.
  */
 export async function createPreviewBranch(preview: Service, source: Service, prNumber: number, variable: string) {
+  // Redis and Valkey branches share the main password: pull request code would get production access.
+  if (isKeyValue(source.database!.engine)) throw new Error("Redis and Valkey branches share the main password, so previews cannot use them. Choose a separate copy for previews.");
   const name = previewBranchName(prNumber);
   const [existing] = await db
     .select()

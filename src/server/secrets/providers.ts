@@ -16,7 +16,8 @@ type Res = { status: number; text: string };
 async function send(url: string, init: { method?: string; headers?: Record<string, string>; body?: string }, allowPrivate: boolean): Promise<Res> {
   try {
     if (!allowPrivate) {
-      const res = await publicRequest(url, { method: init.method ?? "GET", headers: init.headers, body: init.body });
+      // A manager's answer can list a whole configuration: a megabyte, not the usual 64 KB.
+      const res = await publicRequest(url, { method: init.method ?? "GET", headers: init.headers, body: init.body, maxBytes: 1024 * 1024 });
       return { status: res.status, text: res.text };
     }
     const res = await fetch(url, { method: init.method ?? "GET", headers: init.headers, body: init.body, redirect: "manual", signal: AbortSignal.timeout(15_000) });

@@ -219,7 +219,7 @@ export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: 
     const domain = domainCert
       ? ` && cp -L ${domainCert.cert} ${TLS_DIR}/server.crt && cp -L ${domainCert.key} ${TLS_DIR}/server.key && cat ${TLS_DIR}/server.crt ${TLS_DIR}/server.key > ${TLS_DIR}/server.pem && cat ${TLS_DIR}/server.crt >> ${TLS_DIR}/ca.crt`
       : "";
-    const prepare = `mkdir -p ${TLS_DIR} && cp ${TLS_SOURCE}/* ${TLS_DIR}/${domain} && chown -R ${engine.runAs} ${TLS_DIR} && chmod 600 ${TLS_DIR}/server.key ${TLS_DIR}/server.pem && exec ${engine.entrypoint} "$@"`;
+    const prepare = `mkdir -p ${TLS_DIR} && cp ${TLS_SOURCE}/* ${TLS_DIR}/ && rm -f ${TLS_DIR}/ca.key${domain} && chown -R ${engine.runAs} ${TLS_DIR} && chmod 600 ${TLS_DIR}/server.key ${TLS_DIR}/server.pem && exec ${engine.entrypoint} "$@"`;
     cmd = ["sh", "-c", prepare, "sh", ...cmd];
   }
 

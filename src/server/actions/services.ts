@@ -13,7 +13,7 @@ import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { projectInOrg, serviceInOrg } from "@/server/services/access";
 import { generatedHostname, newWebhookSecret, queueDeployment, serviceNameTaken, uniqueServiceName, uniqueServiceSlug } from "@/server/services/create";
-import { buildsImage, defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig } from "@/server/services/types";
+import { buildsImage, defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig, hasHostAccess } from "@/server/services/types";
 import { engines } from "@/server/databases/engines";
 import { resolveTemplate, templateVarValue } from "@/server/services/custom-templates";
 import { normalizeRepoUrl, repoUrlProblem } from "@/server/deploy/git";
@@ -712,6 +712,8 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       }
     }
     if (data.build) patch.build = { ...defaultBuild(), ...service.build, ...data.build } as BuildConfig;
+    // A service that runs with host-level access: what it runs is an admin's decision too.
+    if (hasHostAccess(service.runtime) && (data.source || data.build || data.runtime || data.compose)) assertHostAccess(ctx, "Changing a service that has host-level access");
     if (data.runtime) {
       const runtime = { ...service.runtime, ...data.runtime } as RuntimeConfig;
       if (runtime.cpuLimit !== service.runtime.cpuLimit || runtime.memoryLimit !== service.runtime.memoryLimit) {
@@ -765,6 +767,17 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         const r = normalizeTrustedRanges(data.database.publicAllow, { anyWidth: true });
         if ("error" in r) throw new UserError(r.error);
         data.database.publicAllow = r.ranges.length ? r.ranges : null;
+      }
+      const nextPort = data.database.publicPort;
+      if (nextPort && nextPort !== (service.database.publicPort ?? null)) {
+        // The firewall rules of an allowlist follow this port: it must be free, not another tenant's.
+        const { busyHostPorts } = await import("@/server/services/ports");
+        const others = await db
+          .select({ database: schema.service.database })
+          .from(schema.service)
+          .where(and(eq(schema.service.type, "database"), ne(schema.service.id, serviceId), eq(schema.service.serverId, service.serverId)));
+        if (others.some((o) => o.database?.publicPort === nextPort) || (await busyHostPorts(service)).includes(nextPort))
+          throw new UserError(`Port ${nextPort} is already used on this server.`);
       }
       patch.database = { ...service.database, ...data.database };
       // Public access changed by hand: it is the user's now, not something the domain opened.
@@ -1125,6 +1138,7 @@ export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy
     const ctx = await requirePermission("variables.edit");
     const vars = varsSchema.parse(input);
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (hasHostAccess(service.runtime)) assertHostAccess(ctx, "Changing the variables of a service that has host-level access");
     const stored = await db.select({ key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId));
     const { decryptOrNull } = await import("@/server/crypto");
     const next = vars

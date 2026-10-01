@@ -1,0 +1,26 @@
+{
+  "name": "HedgeDoc",
+  "description": "Collaborative Markdown editor for notes, docs and slides.",
+  "category": "Productivity",
+  "website": "https://hedgedoc.org",
+  "color": "#B51F08",
+  "note": "Anyone who can reach the domain can register. Set CMD_ALLOW_EMAIL_REGISTER to false once your account exists.",
+  "expose": {
+    "service": "app",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "CMD_DOMAIN",
+      "publicHost": true
+    },
+    {
+      "key": "CMD_SESSION_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

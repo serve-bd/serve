@@ -1,0 +1,8 @@
+services:
+  goatcounter:
+    image: arp242/goatcounter:latest
+    restart: unless-stopped
+    volumes:
+      - goatcounter-data:/home/goatcounter/goatcounter-data
+volumes:
+  goatcounter-data:

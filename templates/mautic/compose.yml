@@ -1,0 +1,69 @@
+x-mautic-env: &mautic-env
+  MAUTIC_DB_HOST: mysql
+  MAUTIC_DB_PORT: "3306"
+  MAUTIC_DB_DATABASE: mautic
+  MAUTIC_DB_USER: mautic
+  MAUTIC_DB_PASSWORD: ${MYSQL_PASSWORD}
+  MAUTIC_MESSENGER_DSN_EMAIL: doctrine://default
+  MAUTIC_MESSENGER_DSN_HIT: doctrine://default
+  MAUTIC_TRUSTED_PROXIES: '["0.0.0.0/0"]'
+x-mautic-volumes: &mautic-volumes
+  - mautic-config:/var/www/html/config
+  - mautic-logs:/var/www/html/var/logs
+  - mautic-media-files:/var/www/html/docroot/media/files
+  - mautic-media-images:/var/www/html/docroot/media/images
+services:
+  mautic:
+    image: mautic/mautic:7-apache
+    restart: unless-stopped
+    environment:
+      <<: *mautic-env
+      DOCKER_MAUTIC_ROLE: mautic_web
+    volumes: *mautic-volumes
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://localhost"]
+      interval: 10s
+      retries: 60
+    depends_on:
+      mysql:
+        condition: service_healthy
+  mautic-cron:
+    image: mautic/mautic:7-apache
+    restart: unless-stopped
+    environment:
+      <<: *mautic-env
+      DOCKER_MAUTIC_ROLE: mautic_cron
+    volumes: *mautic-volumes
+    depends_on:
+      mautic:
+        condition: service_healthy
+  mautic-worker:
+    image: mautic/mautic:7-apache
+    restart: unless-stopped
+    environment:
+      <<: *mautic-env
+      DOCKER_MAUTIC_ROLE: mautic_worker
+    volumes: *mautic-volumes
+    depends_on:
+      mautic:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: mautic
+      MYSQL_USER: mautic
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      retries: 20
+volumes:
+  mautic-config:
+  mautic-logs:
+  mautic-media-files:
+  mautic-media-images:
+  mysql-data:

@@ -1,0 +1,31 @@
+{
+  "name": "Firefly III",
+  "description": "Personal finance manager for budgets, accounts and transactions.",
+  "category": "Productivity",
+  "website": "https://www.firefly-iii.org",
+  "color": "#CD5029",
+  "note": "Register on the first visit; the first account becomes the admin.",
+  "expose": {
+    "service": "app",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "SITE_OWNER",
+      "value": "admin@example.com",
+      "label": "Owner email"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

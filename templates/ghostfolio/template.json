@@ -1,0 +1,30 @@
+{
+  "name": "Ghostfolio",
+  "description": "Wealth management software to track stocks, ETFs and crypto.",
+  "category": "Productivity",
+  "website": "https://ghostfol.io",
+  "color": "#36CFCC",
+  "note": "Click Get Started to create the first user: it becomes the admin. Keep the security token it shows, it is your login.",
+  "expose": {
+    "service": "ghostfolio",
+    "port": 3333
+  },
+  "vars": [
+    {
+      "key": "ACCESS_TOKEN_SALT",
+      "generate": "secret"
+    },
+    {
+      "key": "JWT_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "REDIS_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

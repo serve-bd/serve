@@ -1,0 +1,30 @@
+services:
+  rocketchat:
+    image: registry.rocket.chat/rocketchat/rocket.chat:latest
+    restart: unless-stopped
+    environment:
+      ROOT_URL: ${ROOT_URL}
+      PORT: "3000"
+      MONGO_URL: mongodb://mongodb:27017/rocketchat?replicaSet=rs0
+      DEPLOY_METHOD: docker
+      DEPLOY_PLATFORM: compose
+    volumes:
+      - rocketchat-uploads:/app/uploads
+    depends_on:
+      mongodb:
+        condition: service_healthy
+  mongodb:
+    image: mongodb/mongodb-community-server:8.2-ubi8
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongodb-data:/data/db
+    # Starts the single-member replica set on the first check; healthy once it is up.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { quit(rs.status().ok ? 0 : 1) } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongodb:27017' }] }); quit(1) }"]
+      interval: 10s
+      start_period: 30s
+      retries: 30
+volumes:
+  rocketchat-uploads:
+  mongodb-data:

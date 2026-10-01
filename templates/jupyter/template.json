@@ -1,0 +1,19 @@
+{
+  "name": "JupyterLab",
+  "description": "Notebooks for Python, data science and scientific computing.",
+  "category": "Developer tools",
+  "website": "https://jupyter.org",
+  "color": "#F37626",
+  "note": "Log in with the token shown here.",
+  "expose": {
+    "service": "jupyter",
+    "port": 8888
+  },
+  "vars": [
+    {
+      "key": "JUPYTER_TOKEN",
+      "generate": "password",
+      "label": "Login token"
+    }
+  ]
+}

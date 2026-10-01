@@ -1,0 +1,27 @@
+{
+  "name": "Unleash",
+  "description": "Feature flag management to release features gradually and safely.",
+  "category": "Developer tools",
+  "website": "https://www.getunleash.io",
+  "color": "#1A4049",
+  "note": "Log in as admin with the generated admin password, then create API tokens for your SDKs.",
+  "expose": {
+    "service": "unleash",
+    "port": 4242
+  },
+  "vars": [
+    {
+      "key": "UNLEASH_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "UNLEASH_DEFAULT_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

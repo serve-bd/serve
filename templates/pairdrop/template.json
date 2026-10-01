@@ -1,0 +1,12 @@
+{
+  "name": "PairDrop",
+  "description": "Send files between devices in the browser. An AirDrop alternative.",
+  "category": "Storage",
+  "website": "https://pairdrop.net",
+  "color": "#4285F4",
+  "expose": {
+    "service": "pairdrop",
+    "port": 3000
+  },
+  "vars": []
+}

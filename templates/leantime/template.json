@@ -1,0 +1,26 @@
+{
+  "name": "Leantime",
+  "description": "Project management for non-project managers, with goals, tasks and timesheets.",
+  "category": "Productivity",
+  "website": "https://leantime.io",
+  "color": "#006D9F",
+  "note": "The first visit opens the installer, where you create the admin account.",
+  "expose": {
+    "service": "leantime",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "LEAN_APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "LEAN_SESSION_PASSWORD",
+      "generate": "secret"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "name": "Apache Answer",
+  "description": "Q&A platform for communities, help centers and knowledge bases.",
+  "category": "Communication",
+  "website": "https://answer.apache.org",
+  "color": "#0033FF",
+  "note": "Log in with the admin email and the generated admin password.",
+  "expose": {
+    "service": "answer",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "SITE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "SITE_NAME",
+      "value": "Answer",
+      "label": "Site name"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Trilium Notes",
+  "description": "Hierarchical note-taking app for building a personal knowledge base.",
+  "category": "Productivity",
+  "website": "https://triliumnotes.org",
+  "color": "#000000",
+  "note": "Set a password on the first visit.",
+  "expose": {
+    "service": "trilium",
+    "port": 8080
+  },
+  "vars": []
+}

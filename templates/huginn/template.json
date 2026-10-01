@@ -1,0 +1,36 @@
+{
+  "name": "Huginn",
+  "description": "Build agents that watch the web and act on your behalf.",
+  "category": "Automation",
+  "website": "https://github.com/huginn/huginn",
+  "color": "#2F4858",
+  "note": "Log in as admin with the generated admin password.",
+  "expose": {
+    "service": "huginn",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "HUGINN_DOMAIN",
+      "publicHost": true
+    },
+    {
+      "key": "SEED_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "SEED_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "APP_SECRET_TOKEN",
+      "generate": "hex32"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

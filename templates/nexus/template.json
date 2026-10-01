@@ -1,0 +1,13 @@
+{
+  "name": "Nexus Repository",
+  "description": "Artifact repository for Maven, npm, Docker, PyPI and more.",
+  "category": "Developer tools",
+  "website": "https://www.sonatype.com/products/sonatype-nexus-oss",
+  "color": "#1B1C30",
+  "note": "Needs about 2 GB of RAM. Log in as admin with the password in /nexus-data/admin.password inside the container.",
+  "expose": {
+    "service": "nexus",
+    "port": 8081
+  },
+  "vars": []
+}

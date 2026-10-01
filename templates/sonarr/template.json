@@ -1,0 +1,13 @@
+{
+  "name": "Sonarr",
+  "description": "Automatically finds, downloads and organizes TV shows.",
+  "category": "Media",
+  "website": "https://sonarr.tv",
+  "color": "#2596BE",
+  "note": "Choose the login method on first visit. Imports need the download client's downloads folder: mount the same directory for both in Persistent storage.",
+  "expose": {
+    "service": "sonarr",
+    "port": 8989
+  },
+  "vars": []
+}

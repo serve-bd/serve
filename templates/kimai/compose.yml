@@ -1,0 +1,36 @@
+services:
+  kimai:
+    image: kimai/kimai2:apache
+    restart: unless-stopped
+    environment:
+      APP_SECRET: ${APP_SECRET}
+      TRUSTED_HOSTS: localhost,127.0.0.1,${KIMAI_HOST}
+      TRUSTED_PROXIES: 127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      ADMINMAIL: ${ADMIN_EMAIL}
+      ADMINPASS: ${ADMIN_PASSWORD}
+      DATABASE_URL: mysql://kimai:${DB_PASSWORD}@sqldb/kimai?charset=utf8mb4&serverVersion=8.4.0
+    volumes:
+      - kimai-data:/opt/kimai/var/data
+      - kimai-plugins:/opt/kimai/var/plugins
+    depends_on:
+      sqldb:
+        condition: service_healthy
+  sqldb:
+    image: mysql:8.4
+    restart: unless-stopped
+    command: --default-storage-engine innodb
+    environment:
+      MYSQL_DATABASE: kimai
+      MYSQL_USER: kimai
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      retries: 20
+volumes:
+  kimai-data:
+  kimai-plugins:
+  mysql-data:

@@ -1,0 +1,12 @@
+services:
+  wallos:
+    image: bellamy/wallos:latest
+    restart: unless-stopped
+    environment:
+      TZ: Etc/UTC
+    volumes:
+      - wallos-db:/var/www/html/db
+      - wallos-logos:/var/www/html/images/uploads/logos
+volumes:
+  wallos-db:
+  wallos-logos:

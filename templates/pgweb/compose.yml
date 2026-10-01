@@ -1,0 +1,5 @@
+services:
+  pgweb:
+    image: sosedoff/pgweb:latest
+    restart: unless-stopped
+    command: ["--sessions", "--auth-user=${PGWEB_USER}", "--auth-pass=${PGWEB_PASSWORD}"]

@@ -1,0 +1,13 @@
+{
+  "name": "qBittorrent",
+  "description": "BitTorrent client with a web interface.",
+  "category": "Media",
+  "website": "https://www.qbittorrent.org",
+  "color": "#2F67BA",
+  "note": "Sign in as admin with the temporary password printed in the logs, then set your own in Options → Web UI. For incoming peer connections publish port 6881 (TCP and UDP) in Domains & ports.",
+  "expose": {
+    "service": "qbittorrent",
+    "port": 8080
+  },
+  "vars": []
+}

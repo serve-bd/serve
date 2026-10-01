@@ -1,0 +1,13 @@
+{
+  "name": "Jenkins",
+  "description": "Automation server for building, testing and deploying software.",
+  "category": "Developer tools",
+  "website": "https://www.jenkins.io",
+  "color": "#D24939",
+  "note": "On first visit, unlock Jenkins with the initial admin password printed in the container logs.",
+  "expose": {
+    "service": "jenkins",
+    "port": 8080
+  },
+  "vars": []
+}

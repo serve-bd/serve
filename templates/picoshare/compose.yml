@@ -1,0 +1,12 @@
+services:
+  picoshare:
+    image: mtlynch/picoshare:latest
+    restart: unless-stopped
+    environment:
+      PORT: "4001"
+      PS_SHARED_SECRET: ${PS_SHARED_SECRET}
+      PS_BEHIND_PROXY: "true"
+    volumes:
+      - picoshare-data:/data
+volumes:
+  picoshare-data:

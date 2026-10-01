@@ -1,0 +1,13 @@
+{
+  "name": "Ollama",
+  "description": "Run open large language models locally behind a simple API.",
+  "category": "AI",
+  "website": "https://ollama.com",
+  "color": "#000000",
+  "note": "The API has no authentication: keep the domain private. Pull a model with POST /api/pull. Runs on CPU only.",
+  "expose": {
+    "service": "ollama",
+    "port": 11434
+  },
+  "vars": []
+}

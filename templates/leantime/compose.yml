@@ -1,0 +1,43 @@
+services:
+  leantime:
+    image: leantime/leantime:latest
+    restart: unless-stopped
+    environment:
+      LEAN_APP_URL: ${LEAN_APP_URL}
+      LEAN_DB_HOST: mysql
+      LEAN_DB_PORT: "3306"
+      LEAN_DB_USER: leantime
+      LEAN_DB_PASSWORD: ${DB_PASSWORD}
+      LEAN_DB_DATABASE: leantime
+      LEAN_SESSION_PASSWORD: ${LEAN_SESSION_PASSWORD}
+      LEAN_SESSION_SECURE: "true"
+      LEAN_DEFAULT_TIMEZONE: UTC
+    volumes:
+      - leantime-public-userfiles:/var/www/html/public/userfiles
+      - leantime-userfiles:/var/www/html/userfiles
+      - leantime-plugins:/var/www/html/app/Plugins
+      - leantime-logs:/var/www/html/storage/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: leantime
+      MYSQL_USER: leantime
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      retries: 20
+volumes:
+  leantime-public-userfiles:
+  leantime-userfiles:
+  leantime-plugins:
+  leantime-logs:
+  mysql-data:

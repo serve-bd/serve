@@ -1,0 +1,32 @@
+{
+  "name": "LiteLLM",
+  "description": "OpenAI-compatible gateway to 100+ LLM providers with keys and spend tracking.",
+  "category": "AI",
+  "website": "https://www.litellm.ai",
+  "color": "#1E3A8A",
+  "note": "Open /ui and log in as admin with the generated UI password, then add models and provider API keys there. API clients use the master key: sk- followed by LITELLM_MASTER_KEY.",
+  "expose": {
+    "service": "litellm",
+    "port": 4000
+  },
+  "vars": [
+    {
+      "key": "LITELLM_MASTER_KEY",
+      "generate": "hex32",
+      "label": "Master key (prefixed with sk-)"
+    },
+    {
+      "key": "LITELLM_SALT_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "UI_PASSWORD",
+      "generate": "password",
+      "label": "Admin UI password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

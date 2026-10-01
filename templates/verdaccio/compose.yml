@@ -1,0 +1,14 @@
+services:
+  verdaccio:
+    image: verdaccio/verdaccio:6
+    restart: unless-stopped
+    environment:
+      VERDACCIO_PUBLIC_URL: ${VERDACCIO_PUBLIC_URL}
+    volumes:
+      - verdaccio-storage:/verdaccio/storage
+      - verdaccio-conf:/verdaccio/conf
+      - verdaccio-plugins:/verdaccio/plugins
+volumes:
+  verdaccio-storage:
+  verdaccio-conf:
+  verdaccio-plugins:

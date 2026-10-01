@@ -1,0 +1,18 @@
+{
+  "name": "GLPI",
+  "description": "IT service management with helpdesk, asset inventory and projects.",
+  "category": "Productivity",
+  "website": "https://glpi-project.org",
+  "color": "#1B2F62",
+  "note": "GLPI installs itself on first start. Log in as glpi / glpi and change the default passwords of the glpi, tech, normal and post-only accounts.",
+  "expose": {
+    "service": "glpi",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

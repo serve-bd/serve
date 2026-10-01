@@ -1,0 +1,19 @@
+{
+  "name": "SiYuan",
+  "description": "Privacy-first personal knowledge base with blocks and bidirectional links.",
+  "category": "Productivity",
+  "website": "https://b3log.org/siyuan",
+  "color": "#D23F31",
+  "note": "Unlock it with the generated access code (Variables tab).",
+  "expose": {
+    "service": "siyuan",
+    "port": 6806
+  },
+  "vars": [
+    {
+      "key": "SIYUAN_ACCESS_CODE",
+      "generate": "password",
+      "label": "Access code"
+    }
+  ]
+}

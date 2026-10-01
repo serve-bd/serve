@@ -1,0 +1,30 @@
+{
+  "name": "Chatwoot",
+  "description": "Customer support inbox for live chat, email and social channels.",
+  "category": "Communication",
+  "website": "https://www.chatwoot.com",
+  "color": "#1F93FF",
+  "note": "Create the admin account in the onboarding form on first visit. Add SMTP_ADDRESS and the other SMTP settings to send email.",
+  "expose": {
+    "service": "rails",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "FRONTEND_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "REDIS_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

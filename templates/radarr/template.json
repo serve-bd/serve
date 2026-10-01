@@ -1,0 +1,13 @@
+{
+  "name": "Radarr",
+  "description": "Automatically finds, downloads and organizes movies.",
+  "category": "Media",
+  "website": "https://radarr.video",
+  "color": "#B8860B",
+  "note": "Choose the login method on first visit. Imports need the download client's downloads folder: mount the same directory for both in Persistent storage.",
+  "expose": {
+    "service": "radarr",
+    "port": 7878
+  },
+  "vars": []
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Wallos",
+  "description": "Track your subscriptions and recurring costs in one place.",
+  "category": "Productivity",
+  "website": "https://wallosapp.com",
+  "color": "#1D4ED8",
+  "note": "Create your account on the first visit.",
+  "expose": {
+    "service": "wallos",
+    "port": 80
+  },
+  "vars": []
+}

@@ -1,0 +1,19 @@
+{
+  "name": "CouchDB",
+  "description": "Document database with an HTTP API and multi-master sync.",
+  "category": "Databases",
+  "website": "https://couchdb.apache.org",
+  "color": "#E42528",
+  "note": "Open /_utils and log in as admin with the generated password. Run the single-node setup there on first login.",
+  "expose": {
+    "service": "couchdb",
+    "port": 5984
+  },
+  "vars": [
+    {
+      "key": "COUCHDB_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

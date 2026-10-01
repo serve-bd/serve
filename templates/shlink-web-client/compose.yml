@@ -1,0 +1,4 @@
+services:
+  shlink-web-client:
+    image: shlinkio/shlink-web-client:4
+    restart: unless-stopped

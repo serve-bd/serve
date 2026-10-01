@@ -1,0 +1,34 @@
+{
+  "name": "Automatisch",
+  "description": "Open-source business automation to connect apps without code.",
+  "category": "Automation",
+  "website": "https://automatisch.io",
+  "color": "#6E3AD8",
+  "note": "Open the site to create the admin account on the installation page.",
+  "expose": {
+    "service": "automatisch",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "WEBHOOK_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "APP_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

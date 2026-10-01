@@ -1,0 +1,14 @@
+{
+  "name": "AdGuard Home",
+  "description": "Network-wide ad and tracker blocking DNS server.",
+  "category": "Security",
+  "website": "https://adguard.com/adguard-home/overview.html",
+  "color": "#68BC71",
+  "hostAccess": true,
+  "note": "Publishes port 53 (DNS, TCP and UDP) on the server; free it first if another DNS service (such as systemd-resolved) uses it. In the setup wizard, set the admin web interface port to 3000 and create the admin account.",
+  "expose": {
+    "service": "adguardhome",
+    "port": 3000
+  },
+  "vars": []
+}

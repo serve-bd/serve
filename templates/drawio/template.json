@@ -1,0 +1,12 @@
+{
+  "name": "draw.io",
+  "description": "Diagram editor for flowcharts, network diagrams and UML.",
+  "category": "Productivity",
+  "website": "https://www.drawio.com",
+  "color": "#F08705",
+  "expose": {
+    "service": "drawio",
+    "port": 8080
+  },
+  "vars": []
+}

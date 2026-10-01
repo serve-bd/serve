@@ -1,0 +1,26 @@
+{
+  "name": "InvoiceShelf",
+  "description": "Invoicing and expense tracking for freelancers and small businesses.",
+  "category": "Productivity",
+  "website": "https://invoiceshelf.com",
+  "color": "#5851D8",
+  "note": "Open the site to finish the setup wizard and create the admin account. Database connection: PostgreSQL, host postgres, database and user invoiceshelf, password from POSTGRES_PASSWORD.",
+  "expose": {
+    "service": "invoiceshelf",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "APP_HOST",
+      "publicHost": true
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

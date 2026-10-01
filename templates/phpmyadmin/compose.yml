@@ -1,0 +1,7 @@
+services:
+  phpmyadmin:
+    image: phpmyadmin:5
+    restart: unless-stopped
+    environment:
+      PMA_ARBITRARY: "1"
+      PMA_ABSOLUTE_URI: ${PMA_URL}/

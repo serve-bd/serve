@@ -1,0 +1,44 @@
+services:
+  librechat:
+    image: registry.librechat.ai/librechat-ai/librechat:latest
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3080"
+      NODE_ENV: production
+      MONGO_URI: mongodb://mongodb:27017/LibreChat
+      DOMAIN_CLIENT: ${APP_URL}
+      DOMAIN_SERVER: ${APP_URL}
+      TRUST_PROXY: "1"
+      NO_INDEX: "true"
+      ALLOW_REGISTRATION: "true"
+      SEARCH: "false"
+      # Encryption keys and JWT secrets are generated on first start and kept in the data volume.
+      LIBRECHAT_TEMP_CREDENTIALS_PATH: /app/data/.env.temp
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-user_provided}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-user_provided}
+      GOOGLE_KEY: ${GOOGLE_KEY:-user_provided}
+    volumes:
+      - librechat-data:/app/data
+      - librechat-uploads:/app/uploads
+      - librechat-images:/app/client/public/images
+      - librechat-logs:/app/api/logs
+    depends_on:
+      mongodb:
+        condition: service_healthy
+  mongodb:
+    image: mongo:8
+    restart: unless-stopped
+    command: mongod --noauth
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      retries: 20
+volumes:
+  librechat-data:
+  librechat-uploads:
+  librechat-images:
+  librechat-logs:
+  mongodb-data:

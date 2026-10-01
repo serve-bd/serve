@@ -1,0 +1,65 @@
+x-automatisch-env: &automatisch-env
+  APP_ENV: production
+  PORT: "3000"
+  API_URL: ${APP_URL}
+  WEB_APP_URL: ${APP_URL}
+  WEBHOOK_URL: ${APP_URL}
+  REDIS_HOST: redis
+  POSTGRES_HOST: postgres
+  POSTGRES_DATABASE: automatisch
+  POSTGRES_USERNAME: automatisch
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  WEBHOOK_SECRET_KEY: ${WEBHOOK_SECRET_KEY}
+  APP_SECRET_KEY: ${APP_SECRET_KEY}
+  DISABLE_SEED_USER: "true"
+  TELEMETRY_ENABLED: "false"
+services:
+  automatisch:
+    image: automatischio/automatisch:latest
+    restart: unless-stopped
+    environment:
+      <<: *automatisch-env
+    volumes:
+      - automatisch-storage:/automatisch/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  worker:
+    image: automatischio/automatisch:latest
+    restart: unless-stopped
+    environment:
+      <<: *automatisch-env
+      WORKER: "true"
+    volumes:
+      - automatisch-storage:/automatisch/storage
+    depends_on:
+      - automatisch
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: automatisch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: automatisch
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U automatisch -d automatisch"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+volumes:
+  automatisch-storage:
+  postgres-data:
+  redis-data:

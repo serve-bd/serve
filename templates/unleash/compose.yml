@@ -1,0 +1,29 @@
+services:
+  unleash:
+    image: unleashorg/unleash-server:8
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://unleash:${POSTGRES_PASSWORD}@postgres:5432/unleash
+      DATABASE_SSL: "false"
+      UNLEASH_URL: ${UNLEASH_URL}
+      UNLEASH_DEFAULT_ADMIN_USERNAME: admin
+      UNLEASH_DEFAULT_ADMIN_PASSWORD: ${UNLEASH_DEFAULT_ADMIN_PASSWORD}
+      LOG_LEVEL: warn
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: unleash
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: unleash
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U unleash -d unleash"]
+      interval: 5s
+      retries: 20
+volumes:
+  postgres-data:

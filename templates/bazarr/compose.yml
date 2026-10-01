@@ -1,0 +1,16 @@
+services:
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - bazarr-config:/config
+      - bazarr-movies:/movies
+      - bazarr-tv:/tv
+volumes:
+  bazarr-config:
+  bazarr-movies:
+  bazarr-tv:

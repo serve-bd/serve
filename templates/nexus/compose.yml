@@ -1,0 +1,8 @@
+services:
+  nexus:
+    image: sonatype/nexus3:latest
+    restart: unless-stopped
+    volumes:
+      - nexus-data:/nexus-data
+volumes:
+  nexus-data:

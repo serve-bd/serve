@@ -1,0 +1,24 @@
+{
+  "name": "pgweb",
+  "description": "Lightweight web client for PostgreSQL.",
+  "category": "Databases",
+  "website": "https://sosedoff.github.io/pgweb/",
+  "color": "#4169E1",
+  "note": "Sign in with the username and password shown here, then connect to any PostgreSQL server it can reach.",
+  "expose": {
+    "service": "pgweb",
+    "port": 8081
+  },
+  "vars": [
+    {
+      "key": "PGWEB_USER",
+      "value": "admin",
+      "label": "Login username"
+    },
+    {
+      "key": "PGWEB_PASSWORD",
+      "generate": "password",
+      "label": "Login password"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "Shlink",
+  "description": "URL shortener with visit stats, QR codes and a REST API.",
+  "category": "Productivity",
+  "website": "https://shlink.io",
+  "color": "#4696E5",
+  "note": "Has no UI of its own. Manage links with the Shlink web client, using this domain and the generated API key (Variables tab).",
+  "expose": {
+    "service": "shlink",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "DEFAULT_DOMAIN",
+      "publicHost": true
+    },
+    {
+      "key": "INITIAL_API_KEY",
+      "generate": "secret",
+      "label": "API key"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

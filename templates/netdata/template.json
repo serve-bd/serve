@@ -1,0 +1,14 @@
+{
+  "name": "Netdata",
+  "description": "Real-time, per-second metrics for the server and its containers.",
+  "category": "Monitoring",
+  "website": "https://www.netdata.cloud",
+  "color": "#00AB44",
+  "hostAccess": true,
+  "note": "Reads the host's /proc, /sys and the Docker socket, and the dashboard has no login. Keep the domain private (IP allowlist) or remove it.",
+  "expose": {
+    "service": "netdata",
+    "port": 19999
+  },
+  "vars": []
+}

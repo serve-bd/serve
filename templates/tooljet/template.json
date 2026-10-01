@@ -1,0 +1,34 @@
+{
+  "name": "ToolJet",
+  "description": "Low-code platform for internal tools, dashboards and workflows.",
+  "category": "Developer tools",
+  "website": "https://www.tooljet.com",
+  "color": "#3E63DD",
+  "note": "Create the admin account on first visit.",
+  "expose": {
+    "service": "tooljet",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "TOOLJET_HOST",
+      "publicUrl": true
+    },
+    {
+      "key": "LOCKBOX_MASTER_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    },
+    {
+      "key": "PGRST_JWT_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

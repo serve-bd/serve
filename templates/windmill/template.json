@@ -1,0 +1,22 @@
+{
+  "name": "Windmill",
+  "description": "Turn scripts into workflows, internal apps and scheduled jobs.",
+  "category": "Automation",
+  "website": "https://www.windmill.dev",
+  "color": "#3B82F6",
+  "note": "Log in with admin@windmill.dev / changeme and change the password right away.",
+  "expose": {
+    "service": "windmill-server",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

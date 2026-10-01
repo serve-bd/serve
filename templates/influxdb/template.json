@@ -1,0 +1,24 @@
+{
+  "name": "InfluxDB",
+  "description": "Time series database for metrics, events and sensor data.",
+  "category": "Databases",
+  "website": "https://www.influxdata.com",
+  "color": "#22ADF6",
+  "note": "Sign in as admin with the generated admin password. The admin API token is in the Variables tab.",
+  "expose": {
+    "service": "influxdb",
+    "port": 8086
+  },
+  "vars": [
+    {
+      "key": "INFLUXDB_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "INFLUXDB_ADMIN_TOKEN",
+      "generate": "secret",
+      "label": "Admin API token"
+    }
+  ]
+}

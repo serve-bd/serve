@@ -1,0 +1,20 @@
+services:
+  anythingllm:
+    image: mintplexlabs/anythingllm:latest
+    restart: unless-stopped
+    # Settings chosen in the UI are written to /app/server/.env: keep that file in the volume.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - "[ -f /app/server/storage/.env ] || cp /app/server/.env /app/server/storage/.env; ln -sf /app/server/storage/.env /app/server/.env; exec /bin/bash /usr/local/bin/docker-entrypoint.sh"
+    environment:
+      SERVER_PORT: "3001"
+      STORAGE_DIR: /app/server/storage
+      JWT_SECRET: ${JWT_SECRET}
+      SIG_KEY: ${SIG_KEY}
+      SIG_SALT: ${SIG_SALT}
+      DISABLE_TELEMETRY: "true"
+    volumes:
+      - anythingllm-storage:/app/server/storage
+volumes:
+  anythingllm-storage:

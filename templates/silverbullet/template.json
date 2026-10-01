@@ -1,0 +1,19 @@
+{
+  "name": "SilverBullet",
+  "description": "Programmable Markdown notes that live in plain files.",
+  "category": "Productivity",
+  "website": "https://silverbullet.md",
+  "color": "#2D4B7A",
+  "note": "Sign in as admin with the generated password (Variables tab).",
+  "expose": {
+    "service": "silverbullet",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "SB_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

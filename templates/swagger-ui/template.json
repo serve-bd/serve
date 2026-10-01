@@ -1,0 +1,13 @@
+{
+  "name": "Swagger UI",
+  "description": "Interactive documentation for OpenAPI specs.",
+  "category": "Developer tools",
+  "website": "https://swagger.io/tools/swagger-ui/",
+  "color": "#4E9A16",
+  "note": "Shows the Petstore sample. Set the URL environment variable to your own OpenAPI spec.",
+  "expose": {
+    "service": "swagger-ui",
+    "port": 8080
+  },
+  "vars": []
+}

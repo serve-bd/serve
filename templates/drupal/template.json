@@ -1,0 +1,19 @@
+{
+  "name": "Drupal",
+  "description": "Flexible CMS for content-rich websites and digital experiences.",
+  "category": "CMS",
+  "website": "https://www.drupal.org",
+  "color": "#0678BE",
+  "note": "The installer asks for the database: pick PostgreSQL, name and user drupal, the generated DB_PASSWORD (Variables tab), and host postgres under Advanced options.",
+  "expose": {
+    "service": "drupal",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password",
+      "label": "Database password"
+    }
+  ]
+}

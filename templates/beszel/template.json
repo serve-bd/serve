@@ -1,0 +1,28 @@
+{
+  "name": "Beszel",
+  "description": "Lightweight server monitoring with Docker stats, history and alerts.",
+  "category": "Monitoring",
+  "website": "https://beszel.dev",
+  "color": "#18181B",
+  "note": "Sign in with the admin email and the generated admin password (Variables tab). Then add each server with Add System, which gives the agent command to run there.",
+  "expose": {
+    "service": "beszel",
+    "port": 8090
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "USER_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "USER_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

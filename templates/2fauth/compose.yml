@@ -1,0 +1,14 @@
+services:
+  2fauth:
+    image: 2fauth/2fauth:8
+    restart: unless-stopped
+    environment:
+      APP_NAME: 2FAuth
+      APP_ENV: production
+      APP_KEY: ${APP_KEY}
+      APP_URL: ${APP_URL}
+      TRUSTED_PROXIES: "*"
+    volumes:
+      - 2fauth-data:/2fauth
+volumes:
+  2fauth-data:

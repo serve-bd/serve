@@ -1,0 +1,26 @@
+{
+  "name": "AnythingLLM",
+  "description": "All-in-one AI workspace to chat with your documents.",
+  "category": "AI",
+  "website": "https://anythingllm.com",
+  "color": "#0E0F0F",
+  "note": "The instance is open to anyone until you set a password in Settings → Security. Pick an LLM provider and enter its API key on first open.",
+  "expose": {
+    "service": "anythingllm",
+    "port": 3001
+  },
+  "vars": [
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "SIG_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "SIG_SALT",
+      "generate": "secret"
+    }
+  ]
+}

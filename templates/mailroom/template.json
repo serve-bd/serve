@@ -1,0 +1,67 @@
+{
+  "name": "Mailroom",
+  "description": "Self-hosted mail for your domains on Amazon SES and Cloudflare.",
+  "category": "Communication",
+  "website": "https://mailroom-docs.shahriyar.dev",
+  "color": "#5A45D6",
+  "popular": true,
+  "note": "Sending needs Amazon SES keys and attachments need a Cloudflare R2 bucket. Receiving mail also needs the Cloudflare Email Worker from the docs, set up with the inbound webhook secret.",
+  "expose": {
+    "service": "mailroom",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "BETTER_AUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "INBOUND_WEBHOOK_SECRET",
+      "generate": "hex32",
+      "label": "Inbound webhook secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "AWS_REGION",
+      "value": "us-east-1",
+      "label": "SES region"
+    },
+    {
+      "key": "AWS_ACCESS_KEY_ID",
+      "value": "",
+      "label": "AWS access key ID"
+    },
+    {
+      "key": "AWS_SECRET_ACCESS_KEY",
+      "value": "",
+      "label": "AWS secret access key"
+    },
+    {
+      "key": "R2_ACCOUNT_ID",
+      "value": "",
+      "label": "Cloudflare account ID"
+    },
+    {
+      "key": "R2_ACCESS_KEY_ID",
+      "value": "",
+      "label": "R2 access key ID"
+    },
+    {
+      "key": "R2_SECRET_ACCESS_KEY",
+      "value": "",
+      "label": "R2 secret access key"
+    },
+    {
+      "key": "R2_BUCKET",
+      "value": "mail-attachments",
+      "label": "R2 bucket"
+    }
+  ]
+}

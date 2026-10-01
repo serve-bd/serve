@@ -1,0 +1,28 @@
+services:
+  wekan:
+    image: ghcr.io/wekan/wekan:latest
+    restart: unless-stopped
+    environment:
+      MONGO_URL: mongodb://mongo:27017/wekan
+      ROOT_URL: ${ROOT_URL}
+      WRITABLE_PATH: /data
+      WITH_API: "true"
+      BROWSER_POLICY_ENABLED: "true"
+    volumes:
+      - wekan-files:/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: mongod --oplogSize 128 --quiet
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      retries: 20
+volumes:
+  wekan-files:
+  mongo-data:

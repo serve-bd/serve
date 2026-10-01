@@ -1,0 +1,13 @@
+{
+  "name": "Chroma",
+  "description": "Open-source embedding database for AI applications.",
+  "category": "Databases",
+  "website": "https://www.trychroma.com",
+  "color": "#E8590C",
+  "note": "The Chroma server has no built-in authentication: keep the domain private.",
+  "expose": {
+    "service": "chroma",
+    "port": 8000
+  },
+  "vars": []
+}

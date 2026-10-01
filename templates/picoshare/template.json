@@ -1,0 +1,19 @@
+{
+  "name": "PicoShare",
+  "description": "Minimal file sharing with direct download links.",
+  "category": "Storage",
+  "website": "https://pico.rocks",
+  "color": "#1F6F8B",
+  "note": "Sign in with the generated passphrase (Variables tab).",
+  "expose": {
+    "service": "picoshare",
+    "port": 4001
+  },
+  "vars": [
+    {
+      "key": "PS_SHARED_SECRET",
+      "generate": "password",
+      "label": "Passphrase"
+    }
+  ]
+}

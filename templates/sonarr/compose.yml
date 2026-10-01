@@ -1,0 +1,16 @@
+services:
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - sonarr-config:/config
+      - sonarr-tv:/tv
+      - sonarr-downloads:/downloads
+volumes:
+  sonarr-config:
+  sonarr-tv:
+  sonarr-downloads:

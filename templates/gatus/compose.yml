@@ -1,0 +1,30 @@
+services:
+  gatus:
+    image: twinproduction/gatus:latest
+    restart: unless-stopped
+    configs:
+      - source: gatus-config
+        target: /config/config.yaml
+    volumes:
+      - gatus-data:/data
+configs:
+  gatus-config:
+    content: |
+      storage:
+        type: sqlite
+        path: /data/data.db
+      endpoints:
+        - name: Gatus
+          group: self
+          url: "${GATUS_URL}/health"
+          interval: 1m
+          conditions:
+            - "[STATUS] == 200"
+        - name: Example
+          url: "https://example.org"
+          interval: 5m
+          conditions:
+            - "[STATUS] == 200"
+            - "[RESPONSE_TIME] < 1000"
+volumes:
+  gatus-data:

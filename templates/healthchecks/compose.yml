@@ -1,0 +1,19 @@
+services:
+  healthchecks:
+    image: healthchecks/healthchecks:latest
+    restart: unless-stopped
+    command: sh -c './manage.py migrate && (./manage.py createsuperuser --email "$$ADMIN_EMAIL" --password "$$ADMIN_PASSWORD" || true) && exec uwsgi /opt/healthchecks/docker/uwsgi.ini'
+    environment:
+      DEBUG: "False"
+      SECRET_KEY: ${SECRET_KEY}
+      SITE_ROOT: ${SITE_ROOT}
+      SITE_NAME: Healthchecks
+      SECURE_PROXY_SSL_HEADER: HTTP_X_FORWARDED_PROTO,https
+      DB_NAME: /data/hc.sqlite
+      REGISTRATION_OPEN: "False"
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    volumes:
+      - healthchecks-data:/data
+volumes:
+  healthchecks-data:

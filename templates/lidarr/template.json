@@ -1,0 +1,13 @@
+{
+  "name": "Lidarr",
+  "description": "Automatically finds, downloads and organizes music.",
+  "category": "Media",
+  "website": "https://lidarr.audio",
+  "color": "#009252",
+  "note": "Choose the login method on first visit. Imports need the download client's downloads folder: mount the same directory for both in Persistent storage.",
+  "expose": {
+    "service": "lidarr",
+    "port": 8686
+  },
+  "vars": []
+}

@@ -1,0 +1,27 @@
+services:
+  app:
+    image: docuseal/docuseal:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://docuseal:${DB_PASSWORD}@postgres:5432/docuseal
+    volumes:
+      - docuseal-data:/data/docuseal
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: docuseal
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: docuseal
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docuseal -d docuseal"]
+      interval: 5s
+      retries: 20
+volumes:
+  docuseal-data:
+  postgres-data:

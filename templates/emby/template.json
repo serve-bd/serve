@@ -1,0 +1,13 @@
+{
+  "name": "Emby",
+  "description": "Personal media server for movies, shows, music and live TV.",
+  "category": "Media",
+  "website": "https://emby.media",
+  "color": "#52B54B",
+  "note": "Create the admin account in the setup wizard on first visit. Put media in the emby-media volume, or replace it with a directory mount in Persistent storage.",
+  "expose": {
+    "service": "emby",
+    "port": 8096
+  },
+  "vars": []
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Send",
+  "description": "Share files with end-to-end encryption and links that expire.",
+  "category": "Storage",
+  "website": "https://github.com/timvisee/send",
+  "color": "#0060DF",
+  "note": "Anyone who can reach the domain can upload. Keep it private (IP allowlist) if that is not what you want.",
+  "expose": {
+    "service": "send",
+    "port": 1443
+  },
+  "vars": [
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

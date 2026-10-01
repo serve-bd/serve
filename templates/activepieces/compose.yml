@@ -1,0 +1,57 @@
+services:
+  activepieces:
+    image: ghcr.io/activepieces/activepieces:latest
+    restart: unless-stopped
+    # AP_ENCRYPTION_KEY must be exactly 32 hex characters.
+    entrypoint: ["sh", "-c", "export AP_ENCRYPTION_KEY=$$(printf %s \"$$AP_ENCRYPTION_KEY_SEED\" | cut -c1-32); exec ./docker-entrypoint.sh"]
+    environment:
+      AP_ENCRYPTION_KEY_SEED: ${AP_ENCRYPTION_KEY_SEED}
+      AP_JWT_SECRET: ${AP_JWT_SECRET}
+      AP_API_KEY: ${AP_API_KEY}
+      AP_FRONTEND_URL: ${AP_FRONTEND_URL}
+      AP_ENGINE_EXECUTABLE_PATH: dist/packages/engine/main.js
+      AP_ENVIRONMENT: prod
+      AP_EXECUTION_MODE: UNSANDBOXED
+      AP_POSTGRES_DATABASE: activepieces
+      AP_POSTGRES_HOST: postgres
+      AP_POSTGRES_PORT: "5432"
+      AP_POSTGRES_USERNAME: activepieces
+      AP_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      AP_REDIS_HOST: redis
+      AP_REDIS_PORT: "6379"
+      AP_WEBHOOK_TIMEOUT_SECONDS: "30"
+      AP_TRIGGER_DEFAULT_POLL_INTERVAL: "5"
+      AP_FLOW_TIMEOUT_SECONDS: "600"
+    volumes:
+      - activepieces-cache:/usr/src/app/cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: activepieces
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: activepieces
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U activepieces -d activepieces"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  activepieces-cache:
+  postgres-data:
+  redis-data:

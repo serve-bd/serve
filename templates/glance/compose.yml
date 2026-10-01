@@ -1,0 +1,34 @@
+services:
+  glance:
+    image: glanceapp/glance:latest
+    restart: unless-stopped
+    configs:
+      - source: glance-config
+        target: /app/config/glance.yml
+configs:
+  glance-config:
+    content: |
+      pages:
+        - name: Home
+          columns:
+            - size: small
+              widgets:
+                - type: calendar
+                - type: weather
+                  location: London, United Kingdom
+            - size: full
+              widgets:
+                - type: search
+                  search-engine: duckduckgo
+                - type: hacker-news
+                - type: rss
+                  limit: 10
+                  collapse-after: 5
+                  feeds:
+                    - url: https://github.blog/feed/
+                      title: GitHub Blog
+            - size: small
+              widgets:
+                - type: releases
+                  repositories:
+                    - glanceapp/glance

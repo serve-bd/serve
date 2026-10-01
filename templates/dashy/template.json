@@ -1,0 +1,13 @@
+{
+  "name": "Dashy",
+  "description": "Customisable dashboard for your self-hosted services, with status checks and widgets.",
+  "category": "Productivity",
+  "website": "https://dashy.to",
+  "color": "#5B21B6",
+  "note": "Has no login by default. Keep the domain private (IP allowlist) or remove it, or turn on auth in the config editor.",
+  "expose": {
+    "service": "dashy",
+    "port": 8080
+  },
+  "vars": []
+}

@@ -1,0 +1,12 @@
+{
+  "name": "PrivateBin",
+  "description": "Minimalist pastebin where the server never sees the encrypted paste.",
+  "category": "Security",
+  "website": "https://privatebin.info",
+  "color": "#1D4E89",
+  "expose": {
+    "service": "privatebin",
+    "port": 8080
+  },
+  "vars": []
+}

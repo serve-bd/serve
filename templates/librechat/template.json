@@ -1,0 +1,33 @@
+{
+  "name": "LibreChat",
+  "description": "Chat interface for OpenAI, Anthropic, Google and other AI models.",
+  "category": "AI",
+  "website": "https://www.librechat.ai",
+  "color": "#0F766E",
+  "note": "Register the first account on the sign-up page. Leave the API keys empty to let each user enter their own key in the chat.",
+  "expose": {
+    "service": "librechat",
+    "port": 3080
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "OPENAI_API_KEY",
+      "value": "",
+      "label": "OpenAI API key (optional)"
+    },
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "value": "",
+      "label": "Anthropic API key (optional)"
+    },
+    {
+      "key": "GOOGLE_KEY",
+      "value": "",
+      "label": "Google AI API key (optional)"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "Karakeep",
+  "description": "Bookmark everything: links, notes and images, with full-text search.",
+  "category": "Productivity",
+  "website": "https://karakeep.app",
+  "color": "#000000",
+  "note": "The first account you sign up with becomes the admin.",
+  "expose": {
+    "service": "web",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "NEXTAUTH_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "NEXTAUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "MEILI_MASTER_KEY",
+      "generate": "secret"
+    }
+  ]
+}

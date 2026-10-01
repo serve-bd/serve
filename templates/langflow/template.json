@@ -1,0 +1,27 @@
+{
+  "name": "Langflow",
+  "description": "Visual builder for AI agents and RAG workflows.",
+  "category": "AI",
+  "website": "https://www.langflow.org",
+  "color": "#000000",
+  "note": "Log in as langflow with the generated superuser password. Add model provider API keys in Settings → Global Variables.",
+  "expose": {
+    "service": "langflow",
+    "port": 7860
+  },
+  "vars": [
+    {
+      "key": "LANGFLOW_SUPERUSER_PASSWORD",
+      "generate": "password",
+      "label": "Superuser password"
+    },
+    {
+      "key": "LANGFLOW_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Bazarr",
+  "description": "Downloads subtitles for the shows and movies in Sonarr and Radarr.",
+  "category": "Media",
+  "website": "https://www.bazarr.media",
+  "color": "#3E4E5E",
+  "note": "Turn on authentication in Settings → General. Mount the same movies and TV directories as Sonarr and Radarr in Persistent storage.",
+  "expose": {
+    "service": "bazarr",
+    "port": 6767
+  },
+  "vars": []
+}

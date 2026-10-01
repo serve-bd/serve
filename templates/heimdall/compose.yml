@@ -1,0 +1,12 @@
+services:
+  heimdall:
+    image: lscr.io/linuxserver/heimdall:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - heimdall-config:/config
+volumes:
+  heimdall-config:

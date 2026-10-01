@@ -1,0 +1,22 @@
+services:
+  element:
+    image: vectorim/element-web:latest
+    restart: unless-stopped
+    environment:
+      ELEMENT_WEB_PORT: "8080"
+    configs:
+      - source: element-config
+        target: /app/config.json
+configs:
+  element-config:
+    content: |
+      {
+        "default_server_config": {
+          "m.homeserver": {
+            "base_url": "${HOMESERVER_URL}"
+          }
+        },
+        "disable_custom_urls": false,
+        "disable_guests": true,
+        "brand": "Element"
+      }

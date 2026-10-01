@@ -1,0 +1,18 @@
+{
+  "name": "Mautic",
+  "description": "Open-source marketing automation for email campaigns and lead tracking.",
+  "category": "Communication",
+  "website": "https://www.mautic.org",
+  "color": "#4E5E9E",
+  "note": "Open the site to run the installer: the database settings are filled in, then create the admin account. Add your SMTP settings to send email.",
+  "expose": {
+    "service": "mautic",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "MYSQL_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

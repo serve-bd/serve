@@ -1,0 +1,37 @@
+{
+  "name": "OneDev",
+  "description": "Git server with CI/CD, kanban boards and package registries.",
+  "category": "Developer tools",
+  "website": "https://onedev.io",
+  "color": "#2563EB",
+  "note": "Log in with the admin account shown here. Builds need a remote agent (Administration > Agents); git over SSH needs port 6611 published in Domains & ports.",
+  "expose": {
+    "service": "onedev",
+    "port": 6610
+  },
+  "vars": [
+    {
+      "key": "ONEDEV_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_USER",
+      "value": "admin",
+      "label": "Admin username"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Shlink Web Client",
+  "description": "Web interface to manage the short URLs of one or more Shlink servers.",
+  "category": "Productivity",
+  "website": "https://shlink.io",
+  "color": "#4696E5",
+  "note": "Add your Shlink server's URL and API key in the app. They are saved in your browser only.",
+  "expose": {
+    "service": "shlink-web-client",
+    "port": 8080
+  },
+  "vars": []
+}

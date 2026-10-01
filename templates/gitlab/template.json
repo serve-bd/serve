@@ -1,0 +1,23 @@
+{
+  "name": "GitLab",
+  "description": "Complete DevOps platform with Git hosting, issues, CI/CD and a container registry.",
+  "category": "Developer tools",
+  "website": "https://about.gitlab.com",
+  "color": "#FC6D26",
+  "note": "Needs at least 4 GB of RAM and takes several minutes to start. Log in as root with the password shown here. Git over SSH needs port 22 of the container published in Domains & ports.",
+  "expose": {
+    "service": "gitlab",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "GITLAB_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "GITLAB_ROOT_PASSWORD",
+      "generate": "password",
+      "label": "root password"
+    }
+  ]
+}

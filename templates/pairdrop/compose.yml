@@ -1,0 +1,10 @@
+services:
+  pairdrop:
+    image: lscr.io/linuxserver/pairdrop:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      RATE_LIMIT: "false"
+      WS_FALLBACK: "false"

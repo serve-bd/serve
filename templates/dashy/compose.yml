@@ -1,0 +1,10 @@
+services:
+  dashy:
+    image: lissy93/dashy:4.x
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    volumes:
+      - dashy-data:/app/user-data
+volumes:
+  dashy-data:

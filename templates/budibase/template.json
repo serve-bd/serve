@@ -1,0 +1,13 @@
+{
+  "name": "Budibase",
+  "description": "Low-code platform for internal tools, forms and workflows.",
+  "category": "Developer tools",
+  "website": "https://budibase.com",
+  "color": "#000000",
+  "note": "Create the admin account on first visit.",
+  "expose": {
+    "service": "budibase",
+    "port": 80
+  },
+  "vars": []
+}

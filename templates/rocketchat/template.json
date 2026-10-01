@@ -1,0 +1,18 @@
+{
+  "name": "Rocket.Chat",
+  "description": "Team chat with channels, threads and video calls. A Slack alternative.",
+  "category": "Communication",
+  "website": "https://www.rocket.chat",
+  "color": "#F5455C",
+  "note": "Create the admin account in the setup wizard on first visit. The first start takes a minute while MongoDB initializes.",
+  "expose": {
+    "service": "rocketchat",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "ROOT_URL",
+      "publicUrl": true
+    }
+  ]
+}

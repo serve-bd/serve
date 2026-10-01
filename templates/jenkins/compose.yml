@@ -1,0 +1,8 @@
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-jdk21
+    restart: unless-stopped
+    volumes:
+      - jenkins-home:/var/jenkins_home
+volumes:
+  jenkins-home:

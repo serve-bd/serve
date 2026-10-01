@@ -1,0 +1,8 @@
+services:
+  dokuwiki:
+    image: dokuwiki/dokuwiki:stable
+    restart: unless-stopped
+    volumes:
+      - dokuwiki-storage:/storage
+volumes:
+  dokuwiki-storage:

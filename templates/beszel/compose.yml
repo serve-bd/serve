@@ -1,0 +1,12 @@
+services:
+  beszel:
+    image: henrygd/beszel:0
+    restart: unless-stopped
+    environment:
+      APP_URL: ${APP_URL}
+      USER_EMAIL: ${USER_EMAIL}
+      USER_PASSWORD: ${USER_PASSWORD}
+    volumes:
+      - beszel-data:/beszel_data
+volumes:
+  beszel-data:

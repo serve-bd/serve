@@ -1,0 +1,34 @@
+{
+  "name": "Activepieces",
+  "description": "No-code workflow automation with hundreds of integrations.",
+  "category": "Automation",
+  "website": "https://www.activepieces.com",
+  "color": "#6E41E2",
+  "note": "Create the admin account on first visit.",
+  "expose": {
+    "service": "activepieces",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "AP_FRONTEND_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "AP_ENCRYPTION_KEY_SEED",
+      "generate": "hex32"
+    },
+    {
+      "key": "AP_JWT_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "AP_API_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

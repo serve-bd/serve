@@ -1,0 +1,10 @@
+services:
+  chroma:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    environment:
+      ANONYMIZED_TELEMETRY: "false"
+    volumes:
+      - chroma-data:/data
+volumes:
+  chroma-data:

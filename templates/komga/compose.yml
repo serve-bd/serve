@@ -1,0 +1,12 @@
+services:
+  komga:
+    image: gotson/komga:1.x
+    restart: unless-stopped
+    environment:
+      TZ: Etc/UTC
+    volumes:
+      - komga-config:/config
+      - komga-data:/data
+volumes:
+  komga-config:
+  komga-data:

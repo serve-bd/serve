@@ -1,0 +1,13 @@
+{
+  "name": "Heimdall",
+  "description": "Simple start page that organises links to your web apps.",
+  "category": "Productivity",
+  "website": "https://heimdall.site",
+  "color": "#2B6CB0",
+  "note": "Has no login by default. Keep the domain private (IP allowlist) or remove it, or set a password for the admin user in Users.",
+  "expose": {
+    "service": "heimdall",
+    "port": 80
+  },
+  "vars": []
+}

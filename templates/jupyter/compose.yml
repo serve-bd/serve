@@ -1,0 +1,10 @@
+services:
+  jupyter:
+    image: quay.io/jupyter/scipy-notebook:latest
+    restart: unless-stopped
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+    volumes:
+      - jupyter-home:/home/jovyan
+volumes:
+  jupyter-home:

@@ -5,7 +5,7 @@
   "website": "https://min.io",
   "color": "#C72E49",
   "popular": true,
-  "note": "The S3 API listens on port 9000. Add a second domain for it in Domains & ports.",
+  "note": "Uses the community-maintained pgsty/minio image, since MinIO stopped publishing images. The S3 API listens on port 9000. Add a second domain for it in Domains & ports.",
   "expose": {
     "service": "minio",
     "port": 9001

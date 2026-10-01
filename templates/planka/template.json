@@ -1,0 +1,36 @@
+{
+  "name": "Planka",
+  "description": "Kanban boards for projects and teams, in real time.",
+  "category": "Productivity",
+  "website": "https://planka.app",
+  "color": "#2C5282",
+  "note": "Sign in as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "planka",
+    "port": 1337
+  },
+  "vars": [
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "DEFAULT_ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "DEFAULT_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "Zipline",
+  "description": "File upload and URL shortener server for ShareX and other clients.",
+  "category": "Storage",
+  "website": "https://zipline.diced.sh",
+  "color": "#1C7ED6",
+  "note": "Create the super administrator in the setup page on first visit.",
+  "expose": {
+    "service": "zipline",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "CORE_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

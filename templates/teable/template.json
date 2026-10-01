@@ -1,0 +1,26 @@
+{
+  "name": "Teable",
+  "description": "Spreadsheet-like database on PostgreSQL. An Airtable alternative.",
+  "category": "Productivity",
+  "website": "https://teable.io",
+  "color": "#18181B",
+  "note": "Sign up to create the first account.",
+  "expose": {
+    "service": "teable",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "PUBLIC_ORIGIN",
+      "publicUrl": true
+    },
+    {
+      "key": "SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

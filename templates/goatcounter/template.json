@@ -1,0 +1,13 @@
+{
+  "name": "GoatCounter",
+  "description": "Simple, privacy-friendly web analytics without tracking cookies.",
+  "category": "Analytics",
+  "website": "https://www.goatcounter.com",
+  "color": "#9A3412",
+  "note": "Create the first site and account in the setup form on first visit.",
+  "expose": {
+    "service": "goatcounter",
+    "port": 8080
+  },
+  "vars": []
+}

@@ -1,0 +1,22 @@
+{
+  "name": "2FAuth",
+  "description": "Web app to manage your two-factor accounts and generate their codes.",
+  "category": "Security",
+  "website": "https://docs.2fauth.app",
+  "color": "#1F6FB2",
+  "note": "Register right after it starts: the first account becomes the administrator.",
+  "expose": {
+    "service": "2fauth",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    }
+  ]
+}

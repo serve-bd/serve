@@ -1,0 +1,13 @@
+{
+  "name": "Seerr",
+  "description": "Request and discover movies and shows for Jellyfin, Plex and Emby. Formerly Jellyseerr.",
+  "category": "Media",
+  "website": "https://seerr.dev",
+  "color": "#6D28D9",
+  "note": "Connect your media server and Sonarr or Radarr in the setup wizard on first visit.",
+  "expose": {
+    "service": "seerr",
+    "port": 5055
+  },
+  "vars": []
+}

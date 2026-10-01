@@ -1,0 +1,32 @@
+{
+  "name": "Healthchecks",
+  "description": "Cron job monitoring that alerts you when a scheduled task does not run.",
+  "category": "Monitoring",
+  "website": "https://healthchecks.io",
+  "color": "#2C3E50",
+  "note": "Sign in with the admin email and the generated admin password (Variables tab). Sign-ups are closed; add EMAIL_HOST and the other SMTP settings to send email alerts.",
+  "expose": {
+    "service": "healthchecks",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "SITE_ROOT",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

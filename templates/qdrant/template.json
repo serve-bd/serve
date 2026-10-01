@@ -1,0 +1,19 @@
+{
+  "name": "Qdrant",
+  "description": "Vector database and similarity search engine for AI apps.",
+  "category": "Databases",
+  "website": "https://qdrant.tech",
+  "color": "#DC244C",
+  "note": "Send the API key in the api-key header. The dashboard is at /dashboard.",
+  "expose": {
+    "service": "qdrant",
+    "port": 6333
+  },
+  "vars": [
+    {
+      "key": "QDRANT_API_KEY",
+      "generate": "secret",
+      "label": "API key"
+    }
+  ]
+}

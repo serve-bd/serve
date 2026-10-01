@@ -1,0 +1,43 @@
+services:
+  tooljet:
+    image: tooljet/tooljet:ee-lts-latest
+    restart: unless-stopped
+    command: npm run start:prod
+    environment:
+      SERVE_CLIENT: "true"
+      PORT: "80"
+      TOOLJET_HOST: ${TOOLJET_HOST}
+      LOCKBOX_MASTER_KEY: ${LOCKBOX_MASTER_KEY}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      PG_DB: tooljet_production
+      PG_USER: postgres
+      PG_HOST: postgres
+      PG_PASS: ${POSTGRES_PASSWORD}
+      TOOLJET_DB: tooljet_db
+      TOOLJET_DB_USER: postgres
+      TOOLJET_DB_HOST: postgres
+      TOOLJET_DB_PASS: ${POSTGRES_PASSWORD}
+      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD}@postgres/tooljet_db
+      PGRST_HOST: localhost:3002
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+      PGRST_SERVER_PORT: "3002"
+      PGRST_DB_PRE_CONFIG: postgrest.pre_config
+      DEPLOYMENT_PLATFORM: docker
+      WORKER: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 20
+volumes:
+  postgres-data:

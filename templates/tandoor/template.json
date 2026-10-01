@@ -1,0 +1,30 @@
+{
+  "name": "Tandoor Recipes",
+  "description": "Recipe manager with meal planning and shopping lists.",
+  "category": "Productivity",
+  "website": "https://tandoor.dev",
+  "color": "#2F5D50",
+  "note": "The first visit asks you to create the admin account.",
+  "expose": {
+    "service": "web",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "ALLOWED_HOSTS",
+      "publicHost": true
+    },
+    {
+      "key": "CSRF_TRUSTED_ORIGINS",
+      "publicUrl": true
+    },
+    {
+      "key": "SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

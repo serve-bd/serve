@@ -1,0 +1,13 @@
+{
+  "name": "Grocy",
+  "description": "Groceries and household management: stock, shopping lists, chores and recipes.",
+  "category": "Productivity",
+  "website": "https://grocy.info",
+  "color": "#337AB7",
+  "note": "Sign in with admin / admin and change the password right away.",
+  "expose": {
+    "service": "grocy",
+    "port": 80
+  },
+  "vars": []
+}

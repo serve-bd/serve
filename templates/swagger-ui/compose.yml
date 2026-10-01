@@ -1,0 +1,6 @@
+services:
+  swagger-ui:
+    image: swaggerapi/swagger-ui:latest
+    restart: unless-stopped
+    environment:
+      URL: ${URL:-https://petstore3.swagger.io/api/v3/openapi.json}

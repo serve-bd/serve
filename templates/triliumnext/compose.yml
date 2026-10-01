@@ -1,0 +1,8 @@
+services:
+  trilium:
+    image: triliumnext/trilium:latest
+    restart: unless-stopped
+    volumes:
+      - trilium-data:/home/node/trilium-data
+volumes:
+  trilium-data:

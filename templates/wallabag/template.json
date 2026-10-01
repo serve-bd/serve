@@ -1,0 +1,30 @@
+{
+  "name": "wallabag",
+  "description": "Save web articles to read later, without the clutter.",
+  "category": "Productivity",
+  "website": "https://wallabag.org",
+  "color": "#3F6184",
+  "note": "Sign in with wallabag / wallabag and change the password right away.",
+  "expose": {
+    "service": "wallabag",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "WALLABAG_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "WALLABAG_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "DB_ROOT_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

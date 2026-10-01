@@ -1,0 +1,39 @@
+services:
+  answer:
+    image: apache/answer:latest
+    restart: unless-stopped
+    environment:
+      AUTO_INSTALL: "true"
+      DB_TYPE: postgres
+      DB_HOST: postgres:5432
+      DB_NAME: answer
+      DB_USERNAME: answer
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      LANGUAGE: en-US
+      SITE_NAME: ${SITE_NAME}
+      SITE_URL: ${SITE_URL}
+      CONTACT_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_NAME: admin
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+    volumes:
+      - answer-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: answer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: answer
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U answer -d answer"]
+      interval: 5s
+      retries: 20
+volumes:
+  answer-data:
+  postgres-data:

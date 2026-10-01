@@ -1,0 +1,32 @@
+{
+  "name": "authentik",
+  "description": "Identity provider with SSO, OAuth 2.0, OpenID Connect, SAML and LDAP.",
+  "category": "Security",
+  "website": "https://goauthentik.io",
+  "color": "#FD4B2D",
+  "note": "Sign in as akadmin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "server",
+    "port": 9000
+  },
+  "vars": [
+    {
+      "key": "AUTHENTIK_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "AUTHENTIK_BOOTSTRAP_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "AUTHENTIK_BOOTSTRAP_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    }
+  ]
+}

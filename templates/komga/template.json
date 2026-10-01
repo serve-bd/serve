@@ -1,0 +1,13 @@
+{
+  "name": "Komga",
+  "description": "Media server for comics, manga, magazines and ebooks.",
+  "category": "Media",
+  "website": "https://komga.org",
+  "color": "#005ED3",
+  "note": "Create the admin account on first visit. Put your books in the komga-data volume, or replace it with a directory mount in Persistent storage.",
+  "expose": {
+    "service": "komga",
+    "port": 25600
+  },
+  "vars": []
+}

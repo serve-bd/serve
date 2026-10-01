@@ -1,0 +1,16 @@
+services:
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - radarr-config:/config
+      - radarr-movies:/movies
+      - radarr-downloads:/downloads
+volumes:
+  radarr-config:
+  radarr-movies:
+  radarr-downloads:

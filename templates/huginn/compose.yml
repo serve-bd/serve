@@ -1,0 +1,36 @@
+services:
+  huginn:
+    image: ghcr.io/huginn/huginn:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_ADAPTER: postgresql
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: huginn
+      DATABASE_USERNAME: huginn
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DO_NOT_CREATE_DATABASE: "true"
+      APP_SECRET_TOKEN: ${APP_SECRET_TOKEN}
+      DOMAIN: ${HUGINN_DOMAIN}
+      FORCE_SSL: "false"
+      SEED_USERNAME: admin
+      SEED_PASSWORD: ${SEED_PASSWORD}
+      SEED_EMAIL: ${SEED_EMAIL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: huginn
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: huginn
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U huginn -d huginn"]
+      interval: 5s
+      retries: 20
+volumes:
+  postgres-data:

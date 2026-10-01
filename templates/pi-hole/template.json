@@ -1,0 +1,20 @@
+{
+  "name": "Pi-hole",
+  "description": "DNS sinkhole that blocks ads and trackers for your whole network.",
+  "category": "Security",
+  "website": "https://pi-hole.net",
+  "color": "#96060C",
+  "hostAccess": true,
+  "note": "Publishes port 53 (DNS, TCP and UDP) on the server; free it first if another DNS service (such as systemd-resolved) uses it. Sign in at /admin with the generated web password (Variables tab).",
+  "expose": {
+    "service": "pihole",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "PIHOLE_PASSWORD",
+      "generate": "password",
+      "label": "Web password"
+    }
+  ]
+}

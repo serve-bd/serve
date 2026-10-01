@@ -1,0 +1,28 @@
+{
+  "name": "Mongo Express",
+  "description": "MongoDB database with a web admin interface.",
+  "category": "Databases",
+  "website": "https://github.com/mongo-express/mongo-express",
+  "color": "#47A248",
+  "note": "Sign in with the username and password shown here.",
+  "expose": {
+    "service": "mongo-express",
+    "port": 8081
+  },
+  "vars": [
+    {
+      "key": "MONGO_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "BASICAUTH_USERNAME",
+      "value": "admin",
+      "label": "Login username"
+    },
+    {
+      "key": "BASICAUTH_PASSWORD",
+      "generate": "password",
+      "label": "Login password"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "Kestra",
+  "description": "Declarative orchestration for data pipelines and workflows.",
+  "category": "Automation",
+  "website": "https://kestra.io",
+  "color": "#7C3AED",
+  "note": "Mounts the Docker socket so script tasks can run in containers. Create the admin account on first visit.",
+  "hostAccess": true,
+  "expose": {
+    "service": "kestra",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "KESTRA_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

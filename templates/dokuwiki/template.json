@@ -1,0 +1,13 @@
+{
+  "name": "DokuWiki",
+  "description": "Simple wiki that stores pages as plain text files, no database needed.",
+  "category": "CMS",
+  "website": "https://www.dokuwiki.org",
+  "color": "#2E7D32",
+  "note": "Open /install.php on the first visit to name the wiki and create the admin account.",
+  "expose": {
+    "service": "dokuwiki",
+    "port": 8080
+  },
+  "vars": []
+}

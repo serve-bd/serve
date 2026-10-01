@@ -1,0 +1,12 @@
+services:
+  kavita:
+    image: jvmilazz0/kavita:latest
+    restart: unless-stopped
+    environment:
+      TZ: Etc/UTC
+    volumes:
+      - kavita-config:/kavita/config
+      - kavita-library:/library
+volumes:
+  kavita-config:
+  kavita-library:

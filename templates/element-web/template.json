@@ -1,0 +1,18 @@
+{
+  "name": "Element Web",
+  "description": "Matrix chat client in the browser.",
+  "category": "Communication",
+  "website": "https://element.io",
+  "color": "#0DBD8B",
+  "expose": {
+    "service": "element",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "HOMESERVER_URL",
+      "value": "https://matrix.org",
+      "label": "Homeserver URL"
+    }
+  ]
+}

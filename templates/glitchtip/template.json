@@ -1,0 +1,31 @@
+{
+  "name": "GlitchTip",
+  "description": "Error tracking, uptime monitoring and performance, compatible with Sentry SDKs.",
+  "category": "Monitoring",
+  "website": "https://glitchtip.com",
+  "color": "#E5383B",
+  "note": "Sign up to create the first account. Emails are only logged until you set EMAIL_URL to an SMTP server.",
+  "expose": {
+    "service": "glitchtip",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "GLITCHTIP_DOMAIN",
+      "publicUrl": true
+    },
+    {
+      "key": "SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "DEFAULT_FROM_EMAIL",
+      "value": "glitchtip@example.com",
+      "label": "Sender email"
+    }
+  ]
+}

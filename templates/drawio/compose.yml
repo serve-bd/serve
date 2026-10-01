@@ -1,0 +1,4 @@
+services:
+  drawio:
+    image: jgraph/drawio:latest
+    restart: unless-stopped

@@ -1,0 +1,48 @@
+services:
+  wallabag:
+    image: wallabag/wallabag:latest
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      SYMFONY__ENV__DATABASE_DRIVER: pdo_mysql
+      SYMFONY__ENV__DATABASE_HOST: db
+      SYMFONY__ENV__DATABASE_PORT: "3306"
+      SYMFONY__ENV__DATABASE_NAME: wallabag
+      SYMFONY__ENV__DATABASE_USER: wallabag
+      SYMFONY__ENV__DATABASE_PASSWORD: ${DB_PASSWORD}
+      SYMFONY__ENV__DATABASE_CHARSET: utf8mb4
+      SYMFONY__ENV__DATABASE_TABLE_PREFIX: wallabag_
+      SYMFONY__ENV__SECRET: ${WALLABAG_SECRET}
+      SYMFONY__ENV__DOMAIN_NAME: ${WALLABAG_URL}
+      SYMFONY__ENV__SERVER_NAME: wallabag
+      SYMFONY__ENV__REDIS_HOST: redis
+    volumes:
+      - wallabag-images:/var/www/wallabag/web/assets/images
+      - wallabag-data:/var/www/wallabag/data
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  wallabag-images:
+  wallabag-data:
+  db-data:

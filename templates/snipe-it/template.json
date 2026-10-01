@@ -1,0 +1,26 @@
+{
+  "name": "Snipe-IT",
+  "description": "IT asset management to track hardware, licenses and accessories.",
+  "category": "Productivity",
+  "website": "https://snipeitapp.com",
+  "color": "#1E6FB8",
+  "note": "Open the site to run the pre-flight check and create the admin account.",
+  "expose": {
+    "service": "snipe-it",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "PhotoPrism",
+  "description": "AI-powered photo library that tags, organizes and finds your pictures.",
+  "category": "Media",
+  "website": "https://www.photoprism.app",
+  "color": "#5E35B1",
+  "note": "Sign in as admin with the generated admin password (Variables tab). Upload photos in the app or put them in the photoprism-originals volume, then index the library.",
+  "expose": {
+    "service": "photoprism",
+    "port": 2342
+  },
+  "vars": [
+    {
+      "key": "PHOTOPRISM_SITE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

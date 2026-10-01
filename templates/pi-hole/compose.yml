@@ -1,0 +1,16 @@
+services:
+  pihole:
+    image: pihole/pihole:latest
+    restart: unless-stopped
+    # DNS for your devices; the web UI is served on the domain.
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+    environment:
+      TZ: Etc/UTC
+      FTLCONF_webserver_api_password: ${PIHOLE_PASSWORD}
+      FTLCONF_dns_listeningMode: ALL
+    volumes:
+      - pihole-data:/etc/pihole
+volumes:
+  pihole-data:

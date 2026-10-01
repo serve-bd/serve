@@ -1,0 +1,36 @@
+{
+  "name": "Kimai",
+  "description": "Time tracking for freelancers and teams, with invoices and reports.",
+  "category": "Productivity",
+  "website": "https://www.kimai.org",
+  "color": "#1F5C99",
+  "note": "Sign in with the admin email and the generated admin password (Variables tab).",
+  "expose": {
+    "service": "kimai",
+    "port": 8001
+  },
+  "vars": [
+    {
+      "key": "KIMAI_HOST",
+      "publicHost": true
+    },
+    {
+      "key": "APP_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

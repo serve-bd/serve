@@ -1,0 +1,22 @@
+services:
+  synapse:
+    image: ghcr.io/element-hq/synapse:latest
+    restart: unless-stopped
+    environment:
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME}
+      SYNAPSE_REPORT_STATS: "no"
+    # Writes homeserver.yaml and the signing key on the first start, then runs Synapse.
+    # serve_server_wellknown lets other servers federate over HTTPS on port 443.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ ! -f /data/homeserver.yaml ]; then
+          /start.py generate || exit 1
+          printf 'public_baseurl: "https://%s/"\nserve_server_wellknown: true\n' "$$SYNAPSE_SERVER_NAME" >> /data/homeserver.yaml
+        fi
+        exec /start.py
+    volumes:
+      - synapse-data:/data
+volumes:
+  synapse-data:

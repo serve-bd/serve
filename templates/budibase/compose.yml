@@ -1,0 +1,8 @@
+services:
+  budibase:
+    image: budibase/budibase:latest
+    restart: unless-stopped
+    volumes:
+      - budibase-data:/data
+volumes:
+  budibase-data:

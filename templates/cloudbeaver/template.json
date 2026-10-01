@@ -1,0 +1,28 @@
+{
+  "name": "CloudBeaver",
+  "description": "Web database manager for PostgreSQL, MySQL, SQLite and more.",
+  "category": "Databases",
+  "website": "https://dbeaver.com/cloudbeaver/",
+  "color": "#382923",
+  "note": "Log in with the admin account shown here.",
+  "expose": {
+    "service": "cloudbeaver",
+    "port": 8978
+  },
+  "vars": [
+    {
+      "key": "CB_SERVER_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "CB_ADMIN_NAME",
+      "value": "cbadmin",
+      "label": "Admin username"
+    },
+    {
+      "key": "CB_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

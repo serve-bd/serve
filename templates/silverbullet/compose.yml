@@ -1,0 +1,10 @@
+services:
+  silverbullet:
+    image: ghcr.io/silverbulletmd/silverbullet:v2
+    restart: unless-stopped
+    environment:
+      SB_USER: admin:${SB_PASSWORD}
+    volumes:
+      - silverbullet-space:/space
+volumes:
+  silverbullet-space:

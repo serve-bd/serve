@@ -1,0 +1,13 @@
+{
+  "name": "Glance",
+  "description": "A fast dashboard that puts your feeds, weather and services on one page.",
+  "category": "Productivity",
+  "website": "https://github.com/glanceapp/glance",
+  "color": "#8C7650",
+  "note": "Has no login by default. Keep the domain private (IP allowlist) or remove it. Edit the glance-config block of compose.yml to change pages and widgets.",
+  "expose": {
+    "service": "glance",
+    "port": 8080
+  },
+  "vars": []
+}

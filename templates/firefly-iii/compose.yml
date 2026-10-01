@@ -1,0 +1,38 @@
+services:
+  app:
+    image: fireflyiii/core:version-6
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_KEY: ${APP_KEY}
+      APP_URL: ${APP_URL}
+      SITE_OWNER: ${SITE_OWNER}
+      TRUSTED_PROXIES: "**"
+      TZ: UTC
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: firefly
+      DB_USERNAME: firefly
+      DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - firefly-upload:/var/www/html/storage/upload
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: firefly
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: firefly
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U firefly -d firefly"]
+      interval: 5s
+      retries: 20
+volumes:
+  firefly-upload:
+  postgres-data:

@@ -215,14 +215,43 @@ async function collectFor(ctx: ServerCtx) {
   ];
 }
 
-/** Collect per-service and server samples on every reachable server. */
+/** A server that does not answer in time is skipped for this round. */
+const COLLECT_TIMEOUT_MS = 20_000;
+/** Servers whose previous collection is still running (it timed out but has not ended yet). */
+const collecting = new Set<string>();
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer within ${ms / 1000} seconds`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Collect per-service and server samples on every reachable server. Each server is stored on its
+ * own: a slow or unreachable server (a stalled tunnel) neither delays nor drops the others.
+ */
 export async function collectMetrics() {
-  const servers = await db.select({ id: schema.server.id, isLocal: schema.server.isLocal, status: schema.server.status }).from(schema.server);
-  const results = await Promise.allSettled(servers.filter((s) => s.isLocal || s.status === "ready").map(async (s) => collectFor(await getServer(s.id))));
-  const rows = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-  if (rows.length) await db.insert(schema.metric).values(rows);
-  const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
-  if (failed && !rows.length) throw failed.reason;
+  const servers = await db.select({ id: schema.server.id, name: schema.server.name, isLocal: schema.server.isLocal, status: schema.server.status }).from(schema.server);
+  const failures: string[] = [];
+  await Promise.all(
+    servers
+      .filter((s) => (s.isLocal || s.status === "ready") && !collecting.has(s.id))
+      .map(async (s) => {
+        collecting.add(s.id);
+        const run = getServer(s.id)
+          .then((ctx) => collectFor(ctx))
+          .finally(() => collecting.delete(s.id));
+        try {
+          const rows = await withTimeout(run, COLLECT_TIMEOUT_MS);
+          if (rows.length) await db.insert(schema.metric).values(rows);
+        } catch (error) {
+          failures.push(`${s.name}: ${(error as Error).message}`);
+        }
+      }),
+  );
+  if (failures.length) throw new Error(failures.join("; "));
 }
 
 /**

@@ -152,13 +152,13 @@ export function ConnectCloudflareDialog({ open, onOpenChange }: { open: boolean;
               label="API token"
               description={
                 <>
-                  Create one at <span className="text-fg-2">dash.cloudflare.com → My Profile → API Tokens</span> with Zone · Read, DNS · Edit, Zone Settings · Edit and SSL and
-                  Certificates · Edit. Add Account · Cloudflare Tunnel · Edit to use tunnels.
+                  Create one at <span className="text-fg-2">dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom token</span>, with these permissions:
                 </>
               }
             >
               <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} required className="font-mono" autoComplete="off" />
             </Field>
+            <TokenPermissions />
             <Field label="Origin CA key" optional description="Only needed if your token cannot create origin certificates.">
               <Input type="password" value={originKey} onChange={(e) => setOriginKey(e.target.value)} className="font-mono" autoComplete="off" />
             </Field>
@@ -293,5 +293,36 @@ export function CloudflareAccounts({
         <ConnectCloudflareDialog open={open} onOpenChange={setOpen} />
       </PageBody>
     </>
+  );
+}
+
+/** The token permissions, in the same three columns as Cloudflare's token form. */
+const PERMISSIONS: [string, string, string, string?][] = [
+  ["Zone", "Zone", "Read"],
+  ["Zone", "DNS", "Edit"],
+  ["Zone", "Zone Settings", "Edit"],
+  ["Zone", "SSL and Certificates", "Edit"],
+  ["Account", "Cloudflare Tunnel", "Edit", "Only to use tunnels"],
+];
+
+function TokenPermissions() {
+  return (
+    <div className="-mt-2 overflow-hidden rounded-xl border border-line text-[12.5px]">
+      <div className="grid grid-cols-[5rem_1fr_4rem] gap-3 border-b border-line bg-surface-2 px-3 py-1.5 text-[11px] font-medium tracking-wide text-faint uppercase">
+        <span>Type</span>
+        <span>Permission</span>
+        <span>Access</span>
+      </div>
+      {PERMISSIONS.map(([type, permission, access, note]) => (
+        <div key={permission} className="grid grid-cols-[5rem_1fr_4rem] items-baseline gap-3 border-b border-line px-3 py-1.5 last:border-b-0">
+          <span className="text-muted">{type}</span>
+          <span className="text-fg">
+            {permission}
+            {note && <span className="ml-1.5 text-[11.5px] text-faint">{note}</span>}
+          </span>
+          <span className="text-fg-2">{access}</span>
+        </div>
+      ))}
+    </div>
   );
 }

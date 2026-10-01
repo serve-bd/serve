@@ -20,7 +20,8 @@ export function encrypt(plain: string): string {
 }
 
 export function decrypt(payload: string): string {
-  if (!payload.startsWith("v1:")) return payload;
+  // Every secret is stored encrypted: anything else was not written by Serve and is not trusted.
+  if (!payload.startsWith("v1:")) throw new Error("A stored secret is not encrypted.");
   const [, iv, tag, data] = payload.split(":");
   const tagBytes = Buffer.from(tag, "base64url");
   if (tagBytes.length !== 16) throw new Error("Corrupt encrypted value.");

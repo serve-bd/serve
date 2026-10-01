@@ -9,13 +9,13 @@ export async function userCount() {
   return row.n;
 }
 
-export async function createAccount(input: { name: string; email: string; password: string }) {
+export async function createAccount(input: { name: string; email: string; password: string; emailVerified?: boolean }) {
   const email = input.email.trim().toLowerCase();
   const [existing] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, email));
   if (existing) throw new UserError("An account with this email already exists. Sign in instead.");
   if (input.password.length < 8) throw new UserError("Password must be at least 8 characters.");
   const ctx = await auth.$context;
-  const user = await ctx.internalAdapter.createUser({ email, name: input.name.trim(), emailVerified: true }, { method: "admin" });
+  const user = await ctx.internalAdapter.createUser({ email, name: input.name.trim(), emailVerified: input.emailVerified ?? true }, { method: "admin" });
   await ctx.internalAdapter.linkAccount({
     userId: user.id,
     providerId: "credential",

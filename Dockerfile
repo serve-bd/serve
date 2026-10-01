@@ -23,6 +23,8 @@ RUN for arch in amd64 arm64; do \
     done
 
 FROM node:22-alpine AS runner
+# Checks the release signature of an image before an update installs it.
+COPY --from=ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8 /ko-app/cosign /usr/local/bin/cosign
 # Shown in Settings → Updates; set by the image workflow.
 ARG SERVE_COMMIT=""
 ARG SERVE_VERSION=""

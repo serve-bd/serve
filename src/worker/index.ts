@@ -17,7 +17,7 @@ import { docker, ensureNetwork, LABEL, listServiceContainers } from "@/server/do
 import { ensureProxy, ensureServerProxy, syncAllProxy, syncCloudflareTrusting } from "@/server/proxy/nginx";
 import { anyServerTrustsCloudflare, refreshCloudflareRanges } from "@/server/proxy/trusted-proxies";
 import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
-import { runDeployment, setServiceStatus } from "@/server/deploy";
+import { recoverInterruptedDeployment, runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
 import { issueCertificate, renewDueCertificates } from "@/server/ssl/certificates";
 import { backupFile, importBackup, restoreBackup, runBackup } from "@/server/backups";
@@ -383,12 +383,12 @@ async function recover() {
     .update(schema.deployment)
     .set({ status: "failed", error: "The worker restarted during this deployment.", finishedAt: new Date() })
     .where(inArray(schema.deployment.status, ["building", "deploying"]))
-    .returning({ serviceId: schema.deployment.serviceId });
-  for (const { serviceId } of stuck) {
-    const [service] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, serviceId));
+    .returning({ id: schema.deployment.id, serviceId: schema.deployment.serviceId, startedAt: schema.deployment.startedAt });
+  for (const dep of stuck) {
+    const [service] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, dep.serviceId));
     const server = service ? await getServer(service.serverId).catch(() => null) : null;
-    const up = server ? (await listServiceContainers(serviceId, false, server.docker).catch(() => [])).length > 0 : false;
-    await setServiceStatus(serviceId, up ? "running" : "failed");
+    const up = server ? await recoverInterruptedDeployment(dep, server.docker).catch(() => false) : false;
+    await setServiceStatus(dep.serviceId, up ? "running" : "failed");
   }
   // An update cut off while backing up or pulling (the job above is failed now) must not block the next one.
   const run = (await getSettings()).updateRun;

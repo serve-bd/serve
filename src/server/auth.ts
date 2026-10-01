@@ -197,6 +197,13 @@ const checkProviderSignIn: ValidateUserInfo = async ({ user, source }, ctx) => {
   // Linking from the Account page: the signed-in user adds a provider to their own account.
   if ((await getSessionFromCtx(ctx))?.user.id === String(user.id)) return;
   if (!LINK_BY_EMAIL.has(source.oauth?.providerId ?? "")) return { error: "account_not_linked" };
+  // An account nobody proved the email of (made from an invite link) is not joined by email: whoever
+  // held the link chose its password. Its owner signs in with it and adds the provider from Account.
+  const [row] = await db
+    .select({ emailVerified: schema.user.emailVerified })
+    .from(schema.user)
+    .where(eq(schema.user.id, String(user.id)));
+  if (!row?.emailVerified) return { error: "account_not_linked" };
 };
 
 type EndpointContext = Parameters<ValidateUserInfo>[1];

@@ -9,6 +9,8 @@ on:
 permissions:
   contents: write
   packages: write
+  # Keyless signing: the signature names this workflow and the tag it ran for.
+  id-token: write
 
 jobs:
   build:
@@ -38,7 +40,8 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
             type=sha,format=short
-      - uses: docker/build-push-action@v6
+      - id: push
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -50,6 +53,10 @@ jobs:
             SERVE_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # Instances install an update only when this signature checks out.
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign the image
+        run: cosign sign --yes "ghcr.io/${{ github.repository }}@${{ steps.push.outputs.digest }}"
 
   release:
     # A tag like v0.2.0 publishes a GitHub release once its image is pushed; instances find updates through it.

@@ -85,6 +85,7 @@ ask_port() {
 if [ -f "$DATA_DIR/.env" ]; then
   FIRST_INSTALL=0
   current="$(sed -n 's/^SERVE_IMAGE=//p' "$DATA_DIR/.env" | head -n1)"
+  current="${current%@*}"
   bold "Updating Serve${current:+ (now ${current##*:})}"
   info "Serve is already installed in $DATA_DIR: its settings and ports are kept."
   PORT="$(sed -n 's/^SERVE_DASHBOARD_PORT=//p' "$DATA_DIR/.env" | head -n1)"

@@ -55,6 +55,37 @@ export async function setServiceStatus(id: string, status: ServiceStatus) {
   await db.update(schema.service).set({ status }).where(eq(schema.service.id, id));
 }
 
+/**
+ * After the worker restarted in the middle of an app deployment: a deployment that had stopped the
+ * previous version first (host ports, recreate, data two copies must not share) gets it back.
+ * Containers the cut-off deployment started go, and the previous containers that stopped while it
+ * ran start again. A deployment that had already switched traffic keeps its new containers.
+ * Returns whether the service has running containers afterwards.
+ */
+export async function recoverInterruptedDeployment(dep: { id: string; serviceId: string; startedAt: Date | null }, d: Docker) {
+  const [service] = await db
+    .select({ currentDeploymentId: schema.service.currentDeploymentId, type: schema.service.type })
+    .from(schema.service)
+    .where(eq(schema.service.id, dep.serviceId));
+  const containers = await listServiceContainers(dep.serviceId, true, d);
+  if (!service || service.type !== "app" || service.currentDeploymentId === dep.id || !dep.startedAt) return containers.some((c) => c.State === "running");
+  const since = dep.startedAt.getTime();
+  for (const c of containers.filter((c) => c.Labels[LABEL.deployment] === dep.id)) await removeContainer(c.Id, 0, d);
+  for (const c of containers.filter((c) => c.Labels[LABEL.deployment] !== dep.id && c.State === "exited")) {
+    const info = await d
+      .getContainer(c.Id)
+      .inspect()
+      .catch(() => null);
+    // Stopped by the deployment (or while it ran), not earlier by someone on purpose.
+    if (!info || Date.parse(info.State.FinishedAt) < since) continue;
+    await d
+      .getContainer(c.Id)
+      .start()
+      .catch(() => {});
+  }
+  return (await listServiceContainers(dep.serviceId, false, d)).length > 0;
+}
+
 function checkCancelled(signal?: AbortSignal) {
   if (signal?.aborted) throw new DeployCancelled("Deployment cancelled");
 }

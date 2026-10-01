@@ -8,6 +8,7 @@ import { queueInstanceBackupRecord, runInstanceBackup } from "./backups";
 import { compareVersions, imageRepository, nextImage, scheduleDue } from "./manifest";
 import { ROLLED_BACK_EXIT, updaterScript } from "./updater-script";
 import { currentVersion, updateRepository } from "./version";
+import { pinned, pulledDigest, verifyReleaseImage } from "./verify";
 import { notify } from "@/server/notify";
 
 export const UPDATER_CONTAINER = "serve-updater";
@@ -167,17 +168,23 @@ export async function runUpdate(to: string) {
     await appendLog("Backup finished");
 
     const previousImage = await installedImage();
-    const image = nextImage(previousImage, to);
-    await setRun({ previousImage, image });
-    await appendLog(`==> Pulling ${image}`);
+    const tagged = nextImage(previousImage, to);
+    await appendLog(`==> Pulling ${tagged}`);
     let last = 0;
-    await pullImage(image, (line) => {
+    await pullImage(tagged, (line) => {
       // Layer progress is noisy: keep one line every few seconds.
       if (Date.now() - last < 3000) return;
       last = Date.now();
       void appendLog(line);
     });
     await appendLog("Image pulled");
+
+    // Installed by digest: the bytes checked here are the bytes that run, even if the tag moves.
+    await appendLog("==> Checking the release signature");
+    const digestRef = await pulledDigest(tagged);
+    await verifyReleaseImage(digestRef, updateRepository(), (l) => void appendLog(l));
+    const image = pinned(tagged, digestRef);
+    await setRun({ previousImage, image });
 
     await docker
       .getContainer(UPDATER_CONTAINER)
@@ -255,7 +262,8 @@ export async function reconcileUpdate() {
 async function removeOldImages(run: UpdateRun) {
   if (!run.image) return;
   const repository = imageRepository(run.image);
-  const keep = new Set([run.image, run.previousImage].filter(Boolean));
+  // Kept images may be pinned (repo:tag@sha256:...): compare their tags.
+  const keep = new Set([run.image, run.previousImage].filter(Boolean).map((r) => r!.split("@")[0]));
   const images = await docker.listImages({ filters: { reference: [repository] } });
   for (const img of images) {
     const tags = img.RepoTags ?? [];

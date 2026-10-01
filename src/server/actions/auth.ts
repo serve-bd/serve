@@ -86,7 +86,8 @@ export async function acceptInviteWithSignup(input: z.infer<typeof inviteSignupS
     const inv = await findInvitation(data.invitationId);
     if (!inv) throw new UserError("This invite link is invalid or has expired. Ask for a new one.");
     if (!(await passwordLoginAllowed())) throw new UserError("Password sign-in is turned off here. Sign in with single sign-on, then accept the invite.");
-    const user = await createAccount({ name: data.name, email: inv.invitation.email, password: data.password });
+    // Holding the link does not prove the email is theirs: the account stays unverified.
+    const user = await createAccount({ name: data.name, email: inv.invitation.email, password: data.password, emailVerified: false });
     const org = await joinOrganization(data.invitationId, user.id, user.email);
     const h = await headers();
     await authFor(h).api.signInEmail({ body: { email: user.email, password: data.password }, headers: h });

@@ -81,3 +81,39 @@ func TestGoneDropsSamples(t *testing.T) {
 		t.Fatalf("metrics off: samples are dropped, %d left", n)
 	}
 }
+
+func TestContainerChangesArePushedWithoutSamples(t *testing.T) {
+	var batches atomic.Int64
+	var lastContainers atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b Batch
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		batches.Add(1)
+		lastContainers.Store(int64(len(b.Containers)))
+		_ = json.NewEncoder(w).Encode(map[string]uint64{"ack": 0})
+	}))
+	defer srv.Close()
+	a := newAgent(config{urls: []string{srv.URL}, token: "s.t"})
+	list := []Container{{ID: "a", Service: "s1", State: "running"}}
+	if !a.setContainers(list, 1) {
+		t.Fatal("the first check is a change")
+	}
+	a.push(context.Background())
+	if batches.Load() != 1 || lastContainers.Load() != 1 {
+		t.Fatalf("a change is sent at once, got %d batches", batches.Load())
+	}
+	if a.setContainers(list, 2) {
+		t.Fatal("the same containers again are no change")
+	}
+	a.push(context.Background())
+	if batches.Load() != 1 {
+		t.Fatalf("nothing new: nothing sent, got %d batches", batches.Load())
+	}
+	if !a.setContainers([]Container{{ID: "a", Service: "s1", State: "exited"}}, 3) {
+		t.Fatal("a stopped container is a change")
+	}
+	a.push(context.Background())
+	if batches.Load() != 2 {
+		t.Fatalf("want a second batch, got %d", batches.Load())
+	}
+}

@@ -19,6 +19,9 @@ import { destroyService, restartService, startService, stopService } from "@/ser
 import { issueCertificate, renewDueCertificates } from "@/server/ssl/certificates";
 import { backupFile, importBackup, restoreBackup, runBackup } from "@/server/backups";
 import { collectMetrics } from "@/server/metrics";
+import { containerLister, type ContainerView, withTimeout } from "@/server/monitoring/containers";
+
+type ContainerList = Awaited<ReturnType<typeof containerLister>>;
 import { syncMetricsAgents } from "@/server/metrics-agent";
 import { rollupRecent } from "@/server/metric-rollups";
 import { getSettings, updateSettings } from "@/server/settings";
@@ -196,10 +199,27 @@ function every(ms: number, name: string, fn: () => Promise<unknown>, runNow = fa
   return setInterval(tick, ms);
 }
 
-/** Keeps remote server status fresh (ready / unreachable). */
+const lastProbe = new Map<string, number>();
+
+/**
+ * Keeps remote server status fresh (ready / unreachable). A server whose agent keeps reporting is
+ * clearly up, so SSH is checked every 5 minutes there instead of every minute.
+ */
 async function probeRemoteServers() {
-  const rows = await db.select({ id: schema.server.id, status: schema.server.status }).from(schema.server).where(eq(schema.server.isLocal, false));
-  await Promise.all(rows.filter((r) => r.status === "ready" || r.status === "unreachable").map((r) => probeServer(r.id)));
+  const rows = await db.select({ id: schema.server.id, status: schema.server.status, agent: schema.server.agent }).from(schema.server).where(eq(schema.server.isLocal, false));
+  const now = Date.now();
+  await Promise.all(
+    rows
+      .filter((r) => r.status === "ready" || r.status === "unreachable")
+      .filter((r) => {
+        const reporting = r.status === "ready" && !!r.agent?.seenAt && now - new Date(r.agent.seenAt).getTime() < 90_000;
+        return !reporting || now - (lastProbe.get(r.id) ?? 0) >= 5 * 60_000;
+      })
+      .map((r) => {
+        lastProbe.set(r.id, now);
+        return probeServer(r.id);
+      }),
+  );
 }
 
 /** Servers whose Docker can be asked right now: the local one and ready remote ones. */
@@ -208,54 +228,75 @@ async function reachableServers() {
   return new Set(rows.filter((r) => r.isLocal || r.status === "ready").map((r) => r.id));
 }
 
-/** Detect crashed or recovered services by looking at their containers. */
-async function monitorServices() {
+/**
+ * Detect crashed or recovered services by looking at their containers: one list per server (its
+ * agent's report, or one Docker call), servers side by side, so a slow one holds up only itself.
+ */
+async function monitorServices(list: ContainerList) {
   const services = await db
     .select()
     .from(schema.service)
     .where(inArray(schema.service.status, ["running", "crashed", "restarting"]));
   const reachable = await reachableServers();
-  for (const s of services) {
-    // An unreachable server says nothing about its services; keep their last known status.
-    if (!reachable.has(s.serverId)) continue;
-    let containers;
-    try {
-      const server = await serverOf(s);
-      containers = await listServiceContainers(s.id, true, server.docker);
-    } catch {
-      continue;
-    }
-    const relevant = s.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === s.currentDeploymentId) : containers;
-    // Every container is gone (removed by hand or by a Docker reset).
-    if (!relevant.length) {
-      if (s.status === "crashed") continue;
-      await setServiceStatus(s.id, "crashed");
-      void notify(await orgOfService(s.id), "service.crashed", {
-        ok: false,
-        title: `${s.name} has no containers`,
-        body: "Its containers were removed outside Serve. Deploy or restart it to recreate them.",
-        url: `/projects/${s.projectId}/services/${s.id}`,
-        status: "crashed",
-        serviceId: s.id,
-      });
-      continue;
-    }
-    const up = relevant.filter((c) => c.State === "running");
-    const restarting = relevant.some((c) => c.State === "restarting");
-    const next = up.length === relevant.length ? "running" : restarting ? "restarting" : up.length ? "running" : "crashed";
-    if (next !== s.status) {
-      await setServiceStatus(s.id, next);
-      if (next === "crashed") {
-        void notify(await orgOfService(s.id), "service.crashed", {
-          ok: false,
-          title: `${s.name} crashed`,
-          body: "All containers for this service have stopped.",
-          url: `/projects/${s.projectId}/services/${s.id}`,
-          status: "crashed",
-          serviceId: s.id,
-        });
-      }
-    }
+  const byServer = new Map<string, (typeof services)[number][]>();
+  // An unreachable server says nothing about its services; keep their last known status.
+  for (const s of services) if (reachable.has(s.serverId)) byServer.set(s.serverId, [...(byServer.get(s.serverId) ?? []), s]);
+  await Promise.all(
+    [...byServer].map(async ([serverId, onServer]) => {
+      const all = await list(serverId).catch(() => null);
+      if (!all) return;
+      for (const s of onServer)
+        await checkServiceContainers(
+          s,
+          all.filter((c) => c.Labels[LABEL.service] === s.id),
+        );
+    }),
+  );
+}
+
+/** Running, restarting or crashed, from a service's containers; null when it has none. */
+function containerStatus(s: typeof schema.service.$inferSelect, containers: ContainerView[]): "running" | "restarting" | "crashed" | null {
+  const relevant = s.type === "app" ? containers.filter((c) => c.Labels[LABEL.deployment] === s.currentDeploymentId) : containers;
+  if (!relevant.length) return null;
+  const up = relevant.filter((c) => c.State === "running");
+  const restarting = relevant.some((c) => c.State === "restarting");
+  return up.length === relevant.length ? "running" : restarting ? "restarting" : up.length ? "running" : "crashed";
+}
+
+async function checkServiceContainers(s: typeof schema.service.$inferSelect, reported: ContainerView[]) {
+  let next = containerStatus(s, reported);
+  if (next === s.status) return;
+  // Bad news from an agent report (it can be seconds behind a deploy) is checked live before acting.
+  if (next !== "running" && reported.some((c) => c.info)) {
+    const live = await withTimeout(serverOf(s).then((server) => listServiceContainers(s.id, true, server.docker))).catch(() => null);
+    if (!live) return;
+    next = containerStatus(s, live as ContainerView[]);
+    if (next === s.status) return;
+  }
+  // Every container is gone (removed by hand or by a Docker reset).
+  if (next === null) {
+    if (s.status === "crashed") return;
+    await setServiceStatus(s.id, "crashed");
+    void notify(await orgOfService(s.id), "service.crashed", {
+      ok: false,
+      title: `${s.name} has no containers`,
+      body: "Its containers were removed outside Serve. Deploy or restart it to recreate them.",
+      url: `/projects/${s.projectId}/services/${s.id}`,
+      status: "crashed",
+      serviceId: s.id,
+    });
+    return;
+  }
+  await setServiceStatus(s.id, next);
+  if (next === "crashed") {
+    void notify(await orgOfService(s.id), "service.crashed", {
+      ok: false,
+      title: `${s.name} crashed`,
+      body: "All containers for this service have stopped.",
+      url: `/projects/${s.projectId}/services/${s.id}`,
+      status: "crashed",
+      serviceId: s.id,
+    });
   }
 }
 
@@ -442,10 +483,12 @@ async function main() {
     15_000,
     "monitor",
     async () => {
+      // One container list per server serves both checks.
+      const list = await containerLister();
       try {
-        await monitorServices();
+        await monitorServices(list);
       } finally {
-        await enforceCrashLimits(await reachableServers());
+        await enforceCrashLimits(await reachableServers(), list);
       }
     },
     true,

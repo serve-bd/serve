@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,9 +32,10 @@ import (
 var version = "dev"
 
 const (
-	maxBuffered  = 2880 // a day of samples at the default interval
-	maxPerPush   = 120
-	statsWorkers = 8
+	containerEvery = 5 * time.Second
+	maxBuffered    = 2880 // a day of samples at the default interval
+	maxPerPush     = 120
+	statsWorkers   = 8
 )
 
 type Host struct {
@@ -63,10 +65,27 @@ type Sample struct {
 	Services []Service `json:"services"`
 }
 
+// Container is the state of one container Serve manages, for status and crash checks.
+type Container struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Service      string `json:"service"`
+	Deployment   string `json:"deployment,omitempty"`
+	State        string `json:"state"`
+	RestartCount int    `json:"restartCount"`
+	StartedAt    string `json:"startedAt,omitempty"`
+	Created      int64  `json:"created"`
+	OOMKilled    bool   `json:"oomKilled,omitempty"`
+	ExitCode     int    `json:"exitCode"`
+}
+
 type Batch struct {
 	Boot    string   `json:"boot"`
 	Version string   `json:"version"`
 	Samples []Sample `json:"samples"`
+	// The containers as last checked, and when (ms); nil until the first check.
+	Containers   []Container `json:"containers,omitempty"`
+	ContainersAt int64       `json:"containersAt,omitempty"`
 }
 
 type config struct {
@@ -140,6 +159,13 @@ type agent struct {
 
 	lastCPU   cpuTimes
 	lastStats map[string]containerCPU
+
+	// Containers as last checked (under mu); dirty until sent after a change.
+	containers   []Container
+	containersAt int64
+	containerKey string
+	dirty        bool
+	changed      chan struct{}
 }
 
 func newAgent(cfg config) *agent {
@@ -156,6 +182,7 @@ func newAgent(cfg config) *agent {
 		},
 		web:       &http.Client{Timeout: 15 * time.Second},
 		lastStats: map[string]containerCPU{},
+		changed:   make(chan struct{}, 1),
 	}
 }
 
@@ -167,6 +194,15 @@ func (a *agent) add(s Sample) {
 	a.pending = append(a.pending, s)
 	if len(a.pending) > maxBuffered {
 		a.pending = a.pending[len(a.pending)-maxBuffered:]
+	}
+}
+
+// clean marks the containers as sent, unless they changed again after that batch was made.
+func (a *agent) clean(at int64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.containersAt == at {
+		a.dirty = false
 	}
 }
 
@@ -190,7 +226,22 @@ func (a *agent) batch(max int) Batch {
 	}
 	samples := make([]Sample, n)
 	copy(samples, a.pending[:n])
-	return Batch{Boot: a.boot, Version: version, Samples: samples}
+	return Batch{Boot: a.boot, Version: version, Samples: samples, Containers: a.containers, ContainersAt: a.containersAt}
+}
+
+// setContainers stores a check of the containers; it reports whether they changed since the last one.
+func (a *agent) setContainers(list []Container, at int64) bool {
+	key, _ := json.Marshal(list)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.containersAt = at
+	if string(key) == a.containerKey && a.containers != nil {
+		return false
+	}
+	a.containers = list
+	a.containerKey = string(key)
+	a.dirty = true
+	return true
 }
 
 /* -------------------------------------------------------------------------- */
@@ -199,15 +250,48 @@ func (a *agent) batch(max int) Batch {
 
 func (a *agent) run(ctx context.Context) {
 	fmt.Printf("serve-agent %s: sampling every %s\n", version, a.cfg.interval)
+	go a.watchContainers(ctx)
 	ticker := time.NewTicker(a.cfg.interval)
 	defer ticker.Stop()
 	for {
 		a.add(a.sample(ctx))
 		a.push(ctx)
+		if !a.untilTick(ctx, ticker) {
+			return
+		}
+	}
+}
+
+// untilTick waits for the next sample, pushing container changes as they happen. False once stopped.
+func (a *agent) untilTick(ctx context.Context, ticker *time.Ticker) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+			return true
+		case <-a.changed:
+			// A container started, stopped or restarted: tell the dashboard now, not at the next sample.
+			a.push(ctx)
+		}
+	}
+}
+
+// watchContainers checks the containers every few seconds and wakes the loop when they change.
+func (a *agent) watchContainers(ctx context.Context) {
+	t := time.NewTicker(containerEvery)
+	defer t.Stop()
+	for {
+		if list, err := a.listContainers(ctx); err == nil && a.setContainers(list, time.Now().UnixMilli()) {
+			select {
+			case a.changed <- struct{}{}:
+			default:
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-t.C:
 		}
 	}
 }
@@ -221,12 +305,18 @@ func (a *agent) push(ctx context.Context) {
 	}
 	for round := 0; round < 25; round++ {
 		b := a.batch(maxPerPush)
-		if len(b.Samples) == 0 {
+		a.mu.Lock()
+		dirty := a.dirty
+		a.mu.Unlock()
+		if len(b.Samples) == 0 && !dirty {
 			return
 		}
 		ack, err := a.send(ctx, b)
 		if errors.Is(err, errGone) {
-			a.ack(b.Samples[len(b.Samples)-1].Seq)
+			if len(b.Samples) > 0 {
+				a.ack(b.Samples[len(b.Samples)-1].Seq)
+			}
+			a.clean(b.ContainersAt)
 			return
 		}
 		if err != nil {
@@ -234,7 +324,8 @@ func (a *agent) push(ctx context.Context) {
 			return
 		}
 		a.ack(ack)
-		if ack < b.Samples[len(b.Samples)-1].Seq {
+		a.clean(b.ContainersAt)
+		if len(b.Samples) == 0 || ack < b.Samples[len(b.Samples)-1].Seq {
 			return
 		}
 	}
@@ -488,6 +579,58 @@ func (a *agent) getJSON(ctx context.Context, path string, out any) error {
 		return fmt.Errorf("docker answered %d for %s", res.StatusCode, path)
 	}
 	return json.NewDecoder(res.Body).Decode(out)
+}
+
+// listContainers returns every container of a Serve service, running or not. Running and
+// restarting ones are inspected for their restart count (the dashboard counts crashes with it).
+func (a *agent) listContainers(ctx context.Context) ([]Container, error) {
+	var listed []struct {
+		ID      string            `json:"Id"`
+		Names   []string          `json:"Names"`
+		State   string            `json:"State"`
+		Created int64             `json:"Created"`
+		Labels  map[string]string `json:"Labels"`
+	}
+	filters := url.QueryEscape(`{"label":["serve.service"]}`)
+	if err := a.getJSON(ctx, "/containers/json?all=true&filters="+filters, &listed); err != nil {
+		return nil, err
+	}
+	out := make([]Container, len(listed))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, statsWorkers)
+	for i, c := range listed {
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+		out[i] = Container{ID: c.ID, Name: name, Service: c.Labels["serve.service"], Deployment: c.Labels["serve.deployment"], State: c.State, Created: c.Created}
+		if c.State != "running" && c.State != "restarting" {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, id string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			var info struct {
+				RestartCount int `json:"RestartCount"`
+				State        struct {
+					StartedAt string `json:"StartedAt"`
+					OOMKilled bool   `json:"OOMKilled"`
+					ExitCode  int    `json:"ExitCode"`
+				} `json:"State"`
+			}
+			if err := a.getJSON(ctx, "/containers/"+id+"/json", &info); err == nil {
+				out[i].RestartCount = info.RestartCount
+				out[i].StartedAt = info.State.StartedAt
+				out[i].OOMKilled = info.State.OOMKilled
+				out[i].ExitCode = info.State.ExitCode
+			}
+		}(i, c.ID)
+	}
+	wg.Wait()
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
 }
 
 // services sums the usage of the running containers Serve manages, per service.

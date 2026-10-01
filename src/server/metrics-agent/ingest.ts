@@ -25,10 +25,25 @@ const sampleSchema = z.object({
   services: z.array(z.object({ id: z.string().min(1).max(64), cpu: count, memory: count, memoryLimit: count, rx: count, tx: count })).max(5000),
 });
 
+const containerSchema = z.object({
+  id: z.string().min(1).max(128),
+  name: z.string().max(256),
+  service: z.string().max(64),
+  deployment: z.string().max(64).optional(),
+  state: z.string().max(32),
+  restartCount: z.number().int().nonnegative(),
+  startedAt: z.string().max(64).optional(),
+  created: z.number().int().nonnegative(),
+  oomKilled: z.boolean().optional(),
+  exitCode: z.number().int(),
+});
+
 export const batchSchema = z.object({
   boot: z.string().min(1).max(64),
   version: z.string().max(64),
   samples: z.array(sampleSchema).max(2880),
+  containers: z.array(containerSchema).max(5000).optional(),
+  containersAt: z.number().int().positive().optional(),
 });
 
 export type AgentBatch = z.infer<typeof batchSchema>;
@@ -119,6 +134,9 @@ async function store(serverId: string, batch: AgentBatch, via: "push" | "ssh", n
           uptime: last.host.uptime,
         }
       : agent?.snapshot;
+    // Batches can arrive out of order (pushed and collected over SSH): only a newer check counts.
+    const containersAt = batch.containersAt && batch.containers ? Math.min(batch.containersAt, now) : null;
+    const newer = containersAt !== null && (!agent?.containersAt || containersAt > new Date(agent.containersAt).getTime());
     const next: ServerAgent = {
       image: agent?.image ?? "",
       tokenHash: agent?.tokenHash ?? "",
@@ -130,6 +148,7 @@ async function store(serverId: string, batch: AgentBatch, via: "push" | "ssh", n
       via,
       version: batch.version || null,
       snapshot,
+      ...(newer ? { containers: batch.containers, containersAt: new Date(containersAt).toISOString() } : {}),
     };
     await tx.update(schema.server).set({ agent: next }).where(eq(schema.server.id, serverId));
     return { ack, stored: fresh.length, oldest };

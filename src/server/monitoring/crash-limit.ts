@@ -1,6 +1,9 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { LABEL, listServiceContainers } from "@/server/docker/client";
+import { LABEL } from "@/server/docker/client";
+import { containerLister, withTimeout } from "./containers";
+
+type ContainerList = Awaited<ReturnType<typeof containerLister>>;
 import { logActivity } from "@/server/activity";
 import { notify, orgOfService } from "@/server/notify";
 import { serversOfService } from "@/server/servers/context";
@@ -16,7 +19,8 @@ const watchingSince = (store.__serveCrashSince ??= Date.now());
  * Stops app replicas that crashed `crashLimit` times in a row, so a broken release does not
  * restart forever. They stay stopped until the next deploy or start; the other replicas keep running.
  */
-export async function enforceCrashLimits(reachable: Set<string>) {
+export async function enforceCrashLimits(reachable: Set<string>, list?: ContainerList) {
+  const containersOf = list ?? (await containerLister());
   const apps = await db.select().from(schema.service).where(eq(schema.service.type, "app"));
   const seen = new Set<string>();
   const stopped = new Set<string>();
@@ -27,28 +31,35 @@ export async function enforceCrashLimits(reachable: Set<string>) {
     const servers = await serversOfService(s).catch(() => []);
     for (const server of servers) {
       if (!reachable.has(server.id)) continue;
-      const containers = await listServiceContainers(s.id, true, server.docker).catch(() => []);
+      const containers = (await containersOf(server.id).catch(() => [])).filter((c) => c.Labels[LABEL.service] === s.id);
       for (const c of containers) {
         if (c.Labels[LABEL.deployment] !== s.currentDeploymentId) continue;
         seen.add(c.Id);
         // An exited replica (stopped by hand, or by this check) is left alone.
         if (c.State !== "running" && c.State !== "restarting") continue;
-        const info = await server.docker
-          .getContainer(c.Id)
-          .inspect()
-          .catch(() => null);
+        // An agent report has the restart count; otherwise the container is inspected.
+        const live = () =>
+          withTimeout(server.docker.getContainer(c.Id).inspect())
+            .then((info) => ({
+              name: info.Name.replace(/^\//, ""),
+              restartCount: info.RestartCount ?? 0,
+              running: info.State.Running && !info.State.Restarting,
+              startedAt: Date.parse(info.State.StartedAt) || now,
+              createdAt: Date.parse(info.Created) || 0,
+              oomKilled: !!info.State.OOMKilled,
+              exitCode: info.State.ExitCode,
+            }))
+            .catch(() => null);
+        let info = c.info ? { ...c.info, startedAt: c.info.startedAt || now } : await live();
         if (!info) continue;
-        const { crashes, track } = crashesInARow(
-          tracks.get(c.Id),
-          {
-            restartCount: info.RestartCount ?? 0,
-            running: info.State.Running && !info.State.Restarting,
-            startedAt: Date.parse(info.State.StartedAt) || now,
-            createdAt: Date.parse(info.Created) || 0,
-          },
-          now,
-          watchingSince,
-        );
+        let counted = crashesInARow(tracks.get(c.Id), info, now, watchingSince);
+        // Stopping is acted on from a live look, not from a report that may be seconds old.
+        if (counted.crashes >= limit && c.info) {
+          info = await live();
+          if (!info) continue;
+          counted = crashesInARow(tracks.get(c.Id), info, now, watchingSince);
+        }
+        const { crashes, track } = counted;
         tracks.set(c.Id, track);
         if (crashes < limit) continue;
         // The last replica on the main server: mark the service crashed first, so the status check
@@ -72,8 +83,8 @@ export async function enforceCrashLimits(reachable: Set<string>) {
           .stop({ t: 5 })
           .catch(() => {});
         tracks.delete(c.Id);
-        const name = info.Name.replace(/^\//, "");
-        const why = info.State.OOMKilled ? "It ran out of memory (OOM killed)." : `Last exit code ${info.State.ExitCode}.`;
+        const name = info.name;
+        const why = info.oomKilled ? "It ran out of memory (OOM killed)." : `Last exit code ${info.exitCode}.`;
         await logActivity({
           action: "service.crash-limit",
           projectId: s.projectId,

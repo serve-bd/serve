@@ -270,6 +270,22 @@ export type AgentSnapshot = {
   uptime: number;
 };
 
+/** A container of a Serve service as the server's agent last saw it. */
+export type AgentContainer = {
+  id: string;
+  name: string;
+  service: string;
+  deployment?: string;
+  /** Docker's state: running, restarting, exited, created, paused, dead. */
+  state: string;
+  restartCount: number;
+  startedAt?: string;
+  /** Unix seconds. */
+  created: number;
+  oomKilled?: boolean;
+  exitCode: number;
+};
+
 /** The metrics agent on a remote server (see agent/main.go). */
 export type ServerAgent = {
   /** Image the agent container runs (serve-agent:<binary hash>). */
@@ -287,6 +303,9 @@ export type ServerAgent = {
   via?: "push" | "ssh" | null;
   version?: string | null;
   snapshot?: AgentSnapshot | null;
+  /** The server's service containers as last checked (every few seconds), and when. */
+  containers?: AgentContainer[];
+  containersAt?: string | null;
   /** Why the agent could not be installed. */
   error?: string | null;
 };

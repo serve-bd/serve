@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { ServerInfo, ServerStatus } from "@/server/db/schema";
 import { ensureNetwork } from "@/server/docker/client";
+import { withTimeout } from "@/server/monitoring/containers";
 import { forgetServer, getServer, getServerRow, LOCAL_SERVER_ID, sshTargetFor } from "./context";
 import { closeConnection, connect, HostKeyMismatchError, sh, sshExec, type SshTarget } from "./ssh";
 
@@ -231,7 +232,8 @@ export async function probeServer(serverId: string) {
   if (row.isLocal) return true;
   try {
     const ctx = await getServer(serverId);
-    await ctx.docker.ping();
+    // A stalled connection counts as unreachable instead of holding up the next probes.
+    await withTimeout(ctx.docker.ping(), 20_000);
     await db
       .update(schema.server)
       .set({ lastSeenAt: new Date(), ...(row.status === "unreachable" ? { status: "ready" as const, statusMessage: null } : {}) })

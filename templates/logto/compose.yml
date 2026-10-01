@@ -1,0 +1,49 @@
+services:
+  logto:
+    image: svhd/logto:1
+    restart: unless-stopped
+    entrypoint: ["sh", "-c", "npm run cli db seed -- --swe && npm start"]
+    environment:
+      TRUST_PROXY_HEADER: "1"
+      DB_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/logto
+      ENDPOINT: ${ENDPOINT}
+      ADMIN_ENDPOINT: ${ADMIN_ENDPOINT}
+    depends_on:
+      postgres:
+        condition: service_healthy
+  # The admin console listens on port 3002 of the same container; this forwards its own domain there.
+  admin:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    configs:
+      - source: admin-proxy
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - logto
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 20
+configs:
+  admin-proxy:
+    content: |
+      {
+        admin off
+        auto_https off
+        servers {
+          trusted_proxies static private_ranges
+        }
+      }
+      :3002 {
+        reverse_proxy logto:3002
+      }
+volumes:
+  postgres-data:

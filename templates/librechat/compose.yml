@@ -13,8 +13,10 @@ services:
       NO_INDEX: "true"
       ALLOW_REGISTRATION: "true"
       SEARCH: "false"
-      # Encryption keys and JWT secrets are generated on first start and kept in the data volume.
-      LIBRECHAT_TEMP_CREDENTIALS_PATH: /app/data/.env.temp
+      CREDS_KEY: ${CREDS_KEY}
+      CREDS_IV: ${CREDS_IV}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-user_provided}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-user_provided}
       GOOGLE_KEY: ${GOOGLE_KEY:-user_provided}

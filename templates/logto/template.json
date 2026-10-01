@@ -1,0 +1,33 @@
+{
+  "name": "Logto",
+  "description": "Authentication and authorization for apps, with OIDC, social sign-in and multi-tenancy.",
+  "category": "Security",
+  "website": "https://logto.io",
+  "color": "#5D34F2",
+  "minVersion": "0.1.9",
+  "note": "Logto uses two domains: the main one serves sign-in for your apps, the second one is the admin console. Open the admin console domain and create the first account: it becomes the admin.",
+  "expose": {
+    "service": "logto",
+    "port": 3001
+  },
+  "domains": [
+    {
+      "service": "admin",
+      "port": 3002
+    }
+  ],
+  "vars": [
+    {
+      "key": "ENDPOINT",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_ENDPOINT",
+      "serviceUrl": "admin"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

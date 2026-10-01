@@ -4,7 +4,8 @@
   "category": "Productivity",
   "website": "https://www.firefly-iii.org",
   "color": "#CD5029",
-  "note": "Register on the first visit; the first account becomes the admin.",
+  "minVersion": "0.1.9",
+  "note": "Register on the first visit; the first account becomes the admin. Daily jobs run at 03:00 UTC from the cron container.",
   "expose": {
     "service": "app",
     "port": 8080
@@ -26,6 +27,10 @@
     {
       "key": "DB_PASSWORD",
       "generate": "password"
+    },
+    {
+      "key": "STATIC_CRON_TOKEN",
+      "generate": "hex16"
     }
   ]
 }

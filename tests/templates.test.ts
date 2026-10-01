@@ -30,7 +30,7 @@ describe("template catalog", () => {
   });
 
   it("reads back what it writes", () => {
-    expect(parseCatalog(serializeCatalog(catalog), "0.1.7")?.templates.length).toBe(templates.length);
+    expect(parseCatalog(serializeCatalog(catalog), "99.0.0")?.templates.length).toBe(templates.length);
   });
 });
 

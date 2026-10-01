@@ -1,0 +1,46 @@
+{
+  "name": "ZITADEL",
+  "description": "Identity platform with SSO, OpenID Connect, SAML, passkeys and multi-tenancy.",
+  "category": "Security",
+  "website": "https://zitadel.com",
+  "color": "#E0335A",
+  "minVersion": "0.1.9",
+  "note": "The sign-in pages run on a second domain. Open /ui/console on the main domain and sign in as zitadel-admin@zitadel.<main domain> with the admin password you set here; you choose a new password on the first sign-in. The admin password needs an uppercase letter, a lowercase letter, a number and a symbol.",
+  "expose": {
+    "service": "zitadel",
+    "port": 8080
+  },
+  "domains": [
+    {
+      "service": "login",
+      "port": 3000
+    }
+  ],
+  "vars": [
+    {
+      "key": "ZITADEL_DOMAIN",
+      "publicHost": true
+    },
+    {
+      "key": "LOGIN_URL",
+      "serviceUrl": "login"
+    },
+    {
+      "key": "ZITADEL_MASTERKEY",
+      "generate": "hex16"
+    },
+    {
+      "key": "LOGIN_SESSION_COOKIE_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ZITADEL_ADMIN_PASSWORD",
+      "value": "Change-Me-1",
+      "label": "Initial admin password"
+    }
+  ]
+}

@@ -805,7 +805,8 @@
    "category": "Productivity",
    "website": "https://www.firefly-iii.org",
    "color": "#CD5029",
-   "note": "Register on the first visit; the first account becomes the admin.",
+   "note": "Register on the first visit; the first account becomes the admin. Daily jobs run at 03:00 UTC from the cron container.",
+   "minVersion": "0.1.9",
    "expose": {
     "service": "app",
     "port": 8080
@@ -827,9 +828,13 @@
     {
      "key": "DB_PASSWORD",
      "generate": "password"
+    },
+    {
+     "key": "STATIC_CRON_TOKEN",
+     "generate": "hex16"
     }
    ],
-   "compose": "services:\n  app:\n    image: fireflyiii/core:version-6\n    restart: unless-stopped\n    environment:\n      APP_ENV: production\n      APP_KEY: ${APP_KEY}\n      APP_URL: ${APP_URL}\n      SITE_OWNER: ${SITE_OWNER}\n      TRUSTED_PROXIES: \"**\"\n      TZ: UTC\n      DB_CONNECTION: pgsql\n      DB_HOST: postgres\n      DB_PORT: \"5432\"\n      DB_DATABASE: firefly\n      DB_USERNAME: firefly\n      DB_PASSWORD: ${DB_PASSWORD}\n    volumes:\n      - firefly-upload:/var/www/html/storage/upload\n    depends_on:\n      postgres:\n        condition: service_healthy\n  postgres:\n    image: postgres:17-alpine\n    restart: unless-stopped\n    environment:\n      POSTGRES_USER: firefly\n      POSTGRES_PASSWORD: ${DB_PASSWORD}\n      POSTGRES_DB: firefly\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U firefly -d firefly\"]\n      interval: 5s\n      retries: 20\nvolumes:\n  firefly-upload:\n  postgres-data:\n",
+   "compose": "services:\n  app:\n    image: fireflyiii/core:version-6\n    restart: unless-stopped\n    environment:\n      APP_ENV: production\n      APP_KEY: ${APP_KEY}\n      APP_URL: ${APP_URL}\n      SITE_OWNER: ${SITE_OWNER}\n      TRUSTED_PROXIES: \"**\"\n      TZ: UTC\n      DB_CONNECTION: pgsql\n      DB_HOST: postgres\n      DB_PORT: \"5432\"\n      DB_DATABASE: firefly\n      DB_USERNAME: firefly\n      DB_PASSWORD: ${DB_PASSWORD}\n      STATIC_CRON_TOKEN: ${STATIC_CRON_TOKEN}\n    volumes:\n      - firefly-upload:/var/www/html/storage/upload\n    depends_on:\n      postgres:\n        condition: service_healthy\n  # Runs the daily jobs (recurring transactions, auto-budgets, bill reminders) through the cron URL.\n  cron:\n    image: alpine:3\n    restart: unless-stopped\n    environment:\n      STATIC_CRON_TOKEN: ${STATIC_CRON_TOKEN}\n    command: [\"sh\", \"-c\", \"echo \\\"0 3 * * * wget -qO- http://app:8080/api/v1/cron/$$STATIC_CRON_TOKEN;echo\\\" | crontab - && crond -f -L /dev/stdout\"]\n    depends_on:\n      - app\n  postgres:\n    image: postgres:17-alpine\n    restart: unless-stopped\n    environment:\n      POSTGRES_USER: firefly\n      POSTGRES_PASSWORD: ${DB_PASSWORD}\n      POSTGRES_DB: firefly\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U firefly -d firefly\"]\n      interval: 5s\n      retries: 20\nvolumes:\n  firefly-upload:\n  postgres-data:\n",
    "logo": "<svg fill=\"#fff\" role=\"img\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M10.107 0s.917 3.103-.842 4.91c-1.76 1.807-1.57 3.803-.856 4.754.713.951.665 1.664.095 2.187-.57.523-1.046.904-1.379.048-.333-.856-.713-.856-.856-1.284a43.535 43.535 0 0 0-.428-1.189s-.903 1.427-1.474 2.283c-.57.855-.57 2.187-.19 2.9.38.713.238 1.569-.047 2.757-.286 1.189.095 2.996 1.426 3.709 1.331.713 2.948 1.283 3.66 1.949.714.666 2.378 1.284 4.518.808 2.14-.475 4.85-2.662 5.324-4.136 0 0 1.237-1.379 1-3.185-.239-1.807-1.095-1.76-1.475-3.138-.38-1.38.823-1.04-.19-3.406 0 0-.452-1.127-2.168-1.939-1.102-.521-.352-2.88-2.3-5.258C11.974.393 10.106 0 10.106 0zm-.326 11.753c1.373-.01 2.14 1.376 2.14 1.376 1.78-.216 3.533.152 4.374.94.531.498.965.956 1.181 1.834-.1-.034-.282-.08-.52-.076a1.875 1.875 0 0 0-.902.256s-.99-.333-1.52.097c-.55.446-.604.968-.576 1.586 0 0 .476-1.628 1.68-1.208 0 0-.852 1.5.472 1.762 0 0 .313-.002.57-.158.247-.148.44-.424.361-.92 0 0-.16-.494-.577-.794 0 0 .378-.267 1.096-.104.035.238.056.503.063.802.047 2.057-1.326 3.402-1.326 3.402v.927c-.167.334-.445.445-1.39.445-.946 0-1.076-.26-1.076-.26v-.185c-1.446.186-2.234 0-2.234 0 0 .167 0 .195-.14.334-.138.139-1 .148-1.65.055-.649-.092-.574-.407-.574-.407v-.946a3.663 3.663 0 0 1-1.354-1.873l-.61.012c-.334 0-.477-.428-.477-.428v-1.379c0-.428.428-.523.428-.523l.594-.045c.201-1.426 1.688-2.522 1.688-2.522l-.083-1.966c.125-.023.246-.033.362-.034zm-.548 4.716a.352.352 0 0 0-.353.352.352.352 0 0 0 .353.352.352.352 0 0 0 .352-.352.352.352 0 0 0-.352-.352zm6.85.301s.124.031.39.469c.257.425-.182.635-.182.635-.827.063-.208-1.104-.208-1.104z\"/></svg>"
   },
   {
@@ -1342,6 +1347,40 @@
    "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"#fff\"><path d=\"M11.9863.2695c-2.409 0-5.207 1.091-5.207 3.8946v.1523c1.3428.597 2.9347 1.6629 4.4121 2.9707 1.5713 1.3912 2.8374 2.8821 3.6524 4.2871 1.3997-2.5034 2.3358-5.4784 2.3476-7.373V4.164c0-2.8035-2.796-3.8946-5.205-3.8946m7.5117 4.4903c-.3778-.0081-.7747.0502-1.1914.1855-.0366.0118-.086.0278-.1445.0469-.1525 1.4611-.6756 3.304-1.4629 5.1133-.8373 1.9243-1.8627 3.5898-2.9472 4.7988 2.8132.558 5.9307.5273 7.7363-.0469.0126-.004.0246-.0065.0351-.0097 2.6665-.8666 2.84-3.8636 2.0957-6.1543-.6279-1.9332-2.081-3.89-4.121-3.9336m-14.996.039C2.4618 4.8424 1.0088 6.7973.3809 8.7305c-.7442 2.291-.5708 5.288 2.0957 6.1543l.1445.0468c.982-1.0926 2.4873-2.2761 4.1875-3.2773 1.8088-1.0646 3.619-1.808 5.207-2.1484-1.9483-2.1049-4.4884-3.9132-6.287-4.5098l-.0352-.0117c-.4167-.1354-.8136-.1936-1.1914-.1856m4.6718 6.7578c-2.6038 1.2025-5.1088 3.0598-6.2324 4.586l-.0215.0293c-1.6478 2.2683-.0272 4.7953 1.9219 6.211 1.9487 1.4159 4.8518 2.1765 6.5-.0919.0228-.0309.0536-.071.0898-.121-.7356-1.2717-1.396-3.0718-1.8222-4.9981-.4534-2.0492-.6023-4-.4356-5.6153m1.0723 3.338c.3387 2.8478 1.3315 5.8037 2.4355 7.3437l.0215.0293c1.6478 2.2683 4.551 1.5078 6.5.0918 1.9487-1.416 3.5697-3.943 1.9219-6.211-.0228-.0309-.0517-.073-.0879-.123-1.4367.3066-3.3522.3794-5.3164.1894-2.089-.2017-3.9895-.6623-5.4746-1.3203\"/></svg>"
   },
   {
+   "id": "infisical",
+   "name": "Infisical",
+   "description": "Secrets manager for application config, API keys and certificates.",
+   "category": "Security",
+   "website": "https://infisical.com",
+   "color": "#18181B",
+   "note": "Open the app and create the first account: it becomes the instance admin. Keep ENCRYPTION_KEY safe: secrets cannot be decrypted without it.",
+   "minVersion": "0.1.9",
+   "expose": {
+    "service": "infisical",
+    "port": 8080
+   },
+   "vars": [
+    {
+     "key": "SITE_URL",
+     "publicUrl": true
+    },
+    {
+     "key": "ENCRYPTION_KEY",
+     "generate": "hex16"
+    },
+    {
+     "key": "AUTH_SECRET",
+     "generate": "secret"
+    },
+    {
+     "key": "POSTGRES_PASSWORD",
+     "generate": "password"
+    }
+   ],
+   "compose": "services:\n  infisical:\n    image: infisical/infisical:latest\n    restart: unless-stopped\n    environment:\n      NODE_ENV: production\n      HOST: 0.0.0.0\n      PORT: \"8080\"\n      SITE_URL: ${SITE_URL}\n      ENCRYPTION_KEY: ${ENCRYPTION_KEY}\n      AUTH_SECRET: ${AUTH_SECRET}\n      DB_CONNECTION_URI: postgres://infisical:${POSTGRES_PASSWORD}@postgres:5432/infisical\n      REDIS_URL: redis://redis:6379\n      TELEMETRY_ENABLED: \"false\"\n    depends_on:\n      postgres:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n  postgres:\n    image: postgres:17-alpine\n    restart: unless-stopped\n    environment:\n      POSTGRES_USER: infisical\n      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}\n      POSTGRES_DB: infisical\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U infisical -d infisical\"]\n      interval: 5s\n      retries: 20\n  redis:\n    image: redis:8-alpine\n    restart: unless-stopped\n    volumes:\n      - redis-data:/data\n    healthcheck:\n      test: [\"CMD\", \"redis-cli\", \"ping\"]\n      interval: 5s\n      retries: 20\nvolumes:\n  postgres-data:\n  redis-data:\n",
+   "logo": null
+  },
+  {
    "id": "influxdb",
    "name": "InfluxDB",
    "description": "Time series database for metrics, events and sensor data.",
@@ -1721,6 +1760,7 @@
    "website": "https://www.librechat.ai",
    "color": "#0F766E",
    "note": "Register the first account on the sign-up page. Leave the API keys empty to let each user enter their own key in the chat.",
+   "minVersion": "0.1.9",
    "expose": {
     "service": "librechat",
     "port": 3080
@@ -1729,6 +1769,22 @@
     {
      "key": "APP_URL",
      "publicUrl": true
+    },
+    {
+     "key": "CREDS_KEY",
+     "generate": "hex32"
+    },
+    {
+     "key": "CREDS_IV",
+     "generate": "hex16"
+    },
+    {
+     "key": "JWT_SECRET",
+     "generate": "hex32"
+    },
+    {
+     "key": "JWT_REFRESH_SECRET",
+     "generate": "hex32"
     },
     {
      "key": "OPENAI_API_KEY",
@@ -1746,7 +1802,7 @@
      "label": "Google AI API key (optional)"
     }
    ],
-   "compose": "services:\n  librechat:\n    image: registry.librechat.ai/librechat-ai/librechat:latest\n    restart: unless-stopped\n    environment:\n      HOST: 0.0.0.0\n      PORT: \"3080\"\n      NODE_ENV: production\n      MONGO_URI: mongodb://mongodb:27017/LibreChat\n      DOMAIN_CLIENT: ${APP_URL}\n      DOMAIN_SERVER: ${APP_URL}\n      TRUST_PROXY: \"1\"\n      NO_INDEX: \"true\"\n      ALLOW_REGISTRATION: \"true\"\n      SEARCH: \"false\"\n      # Encryption keys and JWT secrets are generated on first start and kept in the data volume.\n      LIBRECHAT_TEMP_CREDENTIALS_PATH: /app/data/.env.temp\n      OPENAI_API_KEY: ${OPENAI_API_KEY:-user_provided}\n      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-user_provided}\n      GOOGLE_KEY: ${GOOGLE_KEY:-user_provided}\n    volumes:\n      - librechat-data:/app/data\n      - librechat-uploads:/app/uploads\n      - librechat-images:/app/client/public/images\n      - librechat-logs:/app/api/logs\n    depends_on:\n      mongodb:\n        condition: service_healthy\n  mongodb:\n    image: mongo:8\n    restart: unless-stopped\n    command: mongod --noauth\n    volumes:\n      - mongodb-data:/data/db\n    healthcheck:\n      test: [\"CMD\", \"mongosh\", \"--quiet\", \"--eval\", \"db.adminCommand('ping')\"]\n      interval: 5s\n      retries: 20\nvolumes:\n  librechat-data:\n  librechat-uploads:\n  librechat-images:\n  librechat-logs:\n  mongodb-data:\n",
+   "compose": "services:\n  librechat:\n    image: registry.librechat.ai/librechat-ai/librechat:latest\n    restart: unless-stopped\n    environment:\n      HOST: 0.0.0.0\n      PORT: \"3080\"\n      NODE_ENV: production\n      MONGO_URI: mongodb://mongodb:27017/LibreChat\n      DOMAIN_CLIENT: ${APP_URL}\n      DOMAIN_SERVER: ${APP_URL}\n      TRUST_PROXY: \"1\"\n      NO_INDEX: \"true\"\n      ALLOW_REGISTRATION: \"true\"\n      SEARCH: \"false\"\n      CREDS_KEY: ${CREDS_KEY}\n      CREDS_IV: ${CREDS_IV}\n      JWT_SECRET: ${JWT_SECRET}\n      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}\n      OPENAI_API_KEY: ${OPENAI_API_KEY:-user_provided}\n      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-user_provided}\n      GOOGLE_KEY: ${GOOGLE_KEY:-user_provided}\n    volumes:\n      - librechat-data:/app/data\n      - librechat-uploads:/app/uploads\n      - librechat-images:/app/client/public/images\n      - librechat-logs:/app/api/logs\n    depends_on:\n      mongodb:\n        condition: service_healthy\n  mongodb:\n    image: mongo:8\n    restart: unless-stopped\n    command: mongod --noauth\n    volumes:\n      - mongodb-data:/data/db\n    healthcheck:\n      test: [\"CMD\", \"mongosh\", \"--quiet\", \"--eval\", \"db.adminCommand('ping')\"]\n      interval: 5s\n      retries: 20\nvolumes:\n  librechat-data:\n  librechat-uploads:\n  librechat-images:\n  librechat-logs:\n  mongodb-data:\n",
    "logo": null
   },
   {
@@ -1852,6 +1908,42 @@
     }
    ],
    "compose": "services:\n  litellm:\n    image: docker.litellm.ai/berriai/litellm:main-stable\n    restart: unless-stopped\n    environment:\n      DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD}@postgres:5432/litellm\n      STORE_MODEL_IN_DB: \"True\"\n      LITELLM_MASTER_KEY: sk-${LITELLM_MASTER_KEY}\n      LITELLM_SALT_KEY: sk-${LITELLM_SALT_KEY}\n      UI_USERNAME: admin\n      UI_PASSWORD: ${UI_PASSWORD}\n    depends_on:\n      postgres:\n        condition: service_healthy\n  postgres:\n    image: postgres:17-alpine\n    restart: unless-stopped\n    environment:\n      POSTGRES_USER: litellm\n      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}\n      POSTGRES_DB: litellm\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U litellm -d litellm\"]\n      interval: 5s\n      retries: 20\nvolumes:\n  postgres-data:\n",
+   "logo": null
+  },
+  {
+   "id": "logto",
+   "name": "Logto",
+   "description": "Authentication and authorization for apps, with OIDC, social sign-in and multi-tenancy.",
+   "category": "Security",
+   "website": "https://logto.io",
+   "color": "#5D34F2",
+   "note": "Logto uses two domains: the main one serves sign-in for your apps, the second one is the admin console. Open the admin console domain and create the first account: it becomes the admin.",
+   "minVersion": "0.1.9",
+   "expose": {
+    "service": "logto",
+    "port": 3001
+   },
+   "domains": [
+    {
+     "service": "admin",
+     "port": 3002
+    }
+   ],
+   "vars": [
+    {
+     "key": "ENDPOINT",
+     "publicUrl": true
+    },
+    {
+     "key": "ADMIN_ENDPOINT",
+     "serviceUrl": "admin"
+    },
+    {
+     "key": "POSTGRES_PASSWORD",
+     "generate": "password"
+    }
+   ],
+   "compose": "services:\n  logto:\n    image: svhd/logto:1\n    restart: unless-stopped\n    entrypoint: [\"sh\", \"-c\", \"npm run cli db seed -- --swe && npm start\"]\n    environment:\n      TRUST_PROXY_HEADER: \"1\"\n      DB_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/logto\n      ENDPOINT: ${ENDPOINT}\n      ADMIN_ENDPOINT: ${ADMIN_ENDPOINT}\n    depends_on:\n      postgres:\n        condition: service_healthy\n  # The admin console listens on port 3002 of the same container; this forwards its own domain there.\n  admin:\n    image: caddy:2-alpine\n    restart: unless-stopped\n    configs:\n      - source: admin-proxy\n        target: /etc/caddy/Caddyfile\n    depends_on:\n      - logto\n  postgres:\n    image: postgres:17-alpine\n    restart: unless-stopped\n    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U postgres\"]\n      interval: 5s\n      retries: 20\nconfigs:\n  admin-proxy:\n    content: |\n      {\n        admin off\n        auto_https off\n        servers {\n          trusted_proxies static private_ranges\n        }\n      }\n      :3002 {\n        reverse_proxy logto:3002\n      }\nvolumes:\n  postgres-data:\n",
    "logo": null
   },
   {
@@ -3764,6 +3856,55 @@
     }
    ],
    "compose": "services:\n  zipline:\n    image: ghcr.io/diced/zipline:v4\n    restart: unless-stopped\n    environment:\n      CORE_SECRET: ${CORE_SECRET}\n      DATABASE_URL: postgres://zipline:${POSTGRES_PASSWORD}@postgres:5432/zipline\n    volumes:\n      - zipline-uploads:/zipline/uploads\n      - zipline-public:/zipline/public\n      - zipline-themes:/zipline/themes\n    depends_on:\n      postgres:\n        condition: service_healthy\n  postgres:\n    image: postgres:17-alpine\n    restart: unless-stopped\n    environment:\n      POSTGRES_USER: zipline\n      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}\n      POSTGRES_DB: zipline\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U zipline -d zipline\"]\n      interval: 5s\n      retries: 20\nvolumes:\n  zipline-uploads:\n  zipline-public:\n  zipline-themes:\n  postgres-data:\n",
+   "logo": null
+  },
+  {
+   "id": "zitadel",
+   "name": "ZITADEL",
+   "description": "Identity platform with SSO, OpenID Connect, SAML, passkeys and multi-tenancy.",
+   "category": "Security",
+   "website": "https://zitadel.com",
+   "color": "#E0335A",
+   "note": "The sign-in pages run on a second domain. Open /ui/console on the main domain and sign in as zitadel-admin@zitadel.<main domain> with the admin password you set here; you choose a new password on the first sign-in. The admin password needs an uppercase letter, a lowercase letter, a number and a symbol.",
+   "minVersion": "0.1.9",
+   "expose": {
+    "service": "zitadel",
+    "port": 8080
+   },
+   "domains": [
+    {
+     "service": "login",
+     "port": 3000
+    }
+   ],
+   "vars": [
+    {
+     "key": "ZITADEL_DOMAIN",
+     "publicHost": true
+    },
+    {
+     "key": "LOGIN_URL",
+     "serviceUrl": "login"
+    },
+    {
+     "key": "ZITADEL_MASTERKEY",
+     "generate": "hex16"
+    },
+    {
+     "key": "LOGIN_SESSION_COOKIE_SECRET",
+     "generate": "secret"
+    },
+    {
+     "key": "POSTGRES_PASSWORD",
+     "generate": "password"
+    },
+    {
+     "key": "ZITADEL_ADMIN_PASSWORD",
+     "value": "Change-Me-1",
+     "label": "Initial admin password"
+    }
+   ],
+   "compose": "services:\n  zitadel:\n    image: ghcr.io/zitadel/zitadel:v4.19.3\n    restart: unless-stopped\n    user: \"0\"\n    command: start-from-init --masterkey \"${ZITADEL_MASTERKEY}\"\n    environment:\n      ZITADEL_PORT: \"8080\"\n      ZITADEL_EXTERNALDOMAIN: ${ZITADEL_DOMAIN}\n      ZITADEL_EXTERNALPORT: \"443\"\n      ZITADEL_EXTERNALSECURE: \"true\"\n      ZITADEL_TLS_ENABLED: \"false\"\n      ZITADEL_DATABASE_POSTGRES_DSN: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/zitadel?sslmode=disable\n      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_ADMIN_PASSWORD}\n      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: \"true\"\n      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /zitadel/bootstrap/login-client.pat\n      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client\n      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Automatically Initialized IAM_LOGIN_CLIENT\n      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: \"2099-01-01T00:00:00Z\"\n      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: \"true\"\n      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: ${LOGIN_URL}/ui/v2/login/\n      ZITADEL_OIDC_DEFAULTLOGINURLV2: ${LOGIN_URL}/ui/v2/login/login?authRequest=\n      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: ${LOGIN_URL}/ui/v2/login/logout?post_logout_redirect=\n      ZITADEL_SAML_DEFAULTLOGINURLV2: ${LOGIN_URL}/ui/v2/login/login?samlRequest=\n    volumes:\n      - zitadel-bootstrap:/zitadel/bootstrap\n    healthcheck:\n      test: [\"CMD\", \"/app/zitadel\", \"ready\"]\n      interval: 10s\n      timeout: 30s\n      retries: 12\n      start_period: 20s\n    depends_on:\n      postgres:\n        condition: service_healthy\n  login:\n    image: ghcr.io/zitadel/zitadel-login:v4.19.3\n    restart: unless-stopped\n    user: \"0\"\n    environment:\n      ZITADEL_API_URL: http://zitadel:8080\n      NEXT_PUBLIC_BASE_PATH: /ui/v2/login\n      ZITADEL_SERVICE_USER_TOKEN_FILE: /zitadel/bootstrap/login-client.pat\n      ZITADEL_SESSION_COOKIE_SECRET: ${LOGIN_SESSION_COOKIE_SECRET}\n      CUSTOM_REQUEST_HEADERS: Host:${ZITADEL_DOMAIN},X-Forwarded-Proto:https\n    volumes:\n      - zitadel-bootstrap:/zitadel/bootstrap:ro\n    healthcheck:\n      test: [\"CMD\", \"/bin/sh\", \"-c\", \"node /app/healthcheck.mjs http://localhost:3000/ui/v2/login/healthy\"]\n      interval: 10s\n      timeout: 30s\n      retries: 12\n      start_period: 20s\n    depends_on:\n      zitadel:\n        condition: service_healthy\n  postgres:\n    image: postgres:17-alpine\n    restart: unless-stopped\n    environment:\n      POSTGRES_USER: postgres\n      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}\n      POSTGRES_DB: zitadel\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U postgres -d zitadel\"]\n      interval: 5s\n      retries: 20\nvolumes:\n  zitadel-bootstrap:\n  postgres-data:\n",
    "logo": null
   }
  ]

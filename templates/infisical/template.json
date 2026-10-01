@@ -1,0 +1,31 @@
+{
+  "name": "Infisical",
+  "description": "Secrets manager for application config, API keys and certificates.",
+  "category": "Security",
+  "website": "https://infisical.com",
+  "color": "#18181B",
+  "minVersion": "0.1.9",
+  "note": "Open the app and create the first account: it becomes the instance admin. Keep ENCRYPTION_KEY safe: secrets cannot be decrypted without it.",
+  "expose": {
+    "service": "infisical",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "SITE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "generate": "hex16"
+    },
+    {
+      "key": "AUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

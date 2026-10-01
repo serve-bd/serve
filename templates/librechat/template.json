@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://www.librechat.ai",
   "color": "#0F766E",
+  "minVersion": "0.1.9",
   "note": "Register the first account on the sign-up page. Leave the API keys empty to let each user enter their own key in the chat.",
   "expose": {
     "service": "librechat",
@@ -13,6 +14,22 @@
     {
       "key": "APP_URL",
       "publicUrl": true
+    },
+    {
+      "key": "CREDS_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "CREDS_IV",
+      "generate": "hex16"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "JWT_REFRESH_SECRET",
+      "generate": "hex32"
     },
     {
       "key": "OPENAI_API_KEY",

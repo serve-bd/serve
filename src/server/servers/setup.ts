@@ -207,6 +207,12 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
       log(`Warning: ${proxyProblem}`);
     }
 
+    if (row.metricsEnabled) {
+      const { ensureMetricsAgent } = await import("@/server/metrics-agent");
+      // Without the agent, metrics are read over SSH: never a reason to fail the setup.
+      await ensureMetricsAgent(ctx, log).catch((error: Error) => log(`Warning: the metrics agent could not start (${error.message}).`));
+    }
+
     await setStatus(serverId, "ready", proxyProblem, { lastSeenAt: new Date() });
     log("==> Server is ready");
   } catch (error) {

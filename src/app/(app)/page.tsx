@@ -22,6 +22,7 @@ async function serverCards(ids: string[], managed: Set<string>, organizationId: 
       host: schema.server.host,
       isLocal: schema.server.isLocal,
       status: schema.server.status,
+      metricsEnabled: schema.server.metricsEnabled,
       services: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id")`,
       running: sql<number>`(select count(*)::int from service s where s.server_id = "server"."id" and s.status = 'running')`,
       ownServices: sql<number>`(select count(*)::int from service s join project p on p.id = s.project_id where s.server_id = "server"."id" and p.organization_id = ${organizationId})`,
@@ -34,7 +35,7 @@ async function serverCards(ids: string[], managed: Set<string>, organizationId: 
       .filter((r) => ids.includes(r.id))
       .map(async ({ ownServices, ownRunning, ...r }) => ({
         ...(managed.has(r.id) ? r : { ...r, host: "Shared with this organization", services: ownServices, running: ownRunning }),
-        series: await metricSeries(serverScope(r.id), 6, 48).catch(() => []),
+        series: r.metricsEnabled ? await metricSeries(serverScope(r.id), 6, 48).catch(() => []) : [],
       })),
   );
 }

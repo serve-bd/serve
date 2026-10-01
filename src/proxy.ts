@@ -14,6 +14,7 @@ const PUBLIC = [
   "/api/v1",
   "/api/branding",
   "/api/servers/join",
+  "/api/agent",
 ];
 
 export function proxy(request: NextRequest) {

@@ -12,6 +12,16 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
+# The metrics agent remote servers run (agent/), for both server architectures. Serve copies the
+# right one to each server, so no separate image is published.
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS agent
+ARG SERVE_VERSION=""
+WORKDIR /src
+COPY agent/ ./
+RUN for arch in amd64 arm64; do \
+      CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=${SERVE_VERSION#v}" -o /out/serve-agent-linux-$arch . || exit 1; \
+    done
+
 FROM node:22-alpine AS runner
 # Shown in Settings → Updates; set by the image workflow.
 ARG SERVE_COMMIT=""
@@ -31,6 +41,7 @@ COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
 COPY --from=build /app/dist/worker.cjs ./worker.cjs
+COPY --from=agent /out/ ./dist/agent/
 COPY --from=build /app/drizzle ./drizzle
 # The updater installs these from the new image, so the stack definition always matches the code.
 COPY docker/compose.yml /app/deploy/compose.yml

@@ -14,6 +14,8 @@ export type ServerCardData = {
   status: string;
   services: number;
   running: number;
+  /** Off: the card shows status only, no usage. */
+  metricsEnabled: boolean;
   series: { t: number; cpu: number; memory: number; memoryLimit: number; disk: number | null; diskTotal: number | null }[];
 };
 
@@ -61,22 +63,28 @@ export function ServerCards({ servers }: { servers: ServerCardData[] }) {
                 </p>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-2 px-4 pb-3">
-              <Stat label="CPU" value={last?.cpu ?? null} color="var(--accent)" />
-              <Stat label="Memory" value={pct(last?.memory, last?.memoryLimit)} color={MEMORY} />
-              <Stat label="Disk" value={pct(last?.disk, last?.diskTotal)} />
-            </div>
-            <div className="relative mt-auto h-14 border-t border-line">
-              <AreaChart
-                data={s.series.map((p) => ({ t: p.t, v: pct(p.memory, p.memoryLimit) }))}
-                color={MEMORY}
-                max={100}
-                height={56}
-                format={(v) => `Memory ${v.toFixed(0)}%`}
-                className="absolute inset-0"
-              />
-              <AreaChart data={s.series.map((p) => ({ t: p.t, v: p.cpu }))} max={100} height={56} format={(v) => `CPU ${v.toFixed(0)}%`} className="absolute inset-0" />
-            </div>
+            {s.metricsEnabled ? (
+              <>
+                <div className="grid grid-cols-3 gap-2 px-4 pb-3">
+                  <Stat label="CPU" value={last?.cpu ?? null} color="var(--accent)" />
+                  <Stat label="Memory" value={pct(last?.memory, last?.memoryLimit)} color={MEMORY} />
+                  <Stat label="Disk" value={pct(last?.disk, last?.diskTotal)} />
+                </div>
+                <div className="relative mt-auto h-14 border-t border-line">
+                  <AreaChart
+                    data={s.series.map((p) => ({ t: p.t, v: pct(p.memory, p.memoryLimit) }))}
+                    color={MEMORY}
+                    max={100}
+                    height={56}
+                    format={(v) => `Memory ${v.toFixed(0)}%`}
+                    className="absolute inset-0"
+                  />
+                  <AreaChart data={s.series.map((p) => ({ t: p.t, v: p.cpu }))} max={100} height={56} format={(v) => `CPU ${v.toFixed(0)}%`} className="absolute inset-0" />
+                </div>
+              </>
+            ) : (
+              <p className="mt-auto border-t border-line px-4 py-3 text-xs text-faint">Metrics are off for this server.</p>
+            )}
           </Link>
         );
       })}

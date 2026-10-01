@@ -261,7 +261,8 @@ export async function checkServerResources() {
     if (!org) continue;
     const config = await alertsFor(server.id);
     const keys = { disk: `resource:${server.id}:disk`, memory: `resource:${server.id}:memory`, cpu: `resource:${server.id}:cpu` } as const;
-    if (!config.enabled) {
+    // No samples without metrics: nothing to judge, and old alerts would never clear.
+    if (!config.enabled || !server.metricsEnabled) {
       for (const k of Object.values(keys)) await resolveIncident(k);
       continue;
     }

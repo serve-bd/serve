@@ -316,6 +316,13 @@
       "when": 1790808048539,
       "tag": "0044_tunnel_proxy_ports",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790835595793,
+      "tag": "0045_metrics_agent",
+      "breakpoints": true
     }
   ]
 }

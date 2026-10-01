@@ -214,29 +214,103 @@ export function ValidationCard({ server }: { server: ServerDetails }) {
 
 const count = (value: string, fallback = 1) => Number(value.replace(/\D/g, "").slice(0, 4)) || fallback;
 
-/** How much this server builds at once, and how long it keeps images and metrics. */
-export function BuildsLimitsCard({ serverId, limits }: { serverId: string; limits: { buildConcurrency: number; imageRetention: number; metricsRetentionHours: number } }) {
+/** How much this server builds at once, and how long it keeps images. */
+export function BuildsLimitsCard({ serverId, limits }: { serverId: string; limits: { buildConcurrency: number; imageRetention: number } }) {
   return (
     <SettingsCard
       title="Builds and limits"
-      description="For this server: builds it runs at once, and how long it keeps images and metrics. Max upload size is on the Proxy page."
-      initial={{ builds: String(limits.buildConcurrency), images: String(limits.imageRetention), hours: String(limits.metricsRetentionHours) }}
-      onSave={(v) => updateServer(serverId, { buildConcurrency: count(v.builds), imageRetention: count(v.images), metricsRetentionHours: count(v.hours) })}
+      description="For this server: builds it runs at once, and how many images it keeps. Max upload size is on the Proxy page."
+      initial={{ builds: String(limits.buildConcurrency), images: String(limits.imageRetention) }}
+      onSave={(v) => updateServer(serverId, { buildConcurrency: count(v.builds), imageRetention: count(v.images) })}
     >
       {(v, set) => (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Concurrent builds" description="Builds this server runs at once. More need more CPU and memory; the rest wait.">
             <Input value={v.builds} onChange={(e) => set("builds")(e.target.value.replace(/\D/g, ""))} inputMode="numeric" />
           </Field>
           <Field label="Images kept per service" description="Older images are removed. Each kept one allows an instant rollback.">
             <Input value={v.images} onChange={(e) => set("images")(e.target.value.replace(/\D/g, ""))} inputMode="numeric" />
           </Field>
-          <Field label="Metrics history" description="CPU, memory and request metrics of this server and its services.">
-            <InputGroup suffix="hours">
-              <Input value={v.hours} onChange={(e) => set("hours")(e.target.value.replace(/\D/g, ""))} inputMode="numeric" />
-            </InputGroup>
-          </Field>
         </div>
+      )}
+    </SettingsCard>
+  );
+}
+
+/** How a remote server's metrics reach the dashboard. */
+export type AgentStatus = { kind: "push" | "ssh"; seenAt: string; version: string | null } | { kind: "starting" } | { kind: "error"; message: string } | { kind: "none" };
+
+function AgentLine({ status }: { status: AgentStatus }) {
+  const dot = (tone: string) => <span className={`mt-1.5 size-1.5 flex-none rounded-full ${tone}`} />;
+  return (
+    <p className="flex items-start gap-2 text-xs leading-relaxed text-muted">
+      {status.kind === "push" ? (
+        <>
+          {dot("bg-ok")}
+          <span>
+            The metrics agent{status.version ? ` v${status.version}` : ""} on this server sends samples to the dashboard. Last <TimeAgo date={status.seenAt} />.
+          </span>
+        </>
+      ) : status.kind === "ssh" ? (
+        <>
+          {dot("bg-warn")}
+          <span>
+            The metrics agent cannot reach the dashboard from this server, so its samples are collected over SSH. Last <TimeAgo date={status.seenAt} />. Give the dashboard a domain
+            this server can reach to have them sent directly.
+          </span>
+        </>
+      ) : status.kind === "starting" ? (
+        <>
+          {dot("bg-info")}
+          <span>Starting the metrics agent on this server…</span>
+        </>
+      ) : status.kind === "error" ? (
+        <>
+          {dot("bg-warn")}
+          <span>The metrics agent could not start ({status.message}). Metrics are read over SSH until it does; it is tried again every few minutes.</span>
+        </>
+      ) : (
+        <>
+          {dot("bg-idle")}
+          <span>Metrics are read over SSH.</span>
+        </>
+      )}
+    </p>
+  );
+}
+
+/** Whether this server records metrics, for how long, and (remote) how they arrive. */
+export function MetricsCard({ serverId, enabled, hours, agent }: { serverId: string; enabled: boolean; hours: number; agent: AgentStatus | null }) {
+  return (
+    <SettingsCard
+      title="Metrics"
+      description="CPU, memory and disk of this server and its services, sampled every 30 seconds. Request counts of domains are separate and stay on."
+      initial={{ enabled, hours: String(hours) }}
+      onSave={(v) => updateServer(serverId, v.enabled ? { metricsEnabled: true, metricsRetentionHours: count(v.hours) } : { metricsEnabled: false })}
+    >
+      {(v, set) => (
+        <>
+          <SwitchRow
+            title="Collect metrics"
+            description={
+              v.enabled
+                ? "Charts show on the Metrics pages of this server and of the services on it. Resource alerts use them."
+                : `Nothing is sampled${agent ? " and no agent runs on the server" : ""}. Metrics pages and charts are hidden, and resource alerts (CPU, memory, disk) stop.`
+            }
+            checked={v.enabled}
+            onCheckedChange={set("enabled")}
+          />
+          {v.enabled && (
+            <>
+              <Field label="History" description="Samples older than this are removed. Charts over more than a day show 5-minute averages." className="sm:max-w-xs">
+                <InputGroup suffix="hours">
+                  <Input value={v.hours} onChange={(e) => set("hours")(e.target.value.replace(/\D/g, ""))} inputMode="numeric" />
+                </InputGroup>
+              </Field>
+              {enabled && agent && <AgentLine status={agent} />}
+            </>
+          )}
+        </>
       )}
     </SettingsCard>
   );

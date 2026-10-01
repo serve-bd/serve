@@ -19,3 +19,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Metrics agent
+        working-directory: agent
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          go test ./...

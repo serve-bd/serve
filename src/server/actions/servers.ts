@@ -142,6 +142,7 @@ const serverSchema = z.object({
     .int()
     .min(1, "Keep at least 1 hour")
     .max(24 * 30, "At most 30 days"),
+  metricsEnabled: z.boolean(),
 });
 
 const empty = (v: string | null | undefined) => (v ? v : null);
@@ -300,6 +301,16 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
       }
     }
 
+    if (data.metricsEnabled !== undefined && data.metricsEnabled !== before.metricsEnabled && !before.isLocal && before.status === "ready") {
+      // Start or remove the agent now instead of on the worker's next round; it can take a while.
+      const { ensureMetricsAgent, removeMetricsAgent } = await import("@/server/metrics-agent");
+      void getServer(id)
+        .then(async (c) => {
+          if (data.metricsEnabled) await ensureMetricsAgent(c);
+          else await removeMetricsAgent(c);
+        })
+        .catch(() => {});
+    }
     const connectionChanged = ["host", "port", "username", "privateKeyId", "dataDir"].some((k) => k in data && data[k as keyof typeof data] !== before[k as keyof typeof before]);
     if (connectionChanged && !before.isLocal) await enqueue("server.setup", { serverId: id }, { concurrencyKey: `server:${id}` });
     if (portsChanged && (before.isLocal || before.status === "ready")) {
@@ -399,6 +410,10 @@ export async function deleteServer(id: string) {
       // Take the private network down there while Serve can still reach the server.
       const { teardownMesh } = await import("@/server/mesh");
       await Promise.race([getServer(id).then(teardownMesh), new Promise((r) => setTimeout(r, 30_000))]).catch(() => {});
+    }
+    if (row.agent) {
+      const { removeMetricsAgent } = await import("@/server/metrics-agent");
+      await Promise.race([getServer(id).then(removeMetricsAgent), new Promise((r) => setTimeout(r, 30_000))]).catch(() => {});
     }
     // Its tunnels go too: the connector stops there and the tunnel is deleted on Cloudflare.
     const tunnels = await db.select({ id: schema.cloudflareTunnel.id }).from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serverId, id));

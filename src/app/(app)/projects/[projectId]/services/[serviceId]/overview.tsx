@@ -111,7 +111,7 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
   const _can = useCan();
   const _cannot = useCannot();
   const { data: live } = useSWR<Live>(`/api/services/${service.id}/live`, { refreshInterval: 5000 });
-  const { data: metrics } = useSWR<{ series: Series }>(`/api/metrics?scope=${service.id}&hours=6`, { refreshInterval: 15000 });
+  const { data: metrics } = useSWR<{ series: Series }>(data.metrics ? `/api/metrics?scope=${service.id}&hours=6` : null, { refreshInterval: 15000 });
   const { data: req } = useSWR<Req>(data.domains.length ? `/api/services/${service.id}/requests?hours=24` : null, { refreshInterval: 30000 });
   const _deploy = useAction(() => deployService(service.id), { success: "Deployment queued", onSuccess: (d) => router.push(`${base}/deployments/${d.id}`) });
 
@@ -259,33 +259,42 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
         <Card>
           <CardHeader
             title="Resources"
-            description={`${running.length} of ${expected} ${service.type === "compose" ? "containers" : `replica${expected === 1 ? "" : "s"}`} running · last 6 hours`}
+            description={`${running.length} of ${expected} ${service.type === "compose" ? "containers" : `replica${expected === 1 ? "" : "s"}`} running${data.metrics ? " · last 6 hours" : ""}`}
             actions={
-              <Link href={`${base}/metrics`} className={buttonVariants({ size: "sm", variant: "ghost" })}>
-                Metrics <ChevronRight />
-              </Link>
+              data.metrics ? (
+                <Link href={`${base}/metrics`} className={buttonVariants({ size: "sm", variant: "ghost" })}>
+                  Metrics <ChevronRight />
+                </Link>
+              ) : undefined
             }
           />
-          <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-3">
-            <Stat icon={<Cpu />} label="CPU" value={last ? `${last.cpu.toFixed(1)}%` : "—"} sub={service.cpuLimit ? `Limit ${service.cpuLimit} cores` : "No limit"}>
-              <AreaChart data={series.map((p) => ({ t: p.t, v: p.cpu }))} format={(v) => `${v.toFixed(1)}%`} height={44} />
-            </Stat>
-            <Stat
-              icon={<MemoryStick />}
-              label="Memory"
-              value={last && !memUnknown ? formatBytes(last.memory) : "—"}
-              sub={memUnknown ? "Not reported by Docker on this server" : memLimit ? `of ${formatBytes(memLimit)}` : "No limit"}
-            >
-              {memUnknown ? (
-                <div className="h-[44px]" />
-              ) : (
-                <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" max={memLimit ?? undefined} format={(v) => formatBytes(v)} height={44} />
-              )}
-            </Stat>
-            <Stat icon={<Network />} label="Network in" value={lastRx != null ? `${formatBytes(lastRx)}/s` : "—"} sub={lastTx != null ? `Out ${formatBytes(lastTx)}/s` : undefined}>
-              <AreaChart data={rx} color="var(--ok)" format={(v) => `${formatBytes(v)}/s`} height={44} />
-            </Stat>
-          </div>
+          {data.metrics && (
+            <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-3">
+              <Stat icon={<Cpu />} label="CPU" value={last ? `${last.cpu.toFixed(1)}%` : "—"} sub={service.cpuLimit ? `Limit ${service.cpuLimit} cores` : "No limit"}>
+                <AreaChart data={series.map((p) => ({ t: p.t, v: p.cpu }))} format={(v) => `${v.toFixed(1)}%`} height={44} />
+              </Stat>
+              <Stat
+                icon={<MemoryStick />}
+                label="Memory"
+                value={last && !memUnknown ? formatBytes(last.memory) : "—"}
+                sub={memUnknown ? "Not reported by Docker on this server" : memLimit ? `of ${formatBytes(memLimit)}` : "No limit"}
+              >
+                {memUnknown ? (
+                  <div className="h-[44px]" />
+                ) : (
+                  <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" max={memLimit ?? undefined} format={(v) => formatBytes(v)} height={44} />
+                )}
+              </Stat>
+              <Stat
+                icon={<Network />}
+                label="Network in"
+                value={lastRx != null ? `${formatBytes(lastRx)}/s` : "—"}
+                sub={lastTx != null ? `Out ${formatBytes(lastTx)}/s` : undefined}
+              >
+                <AreaChart data={rx} color="var(--ok)" format={(v) => `${formatBytes(v)}/s`} height={44} />
+              </Stat>
+            </div>
+          )}
           {(live?.containers.length ?? 0) > 0 && (
             <div className="divide-y divide-line border-t border-line">
               {live!.containers.slice(0, 6).map((c) => (

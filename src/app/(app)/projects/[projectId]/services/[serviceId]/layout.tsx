@@ -16,7 +16,13 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
     serviceLive(serviceId),
     serversForOrg(ctx.org.id),
     db
-      .select({ name: schema.server.name, host: schema.server.host, publicIp: schema.server.publicIp, isLocal: schema.server.isLocal })
+      .select({
+        name: schema.server.name,
+        host: schema.server.host,
+        publicIp: schema.server.publicIp,
+        isLocal: schema.server.isLocal,
+        metricsEnabled: schema.server.metricsEnabled,
+      })
       .from(schema.server)
       .where(eq(schema.server.id, service.serverId)),
     serviceIssues([serviceId]),
@@ -60,6 +66,7 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
           environmentId: service.environmentId,
           isPreview: !!service.parentServiceId,
           previews: service.type === "app" && service.source?.type === "git" && !service.parentServiceId && (service.previewsEnabled || previews.length) ? previews.length : null,
+          metrics: server?.metricsEnabled ?? true,
           parent: parent && service.previewPr !== null ? { id: parent.id, name: parent.name, pr: service.previewPr } : null,
           icon: service.icon,
           engine: service.database?.engine ?? null,

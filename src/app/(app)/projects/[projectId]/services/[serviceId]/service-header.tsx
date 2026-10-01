@@ -58,6 +58,8 @@ type Props = {
     previews: number | null;
     /** The app a preview belongs to. */
     parent: { id: string; name: string; pr: number } | null;
+    /** Its server records metrics (CPU, memory). Off: the Metrics tab shows request counts only, or is hidden. */
+    metrics: boolean;
   };
   initialLive: ServiceLive;
   server: { id: string; name: string } | null;
@@ -117,7 +119,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     { href: `${base}/deployments`, label: "Deployments" },
     ...(can("logs.view") ? [{ href: `${base}/logs`, label: "Logs" }] : []),
     ...(can("console.access") ? [{ href: `${base}/console`, label: "Console" }] : []),
-    { href: `${base}/metrics`, label: "Metrics" },
+    ...(service.metrics || service.type !== "database" ? [{ href: `${base}/metrics`, label: "Metrics" }] : []),
     { href: `${base}/variables`, label: "Variables" },
     ...(service.previews !== null ? [{ href: `${base}/previews`, label: "Previews", count: service.previews }] : []),
     ...(service.type !== "database" ? [{ href: `${base}/domains`, label: "Domains & ports" }] : []),

@@ -79,6 +79,8 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
   const monitoring = await monitorSummary(service.id);
   return {
     monitoring,
+    /** Its server records CPU and memory (the Resources charts). */
+    metrics: server.metricsEnabled,
     projectId,
     orgId,
     service: {

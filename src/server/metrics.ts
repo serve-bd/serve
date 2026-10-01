@@ -7,6 +7,9 @@ import { metricsCutoff } from "@/lib/server-limits";
 import { env } from "@/server/env";
 import { getServer, LOCAL_SERVER_ID, type ServerCtx } from "@/server/servers/context";
 import { sh } from "@/server/servers/ssh";
+import { AGENT_FRESH_MS, drainAgent } from "@/server/metrics-agent";
+import { RAW_HOURS } from "@/server/metrics-agent/ingest";
+import { ROLLUP_ABOVE_HOURS } from "@/server/metric-rollups";
 
 type CpuTimes = { idle: number; total: number };
 
@@ -122,9 +125,17 @@ async function remoteSnapshot(ctx: ServerCtx): Promise<ServerSnapshot> {
   };
 }
 
-/** Host CPU, memory and disk of a server (the local one by default). */
+/**
+ * Host CPU, memory and disk of a server (the local one by default). A remote server's agent sends
+ * these every 30 seconds; SSH is asked only when it has not.
+ */
 export async function serverSnapshot(ctx?: ServerCtx): Promise<ServerSnapshot> {
   if (!ctx || ctx.local) return localSnapshot();
+  const [row] = await db.select({ agent: schema.server.agent }).from(schema.server).where(eq(schema.server.id, ctx.id));
+  const snap = row?.agent?.snapshot;
+  if (snap && Date.now() - new Date(snap.at).getTime() < AGENT_FRESH_MS) {
+    return { cpu: snap.cpu, cores: snap.cores, memory: snap.memory, disk: snap.disk, load: snap.load, uptime: snap.uptime };
+  }
   return remoteSnapshot(ctx);
 }
 
@@ -229,23 +240,35 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
- * Collect per-service and server samples on every reachable server. Each server is stored on its
- * own: a slow or unreachable server (a stalled tunnel) neither delays nor drops the others.
+ * Worker job, every 30 seconds. The local server is sampled here. A remote server's agent pushes
+ * its own samples; when it has not for a while (the server cannot reach the dashboard), they are
+ * collected over SSH. A server without an agent is sampled over SSH. Each server is handled on
+ * its own: a slow or unreachable one (a stalled tunnel) neither delays nor drops the others.
  */
 export async function collectMetrics() {
-  const servers = await db.select({ id: schema.server.id, name: schema.server.name, isLocal: schema.server.isLocal, status: schema.server.status }).from(schema.server);
+  const servers = await db
+    .select({ id: schema.server.id, name: schema.server.name, isLocal: schema.server.isLocal, status: schema.server.status, agent: schema.server.agent })
+    .from(schema.server)
+    .where(eq(schema.server.metricsEnabled, true));
   const failures: string[] = [];
   await Promise.all(
     servers
       .filter((s) => (s.isLocal || s.status === "ready") && !collecting.has(s.id))
+      .filter((s) => !(s.agent?.seenAt && Date.now() - new Date(s.agent.seenAt).getTime() < AGENT_FRESH_MS))
       .map(async (s) => {
         collecting.add(s.id);
         const run = getServer(s.id)
-          .then((ctx) => collectFor(ctx))
+          .then(async (ctx) => {
+            if (!ctx.local && s.agent?.image && !s.agent.error) {
+              await drainAgent(ctx);
+              return;
+            }
+            const rows = await collectFor(ctx);
+            if (rows.length) await db.insert(schema.metric).values(rows);
+          })
           .finally(() => collecting.delete(s.id));
         try {
-          const rows = await withTimeout(run, COLLECT_TIMEOUT_MS);
-          if (rows.length) await db.insert(schema.metric).values(rows);
+          await withTimeout(run, COLLECT_TIMEOUT_MS);
         } catch (error) {
           failures.push(`${s.name}: ${(error as Error).message}`);
         }
@@ -256,7 +279,8 @@ export async function collectMetrics() {
 
 /**
  * Each server keeps its own metrics history: its host samples and the samples of the services
- * running on it. Samples of services that no longer exist follow the longest history.
+ * running on it. Raw samples are kept for two days at most; the five-minute averages for the
+ * whole history. Samples of services that no longer exist follow the longest history.
  */
 export async function pruneMetrics() {
   const servers = await db.select({ id: schema.server.id, hours: schema.server.metricsRetentionHours }).from(schema.server);
@@ -264,10 +288,14 @@ export async function pruneMetrics() {
     const onServer = db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.serverId, s.id));
     await db
       .delete(schema.metric)
-      .where(and(lt(schema.metric.createdAt, metricsCutoff(s.hours)), or(eq(schema.metric.scope, serverScope(s.id)), inArray(schema.metric.scope, onServer))));
+      .where(and(lt(schema.metric.createdAt, metricsCutoff(Math.min(s.hours, RAW_HOURS))), or(eq(schema.metric.scope, serverScope(s.id)), inArray(schema.metric.scope, onServer))));
+    await db
+      .delete(schema.metricRollup)
+      .where(and(lt(schema.metricRollup.bucket, metricsCutoff(s.hours)), or(eq(schema.metricRollup.scope, serverScope(s.id)), inArray(schema.metricRollup.scope, onServer))));
   }
   const longest = Math.max(48, ...servers.map((s) => s.hours));
-  await db.delete(schema.metric).where(lt(schema.metric.createdAt, metricsCutoff(longest)));
+  await db.delete(schema.metric).where(lt(schema.metric.createdAt, metricsCutoff(Math.min(longest, RAW_HOURS))));
+  await db.delete(schema.metricRollup).where(lt(schema.metricRollup.bucket, metricsCutoff(longest)));
 }
 
 /** Downsampled series for charts: average per bucket. */
@@ -288,7 +316,8 @@ export async function metricSeries(scope: string, hours = 6, buckets = 72) {
       avg(cpu)::float / 100 AS cpu, avg(memory)::float AS memory, max(memory_limit)::float AS memory_limit,
       max(net_rx)::float AS net_rx, max(net_tx)::float AS net_tx,
       avg(disk)::float AS disk, max(disk_total)::float AS disk_total
-    FROM metric WHERE scope = ${scope} AND created_at >= ${since.toISOString()}::timestamptz
+    FROM ${hours > ROLLUP_ABOVE_HOURS ? dsql`(SELECT scope, bucket AS created_at, cpu, memory, memory_limit, net_rx, net_tx, disk, disk_total FROM metric_rollup) m` : dsql`metric m`}
+    WHERE scope = ${scope} AND created_at >= ${since.toISOString()}::timestamptz
     GROUP BY 1 ORDER BY 1
   `);
   return [...rows].map((r) => ({

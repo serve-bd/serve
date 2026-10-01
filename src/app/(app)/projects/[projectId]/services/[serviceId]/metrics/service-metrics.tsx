@@ -57,9 +57,20 @@ function StatusBars({ series }: { series: Req["series"] }) {
   );
 }
 
-export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { serviceId: string; memoryLimit: number | null; hasDomains: boolean }) {
+export function ServiceMetrics({
+  serviceId,
+  memoryLimit,
+  hasDomains,
+  resources,
+}: {
+  serviceId: string;
+  memoryLimit: number | null;
+  hasDomains: boolean;
+  /** Its server records CPU and memory; off shows request counts only. */
+  resources: boolean;
+}) {
   const [hours, setHours] = React.useState(6);
-  const { data } = useSWR<{ series: Series }>(`/api/metrics?scope=${serviceId}&hours=${hours}`, { refreshInterval: 15000 });
+  const { data } = useSWR<{ series: Series }>(resources ? `/api/metrics?scope=${serviceId}&hours=${hours}` : null, { refreshInterval: 15000 });
   const series = data?.series ?? [];
   const last = series.at(-1);
   const rx = counterRate(series, "netRx");
@@ -118,27 +129,35 @@ export function ServiceMetrics({ serviceId, memoryLimit, hasDomains }: { service
           </div>
         </div>
       )}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Panel title="CPU" value={last ? `${last.cpu.toFixed(1)}%` : "—"}>
-          <AreaChart data={series.map((p) => ({ t: p.t, v: p.cpu }))} format={(v) => `${v.toFixed(1)}%`} height={160} />
-        </Panel>
-        <Panel title="Memory" value={last && !memUnknown ? formatBytes(last.memory) : "—"}>
-          {memUnknown ? (
-            <p className="flex h-[160px] items-center justify-center px-4 text-center text-[13px] text-muted">
-              Docker on this server does not report memory use. This happens when Docker runs inside another container.
-            </p>
-          ) : (
-            <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" max={limit} format={(v) => formatBytes(v)} height={160} />
-          )}
-        </Panel>
-        <Panel title="Network in" value={rx.at(-1)?.v != null ? `${formatBytes(rx.at(-1)!.v!)}/s` : "—"}>
-          <AreaChart data={rx} color="var(--ok)" format={(v) => `${formatBytes(v)}/s`} height={120} />
-        </Panel>
-        <Panel title="Network out" value={tx.at(-1)?.v != null ? `${formatBytes(tx.at(-1)!.v!)}/s` : "—"}>
-          <AreaChart data={tx} color="var(--warn)" format={(v) => `${formatBytes(v)}/s`} height={120} />
-        </Panel>
-      </div>
-      <p className="text-xs text-faint">Sampled every 30 seconds across all containers of this service.</p>
+      {!resources ? (
+        <p className="px-1 text-xs text-muted">
+          Its server does not collect metrics, so CPU, memory and network use are not shown. Admins turn them on in the server&apos;s settings.
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Panel title="CPU" value={last ? `${last.cpu.toFixed(1)}%` : "—"}>
+              <AreaChart data={series.map((p) => ({ t: p.t, v: p.cpu }))} format={(v) => `${v.toFixed(1)}%`} height={160} />
+            </Panel>
+            <Panel title="Memory" value={last && !memUnknown ? formatBytes(last.memory) : "—"}>
+              {memUnknown ? (
+                <p className="flex h-[160px] items-center justify-center px-4 text-center text-[13px] text-muted">
+                  Docker on this server does not report memory use. This happens when Docker runs inside another container.
+                </p>
+              ) : (
+                <AreaChart data={series.map((p) => ({ t: p.t, v: p.memory }))} color="var(--info)" max={limit} format={(v) => formatBytes(v)} height={160} />
+              )}
+            </Panel>
+            <Panel title="Network in" value={rx.at(-1)?.v != null ? `${formatBytes(rx.at(-1)!.v!)}/s` : "—"}>
+              <AreaChart data={rx} color="var(--ok)" format={(v) => `${formatBytes(v)}/s`} height={120} />
+            </Panel>
+            <Panel title="Network out" value={tx.at(-1)?.v != null ? `${formatBytes(tx.at(-1)!.v!)}/s` : "—"}>
+              <AreaChart data={tx} color="var(--warn)" format={(v) => `${formatBytes(v)}/s`} height={120} />
+            </Panel>
+          </div>
+          <p className="text-xs text-faint">Sampled every 30 seconds across all containers of this service.</p>
+        </>
+      )}
     </div>
   );
 }

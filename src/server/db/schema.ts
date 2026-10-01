@@ -259,6 +259,38 @@ export type ServerMesh = {
   syncedAt?: string | null;
 };
 
+/** Latest machine figures a server's metrics agent sent. */
+export type AgentSnapshot = {
+  at: string;
+  cpu: number;
+  cores: number;
+  memory: { total: number; used: number };
+  disk: { total: number; used: number };
+  load: number[];
+  uptime: number;
+};
+
+/** The metrics agent on a remote server (see agent/main.go). */
+export type ServerAgent = {
+  /** Image the agent container runs (serve-agent:<binary hash>). */
+  image: string;
+  /** Dashboard addresses the agent pushes to, comma-separated. */
+  urls?: string;
+  /** SHA-256 of the token the agent sends with its samples. */
+  tokenHash: string;
+  installedAt: string;
+  /** Run of the agent the stored samples came from (a new one each time it starts), and its last stored sample. */
+  boot?: string | null;
+  seq?: number;
+  /** Last time samples arrived, by push or collected over SSH. */
+  seenAt?: string | null;
+  via?: "push" | "ssh" | null;
+  version?: string | null;
+  snapshot?: AgentSnapshot | null;
+  /** Why the agent could not be installed. */
+  error?: string | null;
+};
+
 export type ServerInfo = {
   os?: string;
   kernel?: string;
@@ -304,6 +336,10 @@ export const server = pgTable("server", {
   imageRetention: integer("image_retention").notNull().default(5),
   /** Hours of CPU, memory and request metrics kept for this server and its services. */
   metricsRetentionHours: integer("metrics_retention_hours").notNull().default(48),
+  /** Sample CPU, memory and disk of this server and its services. Off: no agent, no samples, no charts. */
+  metricsEnabled: boolean("metrics_enabled").notNull().default(true),
+  /** Metrics agent of a remote server; null until it is installed (and on the local server). */
+  agent: jsonb("agent").$type<ServerAgent>(),
   /** Reverse proxy running on this server. */
   proxyKind: text("proxy_kind").$type<ProxyKind>().notNull().default("nginx"),
   /** Global settings of each proxy kind (kept for all kinds so switching back restores them). */
@@ -975,6 +1011,26 @@ export const metric = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("metric_scope_idx").on(t.scope, t.createdAt)],
+);
+
+/**
+ * Five-minute averages of `metric`, for history longer than a day: charts over days read far
+ * fewer rows, and raw samples are kept only for the last two days.
+ */
+export const metricRollup = pgTable(
+  "metric_rollup",
+  {
+    scope: text("scope").notNull(),
+    bucket: timestamp("bucket", { withTimezone: true }).notNull(),
+    cpu: integer("cpu").notNull(),
+    memory: bigint("memory", { mode: "number" }).notNull(),
+    memoryLimit: bigint("memory_limit", { mode: "number" }),
+    netRx: bigint("net_rx", { mode: "number" }),
+    netTx: bigint("net_tx", { mode: "number" }),
+    disk: bigint("disk", { mode: "number" }),
+    diskTotal: bigint("disk_total", { mode: "number" }),
+  },
+  (t) => [primaryKey({ columns: [t.scope, t.bucket] })],
 );
 
 /** Requests per hostname per minute, aggregated from the proxy access log. */

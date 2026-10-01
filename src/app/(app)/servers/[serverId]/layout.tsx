@@ -66,7 +66,7 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
                     title: "Server",
                     items: [
                       { href: base, label: "General", icon: "Settings2", exact: true },
-                      { href: `${base}/metrics`, label: "Metrics", icon: "Activity" },
+                      ...(row.metricsEnabled ? [{ href: `${base}/metrics`, label: "Metrics", icon: "Activity" as const }] : []),
                     ],
                   },
                 ]
@@ -91,7 +91,7 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
                     items: [
                       { href: `${base}/terminal`, label: "Terminal", icon: "SquareTerminal" },
                       { href: `${base}/cleanup`, label: "Docker cleanup", icon: "Brush", warn: !!health && health.diskPercent >= settings.cleanupDiskThreshold },
-                      { href: `${base}/metrics`, label: "Metrics", icon: "Activity" },
+                      ...(row.metricsEnabled ? [{ href: `${base}/metrics`, label: "Metrics", icon: "Activity" as const }] : []),
                       { href: `${base}/alerts`, label: "Alerts", icon: "BellRing", warn: openAlerts.length > 0 },
                     ],
                   },

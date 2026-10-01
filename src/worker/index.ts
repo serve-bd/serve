@@ -19,6 +19,8 @@ import { destroyService, restartService, startService, stopService } from "@/ser
 import { issueCertificate, renewDueCertificates } from "@/server/ssl/certificates";
 import { backupFile, importBackup, restoreBackup, runBackup } from "@/server/backups";
 import { collectMetrics } from "@/server/metrics";
+import { syncMetricsAgents } from "@/server/metrics-agent";
+import { rollupRecent } from "@/server/metric-rollups";
 import { getSettings, updateSettings } from "@/server/settings";
 import { notify, orgOfService } from "@/server/notify";
 import { runTask, scheduleTasks } from "@/server/services/tasks";
@@ -462,6 +464,8 @@ async function main() {
     true,
   );
   every(30_000, "metrics", collectMetrics, true);
+  every(60_000, "metrics-agents", syncMetricsAgents, true);
+  every(5 * 60_000, "metric-rollups", rollupRecent, true);
   every(60_000, "backups", scheduleBackups);
   every(60_000, "instance-backups", () => scheduleInstanceBackups((backupId) => enqueue("instance.backup", { backupId }, { concurrencyKey: "instance-backup" })));
   every(15_000, "update-status", reconcileUpdate, true);

@@ -7,6 +7,7 @@
     "dev:worker": "tsx watch --clear-screen=false src/worker/index.ts",
     "build": "next build && pnpm build:worker",
     "build:worker": "esbuild src/worker/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/worker.cjs --external:cpu-features --external:*.node --log-level=warning",
+    "build:agent": "cd agent && for arch in amd64 arm64; do CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags \"-s -w -X main.version=dev\" -o ../dist/agent/serve-agent-linux-$arch . || exit 1; done",
     "start": "next start",
     "worker": "node dist/worker.cjs",
     "lint": "biome check .",

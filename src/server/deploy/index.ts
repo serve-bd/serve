@@ -876,6 +876,14 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
     server,
   );
   line(`${engine.label} is ready`);
+  // The public port's allowlist (or its removal) in the server's firewall.
+  if (cfg.publicPort || cfg.publicAllow?.length) {
+    const { applyDatabaseAllowlists } = await import("@/server/databases/allowlist");
+    await applyDatabaseAllowlists(server.id).then(
+      () => cfg.publicAllow?.length && cfg.publicPort && cfg.publicBind !== "127.0.0.1" && line(`Port ${cfg.publicPort} accepts only ${cfg.publicAllow.join(", ")}`),
+      (e: Error) => line(`Warning: the allowlist was not applied: ${e.message}`),
+    );
+  }
   await setServiceStatus(service.id, "running");
   await meshAfterStart(server.id, line);
 }

@@ -2,12 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ChevronRight, GitBranch, Globe, Lock } from "lucide-react";
+import { ChevronRight, GitBranch, Globe, Lock, Plus } from "lucide-react";
 import { cn, formatBytes } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { StatusDot } from "@/components/ui/status";
@@ -29,6 +29,10 @@ export function DatabaseOverview(props: {
   host: string;
   publicPort: number | null;
   publicBind: "0.0.0.0" | "127.0.0.1";
+  /** Addresses allowed to reach the public port; empty: everyone. */
+  publicAllow: string[];
+  /** The viewer's own address, offered for the allowlist. */
+  viewerIp?: string | null;
   /** "address:port" the public port answers on, when enabled. */
   publicAddress: string | null;
   /** Uptime card: full width under the main cards once set up, else small in the side column. */
@@ -46,15 +50,23 @@ export function DatabaseOverview(props: {
   const [publicOn, setPublicOn] = React.useState(!!props.publicPort);
   const [port, setPort] = React.useState(String(props.publicPort ?? props.engine.port + 10000));
   const [bind, setBind] = React.useState(props.publicBind);
+  const [allow, setAllow] = React.useState(props.publicAllow.join("\n"));
+  const allowList = allow
+    .split(/[\s,]+/)
+    .map((a) => a.trim())
+    .filter(Boolean);
   const apply = useAction(
     async () => {
-      const res = await updateService(props.serviceId, { database: { publicPort: publicOn ? Number(port) : null, publicBind: bind } });
+      const res = await updateService(props.serviceId, { database: { publicPort: publicOn ? Number(port) : null, publicBind: bind, publicAllow: allowList } });
       if (!res.ok) return res;
       return applyDatabaseChanges(props.serviceId);
     },
     { success: "Applying changes. The database restarts briefly." },
   );
-  const changed = (publicOn ? Number(port) : null) !== props.publicPort || (publicOn && bind !== props.publicBind);
+  const changed =
+    (publicOn ? Number(port) : null) !== props.publicPort ||
+    (publicOn && bind !== props.publicBind) ||
+    (publicOn && bind === "0.0.0.0" && allowList.join(",") !== props.publicAllow.join(","));
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -120,11 +132,39 @@ export function DatabaseOverview(props: {
                     />
                   </Field>
                 </div>
-                <p className="text-[12.5px] leading-relaxed text-muted">
-                  {bind === "127.0.0.1"
-                    ? "Connect at localhost on the server, or through an SSH tunnel from your laptop."
-                    : "Use a high, non-standard port and a strong password. Restrict access with a firewall when possible."}
-                </p>
+                {bind === "127.0.0.1" ? (
+                  <p className="text-[12.5px] leading-relaxed text-muted">Connect at localhost on the server, or through an SSH tunnel from your laptop.</p>
+                ) : (
+                  <Field
+                    label="Allowed IPs"
+                    description={
+                      allowList.length
+                        ? "Only these addresses can connect. The server's firewall drops everyone else, even past ufw."
+                        : "Empty: anyone can connect, with the password. Add addresses or ranges (203.0.113.7, 10.0.0.0/8) to let only them in."
+                    }
+                  >
+                    <Textarea
+                      value={allow}
+                      onChange={(e) => setAllow(e.target.value)}
+                      rows={3}
+                      spellCheck={false}
+                      placeholder={"203.0.113.7\n198.51.100.0/24"}
+                      className="font-mono text-[12.5px]"
+                      disabled={props.canManage === false}
+                    />
+                    {props.viewerIp && !allowList.includes(props.viewerIp) && props.canManage !== false && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-1.5 self-start"
+                        onClick={() => setAllow((a) => (a.trim() ? `${a.trim()}\n` : "") + props.viewerIp)}
+                      >
+                        <Plus /> Add my IP ({props.viewerIp})
+                      </Button>
+                    )}
+                  </Field>
+                )}
                 {props.publicUrl && !changed && (
                   <Field label={`Public connection URL · ${props.publicAddress}`}>
                     <SecretField value={props.publicUrl} hidden={props.hideSecrets} shape={props.publicUrl} />

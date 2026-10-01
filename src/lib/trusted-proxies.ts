@@ -139,22 +139,22 @@ function formatAddress(version: 4 | 6, bits: bigint) {
 const format = (r: Parsed) => `${formatAddress(r.version, r.bits)}/${r.prefix}`;
 
 /** A trusted range in canonical form (network address, explicit prefix), or why it cannot be trusted. */
-export function normalizeTrustedRange(input: string): { range: string } | { error: string } {
+export function normalizeTrustedRange(input: string, opts: { anyWidth?: boolean } = {}): { range: string } | { error: string } {
   const value = input.trim();
   const r = parseRange(value);
   if (!r) return { error: `${value} is not an IP address or CIDR range (like 203.0.113.0/24 or 2001:db8::/32).` };
-  if (r.prefix < MIN_PREFIX[r.version]) {
+  if (!opts.anyWidth && r.prefix < MIN_PREFIX[r.version]) {
     return { error: `${value} is too wide. Visitors could fake their IP. Use a range of /${MIN_PREFIX[r.version]} or narrower.` };
   }
   return { range: format(r) };
 }
 
 /** Normalized, de-duplicated ranges from a list (blank lines ignored), or the first problem. */
-export function normalizeTrustedRanges(list: string[]): { ranges: string[] } | { error: string } {
+export function normalizeTrustedRanges(list: string[], opts: { anyWidth?: boolean } = {}): { ranges: string[] } | { error: string } {
   const out: string[] = [];
   for (const line of list) {
     if (!line.trim()) continue;
-    const r = normalizeTrustedRange(line);
+    const r = normalizeTrustedRange(line, opts);
     if ("error" in r) return r;
     if (!out.includes(r.range)) out.push(r.range);
   }

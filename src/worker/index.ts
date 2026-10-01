@@ -522,6 +522,7 @@ async function main() {
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
   every(5 * 60_000, "cleanup", scheduleCleanup, true);
   // Databases on domains: routes, certificates picked up after renewal, and containers that moved.
+  every(5 * 60_000, "db-allowlists", async () => (await import("@/server/databases/allowlist")).syncDatabaseAllowlists(), true);
   every(5 * 60_000, "db-tunnels", async () => (await import("@/server/cloudflare/tunnels")).reattachDatabaseTunnels(), true);
   every(5 * 60_000, "proxy-health", checkProxies, true);
   // Servers that trust Cloudflare's proxy follow its published ranges; a failed fetch keeps the last list.

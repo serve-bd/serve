@@ -2,6 +2,7 @@
 
 import { and, isNotNull, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
+import { normalizeTrustedRanges } from "@/lib/trusted-proxies";
 import { act, UserError } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { db, schema, sql } from "@/server/db";
@@ -587,6 +588,7 @@ const updateSchema = z.object({
       version: z.string(),
       publicPort: z.number().int().min(1024).max(65535).nullable(),
       publicBind: z.enum(["0.0.0.0", "127.0.0.1"]).optional(),
+      publicAllow: z.array(z.string().max(100)).max(200).nullable(),
       backupSchedule: z.string().nullable(),
       backupRetention: z.number().int().min(1).max(365),
       backupRetentionS3: z.number().int().min(1).max(3650).nullable(),
@@ -757,6 +759,11 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
           .from(schema.s3Destination)
           .where(and(eq(schema.s3Destination.id, data.database.s3DestinationId), eq(schema.s3Destination.organizationId, ctx.org.id)));
         if (!dest) throw new UserError("Backup storage not found.");
+      }
+      if (data.database.publicAllow) {
+        const r = normalizeTrustedRanges(data.database.publicAllow, { anyWidth: true });
+        if ("error" in r) throw new UserError(r.error);
+        data.database.publicAllow = r.ranges.length ? r.ranges : null;
       }
       patch.database = { ...service.database, ...data.database };
     }

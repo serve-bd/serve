@@ -1,4 +1,7 @@
+import { headers } from "next/headers";
 import { and, asc, eq } from "drizzle-orm";
+import { dashboardVisitorIp } from "@/server/proxy/trusted-proxies";
+import { inRanges } from "@/lib/trusted-proxies";
 import { certificateCovers } from "@/server/ssl/match";
 import { tunnelTargetPort } from "@/lib/database-domains";
 import { requireOrg } from "@/server/auth";
@@ -69,6 +72,8 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           certificate: domainCert ? { status: domainCert.status, error: domainCert.error } : null,
           engineLabel: engine.label,
         };
+    // Offered for the public port's allowlist (not on a dashboard opened at localhost).
+    const viewerIp = await dashboardVisitorIp(await headers());
     const branches = service.parentServiceId
       ? []
       : await db
@@ -88,6 +93,8 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           host={privateHost(service)}
           publicPort={cfg.publicPort ?? null}
           publicBind={cfg.publicBind ?? "0.0.0.0"}
+          publicAllow={cfg.publicAllow ?? []}
+          viewerIp={viewerIp && !inRanges(viewerIp, ["127.0.0.0/8", "::1/128"]) ? viewerIp : null}
           publicAddress={published?.label ?? null}
           name={service.name}
           hideSecrets={hideSecrets}

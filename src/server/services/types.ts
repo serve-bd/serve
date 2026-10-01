@@ -253,13 +253,18 @@ export type DatabaseConfig = {
   /** Interface the public port binds to; undefined means every interface. */
   publicBind?: BindAddress;
   /**
-   * A domain clients reach the database on (db.example.com), through the server's database
-   * router on the engine's usual port, over TLS. PostgreSQL, MongoDB, Redis, Valkey and ClickHouse.
+   * Only these addresses or CIDR ranges may connect to the public port (the server's firewall
+   * drops everyone else). Empty or missing: everyone.
+   */
+  publicAllow?: string[] | null;
+  /**
+   * A domain clients reach the database on (db.example.com): its public port, over TLS with a
+   * certificate for the domain.
    */
   domain?: string | null;
   /**
-   * Serve the domain through this Cloudflare Tunnel (TCP) instead of the server's router: for
-   * servers without a public IP. Clients run `cloudflared access tcp`. Works for every engine.
+   * Serve the domain through this Cloudflare Tunnel (TCP) instead of a public port: for servers
+   * without a public IP. Clients run `cloudflared access tcp`. Works for every engine.
    */
   domainTunnelId?: string | null;
   /** Cron expression for automatic backups. */

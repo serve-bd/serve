@@ -2,21 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import {
-  AlertTriangle,
-  ChevronRight,
-  Cloud,
-  FileKey2,
-  MoreHorizontal,
-  Plus,
-  RefreshCw,
-  ScrollText,
-  ShieldAlert,
-  ShieldCheck,
-  Server as ServerIcon,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { AlertTriangle, ChevronRight, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldCheck, Server as ServerIcon, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, Copyable, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
@@ -33,6 +19,7 @@ import { explainCertError } from "@/lib/cert-errors";
 import { useAction } from "@/hooks/use-action";
 import { certificateLogs, deleteCertificate, renewCertificate, requestCertificate, setCertificateAutoRenew, uploadCertificate } from "@/server/actions/certificates";
 import { cn } from "@/lib/utils";
+import { PageBody, PageHeader } from "@/components/shell/page-header";
 
 type Cert = {
   id: string;
@@ -52,11 +39,18 @@ type Cert = {
 };
 
 const providerLabel: Record<string, string> = {
-  "letsencrypt-http": "Let's Encrypt · HTTP",
-  "letsencrypt-cloudflare": "Let's Encrypt · Cloudflare DNS",
+  "letsencrypt-http": "Let's Encrypt",
+  "letsencrypt-cloudflare": "Let's Encrypt via Cloudflare DNS",
   "cloudflare-origin": "Cloudflare Origin CA",
   custom: "Uploaded",
 };
+
+/** "Expires in 87 days", or in years for long-lived certificates like Cloudflare Origin ones. */
+function expiresText(days: number) {
+  if (days < 0) return "Expired";
+  if (days >= 730) return `Expires in ${Math.floor(days / 365)} years`;
+  return `Expires in ${days} day${days === 1 ? "" : "s"}`;
+}
 
 function daysLeft(iso: string | null) {
   if (!iso) return null;
@@ -266,28 +260,13 @@ function CertificateRow({
   const problem = failed && c.lastError ? explainCertError(c.lastError, { serverIp: c.serverIp ?? serverIp, provider: c.provider }) : null;
 
   return (
-    <div className="flex flex-col gap-3 px-5 py-4">
-      <div className="flex items-start gap-3.5">
-        <span
-          className={cn(
-            "mt-0.5 flex size-9 flex-none items-center justify-center rounded-[10px] border",
-            failed ? "border-bad/20 bg-bad-soft text-bad" : "border-line bg-surface-2 text-fg-2",
-          )}
-        >
-          {failed ? (
-            <ShieldAlert className="size-4" />
-          ) : c.provider === "custom" ? (
-            <FileKey2 className="size-4" />
-          ) : c.provider.includes("cloudflare") ? (
-            <Cloud className="size-4 text-[#f38020]" />
-          ) : (
-            <ShieldCheck className="size-4 text-ok" />
-          )}
-        </span>
+    <div className="flex flex-col gap-3 px-4 py-3.5 sm:px-5">
+      <div className="flex items-start gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
             <span className="truncate text-[14px] font-medium text-fg">{c.name}</span>
-            <StatusLabel status={c.status} kind="certificate" className="text-xs" />
+            {/* Active is the normal state; only other states get a label. */}
+            {c.status !== "active" && <StatusLabel status={c.status} kind="certificate" className="text-xs" />}
           </div>
           {/* A certificate named after its only domain would show it twice. */}
           {!(c.domains.length === 1 && c.domains[0] === c.name) && (
@@ -314,7 +293,7 @@ function CertificateRow({
             {days !== null && !failed && (
               <>
                 <span className="text-faint">·</span>
-                <span className={cn(days < 0 ? "text-bad" : days < 14 ? "text-warn" : undefined)}>{days < 0 ? "Expired" : `Expires in ${days} day${days === 1 ? "" : "s"}`}</span>
+                <span className={cn(days < 0 ? "text-bad" : days < 14 ? "text-warn" : undefined)}>{expiresText(days)}</span>
               </>
             )}
           </div>
@@ -427,68 +406,71 @@ export function CertificatesView({
   const remove = useAction(deleteCertificate, { success: "Certificate deleted" });
 
   return (
-    <div className="flex flex-col gap-4">
-      {proxyManaged.length > 0 && (
-        <p className="flex items-start gap-2 rounded-xl bg-info-soft px-4 py-2.5 text-[13px] text-fg-2">
-          <ShieldCheck className="mt-0.5 size-4 flex-none text-info" />
-          <span>
-            {proxyManaged.map((s) => `${s.name} (${s.proxy})`).join(", ")} {proxyManaged.length === 1 ? "gets" : "get"} HTTPS certificates from the proxy itself. They are managed
-            by the proxy, renew automatically and are not listed here.
-          </span>
-        </p>
-      )}
-      {staging && (
-        <p className="flex items-center gap-2 rounded-xl bg-warn-soft px-4 py-2.5 text-[13px] text-warn">
-          <AlertTriangle className="size-4" /> Let&apos;s Encrypt staging is on. New certificates will not be trusted by browsers.
-        </p>
-      )}
-      <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <p className="text-[13px] text-muted">
-            {certificates.length} certificate{certificates.length === 1 ? "" : "s"}
-          </p>
-          {isAdmin && (
+    <>
+      <PageHeader
+        title="Certificates"
+        description="TLS certificates for your domains. Let's Encrypt certificates renew automatically 30 days before they expire."
+        actions={
+          isAdmin && (
             <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
               <Plus /> Add certificate
             </Button>
-          )}
-        </div>
-        {certificates.length === 0 ? (
-          <EmptyState
-            icon={<ShieldCheck />}
-            title="No certificates yet"
-            description="Certificates are requested automatically when you add an HTTPS domain. You can also request wildcard or origin certificates here."
-          />
-        ) : (
-          <div className="divide-y divide-line">
-            {certificates.map((c) => (
-              <CertificateRow
-                key={c.id}
-                cert={c}
-                isAdmin={isAdmin}
-                serverIp={serverIp}
-                onRenew={() => renew.run(c.id)}
-                onLogs={() => setLogsFor(c.id)}
-                onUpload={() => setOpen(true)}
-                onAutoRenew={(on) => auto.run(c.id, on)}
-                onDelete={async () => {
-                  if (
-                    await confirm({
-                      title: `Delete ${c.name}?`,
-                      description: "Domains using it fall back to HTTP until another certificate covers them.",
-                      confirmLabel: "Delete certificate",
-                      danger: true,
-                    })
-                  )
-                    remove.run(c.id);
-                }}
-              />
-            ))}
-          </div>
+          )
+        }
+      />
+      <PageBody className="flex flex-col gap-4">
+        {proxyManaged.length > 0 && (
+          <p className="flex items-start gap-2 rounded-xl bg-info-soft px-4 py-2.5 text-[13px] text-fg-2">
+            <ShieldCheck className="mt-0.5 size-4 flex-none text-info" />
+            <span>
+              {proxyManaged.map((s) => `${s.name} (${s.proxy})`).join(", ")} {proxyManaged.length === 1 ? "gets" : "get"} HTTPS certificates from the proxy itself. They are managed
+              by the proxy, renew automatically and are not listed here.
+            </span>
+          </p>
         )}
-      </Card>
-      <RequestDialog open={open} onOpenChange={setOpen} accounts={accounts} hasAcme={hasAcme} servers={servers} />
-      <LogsDialog certId={logsFor} onClose={() => setLogsFor(null)} />
-    </div>
+        {staging && (
+          <p className="flex items-center gap-2 rounded-xl bg-warn-soft px-4 py-2.5 text-[13px] text-warn">
+            <AlertTriangle className="size-4" /> Let&apos;s Encrypt staging is on. New certificates will not be trusted by browsers.
+          </p>
+        )}
+        <Card className="overflow-hidden">
+          {certificates.length === 0 ? (
+            <EmptyState
+              icon={<ShieldCheck />}
+              title="No certificates yet"
+              description="Certificates are requested automatically when you add an HTTPS domain. You can also request wildcard or origin certificates here."
+            />
+          ) : (
+            <div className="divide-y divide-line">
+              {certificates.map((c) => (
+                <CertificateRow
+                  key={c.id}
+                  cert={c}
+                  isAdmin={isAdmin}
+                  serverIp={serverIp}
+                  onRenew={() => renew.run(c.id)}
+                  onLogs={() => setLogsFor(c.id)}
+                  onUpload={() => setOpen(true)}
+                  onAutoRenew={(on) => auto.run(c.id, on)}
+                  onDelete={async () => {
+                    if (
+                      await confirm({
+                        title: `Delete ${c.name}?`,
+                        description: "Domains using it fall back to HTTP until another certificate covers them.",
+                        confirmLabel: "Delete certificate",
+                        danger: true,
+                      })
+                    )
+                      remove.run(c.id);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </Card>
+        <RequestDialog open={open} onOpenChange={setOpen} accounts={accounts} hasAcme={hasAcme} servers={servers} />
+        <LogsDialog certId={logsFor} onClose={() => setLogsFor(null)} />
+      </PageBody>
+    </>
   );
 }

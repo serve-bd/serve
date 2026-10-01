@@ -45,8 +45,9 @@ export function MenuItem({ className, danger, ...props }: React.ComponentProps<t
   );
 }
 
-export function MenuLinkItem({ className, ...props }: React.ComponentProps<typeof BaseMenu.LinkItem>) {
-  return <BaseMenu.LinkItem className={cn(itemClass, className as string)} {...props} />;
+/** A link in a menu. Closes the menu when followed, like other items (Base UI keeps it open by default). */
+export function MenuLinkItem({ className, closeOnClick = true, ...props }: React.ComponentProps<typeof BaseMenu.LinkItem>) {
+  return <BaseMenu.LinkItem className={cn(itemClass, className as string)} closeOnClick={closeOnClick} {...props} />;
 }
 
 export function MenuSeparator() {

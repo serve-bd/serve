@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useSearchParams } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
-import { AlertTriangle, ArrowUpRight, Check, ChevronDown, ChevronRight, FolderGit2, KeyRound, Plus, Settings2, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, ChevronDown, ChevronRight, FolderGit2, KeyRound, Plus, Settings2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardBody, CardHeader, CopyField, TimeAgo } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -367,36 +367,39 @@ export function GitProviders({
               <CardHeader title="GitHub" description="Repositories are read through the GitHub App. Push and pull request events arrive automatically." />
               <div className="divide-y divide-line">
                 {apps.map((c) => (
-                  <div key={c.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
-                    <span className="flex size-9 items-center justify-center rounded-[10px] bg-fg text-bg">
+                  <div key={c.id} className="flex items-center gap-3 px-4 py-3.5 sm:px-5">
+                    <span className="flex size-9 flex-none items-center justify-center rounded-[10px] bg-fg text-bg">
                       <GithubMark className="size-4" />
                     </span>
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="flex items-center gap-2 text-[14px] font-medium text-fg">
-                        {c.app?.account ?? c.name}
-                        {c.app?.installed ? (
-                          <Badge tone="ok">
-                            <Check /> Installed
-                          </Badge>
-                        ) : (
-                          <Badge tone="warn">Not installed</Badge>
-                        )}
+                      <span className="flex min-w-0 items-center gap-2 text-[14px] font-medium text-fg">
+                        <span className="truncate">{c.app?.account ?? c.name}</span>
+                        {/* Installed is the normal state; only a missing installation gets a label. */}
+                        {!c.app?.installed && <Badge tone="warn">Not installed</Badge>}
                       </span>
-                      <span className="text-xs text-muted">
+                      <span className="truncate text-xs text-muted">
                         App <span className="font-mono">{c.app?.slug}</span> · added <TimeAgo date={c.createdAt} />
                       </span>
                     </div>
                     {isAdmin && (
                       <>
-                        <Button size="sm" variant={c.app?.installed ? "secondary" : "primary"} onClick={() => configure.run(c.id)} loading={configure.pending}>
-                          <Settings2 /> {c.app?.installed ? "Repository access" : "Finish installation"}
+                        <Button
+                          size="sm"
+                          variant={c.app?.installed ? "secondary" : "primary"}
+                          title={c.app?.installed ? "Repository access" : "Finish installation"}
+                          className="flex-none"
+                          onClick={() => configure.run(c.id)}
+                          loading={configure.pending}
+                        >
+                          <Settings2 /> <span className="hidden sm:inline">{c.app?.installed ? "Repository access" : "Finish installation"}</span>
                         </Button>
                         <a
                           href={c.app?.settingsUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="rounded-lg p-2 text-muted hover:bg-hover hover:text-fg"
+                          className="flex-none rounded-lg p-2 text-muted hover:bg-hover hover:text-fg"
                           aria-label="App settings on GitHub"
+                          title="App settings on GitHub"
                         >
                           <ArrowUpRight className="size-4" />
                         </a>
@@ -433,8 +436,8 @@ export function GitProviders({
               <CardHeader title="Tokens and keys" />
               <div className="divide-y divide-line">
                 {others.map((c) => (
-                  <div key={c.id} className="flex items-center gap-3 px-5 py-3.5">
-                    <span className="flex size-9 items-center justify-center rounded-[10px] border border-line bg-surface-2">
+                  <div key={c.id} className="flex items-center gap-3 px-4 py-3.5 sm:px-5">
+                    <span className="flex size-9 flex-none items-center justify-center rounded-[10px] border border-line bg-surface-2">
                       {c.provider === "ssh" ? <KeyRound className="size-4 text-fg-2" /> : <FolderGit2 className="size-4 text-fg-2" />}
                     </span>
                     <div className="flex min-w-0 flex-1 flex-col">

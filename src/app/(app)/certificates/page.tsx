@@ -4,7 +4,6 @@ import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { certificatesWithServers } from "@/server/ssl/certificates";
 import { serversForOrg } from "@/server/servers/access";
-import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { CertificatesView } from "./certificates-view";
 
 export const metadata = { title: "Certificates" };
@@ -24,35 +23,30 @@ export default async function CertificatesPage() {
   const ipOf = new Map(servers.map((s) => [s.id, s.publicIp]));
   const showServers = servers.length > 1;
   return (
-    <>
-      <PageHeader title="Certificates" description="TLS certificates for your domains. Let's Encrypt certificates renew automatically 30 days before they expire." />
-      <PageBody>
-        <CertificatesView
-          isAdmin={ctx.isAdmin}
-          hasAcme={!!settings.acmeEmail}
-          staging={settings.acmeStaging}
-          proxyManaged={servers
-            .filter((s) => s.proxyKind !== "nginx" && orgServers.some((o) => o.id === s.id))
-            .map((s) => ({ name: s.name, proxy: s.proxyKind === "caddy" ? "Caddy" : "Traefik" }))}
-          serverIp={ipOf.get("local") ?? settings.serverIp}
-          servers={orgServers}
-          accounts={accounts}
-          certificates={rows.map(({ certificate: c, serverName }) => ({
-            id: c.id,
-            server: showServers ? serverName : null,
-            serverIp: ipOf.get(c.serverId) ?? null,
-            name: c.name,
-            domains: c.domains,
-            provider: c.provider,
-            status: c.status,
-            issuer: c.issuer,
-            expiresAt: c.expiresAt?.toISOString() ?? null,
-            autoRenew: c.autoRenew,
-            lastError: c.lastError,
-            createdAt: c.createdAt.toISOString(),
-          }))}
-        />
-      </PageBody>
-    </>
+    <CertificatesView
+      isAdmin={ctx.isAdmin}
+      hasAcme={!!settings.acmeEmail}
+      staging={settings.acmeStaging}
+      proxyManaged={servers
+        .filter((s) => s.proxyKind !== "nginx" && orgServers.some((o) => o.id === s.id))
+        .map((s) => ({ name: s.name, proxy: s.proxyKind === "caddy" ? "Caddy" : "Traefik" }))}
+      serverIp={ipOf.get("local") ?? settings.serverIp}
+      servers={orgServers}
+      accounts={accounts}
+      certificates={rows.map(({ certificate: c, serverName }) => ({
+        id: c.id,
+        server: showServers ? serverName : null,
+        serverIp: ipOf.get(c.serverId) ?? null,
+        name: c.name,
+        domains: c.domains,
+        provider: c.provider,
+        status: c.status,
+        issuer: c.issuer,
+        expiresAt: c.expiresAt?.toISOString() ?? null,
+        autoRenew: c.autoRenew,
+        lastError: c.lastError,
+        createdAt: c.createdAt.toISOString(),
+      }))}
+    />
   );
 }

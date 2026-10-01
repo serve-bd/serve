@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Boxes, Container, MoreHorizontal, Pencil, Plus, Trash2, Zap } from "lucide-react";
+import { Container, MoreHorizontal, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Card, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -82,16 +82,16 @@ export function Registries({ registries, isAdmin }: { registries: RegistryItem[]
                 <div className="flex items-start gap-3.5 p-5">
                   <Mark kind={r.kind} />
                   <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <h3 className="truncate text-[15px] font-semibold text-fg">{r.name}</h3>
-                      <Badge>{registryPresets[r.kind].label}</Badge>
-                    </div>
-                    <p className="mt-0.5 truncate font-mono text-xs text-muted">{r.host}</p>
+                    <h3 className="truncate text-[15px] font-semibold text-fg">{r.name}</h3>
+                    <p className="mt-0.5 truncate text-xs text-muted">
+                      {registryPresets[r.kind].label} · <span className="font-mono">{r.host}</span>
+                    </p>
                   </div>
                   <div className="flex flex-none items-center gap-1">
                     <Button
                       size="sm"
                       variant="ghost"
+                      title="Test the login"
                       loading={testing === r.id}
                       onClick={async () => {
                         setTesting(r.id);
@@ -99,7 +99,7 @@ export function Registries({ registries, isAdmin }: { registries: RegistryItem[]
                         setTesting(null);
                       }}
                     >
-                      <Zap /> Test
+                      <Zap /> <span className="hidden sm:inline">Test</span>
                     </Button>
                     {isAdmin && (
                       <Menu>
@@ -149,7 +149,6 @@ export function Registries({ registries, isAdmin }: { registries: RegistryItem[]
                   </div>
                 </dl>
                 <div className="mt-auto flex min-w-0 flex-wrap items-center gap-1.5 border-t border-line px-5 py-3 text-xs text-muted">
-                  <Boxes className="size-3.5 flex-none text-faint" />
                   {r.services.length ? (
                     <>
                       <span className="mr-0.5">Used by</span>

@@ -169,7 +169,7 @@ export function SharedVariables({
             title={text.title}
             description={text.description}
             actions={
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
                 {scope !== "org" && (
                   <>
                     <Select
@@ -180,7 +180,7 @@ export function SharedVariables({
                         value: p.id,
                         label: p.name,
                       }))}
-                      className="w-40"
+                      className="min-w-0 flex-1 sm:w-40 sm:flex-none"
                     />
                     {scope === "environment" && environment && (
                       <Select
@@ -191,14 +191,16 @@ export function SharedVariables({
                           value: e.name,
                           label: e.name,
                         }))}
-                        className="w-36"
+                        className="min-w-0 flex-1 sm:w-36 sm:flex-none"
                       />
                     )}
                   </>
                 )}
                 {canEdit && target && (
-                  <Button size="sm" variant="secondary" onClick={toggleRaw}>
-                    {raw === null ? <Code2 /> : <Table2 />} {raw === null ? "Raw editor" : "Table view"}
+                  <Button size="sm" variant="secondary" className="flex-none" title={raw === null ? "Raw editor" : "Table view"} onClick={toggleRaw}>
+                    {raw === null ? <Code2 /> : <Table2 />}
+                    {/* Beside the pickers on phones there is only room for the icon. */}
+                    <span className={scope === "org" ? undefined : "hidden sm:inline"}>{raw === null ? "Raw editor" : "Table view"}</span>
                   </Button>
                 )}
               </div>

@@ -24,7 +24,6 @@ export type JobType =
   | "environment.copy-data"
   | "preview.database"
   | "database.branch"
-  | "dbrouter.sync"
   | "mesh.sync"
   | "tunnel.sync";
 
@@ -50,7 +49,6 @@ export type JobPayloads = {
   "instance.update": { to: string };
   "notification.deliver": { deliveryId: string };
   "environment.copy-data": { environmentId: string; pairs: { from: string; to: string }[]; userId?: string | null };
-  "dbrouter.sync": { serverId: string };
   "database.branch": {
     branchId: string;
     op: "create" | "reset" | "delete";

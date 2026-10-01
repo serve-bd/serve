@@ -38,7 +38,6 @@ import { checkContainerHealth, checkServerResources, pruneMonitoring, runUptimeC
 import { enforceCrashLimits } from "@/server/monitoring/crash-limit";
 import { failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBackups } from "@/server/instance/backups";
 import { runBranchJob } from "@/server/databases/branches";
-import { syncAllDatabaseRouters, syncDatabaseRouter } from "@/server/databases/router";
 import { periodicUpdateCheck, reconcileUpdate, runUpdate } from "@/server/instance/updates";
 import { syncMesh } from "@/server/mesh";
 import { startStoppedContainers } from "@/server/backups/storage";
@@ -73,8 +72,6 @@ async function handle(job: Job, signal: AbortSignal) {
       return preparePreviewDatabase(job.payload as JobPayloads["preview.database"]);
     case "database.branch":
       return runBranchJob(job.payload as JobPayloads["database.branch"]);
-    case "dbrouter.sync":
-      return void (await syncDatabaseRouter((job.payload as JobPayloads["dbrouter.sync"]).serverId));
     case "certificate.issue":
       return issueCertificate(p.certificateId);
     case "certificate.renew-all":
@@ -525,7 +522,7 @@ async function main() {
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
   every(5 * 60_000, "cleanup", scheduleCleanup, true);
   // Databases on domains: routes, certificates picked up after renewal, and containers that moved.
-  every(5 * 60_000, "db-router", syncAllDatabaseRouters, true);
+  every(5 * 60_000, "db-tunnels", async () => (await import("@/server/cloudflare/tunnels")).reattachDatabaseTunnels(), true);
   every(5 * 60_000, "proxy-health", checkProxies, true);
   // Servers that trust Cloudflare's proxy follow its published ranges; a failed fetch keeps the last list.
   every(

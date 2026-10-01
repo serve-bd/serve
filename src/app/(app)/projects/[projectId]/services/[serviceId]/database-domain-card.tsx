@@ -15,37 +15,36 @@ import { saveDatabaseDomain } from "@/server/actions/database-domains";
 
 export type DatabaseDomainInfo = {
   supported: boolean;
-  /** The router can serve this engine (MySQL and MariaDB need a tunnel). */
-  routerSupported: boolean;
-  via: "router" | "tunnel";
+  /** Serve can turn on TLS for this engine, so it can take a domain on its own port. */
+  directSupported: boolean;
+  via: "direct" | "tunnel";
   tunnels: { id: string; label: string }[];
   /** What a client runs to reach a tunnel domain, and the URL it then uses. */
   tunnelCommand: string | null;
   localUrl: string;
   hostname: string | null;
   url: string | null;
-  /** Port clients use: the engine's usual one, shared by every database on a domain. */
-  ports: { port: number; label: string }[];
+  /** The database's own public port, which the domain leads to. */
+  port: number | null;
+  /** Public access or TLS was turned off after the domain was set. */
+  unreachable: boolean;
   certificate: { status: string; error: string | null } | null;
   engineLabel: string;
-  /** Ports the router could not take, because another program on the server listens there. */
-  blockedPorts?: number[];
 };
 
-/** Reach the database at db.example.com on the engine's usual port, over TLS. */
+/** Reach the database at db.example.com on its own port, over TLS with the domain's certificate. */
 export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: { serviceId: string; info: DatabaseDomainInfo; hideSecrets?: boolean; canManage?: boolean }) {
   const [value, setValue] = React.useState(info.hostname ?? "");
-  const [via, setVia] = React.useState<"router" | "tunnel">(info.hostname ? info.via : info.routerSupported ? "router" : "tunnel");
+  const [via, setVia] = React.useState<"direct" | "tunnel">(info.hostname ? info.via : info.directSupported ? "direct" : "tunnel");
   const save = useAction((hostname: string | null) => saveDatabaseDomain(serviceId, hostname, via), {
-    success: (r) => (r.warnings.length ? "Domain saved, one step left" : "Domain saved"),
+    success: (r) => (r.warnings.length ? "Domain saved, one step left" : r.port ? `Domain saved. The database restarts on port ${r.port}.` : "Domain saved"),
     onSuccess: (r) => {
       for (const w of r.warnings) toast.warning("Domain", w);
     },
   });
-  const changed = value.trim().toLowerCase() !== (info.hostname ?? "") || (!!info.hostname && via !== info.via);
+  const changed = value.trim().toLowerCase() !== (info.hostname ?? "") || (!!info.hostname && (via !== info.via || info.unreachable));
   const tunnel = via === "tunnel";
   const cert = info.certificate;
-  const portText = info.ports.map((p) => (info.ports.length > 1 ? `${p.port} (${p.label})` : String(p.port))).join(" and ");
 
   return (
     <Card>
@@ -54,8 +53,8 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
           <span className="flex items-center gap-1.5">
             Domain
             <HelpTip label="How database domains work">
-              One router on this server listens on port {portText} for every database with a domain. It reads the domain from the TLS handshake and sends the connection to the
-              right database, so many databases share the same port. Clients must connect with TLS.
+              The database gets its own port on this server, open to everyone, and turns on TLS with a certificate for the domain, so clients can check they reach the real server.
+              Saving restarts the database once.
             </HelpTip>
           </span>
         }
@@ -64,14 +63,13 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
             ? undefined
             : tunnel
               ? "Reach the database through Cloudflare, from anywhere, even when this server has no public IP."
-              : `Connect from anywhere at your own domain, on port ${portText}, with a real certificate.`
+              : `Connect from anywhere at your own domain${info.port ? `, on port ${info.port}` : ", on its own port"}, with a real certificate.`
         }
       />
       <CardBody className="flex flex-col gap-4">
         {!info.supported ? (
           <p className="text-[13px] leading-relaxed text-muted">
-            {info.engineLabel} cannot share a port by domain: its server speaks first, before the client sends a name. Use Public access with its own port, or create a Cloudflare
-            Tunnel for this server to reach it through Cloudflare.
+            Serve cannot turn on TLS for {info.engineLabel}. Create a Cloudflare Tunnel for this server to reach it through Cloudflare, or use Public access.
           </p>
         ) : (
           <>
@@ -79,7 +77,7 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
               <div role="radiogroup" aria-label="Route" className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
                 {(
                   [
-                    ["router", "Server", !info.routerSupported],
+                    ["direct", "Own port", !info.directSupported],
                     ["tunnel", "Cloudflare Tunnel", false],
                   ] as const
                 ).map(([value, label, disabled]) => (
@@ -157,17 +155,17 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                           : "No certificate yet"}
                   </span>
                 </p>
-                {!!info.blockedPorts?.length && (
+                {info.unreachable && (
                   <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-fg-2">
                     <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />
-                    <span>
-                      Port {info.blockedPorts.join(" and ")} is used by another program on this server, so the domain does not answer. Free the port, or
-                      {info.tunnels.length ? " choose Cloudflare Tunnel above" : " add a Cloudflare Tunnel to this server and choose it here"} (a tunnel needs no port).
-                    </span>
+                    <span>Public access or TLS was turned off, so the domain does not answer. Save the domain again to open its port with TLS.</span>
                   </p>
                 )}
                 {info.url && (
-                  <Field label="Connection URL" description="Clients must use TLS. Connections without TLS carry no domain name and are not routed.">
+                  <Field
+                    label={`Connection URL${info.port ? ` · port ${info.port}` : ""}`}
+                    description={cert?.status === "active" ? "Clients check the certificate of the domain." : "Encrypted. Clients check the certificate once it is active."}
+                  >
                     <SecretField value={info.url} hidden={hideSecrets} shape={info.url} />
                   </Field>
                 )}

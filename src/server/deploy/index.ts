@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import { queueRouterSync } from "@/server/databases/router";
 import path from "node:path";
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
@@ -810,7 +809,8 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   const cfg = service.database!;
   const engine = engines[cfg.engine];
   const serviceDir = server.paths.service(service.id);
-  const plan = databasePlan(cfg, decryptOrNull(cfg.password) ?? "", serviceDir);
+  const { databaseDomainCert } = await import("@/server/databases/domain-tls");
+  const plan = databasePlan(cfg, decryptOrNull(cfg.password) ?? "", serviceDir, await databaseDomainCert(server, service));
   const image = plan.image;
   const line = log?.line ?? (() => {});
   log?.redact([plan.creds.password]);
@@ -827,7 +827,7 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   if (plan.files.length) line(`Wrote ${plan.files.length} configuration file${plan.files.length === 1 ? "" : "s"}`);
   if (plan.tls) {
     await ensureDatabaseTls(server, service.id, [service.slug, "localhost", "127.0.0.1", server.row.publicIp ?? "", server.local ? "" : server.row.host], line);
-    line(`TLS on (${cfg.tls?.mode === "require" ? "required" : "optional"} for clients)`);
+    line(`TLS on (${cfg.tls?.mode === "require" ? "required" : "optional"} for clients)${plan.verified ? `, with the certificate of ${cfg.domain}` : ""}`);
   }
   const extra = service.runtime.volumes ?? [];
   if (extra.some((v) => v.kind !== "volume")) await prepareMounts(server, service.id, extra, line);
@@ -855,7 +855,8 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
         command: null,
         // The data volume first, then any mounts added in Persistent storage.
         volumes: [{ kind: "volume", source: "data", mountPath: plan.dataMountPath }, ...extra.filter((v) => !(v.kind === "volume" && v.source === "data"))],
-        ports: cfg.publicPort ? [{ host: cfg.publicPort, container: engine.port, protocol: "tcp", bindAddress: cfg.publicBind }] : [],
+        // With TLS on, the public port leads to the TLS port (Redis, Valkey and ClickHouse keep a plain one for the private network).
+        ports: cfg.publicPort ? [{ host: cfg.publicPort, container: plan.publicTarget, protocol: "tcp", bindAddress: cfg.publicBind }] : [],
         healthcheckPath: null,
         healthcheckTimeout: 180,
       },
@@ -877,8 +878,6 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   line(`${engine.label} is ready`);
   await setServiceStatus(service.id, "running");
   await meshAfterStart(server.id, line);
-  // A new container on the domain's route: the router follows it.
-  if (cfg.domain) await queueRouterSync(server.id);
 }
 
 /* -------------------------------------------------------------------------- */

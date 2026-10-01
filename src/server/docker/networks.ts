@@ -91,9 +91,9 @@ export async function removeEnvNetworkIfUnused(environmentId: string, target: Ne
     const members = Object.values(info.Containers ?? {}) as { Name: string }[];
     // The proxy, the private network's name forwarders and the environment's build container only
     // serve the environment's services.
-    // Shared containers that joined to reach databases (tunnel connectors, the database router) are
+    // Shared containers that joined to reach databases (tunnel connectors) are
     // only detached; the others belong to this environment and go with its network.
-    const shared = (name: string) => name === target.proxyContainer || name.startsWith("serve-tunnel-") || name === "serve-db-router";
+    const shared = (name: string) => name === target.proxyContainer || name.startsWith("serve-tunnel-");
     const helper = (c: { Name: string }) => shared(c.Name) || c.Name.startsWith("serve-link-") || c.Name.startsWith("buildx_buildkit_serve-build-");
     if (members.some((c) => !helper(c))) return;
     // Stopped containers are not members, but could not start again without the network.

@@ -6,6 +6,9 @@ import { engineImage, engines, type EngineCreds, type EngineInfo } from "./engin
 export const TLS_SOURCE = "/etc/serve-tls";
 export const TLS_DIR = "/run/serve-tls";
 
+/** The certificate of a database's domain (one clients trust): read-only binds of its files, and their paths in the container. */
+export type DomainCert = { binds: string[]; cert: string; key: string };
+
 export type HealthTiming = { interval: number; timeout: number; retries: number; startPeriod: number };
 
 export const DEFAULT_HEALTH: HealthTiming = { interval: 5, timeout: 5, retries: 10, startPeriod: 10 };
@@ -25,6 +28,10 @@ export type DatabasePlan = {
   health: HealthTiming;
   creds: EngineCreds;
   tls: boolean;
+  /** Container port the public port leads to: the TLS port when TLS is on. */
+  publicTarget: number;
+  /** TLS uses the domain's certificate, which clients can verify. */
+  verified: boolean;
 };
 
 /** Splits a command line into arguments, honoring single and double quotes. */
@@ -132,11 +139,11 @@ export function databaseCreds(cfg: DatabaseConfig, password: string): EngineCred
     username: cfg.username,
     password,
     database: cfg.database,
-    tlsRequired: tls && (cfg.engine === "redis" || cfg.engine === "valkey" || (cfg.engine === "mongodb" && mode === "require")),
+    tlsRequired: tls && mode === "require" && (cfg.engine === "redis" || cfg.engine === "valkey" || cfg.engine === "mongodb"),
   };
 }
 
-export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: string): DatabasePlan {
+export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: string, domainCert?: DomainCert | null): DatabasePlan {
   const engine = engines[cfg.engine];
   const tls = !!(cfg.tls?.enabled && engine.tlsArgs);
   const mode = cfg.tls?.mode ?? "prefer";
@@ -169,7 +176,14 @@ export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: 
   if ((cfg.engine === "mysql" || cfg.engine === "mariadb") && cfg.collation) args.push(`--collation-server=${cfg.collation}`);
   if (tls) {
     binds.push(`${path.posix.join(serviceDir, "tls")}:${TLS_SOURCE}:ro`);
+    if (domainCert) binds.push(...domainCert.binds);
     args.push(...engine.tlsArgs!(TLS_DIR, mode));
+    const file = engine.tlsFile?.(TLS_DIR);
+    if (file) {
+      const host = path.posix.join(serviceDir, "config", file.file);
+      files.push({ path: host, content: file.content, mode: 0o644 });
+      binds.push(`${host}:${file.path}:ro`);
+    }
   }
   args.push(...splitArgs(cfg.extraArgs));
 
@@ -189,9 +203,16 @@ export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: 
   } else if (args.length && engine.server) {
     cmd = [...engine.server, ...args];
   }
+  // Engines started by their image's default command (ClickHouse) still need the TLS copy step.
+  if (tls && !cmd && engine.tlsFile) cmd = [];
   if (tls && cmd) {
     // Keys must belong to the server user; bind mounts keep the host owner, so copy them first.
-    const prepare = `mkdir -p ${TLS_DIR} && cp ${TLS_SOURCE}/* ${TLS_DIR}/ && chown -R ${engine.runAs} ${TLS_DIR} && chmod 600 ${TLS_DIR}/server.key ${TLS_DIR}/server.pem && exec ${engine.entrypoint} "$@"`;
+    // With a domain, its certificate replaces the one from Serve's authority (which stays trusted
+    // for clients that pinned it); it is copied at every start, so a restart loads a renewal.
+    const domain = domainCert
+      ? ` && cp -L ${domainCert.cert} ${TLS_DIR}/server.crt && cp -L ${domainCert.key} ${TLS_DIR}/server.key && cat ${TLS_DIR}/server.crt ${TLS_DIR}/server.key > ${TLS_DIR}/server.pem && cat ${TLS_DIR}/server.crt >> ${TLS_DIR}/ca.crt`
+      : "";
+    const prepare = `mkdir -p ${TLS_DIR} && cp ${TLS_SOURCE}/* ${TLS_DIR}/${domain} && chown -R ${engine.runAs} ${TLS_DIR} && chmod 600 ${TLS_DIR}/server.key ${TLS_DIR}/server.pem && exec ${engine.entrypoint} "$@"`;
     cmd = ["sh", "-c", prepare, "sh", ...cmd];
   }
 
@@ -213,23 +234,32 @@ export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: 
     },
     creds,
     tls,
+    publicTarget: tls ? (engine.tlsPort?.(mode) ?? engine.port) : engine.port,
+    verified: tls && !!domainCert,
   };
 }
 
-/** Connection URL including TLS parameters. */
-export function databaseUrl(cfg: DatabaseConfig, creds: EngineCreds, host: string, port: number) {
+/**
+ * Connection URL including TLS parameters. `public`: through the public port, which leads to the TLS
+ * port when TLS is on. `verified`: the database has a certificate clients trust (its domain's), so they
+ * check it; otherwise they encrypt without checking Serve's own certificate authority.
+ */
+export function databaseUrl(cfg: DatabaseConfig, creds: EngineCreds, host: string, port: number, opts: { public?: boolean; verified?: boolean } = {}) {
   const engine = engines[cfg.engine];
   const url = engine.url({ ...creds, host, port });
   if (!cfg.tls?.enabled || !engine.tlsArgs) return url;
   const mode = cfg.tls.mode ?? "prefer";
+  const viaTls = !!opts.public || mode === "require";
   switch (cfg.engine) {
     case "postgres":
-      return `${url}?sslmode=${mode === "require" ? "require" : "prefer"}`;
+      return `${url}?sslmode=${opts.verified ? "verify-full" : viaTls ? "require" : "prefer"}`;
     case "mongodb":
-      return mode === "require" ? `${url}&tls=true&tlsAllowInvalidCertificates=true` : url;
+      return viaTls ? `${url}&tls=true${opts.verified ? "" : "&tlsAllowInvalidCertificates=true"}` : url;
     case "redis":
     case "valkey":
-      return url.replace(/^redis:/, "rediss:");
+      return viaTls ? url.replace(/^redis:/, "rediss:") : url;
+    case "clickhouse":
+      return viaTls ? `${url}?secure=true` : url;
     default:
       return url;
   }

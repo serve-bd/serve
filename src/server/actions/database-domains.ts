@@ -6,23 +6,25 @@ import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { serviceInOrg } from "@/server/services/access";
 import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
-import { ensureDatabaseCertificate, queueRouterSync } from "@/server/databases/router";
+import { ensureDatabaseCertificate, freePublicPort } from "@/server/databases/domain-tls";
+import { engines } from "@/server/databases/engines";
+import { queueDeployment } from "@/server/services/create";
 import { cloudflareAccountFor } from "@/server/ssl/certificates";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { serverPublicIp } from "@/server/servers/access";
 import { logActivity } from "@/server/activity";
-import { DOMAIN_ROUTES, hostnamePattern } from "@/lib/database-domains";
+import { hostnamePattern } from "@/lib/database-domains";
 
 /** Marks the DNS records Serve creates for database domains, so it only ever removes its own. */
 const DNS_COMMENT = "Serve database domain";
 
 /**
- * Put a database on a domain (or take it off with null): the server's database router answers
- * for it on the engine's usual port, over TLS, with a certificate for the domain. When the domain
- * is in a connected Cloudflare account, its DNS record is created too (DNS only: Cloudflare's
- * proxy does not carry database traffic).
+ * Put a database on a domain (or take it off with null). Directly: the database gets its own public
+ * port and speaks TLS itself with a certificate for the domain, and restarts to load it. When the
+ * domain is in a connected Cloudflare account, its DNS record is created too (DNS only: Cloudflare's
+ * proxy does not carry database traffic). Through a tunnel: Cloudflare carries it, no port is opened.
  */
-export async function saveDatabaseDomain(serviceId: string, raw: string | null, via: "router" | "tunnel" = "router") {
+export async function saveDatabaseDomain(serviceId: string, raw: string | null, via: "direct" | "tunnel" = "direct") {
   return act(async () => {
     const ctx = await requirePermission("domains.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
@@ -31,17 +33,14 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
     if (service.parentServiceId) throw new UserError("Preview databases cannot have a domain.");
     const hostname = raw?.trim().toLowerCase().replace(/\.$/, "") || null;
     const tunnelMode = !!hostname && via === "tunnel";
-    // A tunnel carries any TCP: only the router needs a name in the TLS handshake.
-    if (!tunnelMode && !DOMAIN_ROUTES[cfg.engine])
-      throw new UserError("MySQL and MariaDB cannot share a port by domain. Use a Cloudflare Tunnel, or Public access with its own port.");
+    const engine = engines[cfg.engine];
+    if (hostname && !tunnelMode && !engine.tlsArgs) throw new UserError(`Serve cannot turn on TLS for ${engine.label}. Use a Cloudflare Tunnel for its domain.`);
     const previousTunnel = cfg.domainTunnelId ?? null;
     const previousHost = cfg.domain ?? null;
     const warnings: string[] = [];
 
     if (hostname) {
       if (!hostnamePattern.test(hostname)) throw new UserError("Enter a domain like db.example.com.");
-      if (!tunnelMode && cfg.tls?.enabled && cfg.tls.mode === "require")
-        throw new UserError("Turn off “Require TLS” for this database first: the domain already requires TLS, and the router reaches the database over the private network.");
       const [web] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, hostname));
       if (web) throw new UserError("That domain is already used by a website or app.");
       const [other] = await db
@@ -67,10 +66,16 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
       if (!tunnel) throw new UserError("This server has no Cloudflare Tunnel for that account. Create one in Integrations → Cloudflare first.");
     }
 
-    await db
-      .update(schema.service)
-      .set({ database: { ...cfg, domain: hostname, domainTunnelId: tunnel?.id ?? null }, updatedAt: new Date() })
-      .where(eq(schema.service.id, service.id));
+    // Directly on the domain: its own port, open to everyone, with TLS on.
+    const direct = !!hostname && !tunnelMode;
+    const publicPort = direct ? (cfg.publicPort ?? (await freePublicPort(service, engine.port))) : cfg.publicPort;
+    const next = {
+      ...cfg,
+      domain: hostname,
+      domainTunnelId: tunnel?.id ?? null,
+      ...(direct ? { publicPort, publicBind: "0.0.0.0" as const, tls: { enabled: true, mode: cfg.tls?.mode ?? ("prefer" as const) } } : {}),
+    };
+    await db.update(schema.service).set({ database: next, updatedAt: new Date() }).where(eq(schema.service.id, service.id));
 
     const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
     if (tunnel && tunnelAccount && hostname) {
@@ -121,7 +126,9 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
           warnings.push(`The DNS record of ${previousHost} was not removed: ${(e as Error).message}`);
         }
     }
-    await queueRouterSync(service.serverId);
+    // The container serves the domain's certificate and port itself: start it again with them.
+    const containerChanged = direct || (!!previousHost && !previousTunnel);
+    if (containerChanged && service.status !== "idle") await queueDeployment(service.id, "redeploy", { userId: ctx.user.id });
     await logActivity({
       userId: ctx.user.id,
       organizationId: ctx.org.id,
@@ -131,6 +138,6 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
       targetId: service.id,
       message: hostname ? `Put ${service.name} on ${hostname}${tunnelMode ? " through a Cloudflare Tunnel" : ""}` : `Took ${service.name} off its domain`,
     });
-    return { warnings };
+    return { warnings, port: direct ? publicPort : null };
   });
 }

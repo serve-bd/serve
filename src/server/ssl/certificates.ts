@@ -247,9 +247,9 @@ export async function applyCertificate(cert: Cert) {
     await getServer(cert.serverId)
       .then((server) => reloadProxy(server))
       .catch(() => {});
-    // Databases on domains: the router picks up a new certificate, or restarts to load a renewed one.
-    const { refreshDatabaseRouter } = await import("@/server/databases/router");
-    await refreshDatabaseRouter(cert.serverId, cert.domains).catch(() => {});
+    // Databases on domains serve the certificate themselves: they load a new or renewed one.
+    const { refreshDatabaseCertificates } = await import("@/server/databases/domain-tls");
+    await refreshDatabaseCertificates(cert.serverId, cert.domains).catch(() => {});
   }
 }
 

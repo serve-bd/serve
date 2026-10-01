@@ -77,10 +77,39 @@ describe("database plan", () => {
     const plan = databasePlan(redis({ customConfig: "maxmemory 64mb" }), "pw", "/d/s");
     expect(plan.cmd).toEqual(["redis-server", "/etc/serve/redis.conf", "--requirepass", "pw", "--appendonly", "yes"]);
     expect(plan.files[0]).toMatchObject({ path: "/d/s/config/redis.conf", content: "maxmemory 64mb\n" });
+    // Optional TLS: the private network stays plain on 6379, TLS on 6380 is what the public port leads to.
     const tls = databasePlan(redis({ tls: { enabled: true } }), "pw", "/d/s");
-    expect(tls.creds.tlsRequired).toBe(true);
-    expect(tls.healthcheck[1]).toContain("--tls --insecure");
-    expect(databaseUrl(redis({ tls: { enabled: true } }), tls.creds, "r", 6379)).toMatch(/^rediss:/);
+    expect(tls.creds.tlsRequired).toBe(false);
+    expect(tls.cmd).toContain("6380");
+    expect(tls.cmd).not.toContain("0");
+    expect(tls.publicTarget).toBe(6380);
+    expect(databaseUrl(redis({ tls: { enabled: true } }), tls.creds, "r", 6379)).toMatch(/^redis:/);
+    expect(databaseUrl(redis({ tls: { enabled: true } }), tls.creds, "db.example.com", 16379, { public: true })).toMatch(/^rediss:/);
+    // Required TLS: TLS only, on 6379, for every client.
+    const required = databasePlan(redis({ tls: { enabled: true, mode: "require" } }), "pw", "/d/s");
+    expect(required.creds.tlsRequired).toBe(true);
+    expect(required.healthcheck[1]).toContain("--tls --insecure");
+    expect(required.publicTarget).toBe(6379);
+    expect(databaseUrl(redis({ tls: { enabled: true, mode: "require" } }), required.creds, "r", 6379)).toMatch(/^rediss:/);
+  });
+
+  it("turns on ClickHouse TLS with a config file and the image's own command", () => {
+    const cfg = { ...pg(), engine: "clickhouse" as const, version: "25.8-alpine", username: "default", database: "default", tls: { enabled: true } };
+    const plan = databasePlan(cfg, "pw", "/d/s");
+    expect(plan.files.find((f) => f.path === "/d/s/config/serve-tls.xml")?.content).toContain("<https_port>8443</https_port>");
+    expect(plan.binds).toContain("/d/s/config/serve-tls.xml:/etc/clickhouse-server/config.d/serve-tls.xml:ro");
+    expect(plan.cmd?.[0]).toBe("sh");
+    expect(plan.cmd?.[2]).toContain("exec /entrypoint.sh");
+    expect(plan.publicTarget).toBe(8443);
+    expect(databasePlan({ ...cfg, tls: null }, "pw", "/d/s").publicTarget).toBe(8123);
+  });
+
+  it("asks public clients to verify a trusted certificate", () => {
+    const cfg = pg({ tls: { enabled: true } });
+    const creds = databasePlan(cfg, "pw", "/d").creds;
+    expect(databaseUrl(cfg, creds, "app-db", 5432)).toMatch(/sslmode=prefer$/);
+    expect(databaseUrl(cfg, creds, "db.example.com", 15432, { public: true })).toMatch(/sslmode=require$/);
+    expect(databaseUrl(cfg, creds, "db.example.com", 15432, { public: true, verified: true })).toMatch(/:15432\/app\?sslmode=verify-full$/);
   });
 
   it("adds a [mysqld] section to MySQL config when missing", () => {

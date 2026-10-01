@@ -5,7 +5,7 @@ import { newId } from "@/server/id";
 import { imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { connectProxy, envNetworkName } from "@/server/docker/networks";
 import { engines } from "@/server/databases/engines";
-import { DOMAIN_ROUTES } from "@/lib/database-domains";
+import { tunnelTargetPort } from "@/lib/database-domains";
 import { privateHost } from "@/lib/hostname";
 import { tunnelNetworkName } from "@/server/proxy/names";
 import { ensureTunnelNetwork } from "@/server/proxy/tunnel-network";
@@ -246,7 +246,7 @@ export async function attachTunnelToDatabases(tunnel: Tunnel) {
     const cfg = s.database;
     if (!cfg?.domain) continue;
     await connectProxy(envNetworkName(s.environmentId), { docker: ctx.docker, proxyContainer: tunnelContainerName(tunnel), id: ctx.id }).catch(() => {});
-    const port = DOMAIN_ROUTES[cfg.engine]?.[0]?.target ?? engines[cfg.engine].port;
+    const port = tunnelTargetPort(cfg.engine, engines[cfg.engine].port);
     routes.push({ hostname: cfg.domain, service: `tcp://${privateHost(s)}:${port}` });
   }
   return routes;
@@ -698,4 +698,16 @@ export async function tunnelDomains(tunnelId: string) {
     .from(schema.domain)
     .where(and(eq(schema.domain.tunnelId, tunnelId), isNotNull(schema.domain.tunnelId)));
   return [...dashboard, ...rows];
+}
+
+/** Worker tick: tunnels carrying databases rejoin their networks (a recreated connector loses them). */
+export async function reattachDatabaseTunnels() {
+  const rows = await db
+    .selectDistinct({ id: sql<string>`${schema.service.database}->>'domainTunnelId'` })
+    .from(schema.service)
+    .where(sql`coalesce(${schema.service.database}->>'domainTunnelId', '') <> ''`);
+  for (const t of rows) {
+    const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, t.id));
+    if (tunnel) await attachTunnelToDatabases(tunnel).catch(() => {});
+  }
 }

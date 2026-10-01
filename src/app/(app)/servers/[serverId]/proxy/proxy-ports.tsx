@@ -46,7 +46,8 @@ export function ProxyPortsCard({ serverId, isLocal, ports }: { serverId: string;
               </div>
               {(v.http !== "80" || v.https !== "443") && (
                 <p className="text-xs leading-relaxed text-warn">
-                  Let&apos;s Encrypt only checks ports 80 and 443. With other ports, HTTPS certificates need the Cloudflare DNS check or a Cloudflare Tunnel.
+                  Let&apos;s Encrypt only checks port 80. With other ports, pass ports 80 and 443 on to these from the program that owns them (a system nginx, for example), or use
+                  the Cloudflare DNS check or a Cloudflare Tunnel for HTTPS certificates.
                 </p>
               )}
             </>

@@ -72,9 +72,11 @@ async function httpPreflight(ctx: ServerCtx, cert: Cert, log: (l: string) => voi
       `The proxy on ${ctx.name} takes no ports on the machine, so Let's Encrypt cannot reach it. Serve the domain through a Cloudflare Tunnel (it brings its own certificate), or connect Cloudflare in Integrations to use the DNS check.`,
     );
   }
-  if (ctx.proxyHttpPort !== 80) {
+  // Another program can own port 80 and pass requests on to the proxy (a system nginx in front).
+  // Ask the domains for a file only the proxy has: when they answer with it, the check passes.
+  if (ctx.proxyHttpPort !== 80 && !(await port80ReachesProxy(ctx, cert, log))) {
     throw new Error(
-      `The proxy on ${ctx.name} listens on port ${ctx.proxyHttpPort}, but Let's Encrypt only checks port 80. Connect Cloudflare in Integrations to use the DNS check, or turn off HTTPS for the domain and open http://${cert.domains[0]}:${ctx.proxyHttpPort}.`,
+      `The proxy on ${ctx.name} listens on port ${ctx.proxyHttpPort}, but Let's Encrypt only checks port 80, and port 80 of ${cert.domains[0]} does not reach the proxy. Pass port 80 on to port ${ctx.proxyHttpPort} from the program that owns it, connect Cloudflare in Integrations to use the DNS check, or turn off HTTPS for the domain and open http://${cert.domains[0]}:${ctx.proxyHttpPort}.`,
     );
   }
   const { serverAddressing } = await import("@/server/proxy/addressing");
@@ -90,6 +92,29 @@ async function httpPreflight(ctx: ServerCtx, cert: Cert, log: (l: string) => voi
     if (publicIp && !records.includes(publicIp)) {
       throw new Error(`${domain} points to ${records.join(", ")}, not to ${ctx.name} (${publicIp}). Update its A record and retry.`);
     }
+  }
+}
+
+/** Whether http://<domain>/ on port 80 reaches this server's proxy, for every domain of the certificate. */
+async function port80ReachesProxy(ctx: ServerCtx, cert: Cert, log: (l: string) => void) {
+  const domains = cert.domains.filter((d) => !d.startsWith("*."));
+  if (!domains.length) return false;
+  await ensureServerProxy(ctx, log);
+  const name = `serve-check-${crypto.randomBytes(12).toString("hex")}`;
+  const token = crypto.randomBytes(24).toString("hex");
+  const file = path.posix.join(ctx.paths.acme, ".well-known/acme-challenge", name);
+  await ctx.fs.writeFile(file, token);
+  try {
+    for (const domain of domains) {
+      const body = await fetch(`http://${domain}/.well-known/acme-challenge/${name}`, { redirect: "manual", signal: AbortSignal.timeout(10_000) })
+        .then((r) => (r.ok ? r.text() : null))
+        .catch(() => null);
+      if (body?.trim() !== token) return false;
+    }
+    log(`Port 80 of ${domains.join(", ")} reaches the proxy on port ${ctx.proxyHttpPort}.`);
+    return true;
+  } finally {
+    await ctx.fs.rm(file).catch(() => {});
   }
 }
 

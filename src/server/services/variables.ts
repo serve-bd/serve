@@ -177,7 +177,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       const dot = ref.indexOf(".");
       let result: string | undefined;
       if (dot === -1) {
-        result = ownRaw[ref]?.value ?? sharedMap[ref] ?? self[ref];
+        // Serve's own names win: SERVE_PUBLIC_URL=${{SERVE_PUBLIC_URL}} is the domain, not itself.
+        result = ref.startsWith("SERVE_") && self[ref] !== undefined ? self[ref] : (ownRaw[ref]?.value ?? sharedMap[ref] ?? self[ref]);
       } else {
         const scope = lookup.get(ref.slice(0, dot).toLowerCase());
         result = scope?.[ref.slice(dot + 1)];

@@ -19,7 +19,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   const canSeeSecrets = ctx.can("variables.view-secrets");
-  const [vars, shared, siblings, scoped, servers, mesh] = await Promise.all([
+  const [vars, shared, siblings, scoped, servers, mesh, domains] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId)).orderBy(asc(schema.envVar.key)),
     db.select({ key: schema.sharedVar.key }).from(schema.sharedVar).where(eq(schema.sharedVar.environmentId, service.environmentId)),
     db.select().from(schema.service).where(eq(schema.service.environmentId, service.environmentId)),
@@ -30,12 +30,28 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
       .orderBy(asc(schema.sharedVar.key)),
     db.select({ id: schema.server.id, name: schema.server.name }).from(schema.server),
     meshMemberIds(),
+    db
+      .select({ domain: schema.domain })
+      .from(schema.domain)
+      .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
+      .where(eq(schema.service.environmentId, service.environmentId)),
   ]);
+  const domainsOf = (id: string) => domains.filter((d) => d.domain.serviceId === id).map((d) => d.domain);
+  // The service's own values. PORT is set anyway, and a variable named like a value would hide it.
+  const ownKeys = Object.keys(providedVars(service, domainsOf(service.id))).filter((k) => k.startsWith("SERVE_") && k !== "SERVE_SERVICE_NAME");
   const serverName = new Map(servers.map((s) => [s.id, s.name]));
   const projectKeys = scoped.filter((v) => v.projectId).map((v) => v.key);
   const orgKeys = scoped.filter((v) => !v.projectId).map((v) => v.key);
   const envKeys = [...new Set(shared.map((s) => s.key))].sort();
   const references = [
+    {
+      name: "@self",
+      label: "This service",
+      note: ownKeys.some((k) => k.startsWith("SERVE_PUBLIC")) ? "Its own domain and private name" : "Its private name (add a domain for its public URL)",
+      keys: ownKeys,
+      addAs: Object.fromEntries(ownKeys.map((k) => [k, k.replace(/^SERVE_/, "")])),
+      own: true,
+    },
     ...(envKeys.length ? [{ name: "environment", label: "Environment variables", keys: envKeys }] : []),
     ...siblings
       .filter((s) => s.id !== service.id)
@@ -51,7 +67,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
         return {
           name: shared ? s.slug : s.name,
           label: shared ? `${s.name} (${s.slug})` : undefined,
-          keys: Object.keys(providedVars(s)).filter((k) => !k.startsWith("SERVE_SERVICE")),
+          keys: Object.keys(providedVars(s, domainsOf(s.id))).filter((k) => !k.startsWith("SERVE_SERVICE")),
           note: elsewhere
             ? reachable
               ? `On ${serverName.get(s.serverId) ?? "another server"}, over the private network`

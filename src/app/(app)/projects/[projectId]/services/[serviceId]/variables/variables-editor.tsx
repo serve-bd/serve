@@ -20,8 +20,13 @@ import { CollapseButton, PreviewVars, type ReplicaVar, ReplicaVars, useCollapsed
 /** `hidden`: the value is kept on the server and not sent here (the role cannot see secrets); `from` is its stored key. */
 type Var = { key: string; value: string; buildTime: boolean; runtime: boolean; id?: number; hidden?: boolean; from?: string };
 
-/** A group of values to reference. `addAs` names the variable Add creates (default: the key). */
-type Reference = { name: string; keys: string[]; label?: string; note?: string; warn?: boolean; addAs?: Record<string, string> };
+/**
+ * A group of values to reference. `addAs` names the variable Add creates (default: the key).
+ * `own`: the service's own values, referenced without a service name (${{SERVE_PUBLIC_URL}}).
+ */
+type Reference = { name: string; keys: string[]; label?: string; note?: string; warn?: boolean; addAs?: Record<string, string>; own?: boolean };
+
+const refOf = (r: Reference, key: string) => (r.own ? `\${{${key}}}` : referenceOf(r.name, key));
 
 let seq = 0;
 const withId = (v: Omit<Var, "id">): Var => ({ ...v, id: ++seq });
@@ -435,7 +440,7 @@ function ReferencesCard({ references, canEdit, taken, onAdd }: { references: Ref
                   {expanded && (
                     <ul className="pb-2">
                       {r.keys.map((k) => {
-                        const ref = referenceOf(r.name, k);
+                        const ref = refOf(r, k);
                         const name = r.addAs?.[k] ?? k;
                         const added = taken.has(name);
                         return (
@@ -490,7 +495,7 @@ function AddReferenceMenu({
             {i > 0 && <MenuSeparator />}
             <MenuLabel>{r.label ?? r.name}</MenuLabel>
             {r.keys.map((k) => (
-              <MenuItem key={k} disabled={taken.has(r.addAs?.[k] ?? k)} onClick={() => onAdd(r.addAs?.[k] ?? k, referenceOf(r.name, k))}>
+              <MenuItem key={k} disabled={taken.has(r.addAs?.[k] ?? k)} onClick={() => onAdd(r.addAs?.[k] ?? k, refOf(r, k))}>
                 <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{k}</span>
                 {taken.has(r.addAs?.[k] ?? k) && <span className="text-[11px] text-faint">Added</span>}
               </MenuItem>

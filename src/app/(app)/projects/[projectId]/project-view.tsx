@@ -223,31 +223,20 @@ function groupServices(services: ServiceCardData[]) {
     .filter((g) => g.services.length);
 }
 
-const VIEW_KEY = "serve-project-view-v2";
+/** Remembers the chosen view; the page reads it on the server, so the first paint is already right. */
+const VIEW_COOKIE = "serve-project-view";
 
 export function ProjectView({ project, environments, environment, initialServices, view, positions }: Props) {
   const can = useCan();
   const router = useRouter();
   const setView = React.useCallback(
     (v: Props["view"]) => {
-      try {
-        localStorage.setItem(VIEW_KEY, v);
-      } catch {}
+      // biome-ignore lint/suspicious/noDocumentCookie: the Cookie Store API is missing in older Safari and Firefox
+      document.cookie = `${VIEW_COOKIE}=${v}; path=/; max-age=31536000; samesite=lax`;
       router.replace(`/projects/${project.id}?env=${environment.name}${v === "grid" ? "" : `&view=${v}`}`, { scroll: false });
     },
     [router, project.id, environment.name],
   );
-  // Opened without a choice in the URL: use the one from last time.
-  const asked = React.useRef(false);
-  React.useEffect(() => {
-    if (asked.current) return;
-    asked.current = true;
-    let stored: string | null = null;
-    try {
-      stored = localStorage.getItem(VIEW_KEY);
-    } catch {}
-    if ((stored === "canvas" || stored === "list") && view === "grid" && !new URLSearchParams(window.location.search).has("view")) setView(stored);
-  }, [view, setView]);
   const { data } = useSWR<{ services: ServiceCardData[] }>(`/api/projects/${project.id}/services?env=${environment.id}`, {
     fallbackData: { services: initialServices },
     // Status changes arrive as live events; this only catches containers changing on their own.

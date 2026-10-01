@@ -218,8 +218,8 @@ export function OAuthSetupDialog({ provider, base, isInstanceAdmin, onClose }: {
                 <span>
                   {base.error}{" "}
                   {isInstanceAdmin ? (
-                    <Link href="/settings/dashboard" className="font-medium text-accent hover:underline">
-                      Open Settings → Dashboard
+                    <Link href="/settings" className="font-medium text-accent hover:underline">
+                      Open Settings → General
                     </Link>
                   ) : (
                     "An instance admin can change it."

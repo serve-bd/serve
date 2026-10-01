@@ -51,26 +51,6 @@ export function ServerList({ servers, shared = [], canAdd = true }: { servers: R
       </Card>
     );
   }
-  if (servers.length <= 1 && servers[0]?.isLocal && !shared.length && canAdd) {
-    return (
-      <div className="flex flex-col gap-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {servers.map((s) => (
-            <ServerCard key={s.id} server={s} />
-          ))}
-          <AddCard />
-        </div>
-        <Card>
-          <EmptyState
-            icon={<Server />}
-            title="Run services on more machines"
-            description={<>Add a Linux server with SSH access. Docker is installed if needed and the proxy is started. Then you deploy to it like this one.</>}
-          />
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       {servers.map((s) => (

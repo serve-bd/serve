@@ -115,7 +115,7 @@ export function SignInSettingsView({
           {httpsWarning && (
             <p className="flex gap-2 rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
               <AlertTriangle className="mt-px size-3.5 flex-none text-warn" />
-              The dashboard has no HTTPS domain yet. Most providers only accept https callback URLs; set one in Settings → Dashboard &amp; TLS.
+              The dashboard has no HTTPS domain yet. Most providers only accept https callback URLs; set one in Settings → General.
             </p>
           )}
         </CardBody>

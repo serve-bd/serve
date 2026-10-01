@@ -72,7 +72,7 @@ The installer writes its secrets to `/data/serve/.env` and starts three containe
 
 ## After install
 
-1. **Settings → Dashboard & TLS:** give the dashboard a domain with HTTPS. Git webhooks need it.
+1. **Settings → General:** give the dashboard a domain with HTTPS. Git webhooks need it.
 2. **Git providers:** connect GitHub (one click) or another provider.
 3. **Projects → New project → New service:** add an app, database or service, check its settings, then deploy.
 4. **Servers → Add server** (optional): add more machines over SSH, or with **No public IP** for machines behind NAT. Those machines connect out to this server on TCP port 7822, so open that port.

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import YAML from "yaml";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { composeVariables } from "@/lib/compose-vars";
 import { CATALOG_SCHEMA, parseCatalog } from "@/lib/template-catalog";
 import { parseCompose, transformCompose } from "@/server/deploy/compose";
@@ -10,6 +12,8 @@ import { buildCatalog, INDEX_FILE, serializeCatalog } from "../scripts/templates
 // The same list as the organization template editor offers (services/templates.ts is server-only).
 vi.mock("server-only", () => ({}));
 vi.mock("@/server/db", () => ({ db: {}, schema: {} }));
+vi.mock("@/server/databases/engines", () => ({ engines: {} }));
+vi.mock("@/server/mesh/members", () => ({ meshMemberIds: async () => [], reachesPrivately: () => true }));
 
 const templateCategories = ["Automation", "Analytics", "CMS", "Productivity", "Developer tools", "Monitoring", "Storage", "AI", "Communication", "Security", "Media", "Databases"];
 
@@ -152,5 +156,52 @@ describe("templateVarValue", () => {
   it("accepts hex16 in the catalog", () => {
     const t = { ...templates[0], vars: [{ key: "A", generate: "hex16" }] };
     expect(parseCatalog(JSON.stringify({ schema: CATALOG_SCHEMA, templates: [t] }), "0.1.9")?.templates).toHaveLength(1);
+  });
+});
+
+describe("templates with more than one domain", () => {
+  it("fill a var from another compose service's domain", async () => {
+    const { templateVarValue } = await import("@/server/services/custom-templates");
+    expect(templateVarValue({ key: "API_URL", serviceUrl: "api-server" }, true)).toBe("${{SERVE_PUBLIC_URL_API_SERVER}}");
+    expect(templateVarValue({ key: "API_HOST", serviceHost: "api" }, true)).toBe("${{SERVE_PUBLIC_DOMAIN_API}}");
+    expect(templateVarValue({ key: "API_URL", serviceUrl: "api" }, false)).toBe("http://localhost");
+  });
+
+  it("give each compose service with a domain its own variables", async () => {
+    const { providedVars } = await import("@/server/services/variables");
+    const service = { id: "s1", name: "Logto", slug: "logto", type: "compose", runtime: {}, database: null } as never;
+    const domain = (hostname: string, composeService: string, extra: object = {}) =>
+      ({ hostname, composeService, https: true, tunnelId: null, redirectTo: null, generated: true, primary: false, createdAt: new Date(), ...extra }) as never;
+    const vars = providedVars(service, [domain("app.example.com", "core", { primary: true }), domain("admin.example.com", "admin-console")]);
+    expect(vars.SERVE_PUBLIC_URL).toBe("https://app.example.com");
+    expect(vars.SERVE_PUBLIC_URL_CORE).toBe("https://app.example.com");
+    expect(vars.SERVE_PUBLIC_URL_ADMIN_CONSOLE).toBe("https://admin.example.com");
+    expect(vars.SERVE_PUBLIC_DOMAIN_ADMIN_CONSOLE).toBe("admin.example.com");
+  });
+
+  it("are checked by the catalog builder", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tpl-"));
+    const write = (id: string, meta: object, compose: string) => {
+      fs.mkdirSync(`${dir}/${id}`);
+      fs.writeFileSync(`${dir}/${id}/template.json`, JSON.stringify(meta));
+      fs.writeFileSync(`${dir}/${id}/compose.yml`, compose);
+    };
+    const base = { name: "X", description: "X.", category: "Security", website: "https://x.dev", color: "#123456", expose: { service: "core", port: 3001 } };
+    const compose = "services:\n  core:\n    image: x\n    environment:\n      ADMIN: ${ADMIN_URL}\n  admin:\n    image: x\n";
+    write("good", { ...base, minVersion: "0.1.9", domains: [{ service: "admin", port: 3002 }], vars: [{ key: "ADMIN_URL", serviceUrl: "admin" }] }, compose);
+    write("noversion", { ...base, domains: [{ service: "admin", port: 3002 }], vars: [{ key: "ADMIN_URL", serviceUrl: "admin" }] }, compose);
+    write("nodomain", { ...base, minVersion: "0.1.9", vars: [{ key: "ADMIN_URL", serviceUrl: "admin" }] }, compose);
+    const { catalog, problems } = buildCatalog(dir);
+    fs.rmSync(dir, { recursive: true });
+    expect(catalog.templates.map((t) => t.id)).toEqual(["good", "nodomain", "noversion"]);
+    expect(problems.some((p) => p.startsWith("good:"))).toBe(false);
+    expect(problems.some((p) => p.startsWith("noversion:") && p.includes("minVersion"))).toBe(true);
+    expect(problems.some((p) => p.startsWith("nodomain:") && p.includes("has no domain"))).toBe(true);
+  });
+
+  it("are left out by versions that cannot create them", () => {
+    const t = { ...templates[0], vars: [{ key: "A", serviceUrl: "x" }] };
+    // 0.1.8 had no serviceUrl: its strict var schema rejected the template. Simulated with minVersion here.
+    expect(parseCatalog(JSON.stringify({ schema: CATALOG_SCHEMA, templates: [{ ...t, minVersion: "0.1.9" }] }), "0.1.8")?.templates).toEqual([]);
   });
 });

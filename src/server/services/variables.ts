@@ -3,7 +3,7 @@ import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull } from "@/server/crypto";
 import { engines } from "@/server/databases/engines";
 import { databaseUrl } from "@/server/databases/options";
-import { PRIVATE_VARS, pickList, REF, REPLICA_REF, referenceName, replicaCount, replicaEnv, replicaPick } from "@/lib/refs";
+import { composeVarSuffix, PRIVATE_VARS, pickList, REF, REPLICA_REF, referenceName, replicaCount, replicaEnv, replicaPick } from "@/lib/refs";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { privateHost } from "@/lib/hostname";
 import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
@@ -23,6 +23,18 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
     vars.SERVE_PUBLIC_DOMAIN = primary.hostname;
     // Tunnel domains are HTTPS at Cloudflare even though the proxy serves them over HTTP.
     vars.SERVE_PUBLIC_URL = `${primary.https || primary.tunnelId ? "https" : "http"}://${primary.hostname}`;
+  }
+  // A stack whose services have domains of their own (an API next to the web app) gets each one too.
+  if (service.type === "compose") {
+    const byService = new Map<string, Domain[]>();
+    for (const d of domains) if (d.composeService) byService.set(d.composeService, [...(byService.get(d.composeService) ?? []), d]);
+    for (const [name, list] of byService) {
+      const main = pickPrimaryDomain(list);
+      if (!main) continue;
+      const suffix = composeVarSuffix(name);
+      vars[`SERVE_PUBLIC_DOMAIN_${suffix}`] = main.hostname;
+      vars[`SERVE_PUBLIC_URL_${suffix}`] = `${main.https || main.tunnelId ? "https" : "http"}://${main.hostname}`;
+    }
   }
   if (service.type === "app" && service.runtime.port) {
     vars.PORT = String(service.runtime.port);

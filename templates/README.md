@@ -42,7 +42,15 @@ release's image is the fallback when GitHub cannot be reached.
    - Optional: `popular` (shown first), `note` (shown before creating: first login, extra ports),
      `hostAccess` (mounts the Docker socket or host paths: only Root admins may create it),
      `minVersion` (the oldest Serve version that can run it).
-   - `hex16` needs Serve 0.1.9 or newer; older versions leave such a template out on their own.
+   - `domains`: more compose services that get a generated domain of their own, for apps with a
+     second web address (an API, an admin console): `"domains": [{ "service": "admin", "port": 3002 }]`.
+     A var with `"serviceUrl": "admin"` (or `"serviceHost"`) follows that service's domain, the way
+     `publicUrl` follows the main one.
+   - `domains`, `serviceUrl`, `serviceHost` and `hex16` need `"minVersion": "0.1.9"` (the build checks it).
+
+   Config files an app needs can live in `compose.yml` itself, under a top-level `configs:` entry with
+   `content: |`, mounted with `configs:` on the service. A setup step that runs once goes in its own
+   service, and the app waits for it with `depends_on: { setup: { condition: service_completed_successfully } }`.
 
 3. `compose.yml`: pin a major version where the project publishes one, add `restart: unless-stopped`,
    health checks on databases and `depends_on: { condition: service_healthy }` on what needs them.

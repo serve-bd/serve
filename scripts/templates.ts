@@ -13,7 +13,14 @@ export const TEMPLATES_DIR = path.resolve(__dirname, "../templates");
 export const INDEX_FILE = path.join(TEMPLATES_DIR, "index.json");
 
 /** Mistakes the schema cannot see: the compose file and template.json must agree. */
-function composeProblems(id: string, compose: string, expose: { service: string }, vars: { key: string }[]) {
+function composeProblems(
+  id: string,
+  compose: string,
+  expose: { service: string },
+  vars: { key: string; serviceUrl?: string; serviceHost?: string }[],
+  domains: { service: string }[] = [],
+  minVersion?: string,
+) {
   const problems: string[] = [];
   let doc: { services?: Record<string, unknown> } | null = null;
   try {
@@ -23,6 +30,20 @@ function composeProblems(id: string, compose: string, expose: { service: string 
   }
   if (!doc?.services || typeof doc.services !== "object") return [`${id}: compose.yml has no services`];
   if (!(expose.service in doc.services)) problems.push(`${id}: expose.service "${expose.service}" is not a service in compose.yml`);
+  for (const d of domains) {
+    if (!(d.service in doc.services)) problems.push(`${id}: domains service "${d.service}" is not a service in compose.yml`);
+    if (d.service === expose.service) problems.push(`${id}: domains repeats the exposed service "${d.service}"`);
+  }
+  const routed = new Set([expose.service, ...domains.map((d) => d.service)]);
+  for (const v of vars) {
+    const target = v.serviceUrl ?? v.serviceHost;
+    if (target && !routed.has(target)) problems.push(`${id}: var ${v.key} follows "${target}", which has no domain (add it to domains)`);
+  }
+  // Older versions would create the stack without the extra domains.
+  const needs019 = domains.length > 0 || vars.some((v) => v.serviceUrl || v.serviceHost || (v as { generate?: string }).generate === "hex16");
+  if (needs019 && (!minVersion || minVersion.localeCompare("0.1.9", undefined, { numeric: true }) < 0)) {
+    problems.push(`${id}: uses domains, serviceUrl/serviceHost or hex16: set "minVersion": "0.1.9"`);
+  }
   const declared = new Set(vars.map((v) => v.key));
   for (const v of composeVariables(compose)) {
     if (!v.hasDefault && !declared.has(v.name)) problems.push(`${id}: compose.yml uses \${${v.name}} but template.json has no var for it`);
@@ -65,7 +86,7 @@ export function buildCatalog(dir = TEMPLATES_DIR): { catalog: Catalog; problems:
       problems.push(...result.error.issues.map((i) => `${id}: ${i.path.join(".") || "(root)"}: ${i.message}`));
       continue;
     }
-    problems.push(...composeProblems(id, compose, result.data.expose, result.data.vars));
+    problems.push(...composeProblems(id, compose, result.data.expose, result.data.vars, result.data.domains, result.data.minVersion));
     templates.push(result.data);
   }
   return { catalog: { schema: CATALOG_SCHEMA, templates }, problems };

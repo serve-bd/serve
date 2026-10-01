@@ -19,6 +19,10 @@ const varSchema = z
     publicUrl: z.boolean().optional(),
     /** Filled with the service's public hostname (domain only); follows the primary domain. */
     publicHost: z.boolean().optional(),
+    /** Filled with the public URL of another compose service's domain (see `domains`). Serve 0.1.9+. */
+    serviceUrl: z.string().min(1).optional(),
+    /** Filled with the public hostname of another compose service's domain. Serve 0.1.9+. */
+    serviceHost: z.string().min(1).optional(),
     /** Shown on the configure step. */
     label: z.string().max(80).optional(),
   })
@@ -56,6 +60,11 @@ export const templateSchema = z.object({
     .optional(),
   /** Compose service + port that receives the generated domain. */
   expose: z.object({ service: z.string().min(1), port: z.number().int().min(1).max(65535) }),
+  /** More compose services that get a generated domain of their own (an API, an admin console). Serve 0.1.9+. */
+  domains: z
+    .array(z.object({ service: z.string().min(1), port: z.number().int().min(1).max(65535) }))
+    .max(4)
+    .optional(),
   vars: z.array(varSchema),
   compose: z.string().min(1).max(100_000),
   /** White glyph on the tile (SVG source), or null for a lettered tile. */

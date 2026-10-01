@@ -1,6 +1,7 @@
 "use client";
 
 import { typedServiceName } from "@/lib/service-name";
+import { composeVarSuffix } from "@/lib/refs";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
@@ -60,7 +61,7 @@ export type CatalogTemplate = {
   custom: boolean;
   iconUrl: string | null;
   note: string | null;
-  vars: { key: string; generate?: string; value?: string; publicUrl?: boolean; publicHost?: boolean; label?: string }[];
+  vars: { key: string; generate?: string; value?: string; publicUrl?: boolean; publicHost?: boolean; serviceUrl?: string; serviceHost?: string; label?: string }[];
 };
 
 type ServerOption = { id: string; name: string; host: string; status: string; isLocal: boolean };
@@ -1088,9 +1089,13 @@ function Catalog({ props, onStart, onTemplate }: { props: Props; onStart: (k: Ki
   );
 }
 
+/** Filled in by Serve: generated, or a domain reference. */
+const isAutomatic = (v: CatalogTemplate["vars"][number]) => !!(v.generate || v.publicUrl || v.publicHost || v.serviceUrl || v.serviceHost);
+
 function varHint(v: CatalogTemplate["vars"][number]) {
   if (v.publicUrl) return "Follows the service's domain (https://…)";
   if (v.publicHost) return "Follows the service's domain";
+  if (v.serviceUrl || v.serviceHost) return `Follows the domain of ${v.serviceUrl ?? v.serviceHost}`;
   if (v.generate === "password") return "Strong password generated for you";
   if (v.generate) return "Random secret generated for you";
   return null;
@@ -1099,13 +1104,11 @@ function varHint(v: CatalogTemplate["vars"][number]) {
 function TemplateConfigure({ props, template, onBack }: { props: Props; template: CatalogTemplate; onBack: () => void }) {
   const router = useRouter();
   const [name, setName] = React.useState(template.name);
-  const [values, setValues] = React.useState<Record<string, string>>(() =>
-    Object.fromEntries(template.vars.filter((v) => !v.generate && !v.publicUrl && !v.publicHost).map((v) => [v.key, v.value ?? ""])),
-  );
+  const [values, setValues] = React.useState<Record<string, string>>(() => Object.fromEntries(template.vars.filter((v) => !isAutomatic(v)).map((v) => [v.key, v.value ?? ""])));
   const [custom, setCustom] = React.useState<Record<string, string>>({});
   const [showGenerated, setShowGenerated] = React.useState(false);
-  const editable = template.vars.filter((v) => !v.generate && !v.publicUrl && !v.publicHost);
-  const automatic = template.vars.filter((v) => v.generate || v.publicUrl || v.publicHost);
+  const editable = template.vars.filter((v) => !isAutomatic(v));
+  const automatic = template.vars.filter(isAutomatic);
   const { run, pending } = useAction(createComposeService, {
     refresh: false,
     success: "Service created. Review the settings, then deploy.",
@@ -1191,7 +1194,15 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
                             aria-label={`${v.key} value`}
                           />
                         ) : (
-                          <span className="truncate font-mono text-[12px] text-faint">{v.publicUrl ? "${{SERVE_PUBLIC_URL}}" : "${{SERVE_PUBLIC_DOMAIN}}"}</span>
+                          <span className="truncate font-mono text-[12px] text-faint">
+                            {v.publicUrl
+                              ? "${{SERVE_PUBLIC_URL}}"
+                              : v.serviceUrl
+                                ? `\${{SERVE_PUBLIC_URL_${composeVarSuffix(v.serviceUrl)}}}`
+                                : v.serviceHost
+                                  ? `\${{SERVE_PUBLIC_DOMAIN_${composeVarSuffix(v.serviceHost)}}}`
+                                  : "${{SERVE_PUBLIC_DOMAIN}}"}
+                          </span>
                         )}
                       </div>
                     ))}

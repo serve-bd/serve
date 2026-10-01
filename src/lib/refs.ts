@@ -17,6 +17,11 @@ export function referenceOf(serviceName: string, key: string) {
 }
 
 /** A reference in a variable value: ${{KEY}} or ${{service.KEY}}. */
+/** The suffix of a compose service's own domain variables: SERVE_PUBLIC_URL_<SUFFIX>. */
+export function composeVarSuffix(composeService: string) {
+  return composeService.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+}
+
 export const REF = /\$\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g;
 
 /** Variables that hold private names: they only work on the same server or across a shared private network. */

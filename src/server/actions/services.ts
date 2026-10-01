@@ -388,11 +388,33 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
             https: generated.https,
             forceHttps: generated.https,
             generated: true,
+            // With more domains below, the exposed service stays the one SERVE_PUBLIC_URL means.
+            primary: template.domains.length > 0,
             port: template.expose.port,
             composeService: template.expose.service,
           })
           .returning();
         if (domain.https) await ensureCertificateFor(domain, ctx.org.id);
+        for (const extra of template.domains) {
+          const host = await generatedHostname(`${slug}-${extra.service}`, server.id);
+          if (!host) continue;
+          const [taken] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, host.hostname)).limit(1);
+          if (taken) continue;
+          const [more] = await db
+            .insert(schema.domain)
+            .values({
+              id: newId(),
+              serviceId: id,
+              hostname: host.hostname,
+              https: host.https,
+              forceHttps: host.https,
+              generated: true,
+              port: extra.port,
+              composeService: extra.service,
+            })
+            .returning();
+          if (more.https) await ensureCertificateFor(more, ctx.org.id);
+        }
       }
       const vars = template.vars.map((v) => ({
         key: v.key,

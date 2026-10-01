@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/misc";
-import { QuietDot, statusText } from "@/components/ui/status";
+import { StatusDot, statusText } from "@/components/ui/status";
 import { serverReachable } from "@/lib/server-services";
 import { cn } from "@/lib/utils";
 import type { ProjectSummary } from "./project-card";
@@ -50,7 +50,7 @@ export function ProjectRow({ project }: { project: ProjectSummary }) {
       <span className="flex max-w-[45%] flex-wrap justify-end gap-x-2 gap-y-1.5" aria-hidden>
         {project.services.map((s) => (
           <span key={s.id} title={`${s.name}: ${statusText(s.status)}`} className="flex">
-            <QuietDot status={s.status} />
+            <StatusDot status={s.status} />
           </span>
         ))}
       </span>
@@ -68,10 +68,7 @@ function Meter({ label, value }: { label: string; value: number | null }) {
         <span className="font-mono text-fg-2 tabular-nums">{pct === null ? "–" : `${Math.round(pct)}%`}</span>
       </span>
       <span className="h-1 overflow-hidden rounded-full bg-sunken">
-        <span
-          className={cn("block h-full rounded-full", pct !== null && pct >= 90 ? "bg-bad" : pct !== null && pct >= 75 ? "bg-warn" : "bg-fg/35")}
-          style={{ width: `${pct ?? 0}%` }}
-        />
+        <span className={cn("block h-full rounded-full", pct !== null && pct > 90 ? "bg-bad" : "bg-fg/35")} style={{ width: `${pct ?? 0}%` }} />
       </span>
     </span>
   );
@@ -87,9 +84,11 @@ export function ServerRow({ server: s }: { server: ServerCardData }) {
   return (
     <Link href={`/servers/${s.id}`} className="flex flex-col gap-2.5 px-5 py-3 transition-colors hover:bg-hover/60">
       <span className="flex items-center gap-2.5">
-        <QuietDot status={status} kind="server" />
+        <StatusDot status={status} kind="server" />
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-fg">{s.name}</span>
-        <span className="flex-none text-xs text-faint">{!reachable ? `${statusText(s.status, "server")} · ${s.services} services` : `${s.running}/${s.services} running`}</span>
+        <span className="flex-none text-xs text-faint">
+          {!reachable ? `${statusText(s.status, "server")} · ${s.services} ${s.services === 1 ? "service" : "services"}` : `${s.running}/${s.services} running`}
+        </span>
       </span>
       {reachable && s.metricsEnabled && (
         <span className="grid grid-cols-3 gap-4 pl-[18px]">

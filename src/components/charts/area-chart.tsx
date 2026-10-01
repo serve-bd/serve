@@ -98,9 +98,10 @@ export function AreaChart({
 }
 
 /** Horizontal usage meter. */
-export function Meter({ value, max, color = "var(--accent)" }: { value: number; max: number; color?: string }) {
+/** A usage bar: grey, and red only when it is critical (over 90%). */
+export function Meter({ value, max, color = "color-mix(in oklab, var(--fg) 35%, transparent)" }: { value: number; max: number; color?: string }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
-  const tone = pct > 90 ? "var(--bad)" : pct > 75 ? "var(--warn)" : color;
+  const tone = pct > 90 ? "var(--bad)" : color;
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken">
       <div className="h-full rounded-full transition-[width] duration-700 ease-[var(--ease-out-quint)]" style={{ width: `${pct}%`, background: tone }} />

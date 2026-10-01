@@ -69,7 +69,7 @@ function TopList({ services, metric }: { services: Top[]; metric: "cpu" | "memor
             <span className="flex-none tabular-nums text-fg-2">{metric === "cpu" ? `${s.cpu.toFixed(1)}%` : formatBytes(s.memory)}</span>
           </div>
           <div className="h-1 overflow-hidden rounded-full bg-sunken">
-            <div className={cn("h-full rounded-full", metric === "cpu" ? "bg-accent" : "bg-info")} style={{ width: `${Math.max(2, (s[metric] / max) * 100)}%` }} />
+            <div className={cn("h-full rounded-full", "bg-fg/35")} style={{ width: `${Math.max(2, (s[metric] / max) * 100)}%` }} />
           </div>
         </Link>
       ))}

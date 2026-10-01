@@ -80,7 +80,7 @@ export default async function OverviewPage() {
   const canCreate = ctx.can("projects.manage");
   const [projects, deployments, servers, today] = await Promise.all([
     projectSummaries(ctx.org.id, ctx.projectIds),
-    recentDeployments(ctx.org.id, 14, undefined, ctx.projectIds),
+    recentDeployments(ctx.org.id, 5, undefined, ctx.projectIds),
     // Servers it manages, plus the ones every member sees: owned by or shared with this organization.
     Promise.all([listedServerIds(ctx), viewableServerIds(ctx)]).then(([listed, viewable]) => {
       const ids = [...new Set([...listed, ...viewable])];

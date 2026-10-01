@@ -2,13 +2,50 @@
 
 import { hasAnsi, parseAnsi, stripAnsi } from "@/lib/ansi";
 import * as React from "react";
-import { ArrowDown, Download, Search, WrapText } from "lucide-react";
+import { ArrowDown, Check, Copy, Download, Search, WrapText } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
+import { copyText } from "@/components/ui/clipboard";
 
 export type LogLine = { text: string; time?: string; source?: string | null; error?: boolean };
 
 const MAX_LINES = 5000;
+
+/** Choices for showing only the newest lines; 0 shows all that are kept. */
+const LAST_OPTIONS = [0, 100, 500, 1000, 2000];
+const LAST_KEY = "serve.logs.last";
+
+const lineText = (l: LogLine) => (l.time ? `${l.time} ` : "") + stripAnsi(l.text);
+
+/** Copies text, saying so when the browser refuses. Returns whether it worked. */
+async function copy(text: string) {
+  if (await copyText(text)) return true;
+  toast.error("Could not copy. Select the text and copy it by hand.");
+  return false;
+}
+
+/** Copy button of one line, shown when the line is hovered. */
+function LineCopy({ text }: { text: string }) {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        if (!(await copy(text))) return;
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      }}
+      className={cn(
+        "absolute top-0 right-2 rounded bg-log-bg/90 p-1 text-white/40 opacity-0 transition-opacity group-hover:opacity-100 hover:text-white/90 focus-visible:opacity-100",
+        copied && "opacity-100",
+      )}
+      aria-label="Copy line"
+    >
+      {copied ? <Check className="size-3 text-[#30d158]" /> : <Copy className="size-3" />}
+    </button>
+  );
+}
 
 function lineTone(text: string) {
   if (text.startsWith("==> ")) {
@@ -22,7 +59,7 @@ function lineTone(text: string) {
   return "";
 }
 
-/** Terminal-style log viewer with follow mode, search, wrap and download. */
+/** Terminal-style log viewer with follow mode, search, newest-lines limit, copy, wrap and download. */
 export function LogViewer({
   lines,
   className,
@@ -44,13 +81,29 @@ export function LogViewer({
   const [follow, setFollow] = React.useState(true);
   const [wrap, setWrap] = React.useState(true);
   const [query, setQuery] = React.useState("");
+  const [last, setLast] = React.useState(0);
+  const [copied, setCopied] = React.useState(false);
+  // The last choice is remembered in this browser, for every log.
+  React.useEffect(() => {
+    try {
+      const saved = Number(localStorage.getItem(LAST_KEY));
+      if (LAST_OPTIONS.includes(saved)) setLast(saved);
+    } catch {}
+  }, []);
+  const chooseLast = (n: number) => {
+    setLast(n);
+    try {
+      localStorage.setItem(LAST_KEY, String(n));
+    } catch {}
+  };
 
   const visible = React.useMemo(() => {
     const src = lines.length > MAX_LINES ? lines.slice(-MAX_LINES) : lines;
-    if (!query) return src.map((l, i) => ({ ...l, n: i + 1 }));
+    const numbered = src.map((l, i) => ({ ...l, n: i + 1 }));
     const q = query.toLowerCase();
-    return src.map((l, i) => ({ ...l, n: i + 1 })).filter((l) => stripAnsi(l.text).toLowerCase().includes(q));
-  }, [lines, query]);
+    const matching = q ? numbered.filter((l) => stripAnsi(l.text).toLowerCase().includes(q)) : numbered;
+    return last ? matching.slice(-last) : matching;
+  }, [lines, query, last]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll again whenever the visible lines change.
   React.useLayoutEffect(() => {
@@ -64,8 +117,14 @@ export function LogViewer({
     if (atBottom !== follow) setFollow(atBottom);
   };
 
+  const copyVisible = async () => {
+    if (!(await copy(visible.map(lineText).join("\n")))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   const download = () => {
-    const blob = new Blob([lines.map((l) => (l.time ? `${l.time} ` : "") + stripAnsi(l.text)).join("\n")], { type: "text/plain" });
+    const blob = new Blob([lines.map(lineText).join("\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -87,6 +146,31 @@ export function LogViewer({
           />
         </div>
         {toolbar}
+        <Tooltip content="Show only the newest lines">
+          <select
+            value={last}
+            onChange={(e) => chooseLast(Number(e.target.value))}
+            aria-label="Lines shown"
+            className="h-7 rounded-md bg-white/[0.06] px-1.5 text-[11px] text-white/70 outline-none hover:bg-white/[0.09] focus:bg-white/[0.09]"
+          >
+            {LAST_OPTIONS.map((n) => (
+              <option key={n} value={n} className="bg-[#1c1c1e] text-white">
+                {n ? `Last ${n}` : "All lines"}
+              </option>
+            ))}
+          </select>
+        </Tooltip>
+        <Tooltip content={copied ? "Copied" : query || last ? `Copy the ${visible.length} lines shown` : "Copy all lines"}>
+          <button
+            type="button"
+            onClick={copyVisible}
+            disabled={!visible.length}
+            className="rounded-md p-1.5 text-white/40 hover:bg-white/[0.08] hover:text-white/80 disabled:opacity-40"
+            aria-label="Copy lines"
+          >
+            {copied ? <Check className="size-3.5 text-[#30d158]" /> : <Copy className="size-3.5" />}
+          </button>
+        </Tooltip>
         <Tooltip content={wrap ? "Disable wrapping" : "Wrap lines"}>
           <button
             type="button"
@@ -122,7 +206,7 @@ export function LogViewer({
                     {l.source !== undefined && l.source !== null && <td className="w-px pr-3 whitespace-nowrap text-[#64d2ff]/70 select-none">{l.source}</td>}
                     <td
                       className={cn(
-                        "pr-4",
+                        "relative pr-4",
                         wrap ? "break-all whitespace-pre-wrap" : "whitespace-pre",
                         tone === "step" && "font-semibold text-white",
                         tone === "step-ok" && "font-semibold text-[#30d158]",
@@ -140,6 +224,7 @@ export function LogViewer({
                         : l.text.startsWith("==> ")
                           ? l.text.slice(4)
                           : l.text || " "}
+                      {l.text && <LineCopy text={stripAnsi(l.text)} />}
                     </td>
                   </tr>
                 );

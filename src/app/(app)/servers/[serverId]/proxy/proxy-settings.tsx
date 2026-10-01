@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "@/hooks/use-router";
 import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
+import { Card, CardBody, CardFooter, CardHeader, Copyable } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -62,10 +62,12 @@ function FormCard({
         <CardBody className="flex flex-col gap-4 py-5">
           {children}
           {form.error && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-bad/15 bg-bad-soft/60 px-3.5 py-3">
-              <TriangleAlert className="mt-0.5 size-4 flex-none text-bad" />
-              <pre className="min-w-0 flex-1 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-fg-2">{form.error}</pre>
-            </div>
+            <Copyable value={form.error}>
+              <div className="flex items-start gap-2.5 rounded-xl border border-bad/15 bg-bad-soft/60 py-3 pr-10 pl-3.5">
+                <TriangleAlert className="mt-0.5 size-4 flex-none text-bad" />
+                <pre className="min-w-0 flex-1 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-fg-2">{form.error}</pre>
+              </div>
+            </Copyable>
           )}
         </CardBody>
         <CardFooter>

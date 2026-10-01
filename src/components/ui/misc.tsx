@@ -115,6 +115,27 @@ export function CopyButton({ value, className, label = "Copy" }: { value: string
   );
 }
 
+/**
+ * A block of output (a log, an error, a snippet) with a copy button in its top right corner. The
+ * wrapper takes the block's outer spacing; `dark` for blocks on the log background.
+ */
+export function Copyable({ value, children, className, dark }: { value: string; children: React.ReactNode; className?: string; dark?: boolean }) {
+  return (
+    <div className={cn("group/copy relative min-w-0", className)}>
+      {children}
+      {value.trim() && (
+        <CopyButton
+          value={value}
+          className={cn(
+            "absolute top-1.5 right-1.5 size-6 bg-surface/90 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/copy:opacity-100 sm:focus-visible:opacity-100",
+            dark && "bg-log-bg/90 text-white/50 hover:bg-white/10 hover:text-white",
+          )}
+        />
+      )}
+    </div>
+  );
+}
+
 /** Read-only value with a copy button (connection strings, URLs, keys). */
 export function CopyField({ value, secret, className }: { value: string; secret?: boolean; className?: string }) {
   const [shown, setShown] = React.useState(!secret);

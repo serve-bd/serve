@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import { ChevronRight, FileCode2, Lock, Pencil, Plus, RefreshCw, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, CardBody, CardFooter, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Badge, Card, CardBody, CardFooter, CardHeader, EmptyState, TimeAgo, Copyable } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -284,10 +284,12 @@ function FileForm({
 
 export function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-bad/15 bg-bad-soft/60 px-3.5 py-3">
-      <TriangleAlert className="mt-0.5 size-4 flex-none text-bad" />
-      <pre className="min-w-0 flex-1 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-fg-2">{message}</pre>
-    </div>
+    <Copyable value={message}>
+      <div className="flex items-start gap-2.5 rounded-xl border border-bad/15 bg-bad-soft/60 py-3 pr-10 pl-3.5">
+        <TriangleAlert className="mt-0.5 size-4 flex-none text-bad" />
+        <pre className="min-w-0 flex-1 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-fg-2">{message}</pre>
+      </div>
+    </Copyable>
   );
 }
 

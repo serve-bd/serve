@@ -18,7 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, EmptyState } from "@/components/ui/misc";
+import { Card, Copyable, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
@@ -387,9 +387,11 @@ function CertificateRow({
             {details ? "Hide details" : "Show details"}
           </button>
           {details && (
-            <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-sunken p-2.5 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-muted">
-              {c.lastError}
-            </pre>
+            <Copyable value={c.lastError ?? ""} className="mt-2">
+              <pre className="max-h-40 overflow-auto rounded-lg bg-sunken py-2.5 pr-9 pl-2.5 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-muted">
+                {c.lastError}
+              </pre>
+            </Copyable>
           )}
         </div>
       )}

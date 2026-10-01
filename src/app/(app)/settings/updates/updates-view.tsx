@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ArrowUpRight, Check, CircleAlert, CircleCheck, Download, Info, Loader2, Package, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, CardBody, CardHeader, CopyButton, TimeAgo } from "@/components/ui/misc";
+import { Badge, Card, CardBody, CardHeader, Copyable, CopyButton, TimeAgo } from "@/components/ui/misc";
 import { cn } from "@/lib/utils";
 import { useProductName } from "@/components/brand";
 import { SwitchRow } from "@/components/ui/switch";
@@ -233,9 +233,11 @@ export function UpdatesView({
             actions={<Badge tone={runLabel[run.state].tone}>{runLabel[run.state].label}</Badge>}
           />
           <CardBody className="py-4">
-            <pre className="max-h-80 overflow-auto rounded-xl bg-log-bg px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-log-fg">
-              {log || "Waiting for the worker to start the update…"}
-            </pre>
+            <Copyable value={log} dark>
+              <pre className="max-h-80 overflow-auto rounded-xl bg-log-bg py-3 pr-10 pl-4 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-log-fg">
+                {log || "Waiting for the worker to start the update…"}
+              </pre>
+            </Copyable>
           </CardBody>
         </Card>
       )}

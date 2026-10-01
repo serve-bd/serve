@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import { Fingerprint, PlugZap, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardHeader, TimeAgo } from "@/components/ui/misc";
+import { Card, CardBody, CardHeader, Copyable, TimeAgo } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -318,6 +318,9 @@ export function MetricsCard({ serverId, enabled, hours, agent }: { serverId: str
 
 const INSTANCE = "instance";
 
+/** Removes the tunnel service from a machine whose server was removed here. */
+const TUNNEL_REMOVE_COMMAND = "sudo systemctl disable --now serve-tunnel; sudo pkill -f /etc/serve-tunnel/; sudo rm -rf /etc/serve-tunnel /etc/systemd/system/serve-tunnel.service";
+
 export function AccessCard({ server, organizations }: { server: ServerDetails; organizations: { id: string; name: string }[] }) {
   return (
     <SettingsCard
@@ -401,9 +404,9 @@ export function DangerZone({ server }: { server: ServerDetails }) {
                 description: server.tunnel ? (
                   <span className="flex flex-col gap-2">
                     <span>This cannot be undone. The server&apos;s tunnel can no longer sign in; to remove it from the machine, run there:</span>
-                    <code className="rounded-lg bg-sunken px-2.5 py-2 font-mono text-[11.5px] break-all text-fg select-all">
-                      sudo systemctl disable --now serve-tunnel; sudo pkill -f /etc/serve-tunnel/; sudo rm -rf /etc/serve-tunnel /etc/systemd/system/serve-tunnel.service
-                    </code>
+                    <Copyable value={TUNNEL_REMOVE_COMMAND}>
+                      <code className="block rounded-lg bg-sunken py-2 pr-9 pl-2.5 font-mono text-[11.5px] break-all text-fg select-all">{TUNNEL_REMOVE_COMMAND}</code>
+                    </Copyable>
                   </span>
                 ) : (
                   "This cannot be undone. You can add the server again later."

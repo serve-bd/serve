@@ -7,7 +7,7 @@ import { useRouter } from "@/hooks/use-router";
 import { AlertTriangle, ArrowLeft, Ban, Clock, Container, GitBranch, GitCommitHorizontal, RefreshCw, RotateCcw, Server, User } from "lucide-react";
 import type { DeploymentTarget } from "@/server/services/types";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, TimeAgo } from "@/components/ui/misc";
+import { Badge, Card, TimeAgo, Copyable } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
 import { LogViewer, type LogLine } from "@/components/log-viewer";
 import { useConfirm } from "@/components/ui/confirm";
@@ -226,7 +226,9 @@ export function DeploymentView({
           )}
         </div>
         {state.status === "failed" && state.error && (
-          <pre className="mt-4 max-h-48 overflow-auto rounded-xl bg-bad-soft px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-bad">{state.error}</pre>
+          <Copyable value={state.error} className="mt-4">
+            <pre className="max-h-48 overflow-auto rounded-xl bg-bad-soft py-3 pr-10 pl-4 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-bad">{state.error}</pre>
+          </Copyable>
         )}
         {/* Several servers: the deployment succeeded on the service's server, some others may have failed. */}
         {state.status === "success" && state.error && (

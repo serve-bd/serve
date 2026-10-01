@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "@/hooks/use-router";
 import { Check, Info, Loader2, Play, Power, RefreshCw, RotateCw, Square, TriangleAlert, Unplug, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardFooter, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Card, CardBody, CardFooter, CardHeader, EmptyState, TimeAgo, Copyable } from "@/components/ui/misc";
 import { Led } from "@/components/ui/status";
 import { Textarea } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
@@ -221,7 +221,11 @@ export function ProxyView({
                         ? "Configuration test failed"
                         : `Configuration not tested: ${test.output.replace(/\.$/, "").toLowerCase()}`}
                   </span>
-                  {test.state === "failed" && <pre className="overflow-x-auto font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted">{test.output}</pre>}
+                  {test.state === "failed" && (
+                    <Copyable value={test.output}>
+                      <pre className="overflow-x-auto pr-8 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted">{test.output}</pre>
+                    </Copyable>
+                  )}
                 </div>
                 <Button size="xs" variant="ghost" onClick={() => rebuild.run()} loading={rebuild.pending} className="flex-none">
                   <Wrench /> Rebuild configs
@@ -313,10 +317,12 @@ function CustomConfigCard({ initial }: { initial: string }) {
             className="font-mono text-[12.5px] leading-relaxed"
           />
           {error && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-bad/15 bg-bad-soft/60 px-3.5 py-3">
-              <TriangleAlert className="mt-0.5 size-4 flex-none text-bad" />
-              <pre className="min-w-0 flex-1 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-fg-2">{error}</pre>
-            </div>
+            <Copyable value={error}>
+              <div className="flex items-start gap-2.5 rounded-xl border border-bad/15 bg-bad-soft/60 py-3 pr-10 pl-3.5">
+                <TriangleAlert className="mt-0.5 size-4 flex-none text-bad" />
+                <pre className="min-w-0 flex-1 font-mono text-[11.5px] leading-relaxed break-words whitespace-pre-wrap text-fg-2">{error}</pre>
+              </div>
+            </Copyable>
           )}
         </CardBody>
         <CardFooter>

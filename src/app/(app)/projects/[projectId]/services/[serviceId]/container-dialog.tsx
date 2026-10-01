@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { RotateCw, ScrollText, SquareTerminal } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
-import { Badge, CopyButton, Skeleton, TimeAgo } from "@/components/ui/misc";
+import { Badge, CopyButton, Skeleton, TimeAgo, Copyable } from "@/components/ui/misc";
 import { StatusDot } from "@/components/ui/status";
 import { useAction } from "@/hooks/use-action";
 import { useCan } from "@/components/permissions";
@@ -90,7 +90,9 @@ export function ContainerDialog({
                       {d.health.failingStreak > 0 && ` · ${d.health.failingStreak} failed in a row`}
                     </p>
                     {d.health.last.output && (
-                      <pre className="max-h-32 overflow-auto rounded-lg bg-sunken px-3 py-2 font-mono text-[12px] whitespace-pre-wrap text-fg-2">{d.health.last.output}</pre>
+                      <Copyable value={d.health.last.output}>
+                        <pre className="max-h-32 overflow-auto rounded-lg bg-sunken py-2 pr-9 pl-3 font-mono text-[12px] whitespace-pre-wrap text-fg-2">{d.health.last.output}</pre>
+                      </Copyable>
                     )}
                   </div>
                 </Group>
@@ -139,8 +141,11 @@ export function ContainerDialog({
               <Group title="Process">
                 {d.command && (
                   <Row label="Command">
-                    <span className="truncate font-mono text-[12px] text-fg-2" title={d.command}>
-                      {d.command}
+                    <span className="flex min-w-0 items-center gap-1">
+                      <span className="truncate font-mono text-[12px] text-fg-2" title={d.command}>
+                        {d.command}
+                      </span>
+                      <CopyButton value={d.command} className="size-6 flex-none" />
                     </span>
                   </Row>
                 )}

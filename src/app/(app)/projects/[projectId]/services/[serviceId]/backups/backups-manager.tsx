@@ -4,7 +4,7 @@ import * as React from "react";
 import useSWR from "swr";
 import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Badge, Card, CardHeader, EmptyState, TimeAgo, Copyable } from "@/components/ui/misc";
 import { Led } from "@/components/ui/status";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Menu, MenuContent, MenuItem, MenuLinkItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
@@ -141,9 +141,11 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
         )}
       </div>
       {open && b.log && (
-        <pre ref={logRef} className="mx-5 mb-3 max-h-64 overflow-auto rounded-lg bg-sunken px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-fg-2">
-          {b.log.trim()}
-        </pre>
+        <Copyable value={b.log.trim()} className="mx-5 mb-3">
+          <pre ref={logRef} className="max-h-64 overflow-auto rounded-lg bg-sunken py-2 pr-9 pl-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-fg-2">
+            {b.log.trim()}
+          </pre>
+        </Copyable>
       )}
     </div>
   );

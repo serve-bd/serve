@@ -146,6 +146,8 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   // Never deployed: nothing runs yet, so there is nothing to restart or stop.
   const notDeployed = live.status === "idle";
   const busy = ["building", "deploying", "restarting"].includes(live.status);
+  // Crashed: no container is up and Docker gave up restarting it, so there is nothing to stop.
+  const crashed = live.status === "crashed";
   const preview = service.parent?.pr ?? null;
   const parentMe = service.parent ? (siblings.find((s) => s.id === service.parent!.id) ?? null) : null;
   const me: SiblingService = {
@@ -287,7 +289,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                       </MenuItem>
                     </>
                   )}
-                  {!stopped && !notDeployed && (
+                  {!stopped && !notDeployed && !crashed && (
                     <>
                       <MenuSeparator />
                       <MenuItem

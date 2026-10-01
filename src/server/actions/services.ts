@@ -766,6 +766,12 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         data.database.publicAllow = r.ranges.length ? r.ranges : null;
       }
       patch.database = { ...service.database, ...data.database };
+      // Public access changed by hand: it is the user's now, not something the domain opened.
+      const before = service.database;
+      const moved =
+        (data.database.publicPort !== undefined && data.database.publicPort !== (before.publicPort ?? null)) ||
+        (data.database.publicBind !== undefined && data.database.publicBind !== (before.publicBind ?? "0.0.0.0"));
+      if (moved && before.domainOpened?.public) patch.database.domainOpened = { ...before.domainOpened, public: false };
     }
     if (data.compose && service.compose) {
       if (data.compose.content !== undefined && service.compose.mode === "inline") {

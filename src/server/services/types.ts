@@ -267,6 +267,8 @@ export type DatabaseConfig = {
    * without a public IP. Clients run `cloudflared access tcp`. Works for every engine.
    */
   domainTunnelId?: string | null;
+  /** What putting the database on its domain turned on, turned off again when the domain goes. */
+  domainOpened?: { public?: boolean; publicBind?: BindAddress | null; tls?: boolean } | null;
   /** Cron expression for automatic backups. */
   backupSchedule?: string | null;
   backupRetention: number;

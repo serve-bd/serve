@@ -100,7 +100,8 @@ export function VisitorIpCard({ serverId, kind, initial, disabled }: { serverId:
               <span>
                 The proxy runs on this machine
                 <span className="block text-xs text-muted">
-                  A system nginx or HAProxy that owns ports 80 and 443 and passes them on to this proxy&apos;s ports. Serve trusts the address it connects from.
+                  A system nginx or HAProxy that owns ports 80 and 443 and passes them on to this proxy&apos;s ports. Serve trusts the address it connects from, and this
+                  proxy&apos;s ports then answer on 127.0.0.1 only, so visitors cannot skip the proxy in front.
                 </span>
               </span>
             </label>

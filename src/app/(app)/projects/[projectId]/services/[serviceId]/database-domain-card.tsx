@@ -29,6 +29,7 @@ export type DatabaseDomainInfo = {
   /** Public access or TLS was turned off after the domain was set. */
   unreachable: boolean;
   certificate: { status: string; error: string | null } | null;
+  engine: string;
   engineLabel: string;
 };
 
@@ -164,7 +165,13 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                 {info.url && (
                   <Field
                     label={`Connection URL${info.port ? ` · port ${info.port}` : ""}`}
-                    description={cert?.status === "active" ? "Clients check the certificate of the domain." : "Encrypted. Clients check the certificate once it is active."}
+                    description={
+                      cert?.status !== "active"
+                        ? "Encrypted. The domain's certificate is used once it is active."
+                        : info.engine === "postgres"
+                          ? "Encrypted with the domain's certificate. To also check it, use sslmode=verify-full&sslrootcert=system (PostgreSQL 16+ clients)."
+                          : "Encrypted with the domain's certificate, which clients check."
+                    }
                   >
                     <SecretField value={info.url} hidden={hideSecrets} shape={info.url} />
                   </Field>

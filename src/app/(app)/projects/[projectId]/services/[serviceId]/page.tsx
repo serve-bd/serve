@@ -70,6 +70,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           // Public access or TLS turned off after the domain was set: the domain does not answer.
           unreachable: direct && (!cfg.publicPort || cfg.publicBind === "127.0.0.1" || !cfg.tls?.enabled),
           certificate: domainCert ? { status: domainCert.status, error: domainCert.error } : null,
+          engine: cfg.engine,
           engineLabel: engine.label,
         };
     // Offered for the public port's allowlist (not on a dashboard opened at localhost).

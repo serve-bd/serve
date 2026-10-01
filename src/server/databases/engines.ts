@@ -139,9 +139,12 @@ const aofRestore = (cli: string, user: string) =>
     "rm -rf /data/appendonlydir /data/appendonly.aof && mv /data/appendonlydir.serve /data/appendonlydir",
     `chown -R ${user} /data 2>/dev/null; echo "Restored the dump. The database restarts to load it."`,
   ].join(" && ");
-/** Optional TLS: plain 6379 for the private network, TLS on 6380. Required: TLS only, on 6379. */
-const redisTls = (dir: string, mode: "prefer" | "require") => [
-  ...(mode === "require" ? ["--port", "0", "--tls-port", "6379"] : ["--tls-port", "6380"]),
+/** TLS only, on 6379: Redis has no optional TLS on one port. */
+const redisTls = (dir: string) => [
+  "--port",
+  "0",
+  "--tls-port",
+  "6379",
   "--tls-cert-file",
   `${dir}/server.crt`,
   "--tls-key-file",
@@ -329,7 +332,6 @@ export const engines: Record<DbEngine, EngineInfo> = {
     initScripts: false,
     config: { kind: "file", path: "/etc/serve/redis.conf", file: "redis.conf", placeholder: "maxmemory 256mb\nmaxmemory-policy allkeys-lru\nsave 900 1" },
     tlsArgs: redisTls,
-    tlsPort: (mode) => (mode === "require" ? 6379 : 6380),
   },
   valkey: {
     engine: "valkey",
@@ -357,7 +359,6 @@ export const engines: Record<DbEngine, EngineInfo> = {
     initScripts: false,
     config: { kind: "file", path: "/etc/serve/valkey.conf", file: "valkey.conf", placeholder: "maxmemory 256mb\nmaxmemory-policy allkeys-lru\nsave 900 1" },
     tlsArgs: redisTls,
-    tlsPort: (mode) => (mode === "require" ? 6379 : 6380),
   },
   clickhouse: {
     engine: "clickhouse",
@@ -392,7 +393,8 @@ export const engines: Record<DbEngine, EngineInfo> = {
       file: "serve.xml",
       placeholder: "<clickhouse>\n  <max_concurrent_queries>200</max_concurrent_queries>\n</clickhouse>",
     },
-    // TLS on its own ports (HTTPS 8443, native 9440); 8123 and 9000 stay plain for the private network.
+    // TLS on its own ports (HTTPS 8443, native 9440); 8123 and 9000 stay plain for the private network,
+    // so TLS cannot be required.
     tlsArgs: () => [],
     tlsPort: () => 8443,
     tlsFile: (dir) => ({

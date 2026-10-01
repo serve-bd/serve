@@ -24,44 +24,47 @@ const INPUT_CHAIN = "SERVE-DB-ALLOW-IN";
 
 const isV6 = (range: string) => range.includes(":");
 
-/** Firewall rules for one IP family. */
+/** Firewall rules for one IP family, in iptables-restore form. */
 export function familyRules(entries: AllowEntry[], v6: boolean) {
-  const lines: string[] = [];
+  const lines: string[] = [`-A ${INPUT_CHAIN} -i lo -j RETURN`];
   for (const e of entries) {
     const ranges = e.allow.filter((r) => isV6(r) === v6);
     const dnat = `-p tcp -m conntrack --ctstate DNAT --ctorigdstport ${e.port} --ctdir ORIGINAL`;
-    for (const r of ranges) lines.push(`$T -A ${FORWARD_CHAIN} ${dnat} -s ${r} -j RETURN`);
-    lines.push(`$T -A ${FORWARD_CHAIN} ${dnat} -j DROP`);
-    for (const r of ranges) lines.push(`$T -A ${INPUT_CHAIN} -p tcp --dport ${e.port} -s ${r} -j RETURN`);
-    lines.push(`$T -A ${INPUT_CHAIN} -p tcp --dport ${e.port} -j DROP`);
+    for (const r of ranges) lines.push(`-A ${FORWARD_CHAIN} ${dnat} -s ${r} -j RETURN`);
+    lines.push(`-A ${FORWARD_CHAIN} ${dnat} -j DROP`);
+    for (const r of ranges) lines.push(`-A ${INPUT_CHAIN} -p tcp --dport ${e.port} -s ${r} -j RETURN`);
+    lines.push(`-A ${INPUT_CHAIN} -p tcp --dport ${e.port} -j DROP`);
   }
   return lines;
 }
 
-/** Shell script, run in the host's namespaces, that replaces Serve's database rules. */
+/** iptables-restore input that replaces Serve's two chains at once (declaring a chain empties it). */
+const ruleset = (lines: string[]) => ["*filter", `:${FORWARD_CHAIN} - [0:0]`, `:${INPUT_CHAIN} - [0:0]`, ...lines, "COMMIT", ""].join("\n");
+
+/**
+ * Shell script, run in the host's namespaces, that replaces Serve's database rules. It fails
+ * (non-zero, with the reason) unless the rules are in place afterwards: an allowlist that did not
+ * apply must never look applied.
+ */
 export function allowlistScript(entries: AllowEntry[]) {
+  const want = entries.length > 0;
   return [
     "set -u",
+    'fail() { echo "$*" >&2; exit 1; }',
     // Docker uses either iptables flavour; the rules must go where Docker's own rules are.
-    'pick() { for b in nft legacy; do if command -v "$1-$b" >/dev/null 2>&1 && { "$1-$b" -t filter -S DOCKER-USER >/dev/null 2>&1 || "$1-$b" -t nat -S DOCKER >/dev/null 2>&1; }; then echo "$1-$b"; return; fi; done; command -v "$1" >/dev/null 2>&1 && echo "$1"; }',
-    "rules() {",
-    `  $T -N ${FORWARD_CHAIN} 2>/dev/null; $T -F ${FORWARD_CHAIN}`,
-    `  $T -N ${INPUT_CHAIN} 2>/dev/null; $T -F ${INPUT_CHAIN}`,
-    `  $T -A ${INPUT_CHAIN} -i lo -j RETURN`,
-    '  if [ "$F" = 6 ]; then',
-    ...familyRules(entries, true).map((l) => `    ${l}`),
-    "    :",
-    "  else",
-    ...familyRules(entries, false).map((l) => `    ${l}`),
-    "    :",
-    "  fi",
-    // Jumps first in their chains (Docker inserts its own rules above ours at times).
-    `  if $T -S DOCKER-USER >/dev/null 2>&1; then while $T -D DOCKER-USER -j ${FORWARD_CHAIN} 2>/dev/null; do :; done; $T -I DOCKER-USER 1 -j ${FORWARD_CHAIN}; fi`,
-    `  while $T -D INPUT -j ${INPUT_CHAIN} 2>/dev/null; do :; done; $T -I INPUT 1 -j ${INPUT_CHAIN}`,
+    'pick() { for b in nft legacy; do if command -v "$1-$b" >/dev/null 2>&1 && { "$1-$b" -w -t filter -S DOCKER-USER >/dev/null 2>&1 || "$1-$b" -w -t nat -S DOCKER >/dev/null 2>&1; }; then echo "$1-$b"; return; fi; done; if command -v "$1-nft" >/dev/null 2>&1; then echo "$1-nft"; elif command -v "$1" >/dev/null 2>&1; then echo "$1"; fi; }',
+    "apply() {",
+    // Connections Docker forwards pass DOCKER-USER; without it (another firewall backend), FORWARD.
+    "  HOOK=FORWARD; $T -w -S DOCKER-USER >/dev/null 2>&1 && HOOK=DOCKER-USER",
+    '  printf "%s" "$1" | $T-restore -w --noflush || fail "$T rejected the rules"',
+    `  $T -w -C $HOOK -j ${FORWARD_CHAIN} 2>/dev/null || $T -w -I $HOOK 1 -j ${FORWARD_CHAIN} || fail "could not hook $HOOK"`,
+    `  $T -w -C INPUT -j ${INPUT_CHAIN} 2>/dev/null || $T -w -I INPUT 1 -j ${INPUT_CHAIN} || fail "could not hook INPUT"`,
+    `  $T -w -C $HOOK -j ${FORWARD_CHAIN} 2>/dev/null && $T -w -C INPUT -j ${INPUT_CHAIN} 2>/dev/null || fail "the rules are not in place on $T"`,
     "}",
-    'T=$(pick iptables); F=4; [ -z "$T" ] || rules',
-    'T=$(pick ip6tables); F=6; [ -z "$T" ] || rules',
-    'command -v iptables >/dev/null 2>&1 || command -v iptables-nft >/dev/null 2>&1 || { echo "iptables is not installed on this server" >&2; exit 1; }',
+    `T=$(pick iptables); [ -n "$T" ] || { ${want ? 'fail "iptables is not installed on this server"' : "exit 0"}; }`,
+    `apply '${ruleset(familyRules(entries, false))}'`,
+    // IPv6: without ip6tables there is no IPv6 firewall to bypass Docker with, so nothing to do.
+    `T=$(pick ip6tables); [ -z "$T" ] || apply '${ruleset(familyRules(entries, true))}'`,
     "echo applied",
   ].join("\n");
 }

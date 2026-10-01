@@ -11,29 +11,35 @@ describe("database allowlists", () => {
   it("lets the listed addresses reach the port and drops the rest, per family", () => {
     const v4 = familyRules(entries, false);
     expect(v4).toEqual([
-      "$T -A SERVE-DB-ALLOW -p tcp -m conntrack --ctstate DNAT --ctorigdstport 15432 --ctdir ORIGINAL -s 203.0.113.7/32 -j RETURN",
-      "$T -A SERVE-DB-ALLOW -p tcp -m conntrack --ctstate DNAT --ctorigdstport 15432 --ctdir ORIGINAL -j DROP",
-      "$T -A SERVE-DB-ALLOW-IN -p tcp --dport 15432 -s 203.0.113.7/32 -j RETURN",
-      "$T -A SERVE-DB-ALLOW-IN -p tcp --dport 15432 -j DROP",
+      "-A SERVE-DB-ALLOW-IN -i lo -j RETURN",
+      "-A SERVE-DB-ALLOW -p tcp -m conntrack --ctstate DNAT --ctorigdstport 15432 --ctdir ORIGINAL -s 203.0.113.7/32 -j RETURN",
+      "-A SERVE-DB-ALLOW -p tcp -m conntrack --ctstate DNAT --ctorigdstport 15432 --ctdir ORIGINAL -j DROP",
+      "-A SERVE-DB-ALLOW-IN -p tcp --dport 15432 -s 203.0.113.7/32 -j RETURN",
+      "-A SERVE-DB-ALLOW-IN -p tcp --dport 15432 -j DROP",
     ]);
     const v6 = familyRules(entries, true);
-    expect(v6.filter((l) => l.includes("RETURN")).every((l) => l.includes("2001:db8::/32"))).toBe(true);
+    expect(v6.filter((l) => l.includes("RETURN") && !l.includes("-i lo")).every((l) => l.includes("2001:db8::/32"))).toBe(true);
     // An allowlist with IPv4 addresses only shuts the port on IPv6.
     expect(familyRules([{ port: 1, allow: ["203.0.113.7/32"] }], true)).toEqual([
-      "$T -A SERVE-DB-ALLOW -p tcp -m conntrack --ctstate DNAT --ctorigdstport 1 --ctdir ORIGINAL -j DROP",
-      "$T -A SERVE-DB-ALLOW-IN -p tcp --dport 1 -j DROP",
+      "-A SERVE-DB-ALLOW-IN -i lo -j RETURN",
+      "-A SERVE-DB-ALLOW -p tcp -m conntrack --ctstate DNAT --ctorigdstport 1 --ctdir ORIGINAL -j DROP",
+      "-A SERVE-DB-ALLOW-IN -p tcp --dport 1 -j DROP",
     ]);
   });
 
-  it("rebuilds Serve's chains and puts their jumps first", () => {
+  it("replaces Serve's chains at once, hooks them and checks they are in place", () => {
     const script = allowlistScript(entries);
-    expect(script).toContain("$T -F SERVE-DB-ALLOW");
-    expect(script).toContain("$T -I DOCKER-USER 1 -j SERVE-DB-ALLOW");
-    expect(script).toContain("$T -I INPUT 1 -j SERVE-DB-ALLOW-IN");
+    expect(script).toContain(":SERVE-DB-ALLOW - [0:0]");
+    expect(script).toContain("$T-restore -w --noflush");
+    expect(script).toContain("$T -w -I $HOOK 1 -j SERVE-DB-ALLOW");
+    expect(script).toContain("HOOK=FORWARD; $T -w -S DOCKER-USER >/dev/null 2>&1 && HOOK=DOCKER-USER");
+    expect(script).toContain('fail "the rules are not in place on $T"');
     // Local connections (an SSH tunnel to localhost) always pass.
-    expect(script).toContain("$T -A SERVE-DB-ALLOW-IN -i lo -j RETURN");
-    // No allowlists: the chains are emptied, nothing is dropped.
+    expect(script).toContain("-A SERVE-DB-ALLOW-IN -i lo -j RETURN");
+    // An allowlist on a server without iptables fails; no allowlists there is fine.
+    expect(script).toContain('fail "iptables is not installed on this server"');
     expect(allowlistScript([])).not.toContain("DROP");
+    expect(allowlistScript([])).toContain("exit 0");
   });
 
   it("accepts any range width for an allowlist", () => {

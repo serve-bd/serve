@@ -178,19 +178,26 @@ export async function dashboardModel(): Promise<SiteModel | null> {
   };
 }
 
-/** Subnets of the network the proxy shares only with cloudflared (trusted for CF-Connecting-IP). */
 /**
  * Where a proxy on the machine itself (a system nginx in front) connects from: Docker hands the
- * machine's ports to the proxy from the gateway of its main network. Only the machine has that address.
+ * machine's ports to the proxy from the gateway of its main network. Only the machine has that
+ * address, and the proxy's ports then answer on 127.0.0.1 only, so nobody else comes in through it.
  */
 export async function machineAddresses(ctx: ServerCtx): Promise<string[]> {
-  const info = (await ctx.docker.getNetwork(ctx.network).inspect()) as { IPAM?: { Config?: { Gateway?: string }[] } };
-  return (info.IPAM?.Config ?? [])
-    .map((c) => c.Gateway)
-    .filter((g): g is string => !!g && /^[0-9a-f:.]+$/i.test(g))
-    .map((g) => `${g}/${g.includes(":") ? 128 : 32}`);
+  try {
+    const info = (await ctx.docker.getNetwork(ctx.network).inspect()) as { IPAM?: { Config?: { Gateway?: string }[] } };
+    return (info.IPAM?.Config ?? [])
+      .map((c) => c.Gateway)
+      .filter((g): g is string => !!g && /^[0-9a-f:.]+$/i.test(g))
+      .map((g) => `${g}/${g.includes(":") ? 128 : 32}`);
+  } catch (error) {
+    // No network yet: nothing to trust. Any other failure stops the sync, as for the tunnel network.
+    if ((error as { statusCode?: number }).statusCode === 404) return [];
+    throw error;
+  }
 }
 
+/** Subnets of the network the proxy shares only with cloudflared (trusted for CF-Connecting-IP). */
 export async function trustedSubnets(ctx: ServerCtx): Promise<string[]> {
   try {
     const info = (await ctx.docker.getNetwork(tunnelNetworkName(ctx.network)).inspect()) as { IPAM?: { Config?: { Subnet?: string }[] } };

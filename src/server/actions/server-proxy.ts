@@ -173,6 +173,11 @@ export async function saveTrustedProxies(serverId: string, input: { ranges: stri
     }
     if (!row.isLocal && row.status !== "ready") throw new UserError(`${row.name} is not ready. Validate it first.`);
     const server = await serverCtx(serverId);
+    // Trusting a proxy on this machine closes the proxy's ports to everyone else: on 80 or 443, nothing could be in front of it.
+    if (next?.machine && (server.proxyHttpPort === 80 || server.proxyHttpsPort === 443))
+      throw new UserError(
+        "The proxy uses ports 80 and 443, so no other proxy on this machine is in front of it. Move it to other ports in Proxy ports first, and let the proxy in front own 80 and 443.",
+      );
     try {
       await applyTrustedProxies(server, next);
     } catch (error) {

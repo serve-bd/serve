@@ -66,15 +66,29 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
       if (!tunnel) throw new UserError("This server has no Cloudflare Tunnel for that account. Create one in Integrations → Cloudflare first.");
     }
 
-    // Directly on the domain: its own port, open to everyone, with TLS on.
+    // Directly on the domain: its own port, open to everyone, with TLS on. What the domain turned on is
+    // remembered, so taking the domain off (or moving it to a tunnel) turns exactly that off again.
     const direct = !!hostname && !tunnelMode;
-    const publicPort = direct ? (cfg.publicPort ?? (await freePublicPort(service, engine.port))) : cfg.publicPort;
-    const next = {
-      ...cfg,
-      domain: hostname,
-      domainTunnelId: tunnel?.id ?? null,
-      ...(direct ? { publicPort, publicBind: "0.0.0.0" as const, tls: { enabled: true, mode: cfg.tls?.mode ?? ("prefer" as const) } } : {}),
-    };
+    const opened = cfg.domainOpened ?? {};
+    let next: typeof cfg = { ...cfg, domain: hostname, domainTunnelId: tunnel?.id ?? null };
+    if (direct) {
+      const publicOpened = opened.public || !cfg.publicPort || cfg.publicBind === "127.0.0.1";
+      next = {
+        ...next,
+        publicPort: cfg.publicPort ?? (await freePublicPort(service, engine.port)),
+        publicBind: "0.0.0.0",
+        tls: { enabled: true, mode: cfg.tls?.mode ?? "prefer" },
+        domainOpened: { public: publicOpened, publicBind: opened.publicBind ?? cfg.publicBind ?? null, tls: opened.tls || !cfg.tls?.enabled },
+      };
+    } else if (cfg.domainOpened) {
+      next = {
+        ...next,
+        ...(opened.public ? { publicPort: opened.publicBind === "127.0.0.1" ? cfg.publicPort : null, publicBind: opened.publicBind ?? "0.0.0.0" } : {}),
+        ...(opened.tls ? { tls: null } : {}),
+        domainOpened: null,
+      };
+    }
+    const publicPort = next.publicPort ?? null;
     await db.update(schema.service).set({ database: next, updatedAt: new Date() }).where(eq(schema.service.id, service.id));
 
     const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
@@ -127,8 +141,9 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
         }
     }
     // The container serves the domain's certificate and port itself: start it again with them.
+    // A stopped database stays stopped: it picks this up when it starts.
     const containerChanged = direct || (!!previousHost && !previousTunnel);
-    if (containerChanged && service.status !== "idle") await queueDeployment(service.id, "redeploy", { userId: ctx.user.id });
+    if (containerChanged && service.status !== "idle" && service.status !== "stopped") await queueDeployment(service.id, "redeploy", { userId: ctx.user.id });
     await logActivity({
       userId: ctx.user.id,
       organizationId: ctx.org.id,

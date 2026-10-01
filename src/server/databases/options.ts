@@ -116,6 +116,8 @@ export function databaseConfigIssues(cfg: DatabaseConfig): string[] {
   if (cfg.initdbArgs && /[\n\r]/.test(cfg.initdbArgs)) issues.push("Initdb arguments must be on one line.");
   if (cfg.dataMountPath && !/^\/[\w./-]*$/.test(cfg.dataMountPath)) issues.push("The data mount path must be absolute.");
   if (cfg.tls?.enabled && !engine.tlsArgs) issues.push(`Serve cannot turn on TLS for ${engine.label}.`);
+  if (cfg.tls?.enabled && cfg.tls.mode === "require" && cfg.engine === "clickhouse")
+    issues.push("ClickHouse keeps plain ports for the private network: TLS can be optional, not required.");
   return issues;
 }
 
@@ -139,7 +141,7 @@ export function databaseCreds(cfg: DatabaseConfig, password: string): EngineCred
     username: cfg.username,
     password,
     database: cfg.database,
-    tlsRequired: tls && mode === "require" && (cfg.engine === "redis" || cfg.engine === "valkey" || cfg.engine === "mongodb"),
+    tlsRequired: tls && (cfg.engine === "redis" || cfg.engine === "valkey" || (cfg.engine === "mongodb" && mode === "require")),
   };
 }
 
@@ -249,17 +251,20 @@ export function databaseUrl(cfg: DatabaseConfig, creds: EngineCreds, host: strin
   const url = engine.url({ ...creds, host, port });
   if (!cfg.tls?.enabled || !engine.tlsArgs) return url;
   const mode = cfg.tls.mode ?? "prefer";
-  const viaTls = !!opts.public || mode === "require";
+  // Redis and Valkey speak TLS only, once it is on.
+  const viaTls = !!opts.public || mode === "require" || cfg.engine === "redis" || cfg.engine === "valkey";
   switch (cfg.engine) {
     case "postgres":
-      return `${url}?sslmode=${opts.verified ? "verify-full" : viaTls ? "require" : "prefer"}`;
+      // verify-full would need sslrootcert=system, which older libpq and most drivers read as a file name.
+      return `${url}?sslmode=${viaTls ? "require" : "prefer"}`;
     case "mongodb":
       return viaTls ? `${url}&tls=true${opts.verified ? "" : "&tlsAllowInvalidCertificates=true"}` : url;
     case "redis":
     case "valkey":
       return viaTls ? url.replace(/^redis:/, "rediss:") : url;
     case "clickhouse":
-      return viaTls ? `${url}?secure=true` : url;
+      // Only the public port leads to a TLS port; 8123 and 9000 stay plain.
+      return opts.public ? `${url}?secure=true` : url;
     default:
       return url;
   }

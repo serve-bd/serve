@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { StatusDot } from "@/components/ui/status";
 import { useAction } from "@/hooks/use-action";
 import { applyDatabaseChanges, updateService } from "@/server/actions/services";
+import { inRanges, normalizeTrustedRanges } from "@/lib/trusted-proxies";
 import { useServiceLive } from "./service-header";
 import { SecretField } from "@/components/ui/secret-field";
 import { ContainerDialog } from "./container-dialog";
@@ -55,6 +56,9 @@ export function DatabaseOverview(props: {
     .split(/[\s,]+/)
     .map((a) => a.trim())
     .filter(Boolean);
+  // The form the server stores (203.0.113.7 → 203.0.113.7/32), to compare with what is saved.
+  const parsedAllow = normalizeTrustedRanges(allowList, { anyWidth: true });
+  const allowNormalized = "ranges" in parsedAllow ? parsedAllow.ranges : allowList;
   const apply = useAction(
     async () => {
       const res = await updateService(props.serviceId, { database: { publicPort: publicOn ? Number(port) : null, publicBind: bind, publicAllow: allowList } });
@@ -66,7 +70,7 @@ export function DatabaseOverview(props: {
   const changed =
     (publicOn ? Number(port) : null) !== props.publicPort ||
     (publicOn && bind !== props.publicBind) ||
-    (publicOn && bind === "0.0.0.0" && allowList.join(",") !== props.publicAllow.join(","));
+    (publicOn && bind === "0.0.0.0" && allowNormalized.join(",") !== props.publicAllow.join(","));
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -137,6 +141,7 @@ export function DatabaseOverview(props: {
                 ) : (
                   <Field
                     label="Allowed IPs"
+                    error={"error" in parsedAllow ? parsedAllow.error : undefined}
                     description={
                       allowList.length
                         ? "Only these addresses can connect. The server's firewall drops everyone else, even past ufw."
@@ -152,7 +157,7 @@ export function DatabaseOverview(props: {
                       className="font-mono text-[12.5px]"
                       disabled={props.canManage === false}
                     />
-                    {props.viewerIp && !allowList.includes(props.viewerIp) && props.canManage !== false && (
+                    {props.viewerIp && !inRanges(props.viewerIp, allowNormalized) && props.canManage !== false && (
                       <Button
                         type="button"
                         variant="ghost"

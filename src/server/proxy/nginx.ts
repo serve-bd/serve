@@ -281,9 +281,13 @@ async function baseContainerSpec(ctx: ServerCtx, kind: RunningKind, config: Serv
   const settings = await getSettings();
   // Port 0: the proxy takes no port on the machine. It still serves Cloudflare Tunnels, which reach
   // it over Docker's network (the default for servers without a public IP).
-  const ports: Record<string, { HostPort: string }[]> = {
-    ...(ctx.proxyHttpPort > 0 ? { "80/tcp": [{ HostPort: String(ctx.proxyHttpPort) }] } : {}),
-    ...(ctx.proxyHttpsPort > 0 ? { "443/tcp": [{ HostPort: String(ctx.proxyHttpsPort) }] } : {}),
+  // A proxy on the machine itself sits in front: only it may reach these ports. On every address,
+  // visitors could also come in directly, and Docker's IPv6 proxy hands them the trusted gateway address.
+  const [trust] = await db.select({ trusted: schema.server.trustedProxies }).from(schema.server).where(eq(schema.server.id, ctx.id));
+  const hostIp = trust?.trusted?.machine ? { HostIp: "127.0.0.1" } : {};
+  const ports: Record<string, { HostPort: string; HostIp?: string }[]> = {
+    ...(ctx.proxyHttpPort > 0 ? { "80/tcp": [{ HostPort: String(ctx.proxyHttpPort), ...hostIp }] } : {}),
+    ...(ctx.proxyHttpsPort > 0 ? { "443/tcp": [{ HostPort: String(ctx.proxyHttpsPort), ...hostIp }] } : {}),
   };
   const shared = [
     `${path.posix.join(p.proxy, "pages")}:${proxyPaths.pages}:ro`,
@@ -568,9 +572,10 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
     return getProxyContainer(ctx);
   }
 
-  const bound = info.HostConfig.PortBindings as Record<string, { HostPort?: string }[] | undefined> | undefined;
+  const bound = info.HostConfig.PortBindings as Record<string, { HostPort?: string; HostIp?: string }[] | undefined> | undefined;
   const portsDiffer =
-    Object.keys(spec.ports).length !== Object.keys(bound ?? {}).length || Object.entries(spec.ports).some(([k, v]) => bound?.[k]?.[0]?.HostPort !== v[0].HostPort);
+    Object.keys(spec.ports).length !== Object.keys(bound ?? {}).length ||
+    Object.entries(spec.ports).some(([k, v]) => bound?.[k]?.[0]?.HostPort !== v[0].HostPort || (bound?.[k]?.[0]?.HostIp || "") !== ((v[0] as { HostIp?: string }).HostIp || ""));
   // Containers created since the spec label exists are compared as a whole (image, command, environment, mounts, ports).
   const knownHash = info.Config.Labels?.[SPEC_LABEL];
   const staticDiffers = knownHash ? knownHash !== specHash : kind === "traefik" || !!config[kind]?.container;

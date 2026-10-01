@@ -12,7 +12,7 @@ export const buttonVariants = cva(
         secondary: "border border-line-strong bg-surface text-fg shadow-sm hover:bg-hover",
         ghost: "text-fg-2 hover:bg-hover hover:text-fg",
         danger: "bg-bad text-white shadow-sm hover:brightness-110",
-        "danger-ghost": "text-bad hover:bg-bad-soft",
+        "danger-ghost": "border border-bad/35 bg-bad/[0.08] text-bad hover:border-bad/60 hover:bg-bad/[0.14]",
         link: "h-auto px-0 text-accent underline-offset-4 hover:underline",
       },
       size: {

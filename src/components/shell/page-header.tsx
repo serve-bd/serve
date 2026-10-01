@@ -34,6 +34,7 @@ export function PageHeader({
   actions,
   breadcrumbs,
   crumb,
+  crumbActions,
   className,
   children,
 }: {
@@ -44,6 +45,8 @@ export function PageHeader({
   breadcrumbs?: Crumb[];
   /** Breadcrumb label for top-level pages without `breadcrumbs` (defaults to the title). */
   crumb?: React.ReactNode;
+  /** Controls at the right end of the breadcrumb bar (like an environment picker on phones). */
+  crumbActions?: React.ReactNode;
   className?: string;
   children?: React.ReactNode;
 }) {
@@ -51,17 +54,20 @@ export function PageHeader({
     <>
       {/* Every page keeps the thin breadcrumb bar; top-level pages show just their own name. */}
       <header className={cn("border-b border-line bg-bg", className)}>
-        <div className="w-full px-4 py-3 sm:px-8">
-          <Breadcrumbs items={breadcrumbs ?? [{ label: crumb ?? title }]} />
+        <div className="flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-8">
+          <div className="min-w-0">
+            <Breadcrumbs items={breadcrumbs ?? [{ label: crumb ?? title }]} />
+          </div>
+          {crumbActions && <div className="-my-1.5 flex flex-none items-center gap-2">{crumbActions}</div>}
         </div>
       </header>
       {(title || description || actions || children) && (
-        <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-end justify-between gap-x-4 gap-y-3 px-4 pt-7 pb-2 sm:px-8">
+        <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-start justify-between gap-x-4 gap-y-3 px-4 pt-7 pb-2 sm:px-8">
           <div className="flex min-w-0 flex-col gap-1">
             {title && <h1 className="truncate text-[22px] leading-tight font-semibold text-fg">{title}</h1>}
             {description && <p className="max-w-2xl text-[13px] leading-relaxed text-muted">{description}</p>}
           </div>
-          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+          {actions && <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{actions}</div>}
           {children}
         </div>
       )}

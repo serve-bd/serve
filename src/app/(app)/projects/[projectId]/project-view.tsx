@@ -268,20 +268,31 @@ export function ProjectView({ project, environments, environment, initialService
           </span>
         }
         description={project.description ?? undefined}
+        // Phones: the environment sits in the breadcrumb bar, leaving one row of actions.
+        crumbActions={
+          <div className="sm:hidden">
+            <EnvironmentSwitcher project={project} environments={environments} environment={environment} view={view} />
+          </div>
+        }
         actions={
           <>
             {services.length > 0 && <ViewToggle view={view} views={["grid", "list", "canvas"]} onChange={setView} />}
-            <EnvironmentSwitcher project={project} environments={environments} environment={environment} view={view} />
-            {can("projects.manage") && (
-              <Link href={`/projects/${project.id}/settings?env=${environment.name}`} className={buttonVariants({ variant: "secondary", size: "sm" })} aria-label="Settings">
-                <Settings /> <span className="hidden sm:inline">Settings</span>
-              </Link>
-            )}
-            {can("services.manage") && (
-              <Link href={newHref} className={buttonVariants({ variant: "primary", size: "sm" })} aria-label="New service">
-                <Plus /> <span className="hidden sm:inline">New service</span>
-              </Link>
-            )}
+            <div className="hidden sm:block">
+              <EnvironmentSwitcher project={project} environments={environments} environment={environment} view={view} />
+            </div>
+            {/* Phones: the view toggle on the left, these on the right. */}
+            <div className="ml-auto flex items-center gap-2 sm:ml-0">
+              {can("projects.manage") && (
+                <Link href={`/projects/${project.id}/settings?env=${environment.name}`} className={buttonVariants({ variant: "secondary", size: "sm" })} aria-label="Settings">
+                  <Settings /> <span className="hidden sm:inline">Settings</span>
+                </Link>
+              )}
+              {can("services.manage") && (
+                <Link href={newHref} className={buttonVariants({ variant: "primary", size: "sm" })}>
+                  <Plus /> New service
+                </Link>
+              )}
+            </div>
           </>
         }
       />

@@ -1,4 +1,6 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
+import { certificateCovers } from "@/server/ssl/match";
+import { DOMAIN_ROUTES, domainUrl } from "@/lib/database-domains";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { privateHost } from "@/lib/hostname";
@@ -29,6 +31,29 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
     const hideSecrets = !ctx.can("variables.view-secrets");
     const creds = { username: cfg.username, password: hideSecrets ? "********" : (decryptOrNull(cfg.password) ?? ""), database: cfg.database };
     const monitoring = await monitorSummary(service.id);
+    // The database's own domain, with the certificate the router uses for it.
+    const hostname = cfg.domain ?? null;
+    const domainCert = hostname
+      ? (
+          await db
+            .select({ status: schema.certificate.status, error: schema.certificate.lastError, domains: schema.certificate.domains })
+            .from(schema.certificate)
+            .where(and(eq(schema.certificate.organizationId, ctx.org.id), eq(schema.certificate.serverId, service.serverId)))
+        )
+          .filter((c) => certificateCovers(c.domains, hostname))
+          .sort((a, b) => Number(b.status === "active") - Number(a.status === "active"))[0]
+      : undefined;
+    const routes = DOMAIN_ROUTES[cfg.engine];
+    const domain = service.parentServiceId
+      ? undefined
+      : {
+          supported: !!routes,
+          hostname,
+          url: hostname ? domainUrl(cfg.engine, creds, hostname) : null,
+          ports: (routes ?? []).map((r) => ({ port: r.port, label: r.label })),
+          certificate: domainCert ? { status: domainCert.status, error: domainCert.error } : null,
+          engineLabel: engine.label,
+        };
     const branches = service.parentServiceId
       ? []
       : await db
@@ -55,6 +80,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           uptime={<UptimeCard summary={monitoring} settingsHref={`/projects/${projectId}/services/${service.id}/settings/monitoring`} />}
           uptimeInSide={!monitoring.monitor}
           branches={branches}
+          domain={domain}
         />
       </PageBody>
     );

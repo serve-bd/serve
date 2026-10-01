@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { queueRouterSync } from "@/server/databases/router";
 import path from "node:path";
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
@@ -876,6 +877,8 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   line(`${engine.label} is ready`);
   await setServiceStatus(service.id, "running");
   await meshAfterStart(server.id, line);
+  // A new container on the domain's route: the router follows it.
+  if (cfg.domain) await queueRouterSync(server.id);
 }
 
 /* -------------------------------------------------------------------------- */

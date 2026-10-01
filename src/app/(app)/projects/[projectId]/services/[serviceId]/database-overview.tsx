@@ -16,6 +16,7 @@ import { applyDatabaseChanges, updateService } from "@/server/actions/services";
 import { useServiceLive } from "./service-header";
 import { SecretField } from "@/components/ui/secret-field";
 import { ContainerDialog } from "./container-dialog";
+import { DatabaseDomainCard, type DatabaseDomainInfo } from "./database-domain-card";
 
 export function DatabaseOverview(props: {
   serviceId: string;
@@ -36,6 +37,7 @@ export function DatabaseOverview(props: {
   /** The role cannot see secret values: the password and URLs are masked and not copyable. */
   hideSecrets?: boolean;
   canManage?: boolean;
+  domain?: DatabaseDomainInfo;
   /** Branches live inside this container, so they are listed under it. */
   branches?: { id: string; name: string; status: string; sizeBytes: number | null }[];
 }) {
@@ -143,6 +145,7 @@ export function DatabaseOverview(props: {
             )}
           </CardBody>
         </Card>
+        {props.domain && <DatabaseDomainCard serviceId={props.serviceId} info={props.domain} hideSecrets={props.hideSecrets} canManage={props.canManage} />}
         {!props.uptimeInSide && props.uptime}
       </div>
 

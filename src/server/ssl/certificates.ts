@@ -207,11 +207,14 @@ export async function applyCertificate(cert: Cert) {
     await getServer(cert.serverId)
       .then((server) => reloadProxy(server))
       .catch(() => {});
+    // Databases on domains: the router picks up a new certificate, or restarts to load a renewed one.
+    const { refreshDatabaseRouter } = await import("@/server/databases/router");
+    await refreshDatabaseRouter(cert.serverId, cert.domains).catch(() => {});
   }
 }
 
 /** A connected Cloudflare account whose zones contain every domain, if any. */
-async function cloudflareAccountFor(domains: string[], organizationId: string) {
+export async function cloudflareAccountFor(domains: string[], organizationId: string) {
   const accounts = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, organizationId));
   for (const account of accounts) {
     try {

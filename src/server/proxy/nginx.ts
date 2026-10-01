@@ -350,7 +350,7 @@ export async function proxyDefinition(ctx: ServerCtx) {
   return lines.join("\n");
 }
 
-async function ensureImage(ctx: ServerCtx, image: string, log?: Log) {
+export async function ensureImage(ctx: ServerCtx, image: string, log?: Log) {
   if (await imageExists(image, ctx.docker)) return;
   log?.(`Pulling ${image}`);
   await pullImage(image, log, null, ctx.docker);

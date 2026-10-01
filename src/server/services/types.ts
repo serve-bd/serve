@@ -252,6 +252,11 @@ export type DatabaseConfig = {
   publicPort?: number | null;
   /** Interface the public port binds to; undefined means every interface. */
   publicBind?: BindAddress;
+  /**
+   * A domain clients reach the database on (db.example.com), through the server's database
+   * router on the engine's usual port, over TLS. PostgreSQL, MongoDB, Redis, Valkey and ClickHouse.
+   */
+  domain?: string | null;
   /** Cron expression for automatic backups. */
   backupSchedule?: string | null;
   backupRetention: number;

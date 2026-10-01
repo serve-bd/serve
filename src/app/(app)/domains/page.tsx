@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { asc, eq } from "drizzle-orm";
-import { ArrowUpRight, Cloud, Globe, Lock, LockOpen } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Cloud, Globe, Lock, LockOpen } from "lucide-react";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { certificateCovers } from "@/server/ssl/match";
@@ -19,7 +19,7 @@ export default async function DomainsPage() {
     db
       .select({
         domain: schema.domain,
-        service: { id: schema.service.id, name: schema.service.name, status: schema.service.status },
+        service: { id: schema.service.id, name: schema.service.name, status: schema.service.status, serverId: schema.service.serverId },
         project: { id: schema.project.id, name: schema.project.name },
       })
       .from(schema.domain)
@@ -46,74 +46,66 @@ export default async function DomainsPage() {
           {rows.length === 0 ? (
             <EmptyState icon={<Globe />} title="No domains yet" description="Open a service and add a domain from its Domains tab." />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-[13px]">
-                <thead className="border-b border-line bg-surface-2 text-[11px] font-semibold text-faint">
-                  <tr>
-                    <th className="px-5 py-2.5 font-semibold">Domain</th>
-                    <th className="px-5 py-2.5 font-semibold">Service</th>
-                    <th className="px-5 py-2.5 font-semibold">HTTPS</th>
-                    <th className="px-5 py-2.5 font-semibold" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {rows.map(({ domain: d, service, project }) => {
-                    const cert = d.https ? (certs.find((c) => c.id === d.certificateId) ?? certs.find((c) => certificateCovers(c.domains, d.hostname))) : null;
-                    return (
-                      <tr key={d.id} className="transition-colors hover:bg-hover/40">
-                        <td className="px-5 py-3">
-                          <a
-                            href={`${d.https ? "https" : "http"}://${d.hostname}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 font-medium text-fg hover:text-accent"
-                          >
-                            {d.hostname}
-                            <ArrowUpRight className="size-3 text-faint" />
-                          </a>
-                          <div className="mt-0.5 flex gap-1.5">
-                            {d.generated && <Badge>Generated</Badge>}
-                            {d.cloudflareZoneId && (
-                              <Badge tone="warn">
-                                <Cloud /> Cloudflare
-                              </Badge>
-                            )}
-                            {d.redirectTo && <Badge tone="info">Redirect</Badge>}
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">
-                          <Link href={`/projects/${project.id}/services/${service.id}/domains`} className="inline-flex items-center gap-2 text-fg-2 hover:text-fg">
-                            <StatusDot status={service.status} />
-                            {service.name}
-                            <span className="text-faint">· {project.name}</span>
-                          </Link>
-                        </td>
-                        <td className="px-5 py-3">
-                          {!d.https ? (
-                            <span className="inline-flex items-center gap-1.5 text-muted">
-                              <LockOpen className="size-3.5" /> HTTP
-                            </span>
-                          ) : cert?.status === "active" ? (
-                            <span className="inline-flex items-center gap-1.5 text-ok">
-                              <Lock className="size-3.5" /> Secured
-                            </span>
-                          ) : cert?.status === "failed" ? (
-                            <span className="text-bad">Certificate failed</span>
-                          ) : (
-                            <span className="text-info">Pending</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <Link href={`/projects/${project.id}/services/${service.id}/domains`} className="text-accent hover:underline">
-                            Manage
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <ul className="divide-y divide-line">
+              {rows.map(({ domain: d, service, project }) => {
+                // Only certificates on the service's own server can be served by its proxy.
+                const here = certs.filter((c) => c.serverId === service.serverId);
+                const cert = d.https ? (here.find((c) => c.id === d.certificateId) ?? here.find((c) => certificateCovers(c.domains, d.hostname))) : null;
+                const manage = `/projects/${project.id}/services/${service.id}/domains`;
+                const tls = d.tunnelId
+                  ? { icon: <Lock className="size-3.5" />, label: "Secured by Cloudflare", tone: "text-ok" }
+                  : !d.https
+                    ? { icon: <LockOpen className="size-3.5" />, label: "HTTP only", tone: "text-muted" }
+                    : cert?.status === "active"
+                      ? { icon: <Lock className="size-3.5" />, label: "Secured", tone: "text-ok" }
+                      : cert?.status === "failed"
+                        ? { icon: <LockOpen className="size-3.5" />, label: "Certificate failed", tone: "text-bad" }
+                        : { icon: <Lock className="size-3.5" />, label: "Certificate pending", tone: "text-muted" };
+                return (
+                  <li key={d.id} className="group relative flex items-center gap-3 px-4 py-3 transition-colors hover:bg-hover/40 sm:px-5">
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        {/* The whole row opens the service's domains; the arrow opens the site. */}
+                        <Link href={manage} className="truncate font-medium text-fg after:absolute after:inset-0">
+                          {d.hostname}
+                        </Link>
+                        <a
+                          href={`${d.https || d.tunnelId ? "https" : "http"}://${d.hostname}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Open ${d.hostname}`}
+                          className="relative z-10 -m-1 rounded p-1 text-faint hover:text-fg"
+                        >
+                          <ArrowUpRight className="size-3.5" />
+                        </a>
+                        {d.generated && <Badge>Generated</Badge>}
+                        {d.cloudflareZoneId && (
+                          <Badge tone="warn">
+                            <Cloud /> Cloudflare
+                          </Badge>
+                        )}
+                        {d.redirectTo && <Badge tone="info">Redirect</Badge>}
+                      </div>
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                        <span className="inline-flex min-w-0 items-center gap-1.5">
+                          <StatusDot status={service.status} />
+                          <span className="truncate">
+                            {service.name} <span className="text-faint">in {project.name}</span>
+                          </span>
+                        </span>
+                        <span className={`inline-flex items-center gap-1 sm:hidden ${tls.tone}`}>
+                          {tls.icon} {tls.label}
+                        </span>
+                      </div>
+                    </div>
+                    <span className={`hidden flex-none items-center gap-1.5 text-[13px] sm:inline-flex ${tls.tone}`}>
+                      {tls.icon} {tls.label}
+                    </span>
+                    <ChevronRight className="size-4 flex-none text-faint transition-colors group-hover:text-fg-2" />
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </Card>
         {verification && <VerifiedDomainsCard rows={verified.map((v) => ({ ...v, createdAt: v.createdAt.toISOString() }))} />}

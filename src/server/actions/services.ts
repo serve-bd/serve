@@ -1231,6 +1231,16 @@ const domainSchema = z.object({
   tunnelId: z.string().nullable().optional(),
 });
 
+/** A certificate of this organization stored on `serverId`: the proxy there can only serve its own files. */
+async function certificateOnServer(certificateId: string, orgId: string, serverId: string) {
+  const [cert] = await db
+    .select({ serverId: schema.certificate.serverId })
+    .from(schema.certificate)
+    .where(and(eq(schema.certificate.id, certificateId), eq(schema.certificate.organizationId, orgId)));
+  if (!cert) throw new UserError("Certificate not found.");
+  if (cert.serverId !== serverId) throw new UserError("That certificate is stored on another server. Upload it for this service's server to use it here.");
+}
+
 export async function addDomain(serviceId: string, input: z.input<typeof domainSchema>) {
   return act(async () => {
     const ctx = await requirePermission("domains.manage");
@@ -1246,13 +1256,7 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
     const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, data.hostname);
     if (!ownership.verified) throw new UserError(ownershipMessage(data.hostname, ownership));
     await requireRoom(ctx.org.id, { domains: 1 });
-    if (data.certificateId) {
-      const [cert] = await db
-        .select({ id: schema.certificate.id })
-        .from(schema.certificate)
-        .where(and(eq(schema.certificate.id, data.certificateId), eq(schema.certificate.organizationId, ctx.org.id)));
-      if (!cert) throw new UserError("Certificate not found.");
-    }
+    if (data.certificateId) await certificateOnServer(data.certificateId, ctx.org.id, service.serverId);
 
     let recordId: string | null = null;
     let warning: string | null = null;
@@ -1482,16 +1486,10 @@ export async function updateDomain(domainId: string, input: z.input<typeof domai
     const ctx = await requirePermission("domains.manage");
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
-    await serviceInOrg(domain.serviceId, ctx.org.id);
+    const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
     const data = domainUpdateSchema.parse(input);
     if (data.redirectTo !== undefined) data.redirectTo = safeRedirectUrl(data.redirectTo);
-    if (data.certificateId) {
-      const [cert] = await db
-        .select({ id: schema.certificate.id })
-        .from(schema.certificate)
-        .where(and(eq(schema.certificate.id, data.certificateId), eq(schema.certificate.organizationId, ctx.org.id)));
-      if (!cert) throw new UserError("Certificate not found.");
-    }
+    if (data.certificateId) await certificateOnServer(data.certificateId, ctx.org.id, service.serverId);
     // Tunnel domains get HTTPS from Cloudflare; a certificate at the proxy is never needed.
     if (domain.tunnelId) {
       data.https = false;

@@ -30,7 +30,11 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
   if (service.type === "database") redirect(`/projects/${projectId}/services/${serviceId}`);
   const [domains, certs, cfAccounts, settings, addressing, server, tunnels] = await Promise.all([
     db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId)).orderBy(asc(schema.domain.createdAt)),
-    db.select().from(schema.certificate).where(eq(schema.certificate.organizationId, ctx.org.id)),
+    db
+      .select({ certificate: schema.certificate, serverName: schema.server.name })
+      .from(schema.certificate)
+      .innerJoin(schema.server, eq(schema.certificate.serverId, schema.server.id))
+      .where(eq(schema.certificate.organizationId, ctx.org.id)),
     db.select({ id: schema.cloudflareAccount.id }).from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, ctx.org.id)),
     getSettings(),
     serverAddressing(service.serverId),
@@ -75,6 +79,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
   const generated = ctx.isInstanceAdmin && kind !== "none" && domains.length > 0 && serverCtx ? await generatedSite(kind, service.id, serverCtx).catch(() => null) : null;
   const appPort = service.type === "app" ? service.runtime.port : null;
   const primaryDomain = pickPrimaryDomain(domains);
+  const here = certs.filter((c) => c.certificate.serverId === service.serverId).map((c) => c.certificate);
   return (
     <PageBody className="flex flex-col gap-6">
       <DomainsManager
@@ -92,11 +97,20 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
         tunnels={tunnels}
         serverName={server.name}
         canGenerate={!!addressing.wildcardDomain || (addressing.sslipFallback && !!addressing.publicIp)}
-        certificates={certs.map((c) => ({ id: c.id, name: c.name, domains: c.domains, status: c.status, provider: c.provider }))}
+        certificates={certs.map(({ certificate: c, serverName }) => ({
+          id: c.id,
+          name: c.name,
+          domains: c.domains,
+          status: c.status,
+          provider: c.provider,
+          serverName,
+          // The proxy only serves certificates stored on its own server.
+          here: c.serverId === service.serverId,
+        }))}
         domains={[...domains]
           .sort((a, b) => Number(b === primaryDomain) - Number(a === primaryDomain))
           .map((d) => {
-            const cert = d.https ? (certs.find((c) => c.id === d.certificateId) ?? certs.find((c) => certificateCovers(c.domains, d.hostname))) : undefined;
+            const cert = d.https ? (here.find((c) => c.id === d.certificateId) ?? here.find((c) => certificateCovers(c.domains, d.hostname))) : undefined;
             return {
               id: d.id,
               hostname: d.hostname,
@@ -114,6 +128,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
               wantsTunnel: d.wantsTunnel,
               tunnelError: d.tunnelError,
               cloudflareAccountId: d.cloudflareAccountId,
+              certificateId: d.certificateId,
               certificate: cert ? { id: cert.id, status: cert.status, provider: cert.provider, error: cert.lastError, expiresAt: cert.expiresAt?.toISOString() ?? null } : null,
             };
           })}

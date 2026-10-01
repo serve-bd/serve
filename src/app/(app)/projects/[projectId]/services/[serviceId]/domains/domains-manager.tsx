@@ -58,6 +58,8 @@ type DomainRow = {
   tunnelError: string | null;
   /** Cloudflare account that manages the domain's DNS, when known. */
   cloudflareAccountId: string | null;
+  /** The certificate picked for this domain; null lets the proxy match one by name. */
+  certificateId: string | null;
   certificate: { id: string; status: string; provider: string; error: string | null; expiresAt: string | null } | null;
 };
 
@@ -81,7 +83,8 @@ type Props = {
   tunnels: { id: string; accountId: string; accountName: string; status: string; statusMessage: string | null }[];
   /** Name of the service's server, for messages. */
   serverName: string;
-  certificates: { id: string; name: string; domains: string[]; status: string; provider: string }[];
+  /** `here`: stored on this service's server, the only ones its proxy can serve. */
+  certificates: { id: string; name: string; domains: string[]; status: string; provider: string; serverName: string; here: boolean }[];
   domains: DomainRow[];
 };
 
@@ -264,7 +267,9 @@ function TlsChoice({
   certificateId: string;
   onCertificate: (id: string) => void;
 }) {
-  const own = props.certificates.filter((c) => !c.provider.startsWith("letsencrypt") && c.status === "active" && certCovers(c.domains, hostname));
+  const matching = props.certificates.filter((c) => !c.provider.startsWith("letsencrypt") && c.status === "active" && certCovers(c.domains, hostname));
+  const own = matching.filter((c) => c.here);
+  const elsewhere = own.length ? null : matching.find((c) => !c.here);
   const options: { id: "auto" | "custom" | "none"; title: string; body: string }[] = [
     { id: "auto", title: "HTTPS, free certificate", body: httpsDescription(props) },
     ...(own.length || value === "custom" ? [{ id: "custom" as const, title: "HTTPS, my certificate", body: "Use a certificate you uploaded in Certificates." }] : []),
@@ -299,6 +304,11 @@ function TlsChoice({
           </button>
         ))}
       </div>
+      {elsewhere && (
+        <p className="text-xs leading-relaxed text-muted">
+          Your certificate {elsewhere.name} is stored on {elsewhere.serverName}. Upload it for {props.serverName} too in Certificates to use it here.
+        </p>
+      )}
       {value === "custom" && own.length > 0 && (
         <Select value={certificateId} onValueChange={onCertificate} options={own.map((c) => ({ value: c.id, label: c.name, description: c.domains.join(", ") }))} />
       )}
@@ -652,10 +662,24 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
   const compose = props.type === "compose";
   const [composeService, setComposeService] = React.useState(domain.composeService ?? props.composeServices[0] ?? "");
   const [port, setPort] = React.useState(domain.port ? String(domain.port) : "");
-  const save = useAction(() => updateDomain(domain.id, { port: port ? Number(port) : null, ...(compose ? { composeService: composeService || null } : {}) }), {
-    success: "Domain updated",
-    onSuccess: onClose,
-  });
+  const [tls, setTls] = React.useState<"auto" | "custom" | "none">(!domain.https ? "none" : domain.certificateId ? "custom" : "auto");
+  const [certificateId, setCertificateId] = React.useState(domain.certificateId ?? "");
+  const tlsChange = () => {
+    const https = tls !== "none";
+    return {
+      https,
+      // Keep the redirect setting while HTTPS stays on; turning HTTPS on redirects plain HTTP to it.
+      forceHttps: https && (domain.https ? domain.forceHttps : true),
+      certificateId: tls === "custom" && certificateId ? certificateId : null,
+    };
+  };
+  const save = useAction(
+    () => updateDomain(domain.id, { port: port ? Number(port) : null, ...(compose ? { composeService: composeService || null } : {}), ...(showTls ? tlsChange() : {}) }),
+    {
+      success: "Domain updated",
+      onSuccess: onClose,
+    },
+  );
   const submit = async () => {
     const wantTunnel = route === "tunnel";
     const usesTunnel = domain.tunnel || domain.wantsTunnel;
@@ -680,6 +704,8 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
     return res.ok ? res.data : null;
   });
   const tunnel = known ?? (zone ? props.tunnels.find((t) => t.accountId === zone.accountId) : undefined);
+  // Tunnel domains get HTTPS from Cloudflare, and without a proxy there is nothing to secure here.
+  const showTls = route === "ip" && (props.proxyKind ?? "nginx") !== "none";
   const reroute = useAction((to: string | null) => setDomainRoute(domain.id, to), {
     onSuccess: (r) => {
       if (r?.warning) toast.warning("Route updated", r.warning);
@@ -760,6 +786,7 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
                 required={compose}
               />
             </Field>
+            {showTls && <TlsChoice props={props} hostname={domain.hostname} value={tls} onChange={setTls} certificateId={certificateId} onCertificate={setCertificateId} />}
           </DialogBody>
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>

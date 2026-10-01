@@ -48,25 +48,25 @@ export function DeployTimeline({ rows }: { rows: DeploymentTableRow[] }) {
       {groups.map((g) => (
         <section key={g.label} className="flex flex-col">
           <h3 className="mb-1 text-[11px] font-medium tracking-wide text-faint uppercase">{g.label}</h3>
-          <ol className="relative">
-            {/* The rail, through the middle of the status lights. */}
-            <span aria-hidden className="absolute top-3 bottom-3 left-[4rem] w-px bg-line sm:left-[5.5rem]" />
-            {g.rows.map((d) => {
+          <ol>
+            {g.rows.map((d, i) => {
               const duration = d.startedAt && d.finishedAt ? formatDuration(new Date(d.finishedAt).getTime() - new Date(d.startedAt).getTime()) : null;
               return (
-                <li key={d.id}>
+                <li key={d.id} className="relative">
+                  {/* The rail: from this light to the next one, none after the last. */}
+                  {i < g.rows.length - 1 && <span aria-hidden className="absolute top-[25px] -bottom-[11px] left-[3.75rem] w-px bg-line" />}
                   <Link
                     href={`/projects/${d.projectId}/services/${d.serviceId}/deployments/${d.id}`}
-                    className="group -mx-2 grid grid-cols-[2.75rem_1rem_minmax(0,1fr)] items-start gap-x-3 rounded-lg px-2 py-2 transition-colors hover:bg-hover/60 sm:grid-cols-[4.25rem_1rem_minmax(0,1fr)_auto]"
+                    className="group -mx-2 grid grid-cols-[2.5rem_1rem_minmax(0,1fr)] items-start gap-x-3 rounded-lg px-2 py-2 transition-colors hover:bg-hover/60 sm:grid-cols-[2.5rem_1rem_minmax(0,1fr)_auto]"
                   >
-                    <time className="pt-px text-right font-mono text-[12px] text-faint tabular-nums" dateTime={new Date(d.createdAt).toISOString()}>
+                    <time className="text-left font-mono text-[12px] leading-5 text-faint tabular-nums" dateTime={new Date(d.createdAt).toISOString()}>
                       {now ? new Date(d.createdAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}
                     </time>
-                    <span className="relative z-10 flex h-[18px] items-center justify-center bg-surface group-hover:bg-transparent">
+                    <span className="flex h-5 items-center justify-center">
                       <QuietDot status={d.status} kind="deployment" />
                     </span>
                     <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="flex min-w-0 items-baseline gap-2">
+                      <span className="flex min-w-0 items-baseline gap-2 leading-5">
                         <span className="truncate text-[13.5px] font-medium text-fg">{d.serviceName}</span>
                         <span className="hidden truncate text-xs text-faint sm:inline">
                           {d.projectName} · {d.environmentName ?? "production"}
@@ -74,7 +74,7 @@ export function DeployTimeline({ rows }: { rows: DeploymentTableRow[] }) {
                       </span>
                       <span className="truncate text-[12.5px] text-muted">{d.commitMessage || (d.status === "failed" ? "Deployment failed" : "Redeployed")}</span>
                     </span>
-                    <span className="hidden pt-px text-right font-mono text-[12px] text-faint tabular-nums sm:block">{duration ?? ""}</span>
+                    <span className="hidden text-right font-mono text-[12px] leading-5 text-faint tabular-nums sm:block">{duration ?? ""}</span>
                   </Link>
                 </li>
               );

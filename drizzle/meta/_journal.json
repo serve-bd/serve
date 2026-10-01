@@ -330,6 +330,13 @@
       "when": 1790852767162,
       "tag": "0046_project_group_services",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790858881521,
+      "tag": "0047_dashboard_layout",
+      "breakpoints": true
     }
   ]
 }

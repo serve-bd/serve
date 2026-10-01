@@ -1,7 +1,4 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
-import { Card, CardHeader } from "@/components/ui/misc";
 import { StatusDot, statusText } from "@/components/ui/status";
 import { serverReachable } from "@/lib/server-services";
 import { cn } from "@/lib/utils";
@@ -20,32 +17,15 @@ export type ServerCardData = {
   series: { t: number; cpu: number; memory: number; memoryLimit: number; disk: number | null; diskTotal: number | null }[];
 };
 
-/** A card of rows with a title and, optionally, a link to the full list. */
-export function RackPanel({ title, href, className, children }: { title: React.ReactNode; href?: string; className?: string; children: React.ReactNode }) {
-  return (
-    <Card className={className}>
-      <CardHeader
-        className="flex-nowrap items-center"
-        title={title}
-        actions={
-          href && (
-            <Link href={href} className={buttonVariants({ variant: "ghost", size: "xs" })}>
-              View all <ArrowRight />
-            </Link>
-          )
-        }
-      />
-      <div className="divide-y divide-line">{children}</div>
-    </Card>
-  );
-}
+/** Row padding: wide inside a card, flush with the title when the widget has no card. */
+export const ROW_PAD = "px-5 group-data-[frame=plain]/frame:-mx-2 group-data-[frame=plain]/frame:rounded-lg group-data-[frame=plain]/frame:px-2";
 
 /** One project: a status light per service, like the lamps on a rack unit. */
 export function ProjectRow({ project }: { project: ProjectSummary }) {
   const total = project.services.length;
   const running = project.services.filter((s) => s.status === "running").length;
   return (
-    <Link href={`/projects/${project.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-hover/60">
+    <Link href={`/projects/${project.id}`} className={cn("flex items-center gap-3 py-3 transition-colors hover:bg-hover/60", ROW_PAD)}>
       <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-fg">{project.name}</span>
       <span className="flex max-w-[45%] flex-wrap justify-end gap-x-2 gap-y-1.5" aria-hidden>
         {project.services.map((s) => (
@@ -82,7 +62,7 @@ export function ServerRow({ server: s }: { server: ServerCardData }) {
   const reachable = serverReachable(s);
   const status = s.isLocal || s.status === "ready" ? "ready" : s.status;
   return (
-    <Link href={`/servers/${s.id}`} className="flex flex-col gap-2.5 px-5 py-3 transition-colors hover:bg-hover/60">
+    <Link href={`/servers/${s.id}`} className={cn("flex flex-col gap-2.5 py-3 transition-colors hover:bg-hover/60", ROW_PAD)}>
       <span className="flex items-center gap-2.5">
         <StatusDot status={status} kind="server" />
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-fg">{s.name}</span>

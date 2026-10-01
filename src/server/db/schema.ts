@@ -17,6 +17,7 @@ import type { ProxyKind, RunningKind, ProxySwitchState, ServerProxyConfig } from
 import type { ChannelScope, MessageTemplate, NotificationKind, QuietHours, Severity } from "@/lib/notifications";
 import type { OrgLimits } from "@/lib/limits";
 import type { TrustedProxies } from "@/lib/trusted-proxies";
+import type { DashboardLayout } from "@/lib/dashboard";
 
 const id = () => text("id").primaryKey();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -1360,3 +1361,19 @@ export const organizationLimit = pgTable("organization_limit", {
   diskMeasuredAt: timestamp("disk_measured_at", { withTimezone: true }),
   updatedAt: updatedAt(),
 });
+
+/** Each member's own overview layout: which widgets, where and how. No row means the default layout. */
+export const dashboardLayout = pgTable(
+  "dashboard_layout",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    layout: jsonb("layout").$type<DashboardLayout>().notNull(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.organizationId] })],
+);

@@ -162,7 +162,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
     label: "PostgreSQL",
     image: "postgres",
     versions: ["18-alpine", "17-alpine", "16-alpine", "15-alpine"],
-    defaultVersion: "17-alpine",
+    defaultVersion: "18-alpine",
     port: 5432,
     dataPath: "/var/lib/postgresql/data",
     defaultUser: "postgres",

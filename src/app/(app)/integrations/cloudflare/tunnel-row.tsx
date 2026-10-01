@@ -2,9 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowUpCircle, ArrowUpRight, ChevronDown, Container, Globe, RefreshCw, RotateCw, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
+import { ArrowUpCircle, ArrowUpRight, ChevronDown, RefreshCw, RotateCw, Server as ServerIcon, Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { CopyButton, Skeleton, TimeAgo } from "@/components/ui/misc";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { useRouter } from "@/hooks/use-router";
@@ -89,7 +88,6 @@ export function TunnelRow({
   const cf = details?.cloudflare;
   const connector = details?.connector;
   const connections = cf?.ok ? cf.connections : [];
-  const colos = [...new Set(connections.map((c) => c.colo))];
   const version = connections.find((c) => c.version)?.version ?? null;
   const updateInfo = connector?.ok && connector.exists ? connector.update : null;
   const latest = updateInfo?.latestVersion?.replace(/^v/, "") ?? null;
@@ -110,8 +108,9 @@ export function TunnelRow({
             {server.isLocal && <span className="flex-none text-xs text-faint">this server</span>}
           </span>
           <span className="flex min-w-0 items-center gap-1.5 pl-5.5 text-xs text-muted">
-            <span className="size-1.5 flex-none rounded-full" style={{ background: tone.color }} />
-            <span className="flex-none text-fg-2">{tone.label}</span>
+            <span className="flex-none font-medium" style={{ color: tone.color }}>
+              {tone.label}
+            </span>
             <span className="flex-none">
               · {tunnel.domains.length} domain{tunnel.domains.length === 1 ? "" : "s"}
             </span>
@@ -128,114 +127,22 @@ export function TunnelRow({
           )}
           {loadError && <p className="rounded-xl border border-bad/20 bg-bad-soft px-3.5 py-2.5 text-[13px] text-fg-2">{loadError}</p>}
 
-          <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-line bg-line md:grid-cols-3">
-            {/* Tunnel */}
-            <Tile icon={<Waypoints />} title="Tunnel">
-              <p className="truncate text-[13px] font-medium text-fg">{tunnel.name}</p>
-              <span className="flex min-w-0 items-center gap-1">
-                <code className="min-w-0 truncate font-mono text-[11.5px] text-muted">{tunnel.cfTunnelId}</code>
-                <CopyButton value={tunnel.cfTunnelId} label="Copy tunnel ID" className="size-6 flex-none" />
-              </span>
-              <p className="text-xs text-faint">
-                Created <TimeAgo date={tunnel.createdAt} />
-              </p>
-            </Tile>
-
-            {/* Cloudflare side */}
-            <Tile icon={<Globe />} title="Cloudflare edge">
-              {!details ? (
-                <TileSkeleton />
-              ) : cf?.ok ? (
-                <>
-                  <p className="text-[13px] font-medium text-fg">
-                    {connections.length ? `${connections.length} connection${connections.length === 1 ? "" : "s"}` : "No connections"}
-                  </p>
-                  {colos.length > 0 ? (
-                    <span className="flex flex-wrap gap-1">
-                      {colos.map((c) => (
-                        <span key={c} className="rounded-md bg-fg/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-fg-2 uppercase">
-                          {c}
-                        </span>
-                      ))}
-                    </span>
-                  ) : (
-                    <p className="text-xs text-muted">
-                      {cf.inactiveAt ? (
-                        <>
-                          Last connected <TimeAgo date={cf.inactiveAt} />
-                        </>
-                      ) : (
-                        "The connector has not connected yet."
-                      )}
-                    </p>
-                  )}
-                  {cf.activeAt && connections.length > 0 && (
-                    <p className="text-xs text-faint">
-                      Up since <TimeAgo date={cf.activeAt} />
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p className="text-xs text-bad">{cf?.error}</p>
-              )}
-            </Tile>
-
-            {/* Connector container */}
-            <Tile icon={<Container />} title="Connector">
-              {!details ? (
-                <TileSkeleton />
-              ) : connector?.ok ? (
-                connector.exists ? (
-                  <>
-                    <p className={cn("flex items-center gap-1.5 text-[13px] font-medium", connector.running ? "text-fg" : "text-bad")}>
-                      <span className={cn("size-1.5 rounded-full", connector.running ? "bg-ok" : "bg-bad")} />
-                      {connector.running ? "Running" : connector.state === "restarting" ? "Restarting" : "Stopped"}
-                    </p>
-                    <p className="truncate font-mono text-[11.5px] text-muted">{connector.image}</p>
-                    <p className="text-xs text-faint">
-                      {connector.startedAt ? (
-                        <>
-                          Started <TimeAgo date={connector.startedAt} />
-                        </>
-                      ) : (
-                        (connector.error ?? "Not running")
-                      )}
-                      {connector.restarts > 0 && ` · ${connector.restarts} restart${connector.restarts === 1 ? "" : "s"}`}
-                      {version && ` · v${version}`}
-                    </p>
-                    {updateInfo?.available ? (
-                      <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-accent">
-                        <ArrowUpCircle className="size-3.5" />
-                        {latest && latest !== version ? `Update available: v${latest}` : "Update available"}
-                      </p>
-                    ) : updateInfo && !updateInfo.error ? (
-                      <p className="mt-1 text-xs text-faint">Up to date</p>
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    <p className="text-[13px] font-medium text-bad">Missing</p>
-                    <p className="text-xs text-muted">It starts again within a minute, or restart it now.</p>
-                  </>
-                )
-              ) : (
-                <p className="text-xs text-bad">{connector?.error}</p>
-              )}
-            </Tile>
-          </div>
-
-          {/* Connections */}
-          {connections.length > 0 && (
-            <Section title="Connections">
-              {connections.map((c) => (
-                <div key={c.id} className="flex items-center gap-3 px-3.5 py-2 text-[13px]">
-                  <span className={cn("size-1.5 flex-none rounded-full", c.pending ? "bg-warn" : "bg-ok")} />
-                  <span className="w-12 flex-none font-mono text-[12px] text-fg uppercase">{c.colo}</span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{c.originIp ?? "—"}</span>
-                  <span className="hidden flex-none text-xs text-faint sm:inline">{c.pending ? "Reconnecting" : c.openedAt ? <TimeAgo date={c.openedAt} /> : null}</span>
-                </div>
-              ))}
-            </Section>
+          {/* Only what needs a hand: a connector that is not running, or a newer version. */}
+          {connector?.ok && !(connector.exists && connector.running) && (
+            <p className="rounded-xl border border-bad/20 bg-bad-soft px-3.5 py-2.5 text-[13px] text-fg-2">
+              {!connector.exists
+                ? "The connector is missing. It starts again within a minute, or restart it now."
+                : connector.state === "restarting"
+                  ? "The connector is restarting."
+                  : "The connector is stopped. Restart it to bring these domains back."}
+            </p>
+          )}
+          {connector && !connector.ok && <p className="rounded-xl border border-bad/20 bg-bad-soft px-3.5 py-2.5 text-[13px] text-fg-2">{connector.error}</p>}
+          {updateInfo?.available && (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-accent">
+              <ArrowUpCircle className="size-3.5" />
+              {latest && latest !== version ? `Connector update available: v${latest}` : "Connector update available"}
+            </p>
           )}
 
           {/* Domains */}
@@ -328,27 +235,6 @@ export function TunnelRow({
         </div>
       )}
     </div>
-  );
-}
-
-function Tile({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5 bg-surface px-4 py-3.5">
-      <p className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-faint uppercase [&_svg]:size-3.5">
-        {icon}
-        {title}
-      </p>
-      {children}
-    </div>
-  );
-}
-
-function TileSkeleton() {
-  return (
-    <>
-      <Skeleton className="h-4 w-24" />
-      <Skeleton className="h-3 w-32" />
-    </>
   );
 }
 

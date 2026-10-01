@@ -5,7 +5,7 @@ import { toast } from "@/components/ui/toast";
 import Link from "next/link";
 import { ChevronRight, Cloud, Plus, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, CardHeader, EmptyState } from "@/components/ui/misc";
+import { Card, CardHeader, EmptyState } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -278,11 +278,19 @@ export function CloudflareAccounts({
               />
               <div className="divide-y divide-line">
                 {a.zones.map((z) => (
-                  <Link key={z.id} href={`/integrations/cloudflare/${a.id}/${z.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-hover/40">
-                    <span className="flex-1 text-[14px] font-medium text-fg">{z.name}</span>
-                    {z.plan && <span className="text-xs text-muted">{z.plan}</span>}
-                    <Badge tone={z.status === "active" ? "ok" : "warn"}>{z.status}</Badge>
-                    <ChevronRight className="size-4 text-faint" />
+                  <Link key={z.id} href={`/integrations/cloudflare/${a.id}/${z.id}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-hover/40 sm:px-5">
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="truncate text-[14px] font-medium text-fg">{z.name}</span>
+                      {(z.plan || z.status !== "active") && (
+                        <span className="truncate text-xs text-muted">
+                          {/* Active is the normal state; only other states are worth a word. */}
+                          {z.status !== "active" && <span className="text-warn capitalize">{z.status}</span>}
+                          {z.status !== "active" && z.plan && " · "}
+                          {z.plan}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronRight className="size-4 flex-none text-faint" />
                   </Link>
                 ))}
               </div>

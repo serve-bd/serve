@@ -247,7 +247,10 @@ export const engines: Record<DbEngine, EngineInfo> = {
     healthcheck: (c) => ["CMD-SHELL", `mongosh --quiet${mongoTls(c)} --eval "db.adminCommand('ping').ok" | grep -q 1`],
     url: (c) => `mongodb://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}?authSource=admin`,
     backupCommand: (c) => `mongodump --quiet${mongoToolsTls(c)} --archive --gzip -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
-    restoreCommand: (c) => `mongorestore --quiet${mongoToolsTls(c)} --archive --gzip --drop -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
+    // Not quiet: its progress goes to the restore log. Users and roles of the dump stay out: a dump
+    // of all databases from another install would replace the account Serve connects with.
+    restoreCommand: (c) =>
+      `mongorestore${mongoToolsTls(c)} --archive --gzip --drop --nsExclude='admin.system.*' -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
     backupExtension: "archive.gz",
     server: ["mongod"],
     runAs: "mongodb",

@@ -171,13 +171,28 @@ async function dumpWith(t: Commands, file: string) {
   return size;
 }
 
-/** Run a shell command in a database container with `input` on stdin. Returns its output with the password masked. */
-async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream, gz: boolean) {
+/**
+ * Run a shell command in a database container with `input` on stdin. Returns its output with the
+ * password masked; `onOutput` also gets it as it comes, about once a second.
+ */
+async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream, gz: boolean, onOutput?: (text: string) => void) {
   const exec = await t.container.exec({ Cmd: ["sh", "-c", command], AttachStdin: true, AttachStdout: true, AttachStderr: true });
   const stream = await exec.start({ hijack: true, stdin: true });
   let output = "";
+  let pending = "";
+  const mask = (text: string) => (t.password ? text.replaceAll(t.password, "***") : text);
+  const flush = () => {
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    const text = mask(lines.join("\n")).trim();
+    if (text) onOutput?.(text);
+  };
+  const ticker = onOutput ? setInterval(flush, 1000) : null;
   const sink = new PassThrough();
-  sink.on("data", (c: Buffer) => (output += c.toString()));
+  sink.on("data", (c: Buffer) => {
+    output += c.toString();
+    if (onOutput) pending += c.toString();
+  });
   t.docker.modem.demuxStream(stream, sink, sink);
   const done = new Promise<void>((resolve) => {
     stream.on("end", resolve);
@@ -191,8 +206,20 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
   (stream as unknown as { end: () => void }).end();
   await done;
   const exitCode = await execExitCode(exec, 60_000);
-  const clean = (t.password ? output.replaceAll(t.password, "***") : output).trim();
-  if (exitCode !== null && exitCode !== 0) throw new Error(clean.slice(-1500) || `Command exited with ${exitCode}`);
+  if (ticker) {
+    clearInterval(ticker);
+    pending += "\n";
+    flush();
+  }
+  const clean = mask(output).trim();
+  // Output already in the log: the error names its last line only.
+  const summary = onOutput
+    ? (clean
+        .split("\n")
+        .filter((l) => l.trim())
+        .at(-1) ?? "")
+    : clean.slice(-1500);
+  if (exitCode !== null && exitCode !== 0) throw new Error(summary || `Command exited with ${exitCode}`);
   if (readError) throw new Error(`Reading the file failed: ${readError.message}`);
   if (exitCode === null) throw new Error(clean.slice(-1500) || "The command did not finish");
   return clean;
@@ -203,7 +230,9 @@ async function restoreWith(t: Commands, file: string, log: (line: string) => voi
   // Mongo archives are gzip streams already; everything else ending in .gz is unpacked on the way in.
   const gz = /\.gz$/i.test(file) && t.engine !== "mongodb";
   const { command, format } = await restoreCommandFor(t, file, gz);
-  const out = await runIn(t, command, fs.createReadStream(file), gz);
+  log(`Format: ${format}${gz ? " (gzip)" : ""}`);
+  // The command's output goes to the log while it runs, so a long or failing restore can be followed.
+  const out = await runIn(t, command, fs.createReadStream(file), gz, log);
   if (t.engine === "redis" || t.engine === "valkey") {
     log("Restarting to load the dump");
     await t.container.restart();
@@ -473,8 +502,8 @@ export async function restoreBackup(backupId: string) {
           .set({ restoreStopped: ids.length ? ids : null })
           .where(eq(schema.backup.id, backupId))),
     );
-    await logLine(backupId, `Format: ${format}`);
-    if (clean) await logLine(backupId, clean.slice(-2000));
+    // Database restores logged their format and output as they ran.
+    if (format === "tar.gz" && clean) await logLine(backupId, clean.slice(-2000));
     await db.update(schema.backup).set({ restoreStatus: "success", restoredAt: new Date() }).where(eq(schema.backup.id, backupId));
     await logLine(backupId, "Restore finished");
     return clean;

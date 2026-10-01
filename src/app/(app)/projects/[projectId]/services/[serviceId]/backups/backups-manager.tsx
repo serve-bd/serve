@@ -56,8 +56,14 @@ function SafetyToggle({ valueRef }: { valueRef: React.RefObject<boolean> }) {
 }
 
 function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: boolean; onRestore: (b: Backup) => void; onDelete: (b: Backup) => void }) {
-  const [open, setOpen] = React.useState(false);
   const busy = b.status === "running" || b.restoreStatus === "running";
+  // The log opens by itself while something runs and when it failed, until it is closed by hand.
+  const [choice, setChoice] = React.useState<boolean | null>(null);
+  const open = choice ?? (busy || b.status === "failed" || b.restoreStatus === "failed");
+  const logRef = React.useRef<HTMLPreElement>(null);
+  React.useEffect(() => {
+    if (open && busy && logRef.current && b.log) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [open, busy, b.log]);
   const available = b.local || b.destination !== "local";
   return (
     <div className="flex flex-col">
@@ -98,8 +104,14 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
           )}
         </div>
         {b.log && (
-          <button type="button" onClick={() => setOpen((o) => !o)} className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-fg" aria-label="Show log" aria-expanded={open}>
-            <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+          <button
+            type="button"
+            onClick={() => setChoice(!open)}
+            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-fg"
+            aria-expanded={open}
+          >
+            Log
+            <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} />
           </button>
         )}
         {!busy && (
@@ -129,7 +141,9 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
         )}
       </div>
       {open && b.log && (
-        <pre className="mx-5 mb-3 max-h-64 overflow-auto rounded-lg bg-sunken px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-fg-2">{b.log.trim()}</pre>
+        <pre ref={logRef} className="mx-5 mb-3 max-h-64 overflow-auto rounded-lg bg-sunken px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-fg-2">
+          {b.log.trim()}
+        </pre>
       )}
     </div>
   );

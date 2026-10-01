@@ -123,7 +123,7 @@ export function dumpCommands(engine: Engine, c: ComposeCreds): { backup: string;
     }
     case "mongodb": {
       const auth = c.username ? ` -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin` : "";
-      return { backup: `mongodump --quiet --archive --gzip${auth}`, restore: `mongorestore --quiet --archive --gzip --drop${auth}` };
+      return { backup: `mongodump --quiet --archive --gzip${auth}`, restore: `mongorestore --archive --gzip --drop --nsExclude='admin.system.*'${auth}` };
     }
     case "redis":
     case "valkey": {

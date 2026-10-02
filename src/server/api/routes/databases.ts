@@ -355,7 +355,7 @@ export const databaseRoutes: ApiRoute[] = [
     path: "/services/{serviceId}/data/rows",
     tag: "Databases",
     summary: "A page of rows of a table",
-    description: `50 rows per page (page counts from 0), sorted by one column and filtered by one condition (op: ${FILTER_OPS.join(", ")}). Values come back as text, null for NULL. total counts up to 10000 matching rows (totalCapped: more). For MongoDB, mongoFilter and mongoSort are Extended JSON and documents come back as Extended JSON text. Reads only.`,
+    description: `50 rows per page (page counts from 0), sorted by one column (else by the columns of order, like the primary key) and filtered by one condition (op: ${FILTER_OPS.join(", ")}). Values come back as text, null for NULL. total counts up to 10000 matching rows (totalCapped: more). For MongoDB, mongoFilter and mongoSort are Extended JSON and documents come back as Extended JSON text. Reads only.`,
     needs: ["projects.view", "console.access"],
     body: z.object({
       database: z.string(),
@@ -370,12 +370,48 @@ export const databaseRoutes: ApiRoute[] = [
         .object({ column: z.string(), op: z.enum(FILTER_OPS as [string, ...string[]]), value: z.string().optional() })
         .nullable()
         .optional(),
+      order: z.array(z.string()).optional(),
       mongoFilter: z.string().optional(),
       mongoSort: z.string().optional(),
     }),
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
       return await unwrap(explorer.explorerRows(params.serviceId, body));
+    },
+  }),
+  route({
+    method: "PATCH",
+    path: "/services/{serviceId}/data/rows",
+    tag: "Databases",
+    summary: "Change one value of a row",
+    description:
+      "PostgreSQL, MySQL and MariaDB. The row is found by its whole primary key (key: each column with the value the row shows); value null sets NULL. Values of the primary key and binary values are changed with a query instead. Written to the activity log.",
+    needs: ["projects.view", "console.access"],
+    body: z.object({
+      database: z.string(),
+      schema: z.string().nullable().optional(),
+      table: z.string(),
+      key: z.array(z.object({ column: z.string(), value: z.string() })).min(1),
+      column: z.string(),
+      value: z.string().nullable(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return (await unwrap(explorer.explorerEditCell(params.serviceId, body))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/data/documents",
+    tag: "Databases",
+    summary: "Replace a MongoDB document",
+    description:
+      'id: the _id of the document as Extended JSON (like {"$oid": "…"} or 42). document: the new document as Extended JSON; its _id, if given, must stay the same. Written to the activity log.',
+    needs: ["projects.view", "console.access"],
+    body: z.object({ database: z.string(), collection: z.string(), id: z.string(), document: z.string() }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return (await unwrap(explorer.explorerEditDocument(params.serviceId, body))) ?? { ok: true };
     },
   }),
   route({

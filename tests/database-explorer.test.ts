@@ -7,6 +7,7 @@ import {
   checkKvCommand,
   chIdent,
   chLiteral,
+  editCellScript,
   explorerFamily,
   framed,
   kvBytes,
@@ -22,6 +23,7 @@ import {
   parseChQuery,
   parseClickhouseJson,
   parseCsv,
+  parseEditCount,
   parseJsonExact,
   parseKeyspace,
   parseKvReply,
@@ -129,6 +131,12 @@ describe("database explorer", () => {
       );
       expect(pg).toContain(`FROM "s'x"."t""y" WHERE strpos(lower("n"::text), lower('o''k')) > 0 ORDER BY "c""z" DESC LIMIT 50 OFFSET 100`);
       expect(pg).toContain(`SELECT count(*) AS serve_total FROM (SELECT 1 FROM "s'x"."t""y" WHERE`);
+      const ordered = decoded(sqlScripts("postgres", creds).rows({ database: "app", schema: "public", name: "t", order: ["a", 'b"c'] }, 0, null, null, "N"));
+      expect(ordered).toContain(`FROM "public"."t" ORDER BY "a", "b""c" LIMIT 50 OFFSET 0`);
+      // A chosen sort wins over the key order.
+      expect(decoded(sqlScripts("mysql", creds).rows({ database: "d", schema: null, name: "t", order: ["id"] }, 0, { column: "x", desc: true }, null, "N"))).toContain(
+        "ORDER BY `x` DESC LIMIT",
+      );
       const my = decoded(sqlScripts("mysql", creds).rows({ database: "d`b", schema: null, name: "t" }, 0, null, { column: "c", op: "null" }, "N"));
       expect(my).toContain("FROM `d``b`.`t` WHERE `c` IS NULL LIMIT 50 OFFSET 0");
       const ch = decoded(
@@ -165,6 +173,13 @@ describe("database explorer", () => {
       expect(() => pg.query("app", "SELECT ';', \"a;b\", $$x;y$$, $t$;$t$ -- ;\n/* ; /* ; */ */;", opts, "N")).not.toThrow();
       expect(() => my.query("app", "SELECT ';', \"a;b\", `c;d`, 'e\\';' # ;\n/* ; */ -- ;\n;", opts, "m")).not.toThrow();
       expect(() => pg.query("app", "  ", opts, "N")).toThrow(/Write a query/);
+    });
+
+    it("refuses COPY, which reaches files and programs even when read-only", () => {
+      for (const q of ["COPY t TO '/tmp/x'", "copy (select 1) to program 'id'", "/* x */ -- y\n  COPY t FROM '/etc/passwd'"])
+        expect(() => pg.query("app", q, opts, "N"), q).toThrow(/COPY/);
+      expect(() => pg.query("app", "SELECT 'copy' AS copy", opts, "N")).not.toThrow();
+      expect(() => pg.query("app", "COPY t TO STDOUT", { ...opts, readOnly: false }, "N")).not.toThrow();
     });
 
     it("refuses psql commands", () => {
@@ -243,6 +258,31 @@ describe("database explorer", () => {
       expect(pipelineWrites([{ $facet: { a: [{ $merge: { into: "x" } }] } }])).toBe(true);
       expect(pipelineWrites([{ $lookup: { from: "y", pipeline: [{ $match: { $out: 1 } }] } }])).toBe(true);
       expect(pipelineWrites([{ $match: { out: "$out" } }, { $group: { _id: null } }])).toBe(false);
+    });
+  });
+
+  describe("editing a row", () => {
+    const edit = {
+      database: "app",
+      schema: "s'x",
+      table: 't"y',
+      key: [
+        { column: "id", value: "1' OR '1'='1" },
+        { column: "k`2", value: "b" },
+      ],
+      column: 'c"z',
+      value: "it's",
+    };
+    it("finds the row by its whole primary key, with quoted names and values", () => {
+      expect(decoded(editCellScript("postgres", creds, edit))).toBe(`UPDATE "s'x"."t""y" SET "c""z" = 'it''s' WHERE "id" = '1'' OR ''1''=''1' AND "k\`2" = 'b'`);
+      expect(decoded(editCellScript("postgres", creds, { ...edit, value: null }))).toContain(`SET "c""z" = NULL WHERE`);
+      const my = decoded(editCellScript("mysql", creds, edit));
+      expect(my).toContain("START TRANSACTION;");
+      expect(my).toContain(`UPDATE \`app\`.\`t"y\` SET \`c"z\` = ${myLiteral("it's")} WHERE \`id\` = ${myLiteral("1' OR '1'='1")} AND \`k\`\`2\` = ${myLiteral("b")} LIMIT 1;`);
+      expect(my).toContain("SELECT CONCAT('SERVE_ROWS ', COUNT(*))");
+      expect(() => editCellScript("postgres", creds, { ...edit, key: [] })).toThrow(/primary key/);
+      expect(parseEditCount("SERVE_ROWS 1\n")).toBe(1);
+      expect(parseEditCount("")).toBeNull();
     });
   });
 

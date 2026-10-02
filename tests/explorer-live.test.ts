@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  editCellScript,
   framed,
   kvCommandScript,
   kvKeyScript,
@@ -10,6 +11,7 @@ import {
   mongoScript,
   parseChQuery,
   parseChRows,
+  parseEditCount,
   parseKeyspace,
   parseKvKey,
   parseKvReply,
@@ -385,6 +387,45 @@ d.items.createIndex({ name: 1 }, { unique: true });`,
         expect(count).toMatchObject({ kind: "rows", rows: [["120"]] });
       });
 
+      it("changes one value of a row, found by its primary key", () => {
+        if (t.engine === "clickhouse") return;
+        const engine = t.engine;
+        const edit = (key: string, value: string | null) =>
+          parseEditCount(
+            ok(
+              t.container,
+              editCellScript(engine, t.c, { database: t.c.database, schema: t.schema, table: WEIRD_TABLE, key: [{ column: "id", value: key }], column: WEIRD_COL, value }),
+            ).stdout,
+          );
+        expect(edit("2", `new ${WEIRD_VALUE}`)).toBe(1);
+        const page = rowsOf(ok(t.container, scripts.rows(table, 0, { column: "id", desc: false }, null, marker)).stdout, false);
+        expect(page.rows[1][1]).toBe(`new ${WEIRD_VALUE}`);
+        expect(page.rows[0][1]).toBe(WEIRD_VALUE);
+        expect(edit("2", null)).toBe(1);
+        expect(rowsOf(ok(t.container, scripts.rows(table, 0, { column: "id", desc: false }, null, marker)).stdout, false).rows[1][1]).toBeNull();
+        // The same value again still finds the row; a key that is not there finds none.
+        expect(edit("2", null)).toBe(1);
+        expect(edit("999", "x")).toBe(0);
+        // A key is a value, never SQL: refused by the engine or matching nothing, and no other row changes.
+        const injected = run(
+          t.container,
+          editCellScript(engine, t.c, {
+            database: t.c.database,
+            schema: t.schema,
+            table: WEIRD_TABLE,
+            key: [{ column: "id", value: "x' OR '1'='1" }],
+            column: WEIRD_COL,
+            value: "x",
+          }),
+        );
+        expect(injected.code !== 0 || parseEditCount(injected.stdout) === 0).toBe(true);
+        expect(rowsOf(ok(t.container, scripts.rows(table, 0, { column: "id", desc: false }, null, marker)).stdout, false).rows.map((r) => r[1])).not.toContain("x");
+        expect(edit("2", "")).toBe(1);
+        // Without a sort, the primary key keeps the changed row in its place.
+        const kept = rowsOf(ok(t.container, scripts.rows({ ...table, order: ["id"] }, 0, null, null, marker)).stdout, false);
+        expect(kept.rows.map((r) => r[0])).toEqual(["1", "2", "3"]);
+      });
+
       it("writes when changes are allowed", () => {
         const done = query(t.engine === "clickhouse" ? "INSERT INTO items VALUES (500, 'zz written', 7)" : "INSERT INTO items (name, price) VALUES ('zz written', 7)", false);
         expect(done).toMatchObject({ kind: "done" });
@@ -474,6 +515,18 @@ d.items.createIndex({ name: 1 }, { unique: true });`,
         expect(mongo({ op: "aggregate", db: "app", collection: "items", query: pipeline })).toMatchObject({ error: expect.stringMatching(/read only/) });
       expect(mongo({ op: "count", db: "app", collection: "items", query: "{}" })).toMatchObject({ count: 120 });
       expect(mongo({ op: "count", db: "app", collection: "zz_out", query: "{}" })).toMatchObject({ count: 0 });
+    });
+
+    it("replaces a document by its _id, keeping the _id", () => {
+      const replace = (id: string, document: string) => mongo({ op: "replace", db: "app", collection: "items", id, query: document, readOnly: false });
+      expect(mongo({ op: "replace", db: "app", collection: "items", id: "1", query: '{"x": 1}' })).toMatchObject({ error: expect.stringMatching(/read only/) });
+      expect(replace("1", '{"_id": 1, "name": "renamed", "price": {"$numberLong": "9223372036854775807"}}')).toMatchObject({ affected: 1 });
+      const doc = mongo<{ docs: string[] }>({ op: "find", db: "app", collection: "items", query: '{"_id": 1}' }) as { docs: string[] };
+      expect(JSON.parse(readableEjson(doc.docs[0]))).toEqual({ _id: 1, name: "renamed", price: { $numberLong: "9223372036854775807" } });
+      expect(replace("1", '{"_id": 2, "name": "x"}')).toMatchObject({ error: expect.stringMatching(/_id/) });
+      expect(replace("1", "[1]")).toMatchObject({ error: expect.stringMatching(/object/) });
+      expect(replace("4242", '{"name": "x"}')).toMatchObject({ affected: 0 });
+      expect(replace("1", '{"name": "item 1", "price": 1}')).toMatchObject({ affected: 1 });
     });
 
     it("writes only through the write operations, with changes allowed", () => {

@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Database, Eye, FileJson, KeyRound, Play, RotateCw, Search, ShieldAlert, Table2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Database, Eye, FileJson, KeyRound, Pencil, Play, RotateCw, Search, ShieldAlert, Table2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodeEditor } from "@/components/code-editor";
 import { useConfirm } from "@/components/ui/confirm";
-import { Dialog, DialogBody, DialogContent, DialogHeader } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Dialog, DialogBody, DialogContent, DialogError, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { Input, Textarea } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge, Card, CardHeader, CopyButton, EmptyState, Kbd, Skeleton } from "@/components/ui/misc";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
@@ -19,6 +20,8 @@ import {
   type DocumentsPage,
   type ExplorerOverview,
   type ExplorerQueryResult,
+  explorerEditCell,
+  explorerEditDocument,
   explorerKey,
   explorerKeys,
   explorerOverview,
@@ -180,7 +183,14 @@ export function DataBrowser({
                 family === "kv" ? (
                   <KvBrowser key={`kv-${overview.database}`} serviceId={serviceId} database={overview.database} />
                 ) : (
-                  <TableBrowser key={`${family}-${overview.database}`} serviceId={serviceId} overview={overview} family={family} onRefresh={() => void load(overview.database)} />
+                  <TableBrowser
+                    key={`${family}-${overview.database}`}
+                    serviceId={serviceId}
+                    overview={overview}
+                    family={family}
+                    readOnly={readOnly}
+                    onRefresh={() => void load(overview.database)}
+                  />
                 )
               ) : (
                 <QueryPanel key={`q-${overview.database}`} serviceId={serviceId} engine={engine} family={family} overview={overview} readOnly={readOnly} />
@@ -204,7 +214,19 @@ function kvDatabases(found: { name: string; size: number | null }[]) {
 
 /* ------------------------------------------------------------ Tables and collections */
 
-function TableBrowser({ serviceId, overview, family, onRefresh }: { serviceId: string; overview: ExplorerOverview; family: Family; onRefresh: () => void }) {
+function TableBrowser({
+  serviceId,
+  overview,
+  family,
+  readOnly,
+  onRefresh,
+}: {
+  serviceId: string;
+  overview: ExplorerOverview;
+  family: Family;
+  readOnly: boolean;
+  onRefresh: () => void;
+}) {
   const tables = overview.tables;
   const [selected, setSelected] = React.useState<TableRef | null>(tables[0] ? { schema: tables[0].schema, name: tables[0].name } : null);
   const [search, setSearch] = React.useState("");
@@ -302,6 +324,8 @@ function TableBrowser({ serviceId, overview, family, onRefresh }: { serviceId: s
             family={family}
             info={current}
             showSchema={overview.schemas.length > 1}
+            readOnly={readOnly}
+            editable={overview.engine !== "clickhouse"}
           />
         ) : (
           <EmptyState icon={<Table2 />} title={`Choose a ${noun}`} />
@@ -323,6 +347,8 @@ function TableView({
   family,
   info,
   showSchema,
+  readOnly,
+  editable,
 }: {
   serviceId: string;
   database: string;
@@ -330,6 +356,9 @@ function TableView({
   family: Family;
   info: ExplorerOverview["tables"][number];
   showSchema: boolean;
+  readOnly: boolean;
+  /** Rows of this engine can be changed one value at a time. */
+  editable: boolean;
 }) {
   const [view, setView] = React.useState<"rows" | "structure">("rows");
   const [structure, loadStructure] = useRead<Structure>();
@@ -362,9 +391,16 @@ function TableView({
       </div>
       {view === "rows" ? (
         family === "mongo" ? (
-          <DocumentsView serviceId={serviceId} reference={ref} />
+          <DocumentsView serviceId={serviceId} reference={ref} readOnly={readOnly} />
         ) : (
-          <RowsView serviceId={serviceId} reference={ref} columns={structure.data?.columns.map((c) => c.name) ?? []} />
+          <RowsView
+            serviceId={serviceId}
+            reference={ref}
+            structure={structure.data}
+            structureLoaded={!!structure.data || !!structure.error}
+            readOnly={readOnly}
+            editable={editable && !info.kind.includes("view")}
+          />
         )
       ) : (
         <StructureView state={structure} family={family} />
@@ -385,7 +421,28 @@ const FILTER_LABELS: { value: FilterOp; label: string }[] = [
   { value: "notnull", label: "is not NULL" },
 ];
 
-function RowsView({ serviceId, reference, columns }: { serviceId: string; reference: { database: string; schema: string | null; table: string }; columns: string[] }) {
+/** Types whose values show as hex or text that would not write back as they read (the server checks too). */
+const NOT_EDITABLE = /blob|binary|^bit\b|geometry|point|polygon|linestring/i;
+
+function RowsView({
+  serviceId,
+  reference,
+  structure,
+  structureLoaded,
+  readOnly,
+  editable,
+}: {
+  serviceId: string;
+  reference: { database: string; schema: string | null; table: string };
+  structure: Structure | null;
+  /** Rows wait for it: without a sort they are in primary key order, so a changed row stays in its place. */
+  structureLoaded: boolean;
+  readOnly: boolean;
+  editable: boolean;
+}) {
+  const columns = structure?.columns.map((c) => c.name) ?? [];
+  const keyOrder = (structure?.columns ?? []).filter((c) => c.primaryKey).map((c) => c.name);
+  const orderKey = keyOrder.join("\u0000");
   const [page, setPage] = React.useState(0);
   const [sort, setSort] = React.useState<{ column: string; desc: boolean } | null>(null);
   const [filter, setFilter] = React.useState<{ column: string; op: FilterOp; value: string } | null>(null);
@@ -395,13 +452,34 @@ function RowsView({ serviceId, reference, columns }: { serviceId: string; refere
 
   React.useEffect(() => {
     void reload;
-    void loadRows(() => explorerRows(serviceId, { ...reference, page, sort, filter }));
-  }, [serviceId, reference, page, sort, filter, loadRows, reload]);
+    if (!structureLoaded) return;
+    const order = orderKey ? orderKey.split("\u0000") : [];
+    void loadRows(() => explorerRows(serviceId, { ...reference, page, sort, filter, order }));
+  }, [serviceId, reference, page, sort, filter, loadRows, reload, structureLoaded, orderKey]);
 
   const data = rows.data && "rows" in rows.data ? rows.data : null;
   const shownColumns = data?.columns.length ? data.columns : columns;
   const column = draft.column || shownColumns[0] || "";
   const needsValue = draft.op !== "null" && draft.op !== "notnull";
+  const primary = structure?.columns.filter((c) => c.primaryKey) ?? [];
+  const edit: CellEditing | undefined =
+    editable && data && primary.length && !primary.some((c) => NOT_EDITABLE.test(c.type))
+      ? {
+          readOnly,
+          can: (name) => {
+            const col = structure?.columns.find((c) => c.name === name);
+            return !!col && !col.primaryKey && !NOT_EDITABLE.test(col.type);
+          },
+          nullable: (name) => !!structure?.columns.find((c) => c.name === name)?.nullable,
+          save: async (row, name, value) => {
+            const key = primary.map((p) => ({ column: p.name, value: row[shownColumns.indexOf(p.name)] ?? "" }));
+            const res = await explorerEditCell(serviceId, { ...reference, key, column: name, value }).catch((e: Error) => ({ ok: false as const, error: e.message }));
+            if (!res.ok) return res.error;
+            setReload((n) => n + 1);
+            return null;
+          },
+        }
+      : undefined;
   const apply = () => {
     if (!column) return;
     setPage(0);
@@ -489,6 +567,7 @@ function RowsView({ serviceId, reference, columns }: { serviceId: string; refere
               setSort((s) => (s?.column !== c ? { column: c, desc: false } : s.desc ? null : { column: c, desc: true }));
             }}
             empty={filter ? "No rows match the filter." : "This table has no rows."}
+            edit={edit}
           />
           {data.truncated && <p className="text-xs text-warn">Some values were too large and the page was cut short. Use the Query tab to choose fewer columns.</p>}
           <Pager page={page} shown={data.rows.length} total={data.total} capped={data.totalCapped} loading={rows.loading} onPage={setPage} noun="rows" />
@@ -498,7 +577,8 @@ function RowsView({ serviceId, reference, columns }: { serviceId: string; refere
   );
 }
 
-function DocumentsView({ serviceId, reference }: { serviceId: string; reference: { database: string; schema: string | null; table: string } }) {
+function DocumentsView({ serviceId, reference, readOnly }: { serviceId: string; reference: { database: string; schema: string | null; table: string }; readOnly: boolean }) {
+  const [editing, setEditing] = React.useState<string | null>(null);
   const [page, setPage] = React.useState(0);
   const [applied, setApplied] = React.useState({ filter: "", sort: "" });
   const [draft, setDraft] = React.useState({ filter: "", sort: "" });
@@ -548,11 +628,70 @@ function DocumentsView({ serviceId, reference }: { serviceId: string; reference:
         <TableSkeleton />
       ) : (
         <>
-          <DocumentList documents={data.documents} loading={docs.loading} empty={applied.filter ? "No documents match the filter." : "This collection has no documents."} />
+          <DocumentList
+            documents={data.documents}
+            loading={docs.loading}
+            empty={applied.filter ? "No documents match the filter." : "This collection has no documents."}
+            onEdit={readOnly ? undefined : setEditing}
+          />
           <Pager page={page} shown={data.documents.length} total={data.total} capped={data.totalCapped} loading={docs.loading} onPage={setPage} noun="documents" />
         </>
       )}
+      {editing !== null && (
+        <DocumentDialog
+          document={editing}
+          onClose={() => setEditing(null)}
+          onSave={async (text) => {
+            let id: unknown;
+            try {
+              id = (JSON.parse(editing) as { _id?: unknown })._id;
+            } catch {}
+            if (id === undefined) return "This document has no _id, so it cannot be found again to save it.";
+            const res = await explorerEditDocument(serviceId, { database: reference.database, collection: reference.table, id: JSON.stringify(id), document: text }).catch(
+              (e: Error) => ({ ok: false as const, error: e.message }),
+            );
+            if (!res.ok) return res.error;
+            setEditing(null);
+            setReload((n) => n + 1);
+            return null;
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function DocumentDialog({ document, onClose, onSave }: { document: string; onClose: () => void; onSave: (text: string) => Promise<string | null> }) {
+  const [text, setText] = React.useState(document);
+  const [error, setError] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  return (
+    <Dialog open onOpenChange={(o) => !o && !saving && onClose()}>
+      <DialogContent size="lg">
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setSaving(true);
+            setError(await onSave(text));
+            setSaving(false);
+          }}
+        >
+          <DialogHeader title="Edit document" description="The whole document is replaced with this one. Its _id stays the same." />
+          <DialogBody>
+            <CodeEditor value={text} onChange={setText} language="json" minRows={10} maxHeight="60vh" aria-label="Document" />
+          </DialogBody>
+          <DialogFooter>
+            <DialogError message={error} className="mr-auto" />
+            <Button variant="ghost" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" loading={saving}>
+              Save document
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -687,7 +826,15 @@ function Pager({
   );
 }
 
-/** Rows in a box that scrolls on its own; a click on a value shows all of it. */
+type CellEditing = {
+  readOnly: boolean;
+  can: (column: string) => boolean;
+  nullable: (column: string) => boolean;
+  /** Saves the value; an error message when it could not. */
+  save: (row: Cell[], column: string, value: string | null) => Promise<string | null>;
+};
+
+/** Rows in a box that scrolls on its own; a click on a value shows all of it (and changes it, where it can). */
 function ResultTable({
   columns,
   rows,
@@ -696,6 +843,7 @@ function ResultTable({
   onSort,
   empty,
   first,
+  edit,
 }: {
   columns: string[];
   rows: Cell[][];
@@ -705,8 +853,9 @@ function ResultTable({
   empty: string;
   /** Pairs and lists: the first column is a label (field, index), not data. */
   first?: "label";
+  edit?: CellEditing;
 }) {
-  const [open, setOpen] = React.useState<{ column: string; value: Cell } | null>(null);
+  const [open, setOpen] = React.useState<{ column: string; value: Cell; row: Cell[] } | null>(null);
   return (
     <>
       <div className={cn("scrollbar-thin max-h-[36rem] overflow-auto rounded-lg border border-line transition-opacity", loading && "opacity-60")}>
@@ -743,7 +892,7 @@ function ResultTable({
                     <td key={`${i}-${c}`} className="border-b border-line/70 p-0">
                       <button
                         type="button"
-                        onClick={() => setOpen({ column: c, value: v })}
+                        onClick={() => setOpen({ column: c, value: v, row })}
                         className={cn(
                           "block max-w-[22rem] min-w-0 truncate px-3 py-1.5 text-left font-mono",
                           v === null ? "text-faint italic" : first === "label" && i === 0 ? "text-muted" : "text-fg",
@@ -761,12 +910,46 @@ function ResultTable({
         </table>
         {!rows.length && <p className="px-3 py-6 text-center text-[13px] text-muted">{empty}</p>}
       </div>
-      {open && <ValueDialog title={open.column} value={open.value} onClose={() => setOpen(null)} />}
+      {open && (
+        <ValueDialog
+          title={open.column}
+          value={open.value}
+          onClose={() => setOpen(null)}
+          edit={
+            edit?.can(open.column)
+              ? {
+                  readOnly: edit.readOnly,
+                  nullable: edit.nullable(open.column),
+                  save: async (value) => {
+                    const error = await edit.save(open.row, open.column, value);
+                    if (!error) setOpen(null);
+                    return error;
+                  },
+                }
+              : undefined
+          }
+        />
+      )}
     </>
   );
 }
 
-function ValueDialog({ title, value, onClose }: { title: string; value: Cell; onClose: () => void }) {
+function ValueDialog({
+  title,
+  value,
+  onClose,
+  edit,
+}: {
+  title: string;
+  value: Cell;
+  onClose: () => void;
+  edit?: { readOnly: boolean; nullable: boolean; save: (value: string | null) => Promise<string | null> };
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(value ?? "");
+  const [isNull, setIsNull] = React.useState(value === null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
   const pretty = React.useMemo(() => {
     if (value === null) return null;
     const t = value.trim();
@@ -777,28 +960,75 @@ function ValueDialog({ title, value, onClose }: { title: string; value: Cell; on
     }
     return value;
   }, [value]);
+  if (editing && edit) {
+    return (
+      <Dialog open onOpenChange={(o) => !o && !saving && onClose()}>
+        <DialogContent size="lg">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setSaving(true);
+              setError(await edit.save(isNull ? null : draft));
+              setSaving(false);
+            }}
+          >
+            <DialogHeader title={<span className="font-mono break-all">{title}</span>} description="The new value is saved to this row only, found by its primary key." />
+            <DialogBody className="flex flex-col gap-3">
+              <Textarea
+                value={isNull ? "" : draft}
+                onChange={(e) => setDraft(e.target.value)}
+                disabled={isNull}
+                placeholder={isNull ? "NULL" : undefined}
+                className="min-h-40 font-mono text-[12.5px]"
+                aria-label="New value"
+                spellCheck={false}
+              />
+              {edit.nullable && (
+                <label className="flex items-center gap-2 text-[13px] text-fg-2">
+                  <Checkbox checked={isNull} onCheckedChange={(v) => setIsNull(!!v)} /> NULL
+                </label>
+              )}
+            </DialogBody>
+            <DialogFooter>
+              <DialogError message={error} className="mr-auto" />
+              <Button variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" loading={saving}>
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    );
+  }
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent size="lg">
         <DialogHeader title={<span className="font-mono break-all">{title}</span>} description={value === null ? "NULL" : `${count(value.length)} characters`} />
         <DialogBody className="flex flex-col gap-2">
           {pretty !== null && (
-            <>
-              <pre className="scrollbar-thin max-h-[60vh] overflow-auto rounded-lg border border-line bg-sunken p-3 font-mono text-[12.5px] leading-relaxed break-words whitespace-pre-wrap text-fg">
-                {pretty}
-              </pre>
-              <div className="flex justify-end">
-                <CopyButton value={value ?? ""} label="Copy the value" />
-              </div>
-            </>
+            <pre className="scrollbar-thin max-h-[60vh] overflow-auto rounded-lg border border-line bg-sunken p-3 font-mono text-[12.5px] leading-relaxed break-words whitespace-pre-wrap text-fg">
+              {pretty}
+            </pre>
           )}
+          <div className="flex items-center justify-end gap-2">
+            {edit?.readOnly && <span className="mr-auto text-xs text-muted">Turn off read only to change this value.</span>}
+            {pretty !== null && <CopyButton value={value ?? ""} label="Copy the value" />}
+            {edit && !edit.readOnly && (
+              <Button size="sm" onClick={() => setEditing(true)}>
+                <Pencil /> Edit
+              </Button>
+            )}
+          </div>
         </DialogBody>
       </DialogContent>
     </Dialog>
   );
 }
 
-function DocumentList({ documents, loading, empty }: { documents: string[]; loading?: boolean; empty: string }) {
+function DocumentList({ documents, loading, empty, onEdit }: { documents: string[]; loading?: boolean; empty: string; onEdit?: (document: string) => void }) {
   if (!documents.length) return <p className="rounded-lg border border-line px-3 py-6 text-center text-[13px] text-muted">{empty}</p>;
   return (
     <ul className={cn("flex flex-col gap-2 transition-opacity", loading && "opacity-60")}>
@@ -807,7 +1037,14 @@ function DocumentList({ documents, loading, empty }: { documents: string[]; load
           <pre className="scrollbar-thin max-h-80 overflow-auto rounded-lg border border-line bg-sunken/60 p-3 font-mono text-[12px] leading-relaxed whitespace-pre text-fg">
             {d}
           </pre>
-          <CopyButton value={d} label="Copy the document" className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100" />
+          <span className="absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+            {onEdit && (
+              <Button size="icon-sm" variant="ghost" onClick={() => onEdit(d)} aria-label="Edit the document" title="Edit">
+                <Pencil />
+              </Button>
+            )}
+            <CopyButton value={d} label="Copy the document" />
+          </span>
         </li>
       ))}
     </ul>

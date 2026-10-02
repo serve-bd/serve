@@ -250,6 +250,14 @@ run("main flows", () => {
     expect(page.rows[0][0]).toBe("10");
     const filtered = await ok(ADMIN, "POST", `${data}/rows`, { database, table: "zz_explore", filter: { column: `we'ird "name"`, op: "eq", value: "a\nb 'q'" } });
     expect(filtered.rows).toEqual([["1", "a\nb 'q'"]]);
+    // One value of one row, found by its primary key.
+    const cell = { database, schema: "public", table: "zz_explore", key: [{ column: "id", value: "2" }], column: `we'ird "name"` };
+    await ok(ADMIN, "PATCH", `${data}/rows`, { ...cell, value: "edited 'x'" });
+    expect((await ok(ADMIN, "POST", `${data}/rows`, { database, table: "zz_explore", filter: { column: "id", op: "eq", value: "2" } })).rows).toEqual([["2", "edited 'x'"]]);
+    await ok(ADMIN, "PATCH", `${data}/rows`, { ...cell, value: null });
+    expect((await ok(ADMIN, "POST", `${data}/rows`, { database, table: "zz_explore", filter: { column: "id", op: "eq", value: "2" } })).rows).toEqual([["2", null]]);
+    expect((await api(ADMIN, "PATCH", `${data}/rows`, { ...cell, column: "id", value: "5" })).status).toBe(400);
+    expect((await api(ADMIN, "PATCH", `${data}/rows`, { ...cell, key: [{ column: "id", value: "999" }], value: "x" })).status).toBe(400);
     // Read only by default: the database refuses the write.
     const select = await ok(ADMIN, "POST", `${data}/query`, { database, query: "SELECT count(*) AS n FROM zz_explore" });
     expect(select.result).toMatchObject({ kind: "rows", columns: ["n"], rows: [["60"]] });
@@ -262,11 +270,13 @@ run("main flows", () => {
     const activity = (await ok(ADMIN, "GET", `/activity?projectId=${made.projectId}&limit=50`)).activity;
     expect(activity.find((a: any) => a.action === "database.query")?.message).toContain("CREATE TABLE zz_explore");
     expect(activity.some((a: any) => a.action === "database.query" && a.message.includes("DELETE FROM zz_explore"))).toBe(false);
+    expect(activity.find((a: any) => a.action === "database.row-edited")?.message).toContain("of the row id = 2 in zz_explore");
     if (sql) {
       // Reading rows is like opening a shell on the database: without the console permission, nothing.
       expect((await api(tokens.read, "GET", data)).status).toBe(403);
       expect((await api(tokens.read, "POST", `${data}/rows`, { database, table: "zz_explore" })).status).toBe(403);
       expect((await api(tokens.read, "POST", `${data}/query`, { database, query: "SELECT 1" })).status).toBe(403);
+      expect((await api(tokens.read, "PATCH", `${data}/rows`, { ...cell, value: "x" })).status).toBe(403);
       const consoleToken = await tokenWith("console", ["projects.view", "console.access"]);
       expect((await ok(consoleToken, "POST", `${data}/query`, { database, query: "SELECT 1 AS one" })).result.rows).toEqual([["1"]]);
     }

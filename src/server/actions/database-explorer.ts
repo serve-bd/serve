@@ -14,8 +14,10 @@ import { databaseContainer } from "@/server/databases/container";
 import { databaseCreds } from "@/server/databases/options";
 import {
   type Cell,
+  type CellEdit,
   cleanError,
   type ColumnInfo,
+  editCellScript,
   COUNT_CAP,
   ExplorerInputError,
   explorerFamily,
@@ -40,6 +42,7 @@ import {
   PAGE_SIZE,
   parseChQuery,
   parseChRows,
+  parseEditCount,
   parseKeyspace,
   parseKvKey,
   parseKvReply,
@@ -136,6 +139,8 @@ const rowsSchema = refSchema.extend({
     .object({ column: nameSchema, op: z.enum(FILTER_OPS as [string, ...string[]]), value: z.string().max(10_000).optional() })
     .nullable()
     .optional(),
+  /** The order without a sort: the primary key, so pages stay put. */
+  order: z.array(nameSchema.min(1)).max(32).optional(),
   /** MongoDB: a filter and a sort as Extended JSON. */
   mongoFilter: z.string().max(MAX_QUERY_BYTES).optional(),
   mongoSort: z.string().max(10_000).optional(),
@@ -250,7 +255,9 @@ export async function explorerRows(serviceId: string, input: z.input<typeof rows
     const filter = req.filter ? { column: req.filter.column, op: req.filter.op as (typeof FILTER_OPS)[number], value: req.filter.value } : null;
     const r = await runOk(
       service,
-      scripted(() => sqlScripts(engine, c).rows({ database: req.database, schema: req.schema ?? null, name: req.table }, req.page, req.sort ?? null, filter, marker)),
+      scripted(() =>
+        sqlScripts(engine, c).rows({ database: req.database, schema: req.schema ?? null, name: req.table, order: req.order }, req.page, req.sort ?? null, filter, marker),
+      ),
     );
     return engine === "postgres" ? parsePgRows(r.stdout, marker, r.truncated) : engine === "clickhouse" ? parseChRows(r.stdout, r.truncated) : parseMyRows(r.stdout, r.truncated);
   });
@@ -394,3 +401,97 @@ export async function explorerQuery(serviceId: string, input: z.input<typeof que
 }
 
 class EngineError extends Error {}
+
+const editSchema = z.object({
+  database: nameSchema,
+  schema: nameSchema.nullable().optional(),
+  table: nameSchema.min(1),
+  key: z
+    .array(z.object({ column: nameSchema.min(1), value: z.string().max(10_000) }))
+    .min(1)
+    .max(32),
+  column: nameSchema.min(1),
+  value: z
+    .string()
+    .max(MAX_QUERY_BYTES / 2)
+    .nullable(),
+});
+
+/** Types whose values the rows show as hex or text that would not write back as they read. */
+const NOT_EDITABLE = /blob|binary|^bit\b|geometry|point|polygon|linestring/i;
+
+/** Sets one value of one row, found by its primary key. */
+export async function explorerEditCell(serviceId: string, input: z.input<typeof editSchema>) {
+  return act(async () => {
+    const { ctx, service } = await explorerService(serviceId);
+    const edit = editSchema.parse(input) as CellEdit;
+    const engine = sqlEngine(service);
+    if (engine === "clickhouse") throw new UserError("Rows of ClickHouse tables are changed with ALTER TABLE … UPDATE, in the Query tab.");
+    const c = credsOf(service);
+    const ref = { database: edit.database, schema: engine === "postgres" ? (edit.schema ?? "public") : null, name: edit.table };
+    const structure = parseSqlStructure(
+      engine,
+      (
+        await runOk(
+          service,
+          scripted(() => sqlScripts(engine, c).structure(ref)),
+        )
+      ).stdout,
+    );
+    if (!structure) throw new UserError(`There is no table named ${edit.table}.`);
+    const primary = structure.columns.filter((col) => col.primaryKey);
+    if (!primary.length) throw new UserError("Only rows of a table with a primary key can be changed here. Use the Query tab.");
+    const keyColumns = new Set(edit.key.map((k) => k.column));
+    if (keyColumns.size !== primary.length || primary.some((col) => !keyColumns.has(col.name)))
+      throw new UserError("The key does not match the primary key of the table. Refresh the rows.");
+    if (primary.some((col) => NOT_EDITABLE.test(col.type))) throw new UserError("Rows with a binary primary key are changed in the Query tab.");
+    const column = structure.columns.find((col) => col.name === edit.column);
+    if (!column) throw new UserError(`There is no column named ${edit.column}.`);
+    if (column.primaryKey) throw new UserError("Values of the primary key are changed in the Query tab.");
+    if (NOT_EDITABLE.test(column.type)) throw new UserError(`Values of type ${column.type} are changed in the Query tab.`);
+    if (edit.value === null && !column.nullable) throw new UserError(`${edit.column} cannot be NULL.`);
+    const r = await runOk(
+      service,
+      scripted(() => editCellScript(engine, c, { ...edit, schema: ref.schema })),
+    );
+    if (!parseEditCount(r.stdout)) throw new UserError("No row has this key any more. Refresh the rows and try again.");
+    const key = edit.key.map((k) => `${k.column} = ${k.value.length > 60 ? `${k.value.slice(0, 60)}…` : k.value}`).join(", ");
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      projectId: service.projectId,
+      action: "database.row-edited",
+      targetType: "service",
+      targetId: service.id,
+      message: `Changed ${edit.column} of the row ${key} in ${edit.table} (${service.name})`,
+    });
+    return null;
+  });
+}
+
+const documentSchema = z.object({ database: nameSchema, collection: nameSchema.min(1), id: z.string().min(1).max(10_000), document: z.string().max(MAX_QUERY_BYTES) });
+
+/** Replaces one MongoDB document (found by its _id) with an edited one. */
+export async function explorerEditDocument(serviceId: string, input: z.input<typeof documentSchema>) {
+  return act(async () => {
+    const { ctx, service } = await explorerService(serviceId);
+    if (explorerFamily(service.database.engine) !== "mongo") throw new UserError("Documents are for MongoDB.");
+    const req = documentSchema.parse(input);
+    const r = await runOk(
+      service,
+      mongoScript(credsOf(service), { op: "replace", db: req.database, collection: req.collection, id: req.id, query: req.document, readOnly: false }),
+    );
+    const data = mongoResult<{ affected: number }>(r.stdout, r.truncated);
+    if (!data.affected) throw new UserError("This document is gone. Refresh the documents.");
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      projectId: service.projectId,
+      action: "database.document-edited",
+      targetType: "service",
+      targetId: service.id,
+      message: `Changed the document ${req.id.replace(/\s+/g, "").slice(0, 80)} in ${req.collection} (${service.name})`,
+    });
+    return null;
+  });
+}

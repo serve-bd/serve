@@ -221,6 +221,19 @@ export function splitStatements(sql: string, dialect: Dialect): string[] {
   return out;
 }
 
+/** A statement without the comments and spaces before its first word. */
+export function stripLeadingComments(statement: string) {
+  let s = statement;
+  for (;;) {
+    const next = s
+      .replace(/^\s+/, "")
+      .replace(/^--[^\n]*(\n|$)/, "")
+      .replace(/^\/\*[\s\S]*?\*\//, "");
+    if (next === s) return s;
+    s = next;
+  }
+}
+
 /* ---------------------------------------------------------------- Parsers */
 
 /** RFC 4180 CSV as psql prints it; `nullMarker` stands for NULL. Returns complete records only. */
@@ -442,13 +455,29 @@ function sqlCondition(engine: "postgres" | "mysql" | "clickhouse", filter: RowFi
   }
 }
 
-function pgRows(c: EngineCreds, database: string, schema: string, table: string, page: number, sort: RowSort | null, filter: RowFilter | null, nullMarker: string) {
+/** The ORDER BY of a page: the chosen column, else the given columns (the primary key: a stable order to page through). */
+function orderBy(sort: RowSort | null, order: string[], ident: (s: string) => string) {
+  if (sort) return ` ORDER BY ${ident(sort.column)} ${sort.desc ? "DESC" : "ASC"}`;
+  return order.length ? ` ORDER BY ${order.map(ident).join(", ")}` : "";
+}
+
+function pgRows(
+  c: EngineCreds,
+  database: string,
+  schema: string,
+  table: string,
+  page: number,
+  sort: RowSort | null,
+  order: string[],
+  filter: RowFilter | null,
+  nullMarker: string,
+) {
   const from = `${pgIdent(schema)}.${pgIdent(table)}${sqlCondition("postgres", filter)}`;
-  const order = sort ? ` ORDER BY ${pgIdent(sort.column)} ${sort.desc ? "DESC" : "ASC"}` : "";
+  const sorted = orderBy(sort, order, pgIdent);
   return [
     ...pgEnv(c, { readOnly: true, timeoutSeconds: QUERY_TIMEOUT }),
     shVar("C", `SELECT count(*) AS serve_total FROM (SELECT 1 FROM ${from} LIMIT ${COUNT_CAP + 1}) serve_c`),
-    shVar("R", `SELECT * FROM ${from}${order} LIMIT ${PAGE_SIZE} OFFSET ${page * PAGE_SIZE}`),
+    shVar("R", `SELECT * FROM ${from}${sorted} LIMIT ${PAGE_SIZE} OFFSET ${page * PAGE_SIZE}`),
     `${psql(c, database, `--csv -P ${sh(`null=${nullMarker}`)}`)} -c 'BEGIN READ ONLY' -c "$C" -c "$R" -c 'ROLLBACK'`,
   ];
 }
@@ -468,6 +497,8 @@ function pgQuery(c: EngineCreds, database: string, sql: string, opts: Opts & { n
   const statements = splitStatements(sql, "postgres");
   if (!statements.length) throw new ExplorerInputError("Write a query first.");
   if (opts.readOnly && statements.length > 1) throw new ExplorerInputError("Read only mode runs one statement at a time. Run them one by one, or allow changes.");
+  // COPY reads or writes files and runs programs on the server, even in a read-only transaction.
+  if (opts.readOnly && /^copy\b/i.test(stripLeadingComments(statements[0]))) throw new ExplorerInputError("COPY is not available in read only mode. Use SELECT to read rows.");
   const text = sql.trim();
   // A -c string that starts with a backslash would be a psql command, not SQL.
   if (text.startsWith("\\")) throw new ExplorerInputError("psql commands (like \\d) are not available here. Write SQL instead.");
@@ -571,9 +602,9 @@ export function parseMyStructure(json: { found: number; columns: MyColumn[] | nu
   return { columns, indexes };
 }
 
-function myRows(engine: "mysql" | "mariadb", c: EngineCreds, database: string, table: string, page: number, sort: RowSort | null, filter: RowFilter | null) {
+function myRows(engine: "mysql" | "mariadb", c: EngineCreds, database: string, table: string, page: number, sort: RowSort | null, order: string[], filter: RowFilter | null) {
   const from = `${myIdent(database)}.${myIdent(table)}${sqlCondition("mysql", filter)}`;
-  const order = sort ? ` ORDER BY ${myIdent(sort.column)} ${sort.desc ? "DESC" : "ASC"}` : "";
+  const sorted = orderBy(sort, order, myIdent);
   const cli = myCli(engine, c, "--xml --quick $BH");
   return [
     ...cli.env,
@@ -582,7 +613,7 @@ function myRows(engine: "mysql" | "mariadb", c: EngineCreds, database: string, t
         myTimeout(engine, QUERY_TIMEOUT),
         "START TRANSACTION READ ONLY;",
         `SELECT COUNT(*) AS serve_total FROM (SELECT 1 FROM ${from} LIMIT ${COUNT_CAP + 1}) AS serve_c;`,
-        `SELECT * FROM ${from}${order} LIMIT ${PAGE_SIZE} OFFSET ${page * PAGE_SIZE};`,
+        `SELECT * FROM ${from}${sorted} LIMIT ${PAGE_SIZE} OFFSET ${page * PAGE_SIZE};`,
         "ROLLBACK;",
       ].join("\n"),
     )} | ${cli.cmd}`,
@@ -710,13 +741,13 @@ export function parseChStructure(results: ChResult[]): Structure | null {
   return { columns, indexes };
 }
 
-function chRows(c: EngineCreds, database: string, table: string, page: number, sort: RowSort | null, filter: RowFilter | null) {
+function chRows(c: EngineCreds, database: string, table: string, page: number, sort: RowSort | null, order: string[], filter: RowFilter | null) {
   const from = `${chIdent(database)}.${chIdent(table)}${sqlCondition("clickhouse", filter)}`;
-  const order = sort ? ` ORDER BY ${chIdent(sort.column)} ${sort.desc ? "DESC" : "ASC"}` : "";
+  const sorted = orderBy(sort, order, chIdent);
   return chRun(
     c,
     database,
-    `SELECT toString(count()) FROM (SELECT 1 FROM ${from} LIMIT ${COUNT_CAP + 1});\nSELECT * FROM ${from}${order} LIMIT ${PAGE_SIZE} OFFSET ${page * PAGE_SIZE};`,
+    `SELECT toString(count()) FROM (SELECT 1 FROM ${from} LIMIT ${COUNT_CAP + 1});\nSELECT * FROM ${from}${sorted} LIMIT ${PAGE_SIZE} OFFSET ${page * PAGE_SIZE};`,
     {
       readOnly: true,
       timeoutSeconds: QUERY_TIMEOUT,
@@ -856,6 +887,17 @@ try {
       result = { affected: Number(r.modifiedCount), message: r.modifiedCount + " changed of " + r.matchedCount + " matched" };
       break;
     }
+    case "replace": {
+      const id = ej(input.id, undefined);
+      const doc = ej(input.query, null);
+      if (id === undefined) throw new Error("The document has no _id.");
+      if (!doc || typeof doc !== "object" || Array.isArray(doc)) throw new Error("A document is an object, like { \\"name\\": \\"Ada\\" }.");
+      if (doc._id !== undefined && EJSON.stringify(doc._id, { relaxed: false }) !== EJSON.stringify(id, { relaxed: false })) throw new Error("The _id of a document cannot change.");
+      delete doc._id;
+      const r = coll().replaceOne({ _id: id }, doc);
+      result = { affected: Number(r.matchedCount), message: r.matchedCount ? "1 document saved" : "the document is gone" };
+      break;
+    }
     case "delete": {
       const r = coll().deleteMany(ej(input.query, {}));
       result = { affected: Number(r.deletedCount), message: r.deletedCount + (r.deletedCount === 1 ? " document" : " documents") + " deleted" };
@@ -871,7 +913,9 @@ print("SERVE_JSON" + JSON.stringify(result));
 `;
 
 export type MongoInput = {
-  op: "overview" | "structure" | "documents" | MongoOp;
+  op: "overview" | "structure" | "documents" | "replace" | MongoOp;
+  /** replace: the _id of the document, as Extended JSON. */
+  id?: string;
   db: string;
   collection?: string;
   filter?: string;
@@ -1247,12 +1291,65 @@ export function parseKeyspace(stdout: string): { name: string; size: number | nu
 
 export const kvCommandScript = (engine: string, c: EngineCreds, database: number, args: Buffer[]) => kvRun(engine, c, database, args);
 
+/* ------------------------------------------------------------ Editing a row */
+
+export type CellEdit = {
+  database: string;
+  schema: string | null;
+  table: string;
+  /** The row's primary key: every column of it, with the values the row showed. */
+  key: { column: string; value: string }[];
+  column: string;
+  /** null sets NULL. */
+  value: string | null;
+};
+
+/**
+ * Sets one value of one row, found by its whole primary key (so at most one row). Prints how many
+ * rows matched: none means the row changed or went since it was shown.
+ */
+export function editCellScript(engine: "postgres" | "mysql" | "mariadb", c: EngineCreds, edit: CellEdit): string[] {
+  if (!edit.key.length) throw new ExplorerInputError("Only rows of a table with a primary key can be changed here.");
+  if (engine === "postgres") {
+    const where = edit.key.map((k) => `${pgIdent(k.column)} = ${pgLiteral(k.value)}`).join(" AND ");
+    const sql = `UPDATE ${pgIdent(edit.schema ?? "public")}.${pgIdent(edit.table)} SET ${pgIdent(edit.column)} = ${edit.value === null ? "NULL" : pgLiteral(edit.value)} WHERE ${where}`;
+    return [...pgEnv(c, { readOnly: false, timeoutSeconds: QUERY_TIMEOUT }), shVar("U", sql), `${psql(c, edit.database, "-At")} -c "$U" -c '\\echo SERVE_ROWS :ROW_COUNT'`];
+  }
+  const where = edit.key.map((k) => `${myIdent(k.column)} = ${myLiteral(k.value)}`).join(" AND ");
+  const table = `${myIdent(edit.database)}.${myIdent(edit.table)}`;
+  const cli = myCli(engine, c, "-N -B -r");
+  return [
+    ...cli.env,
+    `${pipe(
+      [
+        myTimeout(engine, QUERY_TIMEOUT),
+        "START TRANSACTION;",
+        // Matched rows, not changed ones: a value set to what it was is still found.
+        `SELECT CONCAT('SERVE_ROWS ', COUNT(*)) FROM ${table} WHERE ${where};`,
+        `UPDATE ${table} SET ${myIdent(edit.column)} = ${edit.value === null ? "NULL" : myLiteral(edit.value)} WHERE ${where} LIMIT 1;`,
+        "COMMIT;",
+      ].join("\n"),
+    )} | ${cli.cmd}`,
+  ];
+}
+
+export function parseEditCount(stdout: string) {
+  const m = /SERVE_ROWS (\d+)/.exec(stdout);
+  return m ? Number(m[1]) : null;
+}
+
 /* ------------------------------------------------------------- Per engine */
 
 export type BrowseScripts = {
   overview: (database: string) => string[];
   structure: (table: { schema: string | null; name: string; database: string }) => string[];
-  rows: (table: { schema: string | null; name: string; database: string }, page: number, sort: RowSort | null, filter: RowFilter | null, nullMarker: string) => string[];
+  rows: (
+    table: { schema: string | null; name: string; database: string; order?: string[] },
+    page: number,
+    sort: RowSort | null,
+    filter: RowFilter | null,
+    nullMarker: string,
+  ) => string[];
   query: (database: string, sql: string, opts: Opts, marker: string) => string[];
 };
 
@@ -1262,7 +1359,7 @@ export function sqlScripts(engine: "postgres" | "mysql" | "mariadb" | "clickhous
       return {
         overview: (database) => pgOverview(c, database),
         structure: (t) => pgStructure(c, t.database, t.schema ?? "public", t.name),
-        rows: (t, page, sort, filter, marker) => pgRows(c, t.database, t.schema ?? "public", t.name, page, sort, filter, marker),
+        rows: (t, page, sort, filter, marker) => pgRows(c, t.database, t.schema ?? "public", t.name, page, sort, t.order ?? [], filter, marker),
         query: (database, sql, opts, marker) => pgQuery(c, database, sql, { ...opts, nullMarker: marker }),
       };
     case "mysql":
@@ -1270,14 +1367,14 @@ export function sqlScripts(engine: "postgres" | "mysql" | "mariadb" | "clickhous
       return {
         overview: (database) => myOverview(engine, c, database),
         structure: (t) => myStructure(engine, c, t.database, t.name),
-        rows: (t, page, sort, filter) => myRows(engine, c, t.database, t.name, page, sort, filter),
+        rows: (t, page, sort, filter) => myRows(engine, c, t.database, t.name, page, sort, t.order ?? [], filter),
         query: (database, sql, opts, marker) => myQuery(engine, c, database, sql, opts, marker),
       };
     case "clickhouse":
       return {
         overview: (database) => chOverview(c, database),
         structure: (t) => chStructure(c, t.database, t.name),
-        rows: (t, page, sort, filter) => chRows(c, t.database, t.name, page, sort, filter),
+        rows: (t, page, sort, filter) => chRows(c, t.database, t.name, page, sort, t.order ?? [], filter),
         query: (database, sql, opts) => {
           if (!sql.trim()) throw new ExplorerInputError("Write a query first.");
           return chRun(c, database, sql, { ...opts, limit: QUERY_LIMIT });

@@ -70,8 +70,8 @@ export async function gitAccess(source: GitSource, workDir: string, organization
       const token = await installationToken(cred);
       redact.push(token);
       const env = { ...gitEnv, ...tokenConfig(url, "github", token) };
-      await pinPublicGitHost(url, organizationId, env);
-      return { url, cloneUrl: url, gitEnv: env, redact };
+      const publicOnly = await restrictToPublicHosts(url, organizationId, env);
+      return { url, cloneUrl: publicOnly ? await followMove(url, env) : url, gitEnv: env, redact, publicOnly };
     }
     // OAuth credentials hold a token set and refresh the access token when needed.
     const { credentialToken } = await import("@/server/git/oauth");
@@ -87,9 +87,11 @@ export async function gitAccess(source: GitSource, workDir: string, organization
       Object.assign(gitEnv, tokenConfig(url, cred.provider, secret));
     }
   }
-  await pinPublicGitHost(url, organizationId, gitEnv);
-  return { url, cloneUrl, gitEnv, redact };
+  const publicOnly = await restrictToPublicHosts(url, organizationId, gitEnv);
+  return { url, cloneUrl: publicOnly ? await followMove(cloneUrl, gitEnv) : cloneUrl, gitEnv, redact, publicOnly };
 }
+
+type GitAccess = Awaited<ReturnType<typeof gitAccess>>;
 
 /** Where a token credential may be sent: its provider's address, or a self-hosted server's own. */
 export function credentialOrigin(cred: { provider: string; baseUrl: string | null }) {
@@ -128,13 +130,23 @@ function addGitConfig(env: Record<string, string>, key: string, value: string) {
 
 /**
  * Organizations other than Root reach public git servers only (the clone runs next to Serve).
+ * True when that applies: the host is pinned, and git follows no HTTP redirect, since a redirect
+ * leads to a host that was never checked. Root and callers without an organization are unchanged.
+ */
+async function restrictToPublicHosts(url: string, organizationId: string | null | undefined, env: Record<string, string>) {
+  if (!organizationId) return false;
+  const { getSetting } = await import("@/server/settings");
+  if (organizationId === (await getSetting("rootOrganizationId"))) return false;
+  await pinPublicGitHost(url, env);
+  addGitConfig(env, "http.followRedirects", "false");
+  return true;
+}
+
+/**
  * Checked when connecting, not only when the URL was saved: DNS can change in between. Over
  * HTTP(S), git connects to the address checked here, so the name cannot resolve differently.
  */
-async function pinPublicGitHost(url: string, organizationId: string | null | undefined, env: Record<string, string>) {
-  if (!organizationId) return;
-  const { getSetting } = await import("@/server/settings");
-  if (organizationId === (await getSetting("rootOrganizationId"))) return;
+async function pinPublicGitHost(url: string, env: Record<string, string>) {
   const scp = /^[\w.-]+@([\w.-]+):/.exec(url);
   const parsed = scp ? null : new URL(url);
   const host = (scp?.[1] ?? parsed?.hostname ?? "").replace(/^\[|\]$/g, "");
@@ -144,6 +156,84 @@ async function pinPublicGitHost(url: string, organizationId: string | null | und
   if (parsed && (parsed.protocol === "https:" || parsed.protocol === "http:")) {
     const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
     addGitConfig(env, "http.curloptResolve", `${host}:${port}:${address.includes(":") ? `[${address}]` : address}`);
+  }
+}
+
+/** The `http.<origin>/.extraHeader` set for this origin by tokenConfig, if any. */
+function tokenHeaderFor(env: Record<string, string>, origin: string): Record<string, string> {
+  for (let i = 0; i < Number(env.GIT_CONFIG_COUNT ?? 0); i++) {
+    if (env[`GIT_CONFIG_KEY_${i}`] !== `http.${origin}/.extraHeader`) continue;
+    const [name, ...value] = (env[`GIT_CONFIG_VALUE_${i}`] ?? "").split(":");
+    return { [name.trim()]: value.join(":").trim() };
+  }
+  return {};
+}
+
+/**
+ * Where a renamed or moved repository lives now, when git may not follow redirects itself
+ * (restrictToPublicHosts). Asked once over a public-only connection; only a move on the same
+ * server is taken, since that host is the one pinned. Anything else (no redirect, an error, a
+ * move elsewhere) leaves the URL as it is, and git then fails on the redirect instead of following it.
+ */
+export async function followMove(url: string, env: Record<string, string>): Promise<string> {
+  if (!/^https?:\/\//i.test(url)) return url;
+  const { publicRequest } = await import("@/server/net/public-fetch");
+  let current = url.replace(/\/+$/, "");
+  const origin = new URL(current).origin;
+  for (let hop = 0; hop < 5; hop++) {
+    const res = await publicRequest(`${current}/info/refs?service=git-upload-pack`, {
+      method: "GET",
+      headers: { "user-agent": "git/serve", ...tokenHeaderFor(env, origin) },
+      timeoutMs: 10_000,
+      // A repository's ref list can be large; a redirect answer is small, and nothing else is needed.
+      maxBytes: 256 * 1024,
+    }).catch(() => null);
+    const location = res && res.status >= 300 && res.status < 400 ? res.headers.location : undefined;
+    if (!location) break;
+    const next = URL.canParse(location, current) ? new URL(location, current) : null;
+    if (!next || next.origin !== origin || !next.pathname.endsWith("/info/refs")) break;
+    current = `${origin}${next.pathname.slice(0, -"/info/refs".length)}`;
+  }
+  return current === url.replace(/\/+$/, "") ? url : current;
+}
+
+type Git = (args: string[], options?: Parameters<typeof run>[2]) => Promise<string>;
+
+/**
+ * Submodules for organizations other than Root. A .gitmodules URL can name any host, so each one
+ * is checked and pinned like the repository's own before git fetches it, one level at a time
+ * (a submodule's own submodules are only known once it is checked out).
+ */
+async function publicSubmodules(git: Git, dir: string, access: GitAccess, options: Parameters<typeof run>[2], depth = 0): Promise<void> {
+  if (depth > 8) throw new Error("Submodules are nested too deeply.");
+  if (!(await fs.stat(path.join(dir, ".gitmodules")).catch(() => null))) return;
+  await git(["submodule", "--quiet", "init"], options);
+  // Copies .gitmodules' URLs (relative ones resolved against origin) into the config read below.
+  await git(["submodule", "--quiet", "sync"], options);
+  const config = await git(["config", "--get-regexp", "^submodule\\..*\\.url$"]).catch(() => "");
+  for (const line of config.split("\n").filter(Boolean)) {
+    const space = line.indexOf(" ");
+    const key = line.slice(0, space);
+    const url = line.slice(space + 1).trim();
+    const name = key.slice("submodule.".length, -".url".length);
+    const problem = repoUrlProblem(url);
+    if (problem) throw new Error(`Submodule ${name}: ${problem}`);
+    try {
+      await pinPublicGitHost(url, access.gitEnv);
+    } catch (error) {
+      throw new Error(`Submodule ${name}: ${(error as Error).message}`);
+    }
+    const moved = await followMove(url, access.gitEnv);
+    if (moved !== url) await git(["config", key, moved]);
+  }
+  await git(["submodule", "--quiet", "update", "--depth", "1"], options);
+  for (const entry of (await git(["ls-files", "--stage", "-z"])).split("\0")) {
+    const [meta, file] = entry.split("\t");
+    if (!meta?.startsWith("160000 ") || !file) continue;
+    const sub = path.join(dir, file);
+    if (!(await fs.stat(path.join(sub, ".git")).catch(() => null))) continue;
+    const subGit: Git = (args, o) => run("git", ["-C", sub, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", ...args], o);
+    await publicSubmodules(subGit, sub, access, options, depth + 1);
   }
 }
 
@@ -161,8 +251,10 @@ export async function cloneRepository(
   await fs.mkdir(parent, { recursive: true });
   const access = await gitAccess(source, `${dir}.auth`, organizationId);
 
+  const submodules = opts.submodules !== false;
   try {
     log(`Cloning ${access.url} (branch ${source.branch})`);
+    const options = { env: access.gitEnv, onLine: log, signal, redact: access.redact };
     await run(
       "git",
       [
@@ -172,13 +264,14 @@ export async function cloneRepository(
         "--branch",
         source.branch,
         "--single-branch",
-        ...(opts.submodules === false ? [] : ["--recurse-submodules", "--shallow-submodules"]),
+        ...(submodules && !access.publicOnly ? ["--recurse-submodules", "--shallow-submodules"] : []),
         "--",
         access.cloneUrl,
         dir,
       ],
-      { env: access.gitEnv, onLine: log, signal, redact: access.redact },
+      options,
     );
+    if (submodules && access.publicOnly) await publicSubmodules((args, o) => run("git", ["-C", dir, ...args], o), dir, access, options);
   } finally {
     await fs.rm(`${dir}.auth`, { recursive: true, force: true });
   }
@@ -240,8 +333,11 @@ async function updateInPlace(
         if (!parent || (parent !== realDir && !parent.startsWith(realDir + path.sep))) throw new Error(`Submodule path ${file} leads outside the repository.`);
         await fs.rm(path.join(parent, path.basename(target)), { recursive: true, force: true });
       }
-      await git(["submodule", "sync", "--quiet", "--recursive"], options);
-      await git(["submodule", "update", "--init", "--recursive", "--depth", "1"], options);
+      if (access.publicOnly) await publicSubmodules(git, dir, access, options);
+      else {
+        await git(["submodule", "sync", "--quiet", "--recursive"], options);
+        await git(["submodule", "update", "--init", "--recursive", "--depth", "1"], options);
+      }
     }
   };
 
@@ -252,7 +348,8 @@ async function updateInPlace(
     } catch (error) {
       // Unreachable repository or branch: a new git directory would not help.
       const output = `${(error as Error).message}\n${(error as { output?: string }).output ?? ""}`;
-      if (signal?.aborted || /could not read|authentication failed|not found|couldn't find remote ref|could not resolve host|unable to access/i.test(output)) throw error;
+      if (signal?.aborted || /could not read|authentication failed|not found|couldn't find remote ref|could not resolve host|unable to access|private network/i.test(output))
+        throw error;
       // A damaged git directory: start it again. Only git's own files, never the work tree and its data.
       log(`Git update failed (${(error as Error).message}); fetching again into a new git directory`);
       await fs.rm(gitDir, { recursive: true, force: true });

@@ -17,10 +17,19 @@ export type TraefikSettingsView = Omit<TraefikSettings, "dashboard"> & { dashboa
 const num = (v: string) => (v.trim() === "" ? null : Number(v.replace(/\D/g, "")) || null);
 const str = (v: number | null | undefined) => (v == null ? "" : String(v));
 
-function useSettingsForm<T>(serverId: string, kind: ProxyKind, initial: T, toInput: (v: T) => unknown) {
+function useSettingsForm<T>(serverId: string, kind: ProxyKind, initial: T, toInput: (v: T) => unknown, afterSave: (v: T) => T = (v) => v) {
   const router = useRouter();
   const [value, setValue] = React.useState<T>(initial);
   const [saved, setSaved] = React.useState(JSON.stringify(initial));
+  // Saved elsewhere (another tab, the API): the form shows it, unless it holds edits of its own.
+  const [seen, setSeen] = React.useState(JSON.stringify(initial));
+  if (JSON.stringify(initial) !== seen) {
+    setSeen(JSON.stringify(initial));
+    if (JSON.stringify(value) === saved) {
+      setValue(initial);
+      setSaved(JSON.stringify(initial));
+    }
+  }
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
   const set = (patch: Partial<T>) => setValue((v) => ({ ...v, ...patch }));
@@ -30,7 +39,10 @@ function useSettingsForm<T>(serverId: string, kind: ProxyKind, initial: T, toInp
     const res = await saveProxySettings(serverId, kind, toInput(value));
     setPending(false);
     if (!res.ok) return setError(res.error);
-    setSaved(JSON.stringify(value));
+    // A password typed in is not shown again once saved.
+    const next = afterSave(value);
+    setValue(next);
+    setSaved(JSON.stringify(next));
     router.refresh();
   };
   return { value, set, dirty: JSON.stringify(value) !== saved, error, pending, submit, reset: () => (setValue(JSON.parse(saved)), setError(null)) };
@@ -221,14 +233,20 @@ export function TraefikSettingsCard({
     dashboardUser: initial.dashboard?.username ?? "admin",
     dashboardPassword: "",
   };
-  const form = useSettingsForm(serverId, "traefik", start, (v) => ({
-    logLevel: v.logLevel,
-    accessLog: v.accessLog,
-    metrics: v.metrics,
-    acmeChallenge: v.acmeChallenge,
-    cloudflareAccountId: v.acmeChallenge === "dns-cloudflare" ? v.cloudflareAccountId || null : null,
-    dashboard: { enabled: v.dashboardEnabled, hostname: v.dashboardHost || undefined, username: v.dashboardUser || undefined, password: v.dashboardPassword || undefined },
-  }));
+  const form = useSettingsForm(
+    serverId,
+    "traefik",
+    start,
+    (v) => ({
+      logLevel: v.logLevel,
+      accessLog: v.accessLog,
+      metrics: v.metrics,
+      acmeChallenge: v.acmeChallenge,
+      cloudflareAccountId: v.acmeChallenge === "dns-cloudflare" ? v.cloudflareAccountId || null : null,
+      dashboard: { enabled: v.dashboardEnabled, hostname: v.dashboardHost || undefined, username: v.dashboardUser || undefined, password: v.dashboardPassword || undefined },
+    }),
+    (v) => ({ ...v, dashboardPassword: "" }),
+  );
   const v = form.value;
   return (
     <FormCard title="Traefik settings" description="Changes to static options restart Traefik for a moment; dynamic ones apply live." form={form as never}>

@@ -42,7 +42,16 @@ export function VisitorIpCard({ serverId, kind, initial, disabled }: { serverId:
   const [value, setValue] = React.useState(() => formOf(initial));
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
-  const dirty = JSON.stringify(value) !== JSON.stringify(formOf(initial));
+  // Blank lines and spaces around a range are not a change: the server drops them.
+  const tidy = (f: Form) => ({
+    ...f,
+    ranges: f.ranges
+      .split("\n")
+      .map((r) => r.trim())
+      .filter(Boolean)
+      .join("\n"),
+  });
+  const dirty = JSON.stringify(tidy(value)) !== JSON.stringify(tidy(formOf(initial)));
   const set = (patch: Partial<Form>) => setValue((v) => ({ ...v, ...patch }));
   const parsed = normalizeTrustedRanges(value.ranges.split("\n"));
   const rangeError = "error" in parsed ? parsed.error : null;

@@ -51,7 +51,7 @@ export function OrgSettings({ org, role, isRoot }: { org: { id: string; name: st
           </CardBody>
           {canRename && (
             <CardFooter className="justify-end">
-              <Button type="submit" size="sm" variant="primary" disabled={name === org.name} loading={save.pending}>
+              <Button type="submit" size="sm" variant="primary" disabled={!name.trim() || name.trim() === org.name} loading={save.pending}>
                 Save
               </Button>
             </CardFooter>

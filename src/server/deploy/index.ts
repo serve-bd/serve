@@ -855,6 +855,24 @@ async function assertPortsFree(d: Docker, serverName: string, ports: PortMapping
   }
 }
 
+/** Asks for the certificates of a service's HTTPS domains that have none (see ensureCertificateFor). */
+async function requestDomainCertificates(service: Service, organizationId: string, log: DeployLogger) {
+  const domains = await db
+    .select()
+    .from(schema.domain)
+    .where(and(eq(schema.domain.serviceId, service.id), eq(schema.domain.https, true)));
+  const { ensureCertificateFor } = await import("@/server/ssl/certificates");
+  for (const d of domains) {
+    if (d.certificateId) continue;
+    const before = Date.now();
+    const cert = await ensureCertificateFor(d, organizationId, { requestNow: true }).catch((e: Error) => {
+      log.line(`Warning: no certificate for ${d.hostname}: ${e.message}`);
+      return null;
+    });
+    if (cert && cert.createdAt.getTime() >= before - 1000) log.line(`Requested a certificate for ${d.hostname}`);
+  }
+}
+
 /**
  * Volumes made outside Serve that another running container still uses: a second container on the
  * same data corrupts it. The container being taken over is the one exception: it stops first.
@@ -1354,6 +1372,8 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
   try {
     const server = await connectServer(service, log);
     await ensureNetwork(server.docker, server.network);
+    // Certificates wait for the first deploy; asked for now, they are ready by the time traffic moves.
+    if (!service.currentDeploymentId && service.type !== "database") await requestDomainCertificates(service, organizationId, log);
     if (service.type === "app") await deployApp(service, dep, log, server, signal);
     else if (service.type === "database") {
       await setDeployment(dep.id, { status: "deploying" });

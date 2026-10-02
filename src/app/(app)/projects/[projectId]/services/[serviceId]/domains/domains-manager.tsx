@@ -77,6 +77,8 @@ type Props = {
   composePorts: Record<string, number[]>;
   hasCloudflare: boolean;
   hasAcme: boolean;
+  /** Not deployed yet: certificates are requested on the first deploy. */
+  undeployed?: boolean;
   serverIp: string | null;
   canGenerate: boolean;
   /** Tunnels from this service's server (one per Cloudflare account). */
@@ -133,7 +135,7 @@ function TunnelNotice({ d, tunnels, serverName }: { d: DomainRow; tunnels: Tunne
   return <p className="mt-1 max-w-2xl rounded-lg bg-bad-soft px-2.5 py-1.5 text-xs leading-relaxed text-fg-2">{text}</p>;
 }
 
-function HttpsState({ d, hasAcme, proxyKind = "nginx" }: { d: DomainRow; hasAcme: boolean; proxyKind?: string }) {
+function HttpsState({ d, hasAcme, undeployed, proxyKind = "nginx" }: { d: DomainRow; hasAcme: boolean; undeployed?: boolean; proxyKind?: string }) {
   if (d.wantsTunnel && !d.tunnel)
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-bad">
@@ -165,6 +167,15 @@ function HttpsState({ d, hasAcme, proxyKind = "nginx" }: { d: DomainRow; hasAcme
       <span className="inline-flex items-center gap-1.5 text-xs text-ok">
         <Lock className="size-3.5" /> Certificate by {proxyKind === "caddy" ? "Caddy" : "Traefik"}
       </span>
+    );
+  }
+  if (!c && undeployed && hasAcme) {
+    return (
+      <Tooltip content="Serve asks for the certificate when the service is deployed for the first time.">
+        <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+          <Lock className="size-3.5" /> Certificate on first deploy
+        </span>
+      </Tooltip>
     );
   }
   if (!c) {
@@ -892,7 +903,7 @@ export function DomainsManager(props: Props) {
                       {d.port ?? props.defaultPort ?? 80}
                     </span>
                   )}
-                  <HttpsState d={d} hasAcme={props.hasAcme} proxyKind={props.proxyKind} />
+                  <HttpsState d={d} hasAcme={props.hasAcme} undeployed={props.undeployed} proxyKind={props.proxyKind} />
                 </div>
                 <TunnelNotice d={d} tunnels={props.tunnels} serverName={props.serverName} />
               </div>

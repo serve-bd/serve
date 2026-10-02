@@ -1815,7 +1815,7 @@ export async function retryCertificate(domainId: string) {
     await serviceInOrg(domain.serviceId, ctx.org.id);
     const settings = await getSettings();
     if (!settings.acmeEmail) throw new UserError("Set a Let's Encrypt email in Server settings first.");
-    const cert = await ensureCertificateFor(domain, ctx.org.id);
+    const cert = await ensureCertificateFor(domain, ctx.org.id, { requestNow: true });
     if (cert && cert.status !== "active") {
       await enqueue("certificate.issue", { certificateId: cert.id }, { concurrencyKey: `cert:${cert.id}` });
     }

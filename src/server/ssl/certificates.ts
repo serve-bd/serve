@@ -389,10 +389,19 @@ export async function renewDueCertificates() {
  * Make sure an HTTPS domain has a certificate. Reuses an existing one that covers
  * the hostname, otherwise requests a Let's Encrypt certificate.
  */
-export async function ensureCertificateFor(domain: typeof schema.domain.$inferSelect, organizationId: string) {
+/**
+ * The certificate a domain uses, requested when there is none. Before a service's first deploy an
+ * existing one is used, but none is requested: nothing serves the domain yet, and a certificate
+ * nobody uses still counts against Let's Encrypt's limits and renews every few months. The first
+ * deploy asks with `requestNow`.
+ */
+export async function ensureCertificateFor(domain: typeof schema.domain.$inferSelect, organizationId: string, opts: { requestNow?: boolean } = {}) {
   if (!domain.https) return null;
   // Certificates live on the server whose proxy serves the domain.
-  const [svc] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, domain.serviceId));
+  const [svc] = await db
+    .select({ serverId: schema.service.serverId, currentDeploymentId: schema.service.currentDeploymentId })
+    .from(schema.service)
+    .where(eq(schema.service.id, domain.serviceId));
   const serverId = svc?.serverId ?? LOCAL_SERVER_ID;
   // Caddy and Traefik obtain and renew certificates themselves.
   const [server] = await db.select({ kind: schema.server.proxyKind }).from(schema.server).where(eq(schema.server.id, serverId));
@@ -408,6 +417,7 @@ export async function ensureCertificateFor(domain: typeof schema.domain.$inferSe
     }
     return existing;
   }
+  if (!svc?.currentDeploymentId && !opts.requestNow) return null;
   const settings = await getSettings();
   if (!settings.acmeEmail) return null;
   const cloudflareAccountId = domain.cloudflareAccountId ?? (await cloudflareAccountFor([domain.hostname], organizationId));

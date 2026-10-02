@@ -99,7 +99,8 @@ function SchedulePicker({
 export function UpdateSchedule({ initial, canAutoUpdate }: { initial: UpdateScheduleSettings; canAutoUpdate: boolean }) {
   const [s, setS] = React.useState(initial);
   const set = (patch: Partial<UpdateScheduleSettings>) => setS((x) => ({ ...x, ...patch }));
-  const changed = JSON.stringify(s) !== JSON.stringify(initial);
+  // The server trims the cron expressions: "0 3 * * * " saved is "0 3 * * *".
+  const changed = JSON.stringify({ ...s, checkSchedule: s.checkSchedule.trim(), autoSchedule: s.autoSchedule.trim() }) !== JSON.stringify(initial);
   const valid = !!nextRun(s.checkSchedule, s.timezone, Date.now()) && !!nextRun(s.autoSchedule, s.timezone, Date.now());
   const save = useAction(() => saveUpdateSettings({ checkEnabled: s.checkEnabled, checkSchedule: s.checkSchedule, autoUpdate: s.autoUpdate, autoSchedule: s.autoSchedule }));
   return (

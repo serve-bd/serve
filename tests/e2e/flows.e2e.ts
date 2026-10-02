@@ -144,7 +144,13 @@ run("main flows", () => {
 
   it("creates an app, sets variables and adds a domain", async () => {
     appId = (
-      await ok(ADMIN, "POST", "/services", { type: "app", projectId: made.projectId, environmentId, name: "zz-e2e-web", source: { type: "image", image: "nginx:alpine" }, ...SERVER }, 201)
+      await ok(
+        ADMIN,
+        "POST",
+        "/services",
+        { type: "app", projectId: made.projectId, environmentId, name: "zz-e2e-web", source: { type: "image", image: "nginx:alpine" }, ...SERVER },
+        201,
+      )
     ).id;
     await ok(ADMIN, "PATCH", `/services/${appId}/variables`, { variables: { GREETING: "hello", SECRET: "s3cr3t" } });
     await ok(ADMIN, "PATCH", `/services/${appId}/variables`, { variables: { GREETING: "hi" } });
@@ -179,7 +185,9 @@ run("main flows", () => {
   });
 
   it("creates a database and shows its connection only with secrets access", async () => {
-    dbId = (await ok(ADMIN, "POST", "/services", { type: "database", projectId: made.projectId, environmentId, name: "zz-e2e-pg", engine: "postgres", deploy: true, ...SERVER }, 201)).id;
+    dbId = (
+      await ok(ADMIN, "POST", "/services", { type: "database", projectId: made.projectId, environmentId, name: "zz-e2e-pg", engine: "postgres", deploy: true, ...SERVER }, 201)
+    ).id;
     await until("database running", async () => ((await ok(ADMIN, "GET", `/services/${dbId}`)).service.status === "running" ? true : null));
     const full = (await ok(ADMIN, "GET", `/services/${dbId}/connection`)).connection;
     expect(full.variables.DATABASE_URL).toMatch(/^postgres/);

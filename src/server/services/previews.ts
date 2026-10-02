@@ -292,12 +292,14 @@ export async function commentOnGithub(parent: Service, pr: PullRequest, url: str
   const body = `${marker}\n**Serve preview** for \`${parent.name}\`\n\n${url ? `🔗 ${url}` : "Deploying…"}\n\nCommit \`${pr.sha?.slice(0, 7) ?? "latest"}\``;
   const headers = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "content-type": "application/json" };
   try {
-    const existing = (await (await fetch(`${api}?per_page=100`, { headers })).json()) as { id: number; body: string }[];
+    const { gitHttp } = await import("@/server/git/http");
+    const target = { selfHosted: !!cred.baseUrl?.trim(), organizationId: cred.organizationId };
+    const existing = JSON.parse((await gitHttp(`${api}?per_page=100`, { headers }, target)).text) as { id: number; body: string }[];
     const mine = Array.isArray(existing) ? existing.find((c) => c.body?.includes(marker)) : undefined;
     if (mine) {
-      await fetch(api.replace(/\/issues\/\d+\/comments$/, `/issues/comments/${mine.id}`), { method: "PATCH", headers, body: JSON.stringify({ body }) });
+      await gitHttp(api.replace(/\/issues\/\d+\/comments$/, `/issues/comments/${mine.id}`), { method: "PATCH", headers, body: JSON.stringify({ body }) }, target);
     } else {
-      await fetch(api, { method: "POST", headers, body: JSON.stringify({ body }) });
+      await gitHttp(api, { method: "POST", headers, body: JSON.stringify({ body }) }, target);
     }
   } catch {
     // ignore

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { GitSource, RepoWebhook } from "@/server/services/types";
 import { apiBase, authHeaders } from "./providers";
+import { gitHttp } from "./http";
 import { withCredentialToken } from "./oauth";
 import { webhookBaseUrl } from "./public-url";
 
@@ -82,23 +83,26 @@ export function deleteHookRequest(provider: HookProvider, api: string, path: str
   return { method: "DELETE", url: `${api}/repos/${path}/hooks/${id}` };
 }
 
-async function send(req: HookRequest, headers: Record<string, string>) {
-  const res = await fetch(req.url, {
-    method: req.method,
-    headers: { accept: "application/json", "content-type": "application/json", ...headers },
-    body: req.body ? JSON.stringify(req.body) : undefined,
-    signal: AbortSignal.timeout(15000),
-  });
+async function send(req: HookRequest, headers: Record<string, string>, cred: { baseUrl: string | null; organizationId: string }) {
+  const res = await gitHttp(
+    req.url,
+    { method: req.method, headers: { accept: "application/json", "content-type": "application/json", ...headers }, body: req.body ? JSON.stringify(req.body) : undefined },
+    { selfHosted: !!cred.baseUrl?.trim(), organizationId: cred.organizationId },
+  );
   if (res.status === 401) throw new Error("401: the token was rejected.");
   if (req.method === "DELETE" && res.status === 404) return null;
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    const detail = text.match(/"(?:message|error_description|error)"\s*:\s*"([^"]+)"/)?.[1];
+    const detail = res.text.match(/"(?:message|error_description|error)"\s*:\s*"([^"]+)"/)?.[1];
     if (res.status === 403 || res.status === 404)
       throw new Error(`The token cannot manage webhooks on this repository (HTTP ${res.status}). ${detail ?? "Give it webhook or admin access."}`);
     throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
   }
-  return res.status === 204 ? null : ((await res.json().catch(() => null)) as Record<string, unknown> | null);
+  if (res.status === 204) return null;
+  try {
+    return JSON.parse(res.text) as Record<string, unknown> | null;
+  } catch {
+    return null;
+  }
 }
 
 function hookId(provider: HookProvider, res: Record<string, unknown> | null) {
@@ -131,7 +135,7 @@ export async function removeRepoWebhook(source: GitSource | null | undefined): P
     const provider = hookProvider(cred);
     if (!cred || !provider) return null;
     const req = deleteHookRequest(provider, apiBase(provider, cred.baseUrl), repoPath(source.repository, cred.baseUrl), hook.id);
-    await withCredentialToken(cred, (token) => send(req, authHeaders(provider, token, { oauth: !!cred.oauthAppId })));
+    await withCredentialToken(cred, (token) => send(req, authHeaders(provider, token, { oauth: !!cred.oauthAppId }), cred));
     return null;
   } catch (e) {
     return (e as Error).message;
@@ -168,7 +172,7 @@ export async function registerRepoWebhook(serviceId: string): Promise<RepoWebhoo
     if (source.webhook?.id) await removeRepoWebhook(source);
     const { productName } = await import("@/server/branding");
     const req = createHookRequest(provider, apiBase(provider, cred.baseUrl), repoPath(source.repository, cred.baseUrl), url, service.webhookSecret, await productName());
-    const res = await withCredentialToken(cred, (token) => send(req, authHeaders(provider, token, { oauth: !!cred.oauthAppId })));
+    const res = await withCredentialToken(cred, (token) => send(req, authHeaders(provider, token, { oauth: !!cred.oauthAppId }), cred));
     webhook = { provider, id: hookId(provider, res), url, createdAt: now, error: null };
   } catch (e) {
     webhook = { provider, id: null, url, createdAt: now, error: (e as Error).message.replace(/^401: /, "") };

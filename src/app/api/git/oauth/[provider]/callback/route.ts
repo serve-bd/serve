@@ -44,7 +44,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/git/oaut
   let login;
   try {
     tokens = await exchangeCode(app, code, redirectUri(base.url, app.provider));
-    login = await verifyGitToken(app.provider, tokens.accessToken, app.baseUrl, { oauth: true });
+    login = await verifyGitToken(app.provider, tokens.accessToken, app.baseUrl, { oauth: true, organizationId: app.organizationId });
   } catch (e) {
     return redirectToGitPage(base.url, { error: `Could not connect ${app.name}: ${(e as Error).message}` });
   }

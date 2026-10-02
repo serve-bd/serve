@@ -68,8 +68,18 @@ async function tokenRequest(app: OAuthApp, params: Record<string, string>): Prom
     body.set("client_id", app.clientId);
     body.set("client_secret", secret);
   }
-  const res = await fetch(tokenUrl(app.provider, app.baseUrl), { method: "POST", headers, body, signal: AbortSignal.timeout(15000) });
-  const json = (await res.json().catch(() => ({}))) as TokenResponse;
+  const { gitHttp } = await import("./http");
+  const res = await gitHttp(
+    tokenUrl(app.provider, app.baseUrl),
+    { method: "POST", headers, body: body.toString() },
+    { selfHosted: !!app.baseUrl?.trim(), organizationId: app.organizationId },
+  );
+  let json: TokenResponse = {};
+  try {
+    json = JSON.parse(res.text) as TokenResponse;
+  } catch {
+    // Not JSON: the status below explains it.
+  }
   if (!res.ok || !json.access_token) {
     throw new Error(json.error_description || json.error || `The provider returned HTTP ${res.status}.`);
   }

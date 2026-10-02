@@ -202,7 +202,7 @@ export async function addGitToken(input: { provider: GitProviderType; name: stri
     await assertGitBase(ctx, baseUrl);
     let login: string;
     try {
-      login = await verifyGitToken(input.provider, token, baseUrl);
+      login = await verifyGitToken(input.provider, token, baseUrl, { organizationId: ctx.org.id });
     } catch (e) {
       throw new UserError((e as Error).message);
     }
@@ -216,7 +216,7 @@ export async function addGitToken(input: { provider: GitProviderType; name: stri
       publicInfo: login,
       baseUrl,
     });
-    return { id, login, warning: await tokenScopeWarning(input.provider, token, baseUrl) };
+    return { id, login, warning: await tokenScopeWarning(input.provider, token, baseUrl, { organizationId: ctx.org.id }) };
   });
 }
 
@@ -359,7 +359,9 @@ export async function fetchRepositories(credentialId: string): Promise<{ ok: tru
     }
     const { withCredentialToken } = await import("@/server/git/oauth");
     const [app] = cred.oauthAppId ? await db.select().from(schema.gitOAuthApp).where(eq(schema.gitOAuthApp.id, cred.oauthAppId)) : [];
-    return withCredentialToken(cred, (token) => listRepositories(cred.provider, token, cred.baseUrl, { oauth: !!cred.oauthAppId, group: app?.groupPath }));
+    return withCredentialToken(cred, (token) =>
+      listRepositories(cred.provider, token, cred.baseUrl, { oauth: !!cred.oauthAppId, group: app?.groupPath, organizationId: cred.organizationId }),
+    );
   });
 }
 

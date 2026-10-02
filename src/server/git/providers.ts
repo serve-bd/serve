@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { run } from "@/server/process";
 import type { GitProviderType } from "@/server/db/schema";
+import { gitHttp } from "./http";
 
 export type RemoteRepo = {
   fullName: string;
@@ -29,14 +30,21 @@ export function apiBase(provider: GitProviderType, baseUrl?: string | null) {
   }
 }
 
-async function getJson<T>(url: string, headers: Record<string, string>): Promise<T> {
-  const res = await fetch(url, { headers: { accept: "application/json", ...headers }, signal: AbortSignal.timeout(15000) });
+async function getJson<T>(url: string, headers: Record<string, string>, target: GitTarget): Promise<T> {
+  const res = await gitHttp(url, { headers: { accept: "application/json", ...headers } }, target);
   if (res.status === 401 || res.status === 403) throw new Error("The token was rejected. Check that it is valid and has repository access.");
   if (!res.ok) throw new Error(`Provider returned HTTP ${res.status}`);
-  return (await res.json()) as T;
+  try {
+    return JSON.parse(res.text) as T;
+  } catch {
+    throw new Error("The provider did not answer with JSON. Check the server URL.");
+  }
 }
 
-export type TokenOptions = { oauth?: boolean; group?: string | null };
+/** The organization the call is made for: only Root may reach a git server on a private address. */
+export type TokenOptions = { oauth?: boolean; group?: string | null; organizationId?: string | null };
+type GitTarget = { selfHosted: boolean; organizationId: string | null | undefined };
+const targetOf = (baseUrl: string | null | undefined, opts: TokenOptions): GitTarget => ({ selfHosted: !!baseUrl?.trim(), organizationId: opts.organizationId });
 
 /** OAuth access tokens always go in a Bearer header; personal tokens use each provider's own header. */
 export function authHeaders(provider: GitProviderType, token: string, opts: TokenOptions = {}): Record<string, string> {
@@ -50,11 +58,12 @@ export function authHeaders(provider: GitProviderType, token: string, opts: Toke
 export async function verifyGitToken(provider: GitProviderType, token: string, baseUrl?: string | null, opts: TokenOptions = {}): Promise<string> {
   const base = apiBase(provider, baseUrl);
   const headers = authHeaders(provider, token, opts);
-  if (provider === "github") return (await getJson<{ login: string }>(`${base}/user`, headers)).login;
-  if (provider === "gitlab") return (await getJson<{ username: string }>(`${base}/user`, headers)).username;
-  if (provider === "gitea") return (await getJson<{ login: string }>(`${base}/user`, headers)).login;
+  const target = targetOf(baseUrl, opts);
+  if (provider === "github") return (await getJson<{ login: string }>(`${base}/user`, headers, target)).login;
+  if (provider === "gitlab") return (await getJson<{ username: string }>(`${base}/user`, headers, target)).username;
+  if (provider === "gitea") return (await getJson<{ login: string }>(`${base}/user`, headers, target)).login;
   if (provider === "bitbucket") {
-    const user = await getJson<{ username?: string; display_name: string }>(`${base}/user`, headers);
+    const user = await getJson<{ username?: string; display_name: string }>(`${base}/user`, headers, target);
     return user.username ?? user.display_name;
   }
   throw new Error("Unsupported provider");
@@ -69,19 +78,20 @@ export const webhookScopeHelp: Record<string, string> = {
 };
 
 /** A warning when a token visibly lacks the webhook scope (GitHub and GitLab report scopes). */
-export async function tokenScopeWarning(provider: GitProviderType, token: string, baseUrl?: string | null): Promise<string | null> {
+export async function tokenScopeWarning(provider: GitProviderType, token: string, baseUrl?: string | null, opts: TokenOptions = {}): Promise<string | null> {
   const base = apiBase(provider, baseUrl);
+  const target = targetOf(baseUrl, opts);
   try {
     if (provider === "github") {
-      const res = await fetch(`${base}/user`, { headers: authHeaders(provider, token), signal: AbortSignal.timeout(10000) });
-      const scopes = res.headers.get("x-oauth-scopes");
+      const res = await gitHttp(`${base}/user`, { headers: authHeaders(provider, token), timeoutMs: 10_000 }, target);
+      const scopes = res.header("x-oauth-scopes");
       // Fine-grained tokens send no scope header; their permissions cannot be read here.
       if (scopes !== null && !/admin:repo_hook|write:repo_hook/.test(scopes)) return webhookScopeHelp.github;
     }
     if (provider === "gitlab") {
-      const res = await fetch(`${base}/personal_access_tokens/self`, { headers: authHeaders(provider, token), signal: AbortSignal.timeout(10000) });
+      const res = await gitHttp(`${base}/personal_access_tokens/self`, { headers: authHeaders(provider, token), timeoutMs: 10_000 }, target);
       if (res.ok) {
-        const { scopes } = (await res.json()) as { scopes?: string[] };
+        const { scopes } = JSON.parse(res.text) as { scopes?: string[] };
         if (scopes && !scopes.includes("api")) return webhookScopeHelp.gitlab;
       }
     }
@@ -94,12 +104,14 @@ export async function tokenScopeWarning(provider: GitProviderType, token: string
 export async function listRepositories(provider: GitProviderType, token: string, baseUrl?: string | null, opts: TokenOptions = {}): Promise<RemoteRepo[]> {
   const base = apiBase(provider, baseUrl);
   const headers = authHeaders(provider, token, opts);
+  const target = targetOf(baseUrl, opts);
   if (provider === "github") {
     const out: RemoteRepo[] = [];
     for (let page = 1; page <= 5; page++) {
       const repos = await getJson<{ full_name: string; clone_url: string; default_branch: string; private: boolean; pushed_at: string | null; description: string | null }[]>(
         `${base}/user/repos?per_page=100&sort=pushed&page=${page}&affiliation=owner,collaborator,organization_member`,
         headers,
+        target,
       );
       out.push(
         ...repos.map((r) => ({
@@ -123,6 +135,7 @@ export async function listRepositories(provider: GitProviderType, token: string,
         ? `${base}/groups/${encodeURIComponent(opts.group)}/projects?include_subgroups=true&per_page=100&order_by=last_activity_at`
         : `${base}/projects?membership=true&per_page=100&order_by=last_activity_at`,
       headers,
+      target,
     );
     return repos.map((r) => ({
       fullName: r.path_with_namespace,
@@ -137,6 +150,7 @@ export async function listRepositories(provider: GitProviderType, token: string,
     const repos = await getJson<{ full_name: string; clone_url: string; default_branch: string; private: boolean; updated_at: string; description: string }[]>(
       `${base}/user/repos?limit=100`,
       headers,
+      target,
     );
     return repos.map((r) => ({
       fullName: r.full_name,
@@ -157,7 +171,7 @@ export async function listRepositories(provider: GitProviderType, token: string,
         updated_on: string;
         description: string;
       }[];
-    }>(`${base}/repositories?role=member&pagelen=100&sort=-updated_on`, headers);
+    }>(`${base}/repositories?role=member&pagelen=100&sort=-updated_on`, headers, target);
     return res.values.map((r) => ({
       fullName: r.full_name,
       cloneUrl: r.links.clone.find((c) => c.name === "https")?.href.replace(/\/\/[^@]+@/, "//") ?? "",

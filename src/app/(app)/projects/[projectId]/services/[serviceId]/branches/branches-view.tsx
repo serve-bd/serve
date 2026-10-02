@@ -105,11 +105,8 @@ export function BranchesView({
       <Card className="overflow-hidden">
         <CardHeader
           title="Branches"
-          description={
-            keyValue
-              ? `Copies of ${serviceName}'s keys in database numbers 1 to 15 of the same server. Redis has no logins per database, so a branch uses the main password: an app given a branch could still switch to the main data.`
-              : `Copies of ${serviceName}'s data, inside the same database server. Each branch has its own login, so a branch cannot change the main data.`
-          }
+          // Only Redis's caveat: its branches share the main password.
+          description={keyValue ? "Redis has no logins per database, so a branch uses the main password: an app given a branch could still switch to the main data." : undefined}
           actions={
             <div className="flex items-center gap-2">
               {branches.length > 0 && <ViewToggle view={view} views={["list", "canvas"]} onChange={setView} />}

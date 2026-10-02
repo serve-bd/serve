@@ -9,7 +9,7 @@ import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
-import { Badge, Card, CardHeader, CopyButton, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Badge, Card, CardFooter, CardHeader, CopyButton, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip } from "@/components/ui/tooltip";
 import { copyText } from "@/components/ui/clipboard";
@@ -111,11 +111,6 @@ export function BranchesView({
           actions={
             <div className="flex items-center gap-2">
               {branches.length > 0 && <ViewToggle view={view} views={["list", "canvas"]} onChange={setView} />}
-              {scrubSupported && (
-                <Button size="sm" variant="ghost" onClick={() => setCleaning(true)}>
-                  Hide personal data…
-                </Button>
-              )}
               {canManage && (
                 <Button size="sm" variant="primary" disabled={!running} title={running ? undefined : "Start the database to branch it"} onClick={() => setCreating(true)}>
                   <Plus /> New branch
@@ -246,6 +241,16 @@ export function BranchesView({
               );
             })}
           </ul>
+        )}
+        {scrubSupported && (
+          <CardFooter>
+            <span className="text-[12.5px] text-muted">
+              {cleanupSql ? "Clean-up SQL set for branches that hide personal data." : "No clean-up SQL yet for branches that hide personal data."}
+            </span>
+            <Button size="sm" onClick={() => setCleaning(true)}>
+              <EyeOff /> Hide personal data
+            </Button>
+          </CardFooter>
         )}
       </Card>
       <p className="px-1 text-xs leading-relaxed text-muted">

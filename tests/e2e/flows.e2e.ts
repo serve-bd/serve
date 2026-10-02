@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  *   SERVE_E2E_URL=http://localhost:3000 \
  *   SERVE_E2E_TOKEN=srv_...            (an Admin token of an organization admin) \
  *   SERVE_E2E_DATABASE_URL=postgres://... (optional: the instance's database, for the permission tests) \
+ *   SERVE_E2E_SERVER=<server id>         (optional: deploy there instead of the default server) \
  *   pnpm test:e2e
  *
  * Everything the tests create is named zz-e2e-* and removed at the end. They deploy real
@@ -18,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const BASE = `${(process.env.SERVE_E2E_URL ?? "http://localhost:3000").replace(/\/$/, "")}/api/v1`;
 const ADMIN = process.env.SERVE_E2E_TOKEN ?? "";
 const DB_URL = process.env.SERVE_E2E_DATABASE_URL ?? "";
+const SERVER = process.env.SERVE_E2E_SERVER ? { serverId: process.env.SERVE_E2E_SERVER } : {};
 const run = ADMIN ? describe : describe.skip;
 
 type Res = { status: number; json: Record<string, any> };
@@ -142,7 +144,7 @@ run("main flows", () => {
 
   it("creates an app, sets variables and adds a domain", async () => {
     appId = (
-      await ok(ADMIN, "POST", "/services", { type: "app", projectId: made.projectId, environmentId, name: "zz-e2e-web", source: { type: "image", image: "nginx:alpine" } }, 201)
+      await ok(ADMIN, "POST", "/services", { type: "app", projectId: made.projectId, environmentId, name: "zz-e2e-web", source: { type: "image", image: "nginx:alpine" }, ...SERVER }, 201)
     ).id;
     await ok(ADMIN, "PATCH", `/services/${appId}/variables`, { variables: { GREETING: "hello", SECRET: "s3cr3t" } });
     await ok(ADMIN, "PATCH", `/services/${appId}/variables`, { variables: { GREETING: "hi" } });
@@ -177,7 +179,7 @@ run("main flows", () => {
   });
 
   it("creates a database and shows its connection only with secrets access", async () => {
-    dbId = (await ok(ADMIN, "POST", "/services", { type: "database", projectId: made.projectId, environmentId, name: "zz-e2e-pg", engine: "postgres", deploy: true }, 201)).id;
+    dbId = (await ok(ADMIN, "POST", "/services", { type: "database", projectId: made.projectId, environmentId, name: "zz-e2e-pg", engine: "postgres", deploy: true, ...SERVER }, 201)).id;
     await until("database running", async () => ((await ok(ADMIN, "GET", `/services/${dbId}`)).service.status === "running" ? true : null));
     const full = (await ok(ADMIN, "GET", `/services/${dbId}/connection`)).connection;
     expect(full.variables.DATABASE_URL).toMatch(/^postgres/);

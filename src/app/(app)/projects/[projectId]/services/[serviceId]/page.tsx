@@ -20,6 +20,7 @@ import { monitorSummary } from "@/server/monitoring/queries";
 import { UptimeCard } from "./uptime-card";
 import { loadPreviews } from "./previews/data";
 import { PreviewsCard } from "./previews/previews-list";
+import { serverPublicIp } from "@/server/servers/access";
 
 export default async function ServicePage(props: PageProps<"/projects/[projectId]/services/[serviceId]">) {
   const { projectId, serviceId } = await props.params;
@@ -59,6 +60,8 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
       : {
           supported: !!engine.tlsArgs || tunnels.length > 0,
           directSupported: !!engine.tlsArgs,
+          // With a public IP, a domain on its own port needs nothing on the computers that connect.
+          publicIp: await serverPublicIp(service.serverId).catch(() => null),
           via: cfg.domainTunnelId ? ("tunnel" as const) : ("direct" as const),
           tunnels: tunnels.map((t) => ({ id: t.id, label: `Tunnel of ${t.account}` })),
           tunnelCommand: hostname ? `cloudflared access tcp --hostname ${hostname} --url localhost:${localPort}` : null,

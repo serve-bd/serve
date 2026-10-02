@@ -17,6 +17,8 @@ export type DatabaseDomainInfo = {
   supported: boolean;
   /** Serve can turn on TLS for this engine, so it can take a domain on its own port. */
   directSupported: boolean;
+  /** The server's public IP: a domain on its own port is then ready with nothing to run on clients. */
+  publicIp: string | null;
   via: "direct" | "tunnel";
   tunnels: { id: string; label: string }[];
   /** What a client runs to reach a tunnel domain, and the URL it then uses. */
@@ -36,8 +38,10 @@ export type DatabaseDomainInfo = {
 /** Reach the database at db.example.com on its own port, over TLS with the domain's certificate. */
 export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: { serviceId: string; info: DatabaseDomainInfo; hideSecrets?: boolean; canManage?: boolean }) {
   const [value, setValue] = React.useState(info.hostname ?? "");
-  const [via, setVia] = React.useState<"direct" | "tunnel">(info.hostname ? info.via : info.directSupported ? "direct" : "tunnel");
-  const save = useAction((hostname: string | null) => saveDatabaseDomain(serviceId, hostname, via), {
+  // Own port when the server has a public IP: the domain then works with a plain URL, nothing to run.
+  const ownPortReady = info.directSupported && !!info.publicIp;
+  const [via, setVia] = React.useState<"direct" | "tunnel">(info.hostname ? info.via : ownPortReady || info.tunnels.length === 0 ? "direct" : "tunnel");
+  const save = useAction((hostname: string | null, route: "direct" | "tunnel" = via) => saveDatabaseDomain(serviceId, hostname, route), {
     success: (r) => (r.warnings.length ? "Domain saved, one step left" : r.port ? `Domain saved. The database restarts on port ${r.port}.` : "Domain saved"),
     onSuccess: (r) => {
       for (const w of r.warnings) toast.warning("Domain", w);
@@ -78,7 +82,7 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
               <div role="radiogroup" aria-label="Route" className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
                 {(
                   [
-                    ["direct", "Own port", !info.directSupported],
+                    ["direct", ownPortReady ? "Own port (recommended)" : "Own port", !info.directSupported],
                     ["tunnel", "Cloudflare Tunnel", false],
                   ] as const
                 ).map(([value, label, disabled]) => (
@@ -137,6 +141,26 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                 </Button>
               </div>
             </form>
+            {info.hostname && info.via === "tunnel" && ownPortReady && (
+              <div className="flex flex-col gap-2.5 rounded-lg border border-line bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed sm:flex-row sm:items-center">
+                <p className="min-w-0 flex-1 text-fg-2">
+                  This server has a public IP ({info.publicIp}). With Own port, {info.hostname} works with a normal connection URL. Nothing to run on the computers that connect.
+                </p>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  className="h-8 flex-none"
+                  disabled={canManage === false}
+                  loading={save.pending}
+                  onClick={async () => {
+                    if ((await save.run(info.hostname, "direct")) !== undefined) setVia("direct");
+                  }}
+                >
+                  Use Own port
+                </Button>
+              </div>
+            )}
             {info.hostname && info.via === "tunnel" && (
               <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed">
@@ -147,7 +171,6 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                   <p className="text-muted">
                     Cloudflare passes database connections only from cloudflared to cloudflared, so each computer or app that connects runs it too. It opens a port on that computer
                     (localhost) that leads through the tunnel.
-                    {info.directSupported && " This server has a public IP: Own port needs nothing on the computers that connect."}
                   </p>
                 </div>
                 {info.tunnelCommand && (

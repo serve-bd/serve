@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
@@ -381,13 +381,7 @@ export async function createBranch(
   let database = branchDatabaseName(service.database.database, name);
   let username = database;
   if (isKeyValue(engine)) {
-    // The lowest free database number; 0 is the main data.
-    const used = new Set(
-      (await db.select({ database: schema.databaseBranch.database }).from(schema.databaseBranch).where(eq(schema.databaseBranch.serviceId, service.id))).map((b) => b.database),
-    );
-    const free = Array.from({ length: 15 }, (_, i) => String(i + 1)).find((n) => !used.has(n));
-    if (!free) throw new Error("All 15 database numbers are in use. Delete a branch first.");
-    database = free;
+    // The number is picked with the row inserted, below.
     username = "default";
   } else if (engine === "mysql" || engine === "mariadb") {
     // MySQL user names are at most 32 characters.
@@ -406,25 +400,46 @@ export async function createBranch(
     const found = parseListing(engine, await run(service, listDatabasesScript(engine, main), [main.password])).databases;
     if (found.includes(database)) throw new BranchNameError(`${service.name} has a database named ${database} already. Choose another branch name.`);
   }
-  const [branch] = await db
-    .insert(schema.databaseBranch)
-    .values({
-      id: newId(),
-      serviceId: service.id,
-      name,
-      database,
-      username,
-      // Redis and Valkey have no per-database logins: their branches use the main password.
-      password: encrypt(isKeyValue(engine) ? "" : crypto.randomBytes(18).toString("base64url")),
-      createdBy: opts.userId ?? null,
-      previewServiceId: opts.previewServiceId ?? null,
-      scrubbed: opts.scrubbed ?? false,
-      sourceBranchId: opts.sourceBranchId ?? null,
-      allDatabases: opts.allDatabases ?? false,
-    })
-    .returning();
-  return branch;
+  try {
+    // One branch of a service at a time: two made at once would pick the same database number.
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`serve-branch:${service.id}`}))`);
+      if (isKeyValue(engine)) {
+        // The lowest free database number; 0 is the main data.
+        const used = new Set(
+          (await tx.select({ database: schema.databaseBranch.database }).from(schema.databaseBranch).where(eq(schema.databaseBranch.serviceId, service.id))).map((b) => b.database),
+        );
+        const free = Array.from({ length: 15 }, (_, i) => String(i + 1)).find((n) => !used.has(n));
+        if (!free) throw new Error("All 15 database numbers are in use. Delete a branch first.");
+        database = free;
+      }
+      const [branch] = await tx
+        .insert(schema.databaseBranch)
+        .values({
+          id: newId(),
+          serviceId: service.id,
+          name,
+          database,
+          username,
+          // Redis and Valkey have no per-database logins: their branches use the main password.
+          password: encrypt(isKeyValue(engine) ? "" : crypto.randomBytes(18).toString("base64url")),
+          createdBy: opts.userId ?? null,
+          previewServiceId: opts.previewServiceId ?? null,
+          scrubbed: opts.scrubbed ?? false,
+          sourceBranchId: opts.sourceBranchId ?? null,
+          allDatabases: opts.allDatabases ?? false,
+        })
+        .returning();
+      return branch;
+    });
+  } catch (e) {
+    // Made at the same moment under the same name: the unique index caught it.
+    if (uniqueViolation(e)) throw new BranchNameError(`A branch named ${name} exists already.`);
+    throw e;
+  }
 }
+
+const uniqueViolation = (error: unknown) => [(error as { code?: string }).code, (error as { cause?: { code?: string } }).cause?.code].includes("23505");
 
 export const enqueueBranchJob = (payload: JobPayloads["database.branch"], serviceId: string) =>
   enqueue("database.branch", payload, { concurrencyKey: `branch:${serviceId}`, maxAttempts: 1 });

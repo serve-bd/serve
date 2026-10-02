@@ -1,0 +1,31 @@
+{
+  "name": "Hoppscotch",
+  "description": "An open source API client for REST, GraphQL and WebSocket, with Postgres.",
+  "category": "Developer tools",
+  "website": "https://hoppscotch.io",
+  "color": "#10B981",
+  "minVersion": "0.1.9",
+  "note": "Open /admin first to finish setup. Sign in needs email (SMTP) or an OAuth provider, which you set up there.",
+  "expose": {
+    "service": "hoppscotch",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "DATA_ENCRYPTION_KEY",
+      "generate": "hex16"
+    },
+    {
+      "key": "HOPP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "HOPP_HOST",
+      "publicHost": true
+    }
+  ]
+}

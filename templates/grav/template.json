@@ -1,0 +1,13 @@
+{
+  "name": "Grav",
+  "description": "Fast flat-file CMS with no database, built on Markdown pages.",
+  "category": "CMS",
+  "website": "https://getgrav.org",
+  "color": "#221E1F",
+  "note": "Open the site and go to /admin to make the first admin account.",
+  "expose": {
+    "service": "grav",
+    "port": 80
+  },
+  "vars": []
+}

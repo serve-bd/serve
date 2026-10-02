@@ -1,0 +1,22 @@
+{
+  "name": "OpenProject",
+  "description": "Project management with Gantt charts, agile boards, time tracking and wikis.",
+  "category": "Productivity",
+  "website": "https://www.openproject.org",
+  "color": "#0770B8",
+  "note": "The first start takes a few minutes. Sign in as admin with password admin, then set a new password.",
+  "expose": {
+    "service": "openproject",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    },
+    {
+      "key": "OPENPROJECT_HOST",
+      "publicHost": true
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+services:
+  server:
+    image: redash/redash:26.9.0
+    restart: unless-stopped
+    command: server
+    environment:
+      PYTHONUNBUFFERED: "0"
+      REDASH_LOG_LEVEL: INFO
+      REDASH_DATABASE_URL: postgresql://redash:${POSTGRES_PASSWORD}@postgres/redash
+      REDASH_REDIS_URL: redis://redis:6379/0
+      REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
+      REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
+      REDASH_HOST: ${REDASH_HOST}
+      REDASH_ENFORCE_CSRF: "true"
+      REDASH_WEB_WORKERS: "4"
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  scheduler:
+    image: redash/redash:26.9.0
+    restart: unless-stopped
+    command: scheduler
+    environment:
+      PYTHONUNBUFFERED: "0"
+      REDASH_LOG_LEVEL: INFO
+      REDASH_DATABASE_URL: postgresql://redash:${POSTGRES_PASSWORD}@postgres/redash
+      REDASH_REDIS_URL: redis://redis:6379/0
+      REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
+      REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
+      REDASH_HOST: ${REDASH_HOST}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  worker:
+    image: redash/redash:26.9.0
+    restart: unless-stopped
+    command: worker
+    environment:
+      PYTHONUNBUFFERED: "0"
+      REDASH_LOG_LEVEL: INFO
+      REDASH_DATABASE_URL: postgresql://redash:${POSTGRES_PASSWORD}@postgres/redash
+      REDASH_REDIS_URL: redis://redis:6379/0
+      REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
+      REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
+      REDASH_HOST: ${REDASH_HOST}
+      QUEUES: queries,scheduled_queries,schemas,periodic,emails,default
+      WORKERS_COUNT: "2"
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  # Creates the tables on the first start and applies migrations after an upgrade.
+  setup:
+    image: redash/redash:26.9.0
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/app/manage.py database create_tables && /app/manage.py db upgrade"]
+    environment:
+      REDASH_DATABASE_URL: postgresql://redash:${POSTGRES_PASSWORD}@postgres/redash
+      REDASH_REDIS_URL: redis://redis:6379/0
+      REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
+      REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: redash
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: redash
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U redash -d redash"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  postgres-data:
+  redis-data:

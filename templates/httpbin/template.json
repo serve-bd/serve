@@ -1,0 +1,12 @@
+{
+  "name": "httpbin",
+  "description": "A simple HTTP request and response service for testing clients.",
+  "category": "Developer tools",
+  "website": "https://github.com/mccutchen/go-httpbin",
+  "color": "#4B5563",
+  "expose": {
+    "service": "httpbin",
+    "port": 8080
+  },
+  "vars": []
+}

@@ -1,0 +1,28 @@
+{
+  "name": "NodeBB",
+  "description": "Modern community forum with real-time chat and notifications, with Redis.",
+  "category": "Communication",
+  "website": "https://nodebb.org",
+  "color": "#1E5EBC",
+  "note": "The first start sets up the forum and restarts once. Sign in as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "nodebb",
+    "port": 4567
+  },
+  "vars": [
+    {
+      "key": "NODEBB_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

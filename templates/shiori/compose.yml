@@ -1,0 +1,11 @@
+services:
+  shiori:
+    image: ghcr.io/go-shiori/shiori:latest
+    restart: unless-stopped
+    environment:
+      SHIORI_DIR: /shiori
+      SHIORI_HTTP_SECRET_KEY: ${SHIORI_HTTP_SECRET_KEY}
+    volumes:
+      - shiori-data:/shiori
+volumes:
+  shiori-data:

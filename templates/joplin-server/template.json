@@ -1,0 +1,22 @@
+{
+  "name": "Joplin Server",
+  "description": "Sync server for the Joplin note taking apps, with Postgres.",
+  "category": "Productivity",
+  "website": "https://joplinapp.org",
+  "color": "#1071D3",
+  "note": "Sign in as admin@localhost with the password admin, then change both right away.",
+  "expose": {
+    "service": "joplin",
+    "port": 22300
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

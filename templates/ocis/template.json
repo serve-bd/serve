@@ -1,0 +1,23 @@
+{
+  "name": "ownCloud Infinite Scale",
+  "description": "File sync and sharing platform with spaces, built in Go.",
+  "category": "Storage",
+  "website": "https://owncloud.dev/ocis",
+  "color": "#041E42",
+  "note": "Sign in as admin with the admin password from the configure step.",
+  "expose": {
+    "service": "ocis",
+    "port": 9200
+  },
+  "vars": [
+    {
+      "key": "OCIS_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

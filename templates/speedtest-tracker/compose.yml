@@ -1,0 +1,19 @@
+services:
+  speedtest-tracker:
+    image: lscr.io/linuxserver/speedtest-tracker:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: UTC
+      APP_KEY: ${APP_KEY}
+      APP_URL: ${APP_URL}
+      ASSET_URL: ${APP_URL}
+      DB_CONNECTION: sqlite
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      SPEEDTEST_SCHEDULE: "0 */6 * * *"
+    volumes:
+      - speedtest-config:/config
+volumes:
+  speedtest-config:

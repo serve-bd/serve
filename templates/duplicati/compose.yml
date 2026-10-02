@@ -1,0 +1,15 @@
+services:
+  duplicati:
+    image: duplicati/duplicati:latest
+    restart: unless-stopped
+    environment:
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY}
+      DUPLICATI__WEBSERVICE_PASSWORD: ${DUPLICATI_PASSWORD}
+      DUPLICATI__WEBSERVICE_ALLOWED_HOSTNAMES: ${DUPLICATI_HOST}
+      TZ: Etc/UTC
+    volumes:
+      - duplicati-data:/data
+      - duplicati-source:/source
+volumes:
+  duplicati-data:
+  duplicati-source:

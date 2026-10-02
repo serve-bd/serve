@@ -1,0 +1,48 @@
+services:
+  formbricks:
+    image: ghcr.io/formbricks/formbricks:4
+    restart: unless-stopped
+    environment:
+      WEBAPP_URL: ${WEBAPP_URL}
+      NEXTAUTH_URL: ${WEBAPP_URL}
+      DATABASE_URL: postgresql://formbricks:${POSTGRES_PASSWORD}@postgres:5432/formbricks?schema=public
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CRON_SECRET: ${CRON_SECRET}
+      REDIS_URL: redis://redis:6379
+      EMAIL_VERIFICATION_DISABLED: "1"
+      PASSWORD_RESET_DISABLED: "1"
+    volumes:
+      - formbricks-uploads:/home/nextjs/apps/web/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: formbricks
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: formbricks
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U formbricks -d formbricks"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  formbricks-uploads:
+  postgres-data:
+  redis-data:

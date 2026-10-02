@@ -1,0 +1,24 @@
+services:
+  ampache:
+    image: ampache/ampache:7
+    restart: unless-stopped
+    environment:
+      MYSQL_USER: admin
+      MYSQL_PASS: ${MYSQL_PASSWORD}
+      DB_HOST: localhost
+      DB_NAME: ampache
+      AMPACHE_ADMIN_USER: admin
+      AMPACHE_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      AMPACHE_ADMIN_EMAIL: ${ADMIN_EMAIL}
+    volumes:
+      - ampache-config:/var/www/config
+      - ampache-backup:/var/www/backup
+      - ampache-log:/var/log/ampache
+      - ampache-media:/media
+      - ampache-mysql:/var/lib/mysql
+volumes:
+  ampache-config:
+  ampache-backup:
+  ampache-log:
+  ampache-media:
+  ampache-mysql:

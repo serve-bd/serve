@@ -1,0 +1,15 @@
+services:
+  nextcloud:
+    image: nextcloud:apache
+    restart: unless-stopped
+    environment:
+      SQLITE_DATABASE: nextcloud
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_HOST}
+      OVERWRITECLIURL: ${NEXTCLOUD_URL}
+      TRUSTED_PROXIES: 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+    volumes:
+      - nextcloud-data:/var/www/html
+volumes:
+  nextcloud-data:

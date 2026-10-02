@@ -1,0 +1,17 @@
+{
+  "name": "Matomo (MySQL)",
+  "description": "Full-featured web analytics you own, with MySQL.",
+  "category": "Analytics",
+  "website": "https://matomo.org",
+  "color": "#3152A0",
+  "expose": {
+    "service": "matomo",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

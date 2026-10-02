@@ -1,0 +1,40 @@
+services:
+  koel:
+    image: phanan/koel:latest
+    restart: unless-stopped
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_DATABASE: koel
+      DB_USERNAME: koel
+      DB_PASSWORD: ${DB_PASSWORD}
+      APP_KEY: ${APP_KEY}
+      APP_URL: ${APP_URL}
+      FORCE_HTTPS: "true"
+    volumes:
+      - koel-music:/music
+      - koel-images:/var/www/html/storage/app/public/images
+      - koel-search:/var/www/html/storage/search-indexes
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: koel
+      MARIADB_USER: koel
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  koel-music:
+  koel-images:
+  koel-search:
+  db-data:

@@ -1,0 +1,37 @@
+services:
+  ui:
+    image: joxit/docker-registry-ui:2
+    restart: unless-stopped
+    environment:
+      REGISTRY_TITLE: Docker Registry
+      NGINX_PROXY_PASS_URL: http://registry:5000
+      SINGLE_REGISTRY: "true"
+      REGISTRY_SECURED: "true"
+      DELETE_IMAGES: "true"
+      SHOW_CONTENT_DIGEST: "true"
+    depends_on:
+      - registry
+  registry:
+    image: registry:3
+    restart: unless-stopped
+    environment:
+      REGISTRY_HTTP_HOST: ${REGISTRY_URL}
+      REGISTRY_AUTH: htpasswd
+      REGISTRY_AUTH_HTPASSWD_REALM: Registry
+      REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    volumes:
+      - registry-data:/var/lib/registry
+      - registry-auth:/auth:ro
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  setup:
+    image: httpd:2-alpine
+    restart: "no"
+    command: ["htpasswd", "-Bbc", "/auth/htpasswd", "${REGISTRY_USER}", "${REGISTRY_PASSWORD}"]
+    volumes:
+      - registry-auth:/auth
+volumes:
+  registry-data:
+  registry-auth:

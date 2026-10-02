@@ -1,0 +1,33 @@
+{
+  "name": "WriteFreely",
+  "description": "Minimal, distraction-free blogging platform with federation.",
+  "category": "CMS",
+  "website": "https://writefreely.org",
+  "color": "#2D2D2D",
+  "note": "Sign in with the admin username and the generated admin password (Variables tab).",
+  "expose": {
+    "service": "writefreely",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "WRITEFREELY_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "SITE_NAME",
+      "value": "My Blog",
+      "label": "Site name"
+    },
+    {
+      "key": "ADMIN_USERNAME",
+      "value": "writer",
+      "label": "Admin username"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

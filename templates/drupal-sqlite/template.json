@@ -1,0 +1,13 @@
+{
+  "name": "Drupal (SQLite)",
+  "description": "Flexible CMS for content-rich websites, with no database server.",
+  "category": "CMS",
+  "website": "https://www.drupal.org",
+  "color": "#0678BE",
+  "note": "The installer asks for the database: pick SQLite and keep the default file path. Good for small sites. For bigger sites use the PostgreSQL or MySQL template.",
+  "expose": {
+    "service": "drupal",
+    "port": 80
+  },
+  "vars": []
+}

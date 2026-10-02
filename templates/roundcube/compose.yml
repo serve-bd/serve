@@ -1,0 +1,23 @@
+services:
+  roundcube:
+    image: roundcube/roundcubemail:1.7.x-apache
+    restart: unless-stopped
+    environment:
+      ROUNDCUBEMAIL_DEFAULT_HOST: ${IMAP_HOST}
+      ROUNDCUBEMAIL_DEFAULT_PORT: ${IMAP_PORT}
+      ROUNDCUBEMAIL_SMTP_SERVER: ${SMTP_HOST}
+      ROUNDCUBEMAIL_SMTP_PORT: ${SMTP_PORT}
+      ROUNDCUBEMAIL_DB_TYPE: sqlite
+      ROUNDCUBEMAIL_PLUGINS: archive,zipdownload
+    configs:
+      - source: roundcube-des-key
+        target: /var/roundcube/config/des_key.inc.php
+    volumes:
+      - roundcube-db:/var/roundcube/db
+configs:
+  roundcube-des-key:
+    content: |
+      <?php
+      $$config['des_key'] = '${DES_KEY}';
+volumes:
+  roundcube-db:

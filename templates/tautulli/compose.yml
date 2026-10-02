@@ -1,0 +1,12 @@
+services:
+  tautulli:
+    image: tautulli/tautulli:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - tautulli-config:/config
+volumes:
+  tautulli-config:

@@ -1,0 +1,20 @@
+services:
+  rundeck:
+    image: rundeck/rundeck:6.2.1
+    restart: unless-stopped
+    environment:
+      RUNDECK_GRAILS_URL: ${RUNDECK_URL}
+      RUNDECK_SERVER_FORWARDED: "true"
+    configs:
+      - source: realm
+        target: /home/rundeck/server/config/realm.properties
+    volumes:
+      - rundeck-data:/home/rundeck/server/data
+      - rundeck-logs:/home/rundeck/var/logs
+configs:
+  realm:
+    content: |
+      admin:${RUNDECK_ADMIN_PASSWORD},user,admin
+volumes:
+  rundeck-data:
+  rundeck-logs:

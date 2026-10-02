@@ -1,0 +1,13 @@
+services:
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:latest
+    restart: unless-stopped
+    command:
+      - -storageDataPath=/storage
+      - -retentionPeriod=${VM_RETENTION}
+      - -httpAuth.username=${VM_USER}
+      - -httpAuth.password=${VM_PASSWORD}
+    volumes:
+      - vm-data:/storage
+volumes:
+  vm-data:

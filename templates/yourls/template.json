@@ -1,0 +1,18 @@
+{
+  "name": "YOURLS",
+  "description": "Your own URL shortener with click stats, with MySQL.",
+  "category": "Productivity",
+  "website": "https://yourls.org",
+  "color": "#1F5C99",
+  "note": "Open /admin/ and click Install once. Then sign in with ADMIN_USER and the generated ADMIN_PASSWORD (Variables tab).",
+  "expose": {
+    "service": "yourls",
+    "port": 80
+  },
+  "vars": [
+    { "key": "DB_PASSWORD", "generate": "password", "label": "Database password" },
+    { "key": "SITE_URL", "publicUrl": true },
+    { "key": "ADMIN_USER", "value": "admin", "label": "Admin user" },
+    { "key": "ADMIN_PASSWORD", "generate": "password", "label": "Admin password" }
+  ]
+}

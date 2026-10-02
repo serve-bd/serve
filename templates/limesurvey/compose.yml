@@ -1,0 +1,47 @@
+services:
+  limesurvey:
+    image: martialblog/limesurvey:7-apache
+    restart: unless-stopped
+    environment:
+      DB_TYPE: mysql
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_NAME: limesurvey
+      DB_USERNAME: limesurvey
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_MYSQL_ENGINE: InnoDB
+      ADMIN_USER: admin
+      ADMIN_NAME: Administrator
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      PUBLIC_URL: ${PUBLIC_URL}/
+      URL_FORMAT: path
+      ENCRYPT_SECRET_BOX_KEY: ${ENCRYPT_SECRET_BOX_KEY}
+      ENCRYPT_NONCE_SEED: ${ENCRYPT_NONCE_SEED}
+    # The data encryption nonce must be 24 bytes (48 hex characters): cut it from a generated value.
+    entrypoint:
+      - sh
+      - -c
+      - export ENCRYPT_NONCE=$$(echo "$$ENCRYPT_NONCE_SEED" | cut -c1-48); exec /usr/local/bin/entrypoint.sh apache2-foreground
+    volumes:
+      - limesurvey-upload:/var/www/html/upload
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: limesurvey
+      MARIADB_USER: limesurvey
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  limesurvey-upload:
+  db-data:

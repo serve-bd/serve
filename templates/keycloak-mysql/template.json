@@ -1,0 +1,27 @@
+{
+  "name": "Keycloak (MySQL)",
+  "description": "Identity and access management: SSO, OAuth 2.0, OpenID Connect and SAML, with MySQL.",
+  "category": "Security",
+  "website": "https://www.keycloak.org",
+  "color": "#4D4D4D",
+  "note": "Sign in as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "keycloak",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "KC_BOOTSTRAP_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "KC_HOSTNAME",
+      "publicUrl": true
+    }
+  ]
+}

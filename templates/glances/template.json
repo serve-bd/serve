@@ -1,0 +1,14 @@
+{
+  "name": "Glances",
+  "description": "CPU, memory, disk, network and container stats for the server.",
+  "category": "Monitoring",
+  "website": "https://nicolargo.github.io/glances/",
+  "color": "#6CC24A",
+  "hostAccess": true,
+  "note": "Reads the host's processes and the Docker socket, and the web UI has no login. Keep the domain private (IP allowlist) or remove it.",
+  "expose": {
+    "service": "glances",
+    "port": 61208
+  },
+  "vars": []
+}

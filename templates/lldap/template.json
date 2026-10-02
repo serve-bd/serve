@@ -1,0 +1,36 @@
+{
+  "name": "LLDAP",
+  "description": "Light LDAP server with a simple web UI to manage users and groups.",
+  "category": "Security",
+  "website": "https://github.com/lldap/lldap",
+  "color": "#2C6CB4",
+  "note": "Apps in the same project reach LDAP at lldap:3890. Sign in to the web UI as admin with the generated password (Variables tab).",
+  "expose": {
+    "service": "lldap",
+    "port": 17170
+  },
+  "vars": [
+    {
+      "key": "LLDAP_JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "LLDAP_KEY_SEED",
+      "generate": "secret"
+    },
+    {
+      "key": "LLDAP_LDAP_BASE_DN",
+      "value": "dc=example,dc=com",
+      "label": "Base DN"
+    },
+    {
+      "key": "LLDAP_LDAP_USER_PASS",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "LLDAP_HTTP_URL",
+      "publicUrl": true
+    }
+  ]
+}

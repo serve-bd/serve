@@ -1,0 +1,24 @@
+{
+  "name": "Gotenberg",
+  "description": "An API that turns HTML, Markdown and office files into PDF.",
+  "category": "Developer tools",
+  "website": "https://gotenberg.dev",
+  "color": "#00A9A5",
+  "note": "The API uses basic auth with the username and password shown here.",
+  "expose": {
+    "service": "gotenberg",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "GOTENBERG_USER",
+      "value": "admin",
+      "label": "API username"
+    },
+    {
+      "key": "GOTENBERG_PASSWORD",
+      "generate": "password",
+      "label": "API password"
+    }
+  ]
+}

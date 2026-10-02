@@ -1,0 +1,31 @@
+services:
+  yourls:
+    image: yourls:1-apache
+    restart: unless-stopped
+    environment:
+      YOURLS_DB_HOST: mysql
+      YOURLS_DB_USER: yourls
+      YOURLS_DB_PASS: ${DB_PASSWORD}
+      YOURLS_DB_NAME: yourls
+      YOURLS_SITE: ${SITE_URL}
+      YOURLS_USER: ${ADMIN_USER}
+      YOURLS_PASS: ${ADMIN_PASSWORD}
+    depends_on:
+      mysql:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: yourls
+      MYSQL_USER: yourls
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      retries: 20
+volumes:
+  mysql-data:

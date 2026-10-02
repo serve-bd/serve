@@ -1,0 +1,35 @@
+{
+  "name": "Docker Registry UI",
+  "description": "A private container registry with a web interface to browse and delete images.",
+  "category": "Developer tools",
+  "website": "https://joxit.dev/docker-registry-ui/",
+  "color": "#2496ED",
+  "minVersion": "0.1.9",
+  "note": "The web interface and the registry ask for the username and password shown here. Push images to the registry domain with docker login.",
+  "expose": {
+    "service": "ui",
+    "port": 80
+  },
+  "domains": [
+    {
+      "service": "registry",
+      "port": 5000
+    }
+  ],
+  "vars": [
+    {
+      "key": "REGISTRY_USER",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "REGISTRY_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    },
+    {
+      "key": "REGISTRY_URL",
+      "serviceUrl": "registry"
+    }
+  ]
+}

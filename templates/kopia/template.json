@@ -1,0 +1,29 @@
+{
+  "name": "Kopia",
+  "description": "Fast, encrypted, deduplicated backups with a web interface.",
+  "category": "Storage",
+  "website": "https://kopia.io",
+  "color": "#1F6FEB",
+  "note": "Sign in with the username and password from the configure step, then create a repository. The repository password is the one from the configure step.",
+  "expose": {
+    "service": "kopia",
+    "port": 51515
+  },
+  "vars": [
+    {
+      "key": "KOPIA_USER",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "KOPIA_UI_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    },
+    {
+      "key": "KOPIA_PASSWORD",
+      "generate": "password",
+      "label": "Repository password"
+    }
+  ]
+}

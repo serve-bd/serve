@@ -1,0 +1,32 @@
+{
+  "name": "Speedtest Tracker",
+  "description": "Runs internet speed tests on a schedule and charts the results.",
+  "category": "Monitoring",
+  "website": "https://speedtest-tracker.dev",
+  "color": "#F59E0B",
+  "note": "Sign in with the admin email and the generated password (Variables tab). Tests run every 6 hours.",
+  "expose": {
+    "service": "speedtest-tracker",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

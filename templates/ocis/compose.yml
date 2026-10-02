@@ -1,0 +1,20 @@
+services:
+  ocis:
+    image: owncloud/ocis:7
+    restart: unless-stopped
+    # ocis init writes a config with random secrets on the first start and fails after that.
+    entrypoint: ["/bin/sh"]
+    command: ["-c", "ocis init --insecure true || true; exec ocis server"]
+    environment:
+      OCIS_URL: ${OCIS_URL}
+      OCIS_INSECURE: "true"
+      PROXY_TLS: "false"
+      PROXY_HTTP_ADDR: 0.0.0.0:9200
+      IDM_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      OCIS_LOG_LEVEL: info
+    volumes:
+      - ocis-config:/etc/ocis
+      - ocis-data:/var/lib/ocis
+volumes:
+  ocis-config:
+  ocis-data:

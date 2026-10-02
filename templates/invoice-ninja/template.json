@@ -1,0 +1,36 @@
+{
+  "name": "Invoice Ninja",
+  "description": "Invoices, quotes, payments, expenses and time tracking for freelancers and businesses, with MySQL.",
+  "category": "Productivity",
+  "website": "https://invoiceninja.com",
+  "color": "#000000",
+  "note": "Sign in with the admin email and the generated admin password (Variables tab).",
+  "expose": {
+    "service": "nginx",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

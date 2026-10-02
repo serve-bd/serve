@@ -1,0 +1,45 @@
+services:
+  dolibarr:
+    image: dolibarr/dolibarr:22
+    restart: unless-stopped
+    environment:
+      DOLI_DB_TYPE: mysqli
+      DOLI_DB_HOST: mariadb
+      DOLI_DB_HOST_PORT: "3306"
+      DOLI_DB_NAME: dolibarr
+      DOLI_DB_USER: dolibarr
+      DOLI_DB_PASSWORD: ${DB_PASSWORD}
+      DOLI_URL_ROOT: ${DOLI_URL_ROOT}
+      DOLI_ADMIN_LOGIN: admin
+      DOLI_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      DOLI_INSTALL_AUTO: "1"
+      DOLI_INIT_DEMO: "0"
+      DOLI_CRON: "1"
+      DOLI_CRON_KEY: ${DOLI_CRON_KEY}
+      DOLI_INSTANCE_UNIQUE_ID: ${DOLI_INSTANCE_UNIQUE_ID}
+      PHP_INI_UPLOAD_MAX_FILESIZE: 64M
+      PHP_INI_POST_MAX_SIZE: 64M
+    volumes:
+      - dolibarr-documents:/var/www/documents
+      - dolibarr-custom:/var/www/html/custom
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: dolibarr
+      MARIADB_USER: dolibarr
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  dolibarr-documents:
+  dolibarr-custom:
+  db-data:

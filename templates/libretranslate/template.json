@@ -1,0 +1,19 @@
+{
+  "name": "LibreTranslate",
+  "description": "A machine translation API that runs on your own server.",
+  "category": "AI",
+  "website": "https://libretranslate.com",
+  "color": "#1565C0",
+  "note": "The first start downloads the language models and takes a few minutes. The API is open to anyone with the domain.",
+  "expose": {
+    "service": "libretranslate",
+    "port": 5000
+  },
+  "vars": [
+    {
+      "key": "LT_LOAD_ONLY",
+      "value": "en,es,fr,de",
+      "label": "Languages (codes, comma separated)"
+    }
+  ]
+}

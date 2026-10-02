@@ -1,0 +1,32 @@
+{
+  "name": "Tube Archivist",
+  "description": "Download, index and watch your YouTube channels and playlists, with Elasticsearch and Redis.",
+  "category": "Media",
+  "website": "https://www.tubearchivist.com",
+  "color": "#1E9EA6",
+  "note": "Sign in with the username and password from the configure step. Elasticsearch needs about 1 GB of memory.",
+  "expose": {
+    "service": "tubearchivist",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "TA_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "TA_USERNAME",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "TA_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    },
+    {
+      "key": "ELASTIC_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "Docker Registry",
+  "description": "A private registry for your container images, with a password.",
+  "category": "Developer tools",
+  "website": "https://distribution.github.io/distribution/",
+  "color": "#2496ED",
+  "note": "Sign in with docker login <domain> and the username and password shown here.",
+  "expose": {
+    "service": "registry",
+    "port": 5000
+  },
+  "vars": [
+    {
+      "key": "REGISTRY_USER",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "REGISTRY_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    },
+    {
+      "key": "REGISTRY_URL",
+      "publicUrl": true
+    }
+  ]
+}

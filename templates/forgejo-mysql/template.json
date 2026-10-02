@@ -1,0 +1,22 @@
+{
+  "name": "Forgejo (MySQL)",
+  "description": "Community-run Git forge with issues, pull requests and Actions, with MySQL.",
+  "category": "Developer tools",
+  "website": "https://forgejo.org",
+  "color": "#F97316",
+  "note": "Git over SSH needs port 22 of the container published in Domains & ports.",
+  "expose": {
+    "service": "forgejo",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "ROOT_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

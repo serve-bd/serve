@@ -1,0 +1,24 @@
+{
+  "name": "PsiTransfer",
+  "description": "Simple file sharing with resumable uploads and expiring download links.",
+  "category": "Storage",
+  "website": "https://github.com/psi-4ward/psitransfer",
+  "color": "#2E7D32",
+  "note": "Uploads need the upload password from the configure step. The admin page at /admin uses the admin password.",
+  "expose": {
+    "service": "psitransfer",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "UPLOAD_PASSWORD",
+      "generate": "password",
+      "label": "Upload password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

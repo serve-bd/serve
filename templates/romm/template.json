@@ -1,0 +1,22 @@
+{
+  "name": "RomM",
+  "description": "Scan, organize and play your retro game collection in the browser, with MariaDB.",
+  "category": "Media",
+  "website": "https://romm.app",
+  "color": "#553E98",
+  "note": "A setup wizard opens on first visit to create the admin account. Put ROMs in the romm-library volume, one folder per platform.",
+  "expose": {
+    "service": "romm",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ROMM_AUTH_SECRET_KEY",
+      "generate": "hex32"
+    }
+  ]
+}

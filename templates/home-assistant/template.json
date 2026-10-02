@@ -1,0 +1,13 @@
+{
+  "name": "Home Assistant",
+  "description": "Open source home automation that puts local control and privacy first.",
+  "category": "Automation",
+  "website": "https://www.home-assistant.io",
+  "color": "#18BCF2",
+  "note": "Open the site right away to create the owner account. Devices that need the local network (discovery, USB sticks) do not work from a container on a bridge network.",
+  "expose": {
+    "service": "homeassistant",
+    "port": 8123
+  },
+  "vars": []
+}

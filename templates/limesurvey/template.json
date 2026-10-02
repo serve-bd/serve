@@ -1,0 +1,40 @@
+{
+  "name": "LimeSurvey",
+  "description": "Professional online surveys with many question types and reports, with MariaDB.",
+  "category": "Analytics",
+  "website": "https://www.limesurvey.org",
+  "color": "#14AE5C",
+  "note": "Sign in at /admin as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "limesurvey",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ENCRYPT_SECRET_BOX_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "ENCRYPT_NONCE_SEED",
+      "generate": "hex32"
+    }
+  ]
+}

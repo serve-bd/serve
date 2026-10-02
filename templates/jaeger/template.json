@@ -1,0 +1,20 @@
+{
+  "name": "Jaeger",
+  "description": "Distributed tracing to follow requests across your services.",
+  "category": "Monitoring",
+  "website": "https://www.jaegertracing.io",
+  "color": "#66CFE3",
+  "minVersion": "0.1.9",
+  "note": "The UI has no login. Send traces over OTLP HTTP to the second domain. Traces are kept in memory and lost on restart.",
+  "expose": {
+    "service": "jaeger",
+    "port": 16686
+  },
+  "domains": [
+    {
+      "service": "otlp",
+      "port": 4318
+    }
+  ],
+  "vars": []
+}

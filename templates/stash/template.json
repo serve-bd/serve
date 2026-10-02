@@ -1,0 +1,13 @@
+{
+  "name": "Stash",
+  "description": "Organizer for your video collection with tagging, scraping and previews.",
+  "category": "Media",
+  "website": "https://stashapp.cc",
+  "color": "#137CBD",
+  "note": "A setup wizard opens on first visit. Add /data as your library folder, then set a username and password in Settings > Security.",
+  "expose": {
+    "service": "stash",
+    "port": 9999
+  },
+  "vars": []
+}

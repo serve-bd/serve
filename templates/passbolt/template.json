@@ -1,0 +1,47 @@
+{
+  "name": "Passbolt",
+  "description": "Password manager for teams, with end to end encryption and MariaDB.",
+  "category": "Security",
+  "website": "https://www.passbolt.com",
+  "color": "#D40101",
+  "note": "Make the first admin in the passbolt service terminal: su -m -c \"/usr/share/php/passbolt/bin/cake passbolt register_user -u you@example.com -f First -l Last -r admin\" -s /bin/sh www-data. Open the link it prints. Fill in SMTP so invites can be sent.",
+  "expose": {
+    "service": "passbolt",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_FULL_BASE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "EMAIL_FROM",
+      "value": "passbolt@example.com",
+      "label": "Sender email"
+    },
+    {
+      "key": "SMTP_HOST",
+      "value": "smtp.example.com",
+      "label": "SMTP server"
+    },
+    {
+      "key": "SMTP_PORT",
+      "value": "587",
+      "label": "SMTP port"
+    },
+    {
+      "key": "SMTP_USERNAME",
+      "value": "",
+      "label": "SMTP username"
+    },
+    {
+      "key": "SMTP_PASSWORD",
+      "value": "",
+      "label": "SMTP password"
+    }
+  ]
+}

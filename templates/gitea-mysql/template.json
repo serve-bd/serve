@@ -1,0 +1,21 @@
+{
+  "name": "Gitea (MySQL)",
+  "description": "Lightweight self-hosted Git service with issues and CI, with MySQL.",
+  "category": "Developer tools",
+  "website": "https://about.gitea.com",
+  "color": "#609926",
+  "expose": {
+    "service": "gitea",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "ROOT_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

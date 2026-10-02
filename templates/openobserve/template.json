@@ -1,0 +1,24 @@
+{
+  "name": "OpenObserve",
+  "description": "Logs, metrics and traces in one place, with low storage cost.",
+  "category": "Monitoring",
+  "website": "https://openobserve.ai",
+  "color": "#3F7994",
+  "note": "Sign in with the admin email and password shown here.",
+  "expose": {
+    "service": "openobserve",
+    "port": 5080
+  },
+  "vars": [
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

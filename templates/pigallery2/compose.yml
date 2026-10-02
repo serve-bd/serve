@@ -1,0 +1,16 @@
+services:
+  pigallery2:
+    image: bpatrik/pigallery2:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    volumes:
+      - pigallery2-config:/app/data/config
+      - pigallery2-db:/app/data/db
+      - pigallery2-images:/app/data/images
+      - pigallery2-tmp:/app/data/tmp
+volumes:
+  pigallery2-config:
+  pigallery2-db:
+  pigallery2-images:
+  pigallery2-tmp:

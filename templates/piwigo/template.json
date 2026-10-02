@@ -1,0 +1,19 @@
+{
+  "name": "Piwigo",
+  "description": "Photo gallery for organizing and sharing large photo collections, with MariaDB.",
+  "category": "Media",
+  "website": "https://piwigo.org",
+  "color": "#FF7700",
+  "note": "A setup wizard opens on first visit. Use host mariadb, user piwigo, database piwigo and the database password from the configure step, then create your admin account.",
+  "expose": {
+    "service": "piwigo",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password",
+      "label": "Database password"
+    }
+  ]
+}

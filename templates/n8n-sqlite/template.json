@@ -1,0 +1,21 @@
+{
+  "name": "n8n (SQLite)",
+  "description": "Workflow automation with a visual editor and 400+ integrations, with SQLite.",
+  "category": "Automation",
+  "website": "https://n8n.io",
+  "color": "#EA4B71",
+  "expose": {
+    "service": "n8n",
+    "port": 5678
+  },
+  "vars": [
+    {
+      "key": "N8N_ENCRYPTION_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "WEBHOOK_URL",
+      "publicUrl": true
+    }
+  ]
+}

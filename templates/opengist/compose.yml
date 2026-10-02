@@ -1,0 +1,12 @@
+services:
+  opengist:
+    image: ghcr.io/thomiceli/opengist:1
+    restart: unless-stopped
+    environment:
+      OG_EXTERNAL_URL: ${OG_EXTERNAL_URL}
+      # Git over SSH needs a public port; git over HTTPS works on the domain.
+      OG_SSH_GIT_ENABLED: "false"
+    volumes:
+      - opengist-data:/opengist
+volumes:
+  opengist-data:

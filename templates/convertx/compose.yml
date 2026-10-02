@@ -1,0 +1,13 @@
+services:
+  convertx:
+    image: ghcr.io/c4illin/convertx:latest
+    restart: unless-stopped
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      ACCOUNT_REGISTRATION: "false"
+      HTTP_ALLOWED: "false"
+      AUTO_DELETE_EVERY_N_HOURS: "24"
+    volumes:
+      - convertx-data:/app/data
+volumes:
+  convertx-data:

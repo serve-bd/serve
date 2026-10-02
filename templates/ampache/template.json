@@ -1,0 +1,28 @@
+{
+  "name": "Ampache",
+  "description": "Web based audio and video streaming server for your music library.",
+  "category": "Media",
+  "website": "https://ampache.org",
+  "color": "#FF6600",
+  "note": "Sign in as admin with the admin password from the configure step. Put music in the ampache-media volume and add it as a catalog.",
+  "expose": {
+    "service": "ampache",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "MYSQL_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "VictoriaMetrics",
+  "description": "A fast time series database that speaks the Prometheus API.",
+  "category": "Monitoring",
+  "website": "https://victoriametrics.com",
+  "color": "#621773",
+  "note": "The API and web UI use basic auth with the username and password shown here.",
+  "expose": {
+    "service": "victoriametrics",
+    "port": 8428
+  },
+  "vars": [
+    {
+      "key": "VM_USER",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "VM_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    },
+    {
+      "key": "VM_RETENTION",
+      "value": "12",
+      "label": "Retention (months)"
+    }
+  ]
+}

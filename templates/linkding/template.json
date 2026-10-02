@@ -1,0 +1,28 @@
+{
+  "name": "linkding",
+  "description": "Fast and simple bookmark manager with tags and archiving.",
+  "category": "Productivity",
+  "website": "https://linkding.link",
+  "color": "#5856E0",
+  "note": "Sign in with the admin user and the generated password (Variables tab).",
+  "expose": {
+    "service": "linkding",
+    "port": 9090
+  },
+  "vars": [
+    {
+      "key": "LD_SUPERUSER_NAME",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "LD_SUPERUSER_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "LD_CSRF_TRUSTED_ORIGINS",
+      "publicUrl": true
+    }
+  ]
+}

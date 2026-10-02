@@ -1,0 +1,13 @@
+{
+  "name": "PiGallery 2",
+  "description": "Fast, read-only photo gallery for your photo folders.",
+  "category": "Media",
+  "website": "https://bpatrik.github.io/pigallery2",
+  "color": "#F57C00",
+  "note": "Sign in as admin with the password admin and change it in Settings. Put photos in the pigallery2-images volume.",
+  "expose": {
+    "service": "pigallery2",
+    "port": 80
+  },
+  "vars": []
+}

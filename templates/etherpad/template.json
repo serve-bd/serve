@@ -1,0 +1,23 @@
+{
+  "name": "Etherpad",
+  "description": "Real time collaborative text editor, with Postgres.",
+  "category": "Productivity",
+  "website": "https://etherpad.org",
+  "color": "#44B492",
+  "note": "Anyone with the address can make pads. The admin page is at /admin: sign in as admin with the generated password (Variables tab).",
+  "expose": {
+    "service": "etherpad",
+    "port": 9001
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

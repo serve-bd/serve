@@ -1,0 +1,29 @@
+services:
+  radicale:
+    image: ghcr.io/kozea/radicale:3
+    restart: unless-stopped
+    configs:
+      - source: radicale-config
+        target: /etc/radicale/config
+      - source: radicale-users
+        target: /etc/radicale/users
+    volumes:
+      - radicale-data:/var/lib/radicale
+configs:
+  radicale-config:
+    content: |
+      [server]
+      hosts = 0.0.0.0:5232
+
+      [auth]
+      type = htpasswd
+      htpasswd_filename = /etc/radicale/users
+      htpasswd_encryption = plain
+
+      [storage]
+      filesystem_folder = /var/lib/radicale/collections
+  radicale-users:
+    content: |
+      ${RADICALE_USER}:${RADICALE_PASSWORD}
+volumes:
+  radicale-data:

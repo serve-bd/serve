@@ -1,0 +1,30 @@
+services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      SIGNUPS_ALLOWED: "true"
+      DATABASE_URL: postgresql://vaultwarden:${DB_PASSWORD}@postgres:5432/vaultwarden
+    volumes:
+      - vw-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vaultwarden
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: vaultwarden
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaultwarden -d vaultwarden"]
+      interval: 5s
+      retries: 20
+volumes:
+  vw-data:
+  postgres-data:

@@ -1,0 +1,14 @@
+{
+  "name": "Dockge",
+  "description": "Manage Docker Compose stacks on the server from a web interface.",
+  "category": "Developer tools",
+  "website": "https://dockge.kuma.pet",
+  "color": "#74C2FF",
+  "hostAccess": true,
+  "note": "Uses the Docker socket and keeps stacks in /opt/stacks on the host. Open it right away and create the admin account.",
+  "expose": {
+    "service": "dockge",
+    "port": 5001
+  },
+  "vars": []
+}

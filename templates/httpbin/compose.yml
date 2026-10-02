@@ -1,0 +1,4 @@
+services:
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    restart: unless-stopped

@@ -1,0 +1,80 @@
+{
+  "name": "Outline",
+  "description": "Fast, collaborative knowledge base and wiki for teams, with PostgreSQL and Redis.",
+  "category": "Productivity",
+  "website": "https://www.getoutline.com",
+  "color": "#000000",
+  "note": "Outline has no password login. Fill in an OpenID Connect provider (OIDC values) or SMTP for email sign in before the first login.",
+  "expose": {
+    "service": "outline",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SECRET_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "UTILS_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "URL",
+      "publicUrl": true
+    },
+    {
+      "key": "OIDC_CLIENT_ID",
+      "value": "",
+      "label": "OIDC client ID"
+    },
+    {
+      "key": "OIDC_CLIENT_SECRET",
+      "value": "",
+      "label": "OIDC client secret"
+    },
+    {
+      "key": "OIDC_AUTH_URI",
+      "value": "",
+      "label": "OIDC authorization URL"
+    },
+    {
+      "key": "OIDC_TOKEN_URI",
+      "value": "",
+      "label": "OIDC token URL"
+    },
+    {
+      "key": "OIDC_USERINFO_URI",
+      "value": "",
+      "label": "OIDC userinfo URL"
+    },
+    {
+      "key": "SMTP_HOST",
+      "value": "",
+      "label": "SMTP server"
+    },
+    {
+      "key": "SMTP_PORT",
+      "value": "587",
+      "label": "SMTP port"
+    },
+    {
+      "key": "SMTP_USERNAME",
+      "value": "",
+      "label": "SMTP username"
+    },
+    {
+      "key": "SMTP_PASSWORD",
+      "value": "",
+      "label": "SMTP password"
+    },
+    {
+      "key": "SMTP_FROM_EMAIL",
+      "value": "",
+      "label": "Sender email"
+    }
+  ]
+}

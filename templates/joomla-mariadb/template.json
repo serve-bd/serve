@@ -1,0 +1,28 @@
+{
+  "name": "Joomla (MariaDB)",
+  "description": "Content management system for websites of any size, with MariaDB.",
+  "category": "CMS",
+  "website": "https://www.joomla.org",
+  "color": "#5091CD",
+  "note": "Sign in at /administrator as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "joomla",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "JOOMLA_ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "JOOMLA_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

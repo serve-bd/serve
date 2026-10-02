@@ -1,0 +1,26 @@
+{
+  "name": "Twenty",
+  "description": "Modern open source CRM with a clean interface and custom objects, with PostgreSQL and Redis.",
+  "category": "Productivity",
+  "website": "https://twenty.com",
+  "color": "#141414",
+  "note": "Open the site and sign up to make the first workspace and admin account.",
+  "expose": {
+    "service": "server",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "SERVER_URL",
+      "publicUrl": true
+    }
+  ]
+}

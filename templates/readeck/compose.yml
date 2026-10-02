@@ -1,0 +1,10 @@
+services:
+  readeck:
+    image: codeberg.org/readeck/readeck:latest
+    restart: unless-stopped
+    environment:
+      READECK_LOG_LEVEL: info
+    volumes:
+      - readeck-data:/readeck
+volumes:
+  readeck-data:

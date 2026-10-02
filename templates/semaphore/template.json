@@ -1,0 +1,37 @@
+{
+  "name": "Semaphore UI",
+  "description": "A web interface to run Ansible, Terraform and shell scripts, with Postgres.",
+  "category": "Automation",
+  "website": "https://semaphoreui.com",
+  "color": "#1E88E5",
+  "note": "Sign in with the admin username and password shown here.",
+  "expose": {
+    "service": "semaphore",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SEMAPHORE_ADMIN",
+      "value": "admin",
+      "label": "Admin username"
+    },
+    {
+      "key": "SEMAPHORE_ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "SEMAPHORE_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "SEMAPHORE_URL",
+      "publicUrl": true
+    }
+  ]
+}

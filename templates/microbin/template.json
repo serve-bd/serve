@@ -1,0 +1,28 @@
+{
+  "name": "MicroBin",
+  "description": "Small pastebin and file sharing app with expiring and encrypted uploads.",
+  "category": "Productivity",
+  "website": "https://microbin.eu",
+  "color": "#4E7BB8",
+  "note": "Anyone with the address can upload. The admin page is at /admin: sign in with the admin user and the generated password (Variables tab).",
+  "expose": {
+    "service": "microbin",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "MICROBIN_PUBLIC_PATH",
+      "publicUrl": true
+    },
+    {
+      "key": "MICROBIN_ADMIN_USERNAME",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "MICROBIN_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

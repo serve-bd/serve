@@ -1,0 +1,11 @@
+services:
+  dbgate:
+    image: dbgate/dbgate:latest
+    restart: unless-stopped
+    environment:
+      LOGIN: ${DBGATE_LOGIN}
+      PASSWORD: ${DBGATE_PASSWORD}
+    volumes:
+      - dbgate-data:/root/.dbgate
+volumes:
+  dbgate-data:

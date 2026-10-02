@@ -1,0 +1,43 @@
+services:
+  passbolt:
+    image: passbolt/passbolt:latest-ce
+    restart: unless-stopped
+    environment:
+      APP_FULL_BASE_URL: ${APP_FULL_BASE_URL}
+      DATASOURCES_DEFAULT_HOST: mariadb
+      DATASOURCES_DEFAULT_USERNAME: passbolt
+      DATASOURCES_DEFAULT_PASSWORD: ${DB_PASSWORD}
+      DATASOURCES_DEFAULT_DATABASE: passbolt
+      PASSBOLT_SECURITY_PROXIES_ACTIVE: "true"
+      PASSBOLT_SECURITY_PROXIES_TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      EMAIL_DEFAULT_FROM: ${EMAIL_FROM}
+      EMAIL_TRANSPORT_DEFAULT_HOST: ${SMTP_HOST}
+      EMAIL_TRANSPORT_DEFAULT_PORT: ${SMTP_PORT}
+      EMAIL_TRANSPORT_DEFAULT_USERNAME: ${SMTP_USERNAME:-}
+      EMAIL_TRANSPORT_DEFAULT_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_TRANSPORT_DEFAULT_TLS: "true"
+    volumes:
+      - gpg-data:/etc/passbolt/gpg
+      - jwt-data:/etc/passbolt/jwt
+    command: ["/usr/bin/wait-for.sh", "-t", "0", "mariadb:3306", "--", "/docker-entrypoint.sh"]
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "true"
+      MARIADB_DATABASE: passbolt
+      MARIADB_USER: passbolt
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  gpg-data:
+  jwt-data:
+  db-data:

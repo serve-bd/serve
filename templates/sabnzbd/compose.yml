@@ -1,0 +1,28 @@
+services:
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - sabnzbd-config:/config
+      - sabnzbd-downloads:/downloads
+      - sabnzbd-incomplete:/incomplete-downloads
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  # SABnzbd refuses hostnames it does not know: allow the public domain before the first start.
+  setup:
+    image: busybox:1
+    restart: "no"
+    environment:
+      SABNZBD_HOST: ${SABNZBD_HOST}
+    command: ["sh", "-c", "[ -f /config/sabnzbd.ini ] || printf '[misc]\\nhost_whitelist = %s\\n' \"$$SABNZBD_HOST\" > /config/sabnzbd.ini; chown -R 1000:1000 /config"]
+    volumes:
+      - sabnzbd-config:/config
+volumes:
+  sabnzbd-config:
+  sabnzbd-downloads:
+  sabnzbd-incomplete:

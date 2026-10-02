@@ -1,0 +1,12 @@
+{
+  "name": "LibreSpeed",
+  "description": "Light speed test you run in the browser against your own server.",
+  "category": "Monitoring",
+  "website": "https://librespeed.org",
+  "color": "#2E7D32",
+  "expose": {
+    "service": "librespeed",
+    "port": 8080
+  },
+  "vars": []
+}

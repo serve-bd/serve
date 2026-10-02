@@ -1,0 +1,14 @@
+services:
+  ezbookkeeping:
+    image: mayswind/ezbookkeeping:latest
+    restart: unless-stopped
+    environment:
+      EBK_SERVER_DOMAIN: ${EBK_SERVER_DOMAIN}
+      EBK_SERVER_ROOT_URL: ${EBK_SERVER_ROOT_URL}/
+      EBK_SECURITY_SECRET_KEY: ${EBK_SECURITY_SECRET_KEY}
+    volumes:
+      - ezbookkeeping-data:/ezbookkeeping/data
+      - ezbookkeeping-storage:/ezbookkeeping/storage
+volumes:
+  ezbookkeeping-data:
+  ezbookkeeping-storage:

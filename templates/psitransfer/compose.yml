@@ -1,0 +1,11 @@
+services:
+  psitransfer:
+    image: psitrax/psitransfer:latest
+    restart: unless-stopped
+    environment:
+      PSITRANSFER_UPLOAD_PASS: ${UPLOAD_PASSWORD}
+      PSITRANSFER_ADMIN_PASS: ${ADMIN_PASSWORD}
+    volumes:
+      - psitransfer-data:/data
+volumes:
+  psitransfer-data:

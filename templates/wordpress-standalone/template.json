@@ -1,0 +1,34 @@
+{
+  "name": "WordPress (no database)",
+  "description": "The world's most popular CMS, connected to a MySQL or MariaDB database you already run.",
+  "category": "CMS",
+  "website": "https://wordpress.org",
+  "color": "#21759B",
+  "expose": {
+    "service": "wordpress",
+    "port": 80
+  },
+  "note": "This needs an outside MySQL or MariaDB database, for example a Serve database service in the same project. Fill in its host, user, password and database name.",
+  "vars": [
+    {
+      "key": "WORDPRESS_DB_HOST",
+      "value": "",
+      "label": "Database host"
+    },
+    {
+      "key": "WORDPRESS_DB_USER",
+      "value": "",
+      "label": "Database user"
+    },
+    {
+      "key": "WORDPRESS_DB_PASSWORD",
+      "value": "",
+      "label": "Database password"
+    },
+    {
+      "key": "WORDPRESS_DB_NAME",
+      "value": "wordpress",
+      "label": "Database name"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Zipkin",
+  "description": "Distributed tracing to find slow requests across your services.",
+  "category": "Monitoring",
+  "website": "https://zipkin.io",
+  "color": "#FE7139",
+  "note": "The UI and API have no login. Traces are kept in memory and lost on restart.",
+  "expose": {
+    "service": "zipkin",
+    "port": 9411
+  },
+  "vars": []
+}

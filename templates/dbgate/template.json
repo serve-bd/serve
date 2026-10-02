@@ -1,0 +1,24 @@
+{
+  "name": "DbGate",
+  "description": "A database manager in the browser for Postgres, MySQL, MongoDB, Redis and more.",
+  "category": "Databases",
+  "website": "https://dbgate.org",
+  "color": "#1B6EC2",
+  "note": "Sign in with the username and password shown here, then add a connection to your database.",
+  "expose": {
+    "service": "dbgate",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "DBGATE_LOGIN",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "DBGATE_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

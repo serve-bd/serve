@@ -1,0 +1,38 @@
+{
+  "name": "Roundcube",
+  "description": "Webmail client for any IMAP mail server.",
+  "category": "Communication",
+  "website": "https://roundcube.net",
+  "color": "#37BEFF",
+  "note": "Roundcube needs your own mail server. Fill in its IMAP and SMTP hosts. Use ssl:// for SSL ports (993, 465) and tls:// for STARTTLS (143, 587). Sign in with a mailbox account.",
+  "expose": {
+    "service": "roundcube",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "IMAP_HOST",
+      "value": "ssl://imap.example.com",
+      "label": "IMAP server"
+    },
+    {
+      "key": "IMAP_PORT",
+      "value": "993",
+      "label": "IMAP port"
+    },
+    {
+      "key": "SMTP_HOST",
+      "value": "tls://smtp.example.com",
+      "label": "SMTP server"
+    },
+    {
+      "key": "SMTP_PORT",
+      "value": "587",
+      "label": "SMTP port"
+    },
+    {
+      "key": "DES_KEY",
+      "generate": "password"
+    }
+  ]
+}

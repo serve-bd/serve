@@ -1,0 +1,38 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+    volumes:
+      - ha-config:/config
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  # Writes a first configuration.yaml that trusts the proxy in front of the app. Later edits are kept.
+  setup:
+    image: busybox:1
+    restart: "no"
+    command: ["sh", "-c", "[ -f /config/configuration.yaml ] || { cp /seed/configuration.yaml /config/configuration.yaml && touch /config/automations.yaml /config/scripts.yaml /config/scenes.yaml; }"]
+    configs:
+      - source: ha-configuration
+        target: /seed/configuration.yaml
+    volumes:
+      - ha-config:/config
+configs:
+  ha-configuration:
+    content: |
+      default_config:
+
+      automation: !include automations.yaml
+      script: !include scripts.yaml
+      scene: !include scenes.yaml
+
+      http:
+        use_x_forwarded_for: true
+        trusted_proxies:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+volumes:
+  ha-config:

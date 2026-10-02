@@ -1,0 +1,23 @@
+{
+  "name": "Rundeck",
+  "description": "Run jobs and runbooks on your servers from a web interface.",
+  "category": "Automation",
+  "website": "https://www.rundeck.com",
+  "color": "#F73F39",
+  "note": "Sign in as admin with the password shown here. The first start takes a minute or two.",
+  "expose": {
+    "service": "rundeck",
+    "port": 4440
+  },
+  "vars": [
+    {
+      "key": "RUNDECK_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "RUNDECK_URL",
+      "publicUrl": true
+    }
+  ]
+}

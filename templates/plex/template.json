@@ -1,0 +1,23 @@
+{
+  "name": "Plex Media Server",
+  "description": "Organize and stream your movies, shows, music and photos.",
+  "category": "Media",
+  "website": "https://www.plex.tv",
+  "color": "#EBAF00",
+  "note": "Optional: paste a claim token from https://plex.tv/claim (valid for 4 minutes) to link the server to your Plex account at first start. Put media in the plex-media volume.",
+  "expose": {
+    "service": "plex",
+    "port": 32400
+  },
+  "vars": [
+    {
+      "key": "PLEX_CLAIM",
+      "value": "",
+      "label": "Claim token (optional)"
+    },
+    {
+      "key": "PLEX_URL",
+      "publicUrl": true
+    }
+  ]
+}

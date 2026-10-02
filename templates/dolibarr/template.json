@@ -1,0 +1,35 @@
+{
+  "name": "Dolibarr",
+  "description": "ERP and CRM for small businesses: invoices, orders, stock, HR and more, with MariaDB.",
+  "category": "Productivity",
+  "website": "https://www.dolibarr.org",
+  "color": "#263C5C",
+  "note": "Sign in as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "dolibarr",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "DOLI_URL_ROOT",
+      "publicUrl": true
+    },
+    {
+      "key": "DOLI_CRON_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "DOLI_INSTANCE_UNIQUE_ID",
+      "generate": "hex32"
+    }
+  ]
+}

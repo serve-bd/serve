@@ -1,0 +1,12 @@
+{
+  "name": "CyberChef",
+  "description": "A web app to encode, decode, encrypt, compress and analyse data.",
+  "category": "Security",
+  "website": "https://gchq.github.io/CyberChef/",
+  "color": "#4D8EC3",
+  "expose": {
+    "service": "cyberchef",
+    "port": 8080
+  },
+  "vars": []
+}

@@ -1,0 +1,31 @@
+{
+  "name": "Directus (SQLite)",
+  "description": "Headless CMS and instant REST/GraphQL API, with SQLite.",
+  "category": "CMS",
+  "website": "https://directus.io",
+  "color": "#263238",
+  "expose": {
+    "service": "directus",
+    "port": 8055
+  },
+  "vars": [
+    {
+      "key": "SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

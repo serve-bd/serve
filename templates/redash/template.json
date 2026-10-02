@@ -1,0 +1,30 @@
+{
+  "name": "Redash",
+  "description": "Query your databases with SQL and build dashboards to share, with PostgreSQL and Redis.",
+  "category": "Analytics",
+  "website": "https://redash.io",
+  "color": "#FF7964",
+  "note": "Open the site to make the first admin account.",
+  "expose": {
+    "service": "server",
+    "port": 5000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "REDASH_COOKIE_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "REDASH_SECRET_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "REDASH_HOST",
+      "publicUrl": true
+    }
+  ]
+}

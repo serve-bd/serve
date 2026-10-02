@@ -1,0 +1,13 @@
+{
+  "name": "Readeck",
+  "description": "Save web pages to read later, with highlights, labels and e-book export.",
+  "category": "Productivity",
+  "website": "https://readeck.org",
+  "color": "#0D8A9E",
+  "note": "Open the site right away to create the first account.",
+  "expose": {
+    "service": "readeck",
+    "port": 8000
+  },
+  "vars": []
+}

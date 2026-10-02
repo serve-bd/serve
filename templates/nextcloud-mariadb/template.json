@@ -1,0 +1,35 @@
+{
+  "name": "Nextcloud (MariaDB)",
+  "description": "Files, calendar, contacts and office in your own cloud, with MariaDB.",
+  "category": "Productivity",
+  "website": "https://nextcloud.com",
+  "color": "#0082C9",
+  "expose": {
+    "service": "nextcloud",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "NEXTCLOUD_ADMIN_USER",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "NEXTCLOUD_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "NEXTCLOUD_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "NEXTCLOUD_HOST",
+      "publicHost": true
+    }
+  ]
+}

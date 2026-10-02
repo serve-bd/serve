@@ -1,0 +1,27 @@
+{
+  "name": "EspoCRM",
+  "description": "CRM for sales, contacts, deals and customer support, with MariaDB.",
+  "category": "Productivity",
+  "website": "https://www.espocrm.com",
+  "color": "#2C5F8A",
+  "note": "Sign in as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "espocrm",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "ESPOCRM_SITE_URL",
+      "publicUrl": true
+    }
+  ]
+}

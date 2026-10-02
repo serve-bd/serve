@@ -1,0 +1,14 @@
+services:
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - jackett-config:/config
+      - jackett-downloads:/downloads
+volumes:
+  jackett-config:
+  jackett-downloads:

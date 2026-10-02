@@ -1,0 +1,24 @@
+{
+  "name": "Radicale",
+  "description": "Small CalDAV and CardDAV server for calendars, contacts and tasks.",
+  "category": "Productivity",
+  "website": "https://radicale.org",
+  "color": "#A40000",
+  "note": "Sign in with the user and the generated password (Variables tab). Point your calendar and contacts apps at the domain.",
+  "expose": {
+    "service": "radicale",
+    "port": 5232
+  },
+  "vars": [
+    {
+      "key": "RADICALE_USER",
+      "value": "admin",
+      "label": "User"
+    },
+    {
+      "key": "RADICALE_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

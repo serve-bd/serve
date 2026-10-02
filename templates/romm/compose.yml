@@ -1,0 +1,41 @@
+services:
+  romm:
+    image: rommapp/romm:4
+    restart: unless-stopped
+    environment:
+      DB_HOST: mariadb
+      DB_NAME: romm
+      DB_USER: romm
+      DB_PASSWD: ${DB_PASSWORD}
+      ROMM_AUTH_SECRET_KEY: ${ROMM_AUTH_SECRET_KEY}
+      HASHEOUS_API_ENABLED: "true"
+    volumes:
+      - romm-resources:/romm/resources
+      - romm-redis:/redis-data
+      - romm-library:/romm/library
+      - romm-assets:/romm/assets
+      - romm-config:/romm/config
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: romm
+      MARIADB_USER: romm
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  romm-resources:
+  romm-redis:
+  romm-library:
+  romm-assets:
+  romm-config:
+  db-data:

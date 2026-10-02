@@ -1,0 +1,56 @@
+{
+  "name": "Rallly",
+  "description": "Schedule group meetings with polls to find the best date and time, with PostgreSQL.",
+  "category": "Productivity",
+  "website": "https://rallly.co",
+  "color": "#4F46E5",
+  "note": "Sign in uses a code sent by email, so fill in the SMTP values. The admin email becomes the instance admin.",
+  "expose": {
+    "service": "rallly",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SECRET_PASSWORD",
+      "generate": "hex32"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "SUPPORT_EMAIL",
+      "value": "support@example.com",
+      "label": "Support and sender email"
+    },
+    {
+      "key": "SMTP_HOST",
+      "value": "smtp.example.com",
+      "label": "SMTP server"
+    },
+    {
+      "key": "SMTP_PORT",
+      "value": "587",
+      "label": "SMTP port"
+    },
+    {
+      "key": "SMTP_USER",
+      "value": "",
+      "label": "SMTP username"
+    },
+    {
+      "key": "SMTP_PWD",
+      "value": "",
+      "label": "SMTP password"
+    }
+  ]
+}

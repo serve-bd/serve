@@ -1,0 +1,31 @@
+{
+  "name": "Cal.com",
+  "description": "Scheduling infrastructure: booking pages, calendars and team availability, with PostgreSQL.",
+  "category": "Productivity",
+  "website": "https://cal.com",
+  "color": "#292929",
+  "note": "The first start takes a few minutes. Then open /auth/setup to make the first admin account.",
+  "minVersion": "0.1.9",
+  "expose": {
+    "service": "calcom",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "NEXTAUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "CALENDSO_ENCRYPTION_KEY",
+      "generate": "hex16"
+    },
+    {
+      "key": "WEBAPP_URL",
+      "publicUrl": true
+    }
+  ]
+}

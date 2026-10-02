@@ -1,0 +1,14 @@
+{
+  "name": "cAdvisor",
+  "description": "Resource usage and performance of every container on the server.",
+  "category": "Monitoring",
+  "website": "https://github.com/google/cadvisor",
+  "color": "#4285F4",
+  "hostAccess": true,
+  "note": "Reads the host's /sys, /var/lib/docker and root filesystem, and has no login. Keep the domain private (IP allowlist) or remove it.",
+  "expose": {
+    "service": "cadvisor",
+    "port": 8080
+  },
+  "vars": []
+}

@@ -1,0 +1,31 @@
+services:
+  fider:
+    image: getfider/fider:stable
+    restart: unless-stopped
+    environment:
+      BASE_URL: ${BASE_URL}
+      DATABASE_URL: postgres://fider:${POSTGRES_PASSWORD}@postgres:5432/fider?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET}
+      EMAIL_NOREPLY: ${EMAIL_NOREPLY}
+      EMAIL_SMTP_HOST: ${SMTP_HOST}
+      EMAIL_SMTP_PORT: ${SMTP_PORT}
+      EMAIL_SMTP_USERNAME: ${SMTP_USERNAME:-}
+      EMAIL_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fider
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: fider
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fider -d fider"]
+      interval: 5s
+      retries: 20
+volumes:
+  postgres-data:

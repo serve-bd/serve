@@ -1,0 +1,15 @@
+services:
+  lldap:
+    image: lldap/lldap:stable
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+      LLDAP_JWT_SECRET: ${LLDAP_JWT_SECRET}
+      LLDAP_KEY_SEED: ${LLDAP_KEY_SEED}
+      LLDAP_LDAP_BASE_DN: ${LLDAP_LDAP_BASE_DN}
+      LLDAP_LDAP_USER_PASS: ${LLDAP_LDAP_USER_PASS}
+      LLDAP_HTTP_URL: ${LLDAP_HTTP_URL}
+    volumes:
+      - lldap-data:/data
+volumes:
+  lldap-data:

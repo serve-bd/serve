@@ -1,0 +1,26 @@
+{
+  "name": "Lychee",
+  "description": "Photo management with albums, sharing and a clean gallery, with MariaDB.",
+  "category": "Media",
+  "website": "https://lycheeorg.dev",
+  "color": "#E8384F",
+  "note": "Create the admin account on your first visit.",
+  "expose": {
+    "service": "lychee",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

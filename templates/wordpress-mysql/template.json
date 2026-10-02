@@ -1,0 +1,17 @@
+{
+  "name": "WordPress (MySQL)",
+  "description": "The world's most popular CMS, with MySQL.",
+  "category": "CMS",
+  "website": "https://wordpress.org",
+  "color": "#21759B",
+  "expose": {
+    "service": "wordpress",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

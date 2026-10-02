@@ -1,0 +1,17 @@
+{
+  "name": "Metabase (MySQL)",
+  "description": "Business intelligence dashboards and questions for your data, with MySQL.",
+  "category": "Analytics",
+  "website": "https://www.metabase.com",
+  "color": "#509EE3",
+  "expose": {
+    "service": "metabase",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

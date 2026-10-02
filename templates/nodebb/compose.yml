@@ -1,0 +1,42 @@
+services:
+  nodebb:
+    image: ghcr.io/nodebb/nodebb:latest
+    restart: unless-stopped
+    environment:
+      # No config yet: run a one-shot setup from these values, then the restart starts the forum.
+      NODEBB_INIT_VERB: setup
+      NODEBB_URL: ${NODEBB_URL}
+      NODEBB_PORT: "4567"
+      NODEBB_ADMIN_USERNAME: admin
+      NODEBB_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      NODEBB_ADMIN_EMAIL: ${ADMIN_EMAIL}
+      NODEBB_DB: redis
+      NODEBB_DB_HOST: redis
+      NODEBB_DB_PORT: "6379"
+      NODEBB_DB_NAME: "0"
+      # Overrides config.json, so a domain change takes effect on restart.
+      url: ${NODEBB_URL}
+      # Trust X-Forwarded-* from the reverse proxy on the private network.
+      trust_proxy: loopback, uniquelocal
+    volumes:
+      - nodebb-config:/opt/config
+      - nodebb-build:/usr/src/app/build
+      - nodebb-uploads:/usr/src/app/public/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  nodebb-config:
+  nodebb-build:
+  nodebb-uploads:
+  redis-data:

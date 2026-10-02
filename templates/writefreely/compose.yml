@@ -1,0 +1,69 @@
+services:
+  writefreely:
+    image: ghcr.io/writefreely/writefreely:latest
+    restart: unless-stopped
+    command: ["-c", "/config.ini"]
+    configs:
+      - source: writefreely-config
+        target: /config.ini
+    volumes:
+      # Holds the encryption keys and the SQLite database.
+      - writefreely-data:/go/keys
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  # Creates the database, keys and admin account on the first start, and migrates after an upgrade.
+  setup:
+    image: ghcr.io/writefreely/writefreely:latest
+    restart: "no"
+    environment:
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        wf="/go/cmd/writefreely/writefreely -c /config.ini"
+        if [ ! -f /go/keys/.installed ]; then
+          rm -f /go/keys/writefreely.db
+          $$wf db init
+          $$wf keys generate
+          $$wf user create --admin "$$ADMIN_USERNAME:$$ADMIN_PASSWORD"
+          touch /go/keys/.installed
+        else
+          $$wf db migrate
+        fi
+    configs:
+      - source: writefreely-config
+        target: /config.ini
+    volumes:
+      - writefreely-data:/go/keys
+configs:
+  writefreely-config:
+    content: |
+      [server]
+      port = 8080
+      bind = 0.0.0.0
+      templates_parent_dir = /go
+      static_parent_dir = /go
+      pages_parent_dir = /go
+      keys_parent_dir = /go
+
+      [database]
+      type = sqlite3
+      filename = /go/keys/writefreely.db
+
+      [app]
+      site_name = ${SITE_NAME}
+      host = ${WRITEFREELY_URL}
+      single_user = false
+      open_registration = false
+      min_username_len = 3
+      max_blogs = 4
+      federation = true
+      public_stats = true
+      private = false
+      local_timeline = true
+volumes:
+  writefreely-data:

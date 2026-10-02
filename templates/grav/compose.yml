@@ -1,0 +1,12 @@
+services:
+  grav:
+    image: lscr.io/linuxserver/grav:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - grav-config:/config
+volumes:
+  grav-config:

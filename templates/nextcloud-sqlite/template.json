@@ -1,0 +1,31 @@
+{
+  "name": "Nextcloud (SQLite)",
+  "description": "Files, calendar, contacts and office in your own cloud, with SQLite. Good for one or two users.",
+  "category": "Productivity",
+  "website": "https://nextcloud.com",
+  "color": "#0082C9",
+  "expose": {
+    "service": "nextcloud",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "NEXTCLOUD_ADMIN_USER",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "NEXTCLOUD_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "NEXTCLOUD_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "NEXTCLOUD_HOST",
+      "publicHost": true
+    }
+  ]
+}

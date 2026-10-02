@@ -1,0 +1,15 @@
+services:
+  microbin:
+    image: danielszabo99/microbin:2
+    restart: unless-stopped
+    environment:
+      MICROBIN_PUBLIC_PATH: ${MICROBIN_PUBLIC_PATH}
+      MICROBIN_ADMIN_USERNAME: ${MICROBIN_ADMIN_USERNAME}
+      MICROBIN_ADMIN_PASSWORD: ${MICROBIN_ADMIN_PASSWORD}
+      MICROBIN_ENABLE_BURN_AFTER: "true"
+      MICROBIN_QR: "true"
+      MICROBIN_DISABLE_TELEMETRY: "true"
+    volumes:
+      - microbin-data:/app/microbin_data
+volumes:
+  microbin-data:

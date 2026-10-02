@@ -1,0 +1,15 @@
+services:
+  apprise:
+    image: caronc/apprise:latest
+    restart: unless-stopped
+    environment:
+      APPRISE_STATEFUL_MODE: simple
+      APPRISE_WORKER_COUNT: "1"
+    volumes:
+      - apprise-config:/config
+      - apprise-attach:/attach
+      - apprise-plugin:/plugin
+volumes:
+  apprise-config:
+  apprise-attach:
+  apprise-plugin:

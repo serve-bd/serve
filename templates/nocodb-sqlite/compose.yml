@@ -1,0 +1,11 @@
+services:
+  nocodb:
+    image: nocodb/nocodb:latest
+    restart: unless-stopped
+    environment:
+      NC_AUTH_JWT_SECRET: ${NC_AUTH_JWT_SECRET}
+      NC_PUBLIC_URL: ${NC_PUBLIC_URL}
+    volumes:
+      - nocodb-data:/usr/app/data
+volumes:
+  nocodb-data:

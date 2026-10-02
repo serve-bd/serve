@@ -1,0 +1,13 @@
+{
+  "name": "Kanboard",
+  "description": "Simple Kanban project management with boards, swimlanes and automatic actions.",
+  "category": "Productivity",
+  "website": "https://kanboard.org",
+  "color": "#D52D2D",
+  "note": "Sign in as admin with password admin, then change the password right away.",
+  "expose": {
+    "service": "kanboard",
+    "port": 80
+  },
+  "vars": []
+}

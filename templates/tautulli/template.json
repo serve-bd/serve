@@ -1,0 +1,13 @@
+{
+  "name": "Tautulli",
+  "description": "Monitoring, history and statistics for Plex Media Server.",
+  "category": "Media",
+  "website": "https://tautulli.com",
+  "color": "#E5A00D",
+  "note": "A setup wizard opens on first visit. Create an admin login there and connect your Plex server.",
+  "expose": {
+    "service": "tautulli",
+    "port": 8181
+  },
+  "vars": []
+}

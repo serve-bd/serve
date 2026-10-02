@@ -1,0 +1,51 @@
+{
+  "name": "Fider",
+  "description": "Collect and rank customer feedback and feature requests in one place, with PostgreSQL.",
+  "category": "Productivity",
+  "website": "https://fider.io",
+  "color": "#2B2D42",
+  "note": "Sign up and sign in use links sent by email, so fill in the SMTP values. The first sign up makes the admin account.",
+  "expose": {
+    "service": "fider",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "EMAIL_NOREPLY",
+      "value": "noreply@example.com",
+      "label": "Sender email"
+    },
+    {
+      "key": "SMTP_HOST",
+      "value": "smtp.example.com",
+      "label": "SMTP server"
+    },
+    {
+      "key": "SMTP_PORT",
+      "value": "587",
+      "label": "SMTP port"
+    },
+    {
+      "key": "SMTP_USERNAME",
+      "value": "",
+      "label": "SMTP username"
+    },
+    {
+      "key": "SMTP_PASSWORD",
+      "value": "",
+      "label": "SMTP password"
+    }
+  ]
+}

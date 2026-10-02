@@ -1,0 +1,13 @@
+{
+  "name": "Baikal",
+  "description": "Light CalDAV and CardDAV server to sync calendars and contacts.",
+  "category": "Productivity",
+  "website": "https://sabre.io/baikal",
+  "color": "#3B82F6",
+  "note": "Open the site right away to run the setup wizard and set the admin password. Pick SQLite as the database.",
+  "expose": {
+    "service": "baikal",
+    "port": 80
+  },
+  "vars": []
+}

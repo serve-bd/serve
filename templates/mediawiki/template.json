@@ -1,0 +1,32 @@
+{
+  "name": "MediaWiki",
+  "description": "The wiki software behind Wikipedia, with MariaDB.",
+  "category": "CMS",
+  "website": "https://www.mediawiki.org",
+  "color": "#3366CC",
+  "note": "Sign in as admin with the generated admin password (Variables tab).",
+  "expose": {
+    "service": "mediawiki",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "WIKI_NAME",
+      "value": "My Wiki",
+      "label": "Wiki name"
+    },
+    {
+      "key": "WIKI_URL",
+      "publicUrl": true
+    }
+  ]
+}

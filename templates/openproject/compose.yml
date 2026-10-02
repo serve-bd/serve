@@ -1,0 +1,15 @@
+services:
+  openproject:
+    image: openproject/openproject:17
+    restart: unless-stopped
+    environment:
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      OPENPROJECT_HOST__NAME: ${OPENPROJECT_HOST}
+      OPENPROJECT_HTTPS: "true"
+      OPENPROJECT_DEFAULT__LANGUAGE: en
+    volumes:
+      - openproject-pgdata:/var/openproject/pgdata
+      - openproject-assets:/var/openproject/assets
+volumes:
+  openproject-pgdata:
+  openproject-assets:

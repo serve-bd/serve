@@ -1,0 +1,26 @@
+{
+  "name": "Koel",
+  "description": "Personal music streaming server with a modern web player, with MariaDB.",
+  "category": "Media",
+  "website": "https://koel.dev",
+  "color": "#F97316",
+  "note": "Sign in as admin@koel.dev with the password KoelIsCool and change both in your profile. Put music in the koel-music volume.",
+  "expose": {
+    "service": "koel",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+services:
+  directus:
+    image: directus/directus:latest
+    restart: unless-stopped
+    environment:
+      SECRET: ${SECRET}
+      DB_CLIENT: sqlite3
+      DB_FILENAME: /directus/database/data.db
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      PUBLIC_URL: ${PUBLIC_URL}
+    volumes:
+      - directus-uploads:/directus/uploads
+      - directus-extensions:/directus/extensions
+      - directus-database:/directus/database
+volumes:
+  directus-uploads:
+  directus-extensions:
+  directus-database:

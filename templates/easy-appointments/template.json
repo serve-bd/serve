@@ -1,0 +1,22 @@
+{
+  "name": "Easy!Appointments",
+  "description": "Online appointment booking for customers, with services, providers and calendar sync, with MySQL.",
+  "category": "Productivity",
+  "website": "https://easyappointments.org",
+  "color": "#35A768",
+  "note": "Open the site to run the installer and make the first admin account.",
+  "expose": {
+    "service": "easyappointments",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

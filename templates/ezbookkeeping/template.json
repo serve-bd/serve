@@ -1,0 +1,26 @@
+{
+  "name": "ezBookkeeping",
+  "description": "Personal finance app to track income, spending and accounts.",
+  "category": "Productivity",
+  "website": "https://ezbookkeeping.mayswind.net",
+  "color": "#C67E48",
+  "note": "Open the site and sign up to make your account. To stop new sign ups later, set EBK_USER_ENABLE_REGISTER to false.",
+  "expose": {
+    "service": "ezbookkeeping",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "EBK_SERVER_DOMAIN",
+      "publicHost": true
+    },
+    {
+      "key": "EBK_SERVER_ROOT_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "EBK_SECURITY_SECRET_KEY",
+      "generate": "secret"
+    }
+  ]
+}

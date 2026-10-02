@@ -1,0 +1,13 @@
+{
+  "name": "Calibre-Web",
+  "description": "Browse, read and download the e-books of a Calibre library.",
+  "category": "Media",
+  "website": "https://github.com/janeczku/calibre-web",
+  "color": "#45B29D",
+  "note": "Sign in as admin with the password admin123 and change it. On the setup page set the library folder to /books. It must hold a Calibre library (metadata.db).",
+  "expose": {
+    "service": "calibre-web",
+    "port": 8083
+  },
+  "vars": []
+}

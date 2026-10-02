@@ -1,0 +1,10 @@
+services:
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    restart: unless-stopped
+  otlp:
+    image: alpine/socat:latest
+    restart: unless-stopped
+    command: ["TCP-LISTEN:4318,fork,reuseaddr", "TCP:jaeger:4318"]
+    depends_on:
+      - jaeger

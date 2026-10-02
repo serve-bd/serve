@@ -1,0 +1,14 @@
+services:
+  sqlpad:
+    image: sqlpad/sqlpad:7
+    restart: unless-stopped
+    environment:
+      SQLPAD_ADMIN: ${SQLPAD_ADMIN}
+      SQLPAD_ADMIN_PASSWORD: ${SQLPAD_ADMIN_PASSWORD}
+      SQLPAD_COOKIE_SECRET: ${SQLPAD_SECRET}
+      SQLPAD_PUBLIC_URL: ${SQLPAD_URL}
+      SQLPAD_DB_PATH: /var/lib/sqlpad
+    volumes:
+      - sqlpad-data:/var/lib/sqlpad
+volumes:
+  sqlpad-data:

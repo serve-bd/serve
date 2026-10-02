@@ -1,0 +1,47 @@
+services:
+  mediawiki:
+    image: mediawiki:lts
+    restart: unless-stopped
+    environment:
+      MW_DB_PASSWORD: ${DB_PASSWORD}
+      MW_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      MW_NAME: ${WIKI_NAME}
+      MW_URL: ${WIKI_URL}
+    # Installs the wiki on first start (LocalSettings.php is kept in a volume), then runs updates.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ ! -f /var/www/data/LocalSettings.php ]; then
+          php maintenance/run.php install --dbtype=mysql --dbserver=mariadb --dbname=mediawiki \
+            --dbuser=mediawiki --dbpass="$$MW_DB_PASSWORD" --server="$$MW_URL" --scriptpath="" \
+            --lang=en --pass="$$MW_ADMIN_PASSWORD" --confpath=/var/www/data "$$MW_NAME" admin
+        fi
+        ln -sf /var/www/data/LocalSettings.php /var/www/html/LocalSettings.php
+        php maintenance/run.php update --quick
+        exec apache2-foreground
+    volumes:
+      - mediawiki-config:/var/www/data
+      - mediawiki-images:/var/www/html/images
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: mediawiki
+      MARIADB_USER: mediawiki
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  mediawiki-config:
+  mediawiki-images:
+  db-data:

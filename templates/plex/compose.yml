@@ -1,0 +1,18 @@
+services:
+  plex:
+    image: plexinc/pms-docker:latest
+    restart: unless-stopped
+    environment:
+      TZ: Etc/UTC
+      PLEX_UID: "1000"
+      PLEX_GID: "1000"
+      PLEX_CLAIM: ${PLEX_CLAIM}
+      ADVERTISE_IP: ${PLEX_URL}:443
+    volumes:
+      - plex-config:/config
+      - plex-transcode:/transcode
+      - plex-media:/data
+volumes:
+  plex-config:
+  plex-transcode:
+  plex-media:

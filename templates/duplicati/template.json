@@ -1,0 +1,27 @@
+{
+  "name": "Duplicati",
+  "description": "Encrypted backups to cloud storage and remote servers, with a web interface.",
+  "category": "Storage",
+  "website": "https://duplicati.com",
+  "color": "#1E3A8A",
+  "note": "Sign in with the password from the configure step. Put the files to back up in the duplicati-source volume, or replace it with a directory mount in Persistent storage.",
+  "expose": {
+    "service": "duplicati",
+    "port": 8200
+  },
+  "vars": [
+    {
+      "key": "SETTINGS_ENCRYPTION_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "DUPLICATI_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    },
+    {
+      "key": "DUPLICATI_HOST",
+      "publicHost": true
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "whoami",
+  "description": "A tiny web server that prints the request it gets. Good for testing domains.",
+  "category": "Developer tools",
+  "website": "https://github.com/traefik/whoami",
+  "color": "#24A1C1",
+  "expose": {
+    "service": "whoami",
+    "port": 80
+  },
+  "vars": []
+}

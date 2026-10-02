@@ -1,0 +1,8 @@
+services:
+  librespeed:
+    image: ghcr.io/librespeed/speedtest:5
+    restart: unless-stopped
+    environment:
+      MODE: standalone
+      WEBPORT: "8080"
+      TELEMETRY: "false"

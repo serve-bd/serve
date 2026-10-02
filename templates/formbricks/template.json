@@ -1,0 +1,34 @@
+{
+  "name": "Formbricks",
+  "description": "Surveys and forms for websites, apps and links, with PostgreSQL and Redis.",
+  "category": "Analytics",
+  "website": "https://formbricks.com",
+  "color": "#00C4B8",
+  "note": "Open the site and sign up to make the first admin account.",
+  "expose": {
+    "service": "formbricks",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "NEXTAUTH_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "CRON_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "WEBAPP_URL",
+      "publicUrl": true
+    }
+  ]
+}

@@ -4,7 +4,7 @@ import { Box, Container, Database, FileCode, GitBranch, Layers } from "lucide-re
 import { cn } from "@/lib/utils";
 import { useTemplateBrand } from "@/components/template-brands";
 
-const engineColors: Record<string, string> = {
+export const engineColors: Record<string, string> = {
   postgres: "#336791",
   mysql: "#00758f",
   mariadb: "#c0765a",

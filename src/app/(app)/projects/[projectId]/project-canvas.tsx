@@ -25,7 +25,7 @@ import {
 } from "@xyflow/react";
 import { AlertTriangle, ArrowUpRight, LayoutGrid, Maximize2, Minimize2, Minus, Plus, Scan, Server as ServerIcon } from "lucide-react";
 import { useRouter } from "@/hooks/use-router";
-import { ServiceIcon } from "@/components/service-icon";
+import { engineColors, ServiceIcon } from "@/components/service-icon";
 import { StatusLabel } from "@/components/ui/status";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
@@ -183,7 +183,16 @@ function ServiceCardNode({ data, selected }: NodeProps<ServiceNode>) {
 
 const nodeTypes: NodeTypes = { service: ServiceCardNode };
 
-type UseEdge = Edge<{ variables: string[]; kind: "local" | "private" | "broken" }, "uses">;
+type UseEdge = Edge<{ variables: string[]; kind: "local" | "private" | "broken"; color: string }, "uses">;
+
+/** Colors for lines to services without an engine color, picked by the service so a line keeps its color. */
+const LINE_PALETTE = ["#0ea5e9", "#a855f7", "#f59e0b", "#14b8a6", "#ec4899", "#84cc16", "#6366f1", "#f97316"];
+
+/** A line takes the color of the service it goes to (a database its engine's), lifted a little so dark ones show on the canvas. */
+function lineColor(target: ServiceCardData) {
+  const base = (target.engine && engineColors[target.engine]) || LINE_PALETTE[[...target.id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % LINE_PALETTE.length];
+  return `color-mix(in oklab, ${base} 78%, var(--fg))`;
+}
 
 /** A use: the line, and a small pill with the variables it goes through. */
 function UseEdgeView({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd, style }: EdgeProps<UseEdge>) {
@@ -195,7 +204,10 @@ function UseEdgeView({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
       <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
       <EdgeLabelRenderer>
         <div
-          style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+          style={{
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            ...(data?.kind === "local" ? { color: data.color, borderColor: `color-mix(in oklab, ${data.color} 45%, transparent)` } : {}),
+          }}
           title={data?.kind === "broken" ? `${vars.join(", ")}: the servers share no private network, so this name does not resolve.` : vars.join(", ")}
           className={cn(
             "nodrag nopan pointer-events-auto absolute flex max-w-[180px] items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] leading-4 shadow-sm",
@@ -224,14 +236,14 @@ function edgesOf(services: ServiceCardData[]): UseEdge[] {
       const target = byId.get(u.id);
       if (!target) continue;
       const kind = u.broken ? "broken" : s.serverId !== target.serverId && u.private ? "private" : "local";
-      const color = kind === "broken" ? "var(--bad)" : kind === "private" ? "var(--accent)" : "var(--line-strong)";
+      const color = kind === "broken" ? "var(--bad)" : kind === "private" ? "var(--accent)" : lineColor(target);
       edges.push({
         id: `${s.id}->${u.id}`,
         type: "uses",
         source: s.id,
         target: u.id,
         animated: kind === "private",
-        data: { variables: u.variables, kind },
+        data: { variables: u.variables, kind, color },
         style: { stroke: color, strokeWidth: 1.5, strokeDasharray: kind === "broken" ? "5 4" : undefined },
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
       });
@@ -370,7 +382,7 @@ function Legend({ services }: { services: ServiceCardData[] }) {
   const uses = services.flatMap((s) => s.uses.map((u) => ({ u, across: s.serverId !== byId.get(u.id)?.serverId && u.private })));
   if (!uses.length) return null;
   const kinds = [
-    { on: uses.some((x) => !x.across && !x.u.broken), color: "var(--line-strong)", dash: false, text: "Uses" },
+    { on: uses.some((x) => !x.across && !x.u.broken), color: "var(--line-strong)", dash: false, text: "Uses (in the color of the service used)" },
     { on: uses.some((x) => x.across && !x.u.broken), color: "var(--accent)", dash: false, text: "Over the private network" },
     { on: uses.some((x) => x.u.broken), color: "var(--bad)", dash: true, text: "Not reachable: no shared network" },
   ].filter((k) => k.on);

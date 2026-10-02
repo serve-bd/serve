@@ -219,6 +219,30 @@ run("main flows", () => {
     await ok(ADMIN, "DELETE", `/branches/${branch.id}`);
   });
 
+  it("hides personal data in a branch, also after a reset", async () => {
+    const psql = (q: string, db = '"$POSTGRES_DB"') => `psql -U "$POSTGRES_USER" -d ${db} -tAc "${q}"`;
+    await runCommand(dbId, psql("create table if not exists zz_people (email text); insert into zz_people values ('real@person.example')"));
+    await ok(ADMIN, "PUT", `/services/${dbId}/branches/cleanup-sql`, { sql: "UPDATE zz_people SET email = 'hidden@example.com';" });
+    await ok(ADMIN, "POST", `/services/${dbId}/branches`, { name: "safe", hidePersonalData: true }, 202);
+    const ready = async () =>
+      until("hidden branch", async () => {
+        const b = (await ok(ADMIN, "GET", `/services/${dbId}/branches`)).branches.find((x: any) => x.name === "safe");
+        return b && b.status !== "creating" && b.status !== "resetting" ? b : null;
+      });
+    let branch = await ready();
+    expect(branch.status).toBe("ready");
+    expect(branch.personalDataHidden).toBe(true);
+    const inBranch = () => runCommand(dbId, psql("select email from zz_people", branch.database));
+    expect((await inBranch()).output).toContain("hidden@example.com");
+    expect((await runCommand(dbId, psql("select email from zz_people"))).output).toContain("real@person.example");
+    // A reset copies the real data again, and hides it again.
+    await ok(ADMIN, "POST", `/branches/${branch.id}/reset`, undefined, 202);
+    await new Promise((r) => setTimeout(r, 1500));
+    branch = await ready();
+    expect((await inBranch()).output).toContain("hidden@example.com");
+    await ok(ADMIN, "DELETE", `/branches/${branch.id}`);
+  });
+
   it("keeps a token limited to its projects", async () => {
     if (!sql) return;
     const other = (await ok(ADMIN, "GET", "/projects")).projects.find((p: any) => p.id !== made.projectId);

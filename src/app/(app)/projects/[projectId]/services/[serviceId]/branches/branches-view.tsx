@@ -2,19 +2,23 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { GitBranch, Loader2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { EyeOff, GitBranch, Loader2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
-import { Card, CardHeader, CopyButton, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Badge, Card, CardBody, CardHeader, CopyButton, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CodeEditor } from "@/components/code-editor";
+import { ViewToggle } from "@/components/view-toggle";
 import { useAction } from "@/hooks/use-action";
 import { useRouter } from "@/hooks/use-router";
 import { branchReference } from "@/lib/database-branches";
-import { formatBytes } from "@/lib/utils";
-import { createDatabaseBranch, deleteDatabaseBranch, resetDatabaseBranch } from "@/server/actions/database-branches";
+import { cn, formatBytes } from "@/lib/utils";
+import { createDatabaseBranch, deleteDatabaseBranch, resetDatabaseBranch, saveBranchCleanupSql } from "@/server/actions/database-branches";
+import { BranchDiagram, type DiagramBranch } from "./branch-diagram";
 
 type Branch = {
   id: string;
@@ -26,6 +30,8 @@ type Branch = {
   copiedAt: string | null;
   createdAt: string;
   preview: { id: string; pr: number | null } | null;
+  scrubbed: boolean;
+  consumers: DiagramBranch["consumers"];
 };
 
 const busyLabel: Partial<Record<Branch["status"], string>> = { creating: "Copying data…", resetting: "Copying data again…", deleting: "Deleting…" };
@@ -39,11 +45,16 @@ export function BranchesView({
   canManage,
   branches,
   projectId,
+  cleanupSql,
+  scrubSupported,
 }: {
   serviceId: string;
   serviceName: string;
   engine: string;
   refName: string;
+  status: string;
+  cleanupSql: string;
+  scrubSupported: boolean;
   running: boolean;
   canManage: boolean;
   branches: Branch[];
@@ -52,6 +63,7 @@ export function BranchesView({
   const router = useRouter();
   const confirm = useConfirm();
   const [creating, setCreating] = React.useState(false);
+  const [view, setView] = React.useState<"canvas" | "list">("canvas");
   const reset = useAction(resetDatabaseBranch, { success: "Copying the data again" });
   const remove = useAction(deleteDatabaseBranch, { success: "Branch deleted" });
 
@@ -75,14 +87,21 @@ export function BranchesView({
               : `Copies of ${serviceName}'s data, inside the same database server. Each branch has its own login, so a branch cannot change the main data.`
           }
           actions={
-            canManage && (
-              <Button size="sm" variant="primary" disabled={!running} title={running ? undefined : "Start the database to branch it"} onClick={() => setCreating(true)}>
-                <Plus /> New branch
-              </Button>
-            )
+            <div className="flex items-center gap-2">
+              {branches.length > 0 && <ViewToggle view={view} views={["canvas", "list"]} onChange={setView} />}
+              {canManage && (
+                <Button size="sm" variant="primary" disabled={!running} title={running ? undefined : "Start the database to branch it"} onClick={() => setCreating(true)}>
+                  <Plus /> New branch
+                </Button>
+              )}
+            </div>
           }
         />
-        {branches.length === 0 ? (
+        {branches.length > 0 && view === "canvas" ? (
+          <div className="border-t border-line py-2">
+            <BranchDiagram projectId={projectId} serviceName={serviceName} engineLabel={engineLabel(engine)} running={running} branches={branches} />
+          </div>
+        ) : branches.length === 0 ? (
           <EmptyState
             icon={<GitBranch />}
             title="No branches yet"
@@ -104,6 +123,11 @@ export function BranchesView({
                         <Link href={`/projects/${projectId}/services/${b.preview.id}`} className="text-xs text-muted hover:text-fg">
                           for PR #{b.preview.pr}
                         </Link>
+                      )}
+                      {b.scrubbed && (
+                        <Badge tone="ok" className="self-center">
+                          <EyeOff className="size-3" /> Personal data hidden
+                        </Badge>
                       )}
                     </span>
                     {label ? (
@@ -183,14 +207,80 @@ export function BranchesView({
         Use a branch from any service in this environment with a reference like <span className="font-mono text-fg-2">{branchReference(refName, "<name>")}</span>. Pull request
         previews can get a branch each: turn it on in the app&apos;s Settings → Previews. Each branch uses about as much disk as the main database.
       </p>
-      {creating && <NewBranchDialog serviceId={serviceId} serviceName={serviceName} onClose={() => setCreating(false)} />}
+      {scrubSupported && <CleanupCard serviceId={serviceId} initial={cleanupSql} canManage={canManage} />}
+      {creating && (
+        <NewBranchDialog
+          serviceId={serviceId}
+          serviceName={serviceName}
+          canHide={scrubSupported && !!cleanupSql.trim()}
+          scrubSupported={scrubSupported}
+          onClose={() => setCreating(false)}
+        />
+      )}
     </div>
   );
 }
 
-function NewBranchDialog({ serviceId, serviceName, onClose }: { serviceId: string; serviceName: string; onClose: () => void }) {
+const ENGINE_LABEL: Record<string, string> = {
+  postgres: "PostgreSQL",
+  mysql: "MySQL",
+  mariadb: "MariaDB",
+  mongodb: "MongoDB",
+  redis: "Redis",
+  valkey: "Valkey",
+  clickhouse: "ClickHouse",
+};
+const engineLabel = (engine: string) => ENGINE_LABEL[engine] ?? engine;
+
+/** The SQL that hides personal data in branches made with that option. */
+function CleanupCard({ serviceId, initial, canManage }: { serviceId: string; initial: string; canManage: boolean }) {
+  const [sql, setSql] = React.useState(initial);
+  const [saved, setSaved] = React.useState(initial);
+  const save = useAction(() => saveBranchCleanupSql(serviceId, sql.trim() || null), { success: "Clean-up SQL saved", onSuccess: () => setSaved(sql) });
+  return (
+    <Card>
+      <CardHeader
+        title="Hide personal data"
+        description="SQL that runs on a branch's copy right after the data is copied, every time, before anything uses it. Branches made with “Hide personal data” use it; if it fails, the branch is marked failed instead of holding real data. Pull request previews use the clean-up SQL in the app's Settings → Previews."
+      />
+      <CardBody className="flex flex-col gap-3">
+        <CodeEditor
+          language="text"
+          value={sql}
+          onChange={setSql}
+          minRows={5}
+          readOnly={!canManage}
+          placeholder={"UPDATE users SET email = 'user' || id || '@example.com', name = 'User ' || id;\nDELETE FROM sessions;"}
+          aria-label="Branch clean-up SQL"
+        />
+        {canManage && (
+          <div className="flex justify-end">
+            <Button size="sm" variant="primary" loading={save.pending} disabled={sql === saved} onClick={() => void save.run()}>
+              Save
+            </Button>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function NewBranchDialog({
+  serviceId,
+  serviceName,
+  canHide,
+  scrubSupported,
+  onClose,
+}: {
+  serviceId: string;
+  serviceName: string;
+  canHide: boolean;
+  scrubSupported: boolean;
+  onClose: () => void;
+}) {
   const [name, setName] = React.useState("");
-  const create = useAction(() => createDatabaseBranch(serviceId, name), { success: "Branch started. Copying the data…", onSuccess: onClose });
+  const [hide, setHide] = React.useState(canHide);
+  const create = useAction(() => createDatabaseBranch(serviceId, name, { hidePersonalData: hide }), { success: "Branch started. Copying the data…", onSuccess: onClose });
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent size="sm">
@@ -212,6 +302,17 @@ function NewBranchDialog({ serviceId, serviceName, onClose }: { serviceId: strin
                 autoFocus
               />
             </Field>
+            {scrubSupported && (
+              <label className={cn("mt-4 flex items-start gap-3", canHide ? "cursor-pointer" : "cursor-default opacity-60")}>
+                <Checkbox checked={hide} disabled={!canHide} onCheckedChange={setHide} className="mt-0.5" />
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-[13px] font-medium text-fg">Hide personal data</span>
+                  <span className="text-[12.5px] leading-snug text-muted">
+                    {canHide ? "Run the clean-up SQL on the copy, now and on every reset." : "Add the clean-up SQL on this page first."}
+                  </span>
+                </span>
+              </label>
+            )}
           </DialogBody>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={onClose}>

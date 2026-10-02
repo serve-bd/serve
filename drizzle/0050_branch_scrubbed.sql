@@ -1,0 +1,1 @@
+ALTER TABLE "database_branch" ADD COLUMN "scrubbed" boolean DEFAULT false NOT NULL;

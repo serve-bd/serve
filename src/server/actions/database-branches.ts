@@ -6,7 +6,7 @@ import { act, UserError } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { serviceInOrg } from "@/server/services/access";
-import { branchesSupported, createBranch, enqueueBranchJob, maxBranches } from "@/server/databases/branches";
+import { branchesSupported, branchScrubEngines, createBranch, enqueueBranchJob, maxBranches } from "@/server/databases/branches";
 import { logActivity } from "@/server/activity";
 import { branchNamePattern } from "@/lib/database-branches";
 
@@ -19,7 +19,39 @@ async function branchInOrg(id: string, orgId: string) {
   return { branch, service };
 }
 
-export async function createDatabaseBranch(serviceId: string, rawName: string) {
+/**
+ * The clean-up SQL branches made with "hide personal data" run on their copy (for example, replace
+ * emails and names, delete sessions). Null removes it.
+ */
+export async function saveBranchCleanupSql(serviceId: string, sql: string | null) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (!service.database || !branchesSupported(service)) throw new UserError("Branches are available for database services.");
+    if (!branchScrubEngines.has(service.database.engine)) throw new UserError("Clean-up SQL is available for PostgreSQL, MySQL, MariaDB and ClickHouse.");
+    const clean = z
+      .string()
+      .max(64_000, "Keep the SQL under 64 KB.")
+      .nullable()
+      .parse(sql?.trim() || null);
+    await db
+      .update(schema.service)
+      .set({ database: { ...service.database, branchCleanupSql: clean }, updatedAt: new Date() })
+      .where(eq(schema.service.id, service.id));
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      projectId: service.projectId,
+      action: "database.branch-cleanup",
+      targetType: "service",
+      targetId: service.id,
+      message: clean ? `Changed the branch clean-up SQL of ${service.name}` : `Removed the branch clean-up SQL of ${service.name}`,
+    });
+    return null;
+  });
+}
+
+export async function createDatabaseBranch(serviceId: string, rawName: string, opts: { hidePersonalData?: boolean } = {}) {
   return act(async () => {
     const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
@@ -31,7 +63,8 @@ export async function createDatabaseBranch(serviceId: string, rawName: string) {
     // Each branch is a full copy of the data; Redis and Valkey have 15 spare database numbers.
     const max = maxBranches(service.database.engine);
     if (existing.length >= max) throw new UserError(`A database can have up to ${max} branches. Delete one first.`);
-    const branch = await createBranch(service, name, { userId: ctx.user.id });
+    if (opts.hidePersonalData && !service.database.branchCleanupSql?.trim()) throw new UserError("Add the clean-up SQL first: it is what hides the personal data.");
+    const branch = await createBranch(service, name, { userId: ctx.user.id, scrubbed: !!opts.hidePersonalData });
     await enqueueBranchJob({ branchId: branch.id, op: "create" }, service.id);
     await logActivity({
       userId: ctx.user.id,
@@ -40,7 +73,7 @@ export async function createDatabaseBranch(serviceId: string, rawName: string) {
       action: "database.branch",
       targetType: "service",
       targetId: service.id,
-      message: `Started branch ${name} of ${service.name}`,
+      message: `Started branch ${name} of ${service.name}${opts.hidePersonalData ? " with personal data hidden" : ""}`,
     });
     return { id: branch.id };
   });

@@ -272,6 +272,8 @@ export type DatabaseConfig = {
   /** Cron expression for automatic backups. */
   backupSchedule?: string | null;
   backupRetention: number;
+  /** Clean-up SQL for branches made with "hide personal data": runs on the copy after each refill. */
+  branchCleanupSql?: string | null;
   /** Backups kept in S3; defaults to backupRetention. */
   backupRetentionS3?: number | null;
   s3DestinationId?: string | null;

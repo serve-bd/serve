@@ -184,6 +184,7 @@ export const databaseRoutes: ApiRoute[] = [
           status: b.status,
           error: b.error,
           sizeBytes: b.sizeBytes,
+          personalDataHidden: b.scrubbed,
           copiedAt: iso(b.copiedAt),
           previewServiceId: b.previewServiceId,
           createdAt: iso(b.createdAt),
@@ -196,13 +197,27 @@ export const databaseRoutes: ApiRoute[] = [
     path: "/services/{serviceId}/branches",
     tag: "Databases",
     summary: "Create a database branch",
-    description: "A copy of the database inside the same container, with a user of its own.",
+    description:
+      "A copy of the database inside the same container, with a user of its own. hidePersonalData: true runs the database's branch clean-up SQL on every copy (PUT /services/{serviceId}/branches/cleanup-sql).",
     needs: ["services.manage"],
-    body: z.object({ name: z.string() }),
+    body: z.object({ name: z.string(), hidePersonalData: z.boolean().optional() }),
     status: 202,
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
-      return (await unwrap(branches.createDatabaseBranch(params.serviceId, body.name))) ?? { ok: true };
+      return (await unwrap(branches.createDatabaseBranch(params.serviceId, body.name, { hidePersonalData: body.hidePersonalData }))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/branches/cleanup-sql",
+    tag: "Databases",
+    summary: "Set the clean-up SQL that hides personal data in branches",
+    description: "It runs on the copy of every branch made with hidePersonalData, for example \"UPDATE users SET email = id || '@example.com';\". null removes it.",
+    needs: ["services.manage"],
+    body: z.object({ sql: z.string().nullable() }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return (await unwrap(branches.saveBranchCleanupSql(params.serviceId, body.sql))) ?? { ok: true };
     },
   }),
   route({

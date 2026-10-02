@@ -290,7 +290,7 @@ async function run(service: Service, script: string, secrets: string[]) {
 }
 
 /** Add a branch and queue its copy. */
-export async function createBranch(service: Service, name: string, opts: { userId?: string | null; previewServiceId?: string | null } = {}) {
+export async function createBranch(service: Service, name: string, opts: { userId?: string | null; previewServiceId?: string | null; scrubbed?: boolean } = {}) {
   if (!branchesSupported(service) || !service.database) throw new Error("Branches are available for database services.");
   const engine = service.database.engine;
   let database = branchDatabaseName(service.database.database, name);
@@ -320,6 +320,7 @@ export async function createBranch(service: Service, name: string, opts: { userI
       password: encrypt(isKeyValue(engine) ? "" : crypto.randomBytes(18).toString("base64url")),
       createdBy: opts.userId ?? null,
       previewServiceId: opts.previewServiceId ?? null,
+      scrubbed: opts.scrubbed ?? false,
     })
     .returning();
   return branch;
@@ -356,9 +357,10 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
     return;
   }
 
-  const scrubSql = payload.preview && branchScrubEngines.has(service.database.engine) ? await previewScrubSql(payload.preview.previewId) : null;
   try {
     if (service.status !== "running") throw new Error(`${service.name} is not running. Start it, then reset the branch.`);
+    // Every copy (a reset too) of a branch that hides personal data runs the clean-up SQL.
+    const scrubSql = await branchCleanupSql(service, branch, payload.preview?.previewId);
     const out = await run(service, scripts.create(main, { database: branch.database, username: branch.username, password: branchPassword }, scrubSql), [
       mainPassword,
       branchPassword,
@@ -366,7 +368,7 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
     const size = Number(out.match(/SERVE_SIZE=(\d+)/)?.[1] ?? Number.NaN);
     await db
       .update(schema.databaseBranch)
-      .set({ status: "ready", error: null, copiedAt: new Date(), sizeBytes: Number.isFinite(size) ? size : null, updatedAt: new Date() })
+      .set({ status: "ready", error: null, copiedAt: new Date(), sizeBytes: Number.isFinite(size) ? size : null, scrubbed: !!scrubSql?.trim(), updatedAt: new Date() })
       .where(eq(schema.databaseBranch.id, branch.id));
     await logActivity({
       projectId: service.projectId,
@@ -395,6 +397,24 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
     const { queueDeployment } = await import("@/server/services/create");
     await queueDeployment(payload.preview.previewId, "webhook", payload.preview.deployment);
   }
+}
+
+/**
+ * The clean-up SQL a copy into this branch runs: a preview's comes from its app's preview database
+ * settings, a branch made with "hide personal data" uses the database's own. A branch that should
+ * hide personal data but has no SQL to do it fails instead of holding a plain copy.
+ */
+async function branchCleanupSql(service: Service, branch: typeof schema.databaseBranch.$inferSelect, previewId?: string) {
+  if (!branchScrubEngines.has(service.database!.engine)) {
+    if (branch.scrubbed) throw new Error(`${engines[service.database!.engine].label} branches cannot run clean-up SQL.`);
+    return null;
+  }
+  const preview = branch.previewServiceId ?? previewId;
+  if (preview) return previewScrubSql(preview);
+  if (!branch.scrubbed) return null;
+  const sql = service.database!.branchCleanupSql?.trim();
+  if (!sql) throw new Error("This branch hides personal data, but the database has no clean-up SQL. Add it on the Branches page, then reset the branch.");
+  return sql;
 }
 
 async function previewScrubSql(previewId: string) {

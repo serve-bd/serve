@@ -1428,6 +1428,8 @@ export const databaseBranch = pgTable(
     sizeBytes: bigint("size_bytes", { mode: "number" }),
     /** When the data was last copied from the main database. */
     copiedAt: timestamp("copied_at", { withTimezone: true }),
+    /** Every copy into this branch runs the clean-up SQL (personal data hidden). */
+    scrubbed: boolean("scrubbed").notNull().default(false),
     /** The pull request preview that uses this branch; removed when the preview closes. */
     previewServiceId: text("preview_service_id").references((): AnyPgColumn => service.id, { onDelete: "set null" }),
     createdBy: text("created_by"),

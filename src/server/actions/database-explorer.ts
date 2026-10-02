@@ -83,6 +83,7 @@ async function explorerService(serviceId: string) {
   return { ctx, service: service as DatabaseService };
 }
 
+const MAX_SCRIPT_BYTES = 125_000;
 const credsOf = (service: DatabaseService) => databaseCreds(service.database, decrypt(service.database.password));
 const nonce = () => crypto.randomBytes(8).toString("hex");
 
@@ -90,12 +91,15 @@ const nonce = () => crypto.randomBytes(8).toString("hex");
 async function runInDatabase(service: DatabaseService, body: string[], timeoutSeconds = QUERY_TIMEOUT) {
   if (service.status !== "running") throw new UserError(`${service.name} is not running. Start it to see its data.`);
   const password = decrypt(service.database.password);
+  const script = framed(body, nonce(), timeoutSeconds);
+  // The script is one argument of the exec, and Linux takes at most 128 KB for one.
+  if (Buffer.byteLength(script, "utf8") > MAX_SCRIPT_BYTES) throw new UserError("This is too long to run here. Shorten the query or the values in it.");
   const { docker } = await serverOf(service);
   const started = Date.now();
   let res;
   try {
     const container = await databaseContainer(docker, service);
-    res = await execCommand(container.id, framed(body, nonce(), timeoutSeconds), { docker, timeoutSeconds: timeoutSeconds + 15, maxOutput: Math.ceil(MAX_OUTPUT * 1.4) + 65_536 });
+    res = await execCommand(container.id, script, { docker, timeoutSeconds: timeoutSeconds + 15, maxOutput: Math.ceil(MAX_OUTPUT * 1.4) + 65_536 });
   } catch (e) {
     throw new UserError(`Could not reach the database container: ${(e as Error).message}`);
   }

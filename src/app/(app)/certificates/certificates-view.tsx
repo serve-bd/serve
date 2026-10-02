@@ -39,7 +39,17 @@ type Cert = {
   /** Where the proxy finds the files, for custom proxy configs. */
   certPath: string | null;
   keyPath: string | null;
+  /** The proxy of the certificate's server, which the config snippet is written for. */
+  proxyKind: string;
 };
+
+/** How each proxy's config points at a certificate. */
+function certificateSnippet(kind: string, cert: string, key: string): { label: string; text: string } | null {
+  if (kind === "nginx") return { label: "For nginx", text: `ssl_certificate     ${cert};\nssl_certificate_key ${key};` };
+  if (kind === "caddy") return { label: "For Caddy (in the site block)", text: `tls ${cert} ${key}` };
+  if (kind === "traefik") return { label: "For Traefik", text: `tls:\n  certificates:\n    - certFile: ${cert}\n      keyFile: ${key}` };
+  return null;
+}
 
 const providerLabel: Record<string, string> = {
   "letsencrypt-http": "Let's Encrypt",
@@ -239,6 +249,7 @@ function LogsDialog({ certId, onClose }: { certId: string | null; onClose: () =>
 
 /** The certificate's file paths inside the proxy, to use it in a custom proxy config. */
 function PathsDialog({ cert, open, onClose }: { cert: Cert; open: boolean; onClose: () => void }) {
+  const snippet = certificateSnippet(cert.proxyKind, cert.certPath ?? "", cert.keyPath ?? "");
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
@@ -250,13 +261,15 @@ function PathsDialog({ cert, open, onClose }: { cert: Cert; open: boolean; onClo
           <Field label="Private key">
             <CopyField value={cert.keyPath ?? ""} />
           </Field>
-          <Field label="For nginx">
-            <Copyable value={`ssl_certificate     ${cert.certPath};\nssl_certificate_key ${cert.keyPath};`}>
-              <pre className="overflow-x-auto rounded-md border border-line bg-surface-2 py-2.5 pr-9 pl-3 font-mono text-[12px] leading-relaxed text-fg-2">
-                {`ssl_certificate     ${cert.certPath};\nssl_certificate_key ${cert.keyPath};`}
-              </pre>
-            </Copyable>
-          </Field>
+          {snippet && (
+            <Field label={snippet.label}>
+              <Copyable value={snippet.text}>
+                <pre className="rounded-md border border-line bg-surface-2 py-2.5 pr-9 pl-3 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap text-fg-2">
+                  {snippet.text}
+                </pre>
+              </Copyable>
+            </Field>
+          )}
         </DialogBody>
         <DialogFooter>
           <DialogClose render={<Button variant="ghost" size="sm" />}>Close</DialogClose>

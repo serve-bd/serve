@@ -21,6 +21,7 @@ export default async function CertificatesPage() {
   ]);
   const orgServers = await serversForOrg(ctx.org.id);
   const ipOf = new Map(servers.map((s) => [s.id, s.publicIp]));
+  const proxyOf = new Map(servers.map((s) => [s.id, s.proxyKind]));
   const showServers = servers.length > 1;
   return (
     <CertificatesView
@@ -49,6 +50,7 @@ export default async function CertificatesPage() {
         createdAt: c.createdAt.toISOString(),
         certPath: c.certPath,
         keyPath: c.keyPath,
+        proxyKind: proxyOf.get(c.serverId) ?? "nginx",
       }))}
     />
   );

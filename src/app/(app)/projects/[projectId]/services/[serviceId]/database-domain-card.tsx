@@ -96,6 +96,20 @@ export function DatabaseDomainCard({
   return (
     <Card>
       <CardHeader
+        actions={
+          // The certificate's state, next to the title: the details below stay about connecting.
+          info.hostname && info.via !== "tunnel" ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+                cert?.status === "active" ? "bg-ok/10 text-ok" : cert?.status === "failed" ? "bg-bad/10 text-bad" : "bg-hover text-muted",
+              )}
+            >
+              <Lock className="size-3" />
+              {cert?.status === "active" ? "Certificate active" : cert?.status === "failed" ? "Certificate failed" : cert ? "Getting a certificate…" : "No certificate yet"}
+            </span>
+          ) : undefined
+        }
         title={
           <span className="flex items-center gap-1.5">
             Domain
@@ -278,18 +292,12 @@ export function DatabaseDomainCard({
             )}
             {info.hostname && info.via !== "tunnel" && (
               <>
-                <p className="flex items-center gap-2 text-[13px]">
-                  <Lock className="size-3.5 text-muted" />
-                  <span className={cn(cert?.status === "active" ? "text-ok" : cert?.status === "failed" ? "text-bad" : "text-muted")}>
-                    {cert?.status === "active"
-                      ? "Certificate active"
-                      : cert?.status === "failed"
-                        ? `Certificate failed${cert.error ? `: ${cert.error.split("\n")[0].slice(0, 160)}` : ""}`
-                        : cert
-                          ? "Getting a certificate…"
-                          : "No certificate yet"}
-                  </span>
-                </p>
+                {cert?.status === "failed" && cert.error && (
+                  <p className="flex items-start gap-2 text-[12.5px] leading-relaxed text-bad">
+                    <TriangleAlert className="mt-0.5 size-3.5 flex-none" />
+                    <span>Certificate failed: {cert.error.split("\n")[0].slice(0, 160)}</span>
+                  </p>
+                )}
                 {info.unreachable && (
                   <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-fg-2">
                     <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />

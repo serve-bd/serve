@@ -109,6 +109,14 @@ export async function scheduleTasks() {
       const prev = CronExpressionParser.parse(t.schedule, { currentDate: now, tz }).prev().toDate().getTime();
       if (now.getTime() - prev < 60_000 && lastFired.get(t.id) !== prev) {
         lastFired.set(t.id, prev);
+        // A run still going (or still queued behind one) skips this one: a task slower than its
+        // schedule would otherwise queue a new run every time and the queue would never empty.
+        const [busy] = await db
+          .select({ id: schema.taskRun.id })
+          .from(schema.taskRun)
+          .where(and(eq(schema.taskRun.taskId, t.id), eq(schema.taskRun.status, "running")))
+          .limit(1);
+        if (busy) continue;
         await startTaskRun({ serviceId: t.serviceId, taskId: t.id, command: t.command, trigger: "schedule" });
       }
     } catch {

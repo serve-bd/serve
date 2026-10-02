@@ -1,5 +1,6 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: API answers are checked field by field in the tests.
 import crypto from "node:crypto";
+import http from "node:http";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -10,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  *   SERVE_E2E_TOKEN=srv_...            (an Admin token of an organization admin) \
  *   SERVE_E2E_DATABASE_URL=postgres://... (optional: the instance's database, for the permission tests) \
  *   SERVE_E2E_SERVER=<server id>         (optional: deploy there instead of the default server) \
+ *   SERVE_E2E_PROXY_URL=http://127.0.0.1:8080 (optional: this machine's proxy, for the host port test) \
  *   pnpm test:e2e
  *
  * Everything the tests create is named zz-e2e-* and removed at the end. They deploy real
@@ -379,6 +381,50 @@ run("main flows", () => {
     expect((await runCommand(dbId, psql("select email from zz_people", child.database))).output).not.toContain("only-in-safe");
     await ok(ADMIN, "DELETE", `/branches/${child.id}`);
     await ok(ADMIN, "DELETE", `/branches/${branch.id}`);
+  });
+
+  it("reaches an app on this machine's 127.0.0.1 from a custom proxy file", async () => {
+    const proxyUrl = process.env.SERVE_E2E_PROXY_URL;
+    if (!proxyUrl || process.env.SERVE_E2E_SERVER) return;
+    // Listens on loopback only: the proxy container could not reach it without the relay.
+    const app = http.createServer((req, res) => res.end(`host app saw ${req.headers.host}`));
+    await new Promise<void>((resolve) => app.listen(0, "127.0.0.1", resolve));
+    const port = (app.address() as { port: number }).port;
+    const name = "zz-e2e-host-port.conf";
+    const host = "zz-e2e-host-port.test";
+    try {
+      await ok(ADMIN, "PUT", `/servers/local/proxy/files/${name}`, {
+        content: `server {\n    listen 80;\n    server_name ${host};\n    location / {\n        proxy_pass http://127.0.0.1:${port};\n        proxy_set_header Host $host;\n    }\n}\n`,
+      });
+      const body = await until(
+        "host port relay",
+        async () => {
+          // fetch() leaves out a Host header it is given: a plain request sends it.
+          const text = await new Promise<string>((resolve) => {
+            const req = http.get(proxyUrl, { headers: { host } }, (r) => {
+              let data = "";
+              r.on("data", (c) => (data += c));
+              r.on("end", () => resolve(data));
+            });
+            req.on("error", () => resolve(""));
+          });
+          return text.startsWith("host app saw") ? text : null;
+        },
+        60_000,
+      );
+      expect(body).toBe(`host app saw ${host}`);
+      // A port the proxy uses itself is refused, not half applied.
+      expect(
+        (
+          await api(ADMIN, "PUT", "/servers/local/proxy/files/zz-e2e-bad.conf", {
+            content: "server { listen 80; server_name bad.test; location / { proxy_pass http://127.0.0.1:443; } }",
+          })
+        ).status,
+      ).toBe(400);
+    } finally {
+      await api(ADMIN, "DELETE", `/servers/local/proxy/files/${name}`);
+      await new Promise((resolve) => app.close(resolve));
+    }
   });
 
   it("keeps a token limited to its projects", async () => {

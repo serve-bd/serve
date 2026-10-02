@@ -8,6 +8,8 @@ export const branchReference = (serviceRefName: string, branch: string, key = "D
 
 /** The name of a pull request preview's branch. */
 export const previewBranchName = (pr: number) => `pr-${pr}`;
+/** Names like pr-12 belong to pull request previews: a branch made by hand with one would be taken over by the preview. */
+export const isPreviewBranchName = (name: string) => /^pr-\d+$/.test(name);
 
 /**
  * The database and role a branch uses inside Postgres: the main database's name and the branch

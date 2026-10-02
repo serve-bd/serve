@@ -399,6 +399,13 @@ export async function createBranch(
     .from(schema.databaseUser)
     .where(and(eq(schema.databaseUser.serviceId, service.id), eq(schema.databaseUser.username, username)));
   if (taken && !isKeyValue(engine)) throw new BranchNameError(`The database user ${username} uses this name. Choose another branch name.`);
+  // The copy drops the branch's database first, and deleting the branch drops it too: a database of
+  // that name made some other way (a migration, the Query tab) would be lost.
+  if (!isKeyValue(engine) && service.status === "running") {
+    const main = databaseCreds(service.database, decrypt(service.database.password));
+    const found = parseListing(engine, await run(service, listDatabasesScript(engine, main), [main.password])).databases;
+    if (found.includes(database)) throw new BranchNameError(`${service.name} has a database named ${database} already. Choose another branch name.`);
+  }
   const [branch] = await db
     .insert(schema.databaseBranch)
     .values({
@@ -594,6 +601,10 @@ export async function createPreviewBranch(preview: Service, source: Service, prN
     .select()
     .from(schema.databaseBranch)
     .where(and(eq(schema.databaseBranch.serviceId, source.id), eq(schema.databaseBranch.name, name)));
+  // A branch made by hand with this name (before such names were kept for previews) is not taken
+  // over: its data would be replaced, its login handed to the pull request, and it would go with the preview.
+  if (existing?.createdBy && !existing.previewServiceId)
+    throw new Error(`${source.name} has a branch named ${name} that was not made for previews. Delete it so the preview can make its own.`);
   const branch = existing
     ? (await db.update(schema.databaseBranch).set({ status: "resetting", previewServiceId: preview.id }).where(eq(schema.databaseBranch.id, existing.id)).returning())[0]
     : await createBranch(source, name, { previewServiceId: preview.id });

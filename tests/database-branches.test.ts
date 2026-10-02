@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 // The scripts are plain text; the database module is never reached.
 vi.mock("@/server/db", () => ({ db: {}, schema: {} }));
-import { branchDatabaseName, branchNamePattern, branchReference, previewBranchName } from "@/lib/database-branches";
+import { branchDatabaseName, branchNamePattern, branchReference, isPreviewBranchName, previewBranchName } from "@/lib/database-branches";
 import { branchScripts, createScript, deleteScript, maxBranches } from "@/server/databases/branches";
 
 describe("database branches", () => {
@@ -16,6 +16,9 @@ describe("database branches", () => {
     for (const ok of ["feature-x", "pr-12", "a"]) expect(branchNamePattern.test(ok)).toBe(true);
     for (const bad of ["-x", "x-", "Feature", "a_b", "a.b", "x".repeat(31)]) expect(branchNamePattern.test(bad)).toBe(false);
     expect(previewBranchName(7)).toBe("pr-7");
+    // Kept for previews: a branch made by hand with such a name would be taken over by one.
+    expect(isPreviewBranchName(previewBranchName(12))).toBe(true);
+    for (const own of ["pr", "pr-x", "pr-12-a", "my-pr-1"]) expect(isPreviewBranchName(own)).toBe(false);
   });
 
   it("builds references", () => {

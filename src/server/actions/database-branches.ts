@@ -8,7 +8,7 @@ import { db, schema } from "@/server/db";
 import { serviceInOrg } from "@/server/services/access";
 import { allDatabaseEngines, BranchNameError, branchesSupported, branchScrubEngines, createBranch, enqueueBranchJob, maxBranches } from "@/server/databases/branches";
 import { logActivity } from "@/server/activity";
-import { branchNamePattern } from "@/lib/database-branches";
+import { branchNamePattern, isPreviewBranchName } from "@/lib/database-branches";
 
 const nameSchema = z.string().trim().toLowerCase().regex(branchNamePattern, "Use lowercase letters, digits and dashes, up to 30 characters, like feature-login");
 
@@ -58,6 +58,7 @@ export async function createDatabaseBranch(serviceId: string, rawName: string, o
     if (!branchesSupported(service) || !service.database) throw new UserError("Branches are available for database services.");
     if (service.status !== "running") throw new UserError(`${service.name} is not running. Start it to branch its data.`);
     const name = nameSchema.parse(rawName);
+    if (isPreviewBranchName(name)) throw new UserError(`Names like ${name} are kept for pull request previews. Choose another name.`);
     const existing = await db.select({ name: schema.databaseBranch.name }).from(schema.databaseBranch).where(eq(schema.databaseBranch.serviceId, service.id));
     if (existing.some((b) => b.name === name)) throw new UserError(`A branch named ${name} exists already.`);
     // Each branch is a full copy of the data; Redis and Valkey have 15 spare database numbers.

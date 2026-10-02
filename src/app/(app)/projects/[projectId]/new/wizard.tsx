@@ -489,7 +489,7 @@ function GitForm({ props, onBack, access }: { props: Props; onBack: () => void; 
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Builder" description={props.nixpacks || compose ? undefined : <NixpacksHint />}>
+        <Field label="Builder" description={builder === "nixpacks" && !props.nixpacks ? <NixpacksHint /> : undefined}>
           <Select
             value={builder}
             onValueChange={setBuilder}
@@ -497,7 +497,7 @@ function GitForm({ props, onBack, access }: { props: Props; onBack: () => void; 
               { value: "auto", label: "Automatic", description: "Dockerfile if present, otherwise detect" },
               { value: "dockerfile", label: "Dockerfile" },
               { value: "compose", label: "Docker Compose", description: "Run the repository's compose file" },
-              { value: "nixpacks", label: "Nixpacks", description: props.nixpacks ? "Installed" : "Not installed (how to add it is below)", disabled: !props.nixpacks },
+              { value: "nixpacks", label: "Nixpacks", description: props.nixpacks ? "Installed" : "Not installed yet" },
               { value: "static", label: "Static site", description: "Served by nginx" },
             ]}
           />

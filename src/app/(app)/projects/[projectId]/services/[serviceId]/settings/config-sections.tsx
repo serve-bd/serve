@@ -52,7 +52,7 @@ export function BuildSection({
       >
         {(v, set) => (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Builder" description={nixpacks ? undefined : <NixpacksHint />}>
+            <Field label="Builder" description={v.builder === "nixpacks" && !nixpacks ? <NixpacksHint /> : undefined}>
               <Select
                 value={v.builder}
                 onValueChange={async (b) => {
@@ -71,7 +71,7 @@ export function BuildSection({
                 options={[
                   { value: "auto", label: "Automatic", description: "Dockerfile if present, otherwise detect" },
                   { value: "dockerfile", label: "Dockerfile" },
-                  { value: "nixpacks", label: "Nixpacks", disabled: !nixpacks, description: nixpacks ? undefined : "Not installed (how to add it is below)" },
+                  { value: "nixpacks", label: "Nixpacks", description: nixpacks ? undefined : "Not installed yet" },
                   { value: "static", label: "Static site" },
                   ...(composeHref ? [{ value: "compose", label: "Docker Compose", description: "Runs the repository's compose file as a new service" }] : []),
                 ]}

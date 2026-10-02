@@ -13,6 +13,8 @@ import { defaultRuntime, type RuntimeConfig } from "@/server/services/types";
 import { toServiceName } from "@/lib/service-name";
 import { type AdoptPlan, choosePort, listeningPorts, planAdoption } from "./plan";
 import { retiredName } from "./handoff";
+import { volumeName } from "@/server/deploy/containers";
+import { volumesFor } from "@/server/deploy/image-volumes";
 
 export type { AdoptPlan } from "./plan";
 
@@ -105,29 +107,34 @@ export type AdoptInput = {
   environmentId: string;
   name?: string;
   as: "database" | "container";
+  /** move: the service takes over the container's data and names. copy: it keeps running; the service gets a copy of its data. */
+  mode: "move" | "copy";
   /** The database password, when the one in its variables is wrong or missing. */
   password?: string;
   userId: string;
 };
 
-/** Creates the service and queues the deployment that takes over from the container. */
+/** Creates the service and queues the deployment that takes over from the container, or copies it. */
 export async function adoptContainer(input: AdoptInput, reserved: { cpuLimit: number | null; memoryLimit: number | null }) {
   const server = await getServer(input.serverId);
   const plan = await adoptionPlan(server, input.containerId);
   if (plan.blockers.length) throw new UserError(plan.blockers[0]);
   const asDatabase = input.as === "database";
+  const copy = input.mode === "copy";
   if (asDatabase && !plan.database) throw new UserError(plan.databaseProblems[0] ?? "This container cannot move as a database. Move it as a container.");
   const password = input.password || plan.database?.password || "";
   if (asDatabase && !(await checkDatabaseLogin(server, plan, password))) {
-    throw new UserError("Serve could not sign in to the database with this password. Type the right one, or move it as a container.");
+    throw new UserError("Serve could not sign in to the database with this password. Type the right one, or use it as a container.");
   }
 
   const id = newId();
   const name = await uniqueServiceName(input.environmentId, toServiceName(input.name || plan.container.name) || "service");
   const slug = await uniqueServiceSlug(name);
   const hostname = await freeHostname(input.environmentId, plan.hostname);
+  let copied: { from: string; to: string }[] = [];
   const base: Partial<RuntimeConfig> = {
-    networks: plan.networks,
+    // A copy is reached by its name in the project only: on the old networks, the original answers.
+    networks: copy ? [] : plan.networks,
     memoryLimit: plan.memoryLimit ?? reserved.memoryLimit,
     cpuLimit: plan.cpuLimit ?? reserved.cpuLimit,
     shmSize: plan.shmSize,
@@ -148,7 +155,13 @@ export async function adoptContainer(input: AdoptInput, reserved: { cpuLimit: nu
       slug,
       hostname,
       type: "database",
-      runtime: { ...defaultRuntime(engine.port), ...base, restartPolicy: plan.restartPolicy === "no" ? "unless-stopped" : plan.restartPolicy, volumes: d.volumes },
+      runtime: {
+        ...defaultRuntime(engine.port),
+        ...base,
+        restartPolicy: plan.restartPolicy === "no" ? "unless-stopped" : plan.restartPolicy,
+        // A copy keeps only read-only folders (settings) of the original; its data is its own.
+        volumes: copy ? d.volumes.filter((v) => v.kind === "bind" && v.readOnly) : d.volumes,
+      },
       database: {
         engine: d.engine,
         version: d.version,
@@ -156,12 +169,12 @@ export async function adoptContainer(input: AdoptInput, reserved: { cpuLimit: nu
         username: d.username,
         password: encrypt(password),
         database: d.database,
-        dataVolume: d.dataVolume,
-        dataMountPath: d.dataMountPath,
-        pgdata: d.pgdata,
+        // A copy starts on a volume of its own, laid out as Serve lays out new databases.
+        ...(copy ? {} : { dataVolume: d.dataVolume, dataMountPath: d.dataMountPath, pgdata: d.pgdata }),
         extraArgs: d.extraArgs,
-        publicPort: d.publicPort,
-        publicBind: d.publicBind,
+        // The original keeps its host port.
+        publicPort: copy ? null : d.publicPort,
+        publicBind: copy ? undefined : d.publicBind,
         backupSchedule: null,
         backupRetention: 7,
         s3DestinationId: null,
@@ -169,6 +182,16 @@ export async function adoptContainer(input: AdoptInput, reserved: { cpuLimit: nu
       webhookSecret: newWebhookSecret(),
     });
   } else {
+    // A copy gets volumes of its own, filled from the original's before the first start. Folders on
+    // the server stay shared: two containers may use the same folder, and Serve cannot tell a file from one.
+    const own = copy
+      ? volumesFor(
+          plan.volumes.filter((v) => v.external).map((v) => v.mountPath),
+          [],
+        )
+      : [];
+    const volumes = copy ? [...plan.volumes.filter((v) => !v.external), ...own] : plan.volumes;
+    copied = copy ? plan.volumes.filter((v) => v.external).map((v, i) => ({ from: v.source, to: volumeName(slug, own[i].source) })) : [];
     await db.insert(schema.service).values({
       id,
       projectId: input.projectId,
@@ -184,8 +207,9 @@ export async function adoptContainer(input: AdoptInput, reserved: { cpuLimit: nu
         ...defaultRuntime(plan.port),
         ...base,
         restartPolicy: plan.restartPolicy,
-        volumes: plan.volumes,
-        ports: plan.ports,
+        volumes,
+        // The original keeps its host ports.
+        ports: copy ? [] : plan.ports,
         entrypoint: plan.entrypoint,
         workingDir: plan.workingDir,
         user: plan.user,
@@ -200,6 +224,9 @@ export async function adoptContainer(input: AdoptInput, reserved: { cpuLimit: nu
       await db.insert(schema.envVar).values(plan.env.map((v) => ({ id: newId(), serviceId: id, key: v.key, value: encrypt(v.value), buildTime: false, runtime: true })));
     }
   }
-  const deploymentId = await queueDeployment(id, "create", { userId: input.userId, adopt: { containerId: plan.container.id, name: plan.container.name } });
+  const deploymentId = await queueDeployment(id, "create", {
+    userId: input.userId,
+    adopt: { containerId: plan.container.id, name: plan.container.name, ...(copy ? { mode: "copy" as const, volumes: copied } : {}) },
+  });
   return { id, name, deploymentId };
 }

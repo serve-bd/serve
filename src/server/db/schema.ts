@@ -587,8 +587,11 @@ export const deployment = pgTable(
     registryImage: text("registry_image"),
     /** Per-server status when the service runs on more than one server. */
     targets: jsonb("targets").$type<DeploymentTarget[]>(),
-    /** A container made outside Serve that this deployment takes over: stopped once the service runs in its place. */
-    adopt: jsonb("adopt").$type<{ containerId: string; name: string }>(),
+    /**
+     * A container made outside Serve that this deployment takes over (move: stopped once the service
+     * runs in its place) or copies (copy: it keeps running; its data is copied into the service).
+     */
+    adopt: jsonb("adopt").$type<{ containerId: string; name: string; mode?: "move" | "copy"; volumes?: { from: string; to: string }[] }>(),
     logs: text("logs").notNull().default(""),
     error: text("error"),
     createdBy: text("created_by").references(() => user.id, {

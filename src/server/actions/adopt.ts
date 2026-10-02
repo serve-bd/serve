@@ -71,10 +71,11 @@ const adoptInput = containerInput.extend({
   environmentId: z.string().min(1),
   name: z.string().trim().max(60).optional(),
   as: z.enum(["database", "container"]),
+  mode: z.enum(["move", "copy"]).default("move"),
   password: z.string().max(500).optional(),
 });
 
-/** Moves a container into a project: a service takes its place on the same data, ports and names. */
+/** Moves a container into a project (a service takes its place on the same data, ports and names), or copies it. */
 export async function moveContainerIntoProject(raw: z.input<typeof adoptInput>) {
   return act(async () => {
     const input = adoptInput.parse(raw);
@@ -90,7 +91,7 @@ export async function moveContainerIntoProject(raw: z.input<typeof adoptInput>) 
       action: "service.created",
       targetType: "service",
       targetId: made.id,
-      message: `Moved container ${made.name} into the project`,
+      message: `${input.mode === "copy" ? "Copied" : "Moved"} container ${made.name} into the project`,
     });
     return { id: made.id, projectId: input.projectId, deploymentId: made.deploymentId };
   });

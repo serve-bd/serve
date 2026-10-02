@@ -1,7 +1,10 @@
 import type Docker from "dockerode";
 
-/** A container made outside Serve that a deployment takes over. */
-export type Handoff = { containerId: string; name: string };
+/**
+ * A container made outside Serve that a deployment takes over (move) or copies (copy). A copy of
+ * a container lists the volumes or folders copied into the service's own volumes.
+ */
+export type Handoff = { containerId: string; name: string; mode?: "move" | "copy"; volumes?: { from: string; to: string }[] };
 
 /** The name the old container keeps once a service runs in its place. */
 export const retiredName = (name: string) => `${name}-before-serve`;

@@ -27,6 +27,7 @@ import { defaultRepository, imageRef, normalizeRepository, renderTag } from "@/s
 import { replicaCount, replicaEnv, shortReplicaPicks } from "@/lib/refs";
 import type { DeploymentTarget } from "@/server/services/types";
 import { type Handoff, restartPolicyOf, restoreOld, retireOld } from "@/server/adopt/handoff";
+import { copyDatabaseInto, copyVolumesInto } from "@/server/adopt/copy";
 import { createSpec, dockerRestartPolicy, gpuError, startContainer, volumeName, waitHealthy } from "./containers";
 import { serverPlatform } from "./options";
 import { type BuildNetwork, networkHosts } from "./build-network";
@@ -572,7 +573,9 @@ async function runOnServer(opts: {
   const needsStopFirst = runtime.ports.length > 0 || recreate || stateful.length > 0;
   // The container taken over goes before the new ones start when they share its data or ports;
   // else it serves until the new ones are healthy.
-  const adopt = opts.adopt ?? null;
+  // A copy leaves the container running: only its data is copied in, before the first start.
+  const copyFrom = opts.adopt?.mode === "copy" ? opts.adopt : null;
+  const adopt = copyFrom ? null : (opts.adopt ?? null);
   const adoptFirst = !!adopt && (needsStopFirst || runtime.volumes.some((v) => v.kind !== "file"));
   const adoptPolicy = adopt ? await restartPolicyOf(d, adopt) : null;
   if (stateful.length && replicas > 1) {
@@ -582,7 +585,7 @@ async function runOnServer(opts: {
   }
   if (runtime.ports.length) {
     // Fail before touching the running version when another container holds a port.
-    await assertPortsFree(d, server.name, runtime.ports, service.id, opts.adopt?.containerId);
+    await assertPortsFree(d, server.name, runtime.ports, service.id, adopt?.containerId);
   }
   await assertOutsideDataFree(
     d,
@@ -631,6 +634,10 @@ async function runOnServer(opts: {
         .getContainer(c.Id)
         .stop({ t: stopWait })
         .catch(() => {});
+  }
+  if (copyFrom?.volumes?.length) {
+    log.step(`Copying the data of ${copyFrom.name}`);
+    await copyVolumesInto(d, copyFrom, log.line);
   }
   if (adopt && adoptFirst) {
     log.step(`Taking over from ${adopt.name}`);
@@ -884,7 +891,10 @@ async function pruneImages(service: Service, server: ServerCtx, current: string)
 /*                                 Databases                                  */
 /* -------------------------------------------------------------------------- */
 
-export async function deployDatabase(service: Service, log: DeployLogger | null, signal?: AbortSignal, adopt: Handoff | null = null) {
+export async function deployDatabase(service: Service, log: DeployLogger | null, signal?: AbortSignal, handoff: Handoff | null = null) {
+  // A copy leaves the container running: its data is dumped and restored once the database is up.
+  const copyFrom = handoff?.mode === "copy" ? handoff : null;
+  const adopt = copyFrom ? null : handoff;
   const server = await serverOf(service);
   const d = server.docker;
   const cfg = service.database!;
@@ -1002,6 +1012,10 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
       server,
     );
     line(`${engine.label} is ready`);
+    if (copyFrom) {
+      log?.step(`Copying the data of ${copyFrom.name}`);
+      await copyDatabaseInto(service, d, copyFrom, line);
+    }
     await setServiceStatus(service.id, "running");
     await meshAfterStart(server.id, line);
   }

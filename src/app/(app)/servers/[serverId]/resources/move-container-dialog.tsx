@@ -37,6 +37,7 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
   const [environmentId, setEnvironmentId] = React.useState("");
   const [name, setName] = React.useState("");
   const [as, setAs] = React.useState<"database" | "container">("container");
+  const [mode, setMode] = React.useState<"move" | "copy">("move");
   const [password, setPassword] = React.useState("");
 
   React.useEffect(() => {
@@ -49,6 +50,7 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
       if (!res.ok) return setLoadError(res.error);
       const p = res.data;
       setPreview(p);
+      setMode("move");
       setName(p.name);
       setAs(p.database ? "database" : "container");
       setProjectId(p.projects[0]?.id ?? "");
@@ -68,6 +70,7 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
         environmentId,
         name,
         as,
+        mode,
         password: as === "database" && password ? password : undefined,
       }),
     {
@@ -82,7 +85,12 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
   const project = preview?.projects.find((p) => p.id === projectId);
   const db = preview?.database;
   const needsPassword = as === "database" && !!db && !db.loginWorks;
+  const copy = mode === "copy";
   const stops = as === "database" || (preview?.volumes.length ?? 0) > 0 || (preview?.ports.length ?? 0) > 0;
+  // A copy of a container copies its volumes (folders on the server stay shared) with it stopped.
+  const copiedVolumes = preview?.volumes.filter((v) => v.kind === "volume") ?? [];
+  const sharedFolders = preview?.volumes.filter((v) => v.kind === "bind") ?? [];
+  const dumpTool: Record<string, string> = { postgres: "pg_dump", mysql: "mysqldump", mariadb: "mariadb-dump", mongodb: "mongodump", redis: "an RDB dump", valkey: "an RDB dump" };
   const blocked = !!preview?.blockers.length || !preview?.projects.length;
 
   return (
@@ -95,8 +103,12 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
           }}
         >
           <DialogHeader
-            title={`Move ${container?.name ?? "container"} into a project`}
-            description="A service takes its place on the same data, ports and names. Nothing is copied, and the old container is kept, stopped."
+            title={`${copy ? "Copy" : "Move"} ${container?.name ?? "container"} into a project`}
+            description={
+              copy
+                ? "The container keeps running as it is. A new service gets its own copy of the data, under the same name in the project."
+                : "A service takes its place on the same data, ports and names. Nothing is copied, and the old container is kept, stopped."
+            }
           />
           <DialogBody className="flex flex-col gap-4">
             {loadError ? (
@@ -113,6 +125,19 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                   </p>
                 ))}
                 {!preview.projects.length && <p className="rounded-lg bg-warn-soft px-3 py-2.5 text-[13px] text-warn">Create a project first.</p>}
+
+                <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
+                  {(["move", "copy"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMode(m)}
+                      className={cn("h-8 rounded-lg text-[13px] font-medium transition-all", mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
+                    >
+                      {m === "move" ? "Move" : "Copy"}
+                    </button>
+                  ))}
+                </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Project">
@@ -187,18 +212,29 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                       </span>
                     )}
                   </Kept>
-                  {preview.volumes.length > 0 && (
-                    <Kept icon={<HardDrive />} label="Data, used where it is">
-                      {preview.volumes.map((v) => (
-                        <div key={v.mountPath} className="truncate font-mono text-[12px]">
-                          {v.source} <span className="text-faint">→</span> {v.mountPath}
-                        </div>
-                      ))}
+                  {copy && as === "database" && db ? (
+                    <Kept icon={<HardDrive />} label="Data, copied">
+                      Every database, dumped with {dumpTool[db.engine] ?? "its own tools"} and restored into a volume of its own
                     </Kept>
+                  ) : (
+                    preview.volumes.length > 0 && (
+                      <Kept icon={<HardDrive />} label={copy ? "Data" : "Data, used where it is"}>
+                        {preview.volumes.map((v) => (
+                          <div key={v.mountPath} className="truncate font-mono text-[12px]">
+                            {v.source} <span className="text-faint">→</span> {v.mountPath}
+                            {copy && <span className="font-sans text-muted"> · {v.kind === "volume" ? "copied" : "shared"}</span>}
+                          </div>
+                        ))}
+                      </Kept>
+                    )
                   )}
                   {preview.ports.length > 0 && (
                     <Kept icon={<Plug />} label="Host ports">
-                      <span className="font-mono text-[12px]">{preview.ports.join("  ")}</span>
+                      {copy ? (
+                        <span className="text-muted">Stay with the original ({preview.ports.join("  ")})</span>
+                      ) : (
+                        <span className="font-mono text-[12px]">{preview.ports.join("  ")}</span>
+                      )}
                     </Kept>
                   )}
                   <Kept icon={<Network />} label="Names other containers reach it by">
@@ -207,20 +243,30 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                         <span className="font-mono text-[12px]">{preview.hostname}</span> <span className="text-muted">in the project</span>
                       </div>
                     )}
-                    {preview.networks.map((n) => (
-                      <div key={n.name} className="truncate">
-                        <span className="font-mono text-[12px]">{n.aliases.join(", ")}</span> <span className="text-muted">on {n.name}</span>
-                      </div>
-                    ))}
+                    {copy
+                      ? preview.networks.length > 0 && <div className="text-muted">Its names on {preview.networks.map((n) => n.name).join(", ")} stay with the original.</div>
+                      : preview.networks.map((n) => (
+                          <div key={n.name} className="truncate">
+                            <span className="font-mono text-[12px]">{n.aliases.join(", ")}</span> <span className="text-muted">on {n.name}</span>
+                          </div>
+                        ))}
                   </Kept>
                 </div>
 
                 <p className="text-xs leading-relaxed text-muted">
-                  {stops
-                    ? "It stops for a few seconds while the service starts in its place: two containers cannot share its data or ports. If the service does not start, the old container starts again."
-                    : "No downtime: the service starts first, and the old container stops once it is healthy."}
+                  {copy
+                    ? as === "database" && db
+                      ? `No downtime: it keeps running while Serve copies it. Changes made after the copy stay in the original only.${
+                          ["postgres", "mysql", "mariadb"].includes(db.engine) ? ` Users other than ${db.username} are not copied.` : ""
+                        }`
+                      : copiedVolumes.length
+                        ? `It stops while its volumes are copied, then starts again: a few seconds for small data, longer for big data.${sharedFolders.length ? " Folders on the server stay shared with it." : ""}`
+                        : "No downtime: there is no data to copy."
+                    : stops
+                      ? "It stops for a few seconds while the service starts in its place: two containers cannot share its data or ports. If the service does not start, the old container starts again."
+                      : "No downtime: the service starts first, and the old container stops once it is healthy."}
                 </p>
-                {preview.volumes.some((v) => v.kind === "volume") && (
+                {!copy && preview.volumes.some((v) => v.kind === "volume") && (
                   <p className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2.5 text-xs leading-relaxed text-warn">
                     <AlertTriangle className="mt-0.5 size-3.5 flex-none" />
                     The service uses these volumes from now on. If you remove the old app in the tool that made it, keep its volumes: deleting them deletes this data.
@@ -243,7 +289,7 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
             <Button type="submit" size="sm" variant="primary" disabled={!preview || blocked || !environmentId} loading={move.pending}>
-              Move into project
+              {copy ? "Copy into project" : "Move into project"}
             </Button>
           </DialogFooter>
         </form>

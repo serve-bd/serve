@@ -274,6 +274,33 @@ async function restoreWith(t: Commands, file: string, log: (line: string) => voi
 }
 
 /** Dump a database service into a file on this machine. Returns the size. */
+/**
+ * Dumps a database container Serve does not manage (one being copied into a project), with the
+ * same commands as a backup. `databases`: every database of it, where the engine takes several.
+ */
+export async function dumpOutsideDatabase(
+  docker: Docker,
+  containerId: string,
+  engine: DatabaseConfig["engine"],
+  creds: { username: string; password: string; database: string },
+  databases: string[] | null,
+  file: string,
+) {
+  const e = engines[engine];
+  const c = { ...creds, tlsRequired: false };
+  const several = databases?.length && e.backupDatabasesCommand ? e.backupDatabasesCommand(c, databases) : null;
+  const t = {
+    docker,
+    container: docker.getContainer(containerId),
+    engine,
+    backup: several ? several.command : e.backupCommand(c),
+    restore: "",
+    password: creds.password,
+    database: creds.database,
+  } satisfies Commands;
+  return { size: await dumpWith(t, file), extension: several ? several.extension : e.backupExtension };
+}
+
 export async function dumpDatabase(service: ServiceRow, file: string) {
   return dumpWith(await databaseCommands(service), file);
 }

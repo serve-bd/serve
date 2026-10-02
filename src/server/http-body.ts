@@ -20,3 +20,14 @@ export async function readBodyLimited(request: Request, max: number): Promise<st
   }
   return Buffer.concat(chunks).toString("utf8");
 }
+
+/** A JSON request body read no further than `max` bytes; `fallback` when it is larger, unreadable or not JSON. */
+export async function readJsonLimited(request: Request, max: number, fallback: unknown): Promise<unknown> {
+  const text = await readBodyLimited(request, max).catch(() => null);
+  if (text === null) return fallback;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
+}

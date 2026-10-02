@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readBodyLimited } from "@/server/http-body";
+import { readBodyLimited, readJsonLimited } from "@/server/http-body";
 
 const chunked = (parts: string[]) =>
   new Request("http://x/", {
@@ -24,5 +24,13 @@ describe("readBodyLimited", () => {
   });
   it("reads an empty body", async () => {
     expect(await readBodyLimited(new Request("http://x/"), 10)).toBe("");
+  });
+});
+
+describe("readJsonLimited", () => {
+  it("parses JSON within the limit and falls back otherwise", async () => {
+    expect(await readJsonLimited(chunked(['{"a":', "1}"]), 100, null)).toEqual({ a: 1 });
+    expect(await readJsonLimited(chunked(['{"a":"', "x".repeat(200), '"}']), 100, null)).toBeNull();
+    expect(await readJsonLimited(chunked(["not json"]), 100, {})).toEqual({});
   });
 });

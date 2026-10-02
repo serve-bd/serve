@@ -4,6 +4,7 @@ import { openHostSession } from "@/server/services/terminal";
 import { hostInfo } from "@/server/system";
 import { logActivity } from "@/server/activity";
 import { serverRoute } from "@/server/servers/route-auth";
+import { readJsonLimited } from "@/server/http-body";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/servers
   const { serverId } = await ctx.params;
   const auth = await serverRoute(serverId);
   if ("error" in auth) return auth.error;
-  const parsed = bodySchema.safeParse(await (Number(request.headers.get("content-length") ?? 0) > 65_536 ? Promise.resolve({}) : request.json().catch(() => ({}))));
+  const parsed = bodySchema.safeParse(await readJsonLimited(request, 65_536, {}));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   try {
     const session = await openHostSession({ userId: auth.admin.user.id, cols: parsed.data.cols, rows: parsed.data.rows, serverId });

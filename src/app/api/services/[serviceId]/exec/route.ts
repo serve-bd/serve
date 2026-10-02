@@ -6,6 +6,7 @@ import { serviceInOrg } from "@/server/services/access";
 import { serviceHasHostAccess } from "@/server/security";
 import { execCommand, execTargets, pickContainer } from "@/server/services/exec";
 import { logActivity } from "@/server/activity";
+import { readJsonLimited } from "@/server/http-body";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/service
   }
   // Host mounts or privileged: a shell there is close to a shell on the host.
   if (serviceHasHostAccess(service) && !org.isInstanceAdmin) return NextResponse.json({ error: HOST_SHELL }, { status: 403 });
-  const parsed = bodySchema.safeParse(await (Number(request.headers.get("content-length") ?? 0) > 65_536 ? Promise.resolve({}) : request.json().catch(() => ({}))));
+  const parsed = bodySchema.safeParse(await readJsonLimited(request, 65_536, {}));
   if (!parsed.success) return NextResponse.json({ error: "Enter a command" }, { status: 400 });
   let container;
   try {

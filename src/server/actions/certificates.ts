@@ -122,6 +122,37 @@ async function certInOrg(id: string, orgId: string) {
   return cert;
 }
 
+/** Writes new files over an uploaded certificate. Its paths stay the same, so custom configs keep working. */
+export async function replaceCertificate(id: string, input: { certificate: string; privateKey: string }) {
+  return act(async () => {
+    const ctx = await requirePermission("integrations.manage");
+    const old = await certInOrg(id, ctx.org.id);
+    if (old.provider !== "custom") throw new UserError("Only uploaded certificates can be replaced.");
+    let parsed;
+    try {
+      parsed = await saveCustomCertificate(id, input.certificate, input.privateKey, old.serverId ?? LOCAL_SERVER_ID);
+    } catch (e) {
+      throw new UserError(`Could not read the certificate: ${(e as Error).message}`);
+    }
+    const [cert] = await db
+      .update(schema.certificate)
+      .set({
+        domains: parsed.names,
+        status: parsed.expiresAt < new Date() ? "expired" : "active",
+        certPath: parsed.certPath,
+        keyPath: parsed.keyPath,
+        issuer: parsed.issuer,
+        expiresAt: parsed.expiresAt,
+        lastError: null,
+      })
+      .where(eq(schema.certificate.id, id))
+      .returning();
+    // Sites on names the old files covered and the new ones do not are rendered again too.
+    await applyCertificate({ ...cert, domains: [...new Set([...old.domains, ...parsed.names])] });
+    return null;
+  });
+}
+
 export async function renewCertificate(id: string) {
   return act(async () => {
     const ctx = await requirePermission("integrations.manage");

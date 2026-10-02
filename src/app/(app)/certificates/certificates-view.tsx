@@ -17,7 +17,15 @@ import { LogViewer } from "@/components/log-viewer";
 import { Tooltip } from "@/components/ui/tooltip";
 import { explainCertError } from "@/lib/cert-errors";
 import { useAction } from "@/hooks/use-action";
-import { certificateLogs, deleteCertificate, renewCertificate, requestCertificate, setCertificateAutoRenew, uploadCertificate } from "@/server/actions/certificates";
+import {
+  certificateLogs,
+  deleteCertificate,
+  renewCertificate,
+  requestCertificate,
+  replaceCertificate,
+  setCertificateAutoRenew,
+  uploadCertificate,
+} from "@/server/actions/certificates";
 import { cn } from "@/lib/utils";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 
@@ -210,6 +218,41 @@ function RequestDialog({
             <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
             <Button type="submit" variant="primary" size="sm" loading={request.pending || upload.pending}>
               {tab === "request" ? "Request certificate" : "Upload certificate"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReplaceDialog({ cert: c, open, onClose }: { cert: Cert | null; open: boolean; onClose: () => void }) {
+  const [cert, setCert] = React.useState("");
+  const [key, setKey] = React.useState("");
+  const replace = useAction(() => replaceCertificate(c!.id, { certificate: cert, privateKey: key }), { onSuccess: onClose });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent size="lg">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void replace.run();
+          }}
+        >
+          <DialogHeader title={`Replace ${c?.name ?? "certificate"}`} description="The new files go to the same paths. Sites and custom configs pick them up." />
+          <DialogBody>
+            <Field label="Certificate (PEM)" description="Include the full chain.">
+              <Textarea value={cert} onChange={(e) => setCert(e.target.value)} rows={5} placeholder="-----BEGIN CERTIFICATE-----" className="font-mono text-[12px]" required />
+            </Field>
+            <Field label="Private key (PEM)">
+              <Textarea value={key} onChange={(e) => setKey(e.target.value)} rows={5} placeholder="-----BEGIN PRIVATE KEY-----" className="font-mono text-[12px]" required />
+            </Field>
+          </DialogBody>
+          <DialogFooter>
+            <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
+            <Button type="submit" size="sm" variant="primary" loading={replace.pending}>
+              Replace certificate
             </Button>
           </DialogFooter>
         </form>
@@ -452,6 +495,10 @@ export function CertificatesView({
 }) {
   const confirm = useConfirm();
   const [open, setOpen] = React.useState(false);
+  // A new key on each open: the dialog starts empty, not with the last values.
+  const [opened, setOpened] = React.useState(0);
+  const [replacing, setReplacing] = React.useState<Cert | null>(null);
+  const [replaceOpen, setReplaceOpen] = React.useState(false);
   const [logsFor, setLogsFor] = React.useState<string | null>(null);
   const renew = useAction(renewCertificate);
   const auto = useAction((id: string, on: boolean) => setCertificateAutoRenew(id, on));
@@ -464,7 +511,14 @@ export function CertificatesView({
         description="TLS certificates for your domains. Let's Encrypt certificates renew automatically 30 days before they expire."
         actions={
           isAdmin && (
-            <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => {
+                setOpened((n) => n + 1);
+                setOpen(true);
+              }}
+            >
               <Plus /> Add certificate
             </Button>
           )
@@ -502,7 +556,11 @@ export function CertificatesView({
                   serverIp={serverIp}
                   onRenew={() => renew.run(c.id)}
                   onLogs={() => setLogsFor(c.id)}
-                  onUpload={() => setOpen(true)}
+                  onUpload={() => {
+                    setOpened((n) => n + 1);
+                    setReplacing(c);
+                    setReplaceOpen(true);
+                  }}
                   onAutoRenew={(on) => auto.run(c.id, on)}
                   onDelete={async () => {
                     if (
@@ -520,7 +578,8 @@ export function CertificatesView({
             </div>
           )}
         </Card>
-        <RequestDialog open={open} onOpenChange={setOpen} accounts={accounts} hasAcme={hasAcme} servers={servers} />
+        <RequestDialog key={opened} open={open} onOpenChange={setOpen} accounts={accounts} hasAcme={hasAcme} servers={servers} />
+        <ReplaceDialog key={`r${opened}`} cert={replacing} open={replaceOpen} onClose={() => setReplaceOpen(false)} />
         <LogsDialog certId={logsFor} onClose={() => setLogsFor(null)} />
       </PageBody>
     </>

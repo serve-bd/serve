@@ -394,6 +394,18 @@ async function recover() {
       .set({ status: "failed", finishedAt: new Date(), output: "Interrupted: the worker restarted during this run." })
       .where(and(inArray(schema.taskRun.id, cutRuns), eq(schema.taskRun.status, "running")));
   }
+  // A branch copy or removal cut off by the restart would show "Copying data…" forever and block a reset.
+  for (const j of stale as unknown as { type: string; payload: JobPayloads["database.branch"] }[]) {
+    if (j.type !== "database.branch" || !j.payload?.branchId) continue;
+    await db
+      .update(schema.databaseBranch)
+      .set({
+        status: "failed",
+        error: j.payload.op === "delete" ? "Not deleted: the worker restarted. Delete it again." : "The worker restarted during the copy. Reset the branch to copy it again.",
+        updatedAt: new Date(),
+      })
+      .where(and(eq(schema.databaseBranch.id, j.payload.branchId), inArray(schema.databaseBranch.status, ["creating", "resetting", "deleting"])));
+  }
   // A start cut off by the restart left "deploying", which the monitor does not look at: the containers say what runs.
   for (const j of stale as unknown as { type: string; payload: { serviceId?: string } }[]) {
     if (j.type !== "service.start" || !j.payload?.serviceId) continue;

@@ -62,6 +62,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           directSupported: !!engine.tlsArgs,
           // With a public IP, a domain on its own port needs nothing on the computers that connect.
           publicIp: await serverPublicIp(service.serverId).catch(() => null),
+          allow: cfg.publicAllow ?? [],
           via: cfg.domainTunnelId ? ("tunnel" as const) : ("direct" as const),
           tunnels: tunnels.map((t) => ({ id: t.id, label: `Tunnel of ${t.account}` })),
           tunnelCommand: hostname ? `cloudflared access tcp --hostname ${hostname} --url localhost:${localPort}` : null,

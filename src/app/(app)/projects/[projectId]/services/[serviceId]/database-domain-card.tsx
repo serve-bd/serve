@@ -1,15 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { Check, Globe2, Lock, TriangleAlert } from "lucide-react";
+import { Check, Globe2, Lock, Plus, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { HelpTip } from "@/components/ui/help-tip";
-import { Input } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { SecretField } from "@/components/ui/secret-field";
 import { useAction } from "@/hooks/use-action";
 import { cn } from "@/lib/utils";
+import { inRanges, normalizeTrustedRanges } from "@/lib/trusted-proxies";
 import { saveDatabaseDomain } from "@/server/actions/database-domains";
 import type { ActionResult } from "@/server/action";
 
@@ -19,6 +20,8 @@ export type DatabaseDomainInfo = {
   directSupported: boolean;
   /** The server's public IP: a domain on its own port is then ready with nothing to run on clients. */
   publicIp: string | null;
+  /** The addresses let through the public port (Public access's list): empty is everyone. */
+  allow: string[];
   via: "direct" | "tunnel";
   tunnels: { id: string; label: string }[];
   /** What a client runs to reach a tunnel domain, and the URL it then uses. */
@@ -36,8 +39,36 @@ export type DatabaseDomainInfo = {
 };
 
 /** Reach the database at db.example.com on its own port, over TLS with the domain's certificate. */
-export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: { serviceId: string; info: DatabaseDomainInfo; hideSecrets?: boolean; canManage?: boolean }) {
+export function DatabaseDomainCard({
+  serviceId,
+  info,
+  hideSecrets,
+  canManage,
+  canManageAllow,
+  viewerIp,
+}: {
+  serviceId: string;
+  info: DatabaseDomainInfo;
+  hideSecrets?: boolean;
+  canManage?: boolean;
+  /** The allowed IPs are Public access's: changing them needs its rights too. */
+  canManageAllow?: boolean;
+  viewerIp?: string | null;
+}) {
   const [value, setValue] = React.useState(info.hostname ?? "");
+  const [allow, setAllow] = React.useState(info.allow.join("\n"));
+  // Saved elsewhere (Public access): the box shows the list in force.
+  const [savedAllow, setSavedAllow] = React.useState(info.allow.join(","));
+  if (savedAllow !== info.allow.join(",")) {
+    setSavedAllow(info.allow.join(","));
+    setAllow(info.allow.join("\n"));
+  }
+  const allowList = allow
+    .split(/[\s,]+/)
+    .map((a) => a.trim())
+    .filter(Boolean);
+  const parsedAllow = normalizeTrustedRanges(allowList, { anyWidth: true });
+  const allowNormalized = "ranges" in parsedAllow ? parsedAllow.ranges : allowList;
   // Own port when the server has a public IP: the domain then works with a plain URL, nothing to run.
   const ownPortReady = info.directSupported && !!info.publicIp;
   const defaultVia = ownPortReady || info.tunnels.length === 0 ? "direct" : "tunnel";
@@ -49,7 +80,7 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
   const [notice, setNotice] = React.useState<{ error: string | null; warnings: string[] }>({ error: null, warnings: [] });
   const save = useAction(async (hostname: string | null, route: "direct" | "tunnel" = via): Promise<ActionResult<{ warnings: string[] } | null>> => {
     setNotice({ error: null, warnings: [] });
-    const res = await saveDatabaseDomain(serviceId, hostname, route);
+    const res = await saveDatabaseDomain(serviceId, hostname, route, hostname && route === "direct" && canManageAllow !== false ? { allow: allowList } : {});
     if (!res.ok) {
       setNotice({ error: res.error, warnings: [] });
       return { ok: true as const, data: null };
@@ -57,8 +88,9 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
     setNotice({ error: null, warnings: res.data.warnings });
     return res;
   });
-  const changed = value.trim().toLowerCase() !== (info.hostname ?? "") || (!!info.hostname && (via !== info.via || info.unreachable));
   const tunnel = via === "tunnel";
+  const allowChanged = !tunnel && !!value.trim() && allowNormalized.join(",") !== info.allow.join(",");
+  const changed = value.trim().toLowerCase() !== (info.hostname ?? "") || (!!info.hostname && (via !== info.via || info.unreachable)) || allowChanged;
   const cert = info.certificate;
 
   return (
@@ -114,7 +146,7 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
               </div>
             )}
             <form
-              className="flex flex-col gap-2 sm:flex-row sm:items-end"
+              className="flex flex-col gap-4"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (changed) void save.run(value.trim() || null);
@@ -130,11 +162,37 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                   disabled={canManage === false}
                 />
               </Field>
-              <div className="flex gap-2">
+              {!tunnel && (
+                <Field
+                  label="Allowed IPs"
+                  error={"error" in parsedAllow ? parsedAllow.error : undefined}
+                  description={
+                    allowNormalized.length
+                      ? "Only these addresses can connect through the domain. Everyone else is dropped."
+                      : "Empty: anyone can connect, with the password. Add addresses or ranges (203.0.113.7, 10.0.0.0/8) to let only them in."
+                  }
+                >
+                  <Textarea
+                    value={allow}
+                    onChange={(e) => setAllow(e.target.value)}
+                    rows={2}
+                    spellCheck={false}
+                    placeholder={"203.0.113.7\n198.51.100.0/24"}
+                    className="font-mono text-[12.5px]"
+                    disabled={canManage === false || canManageAllow === false}
+                  />
+                  {viewerIp && !inRanges(viewerIp, allowNormalized) && canManage !== false && canManageAllow !== false && (
+                    <Button type="button" variant="ghost" size="sm" className="mt-1.5 self-start" onClick={() => setAllow((a) => (a.trim() ? `${a.trim()}\n` : "") + viewerIp)}>
+                      <Plus /> Add my IP ({viewerIp})
+                    </Button>
+                  )}
+                </Field>
+              )}
+              <div className="flex justify-end gap-2">
                 {info.hostname && (
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="danger-ghost"
                     size="sm"
                     className="h-9"
                     disabled={canManage === false}
@@ -149,7 +207,14 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                     Remove
                   </Button>
                 )}
-                <Button type="submit" variant="primary" size="sm" className="h-9" disabled={!changed || canManage === false} loading={save.pending && !!value}>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  className="h-9"
+                  disabled={!changed || "error" in parsedAllow || canManage === false}
+                  loading={save.pending && !!value}
+                >
                   <Globe2 /> Save
                 </Button>
               </div>

@@ -200,7 +200,16 @@ export function DatabaseOverview(props: {
             )}
           </CardBody>
         </Card>
-        {props.domain && <DatabaseDomainCard serviceId={props.serviceId} info={props.domain} hideSecrets={props.hideSecrets} canManage={props.canManageDomain} />}
+        {props.domain && (
+          <DatabaseDomainCard
+            serviceId={props.serviceId}
+            info={props.domain}
+            hideSecrets={props.hideSecrets}
+            canManage={props.canManageDomain}
+            canManageAllow={props.canManage}
+            viewerIp={props.viewerIp}
+          />
+        )}
         {!props.uptimeInSide && props.uptime}
       </div>
 

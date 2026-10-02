@@ -14,6 +14,7 @@ import { Cloudflare } from "@/server/cloudflare/api";
 import { serverPublicIp } from "@/server/servers/access";
 import { logActivity } from "@/server/activity";
 import { DATABASE_DNS_COMMENT, hostnamePattern } from "@/lib/database-domains";
+import { normalizeTrustedRanges } from "@/lib/trusted-proxies";
 
 const DNS_COMMENT = DATABASE_DNS_COMMENT;
 
@@ -23,7 +24,7 @@ const DNS_COMMENT = DATABASE_DNS_COMMENT;
  * domain is in a connected Cloudflare account, its DNS record is created too (DNS only: Cloudflare's
  * proxy does not carry database traffic). Through a tunnel: Cloudflare carries it, no port is opened.
  */
-export async function saveDatabaseDomain(serviceId: string, raw: string | null, via: "direct" | "tunnel" = "direct") {
+export async function saveDatabaseDomain(serviceId: string, raw: string | null, via: "direct" | "tunnel" = "direct", opts: { allow?: string[] | null } = {}) {
   return act(async () => {
     const ctx = await requirePermission("domains.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
@@ -34,6 +35,16 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
     const tunnelMode = !!hostname && via === "tunnel";
     const engine = engines[cfg.engine];
     if (hostname && !tunnelMode && !engine.tlsArgs) throw new UserError(`Serve cannot turn on TLS for ${engine.label}. Use a Cloudflare Tunnel for its domain.`);
+    // The addresses let through the domain's port (empty: everyone, with the password). Saved with
+    // the domain; the same list as Public access, so changing it needs the rights to change that too.
+    let allow: string[] | null | undefined;
+    if (opts.allow !== undefined && hostname && !tunnelMode) {
+      const r = normalizeTrustedRanges(opts.allow ?? [], { anyWidth: true });
+      if ("error" in r) throw new UserError(r.error);
+      allow = r.ranges.length ? r.ranges : null;
+      if ((allow ?? []).join(",") === (cfg.publicAllow ?? []).join(",")) allow = undefined;
+      else if (!ctx.can("services.manage") || !ctx.can("services.deploy")) throw new UserError("Changing the allowed IPs needs the rights to manage and deploy this service.");
+    }
     const previousTunnel = cfg.domainTunnelId ?? null;
     const previousHost = cfg.domain ?? null;
     const warnings: string[] = [];
@@ -76,6 +87,7 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
         ...next,
         publicPort: cfg.publicPort ?? (await freePublicPort(service, engine.port)),
         publicBind: "0.0.0.0",
+        ...(allow !== undefined ? { publicAllow: allow } : {}),
         // TLS the domain turns on is required, so a client cannot be talked down to plain text.
         // Generated URLs carry it for PostgreSQL and MongoDB; MySQL URLs cannot say so and
         // ClickHouse keeps plain ports, so those stay optional. A mode the user chose is kept.

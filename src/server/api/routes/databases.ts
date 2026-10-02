@@ -140,12 +140,16 @@ export const databaseRoutes: ApiRoute[] = [
     tag: "Databases",
     summary: "Put a database on a domain",
     description:
-      'via "direct": the database gets its own public port and speaks TLS with the domain\'s certificate. via "tunnel": reached through a Cloudflare Tunnel, no port opened. hostname null takes it off its domain.',
+      'via "direct": the database gets its own public port and speaks TLS with the domain\'s certificate. via "tunnel": reached through a Cloudflare Tunnel, no port opened. hostname null takes it off its domain. allow (direct only): the addresses or ranges let through its port, empty for everyone; left out keeps the list.',
     needs: ["domains.manage"],
-    body: z.object({ hostname: z.string().nullable(), via: z.enum(["direct", "tunnel"]).default("direct") }),
+    body: z.object({
+      hostname: z.string().nullable(),
+      via: z.enum(["direct", "tunnel"]).default("direct"),
+      allow: z.array(z.string().max(100)).max(200).nullable().optional(),
+    }),
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
-      return unwrap(saveDatabaseDomain(params.serviceId, body.hostname, body.via));
+      return unwrap(saveDatabaseDomain(params.serviceId, body.hostname, body.via, { allow: body.allow }));
     },
   }),
   route({

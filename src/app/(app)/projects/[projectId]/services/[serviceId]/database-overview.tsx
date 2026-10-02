@@ -61,14 +61,12 @@ export function DatabaseOverview(props: {
   // The form the server stores (203.0.113.7 → 203.0.113.7/32), to compare with what is saved.
   const parsedAllow = normalizeTrustedRanges(allowList, { anyWidth: true });
   const allowNormalized = "ranges" in parsedAllow ? parsedAllow.ranges : allowList;
-  const apply = useAction(
-    async () => {
-      const res = await updateService(props.serviceId, { database: { publicPort: publicOn ? Number(port) : null, publicBind: bind, publicAllow: allowList } });
-      if (!res.ok) return res;
-      return applyDatabaseChanges(props.serviceId);
-    },
-    { success: "Applying changes. The database restarts briefly." },
-  );
+  // No toast: the card and the status show the restart.
+  const apply = useAction(async () => {
+    const res = await updateService(props.serviceId, { database: { publicPort: publicOn ? Number(port) : null, publicBind: bind, publicAllow: allowList } });
+    if (!res.ok) return res;
+    return applyDatabaseChanges(props.serviceId);
+  });
   const changed =
     (publicOn ? Number(port) : null) !== props.publicPort ||
     (publicOn && bind !== props.publicBind) ||

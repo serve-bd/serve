@@ -8,10 +8,10 @@ import { HelpTip } from "@/components/ui/help-tip";
 import { Input } from "@/components/ui/input";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { SecretField } from "@/components/ui/secret-field";
-import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
 import { cn } from "@/lib/utils";
 import { saveDatabaseDomain } from "@/server/actions/database-domains";
+import type { ActionResult } from "@/server/action";
 
 export type DatabaseDomainInfo = {
   supported: boolean;
@@ -40,12 +40,22 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
   const [value, setValue] = React.useState(info.hostname ?? "");
   // Own port when the server has a public IP: the domain then works with a plain URL, nothing to run.
   const ownPortReady = info.directSupported && !!info.publicIp;
-  const [via, setVia] = React.useState<"direct" | "tunnel">(info.hostname ? info.via : ownPortReady || info.tunnels.length === 0 ? "direct" : "tunnel");
-  const save = useAction((hostname: string | null, route: "direct" | "tunnel" = via) => saveDatabaseDomain(serviceId, hostname, route), {
-    success: (r) => (r.warnings.length ? "Domain saved, one step left" : r.port ? `Domain saved. The database restarts on port ${r.port}.` : "Domain saved"),
-    onSuccess: (r) => {
-      for (const w of r.warnings) toast.warning("Domain", w);
-    },
+  const defaultVia = ownPortReady || info.tunnels.length === 0 ? "direct" : "tunnel";
+  const [picked, setVia] = React.useState<"direct" | "tunnel">(info.hostname ? info.via : defaultVia);
+  // With a public IP the domain just works on its own port: no route to pick, unless a tunnel domain is set.
+  const showRoutes = info.tunnels.length > 0 && (!ownPortReady || (!!info.hostname && info.via === "tunnel"));
+  const via = showRoutes ? picked : defaultVia;
+  // The card shows what happened (the URL, the certificate): errors and steps left stay in it too, no toasts.
+  const [notice, setNotice] = React.useState<{ error: string | null; warnings: string[] }>({ error: null, warnings: [] });
+  const save = useAction(async (hostname: string | null, route: "direct" | "tunnel" = via): Promise<ActionResult<{ warnings: string[] } | null>> => {
+    setNotice({ error: null, warnings: [] });
+    const res = await saveDatabaseDomain(serviceId, hostname, route);
+    if (!res.ok) {
+      setNotice({ error: res.error, warnings: [] });
+      return { ok: true as const, data: null };
+    }
+    setNotice({ error: null, warnings: res.data.warnings });
+    return res;
   });
   const changed = value.trim().toLowerCase() !== (info.hostname ?? "") || (!!info.hostname && (via !== info.via || info.unreachable));
   const tunnel = via === "tunnel";
@@ -78,8 +88,7 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
           </p>
         ) : (
           <>
-            {/* With a public IP the domain just works on its own port: no route to pick. */}
-            {info.tunnels.length > 0 && (!ownPortReady || (info.hostname && info.via === "tunnel")) && (
+            {showRoutes && (
               <div role="radiogroup" aria-label="Route" className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
                 {(
                   [
@@ -131,7 +140,10 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                     disabled={canManage === false}
                     loading={save.pending && !value}
                     onClick={async () => {
-                      if ((await save.run(null)) !== undefined) setValue("");
+                      if (await save.run(null)) {
+                        setValue("");
+                        setVia(defaultVia);
+                      }
                     }}
                   >
                     Remove
@@ -142,6 +154,18 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                 </Button>
               </div>
             </form>
+            {notice.error && (
+              <p role="alert" className="flex items-start gap-2 text-[12.5px] leading-relaxed text-bad">
+                <TriangleAlert className="mt-0.5 size-3.5 flex-none" />
+                <span>{notice.error}</span>
+              </p>
+            )}
+            {notice.warnings.map((w) => (
+              <p key={w} className="flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-fg-2">
+                <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />
+                <span>{w}</span>
+              </p>
+            ))}
             {info.hostname && info.via === "tunnel" && ownPortReady && (
               <div className="flex flex-col gap-2.5 rounded-lg border border-line bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed sm:flex-row sm:items-center">
                 <p className="min-w-0 flex-1 text-fg-2">
@@ -155,7 +179,7 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                   disabled={canManage === false}
                   loading={save.pending}
                   onClick={async () => {
-                    if ((await save.run(info.hostname, "direct")) !== undefined) setVia("direct");
+                    if (await save.run(info.hostname, "direct")) setVia("direct");
                   }}
                 >
                   Use Own port

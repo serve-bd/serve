@@ -4,6 +4,7 @@ import { db, schema } from "@/server/db";
 
 export async function GET() {
   const ctx = await requireOrg();
+  if (!ctx.can("projects.view")) return Response.json({ services: [] });
   const services = await db
     .select({
       id: schema.service.id,

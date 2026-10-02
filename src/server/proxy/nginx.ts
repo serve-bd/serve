@@ -38,7 +38,7 @@ import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type
 import { appTargets, certificateStamp, dashboardModel, serviceModel, type SiteModel } from "./model";
 import { forgetDashboardTrusted, visitorIpOf } from "./trusted-proxies";
 import { headerTrusted, usesProxyProtocol, type TrustedProxies } from "@/lib/trusted-proxies";
-import { removeHostRelay, syncHostRelay, writeProxyStream } from "./host-relay";
+import { removeHostRelay, syncHostRelay } from "./host-relay";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { caddyMainConfig, renderCaddySite, tunnelTrustFor } from "./caddy";
@@ -192,8 +192,8 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
     changed = (await writeOrRemove(ctx, serverRawFile(ctx), null)) || changed;
     changed = (await writeOrRemove(ctx, realIpFile(ctx), realIpConfig(visitor))) || changed;
     changed = (await writeUserFiles(ctx, p.proxyCustom, n.files, customFilePattern.nginx)) || changed;
-    // 127.0.0.1:PORT in those files: the proxy's own listeners that lead to the machine (host-relay.ts).
-    changed = (await writeProxyStream(ctx, n.files, usesProxyProtocol(visitor))) || changed;
+    // Stream listeners of an earlier version (the host-ports companion has them now).
+    changed = (await writeOrRemove(ctx, path.posix.join(p.proxySites, "host-ports", "serve.stream"), null)) || changed;
   } else if (kind === "caddy") {
     const c = config.caddy ?? {};
     await ctx.fs.mkdir(path.posix.join(p.proxy, "caddy-data"));
@@ -506,12 +506,26 @@ export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awai
   return info;
 }
 
-/** The relay to the machine's own ports named in custom files (nginx only), or none. Never throws. */
+/**
+ * Every server whose custom files name a machine port: Docker may restart a proxy on its own (a
+ * crash, a reboot), and the companion must then join the new network namespace.
+ */
+export async function syncHostRelays(log?: Log) {
+  const { hostPortsIn } = await import("./host-relay");
+  for (const ctx of await activeServers()) {
+    const { kind, config } = await proxyStateOf(ctx.id);
+    if (kind === "none" || !hostPortsIn(config[kind]?.files).length) continue;
+    await syncRelayOf(ctx, log);
+  }
+}
+
+/** The relay to the machine's own ports named in the custom files of the proxy in use, or none. Never throws. */
 async function syncRelayOf(ctx: ServerCtx, log?: Log) {
   try {
     const { kind, config, stopped } = await proxyStateOf(ctx.id);
-    if (kind !== "nginx" || stopped) return await removeHostRelay(ctx);
-    await syncHostRelay(ctx, config.nginx?.files, usesProxyProtocol(await visitorIpOf(ctx)), log);
+    // Only the files of the proxy in use: another kind's are kept, inactive, until it is back.
+    if (kind === "none" || stopped) return await removeHostRelay(ctx);
+    await syncHostRelay(ctx, kind, config[kind]?.files, usesProxyProtocol(await visitorIpOf(ctx)), log);
   } catch (error) {
     log?.(`Host port relay: ${(error as Error).message}`);
   }

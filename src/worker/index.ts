@@ -14,7 +14,7 @@ import { runMigrations } from "@/server/db/migrate";
 import { fullBuildServers } from "@/lib/server-limits";
 import { newId } from "@/server/id";
 import { docker, ensureNetwork, LABEL, listServiceContainers } from "@/server/docker/client";
-import { ensureProxy, ensureServerProxy, syncAllProxy, syncCloudflareTrusting, syncLocalProxy, syncRemoteProxies } from "@/server/proxy/nginx";
+import { ensureProxy, ensureServerProxy, syncAllProxy, syncCloudflareTrusting, syncHostRelays, syncLocalProxy, syncRemoteProxies } from "@/server/proxy/nginx";
 import { anyServerTrustsCloudflare, refreshCloudflareRanges } from "@/server/proxy/trusted-proxies";
 import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
 import { recoverInterruptedDeployment, runDeployment, setServiceStatus } from "@/server/deploy";
@@ -394,6 +394,23 @@ async function recover() {
       .set({ status: "failed", finishedAt: new Date(), output: "Interrupted: the worker restarted during this run." })
       .where(and(inArray(schema.taskRun.id, cutRuns), eq(schema.taskRun.status, "running")));
   }
+  // A proxy switch cut off by the restart would show as running, and refuse the next switch, for ten minutes.
+  for (const j of stale as unknown as { type: string; payload: JobPayloads["proxy.switch"] }[]) {
+    if (j.type !== "proxy.switch" || !j.payload?.serverId) continue;
+    const [row] = await db.select({ sw: schema.server.proxySwitch }).from(schema.server).where(eq(schema.server.id, j.payload.serverId));
+    if (row?.sw?.state !== "running") continue;
+    await db
+      .update(schema.server)
+      .set({
+        proxySwitch: {
+          ...row.sw,
+          state: "failed",
+          finishedAt: new Date().toISOString(),
+          log: `${row.sw.log}The worker restarted during the switch. Switch again to finish it.\n`,
+        },
+      })
+      .where(eq(schema.server.id, j.payload.serverId));
+  }
   // A branch copy or removal cut off by the restart would show "Copying data…" forever and block a reset.
   for (const j of stale as unknown as { type: string; payload: JobPayloads["database.branch"] }[]) {
     if (j.type !== "database.branch" || !j.payload?.branchId) continue;
@@ -542,6 +559,7 @@ async function main() {
     true,
   );
   every(60_000, "servers", probeRemoteServers, true);
+  every(60_000, "host-ports", () => syncHostRelays((l) => log(l)));
   every(60_000, "tunnels", checkTunnels, true);
   // A GitHub App keeps the webhook address it was created with; follow dashboard domain changes.
   every(

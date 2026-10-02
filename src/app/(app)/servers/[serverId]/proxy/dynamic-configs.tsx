@@ -25,10 +25,9 @@ export type ManagedFile = { file: string; kind: "main" | "dashboard" | "service"
 
 const LABEL: Record<RunningKind, string> = { nginx: "nginx", caddy: "Caddy", traefik: "Traefik" };
 
-const CUSTOM_HELP: Record<RunningKind, { hint: string; where: React.ReactNode; placeholder: string; name: string; content?: string }> = {
+const CUSTOM_HELP: Record<RunningKind, { hint: string; where: React.ReactNode; placeholder: string; name: string }> = {
   nginx: {
     hint: "Name ends in .conf",
-    content: "127.0.0.1:PORT and localhost:PORT reach this machine's own ports, also apps that listen on 127.0.0.1 only.",
     name: "my-rules.conf",
     where: (
       <>
@@ -259,7 +258,7 @@ function FileForm({
         <Field label="File name" description={help.hint}>
           <Input value={name} onChange={(e) => setName(e.target.value.toLowerCase())} placeholder={help.name} className="font-mono" autoFocus={!value?.original} />
         </Field>
-        <Field label="Content" description={help.content}>
+        <Field label="Content" description="127.0.0.1:PORT and localhost:PORT reach this machine's own ports, also apps that listen on 127.0.0.1 only.">
           <Textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}

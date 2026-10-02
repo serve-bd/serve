@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { EyeOff, GitBranch, Layers, Loader2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Check, Copy, EyeOff, GitBranch, Layers, Loader2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { Badge, Card, CardBody, CardHeader, CopyButton, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tooltip } from "@/components/ui/tooltip";
+import { copyText } from "@/components/ui/clipboard";
 import { Select } from "@/components/ui/select";
 import { CodeEditor } from "@/components/code-editor";
 import { ViewToggle } from "@/components/view-toggle";
@@ -154,20 +156,12 @@ export function BranchesView({
                     ) : b.status === "failed" ? (
                       <p className="text-xs leading-relaxed whitespace-pre-wrap text-bad">{b.error ?? "The copy failed."}</p>
                     ) : b.allDatabases ? (
-                      // One reference per database: each copy is reached by the same login.
-                      <span className="flex min-w-0 flex-col gap-0.5">
-                        {[mainDatabase, ...b.extraDatabases].map((d) => {
-                          const each = branchReference(refName, b.name, `databases.${d}.DATABASE_URL`);
-                          return (
-                            <span key={d} className="flex min-w-0 items-center gap-2">
-                              <span className="w-24 flex-none truncate font-mono text-[12px] text-muted" title={d}>
-                                {d}
-                              </span>
-                              <code className="min-w-0 truncate font-mono text-[12px] text-fg-2">{each}</code>
-                              <CopyButton value={each} label={`Copy the reference to ${d}`} className="size-6 flex-none" />
-                            </span>
-                          );
-                        })}
+                      // One login for every copy: each chip copies the reference to one of them.
+                      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <span className="text-xs text-muted">Copy reference:</span>
+                        {[mainDatabase, ...b.extraDatabases].map((d) => (
+                          <ReferenceChip key={d} label={d} value={branchReference(refName, b.name, `databases.${d}.DATABASE_URL`)} />
+                        ))}
                       </span>
                     ) : (
                       <span className="flex min-w-0 items-center gap-1">
@@ -464,5 +458,27 @@ function ChildrenChoice({ names, onChange }: { names: string[]; onChange: (withC
         </span>
       </span>
     </label>
+  );
+}
+
+/** A database name that copies its reference when clicked; the reference shows on hover. */
+function ReferenceChip({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <Tooltip content={copied ? "Copied" : value}>
+      <button
+        type="button"
+        onClick={async () => {
+          if (!(await copyText(value))) return;
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        className="inline-flex h-6 items-center gap-1 rounded-md border border-line bg-surface-2 px-2 font-mono text-[11.5px] text-fg-2 transition-colors hover:border-line-strong hover:text-fg"
+        aria-label={`Copy the reference to ${label}`}
+      >
+        {copied ? <Check className="size-3 text-ok" /> : <Copy className="size-3 text-faint" />}
+        {label}
+      </button>
+    </Tooltip>
   );
 }

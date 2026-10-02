@@ -25,6 +25,16 @@ const DNS_COMMENT = DATABASE_DNS_COMMENT;
  * domain is in a connected Cloudflare account, its DNS record is created too (DNS only: Cloudflare's
  * proxy does not carry database traffic). Through a tunnel: Cloudflare carries it, no port is opened.
  */
+/** The other databases on this domain, with what decides whether they can share it. */
+async function sharingDatabases(hostname: string, exceptId: string) {
+  const rows = await db
+    .select({ serverId: schema.service.serverId, organizationId: schema.project.organizationId, database: schema.service.database })
+    .from(schema.service)
+    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .where(and(ne(schema.service.id, exceptId), eq(schema.service.type, "database"), sql`lower(${schema.service.database}->>'domain') = ${hostname}`));
+  return rows.map((r) => ({ serverId: r.serverId, organizationId: r.organizationId, tunnel: !!r.database?.domainTunnelId }));
+}
+
 export async function saveDatabaseDomain(serviceId: string, raw: string | null, via: "direct" | "tunnel" = "direct", opts: { allow?: string[] | null } = {}) {
   return act(async () => {
     const ctx = await requirePermission("domains.manage");
@@ -57,11 +67,20 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
       if (!ownership.verified) throw new UserError(ownershipMessage(hostname, ownership));
       await assertNotDashboardHost(ctx, hostname);
       const [web] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, hostname));
-      const [other] = await db
-        .select({ name: schema.service.name, projectId: schema.service.projectId })
-        .from(schema.service)
-        .where(and(ne(schema.service.id, service.id), eq(schema.service.type, "database"), sql`lower(${schema.service.database}->>'domain') = ${hostname}`));
-      if (web || other) throw new UserError("That domain is already in use.");
+      if (web) throw new UserError("That domain is already in use.");
+      // Databases of the same organization on the same server can share a name on their own ports:
+      // it leads to one IP and one certificate. Through a tunnel, or on another server, they cannot.
+      const others = await sharingDatabases(hostname, service.id);
+      const fits = (o: (typeof others)[number]) => o.organizationId === ctx.org.id && o.serverId === service.serverId && !o.tunnel && !tunnelMode;
+      if (others.some((o) => !fits(o))) {
+        throw new UserError(
+          others.some((o) => o.organizationId === ctx.org.id && o.serverId !== service.serverId)
+            ? "Another database uses that domain on a different server. A domain leads to one server: pick another name."
+            : tunnelMode || others.some((o) => o.tunnel)
+              ? "Another database uses that domain. Through a Cloudflare Tunnel a domain leads to one database: pick another name."
+              : "That domain is already in use.",
+        );
+      }
     }
 
     // Through a tunnel: one of this server's tunnels, of the Cloudflare account that holds the domain.
@@ -145,8 +164,10 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
     }
     // A domain given up: remove the DNS records Serve made for it (never anyone else's), and the
     // certificate it got for it, in the background.
-    if (previousHost && previousHost !== hostname) {
-      await retireCertificateFor(previousHost, service.serverId, ctx.org.id).catch(() => {});
+    // Another database on the same name keeps both (the certificate checks that itself).
+    const stillShared = previousHost && previousHost !== hostname ? (await sharingDatabases(previousHost, service.id)).length > 0 : false;
+    if (previousHost && previousHost !== hostname) await retireCertificateFor(previousHost, service.serverId, ctx.org.id).catch(() => {});
+    if (previousHost && previousHost !== hostname && !stillShared) {
       const accountId = await cloudflareAccountFor([previousHost], ctx.org.id).catch(() => null);
       if (accountId)
         try {

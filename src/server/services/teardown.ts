@@ -55,13 +55,20 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
         .catch(() => {});
     }
   }
-  await removeDatabaseDomainRecords(all);
+  const retire: Retire[] = [];
+  await removeDatabaseDomainRecords(all, retire);
   await db.delete(schema.service).where(
     inArray(
       schema.service.id,
       all.map((s) => s.id),
     ),
   );
+  // The certificates Serve got for the names given up go too, once nothing else uses them (checked
+  // when the job runs, so after the rows above are gone).
+  if (retire.length) {
+    const { retireCertificateFor } = await import("@/server/ssl/certificates");
+    for (const r of retire) await retireCertificateFor(r.hostname, r.serverId, r.organizationId).catch(() => {});
+  }
   const tunnels = [...new Set([...domains.map((d) => d.tunnelId), ...all.map((s) => s.database?.domainTunnelId)].filter((id): id is string => !!id))];
   if (tunnels.length) {
     const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
@@ -85,8 +92,10 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
   }
 }
 
+type Retire = { hostname: string; serverId: string; organizationId: string };
+
 /** The DNS records Serve made for databases' own domains (marked by their comment), never anyone else's. */
-async function removeDatabaseDomainRecords(services: (typeof schema.service.$inferSelect)[]) {
+async function removeDatabaseDomainRecords(services: (typeof schema.service.$inferSelect)[], retire: Retire[]) {
   const withDomain = services.filter((s) => s.database?.domain && !s.parentServiceId);
   if (!withDomain.length) return;
   const { cloudflareAccountFor } = await import("@/server/ssl/certificates");
@@ -100,6 +109,7 @@ async function removeDatabaseDomainRecords(services: (typeof schema.service.$inf
       const others = await db.select({ id: schema.service.id }).from(schema.service).where(dsql`lower(${schema.service.database}->>'domain') = ${hostname.toLowerCase()}`);
       if (others.some((o) => !removed.has(o.id))) continue;
       const [project] = await db.select({ organizationId: schema.project.organizationId }).from(schema.project).where(eq(schema.project.id, s.projectId));
+      if (project) retire.push({ hostname, serverId: s.serverId, organizationId: project.organizationId });
       const accountId = project ? await cloudflareAccountFor([hostname], project.organizationId) : null;
       if (!accountId) continue;
       const cf = await Cloudflare.forAccount(accountId);

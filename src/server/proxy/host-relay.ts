@@ -172,12 +172,28 @@ async function startStream(ctx: ServerCtx, name: string, conf: string, networkMo
  */
 export async function syncHostRelay(ctx: ServerCtx, kind: RunningKind, files: ProxyFile[] | undefined, proxyProtocol: boolean, log?: (line: string) => void) {
   if (!hostPortsIn(files).length) return removeHostRelay(ctx);
-  const plan = relayPlan(kind, files, await bridgeAddress(ctx), proxyProtocol);
+  // Every lookup at once: on a far server each one is a round trip.
+  const [bridge, proxy, own, relayInfo, companionInfo] = await Promise.all([
+    bridgeAddress(ctx),
+    ctx.docker
+      .getContainer(ctx.proxyContainer)
+      .inspect()
+      .catch(() => null),
+    ctx.docker
+      .getNetwork(ctx.network)
+      .inspect()
+      .catch(() => null),
+    ctx.docker
+      .getContainer(relayContainer(ctx))
+      .inspect()
+      .catch(() => null),
+    ctx.docker
+      .getContainer(companionContainer(ctx))
+      .inspect()
+      .catch(() => null),
+  ]);
+  const plan = relayPlan(kind, files, bridge, proxyProtocol);
   if (!plan.routes.length) return removeHostRelay(ctx);
-  const proxy = await ctx.docker
-    .getContainer(ctx.proxyContainer)
-    .inspect()
-    .catch(() => null);
   // No proxy to stand in for: nothing would reach the relay either.
   if (!proxy?.State?.Running) return removeHostRelay(ctx);
 
@@ -186,10 +202,6 @@ export async function syncHostRelay(ctx: ServerCtx, kind: RunningKind, files: Pr
     .filter((ip): ip is string => !!ip && /^\d+(\.\d+){3}$/.test(ip));
   // Serve's own network too: only Serve's containers join it (stacks cannot), and the proxy keeps
   // reaching the relay when Docker gives it another address on that network (after a reboot).
-  const own = await ctx.docker
-    .getNetwork(ctx.network)
-    .inspect()
-    .catch(() => null);
   const subnet = (own?.IPAM?.Config as { Subnet?: string }[] | undefined)?.find((c) => c.Subnet && /^\d+(\.\d+){3}\/\d+$/.test(c.Subnet))?.Subnet;
   const allowed = [...new Set([...ips, ...(subnet ? [subnet] : [])])].sort();
 
@@ -199,7 +211,6 @@ export async function syncHostRelay(ctx: ServerCtx, kind: RunningKind, files: Pr
   const companionChanged = await ctx.fs.writeIfChanged(path.posix.join(dir, "ports.conf"), companionConfig(plan));
 
   const relay = ctx.docker.getContainer(relayContainer(ctx));
-  const relayInfo = await relay.inspect().catch(() => null);
   if (relayInfo?.State?.Running && relayInfo.Config.Cmd?.includes("/etc/serve-relay/relay.conf")) {
     if (relayChanged) await reload(relay, "/etc/serve-relay/relay.conf");
   } else {
@@ -210,10 +221,6 @@ export async function syncHostRelay(ctx: ServerCtx, kind: RunningKind, files: Pr
   }
 
   // The companion lives in the proxy's network namespace, which a new or restarted proxy replaces.
-  const companionInfo = await ctx.docker
-    .getContainer(companionContainer(ctx))
-    .inspect()
-    .catch(() => null);
   const joined = companionInfo?.HostConfig?.NetworkMode === `container:${proxy.Id}`;
   const fresh = !!companionInfo && new Date(companionInfo.State.StartedAt).getTime() >= new Date(proxy.State.StartedAt).getTime();
   if (companionInfo?.State?.Running && joined && fresh) {

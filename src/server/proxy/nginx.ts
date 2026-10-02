@@ -38,6 +38,7 @@ import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type
 import { appTargets, certificateStamp, dashboardModel, serviceModel, type SiteModel } from "./model";
 import { forgetDashboardTrusted, visitorIpOf } from "./trusted-proxies";
 import { headerTrusted, usesProxyProtocol, type TrustedProxies } from "@/lib/trusted-proxies";
+import { sh } from "@/server/servers/ssh";
 import { removeHostRelay, syncHostRelay } from "./host-relay";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
@@ -159,6 +160,18 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
   const settings = await getSettings();
   const p = ctx.paths;
   let changed = false;
+  // One trip to a remote server for every file and folder below, instead of one for each.
+  await ctx.fs.prefetch?.(
+    [p.proxyLogs, p.acme, p.letsencrypt, p.certs],
+    [
+      p.proxy,
+      ...["pages", "caddy", "pages-server"].map((d) => path.posix.join(p.proxy, d)),
+      p.proxySites,
+      p.proxyCustom,
+      ...["params", "host-ports"].map((d) => path.posix.join(p.proxySites, d)),
+      path.posix.join(p.proxy, "host-relay"),
+    ],
+  );
   for (const dir of [p.proxySites, p.proxyCustom, p.proxyLogs, p.acme, p.letsencrypt, p.certs]) await ctx.fs.mkdir(dir);
   changed = (await writePages(ctx)) || changed;
   const visitor = await visitorIpOf(ctx);
@@ -657,7 +670,11 @@ export async function ensureProxy(log?: Log) {
 export class ProxyConfigError extends Error {}
 
 async function exec(ctx: ServerCtx, cmd: string[]) {
-  return execInContainer(ctx.proxyContainer, cmd, {}, ctx.docker);
+  if (ctx.local) return execInContainer(ctx.proxyContainer, cmd, {}, ctx.docker);
+  // Far away, Docker's exec API is five round trips (create, start, inspect until done): the
+  // docker command over SSH is one.
+  const r = await ctx.exec(`docker exec ${sh(ctx.proxyContainer)} ${cmd.map(sh).join(" ")}`, { timeoutMs: 60_000 });
+  return { exitCode: r.code, output: `${r.stdout}${r.stderr}` };
 }
 
 /** Wait until Traefik reports every expected router as loaded, enabled and matching its file. */
@@ -715,10 +732,9 @@ export async function reloadProxy(ctx?: ServerCtx, changedFiles: string[] = [], 
     staleMounts.delete(c.id);
     for (let i = 0; i < 40 && !(await proxyHealthy(c)); i++) await new Promise((r) => setTimeout(r, 250));
   } else if (kind === "nginx") {
-    const test = await exec(c, ["nginx", "-t"]);
-    if (test.exitCode !== 0) throw new ProxyConfigError(test.output.trim());
-    const reload = await exec(c, ["nginx", "-s", "reload"]);
-    if (reload.exitCode !== 0) throw new ProxyConfigError(reload.output.trim());
+    // One exec (a round trip on a far server): the reload runs only when the test passed.
+    const res = await exec(c, ["sh", "-c", "nginx -t 2>&1 && nginx -s reload 2>&1"]);
+    if (res.exitCode !== 0) throw new ProxyConfigError(res.output.trim());
   } else if (kind === "caddy") {
     // Caddy validates and swaps the whole configuration atomically; on error the old one keeps running.
     const res = await exec(c, ["caddy", "reload", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile", "--force"]);
@@ -1303,9 +1319,14 @@ export async function applyServerProxyConfig(ctx: ServerCtx, next: ServerProxyCo
   const { kind, config: previous } = await proxyStateOf(ctx.id);
   const since = kind === "traefik" ? await proxyLogMark(ctx) : undefined;
   await db.update(schema.server).set({ proxyConfig: next }).where(eq(schema.server.id, ctx.id));
+  // Custom files live in the mounted folders: changing only them leaves the container as it is.
+  const withoutFiles = (c: ServerProxyConfig) =>
+    JSON.stringify(Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v && typeof v === "object" ? { ...v, files: undefined } : v])));
+  const onlyFiles = withoutFiles(previous) === withoutFiles(next);
+  let running = false;
   try {
     await serialized(ctx.id, async () => {
-      const running = (await getProxyContainer(ctx))?.State.Running;
+      running = !!(await getProxyContainer(ctx))?.State.Running;
       const changed = await writeStaticFiles(ctx, kind, next);
       if (!running || !changed) return;
       const files =
@@ -1318,8 +1339,10 @@ export async function applyServerProxyConfig(ctx: ServerCtx, next: ServerProxyCo
     });
     // Built-in defaults change what every site file contains.
     if (kind !== "none" && JSON.stringify(defaultsOf(previous[kind]?.defaults)) !== JSON.stringify(defaultsOf(next[kind]?.defaults))) await syncServer(ctx);
-    // Traefik's static options and Caddy's HTTP/3 port live on the container itself.
-    await ensureServerProxy(ctx, log);
+    // Traefik's static options and Caddy's HTTP/3 port live on the container itself. Far away each
+    // check of it is a round trip, so a change of files alone only updates the relay they may name.
+    if (onlyFiles && running) await syncRelayOf(ctx, log);
+    else await ensureServerProxy(ctx, log);
     if (!(await proxyStateOf(ctx.id)).stopped && !(await waitHealthy(ctx))) throw new ProxyConfigError("The proxy did not come back healthy with these settings.");
   } catch (error) {
     await db.update(schema.server).set({ proxyConfig: previous }).where(eq(schema.server.id, ctx.id));

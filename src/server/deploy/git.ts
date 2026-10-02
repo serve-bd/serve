@@ -65,6 +65,7 @@ export async function gitAccess(source: GitSource, workDir: string, organization
       );
     if (!cred) throw new Error("The git credential for this service no longer exists.");
     if (cred.provider === "github-app") {
+      assertCredentialHost(cred, url);
       const { installationToken } = await import("@/server/git/github-app");
       const token = await installationToken(cred);
       redact.push(token);
@@ -82,11 +83,39 @@ export async function gitAccess(source: GitSource, workDir: string, organization
       await fs.writeFile(keyFile, secret.trim() + "\n", { mode: 0o600 });
       gitEnv.GIT_SSH_COMMAND = `ssh -i ${keyFile} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
     } else {
+      assertCredentialHost(cred, url);
       Object.assign(gitEnv, tokenConfig(url, cred.provider, secret));
     }
   }
   await pinPublicGitHost(url, organizationId, gitEnv);
   return { url, cloneUrl, gitEnv, redact };
+}
+
+/** Where a token credential may be sent: its provider's address, or a self-hosted server's own. */
+export function credentialOrigin(cred: { provider: string; baseUrl: string | null }) {
+  const hosted: Record<string, string> = {
+    "github-app": "https://github.com",
+    github: "https://github.com",
+    gitlab: "https://gitlab.com",
+    gitea: "https://gitea.com",
+    bitbucket: "https://bitbucket.org",
+  };
+  const base = cred.provider === "github-app" || cred.provider === "bitbucket" ? "" : (cred.baseUrl?.trim() ?? "");
+  if (!base) return hosted[cred.provider] ?? null;
+  return URL.canParse(base) ? new URL(base).origin.toLowerCase() : null;
+}
+
+/**
+ * A token goes in a header for the repository's address, so the repository must be on the
+ * credential's own server: whoever may pick a repository URL could otherwise have the token sent
+ * to a server of theirs.
+ */
+export function assertCredentialHost(cred: { provider: string; baseUrl: string | null }, url: string) {
+  const origin = credentialOrigin(cred);
+  const repo = URL.canParse(url) ? new URL(url).origin.toLowerCase() : null;
+  if (!origin || repo !== origin) {
+    throw new Error(`This git connection is for ${origin ? new URL(origin).host : "another server"}, not for this repository. Choose a connection of the repository's own server.`);
+  }
 }
 
 /** Adds one `git -c key=value` through the environment, after any already set. */

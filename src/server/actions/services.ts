@@ -17,7 +17,7 @@ import { generatedHostname, newWebhookSecret, queueDeployment, serviceNameTaken,
 import { buildsImage, defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig, hasHostAccess } from "@/server/services/types";
 import { engines } from "@/server/databases/engines";
 import { resolveTemplate, templateVarValue } from "@/server/services/custom-templates";
-import { normalizeRepoUrl, repoUrlProblem } from "@/server/deploy/git";
+import { assertCredentialHost, normalizeRepoUrl, repoUrlProblem } from "@/server/deploy/git";
 import { registerRepoWebhook, syncRepoWebhook } from "@/server/git/repo-webhooks";
 import { composeServiceNames, parseCompose } from "@/server/deploy/compose";
 import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
@@ -50,13 +50,22 @@ async function assertEnvironment(projectId: string, environmentId: string) {
   return env;
 }
 
-async function assertCredential(credentialId: string | null | undefined, orgId: string) {
+async function assertCredential(credentialId: string | null | undefined, orgId: string, repository?: string) {
   if (!credentialId) return;
   const [cred] = await db
-    .select({ id: schema.gitCredential.id })
+    .select({ id: schema.gitCredential.id, provider: schema.gitCredential.provider, baseUrl: schema.gitCredential.baseUrl })
     .from(schema.gitCredential)
     .where(and(eq(schema.gitCredential.id, credentialId), eq(schema.gitCredential.organizationId, orgId)));
   if (!cred) throw new UserError("Git credential not found.");
+  // Over SSH the key only signs; over HTTPS the token goes to the repository's server (checked again at each clone).
+  const url = repository ? normalizeRepoUrl(repository) : null;
+  if (url && /^https?:\/\//i.test(url)) {
+    try {
+      assertCredentialHost(cred, url);
+    } catch (e) {
+      throw new UserError((e as Error).message);
+    }
+  }
 }
 
 /** Host-level options (bind mounts, host ports, privileged compose keys) are reserved for server admins. */
@@ -201,7 +210,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
     await projectInOrg(data.projectId, ctx.org.id);
     await assertEnvironment(data.projectId, data.environmentId);
 
-    if (data.source.type === "git") await assertCredential(data.source.credentialId, ctx.org.id);
+    if (data.source.type === "git") await assertCredential(data.source.credentialId, ctx.org.id, data.source.repository);
     if (data.source.type === "image") await assertImageRegistry(data.source.registryId, data.source.image, ctx.org.id);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
     const reserved = await requireRoom(ctx.org.id, { services: 1, type: "app", serverId: server.id });
@@ -362,7 +371,7 @@ export async function createComposeService(input: z.input<typeof composeSchema>)
       if (!template || template.custom || template.hostAccess) await assertSafeCompose(ctx, content, data.environmentId);
       else await assertComposeNames(content, data.environmentId, null);
     } else if (!data.source) throw new UserError("Enter a repository.");
-    await assertCredential(data.source?.credentialId, ctx.org.id);
+    await assertCredential(data.source?.credentialId, ctx.org.id, data.source?.repository);
     const server = await resolveServerForOrg(data.serverId, ctx.org.id);
     const reserved = await requireRoom(ctx.org.id, { services: 1, type: "compose", serverId: server.id });
     if (!server.isLocal && server.info && (server.info as { compose?: string | null }).compose === null) {
@@ -691,7 +700,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     }
     if (data.source) {
       if (data.source.type === "git") {
-        await assertCredential(data.source.credentialId, ctx.org.id);
+        await assertCredential(data.source.credentialId, ctx.org.id, data.source.repository);
         patch.source = { type: "git", repository: normalizeRepoUrl(data.source.repository), branch: data.source.branch, credentialId: data.source.credentialId ?? null };
       } else if (data.source.type === "dockerfile") {
         if (service.type !== "app") throw new UserError("Only apps can be built from a Dockerfile.");

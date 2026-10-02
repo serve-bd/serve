@@ -30,6 +30,7 @@ const settingsSchema = z
     sslipFallback: z.boolean(),
     dashboardDomain: z.union([hostname, z.literal("")]),
     dashboardHttps: z.boolean(),
+    dashboardCertificateId: z.string().nullable(),
     acmeEmail: z.union([z.email("Enter a valid email"), z.literal("")]),
     acmeStaging: z.boolean(),
     allowOrganizationCreation: z.boolean(),
@@ -79,6 +80,15 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
     // The route choice: a chosen tunnel implies the wish; without a domain there is nothing to keep.
     if (data.dashboardWantsTunnel === undefined && data.dashboardTunnelId !== undefined) patch.dashboardWantsTunnel = !!tunnelId;
     if (!domain) patch.dashboardWantsTunnel = false;
+    // A chosen certificate: the Root organization's, on the server the dashboard runs on, for its domain.
+    const certificateId = data.dashboardCertificateId === undefined ? before.dashboardCertificateId : data.dashboardCertificateId;
+    if (certificateId && domain && (data.dashboardCertificateId !== undefined || data.dashboardDomain !== undefined)) {
+      const [cert] = await db.select().from(schema.certificate).where(eq(schema.certificate.id, certificateId));
+      if (!cert || cert.organizationId !== before.rootOrganizationId || cert.serverId !== LOCAL_SERVER_ID)
+        throw new UserError("Choose a certificate of the Root organization on this server.");
+      if (!certificateCovers(cert.domains, domain)) throw new UserError(`${cert.name} does not cover ${domain}.`);
+    }
+    if (!domain) patch.dashboardCertificateId = null;
     if (tunnelId && domain && (data.dashboardTunnelId !== undefined || data.dashboardDomain !== undefined)) {
       const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
       if (tunnel?.serverId !== "local") throw new UserError("Choose a tunnel on the server the dashboard runs on.");
@@ -94,6 +104,7 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
         throw new UserError(`Could not point ${domain} at the tunnel: ${(e as Error).message}`);
       }
       patch.dashboardHttps = false;
+      patch.dashboardCertificateId = null;
     }
     // Addressing belongs to the local server row; the settings keys are deprecated.
     const { serverIp, wildcardDomain, sslipFallback, ...rest } = patch;
@@ -111,11 +122,11 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
       void syncAppWebhooks().catch(() => {});
     }
 
-    const proxyRelevant: (keyof Settings)[] = ["dashboardDomain", "dashboardHttps", "dashboardTunnelId", "proxyCustomConfig", "dashboardAllowlist"];
+    const proxyRelevant: (keyof Settings)[] = ["dashboardDomain", "dashboardHttps", "dashboardCertificateId", "dashboardTunnelId", "proxyCustomConfig", "dashboardAllowlist"];
     if (proxyRelevant.some((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]))) await enqueue("proxy.sync", {});
 
-    // Dashboard HTTPS: request a certificate from the Root organization.
-    if (after.dashboardDomain && after.dashboardHttps && !after.dashboardTunnelId && after.acmeEmail && after.rootOrganizationId) {
+    // Dashboard HTTPS: request a certificate from the Root organization, unless one was chosen.
+    if (after.dashboardDomain && after.dashboardHttps && !after.dashboardCertificateId && !after.dashboardTunnelId && after.acmeEmail && after.rootOrganizationId) {
       // Only the local proxy serves the dashboard, and only an active certificate (or one on its way) counts.
       const covering = (
         await db

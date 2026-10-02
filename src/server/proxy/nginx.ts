@@ -915,7 +915,7 @@ async function renderNginxDashboard(): Promise<string | null> {
   if (!settings.dashboardDomain) return null;
   const certs = settings.rootOrganizationId ? await usableCertificates(settings.rootOrganizationId, LOCAL_SERVER_ID) : [];
   const upstream: SiteUpstream = { name: "serve_dashboard", servers: [env.dashboardUpstream] };
-  const tls = settings.dashboardHttps ? tlsFor(settings.dashboardDomain, null, certs) : null;
+  const tls = settings.dashboardHttps ? tlsFor(settings.dashboardDomain, settings.dashboardCertificateId, certs) : null;
   const visitor = await visitorIpOf(await local());
   const tunnelIp = settings.dashboardTunnelId ? tunnelRealIp(visitor) : null;
   return [

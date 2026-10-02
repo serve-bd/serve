@@ -154,7 +154,7 @@ export async function dashboardModel(): Promise<SiteModel | null> {
   const certs = settings.rootOrganizationId ? await orgCertificates(settings.rootOrganizationId, LOCAL_SERVER_ID) : [];
   const tunnel = !!(settings as { dashboardTunnelId?: string | null }).dashboardTunnelId;
   const https = settings.dashboardHttps && !tunnel;
-  const tls = https ? certificateFor(settings.dashboardDomain, null, certs) : null;
+  const tls = https ? certificateFor(settings.dashboardDomain, settings.dashboardCertificateId, certs) : null;
   return {
     name: "_dashboard",
     title: "dashboard",

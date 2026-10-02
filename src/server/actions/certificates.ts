@@ -146,6 +146,9 @@ export async function deleteCertificate(id: string) {
     const ctx = await requirePermission("integrations.manage");
     const cert = await certInOrg(id, ctx.org.id);
     await db.update(schema.domain).set({ certificateId: null }).where(eq(schema.domain.certificateId, id));
+    // The dashboard falls back to any certificate that covers its domain.
+    const { getSettings, updateSettings } = await import("@/server/settings");
+    if ((await getSettings()).dashboardCertificateId === id) await updateSettings({ dashboardCertificateId: null });
     await db.delete(schema.certificate).where(eq(schema.certificate.id, id));
     await applyCertificate(cert);
     await deleteCertificateFiles(cert);

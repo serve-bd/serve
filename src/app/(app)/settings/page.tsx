@@ -11,7 +11,7 @@ export const metadata = { title: "Settings" };
 export default async function SettingsPage() {
   await instanceAdminPage();
   const s = await getSettings();
-  const [[local], tunnels] = await Promise.all([
+  const [[local], tunnels, certificates] = await Promise.all([
     db.select({ publicIp: schema.server.publicIp }).from(schema.server).where(eq(schema.server.id, LOCAL_SERVER_ID)),
     db
       .select({ id: schema.cloudflareTunnel.id, account: schema.cloudflareAccount.name, status: schema.cloudflareTunnel.status })
@@ -19,6 +19,17 @@ export default async function SettingsPage() {
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
       // Only the Root organization's tunnels may carry the dashboard (saving checks it too).
       .where(and(eq(schema.cloudflareTunnel.serverId, LOCAL_SERVER_ID), eq(schema.cloudflareTunnel.organizationId, s.rootOrganizationId ?? ""))),
+    // The dashboard can use the Root organization's own certificates on this server.
+    db
+      .select({
+        id: schema.certificate.id,
+        name: schema.certificate.name,
+        domains: schema.certificate.domains,
+        provider: schema.certificate.provider,
+        status: schema.certificate.status,
+      })
+      .from(schema.certificate)
+      .where(and(eq(schema.certificate.serverId, LOCAL_SERVER_ID), eq(schema.certificate.organizationId, s.rootOrganizationId ?? ""))),
   ]);
   // A tunnel id whose tunnel is gone means "waiting for a tunnel", not a usable choice.
   const tunnelId = s.dashboardTunnelId && tunnels.some((t) => t.id === s.dashboardTunnelId) ? s.dashboardTunnelId : null;
@@ -30,11 +41,13 @@ export default async function SettingsPage() {
         dashboard={{
           dashboardDomain: s.dashboardDomain ?? "",
           dashboardHttps: s.dashboardHttps,
+          dashboardCertificateId: s.dashboardCertificateId ?? null,
           dashboardTunnelId: tunnelId,
           dashboardWantsTunnel: !!s.dashboardDomain && (s.dashboardWantsTunnel || !!s.dashboardTunnelId),
         }}
         tunnels={tunnels.map((t) => ({ id: t.id, label: `${t.account} · ${t.status === "healthy" ? "connected" : t.status}` }))}
         acme={{ acmeEmail: s.acmeEmail ?? "", acmeStaging: s.acmeStaging }}
+        certificates={certificates.filter((c) => !c.provider.startsWith("letsencrypt") && c.status === "active").map((c) => ({ id: c.id, name: c.name, domains: c.domains }))}
       />
     </>
   );

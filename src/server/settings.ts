@@ -20,6 +20,8 @@ export type Settings = {
   /** Domain the dashboard itself is served on through the proxy. */
   dashboardDomain: string | null;
   dashboardHttps: boolean;
+  /** A certificate chosen for the dashboard domain (an uploaded one); null picks any that covers it, or requests one. */
+  dashboardCertificateId: string | null;
   /** Email used for Let's Encrypt registration. */
   acmeEmail: string | null;
   acmeStaging: boolean;
@@ -156,6 +158,7 @@ export const defaultSettings: Settings = {
   sslipFallback: true,
   dashboardDomain: null,
   dashboardHttps: true,
+  dashboardCertificateId: null,
   acmeEmail: null,
   acmeStaging: false,
   onboardingDone: false,

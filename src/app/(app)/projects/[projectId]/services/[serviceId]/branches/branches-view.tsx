@@ -112,11 +112,9 @@ export function BranchesView({
             <div className="flex items-center gap-2">
               {branches.length > 0 && <ViewToggle view={view} views={["list", "canvas"]} onChange={setView} />}
               {scrubSupported && (
-                <Tooltip content="Hide personal data">
-                  <Button size="sm" variant="ghost" className="px-2" aria-label="Hide personal data" onClick={() => setCleaning(true)}>
-                    <EyeOff />
-                  </Button>
-                </Tooltip>
+                <Button size="sm" variant="ghost" onClick={() => setCleaning(true)}>
+                  Hide personal data…
+                </Button>
               )}
               {canManage && (
                 <Button size="sm" variant="primary" disabled={!running} title={running ? undefined : "Start the database to branch it"} onClick={() => setCreating(true)}>

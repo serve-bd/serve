@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   SquareTerminal,
+  TriangleAlert,
   Users,
   Variable,
   Waypoints,
@@ -48,12 +49,21 @@ const icons = {
   ShieldCheck,
   SlidersHorizontal,
   SquareTerminal,
+  TriangleAlert,
   Users,
   Variable,
   Waypoints,
 };
 
-export type SectionNavItem = { href: string; label: string; icon: keyof typeof icons; warn?: boolean; exact?: boolean };
+export type SectionNavItem = {
+  href: string;
+  label: string;
+  icon: keyof typeof icons;
+  warn?: boolean;
+  exact?: boolean;
+  /** Destructive actions (a danger zone): shown in red. */
+  danger?: boolean;
+};
 /** `title` is left out when a section has only one group. */
 export type SectionNavGroup = { title?: string; items: SectionNavItem[] };
 
@@ -82,10 +92,16 @@ export function SectionNav({ groups }: { groups: SectionNavGroup[] }) {
                   href={item.href}
                   className={cn(
                     "group flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors",
-                    active ? "bg-fg/[0.06] text-fg" : "text-fg-2/80 hover:bg-fg/[0.04] hover:text-fg",
+                    item.danger
+                      ? active
+                        ? "bg-bad/10 text-bad"
+                        : "text-bad/80 hover:bg-bad/10 hover:text-bad"
+                      : active
+                        ? "bg-fg/[0.06] text-fg"
+                        : "text-fg-2/80 hover:bg-fg/[0.04] hover:text-fg",
                   )}
                 >
-                  <Icon className={cn("size-4 shrink-0", active ? "text-accent" : "text-muted group-hover:text-fg-2")} />
+                  <Icon className={cn("size-4 shrink-0", item.danger ? "text-bad" : active ? "text-accent" : "text-muted group-hover:text-fg-2")} />
                   <span className="flex-1">{item.label}</span>
                   {item.warn && <span className="size-1.5 rounded-full bg-warn" />}
                 </Link>

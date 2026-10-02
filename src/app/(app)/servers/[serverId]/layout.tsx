@@ -97,6 +97,8 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
                       { href: `${base}/alerts`, label: "Alerts", icon: "BellRing", warn: openAlerts.length > 0 },
                     ],
                   },
+                  // This machine runs Serve itself: it cannot be removed.
+                  ...(row.isLocal ? [] : [{ title: "Settings", items: [{ href: `${base}/danger`, label: "Danger zone", icon: "TriangleAlert" as const, danger: true }] }]),
                 ]
           }
         />

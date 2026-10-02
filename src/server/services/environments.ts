@@ -81,8 +81,9 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
     if (database) {
       const next = randomPassword();
       passwordMap.set(decrypt(database.password), next);
-      // Host ports and schedules belong to the original; the copy gets its own password.
-      database = { ...database, password: encrypt(next), publicPort: null, backupSchedule: null };
+      // Host ports, schedules and the domain belong to the original; the copy gets its own password.
+      database = { ...database, password: encrypt(next), publicPort: null, backupSchedule: null, domain: null, domainTunnelId: null, domainOpened: null };
+      if (s.database?.domain) notes.add("Database domains stay with the original environment.");
       if (s.database?.publicPort) notes.add("Public database ports are off in the copy, so they do not clash with the original.");
       if (s.database?.backupSchedule) notes.add("Backup schedules are off in the copy.");
     }
@@ -347,7 +348,16 @@ export async function createPreviewDatabase(preview: Service, parent: Service, p
     type: "database",
     icon: source.icon,
     runtime: { ...source.runtime, ports: [] },
-    database: { ...source.database, password: encrypt(randomPassword()), publicPort: null, backupSchedule: null, s3DestinationId: null },
+    database: {
+      ...source.database,
+      password: encrypt(randomPassword()),
+      publicPort: null,
+      backupSchedule: null,
+      s3DestinationId: null,
+      domain: null,
+      domainTunnelId: null,
+      domainOpened: null,
+    },
     autoDeploy: false,
     webhookSecret: newWebhookSecret(),
     parentServiceId: preview.id,

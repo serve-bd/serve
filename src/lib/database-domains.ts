@@ -10,3 +10,6 @@ export const hostnamePattern = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])
 export function tunnelTargetPort(_engine: string, enginePort: number) {
   return enginePort;
 }
+
+/** Marks the DNS records Serve creates for database domains, so it only ever removes its own. */
+export const DATABASE_DNS_COMMENT = "Serve database domain";

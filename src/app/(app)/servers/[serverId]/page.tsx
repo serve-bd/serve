@@ -6,7 +6,7 @@ import { proxyStatus } from "@/server/proxy/nginx";
 import { commandExists } from "@/server/process";
 import { fingerprint } from "@/server/servers/ssh";
 import { ServerOverview } from "./general";
-import { AccessCard, BuildsLimitsCard, ConnectionSettings, DangerZone, ValidationCard, type ServerDetails } from "./server-settings";
+import { AccessCard, BuildsLimitsCard, ConnectionSettings, ValidationCard, type ServerDetails } from "./server-settings";
 import { loadServerView, withTimeout } from "./_lib/load";
 import { TunnelCard } from "./tunnel-card";
 
@@ -116,7 +116,6 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
       ) : (
         <p className="px-1 text-[13px] text-muted">This server belongs to {ctx.org.name}. Only this organization deploys to it, unless a Root admin shares it with another one.</p>
       )}
-      {!row.isLocal && <DangerZone server={details} />}
     </>
   );
 }

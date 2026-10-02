@@ -13,10 +13,9 @@ import { cloudflareAccountFor } from "@/server/ssl/certificates";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { serverPublicIp } from "@/server/servers/access";
 import { logActivity } from "@/server/activity";
-import { hostnamePattern } from "@/lib/database-domains";
+import { DATABASE_DNS_COMMENT, hostnamePattern } from "@/lib/database-domains";
 
-/** Marks the DNS records Serve creates for database domains, so it only ever removes its own. */
-const DNS_COMMENT = "Serve database domain";
+const DNS_COMMENT = DATABASE_DNS_COMMENT;
 
 /**
  * Put a database on a domain (or take it off with null). Directly: the database gets its own public

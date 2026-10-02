@@ -48,10 +48,12 @@ export function githubMembersOnly(allowedOrgs: string[], allowedDomains: string[
     const emails = await api("/user/emails", token.accessToken)
       .then((r) => (r.ok ? (r.json() as Promise<GithubEmail[]>) : []))
       .catch(() => [] as GithubEmail[]);
-    const email = profile.email ?? (emails.find((e) => e.primary) ?? emails[0])?.email ?? null;
+    // A verified address first: the domain rule below is only worth something for one.
+    const verified = emails.filter((e) => e.verified);
+    const email = profile.email ?? (verified.find((e) => e.primary) ?? verified[0] ?? emails.find((e) => e.primary) ?? emails[0])?.email ?? null;
     const emailVerified = emails.find((e) => e.email === email)?.verified ?? false;
     let allowed = true;
-    if (!email || !emailDomainAllowed(allowedDomains, email)) {
+    if (!email || !emailDomainAllowed(allowedDomains, email) || (allowedDomains.length && !emailVerified)) {
       refuse("email_domain_not_allowed");
       allowed = false;
     } else {

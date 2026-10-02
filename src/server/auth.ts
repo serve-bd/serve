@@ -410,6 +410,11 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, se
             const provider = await callbackProvider(ctx);
             if (provider === undefined) return;
             if (!provider || !signUpAllowed(provider, user.email)) return false;
+            // An allowed email domain counts only for an address the provider verified: a new
+            // GitHub account can show any address before its owner confirms it. (A company login
+            // is set up by an admin, who decides what its emails mean.)
+            const id = providerIdOf(ctx?.path, ctx?.params as Record<string, unknown> | undefined);
+            if (provider.allowedDomains.length && LINK_BY_EMAIL.has(id ?? "") && !user.emailVerified) return false;
           },
           // New provider accounts can join a default organization.
           after: async (user, ctx) => {

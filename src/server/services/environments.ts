@@ -1,4 +1,4 @@
-import { withoutHostAccess } from "@/server/services/types";
+import { withoutHostAccess, withoutOutsideResources } from "@/server/services/types";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -82,7 +82,8 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
       const next = randomPassword();
       passwordMap.set(decrypt(database.password), next);
       // Host ports, schedules and the domain belong to the original; the copy gets its own password.
-      database = { ...database, password: encrypt(next), publicPort: null, backupSchedule: null, domain: null, domainTunnelId: null, domainOpened: null };
+      // Data kept outside Serve (a database moved in) stays with the original: the copy gets its own volume.
+      database = { ...database, password: encrypt(next), publicPort: null, backupSchedule: null, domain: null, domainTunnelId: null, domainOpened: null, dataVolume: null };
       if (s.database?.domain) notes.add("Database domains stay with the original environment.");
       if (s.database?.publicPort) notes.add("Public database ports are off in the copy, so they do not clash with the original.");
       if (s.database?.backupSchedule) notes.add("Backup schedules are off in the copy.");
@@ -103,7 +104,7 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
       status: "idle",
       source: s.source?.type === "git" ? { ...s.source, webhook: null } : s.source,
       build: s.build ? { ...s.build, noCacheOnce: false } : null,
-      runtime: opts.hostAccess ? { ...s.runtime, ports: [] } : withoutHostAccess(s.runtime),
+      runtime: opts.hostAccess ? { ...withoutOutsideResources(s.runtime), ports: [] } : withoutHostAccess(s.runtime),
       database,
       compose: s.compose ? { ...s.compose, subnet: null, ports: [], hostAccess: !!opts.hostAccess && !!s.compose.hostAccess } : null,
       proxy: s.proxy,
@@ -380,9 +381,10 @@ export async function createPreviewDatabase(preview: Service, parent: Service, p
       : slug,
     type: "database",
     icon: source.icon,
-    runtime: { ...source.runtime, ports: [] },
+    runtime: { ...withoutOutsideResources(source.runtime), ports: [] },
     database: {
       ...source.database,
+      dataVolume: null,
       password: encrypt(randomPassword()),
       publicPort: null,
       backupSchedule: null,

@@ -120,7 +120,15 @@ export type VolumeMount = {
   /** bind mounts: what the host path is, and whether Serve creates a missing directory. */
   hostType?: "file" | "directory";
   create?: boolean;
+  /**
+   * volume mounts: a volume made outside Serve (a container moved into a project keeps its data
+   * there). The source is the volume's own name; Serve never deletes it.
+   */
+  external?: boolean;
 };
+
+/** A Docker network made outside Serve that the container also joins, and the names it answers to there. */
+export type OutsideNetwork = { name: string; aliases: string[] };
 
 /** "127.0.0.1" publishes only on the server itself (e.g. localhost:3000 on a dev machine). */
 export type BindAddress = "0.0.0.0" | "127.0.0.1";
@@ -138,6 +146,8 @@ export type RestartPolicy = "always" | "unless-stopped" | "on-failure" | "no";
 export type RuntimeConfig = {
   /** Port the app listens on inside the container. */
   port: number | null;
+  /** false: no port stays no port (a moved container that listens on none), not the image's EXPOSE. */
+  detectPort?: boolean;
   replicas: number;
   command?: string | null;
   healthcheckPath?: string | null;
@@ -216,6 +226,11 @@ export type RuntimeConfig = {
   platform?: Platform | null;
   /** Image sources: pull on every deploy (default) or only when the server lacks the image. */
   pullPolicy?: "always" | "missing";
+  /**
+   * Networks made outside Serve that the containers join as well: a container moved into a project
+   * keeps the names other containers there reach it by.
+   */
+  networks?: OutsideNetwork[];
 };
 
 export type Platform = "linux/amd64" | "linux/arm64" | "linux/arm/v7";
@@ -299,6 +314,13 @@ export type DatabaseConfig = {
   extraArgs?: string | null;
   /** Where the data volume is mounted; defaults to the engine's data directory. */
   dataMountPath?: string | null;
+  /**
+   * The data lives in this volume (its own name) or host folder (an absolute path), made outside
+   * Serve: a database moved into a project keeps its data. Unset: Serve's own volume.
+   */
+  dataVolume?: string | null;
+  /** PostgreSQL: the data directory (PGDATA) inside the mount, when it is not Serve's default. */
+  pgdata?: string | null;
   /** TLS with a certificate authority Serve creates for this database. */
   tls?: { enabled: boolean; mode?: "prefer" | "require" } | null;
   /** Container health check timing (seconds). */
@@ -307,12 +329,27 @@ export type DatabaseConfig = {
 
 /** Whether a runtime has host-level access: host paths, host ports, privileges or hardware. */
 export function hasHostAccess(r: RuntimeConfig) {
-  return r.volumes.some((v) => v.kind === "bind") || r.ports.length > 0 || !!r.privileged || !!r.capAdd?.length || !!r.gpus || !!r.devices?.length;
+  return (
+    r.volumes.some((v) => v.kind === "bind" || v.external) || !!r.networks?.length || r.ports.length > 0 || !!r.privileged || !!r.capAdd?.length || !!r.gpus || !!r.devices?.length
+  );
+}
+
+/**
+ * A runtime for a copy (another environment, a preview): volumes and networks made outside Serve
+ * stay with the original. Two containers on one data directory corrupt it.
+ */
+export function withoutOutsideResources(r: RuntimeConfig): RuntimeConfig {
+  return { ...r, volumes: r.volumes.filter((v) => !v.external), networks: [] };
 }
 
 /** A runtime without host-level access, for copies made by someone who may not grant it. */
 export function withoutHostAccess(r: RuntimeConfig): RuntimeConfig {
-  return { ...r, ports: [], volumes: r.volumes.filter((v) => v.kind !== "bind"), privileged: false, capAdd: [], gpus: null, devices: [] };
+  return { ...withoutOutsideResources(r), ports: [], volumes: r.volumes.filter((v) => v.kind !== "bind" && !v.external), privileged: false, capAdd: [], gpus: null, devices: [] };
+}
+
+/** Whether a service keeps data or names outside Serve (it was moved in): such a service stays on its server. */
+export function usesOutsideResources(s: { runtime: RuntimeConfig; database?: DatabaseConfig | null }) {
+  return !!s.database?.dataVolume || s.runtime.volumes.some((v) => v.external) || !!s.runtime.networks?.length;
 }
 
 export type ComposeConfig = {

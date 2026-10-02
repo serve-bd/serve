@@ -44,7 +44,7 @@ export function mountBinds(slug: string, volumes: VolumeMount[], serviceDir?: st
     if (v.kind === "bind") binds.push(`${v.source}:${v.mountPath}${ro}`);
     else if (v.kind === "file") {
       if (serviceDir) binds.push(`${fileMountHostPath(serviceDir, v.source)}:${v.mountPath}${ro}`);
-    } else binds.push(`${volumeName(slug, v.source)}:${v.mountPath}${ro}`);
+    } else binds.push(`${v.external ? v.source : volumeName(slug, v.source)}:${v.mountPath}${ro}`);
   }
   return binds;
 }
@@ -136,6 +136,20 @@ export const localContainerTarget = (): ContainerTarget => ({ docker, proxyConta
 
 export async function startContainer(spec: ContainerSpec, target: ContainerTarget = localContainerTarget()) {
   const container = await target.docker.createContainer(createSpec(spec));
+  // Networks made outside Serve, joined before the start so the names answer from the first request.
+  // One-off containers (no names of their own) stay off them.
+  if (spec.aliases.length) {
+    for (const n of spec.runtime.networks ?? []) {
+      await target.docker
+        .getNetwork(n.name)
+        .connect({ Container: container.id, EndpointConfig: { Aliases: n.aliases } })
+        .catch(async (error: Error) => {
+          if (/not found|no such network/i.test(error.message)) return;
+          await container.remove({ force: true }).catch(() => {});
+          throw new Error(`Could not join the network ${n.name}: ${error.message}`);
+        });
+    }
+  }
   await container.start().catch(async (error: Error) => {
     // A container that never started is not in the caller's list to clean up: it must not stay behind.
     await container.remove({ force: true }).catch(() => {});

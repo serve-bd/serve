@@ -4,7 +4,7 @@ import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import type Docker from "dockerode";
-import { type BuildConfig, buildsImage, defaultBuild, type ImageSource, type PortMapping } from "@/server/services/types";
+import { type BuildConfig, buildsImage, defaultBuild, type ImageSource, type PortMapping, type VolumeMount } from "@/server/services/types";
 import { ensureNetwork, imageExists, imageExistsFor, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
 import { forgetServer, getServer, serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
@@ -26,6 +26,7 @@ import { getRegistry, pushImage, registryAuth, type RegistryRow } from "@/server
 import { defaultRepository, imageRef, normalizeRepository, renderTag } from "@/server/registries/refs";
 import { replicaCount, replicaEnv, shortReplicaPicks } from "@/lib/refs";
 import type { DeploymentTarget } from "@/server/services/types";
+import { type Handoff, restartPolicyOf, restoreOld, retireOld } from "@/server/adopt/handoff";
 import { createSpec, dockerRestartPolicy, gpuError, startContainer, volumeName, waitHealthy } from "./containers";
 import { serverPlatform } from "./options";
 import { type BuildNetwork, networkHosts } from "./build-network";
@@ -434,6 +435,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     service.runtime.ports.length > 0 && "published host ports",
     (service.runtime.privileged || !!service.runtime.capAdd?.length) && "privileged mode or extra capabilities",
     (!!service.runtime.gpus || !!service.runtime.devices?.length) && "GPUs or host devices",
+    (service.runtime.volumes.some((v) => v.external) || !!service.runtime.networks?.length) && "volumes or networks made outside Serve",
   ].filter(Boolean);
   if (hostUses.length && (await orgIdOf(service)) !== (await getSetting("rootOrganizationId"))) {
     throw new Error(`Only services of the Root organization may use ${hostUses.join(", ")}. Remove them in the service settings.`);
@@ -474,7 +476,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
 
   // Fill in the port if it was never configured.
   let runtime = service.runtime;
-  if (!runtime.port && detectedPort) {
+  if (!runtime.port && detectedPort && runtime.detectPort !== false) {
     runtime = { ...runtime, port: detectedPort };
     await db.update(schema.service).set({ runtime }).where(eq(schema.service.id, service.id));
     log.line(`Using detected port ${detectedPort}`);
@@ -498,7 +500,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     await ensureImageOn(server, service, prepared, registry, log);
     imageVolumes = await imageVolumePaths(image, server.docker);
     runtime = await keepImageVolumes(service, runtime, imageVolumes, log);
-    await runOnServer({ service, dep, log, server, image, runtime, env, signal, primary: true, replicaOffset: 0, replicaTotal, imageVolumes });
+    await runOnServer({ service, dep, log, server, image, runtime, env, signal, primary: true, replicaOffset: 0, replicaTotal, imageVolumes, adopt: dep.adopt ?? null });
     primaryTarget.status = "success";
   } catch (error) {
     primaryTarget.status = "failed";
@@ -557,6 +559,8 @@ async function runOnServer(opts: {
   replicaTotal: number;
   /** Paths the image declares with VOLUME. */
   imageVolumes: string[];
+  /** A container made outside Serve that the new containers replace. */
+  adopt?: Handoff | null;
 }) {
   const { service, dep, log, server, image, runtime, env, signal, primary, replicaOffset, replicaTotal } = opts;
   const d = server.docker;
@@ -566,6 +570,11 @@ async function runOnServer(opts: {
   // Two copies of a stateful app (postgres, redis, ...) on one data directory corrupt it.
   const stateful = statefulMounts(opts.imageVolumes, runtime.volumes);
   const needsStopFirst = runtime.ports.length > 0 || recreate || stateful.length > 0;
+  // The container taken over goes before the new ones start when they share its data or ports;
+  // else it serves until the new ones are healthy.
+  const adopt = opts.adopt ?? null;
+  const adoptFirst = !!adopt && (needsStopFirst || runtime.volumes.some((v) => v.kind !== "file"));
+  const adoptPolicy = adopt ? await restartPolicyOf(d, adopt) : null;
   if (stateful.length && replicas > 1) {
     log.line(
       `Warning: the ${replicas} replicas share the data in ${stateful.map((v) => v.mountPath).join(", ")}. Most databases need exactly one; use 1 replica unless the app supports this.`,
@@ -617,6 +626,10 @@ async function runOnServer(opts: {
         .stop({ t: stopWait })
         .catch(() => {});
   }
+  if (adopt && adoptFirst) {
+    log.step(`Taking over from ${adopt.name}`);
+    await retireOld(d, adopt, log.line, runtime.stopTimeout ?? 30);
+  }
   log.step(`Starting ${replicas} container${replicas > 1 ? "s" : ""}`);
   const started: string[] = [];
   try {
@@ -656,6 +669,10 @@ async function runOnServer(opts: {
     checkCancelled(signal);
   } catch (error) {
     for (const id of started) await removeContainer(id, 0, d);
+    if (adopt && adoptFirst) {
+      log.line(`Putting ${adopt.name} back`);
+      await restoreOld(d, adopt, adoptPolicy, log.line);
+    }
     if (needsStopFirst && old.length) {
       // Bring the previous version back so a failed deploy does not take the app down.
       log.line("Restarting the previous version");
@@ -688,6 +705,10 @@ async function runOnServer(opts: {
     log.line(`Warning: proxy update failed: ${(error as Error).message}`);
   }
 
+  if (adopt && !adoptFirst) {
+    log.step(`Taking over from ${adopt.name}`);
+    await retireOld(d, adopt, log.line, runtime.stopTimeout ?? 15);
+  }
   if (old.length && !needsStopFirst) {
     const drain = runtime.drainSeconds ?? 3;
     log.line(`Draining ${old.length} old container${old.length > 1 ? "s" : ""}${drain ? ` for ${drain}s` : ""}`);
@@ -839,7 +860,7 @@ async function pruneImages(service: Service, server: ServerCtx, current: string)
 /*                                 Databases                                  */
 /* -------------------------------------------------------------------------- */
 
-export async function deployDatabase(service: Service, log: DeployLogger | null, signal?: AbortSignal) {
+export async function deployDatabase(service: Service, log: DeployLogger | null, signal?: AbortSignal, adopt: Handoff | null = null) {
   const server = await serverOf(service);
   const d = server.docker;
   const cfg = service.database!;
@@ -881,52 +902,79 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
       line(`Warning: the firewall rules were not refreshed: ${(error as Error).message}`);
     }
   }
+  // A database moved into a project keeps its data where it was: a volume or folder made outside Serve.
+  const dataMount: VolumeMount = !cfg.dataVolume
+    ? { kind: "volume", source: "data", mountPath: plan.dataMountPath }
+    : cfg.dataVolume.startsWith("/")
+      ? { kind: "bind", source: cfg.dataVolume, mountPath: plan.dataMountPath }
+      : { kind: "volume", source: cfg.dataVolume, mountPath: plan.dataMountPath, external: true };
+  if ((cfg.dataVolume || service.runtime.networks?.length) && (await orgIdOf(service)) !== (await getSetting("rootOrganizationId"))) {
+    throw new Error("Only services of the Root organization may keep data or names in volumes and networks made outside Serve.");
+  }
   log?.step("Starting database");
   await ensureNetwork(d, server.network);
   const network = await ensureEnvNetwork(service.environmentId, server);
-  await removeContainer(service.slug, 30, d);
-  const container = await startContainer(
-    {
-      name: service.slug,
-      image,
-      slug: service.slug,
-      serviceId: service.id,
-      kind: "database",
-      env: plan.env,
-      cmd: plan.cmd,
-      healthcheck: plan.healthcheck,
-      healthTiming: plan.health,
-      extraBinds: plan.binds,
-      serviceDir,
-      runtime: {
-        ...service.runtime,
-        port: engine.port,
-        command: null,
-        // The data volume first, then any mounts added in Persistent storage.
-        volumes: [{ kind: "volume", source: "data", mountPath: plan.dataMountPath }, ...extra.filter((v) => !(v.kind === "volume" && v.source === "data"))],
-        // With TLS on, the public port leads to the TLS port (Redis, Valkey and ClickHouse keep a plain one for the private network).
-        ports: cfg.publicPort ? [{ host: cfg.publicPort, container: plan.publicTarget, protocol: "tcp", bindAddress: cfg.publicBind }] : [],
-        healthcheckPath: null,
-        healthcheckTimeout: 180,
+  // A database taken over stops first: two servers on one data directory corrupt it.
+  const adoptPolicy = adopt ? await restartPolicyOf(d, adopt) : null;
+  if (adopt) await retireOld(d, adopt, line, 60);
+  try {
+    return await startDatabase();
+  } catch (error) {
+    if (adopt) {
+      await removeContainer(service.slug, 0, d);
+      line(`Putting ${adopt.name} back`);
+      await restoreOld(d, adopt, adoptPolicy, line);
+    }
+    throw error;
+  }
+
+  async function startDatabase() {
+    await removeContainer(service.slug, 30, d);
+    const container = await startContainer(
+      {
+        name: service.slug,
+        image,
+        slug: service.slug,
+        serviceId: service.id,
+        kind: "database",
+        env: plan.env,
+        cmd: plan.cmd,
+        healthcheck: plan.healthcheck,
+        healthTiming: plan.health,
+        extraBinds: plan.binds,
+        serviceDir,
+        runtime: {
+          ...service.runtime,
+          port: engine.port,
+          command: null,
+          // The data volume first, then any mounts added in Persistent storage.
+          volumes: [dataMount, ...extra.filter((v) => !(v.kind === "volume" && v.source === "data" && !v.external))],
+          // With TLS on, the public port leads to the TLS port (Redis, Valkey and ClickHouse keep a plain one for the private network).
+          ports: cfg.publicPort ? [{ host: cfg.publicPort, container: plan.publicTarget, protocol: "tcp", bindAddress: cfg.publicBind }] : [],
+          healthcheckPath: null,
+          healthcheckTimeout: 180,
+        },
+        aliases: networkAliases(service),
+        network,
       },
-      aliases: networkAliases(service),
+      server,
+    );
+    line(
+      `${dataMount.kind === "bind" ? "Folder" : "Volume"} ${dataMount.external || dataMount.kind === "bind" ? dataMount.source : volumeName(service.slug, "data")} mounted at ${plan.dataMountPath}`,
+    );
+    log?.step("Waiting for the database to accept connections");
+    await waitHealthy(
+      container.id,
+      { ...service.runtime, port: null, healthcheckTimeout: Math.max(180, plan.health.startPeriod + plan.health.interval * plan.health.retries + 30) },
+      line,
+      signal,
       network,
-    },
-    server,
-  );
-  line(`Volume ${volumeName(service.slug, "data")} mounted at ${plan.dataMountPath}`);
-  log?.step("Waiting for the database to accept connections");
-  await waitHealthy(
-    container.id,
-    { ...service.runtime, port: null, healthcheckTimeout: Math.max(180, plan.health.startPeriod + plan.health.interval * plan.health.retries + 30) },
-    line,
-    signal,
-    network,
-    server,
-  );
-  line(`${engine.label} is ready`);
-  await setServiceStatus(service.id, "running");
-  await meshAfterStart(server.id, line);
+      server,
+    );
+    line(`${engine.label} is ready`);
+    await setServiceStatus(service.id, "running");
+    await meshAfterStart(server.id, line);
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1243,7 +1291,7 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     if (service.type === "app") await deployApp(service, dep, log, server, signal);
     else if (service.type === "database") {
       await setDeployment(dep.id, { status: "deploying" });
-      await deployDatabase(service, log, signal);
+      await deployDatabase(service, log, signal, dep.adopt ?? null);
       await db.update(schema.service).set({ currentDeploymentId: dep.id }).where(eq(schema.service.id, service.id));
     } else await deployCompose(service, dep, log, server, signal);
 

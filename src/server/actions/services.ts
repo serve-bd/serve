@@ -14,7 +14,7 @@ import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { projectInOrg, serviceInOrg } from "@/server/services/access";
 import { generatedHostname, newWebhookSecret, queueDeployment, serviceNameTaken, uniqueServiceName, uniqueServiceSlug } from "@/server/services/create";
-import { buildsImage, defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig, hasHostAccess } from "@/server/services/types";
+import { buildsImage, defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig, hasHostAccess, usesOutsideResources } from "@/server/services/types";
 import { engines } from "@/server/databases/engines";
 import { resolveTemplate, templateVarValue } from "@/server/services/custom-templates";
 import { assertCredentialHost, normalizeRepoUrl, repoUrlProblem } from "@/server/deploy/git";
@@ -196,7 +196,7 @@ const appSchema = z.object({
   port: z.number().int().min(1).max(65535).nullable().optional(),
   envVars: envVarInput,
   /** Persistent storage set up front: named Docker volumes only (host paths need the root admin, in settings). */
-  volumes: volumeListSchema.refine((list) => list.every((v) => v.kind === "volume"), "Add host paths and files in the service settings.").optional(),
+  volumes: volumeListSchema.refine((list) => list.every((v) => v.kind === "volume" && !v.external), "Add host paths and files in the service settings.").optional(),
   /** Services are never deployed on creation unless the caller asks (e.g. the API). */
   deploy: z.boolean().default(false),
   /** Server to run on; defaults to the server Serve runs on. */
@@ -1045,6 +1045,7 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.parentServiceId) throw new UserError("Preview deployments follow their parent service.");
     if (service.serverId === serverId) throw new UserError("The service already runs on that server.");
+    if (usesOutsideResources(service)) throw new UserError("This service keeps its data or network names in volumes and networks of its server. It stays on that server.");
     const target = await resolveServerForOrg(serverId, ctx.org.id);
     await requireRoom(ctx.org.id, { serverId: target.id });
     const [source] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, service.serverId));

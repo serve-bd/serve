@@ -14,8 +14,10 @@ export const volumeSchema = z
     content: z.string().max(256_000, "Files are limited to 250 KB").optional(),
     hostType: z.enum(["file", "directory"]).optional(),
     create: z.boolean().optional(),
+    external: z.boolean().optional(),
   })
   .superRefine((v, ctx) => {
+    if (v.external && v.kind !== "volume") ctx.addIssue({ code: "custom", message: "Only volumes can be made outside Serve." });
     if (v.kind === "volume" && !/^[a-zA-Z0-9][\w.-]*$/.test(v.source)) ctx.addIssue({ code: "custom", message: "Volume names use letters, numbers, dots and dashes." });
     if (v.kind === "bind" && !/^\/[^:]*$/.test(v.source)) ctx.addIssue({ code: "custom", message: "Host paths must be absolute." });
     if (v.kind === "file" && !/^[\w][\w.-]*$/.test(v.source)) ctx.addIssue({ code: "custom", message: "File names use letters, numbers, dots and dashes." });

@@ -152,7 +152,7 @@ async function deployPreviewLocked(parent: Service, pr: PullRequest) {
         source,
         build: parent.build,
         // Branch code runs here: never with the parent's host-level access.
-        runtime: { ...withoutHostAccess(parent.runtime), replicas: 1, volumes: parent.runtime.volumes.filter((v) => v.kind === "volume") },
+        runtime: { ...withoutHostAccess(parent.runtime), replicas: 1, volumes: parent.runtime.volumes.filter((v) => v.kind === "volume" && !v.external) },
         autoDeploy: true,
         webhookSecret: newWebhookSecret(),
         parentServiceId: parent.id,

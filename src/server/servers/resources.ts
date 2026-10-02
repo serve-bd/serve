@@ -19,6 +19,8 @@ export type ContainerRow = {
   role: string | null;
   service: { id: string; name: string; projectId: string; projectName: string; organizationName: string } | null;
   composeService: string | null;
+  /** Replaced by a Serve service that took over its data: kept, stopped, for a rollback. */
+  retired: boolean;
 };
 
 const SYSTEM_NAMES = new Set(["serve", "serve-worker", "serve-db", "serve-proxy", "serve-host-shell", env.proxyContainer]);
@@ -86,7 +88,15 @@ export async function listHostContainers(ctx: ServerCtx): Promise<ContainerRow[]
         created: c.Created * 1000,
         ports,
         kind,
-        role: kind === "system" ? systemRole(c.Labels, name) : kind === "service" && !service ? (c.Labels[LABEL.slug] ?? "Serve service") : null,
+        role:
+          kind === "system"
+            ? systemRole(c.Labels, name)
+            : kind === "service" && !service
+              ? (c.Labels[LABEL.slug] ?? "Serve service")
+              : name.endsWith("-before-serve")
+                ? "Replaced by a Serve service, kept for a rollback"
+                : null,
+        retired: kind === "unmanaged" && name.endsWith("-before-serve"),
         service,
         composeService: c.Labels["com.docker.compose.service"] ?? null,
       };

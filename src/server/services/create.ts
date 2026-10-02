@@ -49,7 +49,15 @@ export function generatedHostname(slug: string, serverId: string = LOCAL_SERVER_
 export async function queueDeployment(
   serviceId: string,
   trigger: DeploymentTrigger,
-  opts: { userId?: string | null; rollbackOf?: string | null; commitSha?: string | null; commitMessage?: string | null; branch?: string | null } = {},
+  opts: {
+    userId?: string | null;
+    rollbackOf?: string | null;
+    commitSha?: string | null;
+    commitMessage?: string | null;
+    branch?: string | null;
+    /** A container made outside Serve that this deployment takes over. */
+    adopt?: { containerId: string; name: string } | null;
+  } = {},
 ) {
   const id = newId();
   await db.insert(schema.deployment).values({
@@ -62,6 +70,7 @@ export async function queueDeployment(
     commitSha: opts.commitSha ?? null,
     commitMessage: opts.commitMessage ?? null,
     branch: opts.branch ?? null,
+    adopt: opts.adopt ?? null,
   });
   await enqueue("deploy", { deploymentId: id }, { concurrencyKey: `service:${serviceId}` });
   return id;

@@ -157,6 +157,7 @@ export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: 
   const creds = databaseCreds(cfg, password);
   const env = engine.env(creds);
   if (cfg.engine === "postgres") {
+    if (cfg.pgdata) env.PGDATA = cfg.pgdata;
     if (cfg.initdbArgs?.trim()) env.POSTGRES_INITDB_ARGS = cfg.initdbArgs.trim();
     if (cfg.hostAuthMethod) env.POSTGRES_HOST_AUTH_METHOD = cfg.hostAuthMethod;
   }

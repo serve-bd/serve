@@ -3,10 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { Box, Boxes, HardDrive, Layers, MoreHorizontal, Network, Play, RotateCw, Search, Square } from "lucide-react";
+import { Box, Boxes, FolderInput, HardDrive, Layers, MoreHorizontal, Network, Play, RotateCw, Search, Square } from "lucide-react";
 import { Badge, Card, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { Input } from "@/components/ui/input";
-import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
+import { MoveContainerDialog } from "./move-container-dialog";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { controlUnmanagedContainer } from "@/server/actions/server-resources";
@@ -56,7 +57,19 @@ function Usage({ stats, running }: { stats: Stats[string] | undefined; running: 
   );
 }
 
-export function ResourcesView({ serverId, containers, summary }: { serverId: string; containers: ContainerRow[]; summary: { images: number; volumes: number; networks: number } }) {
+export function ResourcesView({
+  serverId,
+  containers,
+  summary,
+  canMove,
+}: {
+  serverId: string;
+  containers: ContainerRow[];
+  summary: { images: number; volumes: number; networks: number };
+  /** Root admins move containers into projects. */
+  canMove: boolean;
+}) {
+  const [moving, setMoving] = React.useState<{ id: string; name: string } | null>(null);
   const [filter, setFilter] = React.useState<Filter>("all");
   const [query, setQuery] = React.useState("");
   const { data } = useSWR<{ stats: Stats }>(`/api/servers/${serverId}/resources/stats`, { refreshInterval: 10_000 });
@@ -173,6 +186,14 @@ export function ResourcesView({ serverId, containers, summary }: { serverId: str
                             <MoreHorizontal className="size-4" />
                           </MenuTrigger>
                           <MenuContent>
+                            {canMove && !c.retired && (
+                              <>
+                                <MenuItem onClick={() => setMoving({ id: c.id, name: c.name })}>
+                                  <FolderInput /> Move into a project
+                                </MenuItem>
+                                <MenuSeparator />
+                              </>
+                            )}
                             {isRunning ? (
                               <>
                                 <MenuItem onClick={() => control.run({ serverId, id: c.id, action: "restart" })}>
@@ -227,6 +248,7 @@ export function ResourcesView({ serverId, containers, summary }: { serverId: str
           </>
         )}
       </Card>
+      <MoveContainerDialog serverId={serverId} container={moving} onClose={() => setMoving(null)} />
       <p className="text-xs text-faint">Every container on this Docker host. Usage refreshes every 10 seconds. Only unmanaged containers can be started or stopped here.</p>
     </div>
   );

@@ -386,6 +386,13 @@
       "when": 1790944464455,
       "tag": "0054_backup_databases",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790968948753,
+      "tag": "0055_deployment_adopt",
+      "breakpoints": true
     }
   ]
 }

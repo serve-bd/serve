@@ -326,7 +326,7 @@ export function MoveContainerDialog({
                   <Kept icon={<Clock />} label="Downtime">
                     {copy
                       ? as === "database" && db
-                        ? `None. Changes made after the copy stay in the original.${["postgres", "mysql", "mariadb"].includes(db.engine) ? ` Users other than ${db.username} are not copied.` : ""}`
+                        ? `None. Changes made after the copy stay in the original.${["postgres", "mysql", "mariadb", "mongodb"].includes(db.engine) ? ` Users other than ${db.username} are not copied.` : ""}`
                         : copiedVolumes.length
                           ? `The original stops while its volumes are copied, then starts again.${sharedFolders.length ? " Folders on the server stay shared." : ""}`
                           : "None. There is no data to copy."

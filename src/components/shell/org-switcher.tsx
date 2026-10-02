@@ -2,8 +2,9 @@
 
 import { showError } from "@/hooks/use-action";
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "@/hooks/use-router";
-import { Check, ChevronsUpDown, Plus, Settings, Users } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, Plus, Settings, Users } from "lucide-react";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -18,13 +19,23 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
   const router = useRouter();
   const [createOpen, setCreateOpen] = React.useState(false);
   const [pending, setPending] = React.useState(false);
+  // The org being opened. The overlay stays until the shell shows it, so nothing is clicked in the old one meanwhile.
+  const [switching, setSwitching] = React.useState<OrgItem | null>(null);
+  const [navigating, startNavigation] = React.useTransition();
+  const busy = !!switching && (navigating || switching.id !== current.id);
 
-  async function switchTo(id: string) {
-    if (id === current.id) return;
-    const res = await switchOrganization(id);
-    if (!res.ok) return showError(res.error);
-    router.push("/");
-    router.refresh();
+  async function switchTo(org: OrgItem) {
+    if (org.id === current.id || switching) return;
+    setSwitching(org);
+    const res = await switchOrganization(org.id);
+    if (!res.ok) {
+      setSwitching(null);
+      return showError(res.error);
+    }
+    startNavigation(() => {
+      router.push("/");
+      router.refresh();
+    });
   }
 
   return (
@@ -43,7 +54,7 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
         <MenuContent align="start" className="w-64">
           <MenuLabel>Organizations</MenuLabel>
           {orgs.map((o) => (
-            <MenuItem key={o.id} onClick={() => switchTo(o.id)}>
+            <MenuItem key={o.id} onClick={() => switchTo(o)}>
               <span className="flex-1 truncate">{o.name}</span>
               {o.isRoot && <Badge tone="accent">Root</Badge>}
               {o.id === current.id && <Check className="!text-accent" />}
@@ -63,6 +74,8 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
           )}
         </MenuContent>
       </Menu>
+
+      {busy && switching && <SwitchingOverlay name={switching.name} />}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent size="sm">
@@ -94,5 +107,25 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** Covers the app while another organization opens. It fades in late, so a quick switch does not flash. */
+function SwitchingOverlay({ name }: { name: string }) {
+  return createPortal(
+    <div
+      role="status"
+      aria-live="polite"
+      aria-busy
+      className="fixed inset-0 z-[100] flex animate-[fade-in_200ms_ease-out_120ms_both] items-center justify-center bg-bg/70 backdrop-blur-[3px]"
+    >
+      <div className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-lg">
+        <Loader2 className="size-4 animate-spin text-accent" />
+        <span className="text-[13px] text-fg-2">
+          Switching to <span className="font-semibold text-fg">{name}</span>
+        </span>
+      </div>
+    </div>,
+    document.body,
   );
 }

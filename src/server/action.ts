@@ -15,7 +15,7 @@ export async function act<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
     }
     if (error instanceof ZodError) {
       const issue = error.issues[0];
-      return { ok: false, error: issue ? `${issue.path.join(".") || "Value"}: ${issue.message}` : "Invalid input" };
+      return { ok: false, error: issue ? (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message) : "Invalid input" };
     }
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof UserError) return { ok: false, error: message };

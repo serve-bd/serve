@@ -386,7 +386,9 @@ export async function runBackup(backupId: string, protect?: string) {
     const databases = backup.target ? null : await backupDatabasesNow(service, backup.databases ?? service.database?.backupDatabases ?? null, (l) => logLine(backup.id, l));
     const t = await targetOf(service, backup.target, databases);
     label = t.label;
-    if (databases) await db.update(schema.backup).set({ databases }).where(eq(schema.backup.id, backup.id));
+    // What it takes, not what was asked: chosen databases the server no longer has are not in it,
+    // and with none left it is the usual backup of the main database (null).
+    if (!backup.target && (databases || backup.databases)) await db.update(schema.backup).set({ databases }).where(eq(schema.backup.id, backup.id));
     const filename = `${t.stem}-${stamp}.${t.extension}`;
     file = backupFile(service.id, filename);
     // Known before the dump starts, so a restart mid-way can remove the partial file.

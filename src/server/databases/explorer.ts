@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { DbEngine } from "@/server/services/types";
 import type { EngineCreds } from "./engines";
 
@@ -1334,6 +1335,95 @@ export function editCellScript(engine: "postgres" | "mysql" | "mariadb", c: Engi
       ].join("\n"),
     )} | ${cli.cmd}`,
   ];
+}
+
+/** Changes to one table, saved together: all of them or none. */
+export type TableChanges = {
+  database: string;
+  schema: string | null;
+  table: string;
+  /** A row found by its whole primary key, with the new values of some columns (null sets NULL). */
+  updates: { key: { column: string; value: string }[]; values: Record<string, string | null> }[];
+  /** New rows: the columns given; the others get their defaults. */
+  inserts: { values: Record<string, string | null> }[];
+  deletes: { key: { column: string; value: string }[] }[];
+};
+
+/**
+ * One transaction for all the changes. A row to change or delete that is not there any more (or
+ * not found by its key) stops it before anything is saved: the error names it as SERVE_STALE <n>,
+ * counting updates, then deletes, from 1.
+ */
+export function changesScript(engine: "postgres" | "mysql" | "mariadb", c: EngineCreds, ch: TableChanges): string[] {
+  const steps = ch.updates.length + ch.inserts.length + ch.deletes.length;
+  if (!steps) throw new ExplorerInputError("There are no changes to save.");
+  if ([...ch.updates, ...ch.deletes].some((r) => !r.key.length)) throw new ExplorerInputError("Only rows of a table with a primary key can be changed here.");
+  if (ch.updates.some((u) => !Object.keys(u.values).length) || ch.inserts.some((i) => !Object.keys(i.values).length)) throw new ExplorerInputError("A change has no values.");
+  if (engine === "postgres") {
+    const table = `${pgIdent(ch.schema ?? "public")}.${pgIdent(ch.table)}`;
+    const value = (v: string | null) => (v === null ? "NULL" : pgLiteral(v));
+    const where = (key: TableChanges["deletes"][number]["key"]) => key.map((k) => `${pgIdent(k.column)} = ${pgLiteral(k.value)}`).join(" AND ");
+    // A dollar tag no value can end: chosen until none of the statements contains it.
+    const statements: string[] = [];
+    const checked: string[] = [];
+    let n = 0;
+    for (const u of ch.updates)
+      checked.push(
+        `UPDATE ${table} SET ${Object.entries(u.values)
+          .map(([col, v]) => `${pgIdent(col)} = ${value(v)}`)
+          .join(", ")} WHERE ${where(u.key)};\n  IF NOT FOUND THEN RAISE EXCEPTION 'SERVE_STALE ${++n}'; END IF;`,
+      );
+    for (const d of ch.deletes) checked.push(`DELETE FROM ${table} WHERE ${where(d.key)};\n  IF NOT FOUND THEN RAISE EXCEPTION 'SERVE_STALE ${++n}'; END IF;`);
+    let tag = "serve";
+    while (checked.some((x) => x.includes(`$${tag}$`))) tag = `serve_${crypto.randomBytes(4).toString("hex")}`;
+    if (checked.length) statements.push(`DO $${tag}$ BEGIN\n  ${checked.join("\n  ")}\nEND $${tag}$;`);
+    for (const i of ch.inserts) {
+      const cols = Object.keys(i.values);
+      statements.push(`INSERT INTO ${table} (${cols.map(pgIdent).join(", ")}) VALUES (${cols.map((col) => value(i.values[col])).join(", ")});`);
+    }
+    // One -c with several statements is one transaction: an error in any undoes all.
+    return [...pgEnv(c, { readOnly: false, timeoutSeconds: QUERY_TIMEOUT }), shVar("U", statements.join("\n")), `${psql(c, ch.database, "-At")} -c "$U" -c '\\echo SERVE_SAVED'`];
+  }
+  const table = `${myIdent(ch.database)}.${myIdent(ch.table)}`;
+  const value = (v: string | null) => (v === null ? "NULL" : myLiteral(v));
+  const where = (key: TableChanges["deletes"][number]["key"]) => key.map((k) => `${myIdent(k.column)} = ${myLiteral(k.value)}`).join(" AND ");
+  // MySQL has no conditional error outside stored programs: a subquery of two rows in a scalar
+  // place fails (1242), so a row not found stops the script, and the transaction is undone.
+  const found = (n: number, key: TableChanges["deletes"][number]["key"]) =>
+    `SELECT IF((SELECT COUNT(*) FROM ${table} WHERE ${where(key)}) = 1, 'ok', (SELECT 'SERVE_STALE ${n}' UNION ALL SELECT 'SERVE_STALE ${n}')) INTO @serve_found;`;
+  const lines = [myTimeout(engine, QUERY_TIMEOUT), "START TRANSACTION;"];
+  let n = 0;
+  for (const u of ch.updates) {
+    lines.push(`SELECT 'SERVE_STEP ${++n}';`, found(n, u.key));
+    lines.push(
+      `UPDATE ${table} SET ${Object.entries(u.values)
+        .map(([col, v]) => `${myIdent(col)} = ${value(v)}`)
+        .join(", ")} WHERE ${where(u.key)} LIMIT 1;`,
+    );
+  }
+  for (const d of ch.deletes) {
+    lines.push(`SELECT 'SERVE_STEP ${++n}';`, found(n, d.key));
+    lines.push(`DELETE FROM ${table} WHERE ${where(d.key)} LIMIT 1;`);
+  }
+  for (const i of ch.inserts) {
+    const cols = Object.keys(i.values);
+    lines.push(`INSERT INTO ${table} (${cols.map(myIdent).join(", ")}) VALUES (${cols.map((col) => value(i.values[col])).join(", ")});`);
+  }
+  lines.push("COMMIT;", "SELECT 'SERVE_SAVED';");
+  const cli = myCli(engine, c, "-N -B -r");
+  return [...cli.env, `${pipe(lines.join("\n"))} | ${cli.cmd}`];
+}
+
+/** Which change stopped a save (1-based, updates then deletes), or null. */
+export function staleChange(engine: string, output: string): number | null {
+  const named = /SERVE_STALE (\d+)/.exec(output);
+  if (named) return Number(named[1]);
+  // MySQL: the subquery error, after the last step it printed.
+  if (engine !== "postgres" && /ERROR 1242/.test(output)) {
+    const steps = [...output.matchAll(/SERVE_STEP (\d+)/g)];
+    return steps.length ? Number(steps.at(-1)![1]) : 1;
+  }
+  return null;
 }
 
 export function parseEditCount(stdout: string) {

@@ -18,6 +18,9 @@ import {
   cleanError,
   type ColumnInfo,
   editCellScript,
+  changesScript,
+  staleChange,
+  type TableChanges,
   COUNT_CAP,
   ExplorerInputError,
   explorerFamily,
@@ -470,6 +473,113 @@ export async function explorerEditCell(serviceId: string, input: z.input<typeof 
       message: `Changed ${edit.column} of the row ${key} in ${edit.table} (${service.name})`,
     });
     return null;
+  });
+}
+
+const keySchema = z
+  .array(z.object({ column: nameSchema.min(1), value: z.string().max(10_000) }))
+  .min(1)
+  .max(32);
+const valuesSchema = z.record(nameSchema.min(1), z.string().max(MAX_QUERY_BYTES).nullable());
+const changesSchema = z.object({
+  database: nameSchema,
+  schema: nameSchema.nullable().optional(),
+  table: nameSchema.min(1),
+  updates: z
+    .array(z.object({ key: keySchema, values: valuesSchema }))
+    .max(500)
+    .default([]),
+  inserts: z
+    .array(z.object({ values: valuesSchema }))
+    .max(500)
+    .default([]),
+  deletes: z
+    .array(z.object({ key: keySchema }))
+    .max(500)
+    .default([]),
+});
+
+/**
+ * Saves edits, new rows and deleted rows of one table together, in one transaction: all of
+ * them or, when one row changed or went since it was shown, none.
+ */
+export async function explorerSaveChanges(serviceId: string, input: z.input<typeof changesSchema>) {
+  return act(async () => {
+    const { ctx, service } = await explorerService(serviceId);
+    const req = changesSchema.parse(input);
+    const engine = sqlEngine(service);
+    if (engine === "clickhouse") throw new UserError("Rows of ClickHouse tables are changed with ALTER TABLE … UPDATE, in the Query tab.");
+    const total = req.updates.length + req.inserts.length + req.deletes.length;
+    if (!total) throw new UserError("There are no changes to save.");
+    if (total > 500) throw new UserError("Save at most 500 changes at once.");
+    const c = credsOf(service);
+    const ref = { database: req.database, schema: engine === "postgres" ? (req.schema ?? "public") : null, name: req.table };
+    const structure = parseSqlStructure(
+      engine,
+      (
+        await runOk(
+          service,
+          scripted(() => sqlScripts(engine, c).structure(ref)),
+        )
+      ).stdout,
+    );
+    if (!structure) throw new UserError(`There is no table named ${req.table}.`);
+    const byName = new Map(structure.columns.map((col) => [col.name, col]));
+    const primary = structure.columns.filter((col) => col.primaryKey);
+    const checkKey = (key: { column: string }[]) => {
+      if (!primary.length) throw new UserError("Only rows of a table with a primary key can be changed here. Use the Query tab.");
+      const names = new Set(key.map((k) => k.column));
+      if (names.size !== primary.length || primary.some((col) => !names.has(col.name)))
+        throw new UserError("A row's key does not match the primary key of the table. Refresh the rows.");
+      if (primary.some((col) => NOT_EDITABLE.test(col.type))) throw new UserError("Rows with a binary primary key are changed in the Query tab.");
+    };
+    const checkValues = (values: Record<string, string | null>, insert: boolean) => {
+      for (const [name, value] of Object.entries(values)) {
+        const col = byName.get(name);
+        if (!col) throw new UserError(`There is no column named ${name}.`);
+        if (!insert && col.primaryKey) throw new UserError("Values of the primary key are changed in the Query tab.");
+        if (NOT_EDITABLE.test(col.type)) throw new UserError(`Values of type ${col.type} are changed in the Query tab.`);
+        if (value === null && !col.nullable) throw new UserError(`${name} cannot be NULL.`);
+      }
+    };
+    for (const u of req.updates) {
+      checkKey(u.key);
+      checkValues(u.values, false);
+    }
+    for (const d of req.deletes) checkKey(d.key);
+    for (const i of req.inserts) checkValues(i.values, true);
+    const changes: TableChanges = { database: req.database, schema: ref.schema, table: req.table, updates: req.updates, inserts: req.inserts, deletes: req.deletes };
+    const r = await runInDatabase(
+      service,
+      scripted(() => changesScript(engine, c, changes)),
+    );
+    const output = `${r.stdout}\n${r.stderr}`;
+    if (r.code === 124 || r.code === 143) throw new UserError(`The database did not answer within ${QUERY_TIMEOUT} seconds. Nothing was saved.`);
+    const stale = staleChange(engine, output);
+    if (stale !== null) {
+      const what = stale <= req.updates.length ? `changed row ${stale}` : `deleted row ${stale - req.updates.length}`;
+      throw new UserError(`Nothing was saved: the ${what} changed or went since it was shown. Refresh the rows.`);
+    }
+    if (r.code !== 0 || !r.stdout.includes("SERVE_SAVED")) {
+      // The MariaDB client prints the failed statement before its error: the error line says why.
+      const line = /^ERROR \d+[^\n]*/m.exec(output)?.[0];
+      throw new UserError(`Nothing was saved. ${line ?? (cleanError(service.database.engine, r.stderr) || `The database refused (exit code ${r.code}).`)}`);
+    }
+    const parts = [
+      req.updates.length && `changed ${req.updates.length} row${req.updates.length === 1 ? "" : "s"}`,
+      req.inserts.length && `added ${req.inserts.length}`,
+      req.deletes.length && `deleted ${req.deletes.length}`,
+    ].filter(Boolean);
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      projectId: service.projectId,
+      action: "database.rows-changed",
+      targetType: "service",
+      targetId: service.id,
+      message: `In ${req.table} (${service.name}): ${parts.join(", ")}`,
+    });
+    return { updated: req.updates.length, inserted: req.inserts.length, deleted: req.deletes.length };
   });
 }
 

@@ -401,6 +401,27 @@ export const databaseRoutes: ApiRoute[] = [
     },
   }),
   route({
+    method: "POST",
+    path: "/services/{serviceId}/data/changes",
+    tag: "Databases",
+    summary: "Save changed, new and deleted rows of a table together",
+    description:
+      "PostgreSQL, MySQL and MariaDB, in one transaction: all of them or none. updates and deletes find each row by its whole primary key (key: each column with the value the row shows); values maps columns to new values (null sets NULL). inserts give the columns to set; the others get their defaults. When a row changed or went since it was shown, nothing is saved. At most 500 changes. Written to the activity log.",
+    needs: ["projects.view", "console.access"],
+    body: z.object({
+      database: z.string(),
+      schema: z.string().nullable().optional(),
+      table: z.string(),
+      updates: z.array(z.object({ key: z.array(z.object({ column: z.string(), value: z.string() })).min(1), values: z.record(z.string(), z.string().nullable()) })).optional(),
+      inserts: z.array(z.object({ values: z.record(z.string(), z.string().nullable()) })).optional(),
+      deletes: z.array(z.object({ key: z.array(z.object({ column: z.string(), value: z.string() })).min(1) })).optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return await unwrap(explorer.explorerSaveChanges(params.serviceId, body));
+    },
+  }),
+  route({
     method: "PUT",
     path: "/services/{serviceId}/data/documents",
     tag: "Databases",

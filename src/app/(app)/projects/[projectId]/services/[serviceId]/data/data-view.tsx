@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button";
 import { CodeEditor } from "@/components/code-editor";
 import { useConfirm } from "@/components/ui/confirm";
 import { Dialog, DialogBody, DialogContent, DialogError, DialogFooter, DialogHeader } from "@/components/ui/dialog";
-import { Input, Textarea } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Badge, Card, CardHeader, CopyButton, EmptyState, Kbd, Skeleton } from "@/components/ui/misc";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
@@ -20,7 +19,7 @@ import {
   type DocumentsPage,
   type ExplorerOverview,
   type ExplorerQueryResult,
-  explorerEditCell,
+  explorerSaveChanges,
   explorerEditDocument,
   explorerKey,
   explorerKeys,
@@ -33,6 +32,7 @@ import {
   type RowsPage,
   type Structure,
 } from "@/server/actions/database-explorer";
+import { EditableGrid, type GridChanges } from "./editable-grid";
 
 type Family = ExplorerOverview["family"];
 type TableRef = { schema: string | null; name: string };
@@ -422,7 +422,6 @@ const FILTER_LABELS: { value: FilterOp; label: string }[] = [
 ];
 
 /** Types whose values show as hex or text that would not write back as they read (the server checks too). */
-const NOT_EDITABLE = /blob|binary|^bit\b|geometry|point|polygon|linestring/i;
 
 function RowsView({
   serviceId,
@@ -461,25 +460,15 @@ function RowsView({
   const shownColumns = data?.columns.length ? data.columns : columns;
   const column = draft.column || shownColumns[0] || "";
   const needsValue = draft.op !== "null" && draft.op !== "notnull";
-  const primary = structure?.columns.filter((c) => c.primaryKey) ?? [];
-  const edit: CellEditing | undefined =
-    editable && data && primary.length && !primary.some((c) => NOT_EDITABLE.test(c.type))
-      ? {
-          readOnly,
-          can: (name) => {
-            const col = structure?.columns.find((c) => c.name === name);
-            return !!col && !col.primaryKey && !NOT_EDITABLE.test(col.type);
-          },
-          nullable: (name) => !!structure?.columns.find((c) => c.name === name)?.nullable,
-          save: async (row, name, value) => {
-            const key = primary.map((p) => ({ column: p.name, value: row[shownColumns.indexOf(p.name)] ?? "" }));
-            const res = await explorerEditCell(serviceId, { ...reference, key, column: name, value }).catch((e: Error) => ({ ok: false as const, error: e.message }));
-            if (!res.ok) return res.error;
-            setReload((n) => n + 1);
-            return null;
-          },
-        }
-      : undefined;
+  const [dirty, setDirty] = React.useState(false);
+  const grid = editable && !readOnly && structure && data;
+  const saveChanges = async (changes: GridChanges) => {
+    const res = await explorerSaveChanges(serviceId, { ...reference, ...changes }).catch((e: Error) => ({ ok: false as const, error: e.message }));
+    if (!res.ok) return res.error;
+    setDirty(false);
+    setReload((n) => n + 1);
+    return null;
+  };
   const apply = () => {
     if (!column) return;
     setPage(0);
@@ -521,7 +510,7 @@ function RowsView({
             aria-label="Value"
           />
         )}
-        <Button size="sm" type="submit" disabled={!column}>
+        <Button size="sm" type="submit" disabled={!column || dirty} title={dirty ? "Save or discard your changes first" : undefined}>
           Filter
         </Button>
         {filter && (
@@ -536,7 +525,15 @@ function RowsView({
             <X /> Clear
           </Button>
         )}
-        <Button size="icon-sm" variant="ghost" className="ml-auto" onClick={() => setReload((n) => n + 1)} aria-label="Refresh the rows" title="Refresh">
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="ml-auto"
+          onClick={() => setReload((n) => n + 1)}
+          disabled={dirty}
+          aria-label="Refresh the rows"
+          title={dirty ? "Save or discard your changes first" : "Refresh"}
+        >
           <RotateCw className={cn(rows.loading && "animate-spin")} />
         </Button>
       </form>
@@ -557,20 +554,41 @@ function RowsView({
         <TableSkeleton />
       ) : (
         <>
-          <ResultTable
-            columns={shownColumns}
-            rows={data.rows}
-            loading={rows.loading}
-            sort={sort}
-            onSort={(c) => {
-              setPage(0);
-              setSort((s) => (s?.column !== c ? { column: c, desc: false } : s.desc ? null : { column: c, desc: true }));
-            }}
-            empty={filter ? "No rows match the filter." : "This table has no rows."}
-            edit={edit}
-          />
+          {grid ? (
+            <EditableGrid
+              columns={shownColumns}
+              structure={structure}
+              rows={data.rows}
+              loading={rows.loading}
+              sort={sort}
+              onSort={
+                dirty
+                  ? undefined
+                  : (c) => {
+                      setPage(0);
+                      setSort((s) => (s?.column !== c ? { column: c, desc: false } : s.desc ? null : { column: c, desc: true }));
+                    }
+              }
+              empty={filter ? "No rows match the filter." : "This table has no rows."}
+              onSave={saveChanges}
+              onDirty={setDirty}
+            />
+          ) : (
+            <ResultTable
+              columns={shownColumns}
+              rows={data.rows}
+              loading={rows.loading}
+              sort={sort}
+              onSort={(c) => {
+                setPage(0);
+                setSort((s) => (s?.column !== c ? { column: c, desc: false } : s.desc ? null : { column: c, desc: true }));
+              }}
+              empty={filter ? "No rows match the filter." : "This table has no rows."}
+            />
+          )}
+          {editable && readOnly && <p className="text-xs text-muted">Turn off read only to change, add or delete rows.</p>}
           {data.truncated && <p className="text-xs text-warn">Some values were too large and the page was cut short. Use the Query tab to choose fewer columns.</p>}
-          <Pager page={page} shown={data.rows.length} total={data.total} capped={data.totalCapped} loading={rows.loading} onPage={setPage} noun="rows" />
+          <Pager page={page} shown={data.rows.length} total={data.total} capped={data.totalCapped} loading={rows.loading || dirty} onPage={setPage} noun="rows" />
         </>
       )}
     </div>
@@ -826,14 +844,6 @@ function Pager({
   );
 }
 
-type CellEditing = {
-  readOnly: boolean;
-  can: (column: string) => boolean;
-  nullable: (column: string) => boolean;
-  /** Saves the value; an error message when it could not. */
-  save: (row: Cell[], column: string, value: string | null) => Promise<string | null>;
-};
-
 /** Rows in a box that scrolls on its own; a click on a value shows all of it (and changes it, where it can). */
 function ResultTable({
   columns,
@@ -843,7 +853,6 @@ function ResultTable({
   onSort,
   empty,
   first,
-  edit,
 }: {
   columns: string[];
   rows: Cell[][];
@@ -853,7 +862,6 @@ function ResultTable({
   empty: string;
   /** Pairs and lists: the first column is a label (field, index), not data. */
   first?: "label";
-  edit?: CellEditing;
 }) {
   const [open, setOpen] = React.useState<{ column: string; value: Cell; row: Cell[] } | null>(null);
   return (
@@ -910,46 +918,12 @@ function ResultTable({
         </table>
         {!rows.length && <p className="px-3 py-6 text-center text-[13px] text-muted">{empty}</p>}
       </div>
-      {open && (
-        <ValueDialog
-          title={open.column}
-          value={open.value}
-          onClose={() => setOpen(null)}
-          edit={
-            edit?.can(open.column)
-              ? {
-                  readOnly: edit.readOnly,
-                  nullable: edit.nullable(open.column),
-                  save: async (value) => {
-                    const error = await edit.save(open.row, open.column, value);
-                    if (!error) setOpen(null);
-                    return error;
-                  },
-                }
-              : undefined
-          }
-        />
-      )}
+      {open && <ValueDialog title={open.column} value={open.value} onClose={() => setOpen(null)} />}
     </>
   );
 }
 
-function ValueDialog({
-  title,
-  value,
-  onClose,
-  edit,
-}: {
-  title: string;
-  value: Cell;
-  onClose: () => void;
-  edit?: { readOnly: boolean; nullable: boolean; save: (value: string | null) => Promise<string | null> };
-}) {
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState(value ?? "");
-  const [isNull, setIsNull] = React.useState(value === null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [saving, setSaving] = React.useState(false);
+function ValueDialog({ title, value, onClose }: { title: string; value: Cell; onClose: () => void }) {
   const pretty = React.useMemo(() => {
     if (value === null) return null;
     const t = value.trim();
@@ -960,49 +934,6 @@ function ValueDialog({
     }
     return value;
   }, [value]);
-  if (editing && edit) {
-    return (
-      <Dialog open onOpenChange={(o) => !o && !saving && onClose()}>
-        <DialogContent size="lg">
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setSaving(true);
-              setError(await edit.save(isNull ? null : draft));
-              setSaving(false);
-            }}
-          >
-            <DialogHeader title={<span className="font-mono break-all">{title}</span>} description="The new value is saved to this row only, found by its primary key." />
-            <DialogBody className="flex flex-col gap-3">
-              <Textarea
-                value={isNull ? "" : draft}
-                onChange={(e) => setDraft(e.target.value)}
-                disabled={isNull}
-                placeholder={isNull ? "NULL" : undefined}
-                className="min-h-40 font-mono text-[12.5px]"
-                aria-label="New value"
-                spellCheck={false}
-              />
-              {edit.nullable && (
-                <label className="flex items-center gap-2 text-[13px] text-fg-2">
-                  <Checkbox checked={isNull} onCheckedChange={(v) => setIsNull(!!v)} /> NULL
-                </label>
-              )}
-            </DialogBody>
-            <DialogFooter>
-              <DialogError message={error} className="mr-auto" />
-              <Button variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary" loading={saving}>
-                Save
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    );
-  }
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent size="lg">
@@ -1013,15 +944,11 @@ function ValueDialog({
               {pretty}
             </pre>
           )}
-          <div className="flex items-center justify-end gap-2">
-            {edit?.readOnly && <span className="mr-auto text-xs text-muted">Turn off read only to change this value.</span>}
-            {pretty !== null && <CopyButton value={value ?? ""} label="Copy the value" />}
-            {edit && !edit.readOnly && (
-              <Button size="sm" onClick={() => setEditing(true)}>
-                <Pencil /> Edit
-              </Button>
-            )}
-          </div>
+          {pretty !== null && (
+            <div className="flex justify-end">
+              <CopyButton value={value ?? ""} label="Copy the value" />
+            </div>
+          )}
         </DialogBody>
       </DialogContent>
     </Dialog>

@@ -260,6 +260,30 @@ run("main flows", () => {
     expect((await ok(ADMIN, "POST", `${data}/rows`, { database, table: "zz_explore", filter: { column: "id", op: "eq", value: "2" } })).rows).toEqual([["2", null]]);
     expect((await api(ADMIN, "PATCH", `${data}/rows`, { ...cell, column: "id", value: "5" })).status).toBe(400);
     expect((await api(ADMIN, "PATCH", `${data}/rows`, { ...cell, key: [{ column: "id", value: "999" }], value: "x" })).status).toBe(400);
+    // Several changes saved together, in one transaction.
+    const name = `we'ird "name"`;
+    const saved = await ok(ADMIN, "POST", `${data}/changes`, {
+      database,
+      schema: "public",
+      table: "zz_explore",
+      updates: [{ key: [{ column: "id", value: "3" }], values: { [name]: "batch 'b'" } }],
+      inserts: [{ values: { id: "61", [name]: "new" } }],
+      deletes: [{ key: [{ column: "id", value: "4" }] }],
+    });
+    expect(saved).toEqual({ updated: 1, inserted: 1, deleted: 1 });
+    const after = await ok(ADMIN, "POST", `${data}/rows`, { database, table: "zz_explore", filter: { column: "id", op: "le", value: "4" }, sort: { column: "id", desc: false } });
+    expect(after.rows.map((r: any) => r[0])).toEqual(["1", "2", "3"]);
+    expect(after.rows[2][1]).toBe("batch 'b'");
+    // A row that is gone stops the whole save: the other change is not written either.
+    const stale = await api(ADMIN, "POST", `${data}/changes`, {
+      database,
+      table: "zz_explore",
+      updates: [{ key: [{ column: "id", value: "5" }], values: { [name]: "must not save" } }],
+      deletes: [{ key: [{ column: "id", value: "4" }] }],
+    });
+    expect(stale.status).toBe(400);
+    expect(stale.json.error).toMatch(/Nothing was saved/);
+    expect((await ok(ADMIN, "POST", `${data}/rows`, { database, table: "zz_explore", filter: { column: "id", op: "eq", value: "5" } })).rows[0][1]).toBe("v5");
     // Read only by default: the database refuses the write.
     const select = await ok(ADMIN, "POST", `${data}/query`, { database, query: "SELECT count(*) AS n FROM zz_explore" });
     expect(select.result).toMatchObject({ kind: "rows", columns: ["n"], rows: [["60"]] });
@@ -279,6 +303,7 @@ run("main flows", () => {
       expect((await api(tokens.read, "POST", `${data}/rows`, { database, table: "zz_explore" })).status).toBe(403);
       expect((await api(tokens.read, "POST", `${data}/query`, { database, query: "SELECT 1" })).status).toBe(403);
       expect((await api(tokens.read, "PATCH", `${data}/rows`, { ...cell, value: "x" })).status).toBe(403);
+      expect((await api(tokens.read, "POST", `${data}/changes`, { database, table: "zz_explore", deletes: [{ key: [{ column: "id", value: "1" }] }] })).status).toBe(403);
       const consoleToken = await tokenWith("console", ["projects.view", "console.access"]);
       expect((await ok(consoleToken, "POST", `${data}/query`, { database, query: "SELECT 1 AS one" })).result.rows).toEqual([["1"]]);
     }

@@ -1,7 +1,7 @@
 import path from "node:path";
 import type Docker from "dockerode";
 import type { ServerCtx } from "@/server/servers/context";
-import { LABEL } from "@/server/docker/client";
+import { imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { PROXY_IMAGE, PROXY_PROTOCOL_PORTS } from "./templates";
 import type { ProxyFile, RunningKind } from "./config";
 
@@ -146,6 +146,8 @@ async function reload(container: Docker.Container, conf: string) {
 }
 
 async function startStream(ctx: ServerCtx, name: string, conf: string, networkMode: string, kind: string) {
+  // A server running Caddy never pulled the nginx image these use.
+  if (!(await imageExists(PROXY_IMAGE, ctx.docker))) await pullImage(PROXY_IMAGE, undefined, null, ctx.docker);
   const container = await ctx.docker.createContainer({
     name,
     Image: PROXY_IMAGE,

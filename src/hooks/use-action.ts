@@ -96,7 +96,11 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
         }
         const { result, onSuccess, refresh = true } = optsRef.current;
         if (result) toast.success(typeof result === "function" ? result(res.data) : result);
-        onSuccess?.(res.data);
+        // Without a refresh, onSuccess usually navigates (to the new service, away from a deleted
+        // one): run it in the transition so `pending` lasts until the next page shows, and a
+        // second click cannot create a second service.
+        if (!refresh && onSuccess && mounted.current) startRefresh(() => onSuccess(res.data));
+        else onSuccess?.(res.data);
         if (refresh && !mounted.current) router.refresh();
         else if (refresh) {
           awaitingRefresh.current += 1;

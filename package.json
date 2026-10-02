@@ -18,6 +18,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "templates:build": "tsx scripts/templates.ts",
     "templates:check": "tsx scripts/templates.ts --check"
   },

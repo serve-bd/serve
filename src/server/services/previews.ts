@@ -1,5 +1,5 @@
 import { withoutHostAccess } from "@/server/services/types";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { requireRoomFor } from "@/server/limits";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
@@ -110,12 +110,20 @@ async function addPreviewDomain(parent: Service, previewId: string, prNumber: nu
 
 /** Create or update the preview service for a pull request and deploy it. */
 export async function deployPreview(parent: Service, pr: PullRequest) {
-  // Two webhooks for the same new pull request at once (opened and a push) must not both create it.
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`serve-preview:${parent.id}:${pr.number}`}))`);
-    return deployPreviewLocked(parent, pr);
+  // Two webhooks for the same new pull request at once (opened and a push) must not both create it:
+  // they run one after the other. In memory, not a database lock, which would hold a pool
+  // connection for the whole setup while the setup needs others.
+  const key = `${parent.id}:${pr.number}`;
+  const run = (previewLocks.get(key) ?? Promise.resolve()).catch(() => {}).then(() => deployPreviewLocked(parent, pr));
+  const done = run.catch(() => {});
+  previewLocks.set(key, done);
+  void done.then(() => {
+    if (previewLocks.get(key) === done) previewLocks.delete(key);
   });
+  return run;
 }
+
+const previewLocks = new Map<string, Promise<unknown>>();
 
 async function deployPreviewLocked(parent: Service, pr: PullRequest) {
   if (parent.type !== "app" || parent.source?.type !== "git") return null;

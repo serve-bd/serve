@@ -78,11 +78,12 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
           </p>
         ) : (
           <>
-            {info.tunnels.length > 0 && (
+            {/* With a public IP the domain just works on its own port: no route to pick. */}
+            {info.tunnels.length > 0 && (!ownPortReady || (info.hostname && info.via === "tunnel")) && (
               <div role="radiogroup" aria-label="Route" className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
                 {(
                   [
-                    ["direct", ownPortReady ? "Own port (recommended)" : "Own port", !info.directSupported],
+                    ["direct", "Own port", !info.directSupported],
                     ["tunnel", "Cloudflare Tunnel", false],
                   ] as const
                 ).map(([value, label, disabled]) => (

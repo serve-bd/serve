@@ -4,6 +4,8 @@ import { db, schema } from "@/server/db";
 import * as databases from "@/server/actions/databases";
 import * as branches from "@/server/actions/database-branches";
 import * as dbUsers from "@/server/actions/database-users";
+import * as explorer from "@/server/actions/database-explorer";
+import { FILTER_OPS, MONGO_READ_OPS, MONGO_WRITE_OPS } from "@/server/databases/explorer";
 import { databasePublicEndpoint } from "@/server/databases/public-url";
 import { saveDatabaseDomain } from "@/server/actions/database-domains";
 import * as tasks from "@/server/actions/tasks";
@@ -317,6 +319,111 @@ export const databaseRoutes: ApiRoute[] = [
     handler: async ({ auth, params }) => {
       await databaseOf(auth, params.serviceId);
       return (await unwrap(dbUsers.deleteDatabaseUser(params.serviceId, params.username))) ?? { ok: true };
+    },
+  }),
+
+  // Data
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/data",
+    tag: "Databases",
+    summary: "Databases and tables of a database service",
+    description:
+      "Read from the running database: its databases (Redis and Valkey: database numbers with keys) and the tables or collections of one of them, with estimated row counts and sizes. database: the one to list (the main database when left out). Like the console, this needs console.access.",
+    needs: ["projects.view", "console.access"],
+    query: z.object({ database: z.string().optional() }),
+    handler: async ({ auth, params, query }) => {
+      await databaseOf(auth, params.serviceId);
+      return await unwrap(explorer.explorerOverview(params.serviceId, query.database));
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/data/structure",
+    tag: "Databases",
+    summary: "Columns and indexes of a table",
+    description: "schema: PostgreSQL only (public when left out). For MongoDB, the fields seen in the first 100 documents of the collection, with their types.",
+    needs: ["projects.view", "console.access"],
+    query: z.object({ database: z.string(), schema: z.string().optional(), table: z.string() }),
+    handler: async ({ auth, params, query }) => {
+      await databaseOf(auth, params.serviceId);
+      return await unwrap(explorer.explorerStructure(params.serviceId, query));
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/data/rows",
+    tag: "Databases",
+    summary: "A page of rows of a table",
+    description: `50 rows per page (page counts from 0), sorted by one column and filtered by one condition (op: ${FILTER_OPS.join(", ")}). Values come back as text, null for NULL. total counts up to 10000 matching rows (totalCapped: more). For MongoDB, mongoFilter and mongoSort are Extended JSON and documents come back as Extended JSON text. Reads only.`,
+    needs: ["projects.view", "console.access"],
+    body: z.object({
+      database: z.string(),
+      schema: z.string().nullable().optional(),
+      table: z.string(),
+      page: z.number().int().min(0).default(0),
+      sort: z
+        .object({ column: z.string(), desc: z.boolean().default(false) })
+        .nullable()
+        .optional(),
+      filter: z
+        .object({ column: z.string(), op: z.enum(FILTER_OPS as [string, ...string[]]), value: z.string().optional() })
+        .nullable()
+        .optional(),
+      mongoFilter: z.string().optional(),
+      mongoSort: z.string().optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return await unwrap(explorer.explorerRows(params.serviceId, body));
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/data/keys",
+    tag: "Databases",
+    summary: "Redis or Valkey keys matching a pattern",
+    description:
+      "About 100 keys per call with their type, TTL (milliseconds; -1 never expires) and size. Pass the cursor of the answer to get the next keys; cursor 0 means there are no more.",
+    needs: ["projects.view", "console.access"],
+    query: z.object({ database: z.string().default("0"), pattern: z.string().optional(), cursor: z.string().optional() }),
+    handler: async ({ auth, params, query }) => {
+      await databaseOf(auth, params.serviceId);
+      return await unwrap(explorer.explorerKeys(params.serviceId, query));
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/data/key",
+    tag: "Databases",
+    summary: "The value of a Redis or Valkey key",
+    description:
+      "Its type, TTL and size, and up to 50 entries of its value (strings: the first 64 KB). at: where to continue, from next of the answer (0: the start). A key that is not UTF-8 is given in its quoted form, as the key list shows it.",
+    needs: ["projects.view", "console.access"],
+    query: z.object({ database: z.string().default("0"), key: z.string(), at: z.string().optional() }),
+    handler: async ({ auth, params, query }) => {
+      await databaseOf(auth, params.serviceId);
+      return { key: await unwrap(explorer.explorerKey(params.serviceId, query)) };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/data/query",
+    tag: "Databases",
+    summary: "Run a query",
+    description: `SQL for PostgreSQL, MySQL, MariaDB and ClickHouse; a command for Redis and Valkey (like GET "my key"); for MongoDB, an operation (${[...MONGO_READ_OPS, ...MONGO_WRITE_OPS].join(", ")}) on collection with query as Extended JSON (find and count: a filter; aggregate: a pipeline; distinct: a filter, with field; insert: documents; update: { filter, update }; delete: a filter). readOnly (true unless set to false) runs it where it cannot change data: a read-only transaction of one statement, readonly=2 on ClickHouse, read commands on Redis. At most 1000 rows, 30 seconds. An error of the database comes back as error with status 200. Queries with readOnly false are written to the activity log.`,
+    needs: ["projects.view", "console.access"],
+    body: z.object({
+      database: z.string(),
+      query: z.string(),
+      readOnly: z.boolean().default(true),
+      collection: z.string().optional(),
+      operation: z.enum([...MONGO_READ_OPS, ...MONGO_WRITE_OPS] as [string, ...string[]]).optional(),
+      field: z.string().optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return await unwrap(explorer.explorerQuery(params.serviceId, body as Parameters<typeof explorer.explorerQuery>[1]));
     },
   }),
 

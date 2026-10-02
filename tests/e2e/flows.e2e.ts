@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  *   pnpm test:e2e
  *
  * Everything the tests create is named zz-e2e-* and removed at the end. They deploy real
- * containers (nginx:alpine and postgres) on the organization's default server.
+ * containers (nginx:alpine, postgres and redis) on the organization's default server.
  */
 
 const BASE = `${(process.env.SERVE_E2E_URL ?? "http://localhost:3000").replace(/\/$/, "")}/api/v1`;
@@ -84,6 +84,7 @@ run("main flows", () => {
   let environmentId = "";
   let appId = "";
   let dbId = "";
+  let redisId = "";
 
   /** A token of the same owner with these grants (written straight into the instance's database). */
   async function tokenWith(name: string, grants: string[], projectIds: string[] | null = null) {
@@ -108,6 +109,7 @@ run("main flows", () => {
   afterAll(async () => {
     if (appId) await api(ADMIN, "DELETE", `/services/${appId}?volumes=true`);
     if (dbId) await api(ADMIN, "DELETE", `/services/${dbId}?volumes=true`);
+    if (redisId) await api(ADMIN, "DELETE", `/services/${redisId}?volumes=true`);
     if (made.projectId) {
       await new Promise((r) => setTimeout(r, 3000));
       await api(ADMIN, "DELETE", `/projects/${made.projectId}`);
@@ -221,6 +223,85 @@ run("main flows", () => {
     expect((await ok(ADMIN, "GET", `/services/${dbId}/users`)).users.some((u: any) => u.username === "zz_reader")).toBe(false);
   });
 
+  it("browses and queries a database, read only unless told otherwise", async () => {
+    const data = `/services/${dbId}/data`;
+    const overview = await ok(ADMIN, "GET", data);
+    expect(overview.family).toBe("sql");
+    const database = overview.database;
+    expect(overview.databases.map((d: any) => d.name)).toContain(database);
+    // Changes need readOnly: false, and land in the activity log.
+    const create = await ok(ADMIN, "POST", `${data}/query`, {
+      database,
+      readOnly: false,
+      query: `CREATE TABLE zz_explore (id int PRIMARY KEY, "we'ird ""name""" text); INSERT INTO zz_explore SELECT g, 'v' || g FROM generate_series(1, 60) g; UPDATE zz_explore SET "we'ird ""name""" = E'a\\nb ''q''' WHERE id = 1`,
+    });
+    expect(create.error).toBeNull();
+    expect(create.result).toMatchObject({ kind: "done", affected: 1 });
+    const tables = (await ok(ADMIN, "GET", `${data}?database=${encodeURIComponent(database)}`)).tables;
+    expect(tables.find((t: any) => t.name === "zz_explore")).toMatchObject({ schema: "public", kind: "table" });
+    const structure = await ok(ADMIN, "GET", `${data}/structure?database=${encodeURIComponent(database)}&table=zz_explore`);
+    expect(structure.columns.map((c: any) => [c.name, c.primaryKey])).toEqual([
+      ["id", true],
+      [`we'ird "name"`, false],
+    ]);
+    const page = await ok(ADMIN, "POST", `${data}/rows`, { database, schema: "public", table: "zz_explore", page: 1, sort: { column: "id", desc: true } });
+    expect(page).toMatchObject({ columns: ["id", `we'ird "name"`], total: 60 });
+    expect(page.rows.length).toBe(10);
+    expect(page.rows[0][0]).toBe("10");
+    const filtered = await ok(ADMIN, "POST", `${data}/rows`, { database, table: "zz_explore", filter: { column: `we'ird "name"`, op: "eq", value: "a\nb 'q'" } });
+    expect(filtered.rows).toEqual([["1", "a\nb 'q'"]]);
+    // Read only by default: the database refuses the write.
+    const select = await ok(ADMIN, "POST", `${data}/query`, { database, query: "SELECT count(*) AS n FROM zz_explore" });
+    expect(select.result).toMatchObject({ kind: "rows", columns: ["n"], rows: [["60"]] });
+    expect(select.ms).toBeGreaterThan(0);
+    const refused = await ok(ADMIN, "POST", `${data}/query`, { database, query: "DELETE FROM zz_explore" });
+    expect(refused.result).toBeNull();
+    expect(refused.error).toMatch(/read-only transaction/);
+    expect((await api(ADMIN, "POST", `${data}/query`, { database, query: "COMMIT; DELETE FROM zz_explore" })).status).toBe(400);
+    expect((await ok(ADMIN, "POST", `${data}/query`, { database, query: "SELECT count(*) FROM zz_explore" })).result.rows).toEqual([["60"]]);
+    const activity = (await ok(ADMIN, "GET", `/activity?projectId=${made.projectId}&limit=50`)).activity;
+    expect(activity.find((a: any) => a.action === "database.query")?.message).toContain("CREATE TABLE zz_explore");
+    expect(activity.some((a: any) => a.action === "database.query" && a.message.includes("DELETE FROM zz_explore"))).toBe(false);
+    if (sql) {
+      // Reading rows is like opening a shell on the database: without the console permission, nothing.
+      expect((await api(tokens.read, "GET", data)).status).toBe(403);
+      expect((await api(tokens.read, "POST", `${data}/rows`, { database, table: "zz_explore" })).status).toBe(403);
+      expect((await api(tokens.read, "POST", `${data}/query`, { database, query: "SELECT 1" })).status).toBe(403);
+      const consoleToken = await tokenWith("console", ["projects.view", "console.access"]);
+      expect((await ok(consoleToken, "POST", `${data}/query`, { database, query: "SELECT 1 AS one" })).result.rows).toEqual([["1"]]);
+    }
+  });
+
+  it("browses Redis keys and refuses writes in read only mode", async () => {
+    redisId = (
+      await ok(ADMIN, "POST", "/services", { type: "database", projectId: made.projectId, environmentId, name: "zz-e2e-redis", engine: "redis", deploy: true, ...SERVER }, 201)
+    ).id;
+    await until("redis running", async () => ((await ok(ADMIN, "GET", `/services/${redisId}`)).service.status === "running" ? true : null));
+    const data = `/services/${redisId}/data`;
+    const write = (query: string) => ok(ADMIN, "POST", `${data}/query`, { database: "0", query, readOnly: false });
+    expect((await write(`HSET "zz:we'ird key" name Ada "f 2" "line\\nbreak"`)).result).toMatchObject({ kind: "value", value: "2" });
+    await write("RPUSH zz:list a b c");
+    const keys = await ok(ADMIN, "GET", `${data}/keys?database=0&pattern=${encodeURIComponent("zz:*")}`);
+    expect(keys.keys.map((k: any) => [k.key, k.type, k.size]).sort()).toEqual([
+      ["zz:list", "list", 3],
+      ["zz:we'ird key", "hash", 2],
+    ]);
+    const key = (await ok(ADMIN, "GET", `${data}/key?database=0&key=${encodeURIComponent("zz:we'ird key")}`)).key;
+    expect(key).toMatchObject({ type: "hash", ttl: -1, size: 2 });
+    expect(key.entries.sort()).toEqual([
+      ["f 2", "line\nbreak"],
+      ["name", "Ada"],
+    ]);
+    expect((await ok(ADMIN, "POST", `${data}/query`, { database: "0", query: "LRANGE zz:list 0 -1" })).result.value).toBe(JSON.stringify(["a", "b", "c"], null, 2));
+    for (const refused of ["DEL zz:list", "FLUSHALL", "CONFIG GET requirepass", "SET zz:x 1"]) {
+      const r = await api(ADMIN, "POST", `${data}/query`, { database: "0", query: refused });
+      // Refused in this mode: 403, like any action the caller may not take.
+      expect(r.status, refused).toBe(403);
+      expect(r.json.error).toMatch(/read only mode/);
+    }
+    expect((await ok(ADMIN, "POST", `${data}/query`, { database: "0", query: "EXISTS zz:list" })).result.value).toBe("1");
+  });
+
   it("backs up a database and restores it", async () => {
     const psql = (q: string) => `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "${q}"`;
     expect((await runCommand(dbId, psql("create table zz_e2e (v text); insert into zz_e2e values ('before')"))).exitCode).toBe(0);
@@ -303,8 +384,10 @@ run("main flows", () => {
   it("deletes what it made", async () => {
     await ok(ADMIN, "DELETE", `/services/${appId}?volumes=true`);
     await ok(ADMIN, "DELETE", `/services/${dbId}?volumes=true`);
+    await ok(ADMIN, "DELETE", `/services/${redisId}?volumes=true`);
     appId = "";
     dbId = "";
+    redisId = "";
     await new Promise((r) => setTimeout(r, 3000));
     await ok(ADMIN, "DELETE", `/projects/${made.projectId}`);
     expect((await api(ADMIN, "GET", `/projects/${made.projectId}`)).status).toBe(404);

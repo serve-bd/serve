@@ -128,6 +128,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     ...(service.type === "database" && !service.isPreview && ["postgres", "mysql", "mariadb", "mongodb"].includes(service.engine ?? "")
       ? [{ href: `${base}/users`, label: "Users" }]
       : []),
+    ...(service.type === "database" && can("console.access") ? [{ href: `${base}/data`, label: "Data" }] : []),
     ...(can("services.manage") ? [{ href: `${base}/settings`, to: `${base}/settings/general`, label: "Settings" }] : []),
   ];
 

@@ -4,15 +4,17 @@ import * as React from "react";
 import CodeMirror, { type Extension } from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
 import { yaml } from "@codemirror/lang-yaml";
+import { sql } from "@codemirror/lang-sql";
+import { json } from "@codemirror/lang-json";
 import { useTheme } from "@/hooks/use-client";
 import { cn } from "@/lib/utils";
 
 const LINE_HEIGHT = 20;
 
-const languages: Record<string, () => Extension> = { yaml };
+const languages: Record<string, () => Extension> = { yaml, sql: () => sql(), json };
 
 /**
- * Code editor for config files (compose YAML): highlighting, line numbers,
+ * Code editor for config files (compose YAML) and queries (SQL, JSON): highlighting, line numbers,
  * bracket matching. Styled like the other inputs so it does not look bolted on.
  */
 export function CodeEditor({

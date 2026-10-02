@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import type Docker from "dockerode";
@@ -582,8 +582,14 @@ async function runOnServer(opts: {
   }
   if (runtime.ports.length) {
     // Fail before touching the running version when another container holds a port.
-    await assertPortsFree(d, server.name, runtime.ports, service.id);
+    await assertPortsFree(d, server.name, runtime.ports, service.id, opts.adopt?.containerId);
   }
+  await assertOutsideDataFree(
+    d,
+    runtime.volumes.filter((v) => v.external).map((v) => v.source),
+    service.id,
+    opts.adopt?.containerId,
+  );
 
   const [stillThere] = await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.id, service.id));
   if (!stillThere) throw new DeployCancelled("The service was deleted");
@@ -818,9 +824,10 @@ async function runPreDeploy(opts: {
 }
 
 /** Throws a clear error when another container already publishes one of the ports. */
-async function assertPortsFree(d: Docker, serverName: string, ports: PortMapping[], serviceId: string) {
+async function assertPortsFree(d: Docker, serverName: string, ports: PortMapping[], serviceId: string, adoptId?: string) {
   if (!ports.length) return;
-  const others = (await d.listContainers()).filter((c) => c.Labels[LABEL.service] !== serviceId);
+  // The container being taken over frees its ports when it stops.
+  const others = (await d.listContainers()).filter((c) => c.Labels[LABEL.service] !== serviceId && c.Id !== adoptId);
   for (const p of ports) {
     const holder = others.find((c) =>
       c.Ports.some(
@@ -831,6 +838,23 @@ async function assertPortsFree(d: Docker, serverName: string, ports: PortMapping
       const name = holder.Names[0]?.replace(/^\//, "") ?? holder.Id.slice(0, 12);
       throw new Error(`Port ${p.host} is already used by the container ${name} on ${serverName}. Choose another port in Domains & ports.`);
     }
+  }
+}
+
+/**
+ * Volumes made outside Serve that another running container still uses: a second container on the
+ * same data corrupts it. The container being taken over is the one exception: it stops first.
+ */
+async function assertOutsideDataFree(d: Docker, volumes: string[], serviceId: string, adoptId?: string) {
+  if (!volumes.length) return;
+  const wanted = new Set(volumes);
+  const running = await d.listContainers();
+  for (const c of running) {
+    if (c.Labels[LABEL.service] === serviceId || c.Id === adoptId) continue;
+    const used = (c.Mounts ?? []).find((m) => (m.Name && wanted.has(m.Name)) || (m.Type === "bind" && wanted.has(m.Source)));
+    if (!used) continue;
+    const name = c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12);
+    throw new Error(`The data in ${used.Name ?? used.Source} is used by the running container ${name}. Stop it, or move it into the project, before deploying.`);
   }
 }
 
@@ -914,6 +938,12 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
   log?.step("Starting database");
   await ensureNetwork(d, server.network);
   const network = await ensureEnvNetwork(service.environmentId, server);
+  await assertOutsideDataFree(
+    d,
+    [cfg.dataVolume, ...extra.filter((v) => v.external).map((v) => v.source)].filter((v): v is string => !!v),
+    service.id,
+    adopt?.containerId,
+  );
   // A database taken over stops first: two servers on one data directory corrupt it.
   const adoptPolicy = adopt ? await restartPolicyOf(d, adopt) : null;
   if (adopt) await retireOld(d, adopt, line, 60);
@@ -1284,6 +1314,21 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
   if (!slot.value) return;
   await setServiceStatus(service.id, "building");
   log.line(`Deployment ${dep.id} started (${dep.trigger})`);
+
+  // A service whose move never finished (it failed, then was deployed again) still takes over from
+  // the container it was made from.
+  if (!dep.adopt && !service.currentDeploymentId) {
+    const [moved] = await db
+      .select({ adopt: schema.deployment.adopt })
+      .from(schema.deployment)
+      .where(and(eq(schema.deployment.serviceId, service.id), isNotNull(schema.deployment.adopt)))
+      .orderBy(desc(schema.deployment.createdAt))
+      .limit(1);
+    if (moved?.adopt) {
+      dep.adopt = moved.adopt;
+      await setDeployment(dep.id, { adopt: moved.adopt });
+    }
+  }
 
   try {
     const server = await connectServer(service, log);

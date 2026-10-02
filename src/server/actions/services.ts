@@ -1731,7 +1731,20 @@ export async function restoreFromBackup(backupId: string, opts: { backupFirst?: 
     if (b?.status !== "success") throw new UserError("Backup not found.");
     const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
     if (service.status !== "running") throw new UserError(service.type === "database" ? "Start the database before restoring." : "Start the service before restoring.");
-    await db.update(schema.backup).set({ restoreStatus: "running" }).where(eq(schema.backup.id, backupId));
+    // A restore marks its backup running when queued. A second one would run after it and replace
+    // what it restored (or restore the same backup twice): one at a time per service.
+    const started = await db.transaction(async (tx) => {
+      await tx.execute(dsql`select pg_advisory_xact_lock(hashtext(${`serve-restore:${b.serviceId}`}))`);
+      const [busy] = await tx
+        .select({ id: schema.backup.id })
+        .from(schema.backup)
+        .where(and(eq(schema.backup.serviceId, b.serviceId), eq(schema.backup.restoreStatus, "running")))
+        .limit(1);
+      if (busy) return false;
+      await tx.update(schema.backup).set({ restoreStatus: "running" }).where(eq(schema.backup.id, backupId));
+      return true;
+    });
+    if (!started) throw new UserError(`A restore of ${service.name} is already queued or running. Wait for it to finish.`);
     // With a safety backup, the import job takes the backup and restores only if it succeeded.
     const users = !!opts.users;
     if (opts.backupFirst) await enqueue("backup.import", { backupId, backupFirst: true, users }, { concurrencyKey: `backup:${b.serviceId}` });

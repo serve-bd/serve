@@ -15,7 +15,7 @@ vi.mock("@/server/db", () => ({
 }));
 
 const ctx = { isInstanceAdmin: false, isRoot: true, org: { id: "org" }, user: { id: "u" }, secrets: false, can: (p: string) => p !== "variables.view-secrets" || ctx.secrets };
-vi.mock("@/server/auth", () => ({ requirePermission: async () => ctx }));
+vi.mock("@/server/auth", () => ({ requirePermission: async () => ctx, ForbiddenError: class ForbiddenError extends Error {} }));
 vi.mock("@/server/activity", () => ({ logActivity: async () => {} }));
 vi.mock("@/server/services/tasks", () => ({ startTaskRun: async () => "run" }));
 

@@ -18,6 +18,7 @@ import { engines } from "@/server/databases/engines";
 import { PASSWORD_PATTERN } from "@/server/databases/password";
 import { databasePublicEndpoint } from "@/server/databases/public-url";
 import { isSystemUser, parseListing, USERNAME_PATTERN, userScripts, usersSupported } from "@/server/databases/users";
+import { copyDatabaseName } from "@/server/databases/branches";
 import type { DatabaseUserAccess } from "@/server/db/schema";
 import { privateHost } from "@/lib/hostname";
 
@@ -107,8 +108,13 @@ async function listing(service: Service & { database: NonNullable<Service["datab
   const { scripts, mainPassword } = scriptsFor(service);
   const found = parseListing(service.database.engine, await runScript(service, scripts.list(), [mainPassword]));
   // Branch databases belong to their branches (a reset replaces them): not offered for access.
-  const branches = await db.select({ database: schema.databaseBranch.database }).from(schema.databaseBranch).where(eq(schema.databaseBranch.serviceId, service.id));
-  const databases = found.databases.filter((d) => !branches.some((b) => b.database === d));
+  // A branch of every database has a copy of each other database too.
+  const branches = await db
+    .select({ database: schema.databaseBranch.database, name: schema.databaseBranch.name, extra: schema.databaseBranch.extraDatabases })
+    .from(schema.databaseBranch)
+    .where(eq(schema.databaseBranch.serviceId, service.id));
+  const copies = new Set(branches.flatMap((b) => [b.database, ...b.extra.map((d) => copyDatabaseName(d, b.name))]));
+  const databases = found.databases.filter((d) => !copies.has(d));
   // MongoDB lists a database only once it holds data: the main one is always offered.
   if (!databases.includes(service.database.database)) databases.unshift(service.database.database);
   return { ...found, databases };

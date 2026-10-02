@@ -122,7 +122,7 @@ export function BranchesView({
           }
         />
         {branches.length > 0 && view === "canvas" ? (
-          <div className="border-t border-line py-2">
+          <div className="border-t border-line">
             <BranchDiagram projectId={projectId} serviceName={serviceName} engineLabel={engineLabel(engine)} running={running} branches={branches} />
           </div>
         ) : branches.length === 0 ? (

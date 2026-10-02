@@ -136,11 +136,9 @@ export function BranchDiagram({
 
   return (
     <div className="relative">
-      <div className="scrollbar-thin overflow-x-auto">
-        <div
-          className="relative mx-auto [background-image:radial-gradient(var(--line-strong)_1px,transparent_1px)] [background-size:18px_18px]"
-          style={{ width, height: height + (anyBusy ? 28 : 0) }}
-        >
+      {/* The dots fill the whole card; the diagram sits centered on them. */}
+      <div className="scrollbar-thin overflow-x-auto py-2 [background-image:radial-gradient(var(--line-strong)_1px,transparent_1px)] [background-size:18px_18px]">
+        <div className="relative mx-auto" style={{ width, height: height + (anyBusy ? 28 : 0) }}>
           <svg className="pointer-events-none absolute inset-0" width={width} height={height} aria-hidden>
             <style>{"@keyframes serve-dash{to{stroke-dashoffset:-24}}@keyframes serve-progress{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}"}</style>
             {placed.map(({ b, top, rows, dx }) => {

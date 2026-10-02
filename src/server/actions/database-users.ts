@@ -108,7 +108,10 @@ async function listing(service: Service & { database: NonNullable<Service["datab
   const found = parseListing(service.database.engine, await runScript(service, scripts.list(), [mainPassword]));
   // Branch databases belong to their branches (a reset replaces them): not offered for access.
   const branches = await db.select({ database: schema.databaseBranch.database }).from(schema.databaseBranch).where(eq(schema.databaseBranch.serviceId, service.id));
-  return { ...found, databases: found.databases.filter((d) => !branches.some((b) => b.database === d)) };
+  const databases = found.databases.filter((d) => !branches.some((b) => b.database === d));
+  // MongoDB lists a database only once it holds data: the main one is always offered.
+  if (!databases.includes(service.database.database)) databases.unshift(service.database.database);
+  return { ...found, databases };
 }
 
 /** A login the Users page may change: it exists, and it is not Serve's, a branch's or the engine's. */

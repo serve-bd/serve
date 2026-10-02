@@ -159,6 +159,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           isInstanceAdmin={ctx.isInstanceAdmin}
           hasTls={domains.some((d) => d.https)}
           proxyKind={server.proxyKind as "nginx" | "caddy" | "traefik"}
+          behindProxy={!!server.trustedProxies && (server.trustedProxies.ranges.length > 0 || server.trustedProxies.cloudflare || !!server.trustedProxies.machine)}
           replicas={service.type === "app" ? Math.max(1, service.runtime.replicas || 1) : 0}
         />
       )}

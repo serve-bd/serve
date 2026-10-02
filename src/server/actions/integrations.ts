@@ -448,7 +448,8 @@ export async function addS3Destination(input: z.input<typeof s3Schema>) {
     const data = s3Schema.parse(input);
     await assertS3Endpoint(ctx, data.endpoint);
     try {
-      await s3Test(data);
+      // The connection itself refuses private addresses too (DNS can change after the check).
+      await s3Test({ ...data, publicOnly: !ctx.isRoot });
     } catch (e) {
       throw new UserError(`Could not access the bucket: ${(e as Error).message}`);
     }
@@ -480,7 +481,8 @@ export async function updateS3Destination(
     const data = s3Schema.parse({ ...input, accessKeyId: input.accessKeyId?.trim() || row.accessKeyId, secretAccessKey: secret });
     await assertS3Endpoint(ctx, data.endpoint);
     try {
-      await s3Test(data);
+      // The connection itself refuses private addresses too (DNS can change after the check).
+      await s3Test({ ...data, publicOnly: !ctx.isRoot });
     } catch (e) {
       throw new UserError(`Could not access the bucket: ${(e as Error).message}`);
     }
@@ -510,7 +512,7 @@ export async function testS3Destination(id: string) {
     if (!row) throw new UserError("Destination not found.");
     await assertS3Endpoint(ctx, row.endpoint);
     try {
-      await s3Test({ ...row, secretAccessKey: decrypt(row.secretAccessKey) });
+      await s3Test({ ...row, secretAccessKey: decrypt(row.secretAccessKey), publicOnly: !ctx.isRoot });
     } catch (e) {
       throw new UserError(`Could not access the bucket: ${(e as Error).message}`);
     }

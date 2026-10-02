@@ -93,6 +93,7 @@ export function ProxyOptionsCard({
   isInstanceAdmin,
   hasTls,
   proxyKind = "nginx",
+  behindProxy = false,
   replicas = 0,
 }: {
   serviceId: string;
@@ -101,6 +102,8 @@ export function ProxyOptionsCard({
   isInstanceAdmin: boolean;
   hasTls: boolean;
   proxyKind?: "nginx" | "caddy" | "traefik";
+  /** The server trusts proxies in front of it (Cloudflare, a load balancer). */
+  behindProxy?: boolean;
   /** Replicas of an app on this server; 0 for other services. */
   replicas?: number;
 }) {
@@ -238,9 +241,11 @@ export function ProxyOptionsCard({
                 label="Block"
                 optional
                 description={
-                  proxyKind === "traefik"
-                    ? "One IP or CIDR per line. Traefik has no block list: blocked visitors get the 404 page, and visitors through a Cloudflare Tunnel cannot be blocked here."
-                    : "One IP or CIDR per line."
+                  proxyKind === "traefik" && behindProxy
+                    ? "One IP or CIDR per line. With Traefik behind a proxy this list does not see visitors' own addresses, so it blocks nobody. Use nginx or Caddy to block visitors."
+                    : proxyKind === "traefik"
+                      ? "One IP or CIDR per line. Traefik has no block list: blocked visitors get the 404 page, and visitors through a Cloudflare Tunnel cannot be blocked here."
+                      : "One IP or CIDR per line."
                 }
               >
                 <Textarea value={form.deny} onChange={(e) => set("deny", e.target.value)} placeholder="198.51.100.0/24" rows={3} className="min-h-20 font-mono text-[12.5px]" />

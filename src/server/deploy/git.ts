@@ -68,7 +68,9 @@ export async function gitAccess(source: GitSource, workDir: string, organization
       const { installationToken } = await import("@/server/git/github-app");
       const token = await installationToken(cred);
       redact.push(token);
-      return { url, cloneUrl: url, gitEnv: { ...gitEnv, ...tokenConfig(url, "github", token) }, redact };
+      const env = { ...gitEnv, ...tokenConfig(url, "github", token) };
+      await pinPublicGitHost(url, organizationId, env);
+      return { url, cloneUrl: url, gitEnv: env, redact };
     }
     // OAuth credentials hold a token set and refresh the access token when needed.
     const { credentialToken } = await import("@/server/git/oauth");
@@ -83,7 +85,37 @@ export async function gitAccess(source: GitSource, workDir: string, organization
       Object.assign(gitEnv, tokenConfig(url, cred.provider, secret));
     }
   }
+  await pinPublicGitHost(url, organizationId, gitEnv);
   return { url, cloneUrl, gitEnv, redact };
+}
+
+/** Adds one `git -c key=value` through the environment, after any already set. */
+function addGitConfig(env: Record<string, string>, key: string, value: string) {
+  const n = Number(env.GIT_CONFIG_COUNT ?? 0);
+  env[`GIT_CONFIG_KEY_${n}`] = key;
+  env[`GIT_CONFIG_VALUE_${n}`] = value;
+  env.GIT_CONFIG_COUNT = String(n + 1);
+}
+
+/**
+ * Organizations other than Root reach public git servers only (the clone runs next to Serve).
+ * Checked when connecting, not only when the URL was saved: DNS can change in between. Over
+ * HTTP(S), git connects to the address checked here, so the name cannot resolve differently.
+ */
+async function pinPublicGitHost(url: string, organizationId: string | null | undefined, env: Record<string, string>) {
+  if (!organizationId) return;
+  const { getSetting } = await import("@/server/settings");
+  if (organizationId === (await getSetting("rootOrganizationId"))) return;
+  const scp = /^[\w.-]+@([\w.-]+):/.exec(url);
+  const parsed = scp ? null : new URL(url);
+  const host = (scp?.[1] ?? parsed?.hostname ?? "").replace(/^\[|\]$/g, "");
+  const { publicAddress } = await import("@/server/net/public-host");
+  const address = host ? await publicAddress(host) : null;
+  if (!address) throw new Error("That git server is on a private network or does not resolve.");
+  if (parsed && (parsed.protocol === "https:" || parsed.protocol === "http:")) {
+    const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+    addGitConfig(env, "http.curloptResolve", `${host}:${port}:${address.includes(":") ? `[${address}]` : address}`);
+  }
 }
 
 export async function cloneRepository(

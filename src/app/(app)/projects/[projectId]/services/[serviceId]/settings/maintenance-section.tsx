@@ -13,7 +13,18 @@ const DEFAULT_TITLE = "We'll be back soon";
 const DEFAULT_MESSAGE = "We're doing some planned maintenance. Please check back in a few minutes.";
 
 /** Maintenance mode: a 503 page on every domain, with an optional allow list. */
-export function MaintenanceSection({ serviceId, config, domains }: { serviceId: string; config: MaintenanceConfig | null; domains: string[] }) {
+export function MaintenanceSection({
+  serviceId,
+  config,
+  domains,
+  traefikBehindProxy = false,
+}: {
+  serviceId: string;
+  config: MaintenanceConfig | null;
+  domains: string[];
+  /** Traefik behind trusted proxies matches the proxy's address, not the visitor's. */
+  traefikBehindProxy?: boolean;
+}) {
   const save = useAction((v: Parameters<typeof setMaintenance>[1]) => setMaintenance(serviceId, v), {
     success: (d) => (d.enabled ? "Maintenance mode is on" : "Maintenance settings saved"),
   });
@@ -59,7 +70,15 @@ export function MaintenanceSection({ serviceId, config, domains }: { serviceId: 
             <Textarea value={v.message} onChange={(e) => set({ message: e.target.value })} rows={3} maxLength={2000} />
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_160px]">
-            <Field label="Still reach the app" optional description="IP addresses or CIDR ranges, one per line. Use this to check the app before you turn maintenance off.">
+            <Field
+              label="Still reach the app"
+              optional
+              description={
+                traefikBehindProxy
+                  ? "IP addresses or CIDR ranges, one per line. With Traefik behind a proxy this list does not see visitors' own addresses, so it lets nobody through. Use nginx or Caddy for it."
+                  : "IP addresses or CIDR ranges, one per line. Use this to check the app before you turn maintenance off."
+              }
+            >
               <Textarea value={v.allow} onChange={(e) => set({ allow: e.target.value })} rows={2} placeholder={"203.0.113.7\n10.0.0.0/8"} className="font-mono text-[13px]" />
             </Field>
             <Field label="Retry after" description="Minutes.">

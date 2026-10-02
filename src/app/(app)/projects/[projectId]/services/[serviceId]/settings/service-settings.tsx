@@ -90,7 +90,7 @@ type Props = {
   /** Uptime check (only loaded for the Monitoring page). */
   monitoring?: { monitor: MonitorSummary["monitor"]; defaultUrl: string | null };
   /** Maintenance page (only loaded for the Maintenance page). */
-  maintenance?: { config: MaintenanceConfig | null; domains: string[] };
+  maintenance?: { config: MaintenanceConfig | null; domains: string[]; traefikBehindProxy?: boolean };
   /** Database copies for previews (only loaded for the Source page of Git apps). */
   previewDatabase?: { config: PreviewDatabaseConfig | null; databases: { id: string; name: string; engine: string; label: string }[]; previewVars: string[] };
   /** Build server, registry and extra servers (only loaded for the Servers & registry page). */
@@ -612,7 +612,14 @@ export function ServiceSettings(props: Props) {
         </Card>
       )}
 
-      {show("maintenance") && props.maintenance && <MaintenanceSection serviceId={service.id} config={props.maintenance.config} domains={props.maintenance.domains} />}
+      {show("maintenance") && props.maintenance && (
+        <MaintenanceSection
+          serviceId={service.id}
+          config={props.maintenance.config}
+          domains={props.maintenance.domains}
+          traefikBehindProxy={props.maintenance.traefikBehindProxy}
+        />
+      )}
       {show("servers") && props.distribution && (
         <DistributionSection
           serviceId={service.id}

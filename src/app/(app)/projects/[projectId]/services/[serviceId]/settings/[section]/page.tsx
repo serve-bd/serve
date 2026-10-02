@@ -9,6 +9,7 @@ import { engines } from "@/server/databases/engines";
 import { databaseCreds, databaseUrl } from "@/server/databases/options";
 import { decryptOrNull } from "@/server/crypto";
 import { serversForOrg } from "@/server/servers/access";
+import { traefikBehindProxy } from "@/server/proxy/trusted-proxies";
 import { notFound } from "next/navigation";
 import { ServiceSettings } from "../service-settings";
 import { settingsNav } from "../settings-nav";
@@ -202,6 +203,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
           ? {
               config: service.maintenance ?? null,
               domains: (await db.select({ hostname: schema.domain.hostname }).from(schema.domain).where(eq(schema.domain.serviceId, service.id))).map((d) => d.hostname),
+              traefikBehindProxy: await traefikBehindProxy(service.serverId),
             }
           : undefined
       }

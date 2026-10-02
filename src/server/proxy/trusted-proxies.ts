@@ -116,3 +116,13 @@ export async function dashboardVisitorIp(headers: Pick<Headers, "get"> | undefin
   if (!forwarded) return headers?.get("x-real-ip") || null;
   return clientIpFrom(forwarded, trust.ranges);
 }
+
+/**
+ * Whether a server's proxy is Traefik behind trusted proxies: its deny list and the maintenance
+ * allow list match the connecting proxy's address there, not the visitor's.
+ */
+export async function traefikBehindProxy(serverId: string) {
+  const [row] = await db.select({ kind: schema.server.proxyKind, trusted: schema.server.trustedProxies }).from(schema.server).where(eq(schema.server.id, serverId));
+  const t = row?.trusted;
+  return row?.kind === "traefik" && !!t && (t.ranges.length > 0 || t.cloudflare || !!t.machine);
+}

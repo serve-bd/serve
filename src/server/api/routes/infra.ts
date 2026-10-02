@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db, schema } from "@/server/db";
 import * as servers from "@/server/actions/servers";
 import * as serverProxy from "@/server/actions/server-proxy";
-import { setProxyKind } from "@/server/actions/proxy-kind";
+import { deleteProxyFile, saveProxyFile, setProxyKind } from "@/server/actions/proxy-kind";
 import { runCleanup } from "@/server/actions/server";
 import { saveServerAlerts } from "@/server/actions/monitoring";
 import * as certificates from "@/server/actions/certificates";
@@ -165,6 +165,52 @@ export const infraRoutes: ApiRoute[] = [
       handler: async ({ params }) => (await unwrap((fn as (id: string) => ReturnType<typeof serverProxy.testProxy>)(params.serverId))) ?? { ok: true },
     }),
   ),
+  route({
+    method: "GET",
+    path: "/servers/{serverId}/proxy/files",
+    tag: "Servers",
+    summary: "List the custom proxy configuration files",
+    description: "The files of the server's current proxy (nginx .conf, Caddy .caddy, Traefik .yaml).",
+    needs: ["admin"],
+    handler: async ({ auth, params }) => {
+      await loadServer(auth, params.serverId);
+      const { proxyStateOf } = await import("@/server/proxy/nginx");
+      const { kind, config } = await proxyStateOf(params.serverId);
+      return { kind, files: kind === "none" ? [] : (config[kind]?.files ?? []) };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/servers/{serverId}/proxy/files/{name}",
+    tag: "Servers",
+    summary: "Add or replace a custom proxy configuration file",
+    description:
+      "The file is checked by the proxy and applied; a rejected file is rolled back. In nginx files, 127.0.0.1:PORT and localhost:PORT reach this machine's own ports (also ones open on 127.0.0.1 only).",
+    needs: ["admin"],
+    body: z.object({ content: z.string() }),
+    handler: async ({ auth, params, body }) => {
+      await loadServer(auth, params.serverId);
+      const { proxyStateOf } = await import("@/server/proxy/nginx");
+      const { kind, config } = await proxyStateOf(params.serverId);
+      if (kind === "none") throw new ApiError(409, "This server has no Serve proxy.");
+      const exists = (config[kind]?.files ?? []).some((f) => f.name === params.name);
+      return (await unwrap(saveProxyFile(params.serverId, kind, { originalName: exists ? params.name : null, name: params.name, content: body.content }))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/servers/{serverId}/proxy/files/{name}",
+    tag: "Servers",
+    summary: "Delete a custom proxy configuration file",
+    needs: ["admin"],
+    handler: async ({ auth, params }) => {
+      await loadServer(auth, params.serverId);
+      const { proxyStateOf } = await import("@/server/proxy/nginx");
+      const { kind } = await proxyStateOf(params.serverId);
+      if (kind === "none") throw new ApiError(409, "This server has no Serve proxy.");
+      return (await unwrap(deleteProxyFile(params.serverId, kind, params.name))) ?? { ok: true };
+    },
+  }),
   route({
     method: "GET",
     path: "/servers/{serverId}/proxy/logs",

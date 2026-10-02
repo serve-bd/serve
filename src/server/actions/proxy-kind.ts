@@ -29,6 +29,9 @@ import {
   type ServerProxyConfig,
 } from "@/server/proxy/config";
 import { applyServerProxyConfig, ProxyConfigError, proxyStateOf } from "@/server/proxy/nginx";
+import { hostPortIssue } from "@/server/proxy/host-relay";
+import { visitorIpOf } from "@/server/proxy/trusted-proxies";
+import { usesProxyProtocol } from "@/lib/trusted-proxies";
 
 const RUNNING: RunningKind[] = ["nginx", "caddy", "traefik"];
 
@@ -197,6 +200,10 @@ export async function saveProxyFile(serverId: string, kindInput: string, input: 
       if (index >= 0) files[index] = file;
       else files.push(file);
       if (files.length > 50) throw new UserError("Keep at most 50 custom files.");
+      if (kind === "nginx") {
+        const issue = hostPortIssue(files, usesProxyProtocol(await visitorIpOf(await getServer(serverId))));
+        if (issue) throw new UserError(issue);
+      }
       await apply(serverId, kind, { ...config, [kind]: { ...config[kind], files } }, `the file ${file.name}`);
       await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.proxy.config", message: `Saved ${proxyLabels[kind]} file ${file.name}` });
       return null;

@@ -38,6 +38,7 @@ import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type
 import { appTargets, certificateStamp, dashboardModel, serviceModel, type SiteModel } from "./model";
 import { forgetDashboardTrusted, visitorIpOf } from "./trusted-proxies";
 import { headerTrusted, usesProxyProtocol, type TrustedProxies } from "@/lib/trusted-proxies";
+import { removeHostRelay, syncHostRelay, writeProxyStream } from "./host-relay";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { caddyMainConfig, renderCaddySite, tunnelTrustFor } from "./caddy";
@@ -191,6 +192,8 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
     changed = (await writeOrRemove(ctx, serverRawFile(ctx), null)) || changed;
     changed = (await writeOrRemove(ctx, realIpFile(ctx), realIpConfig(visitor))) || changed;
     changed = (await writeUserFiles(ctx, p.proxyCustom, n.files, customFilePattern.nginx)) || changed;
+    // 127.0.0.1:PORT in those files: the proxy's own listeners that lead to the machine (host-relay.ts).
+    changed = (await writeProxyStream(ctx, n.files, usesProxyProtocol(visitor))) || changed;
   } else if (kind === "caddy") {
     const c = config.caddy ?? {};
     await ctx.fs.mkdir(path.posix.join(p.proxy, "caddy-data"));
@@ -497,6 +500,24 @@ async function replaceProxy(ctx: ServerCtx, create: () => Promise<void>, log?: L
 
 /** Create (or repair) the proxy container on a server, for the server's proxy kind. A stopped proxy stays stopped. */
 export async function ensureServerProxy(ctx: ServerCtx, log?: Log): Promise<Awaited<ReturnType<typeof getProxyContainer>>> {
+  const info = await ensureProxyContainer(ctx, log);
+  // After the proxy exists: the relay lets only its addresses in.
+  await syncRelayOf(ctx, log);
+  return info;
+}
+
+/** The relay to the machine's own ports named in custom files (nginx only), or none. Never throws. */
+async function syncRelayOf(ctx: ServerCtx, log?: Log) {
+  try {
+    const { kind, config, stopped } = await proxyStateOf(ctx.id);
+    if (kind !== "nginx" || stopped) return await removeHostRelay(ctx);
+    await syncHostRelay(ctx, config.nginx?.files, usesProxyProtocol(await visitorIpOf(ctx)), log);
+  } catch (error) {
+    log?.(`Host port relay: ${(error as Error).message}`);
+  }
+}
+
+async function ensureProxyContainer(ctx: ServerCtx, log?: Log): Promise<Awaited<ReturnType<typeof getProxyContainer>>> {
   const { kind, config, stopped } = await proxyStateOf(ctx.id);
   if (kind === "none") {
     // No Serve proxy on this server: make sure none is left running.
@@ -1077,6 +1098,7 @@ function syncServer(ctx: ServerCtx) {
     if (staticChanged && !reloaded && (await getProxyContainer(ctx))?.State.Running) {
       await reloadProxy(ctx, kind === "traefik" ? [path.posix.join(ctx.paths.proxySites, TRAEFIK_BASE)] : []);
     }
+    await syncRelayOf(ctx);
   });
 }
 
@@ -1419,6 +1441,7 @@ export async function restartProxy(ctx?: ServerCtx) {
 export async function removeProxyContainers(ctx: ServerCtx) {
   await removeContainer(ctx, ctx.proxyContainer);
   await removeContainer(ctx, pagesContainer(ctx));
+  await removeHostRelay(ctx);
 }
 
 /**

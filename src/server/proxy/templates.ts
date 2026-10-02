@@ -242,6 +242,11 @@ ${
 `
     : ""
 }}
+
+# Ports of this machine named in custom files (127.0.0.1:PORT): they lead to the host relay.
+stream {
+    include ${proxyPaths.sites}/host-ports/*.stream;
+}
 `;
 }
 

@@ -159,9 +159,10 @@ export type EventResult = Record<string, unknown>;
 
 /** Apply a pull request event to a service with preview deployments. */
 export async function applyPullRequest(service: Service, event: PrEvent): Promise<EventResult> {
+  // Also with previews turned off since: a preview made before would otherwise outlive its pull request.
+  if (event.action === "close" && service.type === "app" && !service.parentServiceId) return { removed: await removePreview(service, event.pr.number) };
   if (!service.previewsEnabled || service.type !== "app" || service.parentServiceId) return { skipped: "Preview deployments are off" };
   if (event.action === "fork") return { skipped: "Pull requests from forks are not deployed" };
-  if (event.action === "close") return { removed: await removePreview(service, event.pr.number) };
   let result: Awaited<ReturnType<typeof deployPreview>>;
   try {
     result = await deployPreview(service, event.pr);

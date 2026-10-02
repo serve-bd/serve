@@ -45,13 +45,40 @@ export function isCloudflareIp(ip: string) {
 
 export type DnsStatus = "ok" | "proxied" | "wrong" | "missing" | "unknown";
 
-export async function domainDnsStatus(hostname: string, serverIp: string | null, opts: { tunnel?: boolean } = {}) {
+export async function domainDnsStatus(hostname: string, serverIp: string | null, opts: { tunnel?: boolean; organizationId?: string } = {}) {
   if (hostname.endsWith(".sslip.io") || hostname.endsWith(".nip.io")) return { status: "ok" as DnsStatus, records: [] as string[] };
   const records = await resolveA(hostname);
   if (!records.length) return { status: "missing" as DnsStatus, records };
   if (serverIp && records.includes(serverIp)) return { status: "ok" as DnsStatus, records };
   // Tunnel domains always resolve to Cloudflare's edge; that is the correct setup for them.
   if (opts.tunnel && records.every(isCloudflareIp)) return { status: "ok" as DnsStatus, records };
-  if (records.every(isCloudflareIp)) return { status: "proxied" as DnsStatus, records };
+  if (records.every(isCloudflareIp)) {
+    // Behind the orange cloud the real target is hidden; a connected Cloudflare account can tell it.
+    const origin = opts.organizationId ? await proxiedOrigin(hostname, opts.organizationId).catch(() => null) : null;
+    if (origin?.length && serverIp) {
+      if (origin.includes(serverIp)) return { status: "ok" as DnsStatus, records, origin };
+      return { status: "wrong" as DnsStatus, records: origin, origin };
+    }
+    return { status: "proxied" as DnsStatus, records, origin: origin ?? undefined };
+  }
   return { status: (serverIp ? "wrong" : "unknown") as DnsStatus, records };
+}
+
+/**
+ * Where Cloudflare forwards a proxied name: its A and AAAA records (or the wildcard covering it),
+ * read with the organization's connected account. Null when no account manages its zone.
+ */
+export async function proxiedOrigin(hostname: string, organizationId: string): Promise<string[] | null> {
+  const { cloudflareAccountFor } = await import("@/server/ssl/certificates");
+  const accountId = await cloudflareAccountFor([hostname], organizationId);
+  if (!accountId) return null;
+  const { Cloudflare } = await import("@/server/cloudflare/api");
+  const cf = await Cloudflare.forAccount(accountId);
+  const zone = await cf.zoneFor(hostname);
+  if (!zone) return null;
+  const targets = async (name: string) => (await cf.dnsRecords(zone.id, { name })).filter((r) => r.type === "A" || r.type === "AAAA").map((r) => r.content);
+  const own = await targets(hostname);
+  if (own.length) return own;
+  const parent = hostname.slice(hostname.indexOf(".") + 1);
+  return parent.includes(".") || parent === zone.name ? await targets(`*.${parent}`) : [];
 }

@@ -1848,7 +1848,7 @@ export async function checkDomainDns(domainId: string) {
     if (!domain) throw new UserError("Domain not found.");
     const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
     const { domainDnsStatus } = await import("@/server/dns");
-    return domainDnsStatus(domain.hostname, await serverPublicIp(service.serverId), { tunnel: !!domain.tunnelId });
+    return domainDnsStatus(domain.hostname, await serverPublicIp(service.serverId), { tunnel: !!domain.tunnelId, organizationId: ctx.org.id });
   });
 }
 

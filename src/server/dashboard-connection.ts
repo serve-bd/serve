@@ -76,11 +76,17 @@ async function dnsStep(domain: string, route: "ip" | "tunnel", serverIp: string 
     }
   }
 
-  const { status, records } = await domainDnsStatus(domain, serverIp);
+  const rootOrg = (await getSettings()).rootOrganizationId ?? undefined;
+  const { status, records, origin } = await domainDnsStatus(domain, serverIp, { organizationId: rootOrg });
   const want = serverIp ? [{ type: "A", name: domain, value: serverIp }] : undefined;
   switch (status) {
     case "ok":
-      return { id: "dns", title, state: "ok", summary: records.length ? `Points to ${records.join(", ")}` : "Resolves" };
+      return {
+        id: "dns",
+        title,
+        state: "ok",
+        summary: origin?.length ? `Proxied by Cloudflare to ${origin.join(", ")}` : records.length ? `Points to ${records.join(", ")}` : "Resolves",
+      };
     case "missing":
       return {
         id: "dns",
@@ -99,7 +105,14 @@ async function dnsStep(domain: string, route: "ip" | "tunnel", serverIp: string 
         detail: `${records.join(", ")} are Cloudflare addresses, so the real target is hidden. It works when Cloudflare forwards to ${serverIp ?? "this server"} and its SSL mode is Full. Choose Cloudflare Tunnel above for a setup without an open port.`,
       };
     case "wrong":
-      return { id: "dns", title, state: "fail", summary: `Points to ${records.join(", ")}`, detail: `Expected ${serverIp}. Update the A record.`, records: want };
+      return {
+        id: "dns",
+        title,
+        state: "fail",
+        summary: origin ? `Cloudflare forwards to ${records.join(", ")}` : `Points to ${records.join(", ")}`,
+        detail: `Expected ${serverIp}. Update the A record${origin ? " in Cloudflare" : ""}.`,
+        records: want,
+      };
     default:
       return {
         id: "dns",

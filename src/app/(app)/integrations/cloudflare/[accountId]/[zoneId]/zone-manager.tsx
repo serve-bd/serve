@@ -153,7 +153,7 @@ export function ZoneManager({
   const toggleProxy = useAction((r: Rec) => upsertDnsRecord(accountId, zone.id, r.id, { type: r.type as "A", name: r.name, content: r.content, proxied: !r.proxied, ttl: r.ttl }));
   const ssl = useAction((m: string) => setZoneSsl(accountId, zone.id, m as "full"));
   const https = useAction((on: boolean) => setZoneAlwaysHttps(accountId, zone.id, on));
-  const purge = useAction(() => purgeZoneCache(accountId, zone.id), { refresh: false });
+  const purge = useAction(() => purgeZoneCache(accountId, zone.id), { result: "Cache purged", refresh: false });
 
   const filtered = records.filter((r) => (typeFilter === "all" || r.type === typeFilter) && `${r.name} ${r.content}`.toLowerCase().includes(query.toLowerCase()));
   const short = (n: string) => (n === zone.name ? "@" : n.replace(`.${zone.name}`, ""));

@@ -59,7 +59,9 @@ export function ProjectSettings({
     },
     { onSuccess: () => setSavedRaw(sentRaw.current) },
   );
-  const redeploy = useAction(() => redeployEnvironment(environment.id));
+  const redeploy = useAction(() => redeployEnvironment(environment.id), {
+    result: (d) => (d.count ? `Redeploying ${d.count} service${d.count === 1 ? "" : "s"}` : "No running service to redeploy"),
+  });
   const removeEnv = useAction(deleteEnvironment, { onSuccess: () => router.replace(`/projects/${project.id}/settings/environments`) });
   const remove = useAction(() => deleteProject(project.id), { refresh: false, onSuccess: () => router.replace("/projects") });
 

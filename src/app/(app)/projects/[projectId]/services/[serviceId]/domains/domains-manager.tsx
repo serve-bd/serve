@@ -810,7 +810,7 @@ export function DomainsManager(props: Props) {
   const toggleHttps = useAction((id: string, https: boolean) => updateDomain(id, { https, forceHttps: https }));
   const retry = useAction(retryCertificate);
   const reconnect = useAction(reconnectDomainTunnel);
-  const makePrimary = useAction(setPrimaryDomain);
+  const makePrimary = useAction(setPrimaryDomain, { result: "Primary domain set. Redeploy so SERVE_PUBLIC_URL uses it." });
   const used = new Set(props.domains.map((d) => d.tunnelId));
   const starting = props.tunnels.some((t) => used.has(t.id) && (t.status === "pending" || t.status === "down"));
   // While a tunnel these domains use is coming up, ask Cloudflare every few seconds instead of waiting for the worker's check.

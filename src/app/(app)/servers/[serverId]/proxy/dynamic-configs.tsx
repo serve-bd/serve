@@ -69,7 +69,7 @@ export function DynamicConfigsCard({
   const router = useRouter();
   const confirm = useConfirm();
   const [editing, setEditing] = React.useState<{ original: string | null; name: string; content: string } | null>(null);
-  const reload = useAction(() => reloadProxyNow(serverId));
+  const reload = useAction(() => reloadProxyNow(serverId), { result: "Proxy reloaded" });
   const remove = useAction((name: string) => deleteProxyFile(serverId, kind, name));
   const help = CUSTOM_HELP[kind];
 

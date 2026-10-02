@@ -71,7 +71,7 @@ export function ProxyView({
   const shown: ProxyKind = status.kind ?? kind;
   const label = proxyLabels[shown];
   const busy = switching || stopped;
-  const reload = useAction(() => reloadProxyNow(serverId));
+  const reload = useAction(() => reloadProxyNow(serverId), { result: "Proxy reloaded" });
   const restart = useAction(() => restartProxyNow(serverId));
   const rebuild = useAction(() => rebuildProxyNow(serverId));
   const stop = useAction(() => stopProxyNow(serverId));

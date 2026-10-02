@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Database, Eye, FileJson, KeyRound, Pencil, Play, RotateCw, Search, ShieldAlert, Table2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Database, GitBranch, Eye, FileJson, KeyRound, Pencil, Play, RotateCw, Search, ShieldAlert, Table2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodeEditor } from "@/components/code-editor";
 import { useConfirm } from "@/components/ui/confirm";
@@ -73,6 +73,8 @@ export function DataBrowser({
   running,
   error,
   initial,
+  mainDatabase,
+  branches = [],
 }: {
   serviceId: string;
   serviceName: string;
@@ -80,6 +82,9 @@ export function DataBrowser({
   running: boolean;
   error: string | null;
   initial: ExplorerOverview | null;
+  mainDatabase?: string;
+  /** Branches of this database: each is a database (or a Redis database number) of the same server. */
+  branches?: { name: string; database: string }[];
 }) {
   const confirm = useConfirm();
   const [readOnly, setReadOnly] = React.useState(true);
@@ -115,7 +120,10 @@ export function DataBrowser({
     if (ok) setReadOnly(false);
   };
 
-  const databases = overview?.databases ?? [];
+  // Branch databases are picked as branches, not among the databases of the main data.
+  const branchDatabases = new Set(branches.map((b) => b.database));
+  const branch = branches.find((b) => b.database === overview?.database) ?? null;
+  const databases = (overview?.databases ?? []).filter((d) => !branchDatabases.has(d.name));
   const databaseLabel = (d: { name: string; size: number | null }) =>
     family === "kv" ? `Database ${d.name}${d.size ? ` · ${count(d.size)} ${d.size === 1 ? "key" : "keys"}` : ""}` : d.name;
 
@@ -162,20 +170,38 @@ export function DataBrowser({
                   <Play /> Query
                 </Tab>
               </TabsList>
-              {(databases.length > 1 || family === "kv") && (
-                <Select
-                  size="sm"
-                  aria-label="Database"
-                  className="w-auto min-w-40 max-w-full"
-                  value={overview.database}
-                  onValueChange={(v) => void load(v)}
-                  options={(family === "kv" ? kvDatabases(databases) : databases).map((d) => ({
-                    value: d.name,
-                    label: databaseLabel(d),
-                    description: family !== "kv" && d.size ? formatBytes(d.size) : undefined,
-                  }))}
-                />
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {branches.length > 0 && (
+                  <Select
+                    size="sm"
+                    aria-label="Branch"
+                    className="w-auto min-w-36 max-w-full"
+                    value={branch ? `branch:${branch.name}` : "main"}
+                    onValueChange={(v) => {
+                      const next = branches.find((b) => `branch:${b.name}` === v);
+                      void load(next ? next.database : (mainDatabase ?? null));
+                    }}
+                    options={[
+                      { value: "main", label: "Main data", description: serviceName, icon: <Database className="size-3.5" /> },
+                      ...branches.map((b) => ({ value: `branch:${b.name}`, label: b.name, description: "Branch", icon: <GitBranch className="size-3.5" /> })),
+                    ]}
+                  />
+                )}
+                {!branch && (databases.length > 1 || family === "kv") && (
+                  <Select
+                    size="sm"
+                    aria-label="Database"
+                    className="w-auto min-w-40 max-w-full"
+                    value={overview.database}
+                    onValueChange={(v) => void load(v)}
+                    options={(family === "kv" ? kvDatabases(databases).filter((d) => !branchDatabases.has(d.name)) : databases).map((d) => ({
+                      value: d.name,
+                      label: databaseLabel(d),
+                      description: family !== "kv" && d.size ? formatBytes(d.size) : undefined,
+                    }))}
+                  />
+                )}
+              </div>
             </div>
             {loadError && <p className="border-b border-line px-5 py-2.5 text-sm text-bad">{loadError}</p>}
             <div className={cn(loading && "pointer-events-none opacity-60 transition-opacity")}>

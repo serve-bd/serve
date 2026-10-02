@@ -3,10 +3,13 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { deliveryReplayed, verifyWebhookSignature } from "@/server/git/signature";
 import { applyPullRequest, applyPush, parsePullRequest, parsePush } from "@/server/git/events";
+import { readBodyLimited } from "@/server/http-body";
 
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/webhooks/git/[serviceId]">) {
   const { serviceId } = await ctx.params;
-  const raw = await request.text();
+  // Git providers send at most 25 MB.
+  const raw = await readBodyLimited(request, 26 * 1024 * 1024);
+  if (raw === null) return NextResponse.json({ error: "Payload too large" }, { status: 413 });
   const [service] = await db.select().from(schema.service).where(eq(schema.service.id, serviceId));
   if (!service) return NextResponse.json({ error: "Unknown service" }, { status: 404 });
 

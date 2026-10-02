@@ -6,11 +6,14 @@ import { db, schema } from "@/server/db";
 import { timingSafeEqual } from "@/server/crypto";
 import { forgetToken, readAppSecret, repoFullName, writeAppSecret } from "@/server/git/github-app";
 import { applyPullRequest, applyPush, parsePullRequest, parsePush } from "@/server/git/events";
+import { readBodyLimited } from "@/server/http-body";
 
 /** Webhook endpoint of a GitHub App created by Serve. Routes events to every matching service. */
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/webhooks/github/[credentialId]">) {
   const { credentialId } = await ctx.params;
-  const raw = await request.text();
+  // Git providers send at most 25 MB.
+  const raw = await readBodyLimited(request, 26 * 1024 * 1024);
+  if (raw === null) return NextResponse.json({ error: "Payload too large" }, { status: 413 });
   const [cred] = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.id, credentialId));
   if (cred?.provider !== "github-app") return NextResponse.json({ error: "Unknown app" }, { status: 404 });
   const secret = readAppSecret(cred);

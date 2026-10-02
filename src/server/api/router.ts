@@ -4,6 +4,7 @@ import { UserError } from "@/server/action";
 import { type ApiAuth, authenticateToken } from "@/server/api-auth";
 import { PERMISSION_INFO, type Permission } from "@/lib/permissions";
 import { runAsToken } from "./principal";
+import { readBodyLimited } from "@/server/http-body";
 
 /*
  * The REST API (/api/v1). Each route names the permissions a token needs; the router checks them
@@ -159,9 +160,8 @@ export function createRouter(routes: ApiRoute[], publicRoutes: Record<string, (r
     let body: unknown;
     if (r.body) {
       let raw: unknown = {};
-      if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return error(413, "The request body is too large (10 MB at most).");
-      const text = await request.text();
-      if (text.length > MAX_BODY) return error(413, "The request body is too large (10 MB at most).");
+      const text = await readBodyLimited(request, MAX_BODY);
+      if (text === null) return error(413, "The request body is too large (10 MB at most).");
       if (text.trim()) {
         try {
           raw = JSON.parse(text);

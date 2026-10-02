@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, Box, Database, GitBranch, HardDrive, Loader2, Network, Plug } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Box, Clock, Copy, Database, GitBranch, HardDrive, KeyRound, Loader2, Network, Plug } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useRouter } from "@/hooks/use-router";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,31 @@ function Kept({ icon, label, children }: { icon: React.ReactNode; label: string;
         <span className="text-xs font-medium text-muted">{label}</span>
         <div className="min-w-0 text-[12.5px] text-fg-2">{children}</div>
       </div>
+    </div>
+  );
+}
+
+const Name = ({ children }: { children: React.ReactNode }) => <code className="rounded bg-fg/[0.06] px-1 py-px font-mono text-[12px] text-fg">{children}</code>;
+
+function Segmented<V extends string>({ value, onChange, options }: { value: V; onChange: (v: V) => void; options: { value: V; label: string; icon?: React.ReactNode }[] }) {
+  return (
+    <div role="radiogroup" className="grid h-9 auto-cols-fr grid-flow-col gap-0.5 rounded-lg border border-line p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={cn(
+            "flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors [&_svg]:size-3.5 [&_svg]:flex-none",
+            value === o.value ? "bg-fg/[0.08] text-fg" : "text-muted hover:bg-fg/[0.03] hover:text-fg",
+          )}
+        >
+          {o.icon}
+          <span className="truncate">{o.label}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -102,6 +127,8 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
   const sharedFolders = preview?.volumes.filter((v) => v.kind === "bind") ?? [];
   const dumpTool: Record<string, string> = { postgres: "pg_dump", mysql: "mysqldump", mariadb: "mariadb-dump", mongodb: "mongodump", redis: "an RDB dump", valkey: "an RDB dump" };
   const blocked = !!preview?.blockers.length || !preview?.projects.length;
+  // Every name the container answers to now, on its networks and in the project.
+  const oldNames = [...new Set([...(preview?.networks.flatMap((n) => n.aliases) ?? []), ...(preview?.hostname ? [preview.hostname] : [])])].sort((a, b) => a.length - b.length);
 
   return (
     <Dialog open={!!container} onOpenChange={(o) => !o && onClose()}>
@@ -112,14 +139,7 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
             void move.run();
           }}
         >
-          <DialogHeader
-            title={`${copy ? "Copy" : "Move"} ${container?.name ?? "container"} into a project`}
-            description={
-              copy
-                ? "The container keeps running as it is. A new service gets its own copy of the data, under the same name in the project."
-                : "A service takes its place on the same data, ports and names. Nothing is copied, and the old container is kept, stopped."
-            }
-          />
+          <DialogHeader title={`${copy ? "Copy" : "Move"} ${container?.name ?? "container"} into a project`} />
           <DialogBody className="flex flex-col gap-4">
             {loadError ? (
               <p className="rounded-lg bg-bad-soft px-3 py-2.5 text-[13px] text-bad">{loadError}</p>
@@ -135,19 +155,6 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                   </p>
                 ))}
                 {!preview.projects.length && <p className="rounded-lg bg-warn-soft px-3 py-2.5 text-[13px] text-warn">Create a project first.</p>}
-
-                <div className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
-                  {(["move", "copy"] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setMode(m)}
-                      className={cn("h-8 rounded-lg text-[13px] font-medium transition-all", mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
-                    >
-                      {m === "move" ? "Move" : "Copy"}
-                    </button>
-                  ))}
-                </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Project">
@@ -176,31 +183,30 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                   </Field>
                 )}
 
-                {db && (
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {(
-                      [
-                        ["database", <Database key="d" />, `${engineLabel[db.engine] ?? db.engine} database`, "Backups, the Data tab and users, on the same data."],
-                        ["container", <Box key="c" />, "Container", "Runs exactly as it does now. No database tools."],
-                      ] as const
-                    ).map(([id, icon, title, body]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setAs(id)}
-                        className={cn(
-                          "flex flex-col gap-1 rounded-xl border p-3 text-left transition-all",
-                          as === id ? "border-accent bg-accent-soft shadow-[0_0_0_1px_var(--accent)]" : "border-line hover:border-line-strong",
-                        )}
-                      >
-                        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-fg [&_svg]:size-3.5">
-                          {icon} {title}
-                        </span>
-                        <span className="text-xs leading-relaxed text-muted">{body}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className={cn("grid grid-cols-1 gap-4", db && "sm:grid-cols-2")}>
+                  <Field label="Action">
+                    <Segmented
+                      value={mode}
+                      onChange={setMode}
+                      options={[
+                        { value: "move", label: "Move" },
+                        { value: "copy", label: "Copy" },
+                      ]}
+                    />
+                  </Field>
+                  {db && (
+                    <Field label="Run as">
+                      <Segmented
+                        value={as}
+                        onChange={setAs}
+                        options={[
+                          { value: "database", label: "Database", icon: <Database /> },
+                          { value: "container", label: "Container", icon: <Box /> },
+                        ]}
+                      />
+                    </Field>
+                  )}
+                </div>
                 {!db && preview.databaseProblems.length > 0 && <p className="text-xs leading-relaxed text-muted">It moves as a container: {preview.databaseProblems.join(" ")}</p>}
                 {needsPassword && (
                   <Field
@@ -255,9 +261,19 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                     )}
                   </div>
                 )}
-                {as === "database" && db?.loginWorks && <p className="text-xs text-ok">Serve signed in as {db.username} with the password it runs with.</p>}
 
                 <div className="divide-y divide-line rounded-xl border border-line">
+                  <Kept icon={copy ? <Copy /> : <ArrowRightLeft />} label="What happens">
+                    {copy
+                      ? "The original keeps running. The service gets its own copy of the data."
+                      : "The service takes over its data, ports and names. The old container is kept, stopped."}
+                    {as === "database" && db && ` It runs as a ${engineLabel[db.engine] ?? db.engine} service, with backups, the Data tab and users.`}
+                  </Kept>
+                  {as === "database" && db?.loginWorks && (
+                    <Kept icon={<KeyRound />} label="Password">
+                      <span className="text-ok">Serve signed in as {db.username} with the password it runs with</span>
+                    </Kept>
+                  )}
                   <Kept icon={<Box />} label="Image">
                     <span className="font-mono text-[12px]">{preview.image}</span>
                     {preview.envKeys.length > 0 && as === "container" && (
@@ -276,7 +292,8 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                       <Kept icon={<HardDrive />} label={copy ? "Data" : "Data, used where it is"}>
                         {preview.volumes.map((v) => (
                           <div key={v.mountPath} className="truncate font-mono text-[12px]">
-                            {v.source} <span className="text-faint">→</span> {v.mountPath}
+                            {/^[a-f0-9]{64}$/.test(v.source) ? <span className="font-sans text-muted">unnamed volume {v.source.slice(0, 8)}…</span> : v.source}{" "}
+                            <span className="text-faint">→</span> {v.mountPath}
                             {copy && <span className="font-sans text-muted"> · {v.kind === "volume" ? "copied" : "shared"}</span>}
                           </div>
                         ))}
@@ -292,35 +309,37 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                       )}
                     </Kept>
                   )}
-                  <Kept icon={<Network />} label="Names other containers reach it by">
-                    {preview.hostname && (
-                      <div>
-                        <span className="font-mono text-[12px]">{preview.hostname}</span> <span className="text-muted">in the project</span>
-                      </div>
-                    )}
-                    {copy
-                      ? preview.networks.length > 0 && <div className="text-muted">Its names on {preview.networks.map((n) => n.name).join(", ")} stay with the original.</div>
-                      : preview.networks.map((n) => (
-                          <div key={n.name} className="truncate">
-                            <span className="font-mono text-[12px]">{n.aliases.join(", ")}</span> <span className="text-muted">on {n.name}</span>
-                          </div>
+                  <Kept icon={<Network />} label="Address">
+                    {copy ? (
+                      <>
+                        Services in the project reach the copy at <Name>{preview.hostname ?? name}</Name>. Apps that use the original keep using the original.
+                      </>
+                    ) : (
+                      <>
+                        Apps keep reaching it at{" "}
+                        {oldNames.map((n, i) => (
+                          <React.Fragment key={n}>
+                            {i > 0 && (i === oldNames.length - 1 ? " or " : ", ")}
+                            <Name>{n}</Name>
+                          </React.Fragment>
                         ))}
+                        , the same {oldNames.length === 1 ? "name" : "names"} as now.
+                      </>
+                    )}
+                  </Kept>
+                  <Kept icon={<Clock />} label="Downtime">
+                    {copy
+                      ? as === "database" && db
+                        ? `None. Changes made after the copy stay in the original.${["postgres", "mysql", "mariadb"].includes(db.engine) ? ` Users other than ${db.username} are not copied.` : ""}`
+                        : copiedVolumes.length
+                          ? `The original stops while its volumes are copied, then starts again.${sharedFolders.length ? " Folders on the server stay shared." : ""}`
+                          : "None. There is no data to copy."
+                      : stops
+                        ? "A few seconds, while the service starts on the same data. If it fails, the old container starts again."
+                        : "None. The old container stops once the service is healthy."}
                   </Kept>
                 </div>
 
-                <p className="text-xs leading-relaxed text-muted">
-                  {copy
-                    ? as === "database" && db
-                      ? `No downtime: it keeps running while Serve copies it. Changes made after the copy stay in the original only.${
-                          ["postgres", "mysql", "mariadb"].includes(db.engine) ? ` Users other than ${db.username} are not copied.` : ""
-                        }`
-                      : copiedVolumes.length
-                        ? `It stops while its volumes are copied, then starts again: a few seconds for small data, longer for big data.${sharedFolders.length ? " Folders on the server stay shared with it." : ""}`
-                        : "No downtime: there is no data to copy."
-                    : stops
-                      ? "It stops for a few seconds while the service starts in its place: two containers cannot share its data or ports. If the service does not start, the old container starts again."
-                      : "No downtime: the service starts first, and the old container stops once it is healthy."}
-                </p>
                 {!copy && preview.volumes.some((v) => v.kind === "volume") && (
                   <p className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2.5 text-xs leading-relaxed text-warn">
                     <AlertTriangle className="mt-0.5 size-3.5 flex-none" />

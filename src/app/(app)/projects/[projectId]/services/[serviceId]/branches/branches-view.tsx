@@ -188,7 +188,9 @@ export function BranchesView({
                             if (
                               await confirm({
                                 title: `Delete ${b.name}?`,
-                                description: "The branch's database and login are removed. Services that reference it lose their connection.",
+                                description: `The branch's database and login are removed. Services that reference it lose their connection.${
+                                  branches.some((x) => x.sourceBranchId === b.id) ? " Branches copied from it copy the main data on their next reset." : ""
+                                }`,
                                 confirmLabel: "Delete branch",
                                 danger: true,
                               })

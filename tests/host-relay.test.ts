@@ -18,17 +18,20 @@ proxy_pass http://10.127.0.0.1:1234; proxy_pass http://my-localhost:5555; proxy_
     expect(hostPortsIn(file('http:\n  services:\n    app:\n      loadBalancer:\n        servers:\n          - url: "http://127.0.0.1:5000"'))).toEqual([5000]);
   });
 
-  it("refuses each proxy's own ports", () => {
+  it("leaves each proxy's own ports to the proxy", () => {
     const pass = (port: number) => file(`proxy_pass http://127.0.0.1:${port};`);
-    expect(hostPortIssue("nginx", pass(80), false)).toMatch(/Port 80/);
-    expect(hostPortIssue("nginx", pass(81), false)).toBeNull();
-    expect(hostPortIssue("nginx", pass(81), true)).toMatch(/Port 81/);
-    // A port a custom nginx file listens on itself.
-    expect(hostPortIssue("nginx", file("server { listen 127.0.0.1:9000; }\nproxy_pass http://127.0.0.1:9000;"), false)).toMatch(/Port 9000/);
-    expect(hostPortIssue("caddy", pass(2019), false)).toMatch(/Port 2019/);
-    expect(hostPortIssue("traefik", pass(8080), false)).toMatch(/Port 8080/);
-    expect(hostPortIssue("caddy", pass(8080), false)).toBeNull();
-    expect(hostPortIssue("nginx", file("proxy_pass http://app:80;"), false)).toBeNull();
+    const relayed = (kind: "nginx" | "caddy" | "traefik", f: ReturnType<typeof file>, pp = false) => relayPlan(kind, f, "10.0.0.1", pp).routes.map((r) => r.port);
+    expect(relayed("nginx", pass(80))).toEqual([]);
+    expect(relayed("nginx", pass(81))).toEqual([81]);
+    expect(relayed("nginx", pass(81), true)).toEqual([]);
+    // A file that proxies to a port it listens on itself keeps reaching itself.
+    expect(relayed("nginx", file("server { listen 127.0.0.1:9000; }\nproxy_pass http://127.0.0.1:9000;"))).toEqual([]);
+    expect(relayed("caddy", pass(2019))).toEqual([]);
+    expect(relayed("traefik", pass(8080))).toEqual([]);
+    expect(relayed("caddy", pass(8080))).toEqual([8080]);
+    // Never refused for that: only too many ports are.
+    expect(hostPortIssue("nginx", pass(443), false)).toBeNull();
+    expect(hostPortIssue("nginx", file(Array.from({ length: 201 }, (_, i) => `proxy_pass http://127.0.0.1:${3000 + i};`).join("\n")), false)).toMatch(/at most 200/);
   });
 
   it("writes a listener per port beside the proxy, and a relay that lets only the proxy in", () => {

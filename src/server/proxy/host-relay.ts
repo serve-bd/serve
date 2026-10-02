@@ -54,13 +54,13 @@ export function hostPortsIn(files: ProxyFile[] | undefined): number[] {
   return [...ports].sort((a, b) => a - b);
 }
 
-/** Why these files cannot reach the machine as written, or null. */
+/**
+ * Why these files cannot be saved, or null. A port the proxy uses itself is not relayed: there
+ * 127.0.0.1 still reaches the proxy, as it always did (a file may proxy to another of its own).
+ */
 export function hostPortIssue(kind: RunningKind, files: ProxyFile[] | undefined, proxyProtocol: boolean): string | null {
-  const ports = hostPortsIn(files);
   const own = proxyOwnPorts(kind, files, proxyProtocol);
-  const taken = ports.filter((p) => own.has(p));
-  if (taken.length)
-    return `Port ${taken.join(", ")} of this machine cannot be reached as 127.0.0.1 or localhost: the proxy uses ${taken.length > 1 ? "those ports" : "that port"} itself. Move the app to another port.`;
+  const ports = hostPortsIn(files).filter((p) => !own.has(p));
   if (ports.length > MAX_HOST_PORTS) return `Custom files can reach at most ${MAX_HOST_PORTS} ports of this machine.`;
   return null;
 }

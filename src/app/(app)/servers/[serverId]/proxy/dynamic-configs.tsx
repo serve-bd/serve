@@ -258,7 +258,7 @@ function FileForm({
         <Field label="File name" description={help.hint}>
           <Input value={name} onChange={(e) => setName(e.target.value.toLowerCase())} placeholder={help.name} className="font-mono" autoFocus={!value?.original} />
         </Field>
-        <Field label="Content" description="127.0.0.1:PORT and localhost:PORT reach this machine's own ports, also apps that listen on 127.0.0.1 only.">
+        <Field label="Content" description="127.0.0.1:PORT and localhost:PORT reach this machine's own ports, also apps that listen on 127.0.0.1 only. Ports the proxy uses itself still reach the proxy.">
           <Textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}

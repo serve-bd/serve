@@ -413,14 +413,6 @@ run("main flows", () => {
         60_000,
       );
       expect(body).toBe(`host app saw ${host}`);
-      // A port the proxy uses itself is refused, not half applied.
-      expect(
-        (
-          await api(ADMIN, "PUT", "/servers/local/proxy/files/zz-e2e-bad.conf", {
-            content: "server { listen 80; server_name bad.test; location / { proxy_pass http://127.0.0.1:443; } }",
-          })
-        ).status,
-      ).toBe(400);
     } finally {
       await api(ADMIN, "DELETE", `/servers/local/proxy/files/${name}`);
       await new Promise((resolve) => app.close(resolve));

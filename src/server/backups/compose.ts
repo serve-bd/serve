@@ -1,4 +1,5 @@
 import YAML from "yaml";
+import { pgDbname } from "@/server/databases/engines";
 import type { DatabaseConfig } from "@/server/services/types";
 
 type Engine = DatabaseConfig["engine"];
@@ -106,9 +107,9 @@ export function dumpCommands(engine: Engine, c: ComposeCreds): { backup: string;
     case "postgres": {
       const auth = `${c.password ? `PGPASSWORD=${sh(c.password)} ` : ""}`;
       return {
-        backup: `${auth}pg_dump -U ${sh(c.username)} -d ${sh(c.database)} -Fc`,
-        restore: `${auth}pg_restore -U ${sh(c.username)} -d ${sh(c.database)} --clean --if-exists --no-owner --no-privileges`,
-        restorePlain: `${auth}psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${sh(c.username)} -d ${sh(c.database)}`,
+        backup: `${auth}pg_dump -U ${sh(c.username)} -d ${sh(pgDbname(c.database))} -Fc`,
+        restore: `${auth}pg_restore -U ${sh(c.username)} -d ${sh(pgDbname(c.database))} --clean --if-exists --no-owner --no-privileges`,
+        restorePlain: `${auth}psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${sh(c.username)} -d ${sh(pgDbname(c.database))}`,
       };
     }
     case "mysql":

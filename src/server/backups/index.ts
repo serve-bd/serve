@@ -17,7 +17,7 @@ import { dumpStorage, restoreStorage, stackStorage } from "./storage";
 import { db, schema } from "@/server/db";
 import { decrypt } from "@/server/crypto";
 import { serverOf } from "@/server/servers/context";
-import { engines } from "@/server/databases/engines";
+import { engines, pgDbname } from "@/server/databases/engines";
 import { databaseCreds } from "@/server/databases/options";
 import type { DatabaseConfig } from "@/server/services/types";
 import { newId } from "@/server/id";
@@ -121,7 +121,9 @@ async function databaseCommands(service: ServiceRow, databases?: string[] | null
     restoreUsers: engine.restoreUsersCommand?.(creds),
     restoreFolder: engine.restoreFolderCommand?.(creds),
     restorePlain:
-      cfg.engine === "postgres" ? `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(creds.username)} -d ${q(creds.database)}` : undefined,
+      cfg.engine === "postgres"
+        ? `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(creds.username)} -d ${q(pgDbname(creds.database))}`
+        : undefined,
     password: creds.password,
     database: creds.database,
   };

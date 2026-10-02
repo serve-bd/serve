@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mysqlDatabaseOf, pgConnectTarget, planSql, type SqlEngine, sqlLineFilter } from "@/server/backups/sql-filter";
+import { pgConnectLine } from "@/server/databases/engines";
 
 async function clean(engine: SqlEngine, dump: string, target: string, opts: { keepNames?: boolean } = {}) {
   const lines = dump.split("\n");
@@ -44,7 +45,7 @@ describe("postgres dumps", () => {
   it("restores the one database of a cluster dump into the service's database, without roles", async () => {
     const { out, report } = await clean("postgres", pgCluster({ shop: "orders" }), "app");
     expect(out).not.toMatch(/ROLE|OWNER TO|GRANT SELECT|CREATE DATABASE|ALTER DATABASE|restrict/);
-    expect(out).toContain('\\connect "app"');
+    expect(out).toContain(`\\connect -reuse-previous=on "dbname='app'"`);
     expect(out).toContain("CREATE TABLE public.orders");
     expect(out).toContain("GRANT inside copy data stays");
     expect(out).not.toContain("template1");
@@ -56,14 +57,14 @@ describe("postgres dumps", () => {
     const { out, report } = await clean("postgres", pgCluster({ shop: "orders", blog: "posts" }), "app");
     expect(report.created).toEqual(["shop", "blog"]);
     expect(out).toContain(`SELECT 'CREATE DATABASE "shop"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'shop')\\gexec`);
-    expect(out.indexOf('\\connect "blog"')).toBeGreaterThan(out.indexOf("public.orders"));
+    expect(out.indexOf(`\\connect -reuse-previous=on "dbname='blog'"`)).toBeGreaterThan(out.indexOf("public.orders"));
   });
 
   it("uses data in the postgres database when that is where it is", async () => {
     const dump = ["-- PostgreSQL database cluster dump", "CREATE ROLE postgres;", "\\connect postgres", "CREATE TABLE public.t (n int);"].join("\n");
     const { out, plan } = await clean("postgres", dump, "app");
     expect(plan.databases).toEqual(["postgres"]);
-    expect(out).toContain('\\connect "app"');
+    expect(out).toContain(`\\connect -reuse-previous=on "dbname='app'"`);
     expect(out).toContain("CREATE TABLE public.t");
   });
 
@@ -78,14 +79,25 @@ describe("postgres dumps", () => {
   it("restores a backup of one chosen database into that database, not the service's", async () => {
     const dump = ['\\connect "other"', "CREATE TABLE public.t (n integer);"].join("\n");
     const { out } = await clean("postgres", dump, "app", { keepNames: true });
-    expect(out).toContain('\\connect "other"');
-    expect(out).not.toContain('\\connect "app"');
+    expect(out).toContain(`\\connect -reuse-previous=on "dbname='other'"`);
+    expect(out).not.toContain(`\\connect -reuse-previous=on "dbname='app'"`);
+  });
+
+  it("connects to a database named like connection options by its name only", async () => {
+    const name = `host=evil a'b\\c "q"`;
+    const dump = [pgConnectLine(name), "CREATE TABLE public.t (n integer);"].join("\n");
+    const { out, plan } = await clean("postgres", dump, "app", { keepNames: true });
+    expect(plan.databases).toEqual([name]);
+    expect(out).toContain(`\\connect -reuse-previous=on "dbname='host=evil a\\'b\\\\c ""q""'"`);
   });
 
   it("reads every form of \\connect", () => {
     expect(pgConnectTarget("\\connect app")).toBe("app");
     expect(pgConnectTarget('\\connect "My DB"')).toBe("My DB");
     expect(pgConnectTarget(`\\connect -reuse-previous=on "dbname='it''s'"`)).toBe("it's");
+    // pg_dumpall escapes with a backslash.
+    expect(pgConnectTarget(`\\connect -reuse-previous=on "dbname='it\\'s a\\\\b'"`)).toBe("it's a\\b");
+    for (const name of ["app", "a=b", `x'y\\z`, 'q"uote']) expect(pgConnectTarget(pgConnectLine(name))).toBe(name);
     expect(pgConnectTarget("SELECT 1;")).toBeNull();
   });
 });

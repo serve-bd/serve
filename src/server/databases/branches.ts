@@ -9,7 +9,7 @@ import { serverOf } from "@/server/servers/context";
 import { execCommand } from "@/server/services/exec";
 import { databaseContainer } from "./container";
 import { databaseCreds, databaseUrl } from "./options";
-import { engines, mongoToolsTls, mongoTls, rcli } from "./engines";
+import { engines, mongoToolsTls, mongoTls, pgDbname, rcli } from "./engines";
 import { privateHost } from "@/lib/hostname";
 import { branchDatabaseName, previewBranchName, branchReference } from "@/lib/database-branches";
 import { parseListing, userScripts } from "./users";
@@ -240,7 +240,7 @@ export function createScript(
   scrubSql: string | null,
 ) {
   // Query results are not needed; errors still go to stderr.
-  const psql = (database: string, quiet = true) => `psql -X -v ON_ERROR_STOP=1 -q${quiet ? " -o /dev/null" : ""} -U ${q(main.username)} -d ${q(database)}`;
+  const psql = (database: string, quiet = true) => `psql -X -v ON_ERROR_STOP=1 -q${quiet ? " -o /dev/null" : ""} -U ${q(main.username)} -d ${q(pgDbname(database))}`;
   const dropDb = `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ${literal(branch.database)} AND pid <> pg_backend_pid();
 DROP DATABASE IF EXISTS ${ident(branch.database)};`;
   return [
@@ -261,13 +261,13 @@ CREATE DATABASE ${ident(branch.database)} OWNER ${ident(branch.username)};
 REVOKE CONNECT ON DATABASE ${ident(branch.database)} FROM PUBLIC;
 SERVE_SQL`,
     // Streams inside the container: nothing is written to disk but the new database.
-    `pg_dump -U ${q(main.username)} -d ${q(main.database)} -Fc --no-owner --no-privileges | pg_restore -U ${q(main.username)} -d ${q(branch.database)} --no-owner --no-privileges --exit-on-error`,
+    `pg_dump -U ${q(main.username)} -d ${q(pgDbname(main.database))} -Fc --no-owner --no-privileges | pg_restore -U ${q(main.username)} -d ${q(pgDbname(branch.database))} --no-owner --no-privileges --exit-on-error`,
     `${psql(branch.database)} <<'SERVE_SQL'
 ${ownershipSql(branch.username)}
 SERVE_SQL`,
     // As the branch's role, which owns the branch and nothing else.
     ...(scrubSql?.trim()
-      ? [`${pipeSql(scrubSql)} | PGPASSWORD=${q(branch.password)} psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(branch.username)} -d ${q(branch.database)}`]
+      ? [`${pipeSql(scrubSql)} | PGPASSWORD=${q(branch.password)} psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(branch.username)} -d ${q(pgDbname(branch.database))}`]
       : []),
     `echo "SERVE_SIZE=$(${psql(main.database, false)} -At -c "SELECT pg_database_size(${literal(branch.database)})")"`,
   ].join("\n");
@@ -277,7 +277,7 @@ export function deleteScript(main: { username: string; password: string; databas
   return [
     "set -e",
     `export PGPASSWORD=${q(main.password)}`,
-    `psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(main.username)} -d ${q(main.database)} <<'SERVE_SQL'
+    `psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(main.username)} -d ${q(pgDbname(main.database))} <<'SERVE_SQL'
 SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ${literal(branch.database)} AND pid <> pg_backend_pid();
 DROP DATABASE IF EXISTS ${ident(branch.database)};
 DROP ROLE IF EXISTS ${ident(branch.username)};
@@ -312,7 +312,7 @@ function listDatabasesScript(engine: string, main: Main) {
 function dropCopyScript(engine: string, main: Main, database: string) {
   switch (engine) {
     case "postgres":
-      return `set -e\nexport PGPASSWORD=${q(main.password)}\npsql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(main.username)} -d ${q(main.database)} <<'SERVE_SQL'
+      return `set -e\nexport PGPASSWORD=${q(main.password)}\npsql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(main.username)} -d ${q(pgDbname(main.database))} <<'SERVE_SQL'
 SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ${literal(database)} AND pid <> pg_backend_pid();
 DROP DATABASE IF EXISTS ${ident(database)};
 SERVE_SQL`;

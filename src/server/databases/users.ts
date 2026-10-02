@@ -1,6 +1,6 @@
 import type { DatabaseConfig } from "@/server/services/types";
 import type { DatabaseUserAccess } from "@/server/db/schema";
-import { type EngineCreds, mongoTls } from "./engines";
+import { type EngineCreds, mongoTls, pgDbname } from "./engines";
 
 /** Engines whose logins the Users page manages. */
 export const userEngines = new Set(["postgres", "mysql", "mariadb", "mongodb"]);
@@ -70,12 +70,14 @@ const PG_PRIVILEGES: Record<DatabaseUserAccess, { tables: string; sequences: str
 };
 
 function postgresScripts(main: EngineCreds): UserScripts {
-  const psql = (database: string) => `psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${sh(main.username)} -d ${sh(database)}`;
+  const psql = (database: string) => `psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${sh(main.username)} -d ${sh(pgDbname(database))}`;
   const run = (database: string, sql: string) => `${pipeSql(sql)} | ${psql(database)}`;
   const head = ["set -e", "(set -o pipefail) 2>/dev/null && set -o pipefail", `export PGPASSWORD=${sh(main.password)}`];
   // Every database a login can reach: privileges are kept per database.
+  // Each name goes to -d as a connection string (like pgDbname: ' and \ escaped by a backslash), so
+  // a database named like "host=x" is not read as connection options.
   const eachDatabase = (sql: string) =>
-    `psql -X -At -U ${sh(main.username)} -d ${sh(main.database)} -c "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate" | while IFS= read -r d; do ${pipeSql(sql)} | psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${sh(main.username)} -d "$d"; done`;
+    `psql -X -At -U ${sh(main.username)} -d ${sh(pgDbname(main.database))} -c "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate" | while IFS= read -r d; do c=$(printf '%s' "$d" | sed ${sh("s/[\\\\']/\\\\&/g")}); ${pipeSql(sql)} | psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${sh(main.username)} -d "dbname='$c'"; done`;
   // Objects the login made go to the main user (nothing is lost), then its privileges go.
   const revokeAll = (name: string) => eachDatabase(`REASSIGN OWNED BY ${pgIdent(name)} TO ${pgIdent(main.username)};\nDROP OWNED BY ${pgIdent(name)};`);
   const grant = (name: string, access: DatabaseUserAccess, database: string) => {
@@ -105,7 +107,7 @@ $serve$;`,
     list: () =>
       [
         ...head,
-        `psql -X -At -U ${sh(main.username)} -d ${sh(main.database)} -c "SELECT 'SERVE_DB' || chr(9) || datname FROM pg_database WHERE datallowconn AND NOT datistemplate UNION ALL SELECT 'SERVE_USER' || chr(9) || rolname FROM pg_roles WHERE rolcanlogin"`,
+        `psql -X -At -U ${sh(main.username)} -d ${sh(pgDbname(main.database))} -c "SELECT 'SERVE_DB' || chr(9) || datname FROM pg_database WHERE datallowconn AND NOT datistemplate UNION ALL SELECT 'SERVE_USER' || chr(9) || rolname FROM pg_roles WHERE rolcanlogin"`,
       ].join("\n"),
     create: (name, password, access, databases) =>
       [...head, run(main.database, `CREATE ROLE ${pgIdent(checkName(name))} LOGIN PASSWORD ${literal(password)};`), ...databases.map((d) => grant(name, access, d))].join("\n"),

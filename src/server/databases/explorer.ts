@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { DbEngine } from "@/server/services/types";
-import type { EngineCreds } from "./engines";
+import { type EngineCreds, pgDbname } from "./engines";
 
 /*
  * The Data tab: scripts that read a database from inside its container (like the console does),
@@ -71,7 +71,7 @@ export const pgLiteral = (s: string) => {
   return s.includes("\\") ? `E'${body.replace(/\\/g, "\\\\")}'` : `'${body}'`;
 };
 /** A libpq connection string naming only the database: a name like "host=x" is not read as options. */
-export const pgConninfo = (database: string) => `dbname='${noNul(database).replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+export const pgConninfo = (database: string) => pgDbname(noNul(database));
 /** MySQL / MariaDB identifier: `name`, with ` doubled (the same in every SQL mode). */
 export const myIdent = (s: string) => `\`${noNul(s).replace(/`/g, "``")}\``;
 /** MySQL / MariaDB literal as hex with a character set: no escaping rules (NO_BACKSLASH_ESCAPES or not), and the column's collation wins. */

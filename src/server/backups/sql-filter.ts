@@ -1,5 +1,6 @@
 import { Transform } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
+import { pgConnectLine } from "@/server/databases/engines";
 
 /*
  * Restoring a plain SQL dump made elsewhere, often of a whole server (pg_dumpall, mysqldump
@@ -28,9 +29,10 @@ export function pgConnectTarget(line: string): string | null {
   const m = line.match(/^\\(?:connect|c)\s+(.+?)\s*$/);
   if (!m) return null;
   let arg = m[1].replace(/^-reuse-previous=\S+\s+/, "");
-  const conninfo = arg.match(/^"dbname='((?:[^']|'')*)'"$/);
-  if (conninfo) return conninfo[1].replaceAll("''", "'");
   if (arg.startsWith('"') && arg.endsWith('"')) arg = arg.slice(1, -1).replaceAll('""', '"');
+  // A connection string: libpq escapes ' and \ with a backslash (pg_dumpall, Serve's own backups).
+  const conninfo = arg.match(/^dbname='((?:[^'\\]|\\.|'')*)'$/);
+  if (conninfo) return conninfo[1].replace(/\\(.)|''/g, (_m, c: string | undefined) => c ?? "'");
   return arg;
 }
 
@@ -141,7 +143,7 @@ export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, 
           report.created.push(db);
           out.push(`SELECT ${pgLiteral(`CREATE DATABASE ${pgQuote(db)}`)} WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = ${pgLiteral(db)})\\gexec`);
         }
-        out.push(`\\connect ${pgQuote(db)}`);
+        out.push(pgConnectLine(db));
         return out;
       }
       if (skipping || userLine(line)) return [];

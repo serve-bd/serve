@@ -64,6 +64,14 @@ export type EngineCreds = {
 
 const sh = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
+/**
+ * A libpq connection string naming only the database, for psql, pg_dump and pg_restore -d: a plain
+ * name with = in it (like "host=x") would be read as connection options.
+ */
+export const pgDbname = (database: string) => `dbname='${database.replace(/[\\']/g, "\\$&")}'`;
+/** psql's \connect to a database by name, keeping the user and host (a name alone may be read as options too). */
+export const pgConnectLine = (database: string) => `\\connect -reuse-previous=on "${pgDbname(database).replace(/"/g, '""')}"`;
+
 const chClient = (c: EngineCreds) => `clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)}`;
 /** A table name as a ClickHouse identifier: `name`, with ` and \ escaped. */
 const chQuoted = "concat('`', replaceAll(replaceAll(name, '\\\\', '\\\\\\\\'), '`', '\\\\`'), '`')";
@@ -191,7 +199,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
     }),
     healthcheck: (c) => ["CMD-SHELL", `pg_isready -U ${sh(c.username)} -d ${sh(c.database)}`],
     url: (c) => `postgresql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
-    backupCommand: (c) => `PGPASSWORD=${sh(c.password)} pg_dump -U ${sh(c.username)} -d ${sh(c.database)} -Fc`,
+    backupCommand: (c) => `PGPASSWORD=${sh(c.password)} pg_dump -U ${sh(c.username)} -d ${sh(pgDbname(c.database))} -Fc`,
     // Plain SQL, a \connect before each database: the restore keeps them apart and creates the missing ones.
     backupDatabasesCommand: (c, databases) => ({
       command: [
@@ -199,12 +207,12 @@ export const engines: Record<DbEngine, EngineInfo> = {
         "(set -o pipefail) 2>/dev/null && set -o pipefail",
         `export PGPASSWORD=${sh(c.password)}`,
         `{ ${databases
-          .map((d) => `printf '%s\\n' ${sh(`\\connect "${d.replace(/"/g, '""')}"`)}; pg_dump -U ${sh(c.username)} -d ${sh(d)} --clean --if-exists --no-owner --no-privileges -Fp`)
+          .map((d) => `printf '%s\\n' ${sh(pgConnectLine(d))}; pg_dump -U ${sh(c.username)} -d ${sh(pgDbname(d))} --clean --if-exists --no-owner --no-privileges -Fp`)
           .join("; ")}; } | gzip -c`,
       ].join("\n"),
       extension: "sql.gz",
     }),
-    restoreCommand: (c) => `PGPASSWORD=${sh(c.password)} pg_restore -U ${sh(c.username)} -d ${sh(c.database)} --clean --if-exists --no-owner --no-privileges`,
+    restoreCommand: (c) => `PGPASSWORD=${sh(c.password)} pg_restore -U ${sh(c.username)} -d ${sh(pgDbname(c.database))} --clean --if-exists --no-owner --no-privileges`,
     backupExtension: "dump",
     server: ["postgres"],
     runAs: "postgres",

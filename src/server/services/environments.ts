@@ -7,7 +7,7 @@ import { db, schema } from "@/server/db";
 import { decrypt, encrypt, randomPassword } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
-import { engines } from "@/server/databases/engines";
+import { engines, pgDbname } from "@/server/databases/engines";
 import { dumpDatabase, restoreDumpFile, runWithInput } from "@/server/backups";
 import { databaseCreds } from "@/server/databases/options";
 import { enqueue } from "@/server/queue";
@@ -229,7 +229,7 @@ export function scrubCommand(cfg: DatabaseConfig, password: string): string | nu
   const creds = databaseCreds(cfg, password);
   switch (cfg.engine) {
     case "postgres":
-      return `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(creds.database)}`;
+      return `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -U ${q(creds.username)} -d ${q(pgDbname(creds.database))}`;
     case "mysql":
       return `MYSQL_PWD=${q(creds.password)} mysql -uroot ${q(creds.database)}`;
     case "mariadb":

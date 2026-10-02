@@ -73,7 +73,19 @@ export function BranchesView({
   const router = useRouter();
   const confirm = useConfirm();
   const [creating, setCreating] = React.useState(false);
-  const [view, setView] = React.useState<"canvas" | "list">("canvas");
+  // The list by default; the last view chosen in this browser after that.
+  const [view, setViewState] = React.useState<"canvas" | "list">("list");
+  React.useEffect(() => {
+    try {
+      if (localStorage.getItem("serve.branches.view") === "canvas") setViewState("canvas");
+    } catch {}
+  }, []);
+  const setView = (next: "canvas" | "list") => {
+    setViewState(next);
+    try {
+      localStorage.setItem("serve.branches.view", next);
+    } catch {}
+  };
   const reset = useAction(resetDatabaseBranch, { success: "Copying the data again" });
   const remove = useAction(deleteDatabaseBranch, { success: "Branch deleted" });
 

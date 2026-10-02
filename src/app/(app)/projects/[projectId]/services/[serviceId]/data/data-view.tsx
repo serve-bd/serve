@@ -625,7 +625,6 @@ function RowsView({
               empty={filter ? "No rows match the filter." : "This table has no rows."}
             />
           )}
-          {editable && readOnly && <p className="text-xs text-muted">Turn off read only to change, add or delete rows.</p>}
           {data.truncated && <p className="text-xs text-warn">Some values were too large and the page was cut short. Use the Query tab to choose fewer columns.</p>}
           <Pager page={page} shown={data.rows.length} total={data.total} capped={data.totalCapped} loading={rows.loading || dirty} onPage={setPage} noun="rows" />
         </>

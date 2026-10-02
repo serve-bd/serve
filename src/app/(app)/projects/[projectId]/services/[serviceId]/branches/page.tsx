@@ -66,6 +66,7 @@ export default async function BranchesPage(props: PageProps<"/projects/[projectI
         cleanupSql={service.database?.branchCleanupSql ?? ""}
         scrubSupported={branchScrubEngines.has(service.database?.engine ?? "")}
         allSupported={allDatabaseEngines.has(service.database?.engine ?? "")}
+        mainDatabase={service.database?.database ?? ""}
         running={service.status === "running"}
         canManage={ctx.can("services.manage")}
         branches={rows.map((b) => {

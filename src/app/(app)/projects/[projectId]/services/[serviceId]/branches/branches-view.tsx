@@ -52,6 +52,7 @@ export function BranchesView({
   cleanupSql,
   scrubSupported,
   allSupported,
+  mainDatabase,
 }: {
   serviceId: string;
   serviceName: string;
@@ -61,6 +62,7 @@ export function BranchesView({
   cleanupSql: string;
   scrubSupported: boolean;
   allSupported: boolean;
+  mainDatabase: string;
   running: boolean;
   canManage: boolean;
   branches: Branch[];
@@ -151,6 +153,22 @@ export function BranchesView({
                       </span>
                     ) : b.status === "failed" ? (
                       <p className="text-xs leading-relaxed whitespace-pre-wrap text-bad">{b.error ?? "The copy failed."}</p>
+                    ) : b.allDatabases ? (
+                      // One reference per database: each copy is reached by the same login.
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        {[mainDatabase, ...b.extraDatabases].map((d) => {
+                          const each = branchReference(refName, b.name, `databases.${d}.DATABASE_URL`);
+                          return (
+                            <span key={d} className="flex min-w-0 items-center gap-2">
+                              <span className="w-24 flex-none truncate font-mono text-[12px] text-muted" title={d}>
+                                {d}
+                              </span>
+                              <code className="min-w-0 truncate font-mono text-[12px] text-fg-2">{each}</code>
+                              <CopyButton value={each} label={`Copy the reference to ${d}`} className="size-6 flex-none" />
+                            </span>
+                          );
+                        })}
+                      </span>
                     ) : (
                       <span className="flex min-w-0 items-center gap-1">
                         <code className="min-w-0 truncate font-mono text-[12px] text-fg-2">{ref}</code>

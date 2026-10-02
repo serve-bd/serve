@@ -24,11 +24,21 @@ export async function effectiveLimits(organizationId: string): Promise<OrgLimits
   return organizationId === settings.rootOrganizationId ? {} : (settings.defaultOrgLimits ?? {});
 }
 
-/** What a service counts as against the CPU and memory limits. */
-export function serviceReservation(runtime: { cpuLimit?: number | null; memoryLimit?: number | null } | null | undefined, limits: OrgLimits) {
+/**
+ * How many containers of a service run: an app's replicas, on its server and on each extra server
+ * (the CPU and memory limits are per container). Other services run one.
+ */
+export function runCopies(type: string, runtime: { replicas?: number | null } | null | undefined, distribution?: { extraServerIds?: string[] | null } | null) {
+  if (type !== "app") return 1;
+  const replicas = Math.max(1, Math.min(runtime?.replicas || 1, 20));
+  return replicas * (1 + (distribution?.extraServerIds?.length ?? 0));
+}
+
+/** What a service counts as against the CPU and memory limits: its limits, times its containers. */
+export function serviceReservation(runtime: { cpuLimit?: number | null; memoryLimit?: number | null } | null | undefined, limits: OrgLimits, copies = 1) {
   return {
-    cpu: runtime?.cpuLimit ?? (limits.cpu != null ? (limits.defaultCpu ?? DEFAULT_RESERVATION.cpu) : 0),
-    memory: runtime?.memoryLimit ?? (limits.memory != null ? (limits.defaultMemory ?? DEFAULT_RESERVATION.memory) : 0),
+    cpu: (runtime?.cpuLimit ?? (limits.cpu != null ? (limits.defaultCpu ?? DEFAULT_RESERVATION.cpu) : 0)) * copies,
+    memory: (runtime?.memoryLimit ?? (limits.memory != null ? (limits.defaultMemory ?? DEFAULT_RESERVATION.memory) : 0)) * copies,
   };
 }
 
@@ -36,7 +46,7 @@ export function serviceReservation(runtime: { cpuLimit?: number | null; memoryLi
 export async function orgUsage(organizationId: string, limits?: OrgLimits): Promise<Required<Usage>> {
   const lim = limits ?? (await effectiveLimits(organizationId));
   const services = await db
-    .select({ id: schema.service.id, type: schema.service.type, runtime: schema.service.runtime, serverId: schema.service.serverId })
+    .select({ id: schema.service.id, type: schema.service.type, runtime: schema.service.runtime, serverId: schema.service.serverId, distribution: schema.service.distribution })
     .from(schema.service)
     .innerJoin(schema.project, eq(schema.project.id, schema.service.projectId))
     .where(eq(schema.project.organizationId, organizationId));
@@ -62,7 +72,7 @@ export async function orgUsage(organizationId: string, limits?: OrgLimits): Prom
   let cpu = 0;
   let memory = 0;
   for (const s of services) {
-    const r = serviceReservation(s.runtime, lim);
+    const r = serviceReservation(s.runtime, lim, runCopies(s.type, s.runtime, s.distribution));
     cpu += r.cpu;
     memory += r.memory;
   }
@@ -172,7 +182,14 @@ export async function requireServers(organizationId: string, serverIds: string[]
 }
 
 /** Room for copies of existing services (environment clones, previews), with their own CPU and memory. */
-export async function requireRoomFor(organizationId: string, services: { type: string; runtime: { cpuLimit?: number | null; memoryLimit?: number | null } | null }[]) {
+export async function requireRoomFor(
+  organizationId: string,
+  services: {
+    type: string;
+    runtime: { cpuLimit?: number | null; memoryLimit?: number | null; replicas?: number | null } | null;
+    distribution?: { extraServerIds?: string[] | null } | null;
+  }[],
+) {
   if (!services.length) return;
   const limits = await effectiveLimits(organizationId);
   if (!Object.keys(limits).length) return;
@@ -182,7 +199,7 @@ export async function requireRoomFor(organizationId: string, services: { type: s
   for (const s of services) {
     const t = s.type as ServiceType;
     byType[t] = (byType[t] ?? 0) + 1;
-    const r = serviceReservation(s.runtime, limits);
+    const r = serviceReservation(s.runtime, limits, runCopies(s.type, s.runtime, s.distribution));
     cpu += r.cpu;
     memory += r.memory;
   }
@@ -249,15 +266,18 @@ export async function requireResourceChange(
   organizationId: string,
   current: { cpuLimit?: number | null; memoryLimit?: number | null },
   next: { cpuLimit?: number | null; memoryLimit?: number | null },
+  /** Containers it runs before and after (replicas, extra servers). */
+  copies: { before: number; after: number } = { before: 1, after: 1 },
 ) {
   const limits = await effectiveLimits(organizationId);
   if (limits.cpu == null && limits.memory == null) return;
   if (limits.cpu != null && next.cpuLimit === null) throw new UserError("This organization has a CPU limit, so every service needs a CPU limit.");
   if (limits.memory != null && next.memoryLimit === null) throw new UserError("This organization has a memory limit, so every service needs a memory limit.");
-  const before = serviceReservation(current, limits);
+  const before = serviceReservation(current, limits, copies.before);
   const after = serviceReservation(
     { cpuLimit: next.cpuLimit === undefined ? current.cpuLimit : next.cpuLimit, memoryLimit: next.memoryLimit === undefined ? current.memoryLimit : next.memoryLimit },
     limits,
+    copies.after,
   );
   const usage = await orgUsage(organizationId, limits);
   for (const key of ["cpu", "memory"] as const) {

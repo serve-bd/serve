@@ -29,7 +29,7 @@ import { teardownServices } from "@/server/services/teardown";
 import { composeNameClashes, composeSecurityIssues, safeRedirectUrl } from "@/server/security";
 import type { OrgContext } from "@/server/auth";
 import { requestServiceControl } from "@/server/services/control";
-import { hasRoom, requireNotOver, requireResourceChange, requireRoom, withReservation } from "@/server/limits";
+import { hasRoom, requireNotOver, requireResourceChange, requireRoom, runCopies, withReservation } from "@/server/limits";
 import { restartOwnContainer } from "@/server/services/container-info";
 import { resolveServerForOrg, serverPublicIp } from "@/server/servers/access";
 import { HOSTNAME_RE } from "@/lib/hostname";
@@ -736,8 +736,9 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     if (hasHostAccess(service.runtime) && (data.source || data.build || data.runtime || data.compose)) assertHostAccess(ctx, "Changing a service that has host-level access");
     if (data.runtime) {
       const runtime = { ...service.runtime, ...data.runtime } as RuntimeConfig;
-      if (runtime.cpuLimit !== service.runtime.cpuLimit || runtime.memoryLimit !== service.runtime.memoryLimit) {
-        await requireResourceChange(ctx.org.id, service.runtime, { cpuLimit: runtime.cpuLimit ?? null, memoryLimit: runtime.memoryLimit ?? null });
+      const copies = { before: runCopies(service.type, service.runtime, service.distribution), after: runCopies(service.type, runtime, service.distribution) };
+      if (runtime.cpuLimit !== service.runtime.cpuLimit || runtime.memoryLimit !== service.runtime.memoryLimit || copies.after > copies.before) {
+        await requireResourceChange(ctx.org.id, service.runtime, { cpuLimit: runtime.cpuLimit ?? null, memoryLimit: runtime.memoryLimit ?? null }, copies);
       }
       const addsBind = runtime.volumes.some((v) => v.kind === "bind") && JSON.stringify(runtime.volumes) !== JSON.stringify(service.runtime.volumes);
       const addsPorts = runtime.ports.length > 0 && JSON.stringify(runtime.ports) !== JSON.stringify(service.runtime.ports);

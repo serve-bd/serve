@@ -4,7 +4,7 @@ vi.mock("@/server/db", () => ({ db: {}, schema: {} }));
 vi.mock("@/server/settings", () => ({ getSettings: vi.fn() }));
 
 import { firstOverLimit, formatLimitValue, hasAnyLimit, limitError, normalizeLimits, usageLevel } from "@/lib/limits";
-import { serverProblem, serviceReservation, withReservation } from "@/server/limits";
+import { runCopies, serverProblem, serviceReservation, withReservation } from "@/server/limits";
 
 describe("usageLevel", () => {
   it("is ok without a limit and below 80 %", () => {
@@ -53,6 +53,13 @@ describe("reservations", () => {
     expect(serviceReservation({ cpuLimit: null, memoryLimit: null }, { cpu: 4 })).toEqual({ cpu: 0.5, memory: 0 });
     expect(serviceReservation({ cpuLimit: null, memoryLimit: null }, { memory: 4096, defaultMemory: 256 })).toEqual({ cpu: 0, memory: 256 });
     expect(serviceReservation({ cpuLimit: 2, memoryLimit: 1024 }, { cpu: 4, memory: 4096 })).toEqual({ cpu: 2, memory: 1024 });
+  });
+  it("counts every container an app runs: replicas on each of its servers", () => {
+    expect(runCopies("app", { replicas: 3 }, null)).toBe(3);
+    expect(runCopies("app", { replicas: 2 }, { extraServerIds: ["a", "b"] })).toBe(6);
+    expect(runCopies("app", { replicas: 0 }, null)).toBe(1);
+    expect(runCopies("database", { replicas: 5 }, { extraServerIds: ["a"] })).toBe(1);
+    expect(serviceReservation({ cpuLimit: 1, memoryLimit: 512 }, { cpu: 4 }, runCopies("app", { replicas: 3 }))).toEqual({ cpu: 3, memory: 1536 });
   });
   it("gives new services the reservation only when they have no limit", () => {
     expect(withReservation({ cpuLimit: null, memoryLimit: null }, { cpuLimit: 0.5, memoryLimit: 512 })).toEqual({ cpuLimit: 0.5, memoryLimit: 512 });

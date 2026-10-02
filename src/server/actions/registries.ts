@@ -19,7 +19,7 @@ import { listImages, listTags } from "@/server/registries/browse";
 import { serviceInOrg } from "@/server/services/access";
 import { resolveServerForOrg } from "@/server/servers/access";
 import { queueDeployment } from "@/server/services/create";
-import { requireServers } from "@/server/limits";
+import { requireResourceChange, requireServers, runCopies } from "@/server/limits";
 import { removeServiceProxy } from "@/server/proxy/nginx";
 
 /* -------------------------------------------------------------------------- */
@@ -167,6 +167,9 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     const current = [...runServerIds(service.serverId, service.distribution), service.distribution?.buildServerId];
     const newServers = picked.filter((id) => !current.includes(id));
     await requireServers(ctx.org.id, newServers);
+    // Each extra server runs every replica again: that counts against the CPU and memory limits.
+    const copies = { before: runCopies(service.type, service.runtime, service.distribution), after: runCopies(service.type, service.runtime, dist) };
+    if (copies.after > copies.before) await requireResourceChange(ctx.org.id, service.runtime, {}, copies);
     if (dist.registryId) {
       const registry = await getRegistry(dist.registryId, ctx.org.id);
       if (!registry) throw new UserError("Registry not found.");

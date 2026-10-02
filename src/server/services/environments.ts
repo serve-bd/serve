@@ -376,19 +376,25 @@ export async function createPreviewDatabase(preview: Service, parent: Service, p
  * Job: fill a preview's database copy, then deploy the preview. Without clean-up SQL the preview
  * deploys even when the copy fails. With clean-up SQL a failure removes the copy and skips the
  * deployment, so real personal data never sits in a preview that was meant to hide it.
+ * `interrupted`: the job was cut off by a worker restart, and is settled like a failed copy.
  */
-export async function preparePreviewDatabase(payload: {
-  previewId: string;
-  databaseId: string;
-  parentId: string;
-  deployment: { commitSha?: string | null; commitMessage?: string | null; branch?: string | null };
-}) {
+export async function preparePreviewDatabase(
+  payload: {
+    previewId: string;
+    databaseId: string;
+    parentId: string;
+    deployment: { commitSha?: string | null; commitMessage?: string | null; branch?: string | null };
+  },
+  opts: { interrupted?: boolean } = {},
+) {
   const [parent] = await db.select().from(schema.service).where(eq(schema.service.id, payload.parentId));
   const [preview] = await db.select().from(schema.service).where(eq(schema.service.id, payload.previewId));
   if (!preview) return;
   const cfg = parent?.previewDatabase;
   try {
     if (!cfg) throw new Error("Preview databases were turned off.");
+    // The copy may hold restored data its clean-up SQL never ran on.
+    if (opts.interrupted) throw new Error("The worker restarted during the copy.");
     await copyDatabase(cfg.sourceServiceId, payload.databaseId, { scrubSql: cfg.scrubSql });
     await logActivity({
       projectId: preview.projectId,

@@ -425,6 +425,17 @@ async function recover() {
       })
       .where(and(eq(schema.databaseBranch.id, j.payload.branchId), inArray(schema.databaseBranch.status, ["creating", "resetting", "deleting"])));
   }
+  // A preview's database copy cut off by the restart: the preview would never deploy, and a copy
+  // that was restored but not cleaned up would keep the personal data its clean-up SQL removes.
+  for (const j of stale as unknown as { type: string; payload: JobPayloads["preview.database"] }[]) {
+    if (j.type !== "preview.database" || !j.payload?.previewId) continue;
+    await preparePreviewDatabase(j.payload, { interrupted: true }).catch((e: Error) => log(`preview database recovery failed: ${e.message}`));
+  }
+  // A server setup cut off by the restart (Install Docker takes minutes) would stay "validating",
+  // which deploys wait for and the health probe skips: it runs again.
+  for (const j of stale as unknown as { type: string; payload: JobPayloads["server.setup"] }[]) {
+    if (j.type === "server.setup" && j.payload?.serverId) await enqueue("server.setup", j.payload, { concurrencyKey: `server:${j.payload.serverId}` });
+  }
   // A start cut off by the restart left "deploying", which the monitor does not look at: the containers say what runs.
   for (const j of stale as unknown as { type: string; payload: { serviceId?: string } }[]) {
     if (j.type !== "service.start" || !j.payload?.serviceId) continue;

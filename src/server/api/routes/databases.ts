@@ -369,7 +369,7 @@ export const databaseRoutes: ApiRoute[] = [
     path: "/services/{serviceId}/data/rows",
     tag: "Databases",
     summary: "A page of rows of a table",
-    description: `50 rows per page (page counts from 0), sorted by one column (else by the columns of order, like the primary key) and filtered by one condition (op: ${FILTER_OPS.join(", ")}). Values come back as text, null for NULL. total counts up to 10000 matching rows (totalCapped: more). For MongoDB, mongoFilter and mongoSort are Extended JSON and documents come back as Extended JSON text. Reads only.`,
+    description: `50 rows per page (page counts from 0), sorted by one column (else by the columns of order, like the primary key) and filtered by one condition (op: ${FILTER_OPS.join(", ")}). Values come back as text, null for NULL. total counts up to 10000 matching rows (totalCapped: more). For MongoDB, mongoFilter and mongoSort are Extended JSON and documents come back as Extended JSON text, with versions (one per document) to send back when replacing one. Reads only.`,
     needs: ["projects.view", "console.access"],
     body: z.object({
       database: z.string(),
@@ -452,9 +452,9 @@ export const databaseRoutes: ApiRoute[] = [
     tag: "Databases",
     summary: "Replace a MongoDB document",
     description:
-      'id: the _id of the document as Extended JSON (like {"$oid": "…"} or 42). document: the new document as Extended JSON; its _id, if given, must stay the same. Needs services.manage too. Written to the activity log.',
+      'id: the _id of the document as Extended JSON (like {"$oid": "…"} or 42). document: the new document as Extended JSON; its _id, if given, must stay the same. version: the version of the document as the documents page gave it (versions, in the order of documents); when the document holds something else now, nothing is changed. Needs services.manage too. Written to the activity log.',
     needs: ["projects.view", "console.access", "services.manage"],
-    body: z.object({ database: z.string(), collection: z.string(), id: z.string(), document: z.string() }),
+    body: z.object({ database: z.string(), collection: z.string(), id: z.string(), document: z.string(), version: z.string().optional() }),
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
       return (await unwrap(explorer.explorerEditDocument(params.serviceId, body))) ?? { ok: true };

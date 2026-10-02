@@ -646,7 +646,7 @@ function RowsView({
 }
 
 function DocumentsView({ serviceId, reference, readOnly }: { serviceId: string; reference: { database: string; schema: string | null; table: string }; readOnly: boolean }) {
-  const [editing, setEditing] = React.useState<string | null>(null);
+  const [editing, setEditing] = React.useState<{ document: string; version: string } | null>(null);
   const [page, setPage] = React.useState(0);
   const [applied, setApplied] = React.useState({ filter: "", sort: "" });
   const [draft, setDraft] = React.useState({ filter: "", sort: "" });
@@ -700,24 +700,28 @@ function DocumentsView({ serviceId, reference, readOnly }: { serviceId: string; 
             documents={data.documents}
             loading={docs.loading}
             empty={applied.filter ? "No documents match the filter." : "This collection has no documents."}
-            onEdit={readOnly ? undefined : setEditing}
+            onEdit={readOnly ? undefined : (document, i) => setEditing({ document, version: data.versions[i] })}
           />
           <Pager page={page} shown={data.documents.length} total={data.total} capped={data.totalCapped} loading={docs.loading} onPage={setPage} noun="documents" />
         </>
       )}
       {editing !== null && (
         <DocumentDialog
-          document={editing}
+          document={editing.document}
           onClose={() => setEditing(null)}
           onSave={async (text) => {
             let id: unknown;
             try {
-              id = (JSON.parse(editing) as { _id?: unknown })._id;
+              id = (JSON.parse(editing.document) as { _id?: unknown })._id;
             } catch {}
             if (id === undefined) return "This document has no _id, so it cannot be found again to save it.";
-            const res = await explorerEditDocument(serviceId, { database: reference.database, collection: reference.table, id: JSON.stringify(id), document: text }).catch(
-              (e: Error) => ({ ok: false as const, error: e.message }),
-            );
+            const res = await explorerEditDocument(serviceId, {
+              database: reference.database,
+              collection: reference.table,
+              id: JSON.stringify(id),
+              document: text,
+              version: editing.version,
+            }).catch((e: Error) => ({ ok: false as const, error: e.message }));
             if (!res.ok) return res.error;
             setEditing(null);
             setReload((n) => n + 1);
@@ -1005,7 +1009,7 @@ function ValueDialog({ title, value, onClose }: { title: string; value: Cell; on
   );
 }
 
-function DocumentList({ documents, loading, empty, onEdit }: { documents: string[]; loading?: boolean; empty: string; onEdit?: (document: string) => void }) {
+function DocumentList({ documents, loading, empty, onEdit }: { documents: string[]; loading?: boolean; empty: string; onEdit?: (document: string, index: number) => void }) {
   if (!documents.length) return <p className="rounded-lg border border-line px-3 py-6 text-center text-[13px] text-muted">{empty}</p>;
   return (
     <ul className={cn("flex flex-col gap-2 transition-opacity", loading && "opacity-60")}>
@@ -1016,7 +1020,7 @@ function DocumentList({ documents, loading, empty, onEdit }: { documents: string
           </pre>
           <span className="absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
             {onEdit && (
-              <Button size="icon-sm" variant="ghost" onClick={() => onEdit(d)} aria-label="Edit the document" title="Edit">
+              <Button size="icon-sm" variant="ghost" onClick={() => onEdit(d, i)} aria-label="Edit the document" title="Edit">
                 <Pencil />
               </Button>
             )}

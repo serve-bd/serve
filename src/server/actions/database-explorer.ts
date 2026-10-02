@@ -78,7 +78,8 @@ type Service = typeof schema.service.$inferSelect;
 type DatabaseService = Service & { database: NonNullable<Service["database"]> };
 
 export type ExplorerOverview = Overview & { engine: string; family: "sql" | "mongo" | "kv" };
-export type DocumentsPage = { documents: string[]; total: number | null; totalCapped: boolean };
+/** versions: per document, what an edit of it sends back so a document changed since is not overwritten. */
+export type DocumentsPage = { documents: string[]; versions: string[]; total: number | null; totalCapped: boolean };
 export type ExplorerQueryResult = { result: QueryResult | null; error: string | null; ms: number };
 export type { Cell, ColumnInfo, IndexInfo, KeyInfo, KeyValue, QueryResult, RowsPage, Structure };
 
@@ -264,8 +265,8 @@ export async function explorerRows(serviceId: string, input: z.input<typeof rows
         service,
         mongoScript(c, { op: "documents", db: req.database, collection: req.table, filter: req.mongoFilter, sort: req.mongoSort, skip: req.page * PAGE_SIZE, limit: PAGE_SIZE }),
       );
-      const data = mongoResult<{ docs: string[]; total: number }>(r.stdout, r.truncated);
-      return { documents: data.docs.map(readableEjson), total: Math.min(data.total, COUNT_CAP), totalCapped: data.total > COUNT_CAP };
+      const data = mongoResult<{ docs: string[]; versions: string[]; total: number }>(r.stdout, r.truncated);
+      return { documents: data.docs.map(readableEjson), versions: data.versions, total: Math.min(data.total, COUNT_CAP), totalCapped: data.total > COUNT_CAP };
     }
     const engine = sqlEngine(service);
     const marker = `SERVE_NULL_${nonce()}`;
@@ -622,7 +623,14 @@ export async function explorerSaveChanges(serviceId: string, input: z.input<type
   });
 }
 
-const documentSchema = z.object({ database: nameSchema, collection: nameSchema.min(1), id: z.string().min(1).max(10_000), document: z.string().max(MAX_QUERY_BYTES) });
+const documentSchema = z.object({
+  database: nameSchema,
+  collection: nameSchema.min(1),
+  id: z.string().min(1).max(10_000),
+  document: z.string().max(MAX_QUERY_BYTES),
+  /** The version of the document as it was shown (from explorerRows): a document changed since is not overwritten. */
+  version: z.string().min(1).max(100).optional(),
+});
 
 /** Replaces one MongoDB document (found by its _id) with an edited one. */
 export async function explorerEditDocument(serviceId: string, input: z.input<typeof documentSchema>) {
@@ -632,9 +640,10 @@ export async function explorerEditDocument(serviceId: string, input: z.input<typ
     const req = documentSchema.parse(input);
     const r = await runOk(
       service,
-      mongoScript(credsOf(service), { op: "replace", db: req.database, collection: req.collection, id: req.id, query: req.document, readOnly: false }),
+      mongoScript(credsOf(service), { op: "replace", db: req.database, collection: req.collection, id: req.id, version: req.version, query: req.document, readOnly: false }),
     );
-    const data = mongoResult<{ affected: number }>(r.stdout, r.truncated);
+    const data = mongoResult<{ affected: number; stale?: boolean }>(r.stdout, r.truncated);
+    if (data.stale) throw new UserError("This document changed since you loaded it. Reload the documents and make the edit again.");
     if (!data.affected) throw new UserError("This document is gone. Refresh the documents.");
     await logActivity({
       userId: ctx.user.id,

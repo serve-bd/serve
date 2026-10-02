@@ -807,6 +807,17 @@ const MONGO_SCRIPT = `
 const input = JSON.parse(Buffer.from(process.env.SERVE_INPUT, "base64").toString("utf8"));
 const ej = (s, fallback) => (s === undefined || s === null || String(s).trim() === "" ? fallback : EJSON.parse(String(s), { relaxed: false }));
 const out = (d) => { const s = EJSON.stringify(d, { relaxed: false }); return s.length > 200000 ? EJSON.stringify({ _id: d && d._id, "(too large to show)": s.length + " characters" }, { relaxed: false }) : s; };
+// A fingerprint of a document as stored (canonical Extended JSON, so types count): an edit is saved
+// only over the document it was made from. A hash keeps the request small; it guards against
+// mistakes, not against someone who can edit the collection anyway.
+const version = (d) => {
+  const s = EJSON.stringify(d, { relaxed: false });
+  let h1 = 0xdeadbeef ^ s.length, h2 = 0x41c6ce57 ^ s.length;
+  for (let i = 0; i < s.length; i++) { const ch = s.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return s.length.toString(16) + "-" + (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
+};
 const take = (cursor, n) => { const docs = []; while (docs.length < n && cursor.hasNext()) docs.push(out(cursor.next())); return { docs, more: cursor.hasNext() }; };
 const ms = input.timeoutMs;
 const writes = (v) => Array.isArray(v) ? v.some(writes) : !!v && typeof v === "object" && Object.entries(v).some(([k, x]) => k === "$out" || k === "$merge" || writes(x));
@@ -850,9 +861,9 @@ try {
       const sort = ej(input.sort, null);
       let c = coll().find(filter).maxTimeMS(ms).skip(input.skip).limit(input.limit);
       if (sort) c = c.sort(sort);
-      const docs = c.toArray().map(out);
+      const found = c.toArray();
       const total = coll().countDocuments(filter, { limit: input.countCap + 1, maxTimeMS: ms });
-      result = { docs, total: Number(total) };
+      result = { docs: found.map(out), versions: found.map(version), total: Number(total) };
       break;
     }
     case "find": {
@@ -897,8 +908,20 @@ try {
       if (!doc || typeof doc !== "object" || Array.isArray(doc)) throw new Error("A document is an object, like { \\"name\\": \\"Ada\\" }.");
       if (doc._id !== undefined && EJSON.stringify(doc._id, { relaxed: false }) !== EJSON.stringify(id, { relaxed: false })) throw new Error("The _id of a document cannot change.");
       delete doc._id;
-      const r = coll().replaceOne({ _id: id }, doc);
-      result = { affected: Number(r.matchedCount), message: r.matchedCount ? "1 document saved" : "the document is gone" };
+      if (!input.version) {
+        // From the API without a version: saved over whatever the document holds now.
+        const r = coll().replaceOne({ _id: id }, doc);
+        result = { affected: Number(r.matchedCount), message: r.matchedCount ? "1 document saved" : "the document is gone" };
+        break;
+      }
+      const current = coll().findOne({ _id: id });
+      if (!current) { result = { affected: 0 }; break; }
+      // Shown cut short, so the edit was made from the placeholder: saving it would lose the document.
+      if (EJSON.stringify(current, { relaxed: false }).length > 200000) throw new Error("This document is too large to edit here. Change it in the Query tab.");
+      if (version(current) !== input.version) { result = { affected: 0, stale: true }; break; }
+      // The filter matches the document as just read, so a change between the read and the write is not overwritten.
+      const r = coll().replaceOne({ _id: id, $expr: { $eq: ["$$ROOT", { $literal: current }] } }, doc);
+      result = r.matchedCount ? { affected: 1, message: "1 document saved" } : { affected: 0, stale: true };
       break;
     }
     case "delete": {
@@ -919,6 +942,8 @@ export type MongoInput = {
   op: "overview" | "structure" | "documents" | "replace" | MongoOp;
   /** replace: the _id of the document, as Extended JSON. */
   id?: string;
+  /** replace: the version of the document the edit was made from (as documents returned it). */
+  version?: string;
   db: string;
   collection?: string;
   filter?: string;

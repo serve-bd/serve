@@ -517,16 +517,36 @@ d.items.createIndex({ name: 1 }, { unique: true });`,
       expect(mongo({ op: "count", db: "app", collection: "zz_out", query: "{}" })).toMatchObject({ count: 0 });
     });
 
-    it("replaces a document by its _id, keeping the _id", () => {
-      const replace = (id: string, document: string) => mongo({ op: "replace", db: "app", collection: "items", id, query: document, readOnly: false });
-      expect(mongo({ op: "replace", db: "app", collection: "items", id: "1", query: '{"x": 1}' })).toMatchObject({ error: expect.stringMatching(/read only/) });
+    it("replaces a document by its _id, keeping the _id, only over the version shown", () => {
+      const weird = "we'ird.coll \"x";
+      const versionOf = (collection: string, id: string) =>
+        (mongo<{ versions: string[] }>({ op: "documents", db: "app", collection, filter: `{"_id": ${id}}` }) as { versions: string[] }).versions[0];
+      const replace = (id: string, document: string, version = versionOf("items", id) ?? "none") =>
+        mongo({ op: "replace", db: "app", collection: "items", id, version, query: document, readOnly: false });
+      expect(mongo({ op: "replace", db: "app", collection: "items", id: "1", version: "x", query: '{"x": 1}' })).toMatchObject({ error: expect.stringMatching(/read only/) });
+      const shown = versionOf("items", "1");
       expect(replace("1", '{"_id": 1, "name": "renamed", "price": {"$numberLong": "9223372036854775807"}}')).toMatchObject({ affected: 1 });
       const doc = mongo<{ docs: string[] }>({ op: "find", db: "app", collection: "items", query: '{"_id": 1}' }) as { docs: string[] };
       expect(JSON.parse(readableEjson(doc.docs[0]))).toEqual({ _id: 1, name: "renamed", price: { $numberLong: "9223372036854775807" } });
+      // Saved from the version shown before that change: refused, and the document stays.
+      expect(replace("1", '{"name": "stale"}', shown)).toMatchObject({ affected: 0, stale: true });
+      // A change of type alone (long to int, same number) is a change too.
+      expect(replace("1", '{"name": "renamed", "price": {"$numberLong": "5"}}')).toMatchObject({ affected: 1 });
+      const asLong = versionOf("items", "1");
+      expect(replace("1", '{"name": "renamed", "price": 5}')).toMatchObject({ affected: 1 });
+      expect(versionOf("items", "1")).not.toBe(asLong);
+      expect(replace("1", '{"name": "x"}', asLong)).toMatchObject({ stale: true });
       expect(replace("1", '{"_id": 2, "name": "x"}')).toMatchObject({ error: expect.stringMatching(/_id/) });
       expect(replace("1", "[1]")).toMatchObject({ error: expect.stringMatching(/object/) });
       expect(replace("4242", '{"name": "x"}')).toMatchObject({ affected: 0 });
       expect(replace("1", '{"name": "item 1", "price": 1}')).toMatchObject({ affected: 1 });
+      // Long, Date, Decimal128, binary and nested arrays: saved as shown over their own version.
+      for (const id of ["1", "2"]) {
+        const version = versionOf(weird, id);
+        const shownDoc = (mongo<{ docs: string[] }>({ op: "find", db: "app", collection: weird, query: `{"_id": ${id}}` }) as { docs: string[] }).docs[0];
+        expect(mongo({ op: "replace", db: "app", collection: weird, id, version, query: readableEjson(shownDoc), readOnly: false })).toMatchObject({ affected: 1 });
+        expect(versionOf(weird, id)).toBe(version);
+      }
     });
 
     it("writes only through the write operations, with changes allowed", () => {

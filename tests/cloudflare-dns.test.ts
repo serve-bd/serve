@@ -9,7 +9,11 @@ function fakeZone(records: CfDnsRecord[]) {
   const cf = new Cloudflare("token");
   let next = 1;
   cf.dnsRecords = async (_zone, filter = {}) => records.filter((r) => !filter.name || r.name === filter.name);
-  cf.deleteDnsRecord = async (_zone, id) => void records.splice(records.findIndex((r) => r.id === id), 1);
+  cf.deleteDnsRecord = async (_zone, id) =>
+    void records.splice(
+      records.findIndex((r) => r.id === id),
+      1,
+    );
   cf.updateDnsRecord = async (_zone, id, patch) => Object.assign(records.find((r) => r.id === id)!, patch);
   cf.createDnsRecord = async (_zone, record) => {
     if (records.some((r) => r.name === record.name && (r.type === "CNAME" || record.type === "CNAME"))) throw new Error("A CNAME record with that host already exists.");

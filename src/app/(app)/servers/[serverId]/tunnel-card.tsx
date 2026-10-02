@@ -1,12 +1,12 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import { AlertTriangle, Cable, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, TimeAgo } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { toast } from "@/components/ui/toast";
 import { JoinCommand } from "@/components/tunnel-join";
 import { newJoinCommand } from "@/server/actions/tunnel";
 import { cn } from "@/lib/utils";
@@ -33,7 +33,7 @@ export function TunnelCard({ serverId, user, sshPort, tunnel }: { serverId: stri
   const create = async () => {
     setBusy(true);
     const res = await newJoinCommand(serverId, window.location.origin, address).finally(() => setBusy(false));
-    if (!res.ok) return toast.error(res.error);
+    if (!res.ok) return showError(res.error);
     setCommand(res.data);
     // "Connects to" shows the address the new command uses.
     router.refresh();

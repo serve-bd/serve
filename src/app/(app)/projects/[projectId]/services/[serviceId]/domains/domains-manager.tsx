@@ -14,7 +14,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/compo
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
-import { useAction } from "@/hooks/use-action";
+import { useAction, showError } from "@/hooks/use-action";
 import {
   addDomain,
   checkDomainDns,
@@ -395,7 +395,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
   const verifyThenContinue = async () => {
     setChecking(true);
     const res = await checkDomainOwnership(hostname).finally(() => setChecking(false));
-    if (!res.ok) return void toast.error(res.error);
+    if (!res.ok) return void showError(res.error);
     if (res.data.verified) {
       setProof(null);
       setStep(2);
@@ -690,7 +690,7 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
       if (!tunnel) {
         // Still waiting for a tunnel: nothing to change; otherwise there is no tunnel to switch to.
         if (!domain.wantsTunnel)
-          return void toast.error("No tunnel can serve this domain", `Create a Cloudflare Tunnel on ${props.serverName} for the account that manages ${domain.hostname}.`);
+          return void showError("No tunnel can serve this domain", `Create a Cloudflare Tunnel on ${props.serverName} for the account that manages ${domain.hostname}.`);
       } else if ((await reroute.run(tunnel.id)) === undefined) return;
     } else if (props.isAdmin && !wantTunnel && usesTunnel) {
       // run() resolves to undefined when the action failed (the error is already shown).

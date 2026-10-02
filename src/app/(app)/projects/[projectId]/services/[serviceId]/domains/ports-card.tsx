@@ -100,7 +100,7 @@ export function PortsCard({
   const taken = busy.filter((p) => p > 0);
   const busyCount = taken.length;
 
-  const deploy = useAction(() => deployService(serviceId), { success: "Redeploying to publish the ports." });
+  const deploy = useAction(() => deployService(serviceId));
   const save = useAction(
     () =>
       compose

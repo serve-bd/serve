@@ -1,5 +1,6 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import { useRouter } from "@/hooks/use-router";
 import { ArrowLeft, ArrowRight, Check, Globe, HardDrive, Rocket, Server } from "lucide-react";
@@ -8,7 +9,6 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/misc";
 import { Led } from "@/components/ui/status";
-import { toast } from "@/components/ui/toast";
 import { saveServerSettings, finishOnboarding, detectIp } from "@/server/actions/server";
 import { createProject } from "@/server/actions/projects";
 import { AddServer } from "@/app/(app)/servers/new/add-server";
@@ -81,7 +81,7 @@ export function OnboardingWizard({
   async function saveLocal() {
     setPending(true);
     const res = await saveServerSettings({ instanceName: values.instanceName, serverIp: values.serverIp }).finally(() => setPending(false));
-    if (!res.ok) return toast.error(res.error);
+    if (!res.ok) return showError(res.error);
     next();
   }
 
@@ -93,7 +93,7 @@ export function OnboardingWizard({
       const res = await createProject({ name: projectName });
       if (!res.ok) {
         setPending(false);
-        return toast.error(res.error);
+        return showError(res.error);
       }
       created.current = res.data.id;
     }
@@ -101,7 +101,7 @@ export function OnboardingWizard({
     const res = await finishOnboarding();
     if (!res.ok) {
       setPending(false);
-      return toast.error(res.error);
+      return showError(res.error);
     }
     router.replace(target);
     router.refresh();
@@ -222,7 +222,7 @@ export function OnboardingWizard({
                           onClick={async () => {
                             const res = await detectIp();
                             if (res.ok) set("serverIp", res.data);
-                            else toast.error(res.error);
+                            else showError(res.error);
                           }}
                         >
                           Detect

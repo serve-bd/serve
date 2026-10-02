@@ -29,7 +29,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
 import { useMeshConfirm } from "@/components/mesh-confirm";
-import { useAction } from "@/hooks/use-action";
+import { useAction, showError } from "@/hooks/use-action";
 import { resetNetworkCanvas, saveNetworkCanvas, setNetworkMember } from "@/server/actions/mesh";
 import type { MeshNetworkView } from "@/server/mesh";
 import { type NetworkLayoutInput, networkLayout, NET_H, NET_W, SERVER_H, SERVER_W } from "@/lib/canvas-layout";
@@ -227,7 +227,7 @@ function Canvas({ networks, servers, saved, canArrange }: Props) {
       return;
     }
     if (!server.joined) {
-      toast.error(`${server.name} has not joined the private network`, "Join it from its Private network page first.");
+      showError(`${server.name} has not joined the private network`, "Join it from its Private network page first.");
       return;
     }
     void member.run(networkId, serverId, true);
@@ -335,7 +335,7 @@ function Canvas({ networks, servers, saved, canArrange }: Props) {
           const networkNode = pair.find((n) => n.type === "network");
           const serverNode = pair.find((n) => n.type === "server");
           if (!networkNode || !serverNode) {
-            toast.error("Connect a server to a network", "Lines go from a network to a server.");
+            showError("Connect a server to a network", "Lines go from a network to a server.");
             return;
           }
           add(networkNode.id.slice("network:".length), serverNode.id.slice("server:".length));

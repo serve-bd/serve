@@ -13,7 +13,7 @@ import { Select } from "@/components/ui/select";
 import { useConfirm } from "@/components/ui/confirm";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
-import { useAction } from "@/hooks/use-action";
+import { useAction, showError } from "@/hooks/use-action";
 import { addGitToken, createDeployKey, deleteGitCredential, githubAppInstallUrl, startGithubApp } from "@/server/actions/integrations";
 import type { GitProviderType } from "@/server/db/schema";
 import { cn } from "@/lib/utils";
@@ -80,7 +80,7 @@ function ConnectGithub({ publicUrl, baseUrl, embedded = false }: { publicUrl: bo
     const res = await startGithubApp({ organization: ownerType === "organization" ? organization : undefined });
     if (!res.ok) {
       setPending(false);
-      return toast.error(res.error);
+      return showError(res.error);
     }
     postManifest(res.data.action, res.data.manifest);
   }
@@ -319,7 +319,7 @@ export function GitProviders({
     if ((!connected && !error) || announced.current) return;
     announced.current = true;
     if (connected) toast.success("Connected", `You can now deploy repositories from ${connected}.`);
-    if (error) toast.error("GitHub setup did not finish", error);
+    if (error) showError("GitHub setup did not finish", error);
     router.replace("/integrations/git");
   }, [params, router]);
 

@@ -1,9 +1,41 @@
 "use client";
 
-import type * as React from "react";
+import * as React from "react";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
-import { X } from "lucide-react";
+import { CircleAlert, X } from "lucide-react";
+import { addErrorSink } from "@/hooks/use-action";
 import { cn } from "@/lib/utils";
+
+/** The error of the last action run from this dialog, shown in its footer (or at its bottom without one). */
+const DialogErrorContext = React.createContext<{ error: string | null; setHasFooter: (has: boolean) => void } | null>(null);
+
+export function DialogError({ message, className }: { message: string | null; className?: string }) {
+  if (!message) return null;
+  return (
+    <p role="alert" className={cn("flex min-w-0 items-start gap-1.5 text-[13px] leading-snug text-bad", className)}>
+      <CircleAlert className="mt-px size-3.5 flex-none" />
+      <span className="min-w-0 break-words">{message}</span>
+    </p>
+  );
+}
+
+/** Mounted with the popup: while the dialog is open, actions report their errors here. */
+function useDialogErrors() {
+  const [error, setError] = React.useState<string | null>(null);
+  const [hasFooter, setHasFooter] = React.useState(false);
+  React.useEffect(() => addErrorSink({ show: setError, clear: () => setError(null) }), []);
+  return { error, hasFooter, value: React.useMemo(() => ({ error, setHasFooter }), [error]) };
+}
+
+function PopupContents({ children }: { children: React.ReactNode }) {
+  const { error, hasFooter, value } = useDialogErrors();
+  return (
+    <DialogErrorContext.Provider value={value}>
+      {children}
+      {!hasFooter && <DialogError message={error} className="px-5 pb-4" />}
+    </DialogErrorContext.Provider>
+  );
+}
 
 export const Dialog = BaseDialog.Root;
 export const DialogTrigger = BaseDialog.Trigger;
@@ -32,7 +64,7 @@ export function DialogContent({
             className,
           )}
         >
-          {children}
+          <PopupContents>{children}</PopupContents>
           {!hideClose && (
             <BaseDialog.Close className="absolute top-3.5 right-3.5 rounded-md p-1 text-muted transition-colors hover:bg-hover hover:text-fg">
               <X className="size-4" />
@@ -59,5 +91,18 @@ export function DialogBody({ className, children }: { className?: string; childr
 }
 
 export function DialogFooter({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={cn("flex flex-col-reverse gap-2 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3 sm:flex-row sm:justify-end", className)}>{children}</div>;
+  const ctx = React.useContext(DialogErrorContext);
+  const setHasFooter = ctx?.setHasFooter;
+  React.useEffect(() => {
+    if (!setHasFooter) return;
+    setHasFooter(true);
+    return () => setHasFooter(false);
+  }, [setHasFooter]);
+  return (
+    <div className={cn("flex flex-col-reverse gap-2 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end", className)}>
+      {children}
+      {/* Its own row above the buttons. */}
+      <DialogError message={ctx?.error ?? null} className="sm:order-first sm:w-full" />
+    </div>
+  );
 }

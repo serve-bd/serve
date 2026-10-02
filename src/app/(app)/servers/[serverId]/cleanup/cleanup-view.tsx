@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
-import { useAction } from "@/hooks/use-action";
+import { useAction, showError } from "@/hooks/use-action";
 import { runCleanup } from "@/server/actions/server";
 import type { CleanupRun } from "@/server/settings";
 import { cn, formatBytes } from "@/lib/utils";
@@ -63,7 +63,7 @@ export function CleanupView({
     if (waitingSince === undefined) return;
     const t = setTimeout(() => {
       setWaitingSince(undefined);
-      toast.error("Cleanup is taking longer than expected. Check that the worker is running.");
+      showError("Cleanup is taking longer than expected. Check that the worker is running.");
     }, 90_000);
     return () => clearTimeout(t);
   }, [waitingSince]);
@@ -74,7 +74,7 @@ export function CleanupView({
     // A new run arrived: stop waiting on the next tick to avoid a synchronous state update.
     const t = setTimeout(() => {
       setWaitingSince(undefined);
-      if (latest.error) toast.error(`Cleanup failed: ${latest.error}`);
+      if (latest.error) showError(`Cleanup failed: ${latest.error}`);
       else toast.success(latest.reclaimed > 0 ? `Freed ${formatBytes(latest.reclaimed)}` : "Cleanup finished. Nothing to free.");
     }, 0);
     return () => clearTimeout(t);

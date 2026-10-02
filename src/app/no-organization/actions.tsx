@@ -1,10 +1,10 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import { useRouter } from "@/hooks/use-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { toast } from "@/components/ui/toast";
 import { createOrg } from "@/server/actions/org";
 import { authClient } from "@/lib/auth-client";
 
@@ -22,7 +22,7 @@ export function NoOrgActions({ canCreate }: { canCreate: boolean }) {
             setPending(true);
             const res = await createOrg(name);
             setPending(false);
-            if (!res.ok) return toast.error(res.error);
+            if (!res.ok) return showError(res.error);
             router.replace("/");
             router.refresh();
           }}

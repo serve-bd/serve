@@ -1,5 +1,6 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import { KeyRound, Link2, Unlink } from "lucide-react";
 import useSWR from "swr";
@@ -23,7 +24,7 @@ export function SignInMethods({ providers, error }: { providers: { id: string; l
   const linked = data ?? [];
 
   React.useEffect(() => {
-    if (error) toast.error("Could not link the account", ssoErrorMessage(error));
+    if (error) showError("Could not link the account", ssoErrorMessage(error));
   }, [error]);
 
   const rows = [
@@ -36,7 +37,7 @@ export function SignInMethods({ providers, error }: { providers: { id: string; l
     const { error } = await authClient.linkSocial({ provider: id as "github", callbackURL: "/account", errorCallbackURL: "/account" });
     if (error) {
       setBusy(null);
-      toast.error("Could not link the account", error.message);
+      showError("Could not link the account", error.message);
     }
   };
 
@@ -53,7 +54,7 @@ export function SignInMethods({ providers, error }: { providers: { id: string; l
     setBusy(id);
     const { error } = await authClient.unlinkAccount({ accountId });
     setBusy(null);
-    if (error) return toast.error("Could not unlink", error.message);
+    if (error) return showError("Could not unlink", error.message);
     toast.success(`${names[id] ?? id} unlinked`);
     void mutate();
   };

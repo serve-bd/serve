@@ -35,8 +35,7 @@ import { ImagePicker, type PickerRegistry, type RegistryChoice } from "@/compone
 import { ReloadTemplates } from "@/components/reload-templates";
 import { TemplateLogo } from "@/components/template-logo";
 import { CodeEditor } from "@/components/code-editor";
-import { toast } from "@/components/ui/toast";
-import { useAction } from "@/hooks/use-action";
+import { useAction, showError } from "@/hooks/use-action";
 import { createAppService, createComposeService, createDatabaseService } from "@/server/actions/services";
 import { fetchBranches, fetchRepositories } from "@/server/actions/integrations";
 import { cn } from "@/lib/utils";
@@ -253,7 +252,7 @@ function GitForm({ props, onBack, access }: { props: Props; onBack: () => void; 
   const { data: repoData } = useSWR(canList ? ["repos", credentialId] : null, async () => {
     const res = await fetchRepositories(credentialId);
     if (!res.ok) {
-      toast.error(res.error);
+      showError(res.error);
       return [];
     }
     return res.data;

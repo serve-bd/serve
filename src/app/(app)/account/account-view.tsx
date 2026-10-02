@@ -1,5 +1,6 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import { useRouter } from "@/hooks/use-router";
 import { Laptop, LogOut, ShieldCheck } from "lucide-react";
@@ -64,7 +65,7 @@ export function AccountView({
             setSaving(true);
             const { error } = await authClient.updateUser({ name });
             setSaving(false);
-            if (error) return toast.error(error.message ?? "Could not save");
+            if (error) return showError(error.message ?? "Could not save");
             toast.success("Profile updated");
             router.refresh();
           }}
@@ -95,7 +96,7 @@ export function AccountView({
               setChanging(true);
               const { error } = await authClient.changePassword({ currentPassword: current, newPassword: next, revokeOtherSessions: true });
               setChanging(false);
-              if (error) return toast.error(error.message ?? "Could not change password");
+              if (error) return showError(error.message ?? "Could not change password");
               toast.success("Password changed. Other devices were signed out.");
               setCurrent("");
               setNext("");
@@ -199,7 +200,7 @@ function SetPasswordCard({ email, canEmail }: { email: string; canEmail: boolean
               setSending(true);
               const { error } = await authClient.requestPasswordReset({ email, redirectTo: "/reset-password" });
               setSending(false);
-              if (error) return toast.error(error.message ?? "Could not send the link");
+              if (error) return showError(error.message ?? "Could not send the link");
               toast.success(`Link sent to ${email}`);
             }}
           >
@@ -236,20 +237,20 @@ function TwoFactorCard({ enabled, hasPassword }: { enabled: boolean; hasPassword
     try {
       if (enabled) {
         const { error } = await authClient.twoFactor.disable({ password });
-        if (error) return toast.error(error.message ?? "Could not disable two-factor authentication");
+        if (error) return showError(error.message ?? "Could not disable two-factor authentication");
         toast.success("Two-factor authentication disabled");
         setOpen(false);
         router.refresh();
       } else if (step === "password") {
         // The authenticator app lists the account under the white-label name.
         const { data, error } = await authClient.twoFactor.enable({ password, issuer: productName });
-        if (error || !data || !("totpURI" in data)) return toast.error(error?.message ?? "Wrong password");
+        if (error || !data || !("totpURI" in data)) return showError(error?.message ?? "Wrong password");
         setQr(await QRCode.toDataURL(data.totpURI, { margin: 1, width: 200 }));
         setBackupCodes(data.backupCodes);
         setStep("scan");
       } else {
         const { error } = await authClient.twoFactor.verifyTotp({ code });
-        if (error) return toast.error(error.message ?? "That code is not valid");
+        if (error) return showError(error.message ?? "That code is not valid");
         toast.success("Two-factor authentication enabled");
         setOpen(false);
         router.refresh();

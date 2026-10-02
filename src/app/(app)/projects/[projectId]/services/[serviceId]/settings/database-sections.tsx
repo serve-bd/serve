@@ -137,7 +137,7 @@ function CredentialsSection(props: DatabaseSettingsProps) {
       setDependents(r.dependents);
     },
   });
-  const redeploy = useAction((ids: string[]) => redeployServices(ids), { success: "Redeploying", onSuccess: () => setDependents(null) });
+  const redeploy = useAction((ids: string[]) => redeployServices(ids), { onSuccess: () => setDependents(null) });
   const { engine, config } = props;
   return (
     <Card id="credentials" className="scroll-mt-6">

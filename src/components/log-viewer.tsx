@@ -1,9 +1,9 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import { hasAnsi, parseAnsi, stripAnsi } from "@/lib/ansi";
 import * as React from "react";
 import { ArrowDown, Check, Copy, Download, Search, WrapText } from "lucide-react";
-import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 import { copyText } from "@/components/ui/clipboard";
@@ -21,7 +21,7 @@ const lineText = (l: LogLine) => (l.time ? `${l.time} ` : "") + stripAnsi(l.text
 /** Copies text, saying so when the browser refuses. Returns whether it worked. */
 async function copy(text: string) {
   if (await copyText(text)) return true;
-  toast.error("Could not copy. Select the text and copy it by hand.");
+  showError("Could not copy. Select the text and copy it by hand.");
   return false;
 }
 

@@ -87,7 +87,6 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   const base = `/projects/${project.id}/services/${service.id}`;
 
   const deploy = useAction(() => deployService(service.id), {
-    success: "Deployment queued",
     onSuccess: (d) => {
       void mutate();
       router.push(`${base}/deployments/${d.id}`);

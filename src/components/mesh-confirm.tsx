@@ -1,10 +1,10 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { useConfirm } from "@/components/ui/confirm";
-import { toast } from "@/components/ui/toast";
 import { meshChangeImpact, type MeshImpact } from "@/server/actions/mesh";
 
 type Change = Parameters<typeof meshChangeImpact>[0];
@@ -19,7 +19,7 @@ export function useMeshConfirm() {
     async (change: Change, text: { title: string; description: string; confirmLabel: string }) => {
       const res = await meshChangeImpact(change).catch(() => null);
       if (res && !res.ok) {
-        toast.error(res.error);
+        showError(res.error);
         return false;
       }
       const impact = res?.data ?? null;

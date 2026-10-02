@@ -16,7 +16,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/compo
 import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/components/ui/clipboard";
-import { useAction } from "@/hooks/use-action";
+import { useAction, showError } from "@/hooks/use-action";
 import { inviteMember, removeMember, revokeInvitation, setMemberProjects, setMemberRole } from "@/server/actions/org";
 import { createPasswordResetLink } from "@/server/actions/email";
 import { canGrant, type Permission } from "@/lib/permissions";
@@ -255,7 +255,7 @@ export function MembersView({
                   variant="ghost"
                   onClick={async () => {
                     if (await copyText(inviteLink(i.id))) toast.success("Invite link copied");
-                    else toast.error(`Could not copy. The invite link is ${inviteLink(i.id)}`);
+                    else showError(`Could not copy. The invite link is ${inviteLink(i.id)}`);
                   }}
                 >
                   <Link2 /> Copy link

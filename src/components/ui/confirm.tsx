@@ -5,7 +5,8 @@ import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Button } from "./button";
 import { Input } from "./input";
 import { Check, Copy } from "lucide-react";
-import { actionsRunning, onActionsChange } from "@/hooks/use-action";
+import { actionsRunning, addErrorSink, onActionsChange } from "@/hooks/use-action";
+import { DialogError } from "./dialog";
 import { copyText } from "./clipboard";
 
 /** The text to type, as a chip that copies itself when clicked. */
@@ -54,6 +55,19 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(false);
   const [typed, setTyped] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  // The action the dialog waited for failed: it stays open with the error until closed.
+  const [error, setError] = React.useState<string | null>(null);
+  const failed = React.useRef(false);
+  React.useEffect(() => {
+    if (!open) return;
+    return addErrorSink({
+      show: (message) => {
+        failed.current = true;
+        setError(message);
+      },
+      clear: () => setError(null),
+    });
+  }, [open]);
   // Counts the dialogs shown, so a finished wait never closes a newer one.
   const shown = React.useRef(0);
 
@@ -63,6 +77,8 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
         shown.current++;
         setTyped("");
         setBusy(false);
+        setError(null);
+        failed.current = false;
         // A dialog still open answers "no" to its caller, instead of leaving it waiting forever.
         setPending((previous) => {
           previous?.resolve(false);
@@ -92,7 +108,9 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     const done = () => {
       stop();
       clearTimeout(cap);
-      if (shown.current === mine) setOpen(false);
+      if (shown.current !== mine) return;
+      setBusy(false);
+      if (!failed.current) setOpen(false);
     };
     const check = () => {
       if (actionsRunning() === 0) done();
@@ -117,7 +135,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (!blocked && !busy) confirmAndWait();
+                  if (!blocked && !busy && !error) confirmAndWait();
                 }}
               >
                 <div className="flex flex-col gap-2 px-5 pt-5 pb-4">
@@ -133,11 +151,18 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                     </label>
                   )}
                 </div>
-                <div className="flex justify-end gap-2 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3">
-                  <AlertDialog.Close render={<Button variant="ghost" size="sm" disabled={busy} />}>Cancel</AlertDialog.Close>
-                  <Button type="submit" size="sm" variant={pending?.danger ? "danger" : "primary"} disabled={blocked} loading={busy} autoFocus={!pending?.typeToConfirm}>
-                    {pending?.confirmLabel ?? "Confirm"}
-                  </Button>
+                <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3">
+                  <DialogError message={error} className="w-full" />
+                  {error ? (
+                    <AlertDialog.Close render={<Button variant="secondary" size="sm" autoFocus />}>Close</AlertDialog.Close>
+                  ) : (
+                    <>
+                      <AlertDialog.Close render={<Button variant="ghost" size="sm" disabled={busy} />}>Cancel</AlertDialog.Close>
+                      <Button type="submit" size="sm" variant={pending?.danger ? "danger" : "primary"} disabled={blocked} loading={busy} autoFocus={!pending?.typeToConfirm}>
+                        {pending?.confirmLabel ?? "Confirm"}
+                      </Button>
+                    </>
+                  )}
                 </div>
               </form>
             </AlertDialog.Popup>

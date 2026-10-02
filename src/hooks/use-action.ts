@@ -32,7 +32,26 @@ export function onActionsChange(listener: () => void) {
   return () => void listeners.delete(listener);
 }
 
-/** Run a server action with pending state, error toasts and a router refresh. */
+/*
+ * Open dialogs show the errors of the actions run from them, next to their buttons, instead
+ * of a toast. The newest dialog (a confirm over a form) gets them.
+ */
+export type ErrorSink = { show: (message: string) => void; clear: () => void };
+const sinks: ErrorSink[] = [];
+export function addErrorSink(sink: ErrorSink) {
+  sinks.push(sink);
+  return () => {
+    const i = sinks.lastIndexOf(sink);
+    if (i >= 0) sinks.splice(i, 1);
+  };
+}
+export function showError(message: string, description?: string) {
+  const sink = sinks.at(-1);
+  if (sink) sink.show(description ? `${message} ${description}` : message);
+  else toast.error(message, description);
+}
+
+/** Run a server action with pending state, errors (in the open dialog, else a toast) and a router refresh. */
 export function useAction<A extends unknown[], T>(action: (...args: A) => Promise<ActionResult<T>>, opts: Options<T> = {}) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
@@ -63,11 +82,12 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
     async (...args: A): Promise<T | undefined> => {
       setPending(true);
       setRunning(1);
+      sinks.at(-1)?.clear();
       let counted = true;
       try {
         const res = await action(...args);
         if (!res.ok) {
-          toast.error(res.error);
+          showError(res.error);
           return undefined;
         }
         const { success, onSuccess, refresh = true } = optsRef.current;
@@ -81,7 +101,7 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
         }
         return res.data;
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Something went wrong");
+        showError(error instanceof Error ? error.message : "Something went wrong");
         return undefined;
       } finally {
         setPending(false);

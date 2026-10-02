@@ -6,14 +6,13 @@ import { Field } from "@/components/ui/field";
 import { Input, InputGroup, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
-import { useAction } from "@/hooks/use-action";
+import { useAction, showError } from "@/hooks/use-action";
 import { useCan } from "@/components/permissions";
 import { useRouter } from "@/hooks/use-router";
 import { useConfirm } from "@/components/ui/confirm";
 import { deployWithoutCache, type updateService } from "@/server/actions/services";
 import { type BuildConfig, DEFAULT_CRASH_LIMIT, type KeyValue, type RuntimeConfig } from "@/server/services/types";
 import { CAPABILITIES, joinArgs, PLATFORMS, splitArgs } from "@/server/deploy/options";
-import { toast } from "@/components/ui/toast";
 import { digits, KeyValueEditor, linesOf, num, Section } from "./section";
 import { NixpacksHint } from "@/components/nixpacks-hint";
 
@@ -37,7 +36,7 @@ export function BuildSection({
   /** New-service form filled in with this repository, to deploy its compose file as a stack. */
   composeHref?: string;
 }) {
-  const fresh = useAction(() => deployWithoutCache(serviceId), { success: "Deploying without cache" });
+  const fresh = useAction(() => deployWithoutCache(serviceId));
   const can = useCan();
   const router = useRouter();
   const confirm = useConfirm();
@@ -377,7 +376,7 @@ export function RuntimeSection({ runtime, save }: { runtime: RuntimeConfig; save
         try {
           entrypoint = v.entrypoint.trim() ? splitArgs(v.entrypoint) : null;
         } catch (e) {
-          toast.error("Entrypoint", (e as Error).message);
+          showError("Entrypoint", (e as Error).message);
           return Promise.resolve(undefined);
         }
         return save({

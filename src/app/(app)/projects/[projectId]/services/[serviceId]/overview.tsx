@@ -115,7 +115,7 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
   const { data: live } = useSWR<Live>(`/api/services/${service.id}/live`, { refreshInterval: 5000 });
   const { data: metrics } = useSWR<{ series: Series }>(data.metrics ? `/api/metrics?scope=${service.id}&hours=6` : null, { refreshInterval: 15000 });
   const { data: req } = useSWR<Req>(data.domains.length ? `/api/services/${service.id}/requests?hours=24` : null, { refreshInterval: 30000 });
-  const _deploy = useAction(() => deployService(service.id), { success: "Deployment queued", onSuccess: (d) => router.push(`${base}/deployments/${d.id}`) });
+  const _deploy = useAction(() => deployService(service.id), { onSuccess: (d) => router.push(`${base}/deployments/${d.id}`) });
 
   const series = metrics?.series ?? [];
   const last = series.at(-1);

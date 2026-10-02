@@ -1,5 +1,6 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import { useRouter } from "@/hooks/use-router";
 import { Check, ChevronsUpDown, Plus, Settings, Users } from "lucide-react";
@@ -22,7 +23,7 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
   async function switchTo(id: string) {
     if (id === current.id) return;
     const res = await switchOrganization(id);
-    if (!res.ok) return toast.error(res.error);
+    if (!res.ok) return showError(res.error);
     router.push("/");
     router.refresh();
   }
@@ -72,7 +73,7 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
               const name = String(new FormData(e.currentTarget).get("name"));
               setPending(true);
               const res = await createOrg(name).finally(() => setPending(false));
-              if (!res.ok) return toast.error(res.error);
+              if (!res.ok) return showError(res.error);
               setCreateOpen(false);
               toast.success(`Created ${name}`);
               router.push("/");

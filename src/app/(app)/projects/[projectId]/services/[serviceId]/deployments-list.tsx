@@ -23,8 +23,8 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
   // Redeploys of a preview open that preview's deployment page.
   const target = React.useRef(serviceId);
   const go = (id: string) => router.push(`/projects/${projectId}/services/${target.current}/deployments/${id}`);
-  const rollback = useAction(rollbackTo, { success: "Rollback queued", onSuccess: (d) => go(d.id) });
-  const redeploy = useAction(redeployDeployment, { success: "Redeploy queued", onSuccess: (d) => go(d.id) });
+  const rollback = useAction(rollbackTo, { onSuccess: (d) => go(d.id) });
+  const redeploy = useAction(redeployDeployment, { onSuccess: (d) => go(d.id) });
   const cancel = useAction(cancelDeployment, { success: "Cancel requested. It stops in a moment.", onSuccess: () => void mutate() });
 
   if (!data) return null;

@@ -1,5 +1,6 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import useSWR from "swr";
 import { AlertTriangle, ArrowRight, Link2Off, Loader2, MoveRight } from "lucide-react";
@@ -75,7 +76,7 @@ export function MoveServicesDialog({
   const move = async () => {
     setPending(true);
     const res = await moveServicesTo(ids, targetEnv).finally(() => setPending(false));
-    if (!res.ok) return toast.error("Could not move", res.error);
+    if (!res.ok) return showError("Could not move", res.error);
     onOpenChange(false);
     const moved = `${res.data.moved} service${res.data.moved === 1 ? "" : "s"} moved`;
     if (res.data.warnings.length) toast.warning(moved, res.data.warnings.join(" "));

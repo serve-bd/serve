@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tab, Tabs, TabsList } from "@/components/ui/tabs";
 import { useConfirm } from "@/components/ui/confirm";
 import { toast } from "@/components/ui/toast";
-import { useAction } from "@/hooks/use-action";
+import { useAction, showError } from "@/hooks/use-action";
 import { importBackupFromRemote } from "@/server/actions/databases";
 import { cn, formatBytes } from "@/lib/utils";
 
@@ -65,12 +65,12 @@ export function ImportCard(props: {
           toast.success("Uploaded. Restoring now.");
           setFile(null);
           props.onStarted();
-        } else toast.error(message || `Upload failed (HTTP ${xhr.status}).`);
+        } else showError(message || `Upload failed (HTTP ${xhr.status}).`);
         resolve();
       };
       xhr.onerror = () => {
         setProgress(null);
-        toast.error("The upload was interrupted.");
+        showError("The upload was interrupted.");
         resolve();
       };
       xhr.send(f);

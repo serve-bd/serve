@@ -1,5 +1,6 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import {
   Activity,
@@ -37,7 +38,6 @@ import { Input, Textarea } from "@/components/ui/input";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { toast } from "@/components/ui/toast";
 import { useRouter } from "@/hooks/use-router";
 import {
   ACTIVITY_WEEKS,
@@ -298,7 +298,7 @@ export function Dashboard({ initial, nodes, projects, servers }: { initial: Dash
       const res = await saveDashboard(layout);
       if (!res.ok) {
         setSaving("error");
-        toast.error(res.error);
+        showError(res.error);
         return;
       }
       saved.current = json;
@@ -321,7 +321,7 @@ export function Dashboard({ initial, nodes, projects, servers }: { initial: Dash
     });
     if (!ok) return;
     const res = await resetDashboard();
-    if (!res.ok) return toast.error(res.error);
+    if (!res.ok) return showError(res.error);
     const fresh = defaultLayout();
     saved.current = JSON.stringify(fresh);
     setLayout(fresh);

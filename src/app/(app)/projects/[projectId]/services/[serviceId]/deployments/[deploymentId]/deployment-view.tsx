@@ -147,11 +147,9 @@ export function DeploymentView({
     else toast.info(`The deployment ${state.status === "success" ? "finished" : state.status} before it could be cancelled`);
   }, [cancelling, active, state.status]);
   const redeploy = useAction(() => redeployDeployment(deployment.id), {
-    success: "Redeploy queued",
     onSuccess: (d) => router.push(`${backHref}/${d.id}`),
   });
   const rollback = useAction(() => rollbackTo(deployment.id), {
-    success: "Rollback queued",
     onSuccess: (d) => router.push(`${backHref}/${d.id}`),
   });
 

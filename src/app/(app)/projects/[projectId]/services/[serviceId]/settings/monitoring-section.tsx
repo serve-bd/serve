@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
-import { useAction } from "@/hooks/use-action";
+import { useAction, showError } from "@/hooks/use-action";
 import { checkMonitorNow, saveMonitor } from "@/server/actions/monitoring";
 import type { MonitorSummary } from "@/server/monitoring/queries";
 import { Section } from "./section";
@@ -36,7 +36,7 @@ export function MonitoringSection({
   const save = useAction((v: Parameters<typeof saveMonitor>[1]) => saveMonitor(serviceId, v), { success: "Monitoring saved" });
   const check = useAction(() => checkMonitorNow(serviceId), {
     refresh: true,
-    onSuccess: (r) => (r.ok ? toast.success("Check passed", r.latencyMs !== null ? `${r.latencyMs} ms` : undefined) : toast.error("Check failed", r.error ?? undefined)),
+    onSuccess: (r) => (r.ok ? toast.success("Check passed", r.latencyMs !== null ? `${r.latencyMs} ms` : undefined) : showError("Check failed", r.error ?? undefined)),
   });
   // Databases and services without a domain are checked through their containers.
   const defaultKind = type === "database" || !defaultUrl ? "container" : "http";

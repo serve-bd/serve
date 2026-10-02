@@ -79,7 +79,7 @@ export function ComposeStorageSection({
     success: "Storage saved",
     onSuccess: () => setDeployHint(true),
   });
-  const deploy = useAction(() => deployService(serviceId), { success: "Deploying", onSuccess: () => setDeployHint(false) });
+  const deploy = useAction(() => deployService(serviceId), { onSuccess: () => setDeployHint(false) });
   const purge = useAction((name: string) => deleteVolumeData(serviceId, name), { success: "Volume data deleted", onSuccess: loadUsage });
 
   const update = (i: number, patch: Partial<ComposeMount>) => setDraft((d) => d.map((m, j) => (j === i ? ({ ...m, ...patch } as ComposeMount) : m)));

@@ -1,5 +1,6 @@
 "use client";
 
+import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
@@ -8,7 +9,6 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, Textarea } from "@/components/ui/input";
-import { toast } from "@/components/ui/toast";
 import { LogViewer } from "@/components/log-viewer";
 import { SshPublicKey } from "@/components/ssh-public-key";
 import { createPrivateKey, createServer, updateServer, validateServer } from "@/server/actions/servers";
@@ -91,7 +91,7 @@ export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key
       origin: window.location.origin,
     });
     setBusy(false);
-    if (!res.ok) return toast.error(res.error);
+    if (!res.ok) return showError(res.error);
     setJoined(res.data);
     setServerId(res.data.id);
     setStep("join");
@@ -104,7 +104,7 @@ export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key
     const res = await createPrivateKey({ name: `${conn.name.trim() || conn.host.trim()} key`, privateKey: keyMode === "import" ? pem : undefined });
     setBusy(false);
     if (!res.ok) {
-      toast.error(res.error);
+      showError(res.error);
       return null;
     }
     const created = { id: res.data.id, name: `${conn.name.trim() || conn.host.trim()} key`, publicKey: res.data.publicKey, fingerprint: res.data.fingerprint };
@@ -123,14 +123,14 @@ export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key
       const res = await updateServer(id, payload);
       if (!res.ok) {
         setBusy(false);
-        toast.error(res.error);
+        showError(res.error);
         return;
       }
     } else {
       const res = await createServer(payload);
       if (!res.ok) {
         setBusy(false);
-        toast.error(res.error);
+        showError(res.error);
         return;
       }
       id = res.data.id;
@@ -139,7 +139,7 @@ export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key
     const v = await validateServer(id);
     setBusy(false);
     if (!v.ok) {
-      toast.error(v.error);
+      showError(v.error);
       return;
     }
     setStep("connect");
@@ -407,7 +407,7 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
     setPending(installDocker ? "install" : "retry");
     const res = await validateServer(serverId, { installDocker });
     setPending(null);
-    if (!res.ok) return toast.error(res.error);
+    if (!res.ok) return showError(res.error);
     setProgress((p) => (p ? { ...p, status: "validating", statusMessage: "Queued", setupLog: "" } : p));
     setTick((t) => t + 1);
   };
@@ -583,7 +583,7 @@ function JoinStep(props: { serverId: string; name: string; command: string; expi
                     setRenewing(true);
                     const res = await newJoinCommand(props.serverId, window.location.origin);
                     setRenewing(false);
-                    if (!res.ok) return toast.error(res.error);
+                    if (!res.ok) return showError(res.error);
                     setJoin(res.data);
                   }}
                 >

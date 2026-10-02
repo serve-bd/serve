@@ -106,19 +106,18 @@ const col = (id: string, width: number, items: Item[]): Column => ({ id, width, 
 const w = (type: WidgetType, id: string, extra: Partial<Widget> = {}): Widget => ({ ...newWidget(type), id, ...extra });
 
 /**
- * What a member sees before changing anything: a greeting, trouble if there is any, the numbers
- * and recent deploys beside projects, servers and shortcuts, then a year of deploys.
+ * What a member sees before changing anything: a greeting, then trouble if there is any, the
+ * numbers and recent deploys beside projects, servers and shortcuts.
  */
 export function defaultLayout(): DashboardLayout {
   return {
     version: 2,
     rows: [
       { id: "greeting", columns: [col("greetingc", 1, [w("greeting", "greetingw")])] },
-      { id: "attention", columns: [col("attentionc", 1, [w("attention", "attentionw")])] },
       {
         id: "main",
         columns: [
-          col("mainl", 2, [w("glance", "glance"), w("deploys", "deploys", { fill: true })]),
+          col("mainl", 2, [w("attention", "attentionw"), w("glance", "glance"), w("deploys", "deploys", { fill: true })]),
           col("mainr", 1, [
             w("projects", "projects"),
             w("servers", "servers"),
@@ -135,7 +134,6 @@ export function defaultLayout(): DashboardLayout {
           ]),
         ],
       },
-      { id: "activity", columns: [col("activityc", 1, [w("activity", "activity", { options: { weeks: 52 } })])] },
     ],
   };
 }

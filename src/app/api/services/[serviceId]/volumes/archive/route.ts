@@ -2,6 +2,7 @@ import { requirePermission } from "@/server/auth";
 import { serviceInOrg } from "@/server/services/access";
 import { serverOf } from "@/server/servers/context";
 import { listServiceContainers } from "@/server/docker/client";
+import { serviceHasHostAccess } from "@/server/security";
 import { Readable } from "node:stream";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,9 @@ export async function GET(request: Request, ctx: RouteContext<"/api/services/[se
   } catch {
     return new Response("Not found", { status: 404 });
   }
+  // With host mounts the archive would read the host's own files, not only the service's data.
+  if (serviceHasHostAccess(service) && !org.isInstanceAdmin)
+    return new Response("This service has host-level access: only admins of the Root organization can download its files.", { status: 403 });
   const mountPath = new URL(request.url).searchParams.get("path") ?? "";
   if (!/^\/[^\0]*$/.test(mountPath)) return new Response("Choose a mount path.", { status: 400 });
   const server = await serverOf(service);

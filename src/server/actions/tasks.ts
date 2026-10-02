@@ -8,6 +8,7 @@ import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { newId } from "@/server/id";
 import { serviceInOrg } from "@/server/services/access";
+import { serviceHasHostAccess } from "@/server/security";
 import { startTaskRun } from "@/server/services/tasks";
 import { logActivity } from "@/server/activity";
 
@@ -41,6 +42,9 @@ export async function saveTask(serviceId: string, taskId: string | null, input: 
   return act(async () => {
     const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    // A task runs its command in the container like the console does: in a service with host
+    // mounts or privileged mode that is close to a shell on the host, so the same rule applies.
+    if (serviceHasHostAccess(service) && !ctx.isInstanceAdmin) throw new UserError("This service has host-level access: only admins of the Root organization can set its tasks.");
     const data = taskSchema.parse(input);
     if (taskId) {
       const task = await taskInOrg(taskId, ctx.org.id);

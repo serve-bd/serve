@@ -19,7 +19,7 @@ import { execInContainer } from "@/server/docker/client";
 import { volumeName } from "@/server/deploy/containers";
 import { databaseConfigIssues, databaseCreds } from "@/server/databases/options";
 import { changePasswordCommand, PASSWORD_PATTERN } from "@/server/databases/password";
-import type { DatabaseConfig } from "@/server/services/types";
+import { type DatabaseConfig, hasHostAccess } from "@/server/services/types";
 
 const settingsSchema = z
   .object({
@@ -68,6 +68,10 @@ export async function updateDatabaseSettings(serviceId: string, input: z.input<t
     const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (!service.database) throw new UserError("Not a database.");
+    // The image, init scripts and server arguments decide what runs (archive_command runs programs);
+    // with host mounts or privileged mode that is an admin's decision, as for apps (updateService).
+    if (hasHostAccess(service.runtime) && !(ctx.isInstanceAdmin && ctx.isRoot))
+      throw new UserError("Changing a database that has host-level access is only available to admins of the Root organization, for its own services.");
     const data = settingsSchema.parse(input);
     const next: DatabaseConfig = { ...service.database, ...data };
     // Empty text fields mean "use the default".

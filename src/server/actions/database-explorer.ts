@@ -9,6 +9,7 @@ import { decrypt } from "@/server/crypto";
 import { logActivity } from "@/server/activity";
 import type { schema } from "@/server/db";
 import { serviceInOrg } from "@/server/services/access";
+import { serviceHasHostAccess } from "@/server/security";
 import { serverOf } from "@/server/servers/context";
 import { execCommand } from "@/server/services/exec";
 import { databaseContainer } from "@/server/databases/container";
@@ -90,6 +91,8 @@ async function explorerService(serviceId: string, write = false) {
   if (write && !ctx.can("services.manage")) throw new ForbiddenError(cannotMessage("services.manage"));
   const { service } = await serviceInOrg(serviceId, ctx.org.id);
   if (service.type !== "database" || !service.database) throw new UserError("Not a database.");
+  // A query can run programs in the container (COPY ... FROM PROGRAM), so host mounts get the console's rule.
+  if (serviceHasHostAccess(service) && !ctx.isInstanceAdmin) throw new UserError("This database has host-level access: only admins of the Root organization can browse it here.");
   return { ctx, service: service as DatabaseService };
 }
 

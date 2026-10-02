@@ -287,15 +287,15 @@ const engineLabel = (engine: string) => ENGINE_LABEL[engine] ?? engine;
 /** The SQL that hides personal data in branches made with that option. */
 function CleanupDialog({ serviceId, initial, canManage, open, onClose }: { serviceId: string; initial: string; canManage: boolean; open: boolean; onClose: () => void }) {
   const [sql, setSql] = React.useState(initial);
+  // Opened from the page (not through onOpenChange): start from the saved SQL each time.
+  const [wasOpen, setWasOpen] = React.useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setSql(initial);
+  }
   const save = useAction(() => saveBranchCleanupSql(serviceId, sql.trim() || null), { onSuccess: onClose });
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (o) setSql(initial);
-        else onClose();
-      }}
-    >
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent size="lg">
         <DialogHeader
           title="Hide personal data"

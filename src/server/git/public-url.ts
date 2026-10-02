@@ -1,4 +1,4 @@
-import { publicBaseUrl } from "./github-app";
+import { preferHttps, publicBaseUrl } from "./github-app";
 
 /** False for localhost, .local and private network hosts: a git provider on the internet cannot reach them. */
 export function isPublicUrl(url: string) {
@@ -20,7 +20,7 @@ export async function webhookBaseUrl(provider: string): Promise<BaseUrl> {
   const override = process.env.SERVE_WEBHOOK_BASE_URL?.replace(/\/$/, "");
   if (override) return { url: override, ok: true };
   const url = await publicBaseUrl();
-  if (isPublicUrl(url)) return { url, ok: true };
+  if (isPublicUrl(url)) return { url: await preferHttps(url), ok: true };
   return { url, ok: false, error: `Set a public dashboard domain so ${provider} can reach Serve.` };
 }
 

@@ -42,6 +42,27 @@ export async function publicBaseUrl() {
   return env.appUrl.replace(/\/$/, "");
 }
 
+const httpsAnswers = new Map<string, { secure: boolean; at: number }>();
+
+/**
+ * The https form of an http dashboard address, when the domain answers on https. A dashboard set to
+ * HTTP only often sits behind a proxy that does TLS and redirects http to https, and git providers
+ * follow that redirect with a GET, so a webhook sent to the http address never arrives.
+ */
+export async function preferHttps(base: string) {
+  if (!base.startsWith("http://")) return base;
+  const secure = `https://${base.slice("http://".length)}`;
+  const known = httpsAnswers.get(base);
+  if (known && Date.now() - known.at < 10 * 60_000) return known.secure ? secure : base;
+  let ok = false;
+  try {
+    const res = await fetch(`${secure}/api/health`, { redirect: "manual", signal: AbortSignal.timeout(5000) });
+    ok = res.ok && ((await res.json()) as { ok?: unknown })?.ok === true;
+  } catch {}
+  httpsAnswers.set(base, { secure: ok, at: Date.now() });
+  return ok ? secure : base;
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                Signed state                                */
 /* -------------------------------------------------------------------------- */
@@ -97,7 +118,7 @@ export async function buildManifest(credentialId: string) {
       34,
     ),
     url: base,
-    hook_attributes: { url: `${base}/api/webhooks/github/${credentialId}`, active: true },
+    hook_attributes: { url: `${await preferHttps(base)}/api/webhooks/github/${credentialId}`, active: true },
     redirect_url: `${base}/api/github/manifest`,
     callback_urls: [`${base}/api/github/setup`],
     setup_url: `${base}/api/github/setup`,
@@ -247,7 +268,7 @@ function reachableFromGithub(base: string) {
  * one and nothing deploys on push. Returns the apps that were changed.
  */
 export async function syncAppWebhooks() {
-  const base = await publicBaseUrl();
+  const base = await preferHttps(await publicBaseUrl());
   if (!reachableFromGithub(base)) return [];
   const apps = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.provider, "github-app"));
   const changed: string[] = [];

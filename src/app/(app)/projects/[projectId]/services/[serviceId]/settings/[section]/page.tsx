@@ -131,8 +131,8 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
           .where(eq(schema.containerRegistry.organizationId, ctx.org.id))
       : Promise.resolve([]),
   ]);
-  const { publicBaseUrl } = await import("@/server/git/github-app");
-  const base = await publicBaseUrl();
+  const { preferHttps, publicBaseUrl } = await import("@/server/git/github-app");
+  const base = await preferHttps(await publicBaseUrl());
   const source = service.source;
   const credProvider = source?.type === "git" ? credentials.find((c) => c.id === source.credentialId)?.provider : undefined;
   const viaApp = credProvider === "github-app";

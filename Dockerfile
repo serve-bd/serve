@@ -1,11 +1,21 @@
 # syntax=docker/dockerfile:1.7
 # Dependencies and the build run on the runner's own platform: the output is plain
 # JavaScript, and building under emulation for other platforms is slow and crashes.
+# Only the pnpm version of package.json: the version bump of a release must not make the
+# dependency layers below miss the build cache.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS pm
+COPY package.json /tmp/
+RUN node -e 'const p = require("/tmp/package.json"); require("fs").writeFileSync("/pm.json", JSON.stringify({ packageManager: p.packageManager }))'
+
 FROM --platform=$BUILDPLATFORM node:22-alpine AS deps
 WORKDIR /app
 RUN corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
+COPY --from=pm /pm.json ./package.json
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+# Packages come from the lockfile alone, so this layer stays cached until dependencies change.
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm fetch --frozen-lockfile
+COPY package.json ./
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --offline
 
 FROM --platform=$BUILDPLATFORM deps AS build
 COPY . .

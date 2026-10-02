@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Globe2, Lock, TriangleAlert } from "lucide-react";
+import { Check, Globe2, Lock, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -139,15 +139,26 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
             </form>
             {info.hostname && info.via === "tunnel" && (
               <div className="flex flex-col gap-3">
-                <p className="text-[13px] leading-relaxed text-muted">
-                  Cloudflare does not accept database connections on its own. On your computer, run this and keep it open: it opens a local port that leads through the tunnel.
-                </p>
+                <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed">
+                  <p className="flex items-start gap-2 text-fg-2">
+                    <Check className="mt-0.5 size-3.5 flex-none text-ok" />
+                    <span>This server&apos;s side of the tunnel is ready: cloudflared runs here and routes {info.hostname} to the database.</span>
+                  </p>
+                  <p className="text-muted">
+                    Cloudflare passes database connections only from cloudflared to cloudflared, so each computer or app that connects runs it too. It opens a port on that computer
+                    (localhost) that leads through the tunnel.
+                    {info.directSupported && " This server has a public IP: Own port needs nothing on the computers that connect."}
+                  </p>
+                </div>
                 {info.tunnelCommand && (
-                  <Field label="Run on your computer" description="Needs cloudflared: brew install cloudflared, or see Cloudflare's downloads.">
+                  <Field
+                    label="On each computer that connects"
+                    description="Needs cloudflared: brew install cloudflared, or see Cloudflare's downloads. Keep it running while you connect."
+                  >
                     <CopyField value={info.tunnelCommand} />
                   </Field>
                 )}
-                <Field label="Then connect to" description="The tunnel encrypts the connection, so the local URL needs no TLS.">
+                <Field label="Then connect to (on that computer)" description="The tunnel encrypts the connection, so the local URL needs no TLS.">
                   <SecretField value={info.localUrl} hidden={hideSecrets} shape={info.localUrl} />
                 </Field>
               </div>

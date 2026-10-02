@@ -58,7 +58,8 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
   const retire: Retire[] = [];
   await removeDatabaseDomainRecords(all, retire);
   // Databases deleted with their data kept: remembered, so a new database can start from it.
-  if (!removeVolumes) await keepDatabases(services.filter((s) => s.type === "database" && s.database && !s.parentServiceId));
+  // One never deployed has no data to keep.
+  if (!removeVolumes) await keepDatabases(services.filter((s) => s.type === "database" && s.database && !s.parentServiceId && s.currentDeploymentId));
   await db.delete(schema.service).where(
     inArray(
       schema.service.id,

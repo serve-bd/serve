@@ -321,6 +321,11 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
     const version = kept ? kept.version : data.version && engine.versions.includes(data.version) ? data.version : engine.defaultVersion;
     const id = newId();
     data.name = await uniqueServiceName(data.environmentId, data.name);
+    // Claimed in one step: two requests cannot both start a database on the same data.
+    if (kept) {
+      const [claimed] = await db.delete(schema.keptDatabase).where(eq(schema.keptDatabase.id, kept.id)).returning({ id: schema.keptDatabase.id });
+      if (!claimed) throw new UserError("That kept data is used by another database already.");
+    }
     await db.insert(schema.service).values({
       id,
       projectId: data.projectId,
@@ -361,8 +366,6 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
           },
       webhookSecret: newWebhookSecret(),
     });
-    // Used again: no longer offered as kept data.
-    if (kept) await db.delete(schema.keptDatabase).where(eq(schema.keptDatabase.id, kept.id));
     if (data.deploy) await queueDeployment(id, "create", { userId: ctx.user.id });
     await logActivity({
       userId: ctx.user.id,

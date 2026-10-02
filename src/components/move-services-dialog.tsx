@@ -54,7 +54,10 @@ export function MoveServicesDialog({
 
   React.useEffect(() => {
     if (!open) {
+      // Choose again on the next open: the services and their environment may differ by then.
       setExtra([]);
+      setProjectId("");
+      setTargetEnv("");
       return;
     }
     if (!projects || projectId) return;
@@ -71,8 +74,7 @@ export function MoveServicesDialog({
 
   const move = async () => {
     setPending(true);
-    const res = await moveServicesTo(ids, targetEnv);
-    setPending(false);
+    const res = await moveServicesTo(ids, targetEnv).finally(() => setPending(false));
     if (!res.ok) return toast.error("Could not move", res.error);
     onOpenChange(false);
     const moved = `${res.data.moved} service${res.data.moved === 1 ? "" : "s"} moved`;

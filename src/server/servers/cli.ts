@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -62,7 +63,13 @@ export async function dockerCliEnv(t: SshTarget): Promise<Record<string, string>
       `  StrictHostKeyChecking yes`,
       `  ControlMaster auto`,
       // Unix sockets have a ~100 byte path limit, so control sockets live in a short temp dir.
-      `  ControlPath ${await controlDir()}/%C`,
+      // %C only covers address, port and user: another server row (of another organization) with
+      // the same address would otherwise reuse this server's logged-in connection.
+      `  ControlPath ${await controlDir()}/${crypto
+        .createHash("sha256")
+        .update(JSON.stringify([t.id, t.privateKey, t.hostKey]))
+        .digest("hex")
+        .slice(0, 16)}-%C`,
       `  ControlPersist 10m`,
       `  ServerAliveInterval 15`,
       `  ConnectTimeout 20`,

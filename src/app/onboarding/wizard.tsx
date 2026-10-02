@@ -80,23 +80,24 @@ export function OnboardingWizard({
 
   async function saveLocal() {
     setPending(true);
-    const res = await saveServerSettings({ instanceName: values.instanceName, serverIp: values.serverIp });
-    setPending(false);
+    const res = await saveServerSettings({ instanceName: values.instanceName, serverIp: values.serverIp }).finally(() => setPending(false));
     if (!res.ok) return toast.error(res.error);
     next();
   }
 
+  // The project made by an earlier try: a retry after finishOnboarding failed must not make a second one.
+  const created = React.useRef<string | null>(null);
   async function finish() {
     setPending(true);
-    let target = "/";
-    if (!hasProject && projectName.trim()) {
+    if (!hasProject && !created.current && projectName.trim()) {
       const res = await createProject({ name: projectName });
       if (!res.ok) {
         setPending(false);
         return toast.error(res.error);
       }
-      target = `/projects/${res.data.id}`;
+      created.current = res.data.id;
     }
+    const target = created.current ? `/projects/${created.current}` : "/";
     const res = await finishOnboarding();
     if (!res.ok) {
       setPending(false);

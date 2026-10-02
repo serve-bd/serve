@@ -8,7 +8,7 @@ import * as services from "@/server/actions/services";
 import * as sharedVars from "@/server/actions/shared-vars";
 import * as move from "@/server/actions/move";
 import { deploymentView, environmentView, loadDeployment, loadEnvironment, loadProject, projectFilter, projectView, serviceView } from "../data";
-import { type ApiRoute, route, unwrap } from "../router";
+import { type ApiRoute, assertCan, route, unwrap } from "../router";
 
 const projectBody = z.object({
   name: z.string().min(1).max(60),
@@ -221,6 +221,7 @@ export const projectRoutes: ApiRoute[] = [
     body: z.object({ variables: sharedVarList, redeploy: z.boolean().default(false) }),
     handler: async ({ auth, params, body }) => {
       await loadEnvironment(auth, params.environmentId);
+      if (body.redeploy) assertCan(auth, "services.deploy");
       await unwrap(projects.saveSharedVars(params.environmentId, body.variables));
       const deployed = body.redeploy ? await unwrap(projects.redeployEnvironment(params.environmentId)) : null;
       return { ok: true, redeployed: deployed?.count ?? 0 };
@@ -267,11 +268,12 @@ export const projectRoutes: ApiRoute[] = [
     path: "/deployments/{deploymentId}",
     tag: "Deployments",
     summary: "Get a deployment",
-    description: "Status with the end of the build log (logTail).",
+    description: "Status with the end of the build log (logTail, with logs.view).",
     needs: ["projects.view"],
     handler: async ({ auth, params }) => {
       const { deployment } = await loadDeployment(auth, params.deploymentId);
-      return { deployment: deploymentView(deployment, { logTail: true }) };
+      // The log tail is part of the logs.
+      return { deployment: deploymentView(deployment, { logTail: auth.can("logs.view") }) };
     },
   }),
   route({

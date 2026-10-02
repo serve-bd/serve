@@ -13,4 +13,9 @@ describe("ansi", () => {
   it("skips 256 and true colour codes", () => {
     expect(parseAnsi("\x1b[38;5;208mx\x1b[38;2;1;2;3my").map((p) => p.text)).toEqual(["x", "y"]);
   });
+
+  it("drops private modes, colon colours and window titles", () => {
+    expect(stripAnsi("\x1b[?25la\x1b]0;title\x07b\x1b[38:5:208mc\x1b]2;t\x1b\\d")).toBe("abcd");
+    expect(parseAnsi("\x1b[?25lx\x1b[38:5:208my").map((p) => p.text)).toEqual(["x", "y"]);
+  });
 });

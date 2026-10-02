@@ -245,6 +245,13 @@ describe("validation", () => {
     expect(validateChannelConfig("slack", { webhookUrl: "" }, { webhookUrl: "https://hooks.slack.com/services/a" })).toEqual({ webhookUrl: "https://hooks.slack.com/services/a" });
   });
 
+  it("asks for saved secrets again when the server address changes", () => {
+    const stored = { server: "https://gotify.example.com", token: "secret-token" };
+    expect(validateChannelConfig("gotify", { server: "https://gotify.example.com/", token: "" }, stored).token).toBe("secret-token");
+    expect(() => validateChannelConfig("gotify", { server: "https://evil.example.com", token: "" }, stored)).toThrow(/again/);
+    expect(validateChannelConfig("gotify", { server: "https://evil.example.com", token: "new" }, stored).token).toBe("new");
+  });
+
   it("requires https for chat webhooks and refuses credentials in URLs", () => {
     expect(() => validateChannelConfig("slack", { webhookUrl: "http://hooks.slack.com/x" })).toThrow(/https/);
     expect(() => validateChannelConfig("webhook", { url: "https://u:p@example.com" })).toThrow(/user name/);

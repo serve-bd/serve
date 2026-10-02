@@ -121,7 +121,16 @@ export async function s3Download(cfg: S3Config, key: string, file: string) {
     res.body.resume();
     throw new Error("Backup not found in S3");
   }
-  await pipeline(res.body, fs.createWriteStream(file));
+  // Written beside the file and moved in at the end: a download cut off half way must never
+  // look like the backup itself (a later restore would read the cut-off file).
+  const part = `${file}.part`;
+  try {
+    await pipeline(res.body, fs.createWriteStream(part));
+    await fs.promises.rename(part, file);
+  } catch (e) {
+    await fs.promises.rm(part, { force: true });
+    throw e;
+  }
 }
 
 /** Opens an object as a web stream with its size, or null when it is missing. */

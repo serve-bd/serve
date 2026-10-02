@@ -57,6 +57,9 @@ describe("API router", () => {
     expect(res.status).toBe(405);
     expect(res.headers.get("allow")).toBe("GET");
   });
+  it("answers 400 for a path that is not valid percent-encoding", async () => {
+    expect((await req("GET", "/things/%E0%A4%A")).status).toBe(400);
+  });
   it("needs a valid token", async () => {
     expect((await req("GET", "/things/abc", undefined, "srv_bad")).status).toBe(401);
   });

@@ -48,6 +48,8 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
   const byId = new Map(services.map((s) => [s.id, s]));
   const running: RunningKind = kind === "none" ? "nginx" : kind;
   const own = cfg[running] ?? {};
+  // Container env values are stored encrypted and never reach the browser (`container` below masks them).
+  const noContainer = <T extends { container?: unknown }>({ container: _container, ...rest }: T) => rest;
   const mainLabels: Record<string, string> = {
     "main/nginx.conf": "Main configuration",
     "main/proxy_params.conf": "Proxy headers",
@@ -76,10 +78,10 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
       acmeEmail={settings.acmeEmail}
       cloudflareAccounts={cloudflareAccounts}
       settings={{
-        nginx: cfg.nginx ?? {},
-        caddy: cfg.caddy ?? {},
+        nginx: noContainer(cfg.nginx ?? {}),
+        caddy: noContainer(cfg.caddy ?? {}),
         traefik: {
-          ...(cfg.traefik ?? {}),
+          ...noContainer(cfg.traefik ?? {}),
           // The password hash never reaches the browser.
           dashboard: cfg.traefik?.dashboard
             ? { enabled: cfg.traefik.dashboard.enabled, hostname: cfg.traefik.dashboard.hostname, username: cfg.traefik.dashboard.username, hasPassword: true }

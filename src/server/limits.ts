@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, notInArray, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { UserError } from "@/server/action";
 import { getSettings } from "@/server/settings";
@@ -289,10 +289,17 @@ async function noteLimitReached(organizationId: string, key: CountedLimit, used:
       .from(schema.organizationLimit)
       .where(eq(schema.organizationLimit.organizationId, organizationId));
     if (row?.notified.includes(key)) return;
-    await db
+    // Claimed in one statement: a refused create and the worker tick may both get here.
+    const [claimed] = await db
       .insert(schema.organizationLimit)
       .values({ organizationId, notified: [key] })
-      .onConflictDoUpdate({ target: schema.organizationLimit.organizationId, set: { notified: sql`array_append(${schema.organizationLimit.notified}, ${key})` } });
+      .onConflictDoUpdate({
+        target: schema.organizationLimit.organizationId,
+        set: { notified: sql`array_append(${schema.organizationLimit.notified}, ${key})` },
+        setWhere: sql`not (${key} = any(${schema.organizationLimit.notified}))`,
+      })
+      .returning({ organizationId: schema.organizationLimit.organizationId });
+    if (!claimed) return;
     const label = limitCatalog.find((l) => l.key === key)?.label ?? key;
     const { notify } = await import("@/server/notify");
     await notify(organizationId, "org.limit", {
@@ -324,9 +331,10 @@ export async function checkLimitNotices() {
     for (const key of full) await noteLimitReached(id, key, usage[key], limits[key] ?? 0);
     const cleared = (row?.notified ?? []).filter((k) => !full.includes(k as CountedLimit));
     if (cleared.length && row) {
+      // Removed in one statement, so a notice claimed since the read above stays.
       await db
         .update(schema.organizationLimit)
-        .set({ notified: row.notified.filter((k) => !cleared.includes(k)) })
+        .set({ notified: cleared.reduce((list, k) => sql`array_remove(${list}, ${k})`, sql`${schema.organizationLimit.notified}`) })
         .where(eq(schema.organizationLimit.organizationId, id));
     }
   }
@@ -346,6 +354,8 @@ export async function measureOrgDisk() {
   for (const s of services) byServer.set(s.serverId, [...(byServer.get(s.serverId) ?? []), s]);
   const totals = new Map<string, number>();
   const measured = new Set<string>();
+  // An organization with services on an unreachable server keeps its last measurement, not a partial one.
+  const unmeasured = new Set<string>();
   for (const [serverId, list] of byServer) {
     try {
       const ctx = await getServer(serverId);
@@ -354,22 +364,31 @@ export async function measureOrgDisk() {
         const size = v.UsageData?.Size ?? 0;
         if (size <= 0) continue;
         const labels = v.Labels ?? {};
-        const owner = list.find(
-          (s) => labels["serve.service"] === s.id || labels["com.docker.compose.project"] === s.slug || v.Name.startsWith(`serve-${s.id}`) || v.Name.startsWith(`${s.slug}_`),
-        );
+        // Labels first: a name prefix alone could also fit another project's volume ("shop_x" for "shop").
+        const project = labels["com.docker.compose.project"];
+        const owner =
+          list.find((s) => labels["serve.service"] === s.id || project === s.slug) ??
+          list.find((s) => v.Name.startsWith(`serve-${s.id}`) || (!project && v.Name.startsWith(`${s.slug}_`)));
         if (owner) totals.set(owner.organizationId, (totals.get(owner.organizationId) ?? 0) + size);
       }
       for (const s of list) measured.add(s.organizationId);
     } catch {
-      // An unreachable server keeps its last measurement.
+      for (const s of list) unmeasured.add(s.organizationId);
     }
   }
   const now = new Date();
   for (const organizationId of measured) {
+    if (unmeasured.has(organizationId)) continue;
     const diskBytes = totals.get(organizationId) ?? 0;
     await db
       .insert(schema.organizationLimit)
       .values({ organizationId, diskBytes, diskMeasuredAt: now })
       .onConflictDoUpdate({ target: schema.organizationLimit.organizationId, set: { diskBytes, diskMeasuredAt: now } });
   }
+  // Organizations with no services left use no disk: their last measurement must not keep the limit full.
+  const withServices = [...new Set(services.map((s) => s.organizationId))];
+  await db
+    .update(schema.organizationLimit)
+    .set({ diskBytes: 0, diskMeasuredAt: now })
+    .where(and(gt(schema.organizationLimit.diskBytes, 0), withServices.length ? notInArray(schema.organizationLimit.organizationId, withServices) : undefined));
 }

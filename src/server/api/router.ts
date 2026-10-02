@@ -80,6 +80,11 @@ const NEED_LABEL: Record<"admin" | "instance", string> = {
 
 export const needLabel = (n: Need) => (n === "admin" || n === "instance" ? NEED_LABEL[n] : `${n} (${PERMISSION_INFO[n].label})`);
 
+/** For a body option that needs more than its route (redeploy: true): refused before anything is saved. */
+export function assertCan(auth: ApiAuth, permission: Permission) {
+  if (!auth.can(permission)) throw new ApiError(403, `This token cannot do this. It needs: ${needLabel(permission)}.`);
+}
+
 async function hasNeed(auth: ApiAuth, need: Need) {
   if (need === "admin") return auth.admin;
   if (need === "instance") {
@@ -137,7 +142,12 @@ export function createRouter(routes: ApiRoute[], publicRoutes: Record<string, (r
       return new Response(JSON.stringify({ error: `Use ${allow} for ${normalized}.` }), { status: 405, headers: { allow, "content-type": "application/json" } });
     }
     const { route: r, names } = hit.c;
-    const params = Object.fromEntries(names.map((n, i) => [n, decodeURIComponent(hit.m![i + 1])]));
+    let params: Record<string, string>;
+    try {
+      params = Object.fromEntries(names.map((n, i) => [n, decodeURIComponent(hit.m![i + 1])]));
+    } catch {
+      return error(400, `Invalid path ${normalized}.`);
+    }
 
     const { auth, error: authError } = await authenticateToken(request);
     if (authError) return authError;

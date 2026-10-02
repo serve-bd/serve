@@ -68,7 +68,7 @@ export async function updateOrg(input: { name: string; logo?: string | null }) {
 export async function deleteOrg() {
   return act(async () => {
     const ctx = await requireOrg();
-    if (ctx.role !== "owner") throw new UserError("Only the owner can delete an organization.");
+    if (actingRoleId(ctx) !== "owner") throw new UserError("Only the owner can delete an organization.");
     if (ctx.isRoot) throw new UserError("The Root organization manages this server and cannot be deleted.");
     // Counted inside the transaction, under a lock, so nothing is created while the organization goes.
     await db.transaction(async (tx) => {
@@ -92,6 +92,12 @@ export async function deleteOrg() {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * The role the checks below go by. An API token without "admin" does not act as its owner's
+ * Owner or Admin role: it may only do what its own permissions allow.
+ */
+const actingRoleId = (ctx: OrgContext) => (ctx.isAdmin || (ctx.roleId !== "owner" && ctx.roleId !== "admin") ? ctx.roleId : "member");
+
+/**
  * Whether the current member may hand out `roleId`. Owners give any role, admins any
  * but Owner, and anyone else with "manage members" only roles within their own permissions.
  */
@@ -99,15 +105,16 @@ async function assertCanGrant(ctx: OrgContext, roleId: string) {
   const roles = await organizationRoles(ctx.org.id);
   const role = roles.find((r) => r.id === roleId);
   if (!role) throw new UserError("That role does not exist.");
-  if (roleId === "owner" && ctx.roleId !== "owner") throw new UserError("Only owners can make someone an owner.");
-  if (roleId === "admin" && ctx.roleId !== "owner" && ctx.roleId !== "admin") throw new UserError("Only admins can make someone an admin.");
-  if (!canGrant({ roleId: ctx.roleId, permissions: [...ctx.permissions] }, role)) throw new UserError("You can only give roles that have no more permissions than your own.");
+  const acting = actingRoleId(ctx);
+  if (roleId === "owner" && acting !== "owner") throw new UserError("Only owners can make someone an owner.");
+  if (roleId === "admin" && acting !== "owner" && acting !== "admin") throw new UserError("Only admins can make someone an admin.");
+  if (!canGrant({ roleId: acting, permissions: [...ctx.permissions] }, role)) throw new UserError("You can only give roles that have no more permissions than your own.");
   return role;
 }
 
 /** Only admins change admins and owners; only owners change owners. */
 function assertCanChange(ctx: OrgContext, target: { role: string }) {
-  if (target.role === "owner" && ctx.roleId !== "owner") throw new UserError("Only owners can change owners.");
+  if (target.role === "owner" && actingRoleId(ctx) !== "owner") throw new UserError("Only owners can change owners.");
   if (target.role === "admin" && !ctx.isAdmin) throw new UserError("Only admins can change admins.");
 }
 
@@ -116,6 +123,8 @@ const roleIdSchema = z.string().trim().min(1).max(64);
 export async function inviteMember(input: { email: string; roleId?: string; role?: MemberRole }) {
   return act(async () => {
     const ctx = await requirePermission("members.manage");
+    // A new member reaches every project; someone limited to some projects cannot grant that.
+    if (ctx.projectIds) throw new UserError("You can only give access to projects you can reach. Ask someone with access to every project to invite.");
     const email = z.email("Enter a valid email").parse(input.email.trim().toLowerCase());
     const roleId = roleIdSchema.parse(input.roleId ?? (input.role === "member" ? "developer" : input.role) ?? "developer");
     const granted = await assertCanGrant(ctx, roleId);

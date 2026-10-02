@@ -7,6 +7,7 @@ import { Input, InputGroup, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import { useAction } from "@/hooks/use-action";
+import { useCan } from "@/components/permissions";
 import { useRouter } from "@/hooks/use-router";
 import { useConfirm } from "@/components/ui/confirm";
 import { deployWithoutCache, type updateService } from "@/server/actions/services";
@@ -37,6 +38,7 @@ export function BuildSection({
   composeHref?: string;
 }) {
   const fresh = useAction(() => deployWithoutCache(serviceId), { success: "Deploying without cache" });
+  const can = useCan();
   const router = useRouter();
   const confirm = useConfirm();
   return (
@@ -159,11 +161,13 @@ export function BuildSection({
             },
           })
         }
-        footerAction={() => (
-          <Button size="sm" onClick={() => fresh.run()} loading={fresh.pending}>
-            <RefreshCw /> Deploy without cache
-          </Button>
-        )}
+        footerAction={() =>
+          can("services.deploy") && (
+            <Button size="sm" onClick={() => fresh.run()} loading={fresh.pending}>
+              <RefreshCw /> Deploy without cache
+            </Button>
+          )
+        }
       >
         {(v, set) => (
           <>

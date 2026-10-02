@@ -36,13 +36,19 @@ function parse(content: string) {
   return doc;
 }
 
+// The colons between the fields of `source:target:mode`, not the ones inside ${VAR:-default}.
+const splitShort = (raw: string) => raw.split(/:(?![^{}]*\})/);
+
 function shortVolume(raw: string, index: number): ComposeMount {
-  const parts = raw.split(":");
+  const parts = splitShort(raw);
   // Windows drive letters are not a concern on Linux servers; a single part is an anonymous volume.
   if (parts.length === 1) return { kind: "other", from: "volumes", index, target: parts[0], label: "Anonymous volume" };
   const [source, target, mode] = parts;
-  const readOnly = (mode ?? "").split(",").includes("ro") || undefined;
+  const modes = (mode ?? "").split(",").filter(Boolean);
+  const readOnly = modes.includes("ro") || undefined;
   if (source.includes("$")) return { kind: "other", from: "volumes", index, target, label: `Path from a variable (${source})` };
+  // Options the page cannot edit (SELinux z, nocopy, ...): kept as written rather than dropped.
+  if (modes.some((m) => m !== "ro" && m !== "rw")) return { kind: "other", from: "volumes", index, target, label: `${source} with options (${mode})` };
   if (/^[/.~]/.test(source)) return { kind: "bind", source, target, readOnly };
   return { kind: "volume", source, target, readOnly };
 }
@@ -129,9 +135,17 @@ function usedConfigNames(doc: Document) {
   return used;
 }
 
+/** Named volumes any service mounts, entries kept as written (options, long syntax with extra keys) included. */
 function usedVolumeNames(doc: Document) {
   const used = new Set<string>();
-  for (const s of readComposeMounts(doc.toString())) for (const m of s.mounts) if (m.kind === "volume") used.add(m.source);
+  const data = doc.toJS() as { services?: Record<string, { volumes?: unknown[] } | null> } | null;
+  for (const svc of Object.values(data?.services ?? {}))
+    for (const v of Array.isArray(svc?.volumes) ? svc.volumes : []) {
+      const parts = typeof v === "string" ? splitShort(v) : [];
+      const long = v && typeof v === "object" ? (v as { type?: unknown; source?: unknown }) : null;
+      const source = parts.length > 1 ? parts[0] : long?.type === "volume" && typeof long.source === "string" ? long.source : "";
+      if (source && !/^[/.~$]/.test(source)) used.add(source);
+    }
   return used;
 }
 
@@ -183,6 +197,9 @@ export function writeComposeMounts(content: string, service: string, mounts: Com
     for (const f of files) {
       const existing = topConfigs.get(f.name, true);
       if (isMap(existing) && existing.has("file")) throw new Error(`A config called ${f.name} already reads a file. Choose another name.`);
+      // Unchanged content stays as written: escaping it again would turn a ${VAR} written by hand into a literal.
+      const written = isMap(existing) ? existing.get("content") : undefined;
+      if (typeof written === "string" && unescapeDollars(written) === f.content) continue;
       topConfigs.set(f.name, doc.createNode({ content: escapeDollars(f.content) }));
     }
     const used = usedConfigNames(doc);

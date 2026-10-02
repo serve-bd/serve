@@ -133,7 +133,11 @@ export async function refreshDatabaseCertificates(serverId: string, names: strin
   const { queueDeployment } = await import("@/server/services/create");
   for (const service of affected) {
     const [running] = await ctx.docker.listContainers({ all: false, filters: { label: [`${LABEL.service}=${service.id}`] } });
-    if (running?.Mounts?.some((m) => m.Destination.startsWith(MOUNT))) {
+    const mounted = (running?.Mounts ?? []).map((m) => m.Destination).filter((d) => d.startsWith(MOUNT));
+    // Another certificate may cover the domain now: a restart would keep serving the old one.
+    const want = await databaseDomainCert(ctx, service);
+    const current = !want || want.binds.every((b) => mounted.includes(b.split(":")[1]));
+    if (running && mounted.length && current) {
       await ctx.docker
         .getContainer(running.Id)
         .restart({ t: 10 })

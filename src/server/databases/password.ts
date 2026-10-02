@@ -1,5 +1,5 @@
 import type { DatabaseConfig } from "@/server/services/types";
-import type { EngineCreds } from "./engines";
+import { type EngineCreds, rcli } from "./engines";
 
 const sh = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const sqlString = (s: string) => `'${s.replace(/'/g, "''")}'`;
@@ -33,8 +33,9 @@ export function changePasswordCommand(cfg: DatabaseConfig, current: EngineCreds,
       return `mongosh --quiet${current.tlsRequired ? " --tls --tlsAllowInvalidCertificates" : ""} -u ${sh(user)} -p ${sh(current.password)} --authenticationDatabase admin admin --eval ${sh(`db.changeUserPassword(${JSON.stringify(user)}, ${JSON.stringify(next)})`)}`;
     case "redis":
     case "valkey": {
-      const cli = cfg.engine === "valkey" ? "valkey-cli" : "redis-cli";
-      return `${cli} -a ${sh(current.password)} --no-auth-warning${current.tlsRequired ? " --tls --insecure" : ""} CONFIG SET requirepass ${sh(next)} | grep -q OK`;
+      // Neither password goes on the command line (visible in ps): the current one is in the
+      // environment, the new one comes on stdin (-x, printf is a shell builtin).
+      return `printf '%s' ${sh(next)} | ${rcli(cfg.engine === "valkey" ? "valkey-cli" : "redis-cli", current)} -x CONFIG SET requirepass | grep -q OK`;
     }
     case "clickhouse":
       return null;

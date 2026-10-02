@@ -119,7 +119,8 @@ function openConn(t: SshTarget, opts: { onHostKey?: (key: string) => void; timeo
   const conn: Conn = { client, ready: null as unknown as Promise<Client>, channels: 0, idle: null, sftp: null, closed: false };
   conn.ready = new Promise<Client>((resolve, reject) => {
     client.once("ready", () => resolve(client));
-    client.once("error", (error) => {
+    // Every error, not just the first: ssh2 can emit more than one, and one without a listener crashes the process.
+    client.on("error", (error) => {
       dropConn(t.id, conn);
       if (presented && t.hostKey && presented !== t.hostKey) reject(new HostKeyMismatchError(presented));
       else reject(friendlySshError(error, t));
@@ -286,7 +287,10 @@ export async function sshExec(
     ch.once("exit", (code: number | null, signal?: string) => (exitCode = code ?? (signal ? 128 : 1)));
     ch.once("close", () => done(exitCode ?? 1));
     if (opts.timeoutMs) timer = setTimeout(() => (ch.close(), done(124)), opts.timeoutMs);
-    opts.signal?.addEventListener("abort", () => (ch.close(), done(130)));
+    // A signal that already fired sends no abort event.
+    const abort = () => (ch.close(), done(130));
+    if (opts.signal?.aborted) abort();
+    else opts.signal?.addEventListener("abort", abort, { once: true });
   });
 }
 

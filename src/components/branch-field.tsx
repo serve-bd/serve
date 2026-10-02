@@ -5,10 +5,12 @@ import { RefreshCw } from "lucide-react";
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { fetchBranches } from "@/server/actions/integrations";
+import { useDebounced } from "@/hooks/use-client";
 
 /** Branch of a repository: a searchable list of its real branches, or a text field when they cannot be read. */
 export function BranchField({ repository, credentialId, value, onChange }: { repository: string; credentialId: string | null; value: string; onChange: (branch: string) => void }) {
-  const repo = repository.trim();
+  // Looked up once the address stops changing: each lookup runs git on the server.
+  const repo = useDebounced(repository.trim(), 500);
   const { data, error, isLoading, mutate } = useSWR(
     repo ? ["branches", repo, credentialId] : null,
     async () => {
@@ -16,7 +18,8 @@ export function BranchField({ repository, credentialId, value, onChange }: { rep
       if (!res.ok) throw new Error(res.error);
       return res.data;
     },
-    { revalidateOnFocus: false, shouldRetryOnError: false },
+    // Another repository's branches are never shown while this one loads.
+    { revalidateOnFocus: false, shouldRetryOnError: false, keepPreviousData: false },
   );
 
   if (!data || error) {

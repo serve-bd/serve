@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { SwitchRow } from "@/components/ui/switch";
 import { ServiceIcon } from "@/components/service-icon";
 import { useAction } from "@/hooks/use-action";
+import { useCan } from "@/components/permissions";
 import { cloneEnvironmentAction, deployEnvironment } from "@/server/actions/environments";
 import type { CloneSummary } from "@/server/services/environments";
 
@@ -26,6 +27,7 @@ export function CloneEnvironmentDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
+  const can = useCan();
   const [name, setName] = React.useState("");
   const [generatedDomains, setGeneratedDomains] = React.useState(true);
   const [copyData, setCopyData] = React.useState(false);
@@ -98,9 +100,11 @@ export function CloneEnvironmentDialog({
               >
                 Open {summary.name}
               </Button>
-              <Button variant="primary" size="sm" onClick={() => deployAll.run(summary.environmentId)} loading={deployAll.pending} disabled={!summary.services.length}>
-                <Rocket /> Deploy all
-              </Button>
+              {can("services.deploy") && (
+                <Button variant="primary" size="sm" onClick={() => deployAll.run(summary.environmentId)} loading={deployAll.pending} disabled={!summary.services.length}>
+                  <Rocket /> Deploy all
+                </Button>
+              )}
             </DialogFooter>
           </>
         ) : (

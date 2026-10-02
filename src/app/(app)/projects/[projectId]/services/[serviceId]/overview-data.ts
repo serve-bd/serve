@@ -21,9 +21,7 @@ function commitUrl(repository: string, sha: string) {
 }
 
 export async function loadOverview(service: Service, projectId: string, orgId: string) {
-  const [server, environment, deployments, domains, published, counts, stats] = await Promise.all([
-    getServerRow(service.serverId),
-    db.select({ name: schema.environment.name }).from(schema.environment).where(eq(schema.environment.id, service.environmentId)),
+  const deploymentRows = () =>
     db
       .select({
         id: schema.deployment.id,
@@ -41,10 +39,11 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
         userName: schema.user.name,
       })
       .from(schema.deployment)
-      .leftJoin(schema.user, eq(schema.deployment.createdBy, schema.user.id))
-      .where(eq(schema.deployment.serviceId, service.id))
-      .orderBy(desc(schema.deployment.createdAt))
-      .limit(6),
+      .leftJoin(schema.user, eq(schema.deployment.createdBy, schema.user.id));
+  const [server, environment, deployments, domains, published, counts, stats] = await Promise.all([
+    getServerRow(service.serverId),
+    db.select({ name: schema.environment.name }).from(schema.environment).where(eq(schema.environment.id, service.environmentId)),
+    deploymentRows().where(eq(schema.deployment.serviceId, service.id)).orderBy(desc(schema.deployment.createdAt)).limit(6),
     db.select().from(schema.domain).where(eq(schema.domain.serviceId, service.id)),
     publishedPorts(service),
     Promise.all([
@@ -60,7 +59,10 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
   ]);
 
   const primaryDomain = pickPrimaryDomain(domains);
-  const current = deployments.find((d) => d.id === service.currentDeploymentId) ?? null;
+  // The current deployment can be older than the newest few (failed deploys after it).
+  const current =
+    deployments.find((d) => d.id === service.currentDeploymentId) ??
+    (service.currentDeploymentId ? ((await deploymentRows().where(eq(schema.deployment.id, service.currentDeploymentId)))[0] ?? null) : null);
   const latest = deployments[0] ?? null;
   const repository = service.source?.type === "git" ? service.source.repository : null;
   const finished = stats.filter((s) => s.status === "success" || s.status === "failed");

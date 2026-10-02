@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/server/db";
 import * as servers from "@/server/actions/servers";
@@ -624,7 +624,7 @@ export const infraRoutes: ApiRoute[] = [
     path: "/git/credentials/{credentialId}/repositories",
     tag: "Integrations",
     summary: "List repositories a Git connection reaches",
-    needs: ["projects.view"],
+    needs: ["services.manage"],
     handler: async ({ params }) => ({ repositories: await unwrap(integrations.fetchRepositories(params.credentialId)) }),
   }),
   route({
@@ -632,7 +632,7 @@ export const infraRoutes: ApiRoute[] = [
     path: "/git/branches",
     tag: "Integrations",
     summary: "List the branches of a repository",
-    needs: ["projects.view"],
+    needs: ["services.manage"],
     query: z.object({ repository: z.string(), credentialId: z.string().optional() }),
     handler: async ({ query }) => ({ branches: await unwrap(integrations.fetchBranches(query.repository, query.credentialId ?? null)) }),
   }),
@@ -741,11 +741,18 @@ export const infraRoutes: ApiRoute[] = [
         .from(schema.deployment)
         .innerJoin(schema.service, eq(schema.deployment.serviceId, schema.service.id))
         .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
-        .where(and(eq(schema.project.organizationId, auth.organizationId), query.status ? eq(schema.deployment.status, query.status as never) : undefined))
+        .where(
+          and(
+            eq(schema.project.organizationId, auth.organizationId),
+            // In SQL, so a token limited to some projects still gets up to `limit` of theirs.
+            auth.projectIds ? inArray(schema.service.projectId, auth.projectIds) : undefined,
+            query.status ? eq(schema.deployment.status, query.status as never) : undefined,
+          ),
+        )
         .orderBy(desc(schema.deployment.createdAt))
         .limit(Math.min(Math.max(query.limit ?? 50, 1), 200));
       const { deploymentView } = await import("../data");
-      return { deployments: rows.filter((r) => auth.canAccessProject(r.projectId)).map((r) => ({ ...deploymentView(r.deployment), serviceName: r.serviceName })) };
+      return { deployments: rows.map((r) => ({ ...deploymentView(r.deployment), serviceName: r.serviceName })) };
     },
   }),
 ];

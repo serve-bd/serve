@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Bell,
   Blocks,
+  BookOpen,
   Cloud,
   Container,
   FolderGit2,
@@ -185,6 +186,16 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
           {(props.isInstanceAdmin || props.isOrgAdmin) && (
             <NavLink item={{ href: "/private-networks", label: "Private networks", icon: Waypoints }} pathname={pathname} onNavigate={onNavigate} />
           )}
+          <a
+            href="https://serve.bd/docs"
+            target="_blank"
+            rel="noreferrer"
+            onClick={onNavigate}
+            className="group relative flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-fg-2/80 transition-colors hover:bg-fg/[0.04] hover:text-fg"
+          >
+            <BookOpen className="size-4 shrink-0 text-muted group-hover:text-fg-2" />
+            Documentation
+          </a>
           {props.isInstanceAdmin && <NavLink item={{ href: "/settings", label: "Settings", icon: Settings }} pathname={pathname} onNavigate={onNavigate} />}
         </NavGroup>
       </nav>

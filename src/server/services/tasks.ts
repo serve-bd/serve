@@ -15,6 +15,8 @@ export async function runTask(runId: string) {
   const task = run.taskId ? (await db.select().from(schema.scheduledTask).where(eq(schema.scheduledTask.id, run.taskId)))[0] : null;
   let exitCode = 1;
   let output = "";
+  // One write at a time, all done before the final one: a late progress write must not replace it.
+  let progress: Promise<unknown> = Promise.resolve();
   try {
     if (!service) throw new Error("Service no longer exists.");
     const container = await pickContainer(service, task?.composeService);
@@ -28,10 +30,15 @@ export async function runTask(runId: string) {
         // Persist progress every couple of seconds so the UI can follow long runs.
         if (Date.now() - last > 2000) {
           last = Date.now();
-          void db
-            .update(schema.taskRun)
-            .set({ output: buffer.slice(-256_000) })
-            .where(eq(schema.taskRun.id, runId));
+          const snapshot = buffer.slice(-256_000);
+          progress = progress
+            .then(() =>
+              db
+                .update(schema.taskRun)
+                .set({ output: snapshot })
+                .where(and(eq(schema.taskRun.id, runId), eq(schema.taskRun.status, "running"))),
+            )
+            .catch(() => {});
         }
       },
     });
@@ -40,6 +47,7 @@ export async function runTask(runId: string) {
   } catch (error) {
     output += `${(error as Error).message}\n`;
   }
+  await progress;
   const status = exitCode === 0 ? "success" : "failed";
   await db
     .update(schema.taskRun)

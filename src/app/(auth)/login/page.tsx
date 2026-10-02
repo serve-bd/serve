@@ -13,8 +13,12 @@ export const metadata = { title: "Sign in" };
 export default async function LoginPage(props: PageProps<"/login">) {
   await connection();
   if ((await userCount()) === 0) redirect("/setup");
-  if (await getSession()) redirect("/");
   const { next, error } = await props.searchParams;
+  // Already signed in: go where the link pointed (never back here, which would loop).
+  if (await getSession()) {
+    const to = safeNextPath(next);
+    redirect(/^\/login(?:[/?#]|$)/.test(to) ? "/" : to);
+  }
   const [signIn, password, canReset] = await Promise.all([getSetting("signIn"), passwordLoginAllowed(), isEmailConfigured()]);
   return (
     <LoginForm

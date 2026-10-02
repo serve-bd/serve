@@ -99,7 +99,8 @@ export function LogViewer({
 
   const visible = React.useMemo(() => {
     const src = lines.length > MAX_LINES ? lines.slice(-MAX_LINES) : lines;
-    const numbered = src.map((l, i) => ({ ...l, n: i + 1 }));
+    // Numbered within the whole log, so a line keeps its number (and key) once older ones are cut.
+    const numbered = src.map((l, i) => ({ ...l, n: lines.length - src.length + i + 1 }));
     const q = query.toLowerCase();
     const matching = q ? numbered.filter((l) => stripAnsi(l.text).toLowerCase().includes(q)) : numbered;
     return last ? matching.slice(-last) : matching;

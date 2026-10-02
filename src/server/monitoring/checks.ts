@@ -48,8 +48,10 @@ export async function httpCheck(m: Pick<Monitor, "url" | "path" | "expectedStatu
     let error: string | null = accept(res.status) ? null : `HTTP ${res.status}`;
     if (!error && m.keyword) {
       let body = "";
+      // Streamed, so a character split between two chunks still matches.
+      const decoder = new TextDecoder();
       for await (const chunk of res.body) {
-        body += chunk.toString("utf8");
+        body += decoder.decode(chunk, { stream: true });
         if (body.length > MAX_BODY) break;
       }
       latency = Date.now() - started;

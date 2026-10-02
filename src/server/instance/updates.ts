@@ -146,6 +146,9 @@ export async function beginUpdate(to: string): Promise<UpdateRun> {
   return run;
 }
 
+/** Between recording the run as "running" and starting its container. */
+let startingUpdater = false;
+
 /**
  * Checks the disk, backs up the instance, pulls the new image, then starts a one-shot container
  * from it that installs the new stack definition and restarts everything, rolling back if the
@@ -199,8 +202,15 @@ export async function runUpdate(to: string) {
       Labels: { "serve.managed": "true", "serve.kind": "updater" },
       HostConfig: { Binds: [`${env.dockerSocket}:/var/run/docker.sock`, `${dir}:${dir}`], RestartPolicy: { Name: "no" } },
     });
-    await container.start();
-    await setRun({ state: "running", container: UPDATER_CONTAINER });
+    // Recorded before the start: the container replaces this worker soon after, and a run left
+    // "backing-up" would be marked failed at boot while the update goes on.
+    startingUpdater = true;
+    try {
+      await setRun({ state: "running", container: UPDATER_CONTAINER });
+      await container.start();
+    } finally {
+      startingUpdater = false;
+    }
     await appendLog("The update container is running. The dashboard restarts in a moment.");
   } catch (e) {
     await appendLog(`==> ${(e as Error).message}`);
@@ -229,9 +239,10 @@ export async function reconcileUpdate() {
     .getContainer(run.container)
     .inspect()
     .catch(() => null);
-  if (info?.State.Running) return;
+  if (info?.State.Running || startingUpdater) return;
   const output = (await updaterLogs()) ?? "";
-  const exitCode = info?.State.ExitCode ?? null;
+  // Never started (the worker stopped right after recording the run): exit code 0 means nothing.
+  const exitCode = info?.State.Status === "created" ? null : (info?.State.ExitCode ?? null);
   const onNewVersion = compareVersions(currentVersion(), run.to) >= 0;
   const state: UpdateRun["state"] = exitCode === 0 || (info === null && onNewVersion) ? "success" : exitCode === ROLLED_BACK_EXIT ? "rolled-back" : "failed";
   const tail = state !== "failed" ? "" : `\nThe update container exited with code ${exitCode ?? "unknown"}.\n`;

@@ -218,7 +218,8 @@ function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, real
     if (o?.buffering === false) proxy.push("flush_interval -1");
     if (o?.websockets === false) proxy.push("header_up -Upgrade", "header_up -Connection");
     // Caddy appends the nearest proxy to X-Forwarded-For; give apps the visitor it resolved too (as nginx does).
-    if (realIp && !viaTunnel) proxy.push("header_up X-Real-IP {client_ip}");
+    // Always: Caddy passes a visitor's own X-Real-IP through unchanged otherwise.
+    if (!viaTunnel) proxy.push("header_up X-Real-IP {client_ip}");
     lines.push(`reverse_proxy ${targets.join(" ")} {`, tab(proxy), "}");
   }
   return lines;

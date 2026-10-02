@@ -71,8 +71,7 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
               e.preventDefault();
               const name = String(new FormData(e.currentTarget).get("name"));
               setPending(true);
-              const res = await createOrg(name);
-              setPending(false);
+              const res = await createOrg(name).finally(() => setPending(false));
               if (!res.ok) return toast.error(res.error);
               setCreateOpen(false);
               toast.success(`Created ${name}`);

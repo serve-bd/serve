@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
+import type { ServiceStatus } from "@/server/db/schema";
 import { LABEL, listServiceContainers, removeContainer } from "@/server/docker/client";
 import { getServer, serversOfService, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
@@ -43,7 +44,30 @@ async function onExtras(service: Service, fn: (server: ServerCtx) => Promise<voi
   await Promise.allSettled(extras.map(fn));
 }
 
+/**
+ * A start, stop or restart that failed part way (an offline server, a database that did not come up)
+ * must not leave the status the request set before it was queued ("deploying", "restarting", "stopped").
+ */
+async function settleOnError<T>(serviceId: string, pending: ServiceStatus[], run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    const service = await db.query.service.findFirst({ where: eq(schema.service.id, serviceId) }).catch(() => null);
+    if (service && pending.includes(service.status)) {
+      const server = await getServer(service.serverId).catch(() => null);
+      const running = server ? await listServiceContainers(service.id, false, server.docker).catch(() => null) : null;
+      // Not known (the server is offline): a stop keeps its status, a start or restart did not happen.
+      await setServiceStatus(service.id, running?.length ? "running" : service.status === "stopped" ? "stopped" : "crashed").catch(() => {});
+    }
+    throw error;
+  }
+}
+
 export async function stopService(serviceId: string) {
+  return settleOnError(serviceId, ["stopped"], () => stopNow(serviceId));
+}
+
+async function stopNow(serviceId: string) {
   const service = await getService(serviceId);
   const stop = async (server: ServerCtx) => {
     const containers = await listServiceContainers(service.id, true, server.docker);
@@ -63,6 +87,10 @@ export async function stopService(serviceId: string) {
 }
 
 export async function startService(serviceId: string): Promise<"started" | "needs-deploy"> {
+  return settleOnError(serviceId, ["deploying"], () => startNow(serviceId));
+}
+
+async function startNow(serviceId: string): Promise<"started" | "needs-deploy"> {
   const service = await getService(serviceId);
   const server = await getServer(service.serverId);
   const relevant = await relevantOn(service, server);
@@ -102,6 +130,10 @@ export async function startService(serviceId: string): Promise<"started" | "need
 }
 
 export async function restartService(serviceId: string) {
+  return settleOnError(serviceId, ["restarting", "deploying"], () => restartNow(serviceId));
+}
+
+async function restartNow(serviceId: string) {
   const service = await getService(serviceId);
   const server = await getServer(service.serverId);
   const relevant = await relevantOn(service, server);
@@ -144,6 +176,8 @@ export async function destroyService(opts: {
   serverId?: string;
   /** Keep the service's local files (used when a service moves to another server). */
   keepFiles?: boolean;
+  /** Keep the service's folder on that server too: a moved stack's ./data binds stay with its volumes. */
+  keepServerFiles?: boolean;
 }) {
   const server = await getServer(opts.serverId);
   const { docker } = server;
@@ -187,7 +221,7 @@ export async function destroyService(opts: {
     // Copies in S3 stay: they are the off-site history and can be imported elsewhere.
     await fs.rm(path.join(paths.backups, opts.serviceId), { recursive: true, force: true }).catch(() => {});
   }
-  if (!server.local) await server.fs.rm(server.paths.service(opts.serviceId)).catch(() => {});
+  if (!server.local && !opts.keepServerFiles) await server.fs.rm(server.paths.service(opts.serviceId)).catch(() => {});
   await docker.pruneImages({ filters: { dangling: { true: true }, label: [`${LABEL.service}=${opts.serviceId}`] } }).catch(() => {});
   if (opts.environmentId) {
     const { removeEnvNetworkIfUnused } = await import("@/server/docker/networks");

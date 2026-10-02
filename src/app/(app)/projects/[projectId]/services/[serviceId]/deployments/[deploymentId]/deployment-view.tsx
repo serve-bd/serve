@@ -82,6 +82,12 @@ export function DeploymentView({
       try {
         const res = await fetch(`/api/deployments/${deployment.id}/logs?offset=${offset.current}`);
         if (stopped) return;
+        // The role cannot read build logs: asking again every second would never change that.
+        if (res.status === 403) {
+          const message = await res.text();
+          if (!stopped) setLines([{ text: message }]);
+          return;
+        }
         if (res.ok) {
           const data = (await res.json()) as LogState & { chunk: string; offset: number; reset: boolean };
           // A cancelled run must not append what it fetched.
@@ -142,11 +148,11 @@ export function DeploymentView({
   }, [cancelling, active, state.status]);
   const redeploy = useAction(() => redeployDeployment(deployment.id), {
     success: "Redeploy queued",
-    onSuccess: (d) => router.push(`${backHref}/deployments/${d.id}`),
+    onSuccess: (d) => router.push(`${backHref}/${d.id}`),
   });
   const rollback = useAction(() => rollbackTo(deployment.id), {
     success: "Rollback queued",
-    onSuccess: (d) => router.push(`${backHref}/deployments/${d.id}`),
+    onSuccess: (d) => router.push(`${backHref}/${d.id}`),
   });
 
   const started = state.startedAt ? new Date(state.startedAt).getTime() : null;

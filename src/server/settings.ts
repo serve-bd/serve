@@ -107,6 +107,8 @@ export type InstanceBackup = {
   size: number | null;
   s3Key: string | null;
   s3Status: "uploaded" | "failed" | null;
+  /** S3 destination the copy went to (missing on backups from before it was kept). */
+  s3DestinationId?: string | null;
   error: string | null;
   version: string;
 };

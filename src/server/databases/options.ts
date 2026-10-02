@@ -219,7 +219,21 @@ export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: 
     const domain = domainCert
       ? ` && cp -L ${domainCert.cert} ${TLS_DIR}/server.crt && cp -L ${domainCert.key} ${TLS_DIR}/server.key && cat ${TLS_DIR}/server.crt ${TLS_DIR}/server.key > ${TLS_DIR}/server.pem && cat ${TLS_DIR}/server.crt >> ${TLS_DIR}/ca.crt`
       : "";
-    const prepare = `mkdir -p ${TLS_DIR} && cp ${TLS_SOURCE}/* ${TLS_DIR}/ && rm -f ${TLS_DIR}/ca.key${domain} && chown -R ${engine.runAs} ${TLS_DIR} && chmod 600 ${TLS_DIR}/server.key ${TLS_DIR}/server.pem && exec ${engine.entrypoint} "$@"`;
+    // PostgreSQL with TLS required: clients outside the container's networks (the public port) must
+    // use TLS; containers on its networks still may connect without. The data directory's pg_hba.conf
+    // (the image's defaults before the first start) is copied with each rule for any address split in
+    // two: with TLS from anywhere, without only from "samenet". The socket and loopback stay as they are.
+    // The gateway is in samenet too, and the public port can come through it (Docker's proxy): it
+    // goes first, refused without TLS. /proc/net/route keeps it as little-endian hex.
+    const hbaGateway =
+      'function h(s) { return (index("0123456789ABCDEF", substr(s, 1, 1)) - 1) * 16 + index("0123456789ABCDEF", substr(s, 2, 1)) - 1 } NR > 1 && $2 == "00000000" && $3 != "00000000" { printf "hostnossl all all %d.%d.%d.%d/32 reject\\n", h(substr($3, 7, 2)), h(substr($3, 5, 2)), h(substr($3, 3, 2)), h(substr($3, 1, 2)); exit }';
+    const hbaRules =
+      '$1 == "host" && ($4 == "all" || $4 == "0.0.0.0/0" || $4 == "::/0") { $1 = "hostssl"; ssl = $0; $1 = "hostnossl"; $4 = "samenet"; print; print ssl; next } { print }';
+    const hba =
+      cfg.engine === "postgres" && mode === "require"
+        ? ` && { awk '${hbaGateway}' /proc/net/route; awk '${hbaRules}' "$PGDATA/pg_hba.conf" 2>/dev/null || printf 'local all all trust\\nhost all all 127.0.0.1/32 trust\\nhost all all ::1/128 trust\\nhostnossl all all samenet %s\\nhostssl all all all %s\\n' "\${POSTGRES_HOST_AUTH_METHOD:-scram-sha-256}" "\${POSTGRES_HOST_AUTH_METHOD:-scram-sha-256}"; } > ${TLS_DIR}/pg_hba.conf`
+        : "";
+    const prepare = `mkdir -p ${TLS_DIR} && cp ${TLS_SOURCE}/* ${TLS_DIR}/ && rm -f ${TLS_DIR}/ca.key${domain}${hba} && chown -R ${engine.runAs} ${TLS_DIR} && chmod 600 ${TLS_DIR}/server.key ${TLS_DIR}/server.pem && exec ${engine.entrypoint} "$@"`;
     cmd = ["sh", "-c", prepare, "sh", ...cmd];
   }
 

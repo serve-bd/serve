@@ -15,5 +15,7 @@ const TARGETS: Record<string, string> = {
 
 export default async function LegacyServerPage(props: PageProps<"/server/[[...path]]">) {
   const { path } = await props.params;
-  redirect(TARGETS[path?.[0] ?? ""] ?? "/servers/local");
+  const page = path?.[0] ?? "";
+  // Own keys only: "/server/constructor" must not find Object.prototype.constructor.
+  redirect(Object.hasOwn(TARGETS, page) ? TARGETS[page] : "/servers/local");
 }

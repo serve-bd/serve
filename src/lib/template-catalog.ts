@@ -44,7 +44,8 @@ export const templateSchema = z.object({
   name: z.string().min(1).max(60),
   description: z.string().min(1).max(200),
   category: z.string().min(1).max(40),
-  website: z.url(),
+  // A link in the catalog: web pages only, never javascript: from a remote file.
+  website: z.url({ protocol: /^https?$/ }),
   /** Tile colour behind the logo (or the first letter). */
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   /** Shown first in the catalog. */
@@ -79,8 +80,9 @@ export type Catalog = { schema: number; templates: CatalogTemplate[] };
 export const templateMetaSchema = templateSchema.omit({ id: true, compose: true, logo: true }).strict();
 
 function newer(a: string, b: string) {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
+  // Pre-release and build tags ("0.2.0-rc.1") do not count: the part before them is compared.
+  const pa = a.split(/[-+]/)[0].split(".").map(Number);
+  const pb = b.split(/[-+]/)[0].split(".").map(Number);
   for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) > (pb[i] ?? 0);
   return false;
 }

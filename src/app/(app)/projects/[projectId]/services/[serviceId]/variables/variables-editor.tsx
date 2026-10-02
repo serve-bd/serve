@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { useAction } from "@/hooks/use-action";
+import { useCan } from "@/components/permissions";
 import { saveEnvVars } from "@/server/actions/services";
 import { formatEnv, parseEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
@@ -108,7 +109,9 @@ export function VariablesEditor({
   const taken = new Set(current.map((v) => v.key));
   const update = (id: number, patch: Partial<Var>) => setVars((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
   const hasBuild = type === "app";
-  const canRedeploy = status !== "idle";
+  const can = useCan();
+  // Saving with a redeploy needs deploy rights; without them the save alone still works.
+  const canRedeploy = status !== "idle" && can("services.deploy");
   const missing = composeVars.filter((name) => !current.some((v) => v.key === name));
 
   return (

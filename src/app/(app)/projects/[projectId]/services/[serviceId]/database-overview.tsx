@@ -42,6 +42,8 @@ export function DatabaseOverview(props: {
   /** The role cannot see secret values: the password and URLs are masked and not copyable. */
   hideSecrets?: boolean;
   canManage?: boolean;
+  /** The database domain needs domains.manage, not services.manage. */
+  canManageDomain?: boolean;
   domain?: DatabaseDomainInfo;
   /** Branches live inside this container, so they are listed under it. */
   branches?: { id: string; name: string; status: string; sizeBytes: number | null }[];
@@ -190,7 +192,7 @@ export function DatabaseOverview(props: {
             )}
           </CardBody>
         </Card>
-        {props.domain && <DatabaseDomainCard serviceId={props.serviceId} info={props.domain} hideSecrets={props.hideSecrets} canManage={props.canManage} />}
+        {props.domain && <DatabaseDomainCard serviceId={props.serviceId} info={props.domain} hideSecrets={props.hideSecrets} canManage={props.canManageDomain} />}
         {!props.uptimeInSide && props.uptime}
       </div>
 

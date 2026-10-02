@@ -67,7 +67,7 @@ export type PlaceholderKey = (typeof placeholders)[number]["key"];
 
 /** Replaces {placeholders}; unknown ones stay as typed so mistakes are visible. */
 export function fillTemplate(template: string, values: Partial<Record<PlaceholderKey, string | null | undefined>>) {
-  return template.replace(/\{([a-z_]+)\}/g, (whole, key: string) => (key in values ? (values[key as PlaceholderKey] ?? "") : whole));
+  return template.replace(/\{([a-z_]+)\}/g, (whole, key: string) => (Object.hasOwn(values, key) ? (values[key as PlaceholderKey] ?? "") : whole));
 }
 
 /* -------------------------------- Providers -------------------------------- */

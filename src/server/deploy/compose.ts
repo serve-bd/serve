@@ -82,6 +82,13 @@ export function transformCompose(content: string, slug: string, serviceId: strin
         })),
       ];
     }
+    // Labels for every service, also one on another network mode: Serve finds its containers by them.
+    const labels = { [LABEL.managed]: "true", [LABEL.service]: serviceId, [LABEL.slug]: slug, [LABEL.kind]: "compose" };
+    if (Array.isArray(svc.labels)) {
+      svc.labels = [...svc.labels, ...Object.entries(labels).map(([k, v]) => `${k}=${v}`)];
+    } else {
+      svc.labels = { ...(svc.labels ?? {}), ...labels };
+    }
     if (svc.network_mode) continue;
     if (isolated) {
       if (Array.isArray(svc.networks)) {
@@ -95,13 +102,6 @@ export function transformCompose(content: string, slug: string, serviceId: strin
       const own = nets.default ?? {};
       nets.default = { ...own, aliases: [...new Set([...(own.aliases ?? []), composeAlias(slug, name)])] };
       svc.networks = nets;
-    }
-
-    const labels = { [LABEL.managed]: "true", [LABEL.service]: serviceId, [LABEL.slug]: slug, [LABEL.kind]: "compose" };
-    if (Array.isArray(svc.labels)) {
-      svc.labels = [...svc.labels, ...Object.entries(labels).map(([k, v]) => `${k}=${v}`)];
-    } else {
-      svc.labels = { ...(svc.labels ?? {}), ...labels };
     }
   }
   doc.networks = { ...(doc.networks ?? {}) };

@@ -141,6 +141,11 @@ export function Terminal({
         return;
       }
       const body = (await res?.json().catch(() => null)) as { id?: string; error?: string } | null;
+      // Unmounted while the body was read: end the session nobody will use.
+      if (disposed) {
+        if (body?.id) void fetch(`${endpoint}/${body.id}`, { method: "DELETE", keepalive: true });
+        return;
+      }
       if (!res?.ok || !body?.id) {
         const message = body?.error ?? "Could not reach the server.";
         xterm.write(`\x1b[31m${message}\x1b[0m\r\n`);

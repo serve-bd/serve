@@ -65,7 +65,7 @@ export function SignInMethods({ providers, error }: { providers: { id: string; l
       <CardHeader title="Sign-in methods" description="Ways you can sign in to your account. Keep at least one." />
       <div className="divide-y divide-line">
         {rows.map((r) => (
-          <div key={r.id} className="flex items-center gap-3 px-5 py-3.5">
+          <div key={r.linked?.id ?? r.id} className="flex items-center gap-3 px-5 py-3.5">
             <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-fg/[0.05] text-fg-2">
               {r.id === "credential" ? <KeyRound className="size-4" /> : <SsoMark provider={r.id} />}
             </span>

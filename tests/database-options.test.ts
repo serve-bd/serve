@@ -69,8 +69,15 @@ describe("database plan", () => {
       `ssl_key_file=${TLS_DIR}/server.key`,
       "-c",
       `ssl_ca_file=${TLS_DIR}/ca.crt`,
+      "-c",
+      `hba_file=${TLS_DIR}/pg_hba.conf`,
     ]);
+    // Required: plain connections only from the container's networks, never through its gateway.
+    expect(plan.cmd?.[2]).toContain(`$4 = "samenet"`);
+    expect(plan.cmd?.[2]).toContain("/proc/net/route");
     expect(databaseUrl(pg({ tls: { enabled: true, mode: "require" } }), plan.creds, "db", 5432)).toMatch(/\?sslmode=require$/);
+    const prefer = databasePlan(pg({ tls: { enabled: true, mode: "prefer" } }), "x", "/d/s");
+    expect(prefer.cmd?.join(" ")).not.toContain("hba_file");
   });
 
   it("puts the redis config file first and switches clients to TLS", () => {
@@ -150,6 +157,9 @@ describe("password change", () => {
   it("escapes quotes for SQL and shell", () => {
     const cmd = changePasswordCommand(pg(), { username: "postgres", password: "old", database: "app" }, "new-pass_123.x");
     expect(cmd).toContain(`-c 'ALTER USER "postgres" WITH PASSWORD '\\''new-pass_123.x'\\'''`);
+    const redis = changePasswordCommand({ ...pg(), engine: "redis" }, { username: "default", password: "old-pass", database: "0" }, "new-pass");
+    // Neither password on the command line: the current one in the environment, the new one on stdin.
+    expect(redis).toBe("printf '%s' 'new-pass' | REDISCLI_AUTH='old-pass' VALKEYCLI_AUTH='old-pass' redis-cli --no-auth-warning -x CONFIG SET requirepass | grep -q OK");
     expect(changePasswordCommand({ ...pg(), engine: "clickhouse" }, { username: "d", password: "o", database: "d" }, "n")).toBeNull();
   });
 });

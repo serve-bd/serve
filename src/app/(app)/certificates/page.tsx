@@ -24,7 +24,8 @@ export default async function CertificatesPage() {
   const showServers = servers.length > 1;
   return (
     <CertificatesView
-      isAdmin={ctx.isAdmin}
+      // The certificate actions check integrations.manage, not the admin role.
+      isAdmin={ctx.can("integrations.manage")}
       hasAcme={!!settings.acmeEmail}
       staging={settings.acmeStaging}
       proxyManaged={servers

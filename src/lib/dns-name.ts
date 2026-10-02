@@ -52,7 +52,7 @@ const TWO_LABEL_SUFFIXES = new Set([
 
 /** The record name relative to its zone ("@" for the apex), using a small public-suffix list. */
 export function relativeRecordName(hostname: string) {
-  const labels = hostname.split(".");
+  const labels = hostname.replace(/\.$/, "").split(".");
   const zoneLabels = labels.length >= 3 && TWO_LABEL_SUFFIXES.has(labels.slice(-2).join(".")) ? 3 : 2;
   return labels.length > zoneLabels ? labels.slice(0, -zoneLabels).join(".") : "@";
 }

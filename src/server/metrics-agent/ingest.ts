@@ -9,6 +9,9 @@ import { rollupRange } from "@/server/metric-rollups";
 
 const count = z.number().finite().nonnegative();
 
+/** A list whose bad entries are dropped: one odd container label would otherwise reject the whole batch. */
+const validOnly = <T extends z.ZodType>(item: T, max: number) => z.preprocess((v) => (Array.isArray(v) ? v.filter((x) => item.safeParse(x).success) : v), z.array(item).max(max));
+
 const sampleSchema = z.object({
   seq: z.number().int().positive(),
   t: z.number().int().positive(),
@@ -22,7 +25,7 @@ const sampleSchema = z.object({
     load: z.array(z.number().finite()).max(3),
     uptime: count,
   }),
-  services: z.array(z.object({ id: z.string().min(1).max(64), cpu: count, memory: count, memoryLimit: count, rx: count, tx: count })).max(5000),
+  services: validOnly(z.object({ id: z.string().min(1).max(64), cpu: count, memory: count, memoryLimit: count, rx: count, tx: count }), 5000),
 });
 
 const containerSchema = z.object({
@@ -42,7 +45,7 @@ export const batchSchema = z.object({
   boot: z.string().min(1).max(64),
   version: z.string().max(64),
   samples: z.array(sampleSchema).max(2880),
-  containers: z.array(containerSchema).max(5000).optional(),
+  containers: validOnly(containerSchema, 5000).optional(),
   containersAt: z.number().int().positive().optional(),
 });
 
@@ -135,7 +138,9 @@ async function store(serverId: string, batch: AgentBatch, via: "push" | "ssh", n
         }
       : agent?.snapshot;
     // Batches can arrive out of order (pushed and collected over SSH): only a newer check counts.
-    const containersAt = batch.containersAt && batch.containers ? Math.min(batch.containersAt, now) : null;
+    // The agent leaves out an empty list (Go's omitempty): a check with a time and no list found none.
+    const containers = batch.containersAt ? (batch.containers ?? []) : undefined;
+    const containersAt = batch.containersAt && containers ? Math.min(batch.containersAt, now) : null;
     const newer = containersAt !== null && (!agent?.containersAt || containersAt > new Date(agent.containersAt).getTime());
     const next: ServerAgent = {
       image: agent?.image ?? "",
@@ -148,7 +153,7 @@ async function store(serverId: string, batch: AgentBatch, via: "push" | "ssh", n
       via,
       version: batch.version || null,
       snapshot,
-      ...(newer ? { containers: batch.containers, containersAt: new Date(containersAt).toISOString() } : {}),
+      ...(newer ? { containers, containersAt: new Date(containersAt).toISOString() } : {}),
     };
     await tx.update(schema.server).set({ agent: next }).where(eq(schema.server.id, serverId));
     return { ack, stored: fresh.length, oldest };

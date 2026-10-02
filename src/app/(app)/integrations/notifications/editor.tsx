@@ -592,7 +592,8 @@ function verify(req, secret) {
   const sig = req.headers["x-serve-signature"]; // "sha256=<hex>"
   const expected = "sha256=" + crypto.createHmac("sha256", secret).update(ts + "." + req.body).digest("hex");
   const fresh = Math.abs(Date.now() / 1000 - Number(ts)) < 300;
-  return fresh && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  // timingSafeEqual throws on different lengths: a missing or short signature is just wrong.
+  return fresh && typeof sig === "string" && sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }`;
 
 function WebhookDocs() {

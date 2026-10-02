@@ -64,11 +64,19 @@ async function joinOrganization(invitationId: string, userId: string, email: str
   if (inv.invitation.email.toLowerCase() !== email.toLowerCase()) {
     throw new UserError(`This invite was sent to ${inv.invitation.email}.`);
   }
-  await db
-    .insert(schema.member)
-    .values({ id: newId(), organizationId: inv.org.id, userId, role: inv.invitation.role ?? "member", roleId: inv.invitation.roleId ?? null })
-    .onConflictDoNothing();
-  await db.update(schema.invitation).set({ status: "accepted" }).where(eq(schema.invitation.id, invitationId));
+  // Marked used first, only while still pending: a link revoked or used meanwhile does not join.
+  await db.transaction(async (tx) => {
+    const [used] = await tx
+      .update(schema.invitation)
+      .set({ status: "accepted" })
+      .where(and(eq(schema.invitation.id, invitationId), eq(schema.invitation.status, "pending"), gt(schema.invitation.expiresAt, new Date())))
+      .returning({ id: schema.invitation.id });
+    if (!used) throw new UserError("This invite link is invalid or has expired. Ask for a new one.");
+    await tx
+      .insert(schema.member)
+      .values({ id: newId(), organizationId: inv.org.id, userId, role: inv.invitation.role ?? "member", roleId: inv.invitation.roleId ?? null })
+      .onConflictDoNothing();
+  });
   await logActivity({ userId, organizationId: inv.org.id, action: "member.joined", message: `Joined ${inv.org.name}` });
   return inv.org;
 }

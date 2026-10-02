@@ -178,7 +178,7 @@ async function awsCall(c: ProviderClient, service: "secretsmanager" | "ssm", tar
 /** Pick `field` from a secret with several values; without one, a secret with a single value gives it. */
 function pick(data: Record<string, unknown>, field: string | null, where: string): string {
   if (field !== null) {
-    if (!(field in data)) throw new SecretFetchError(`${where} has no field ${field}. Fields: ${Object.keys(data).join(", ") || "none"}.`);
+    if (!Object.hasOwn(data, field)) throw new SecretFetchError(`${where} has no field ${field}. Fields: ${Object.keys(data).join(", ") || "none"}.`);
     const v = data[field];
     return typeof v === "string" ? v : JSON.stringify(v);
   }
@@ -236,7 +236,7 @@ export async function fetchSecrets(c: ProviderClient, refs: { path: string; fiel
     await each(async (r) => {
       all ??= dopplerAll(c);
       const secrets = await all;
-      if (!(r.path in secrets)) throw new SecretFetchError(`Doppler: there is no secret ${r.path} in this config.`);
+      if (!Object.hasOwn(secrets, r.path)) throw new SecretFetchError(`Doppler: there is no secret ${r.path} in this config.`);
       return secrets[r.path];
     });
   } else if (c.kind === "aws-secrets") {

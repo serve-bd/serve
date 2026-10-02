@@ -54,10 +54,13 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(false);
   const [typed, setTyped] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  // Counts the dialogs shown, so a finished wait never closes a newer one.
+  const shown = React.useRef(0);
 
   const confirm = React.useCallback(
     (opts: ConfirmOptions) =>
       new Promise<boolean>((resolve) => {
+        shown.current++;
         setTyped("");
         setBusy(false);
         // A dialog still open answers "no" to its caller, instead of leaving it waiting forever.
@@ -82,14 +85,17 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const confirmAndWait = () => {
     pending?.resolve(true);
     setBusy(true);
-    const started = Date.now();
+    const mine = shown.current;
     let stop = () => {};
+    // Never wait more than a minute, even when no action reports back.
+    const cap = setTimeout(() => done(), 60_000);
     const done = () => {
       stop();
-      setOpen(false);
+      clearTimeout(cap);
+      if (shown.current === mine) setOpen(false);
     };
     const check = () => {
-      if (actionsRunning() === 0 || Date.now() - started > 60_000) done();
+      if (actionsRunning() === 0) done();
     };
     // Give the caller a moment to start its action before deciding nothing is running.
     setTimeout(() => {
@@ -103,7 +109,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
-      <AlertDialog.Root open={open} onOpenChange={(o) => !o && (busy ? setOpen(false) : close(false))} onOpenChangeComplete={(o) => !o && setPending(null)}>
+      <AlertDialog.Root open={open} onOpenChange={(o) => !o && (busy ? setOpen(false) : close(false))} onOpenChangeComplete={(o) => !o && !open && setPending(null)}>
         <AlertDialog.Portal>
           <AlertDialog.Backdrop className="fixed inset-0 z-50 bg-[var(--backdrop)] backdrop-blur-[2px] transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
           <AlertDialog.Viewport className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[18vh]">

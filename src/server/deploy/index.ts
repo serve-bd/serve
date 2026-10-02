@@ -759,6 +759,7 @@ async function runPreDeploy(opts: {
     cmd: ["sh", "-c", opts.runtime.preDeployCommand!],
   });
   const container = await d.createContainer(spec);
+  let timer: NodeJS.Timeout | undefined;
   try {
     await container.start().catch((error: Error) => {
       throw gpuError(error, opts.runtime) ?? error;
@@ -776,7 +777,9 @@ async function runPreDeploy(opts: {
     const timeoutMs = Math.max(60, opts.runtime.healthcheckTimeout ?? 900) * 1000;
     const result = (await Promise.race([
       container.wait(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("The pre-deploy command timed out.")), timeoutMs)),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("The pre-deploy command timed out.")), timeoutMs);
+      }),
       new Promise((_, reject) => {
         if (opts.signal?.aborted) reject(new DeployCancelled("Deployment cancelled"));
         else opts.signal?.addEventListener("abort", () => reject(new DeployCancelled("Deployment cancelled")), { once: true });
@@ -787,6 +790,7 @@ async function runPreDeploy(opts: {
     if (result.StatusCode !== 0) throw new Error(`The pre-deploy command exited with code ${result.StatusCode}. The previous version keeps running.`);
     log.line("Pre-deploy command finished");
   } finally {
+    clearTimeout(timer);
     await container.remove({ force: true }).catch(() => {});
   }
 }
@@ -1030,7 +1034,8 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
       }
       await db
         .update(schema.service)
-        .set({ compose: { ...cfg, hostAccessIssues: issues } })
+        // With the file just read from git: the old one must not come back with the approval.
+        .set({ compose: { ...cfg, content, hostAccessIssues: issues } })
         .where(eq(schema.service.id, service.id));
     }
   }
@@ -1286,7 +1291,9 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     // Keep the old version running if there is one.
     const server = await serverOf(service).catch(() => null);
     const running = server ? (await listServiceContainers(service.id, false, server.docker).catch(() => [])).length > 0 : false;
-    await setServiceStatus(service.id, running ? "running" : cancelled ? (previousStatus === "building" ? "idle" : previousStatus) : "failed");
+    // A status another step set while it waited (a move or start sets "deploying") must not stick.
+    const settled = previousStatus === "building" || previousStatus === "deploying" || previousStatus === "restarting" ? "idle" : previousStatus;
+    await setServiceStatus(service.id, running ? "running" : cancelled ? settled : "failed");
     if (!cancelled) {
       await logActivity({
         userId: dep.createdBy,

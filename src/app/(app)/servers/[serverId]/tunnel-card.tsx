@@ -32,8 +32,7 @@ export function TunnelCard({ serverId, user, sshPort, tunnel }: { serverId: stri
 
   const create = async () => {
     setBusy(true);
-    const res = await newJoinCommand(serverId, window.location.origin, address);
-    setBusy(false);
+    const res = await newJoinCommand(serverId, window.location.origin, address).finally(() => setBusy(false));
     if (!res.ok) return toast.error(res.error);
     setCommand(res.data);
     // "Connects to" shows the address the new command uses.

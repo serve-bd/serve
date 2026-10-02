@@ -138,7 +138,10 @@ export async function ensureMetricsAgent(ctx: ServerCtx, log: Log = () => {}): P
   const container = ctx.docker.getContainer(AGENT_CONTAINER);
   const info = await container.inspect().catch(() => null);
   const envOf = (name: string) => info?.Config.Env?.find((e) => e.startsWith(`${name}=`))?.slice(name.length + 1);
-  if (info?.State.Running && info.Config.Image === binary.image && row.agent?.image === binary.image && envOf("SERVE_URLS") === urls) {
+  // Two installs at once can leave the saved token of one and the container of the other: compare them too.
+  const runningToken = envOf("SERVE_AGENT_TOKEN")?.slice(ctx.id.length + 1);
+  const tokenSaved = !!runningToken && !!row.agent?.tokenHash && hashToken(runningToken) === row.agent.tokenHash;
+  if (info?.State.Running && info.Config.Image === binary.image && row.agent?.image === binary.image && envOf("SERVE_URLS") === urls && tokenSaved) {
     if (row.agent.urls !== urls) await setAgent(ctx.id, { ...row.agent, urls });
     return true;
   }
@@ -244,8 +247,9 @@ export async function syncMetricsAgents(now = Date.now()) {
           if (arch && !binary) return;
           const seen = r.agent?.seenAt ? now - new Date(r.agent.seenAt).getTime() : Number.POSITIVE_INFINITY;
           if (r.agent && !r.agent.error && r.agent.image === binary?.image && r.agent.urls === urls && seen < 3 * 60_000) return;
-          if (now - (lastTry.get(r.id) ?? 0) < (r.agent?.error ? 10 : 3) * 60_000) return;
         }
+        // Removing the agent of an unreachable server is tried again as rarely as installing it.
+        if (now - (lastTry.get(r.id) ?? 0) < (r.enabled && r.agent?.error ? 10 : 3) * 60_000) return;
         syncing.add(r.id);
         lastTry.set(r.id, now);
         try {

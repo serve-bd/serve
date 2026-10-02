@@ -532,12 +532,15 @@ function Peers({ peers, outside, inAny, selfNat }: { peers: MeshPeerView[]; outs
                         : state === "error"
                           ? "Not set up"
                           : p.latestHandshake
-                            ? `No contact since ${handshakeAge(p.latestHandshake, (now ?? Date.now()) / 1000)}`
+                            ? // Ages wait for the browser clock (null during hydration), so both renders match.
+                              now === null
+                              ? ""
+                              : `No contact since ${handshakeAge(p.latestHandshake, now / 1000)}`
                             : "Waiting for contact"}
                   </span>
                   <span className="text-faint tabular-nums">
                     {state === "connected"
-                      ? `${handshakeAge(p.latestHandshake, (now ?? Date.now()) / 1000)} · ↓ ${formatBytes(p.rx)} ↑ ${formatBytes(p.tx)}`
+                      ? `${handshakeAge(p.latestHandshake, (now as number) / 1000)} · ↓ ${formatBytes(p.rx)} ↑ ${formatBytes(p.tx)}`
                       : stuck
                         ? "Neither server has a public address. Give one of them a public address."
                         : state === "error"

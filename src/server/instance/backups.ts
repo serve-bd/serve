@@ -132,7 +132,11 @@ async function writeBundle(id: string, log: (line: string) => void): Promise<{ f
     await container.remove({ force: true }).catch(() => {});
   }
   const file = path.join(dir, filename);
-  await encryptBundle(path.join(tmp, "bundle.tar.gz"), file, env.encryptionKey);
+  // A bundle cut off half way (a full disk) is no backup, and no record points at it to remove it later.
+  await encryptBundle(path.join(tmp, "bundle.tar.gz"), file, env.encryptionKey).catch(async (e) => {
+    await fs.promises.rm(file, { force: true });
+    throw e;
+  });
   await fs.promises.rm(tmp, { recursive: true, force: true });
   return { filename, size: (await fs.promises.stat(file)).size };
 }
@@ -157,7 +161,7 @@ export async function runInstanceBackup(id: string, log: (line: string) => void 
         s3Status = "failed";
       }
     }
-    await patchBackup(id, { status: "success", finishedAt: new Date().toISOString(), s3Key, s3Status, error: null });
+    await patchBackup(id, { status: "success", finishedAt: new Date().toISOString(), s3Key, s3Status, s3DestinationId: s3?.id ?? null, error: null });
     const trigger = settings.instanceBackups.find((b) => b.id === id)?.trigger;
     if (trigger !== "manual") {
       await notify(settings.rootOrganizationId, "instance.backup.success", {
@@ -198,7 +202,8 @@ export async function deleteInstanceBackup(id: string) {
 async function removeFiles(backup: InstanceBackup, settings: Settings) {
   if (backup.filename) await fs.promises.rm(instanceBackupFile(backup.filename), { force: true }).catch(() => {});
   if (backup.s3Key && backup.s3Status === "uploaded") {
-    const s3 = await s3For(settings.instanceBackupS3DestinationId).catch(() => null);
+    // The destination it was uploaded to, not today's setting (older records did not keep it).
+    const s3 = await s3For(backup.s3DestinationId ?? settings.instanceBackupS3DestinationId).catch(() => null);
     if (s3) await s3Delete(s3, backup.s3Key).catch(() => {});
   }
 }

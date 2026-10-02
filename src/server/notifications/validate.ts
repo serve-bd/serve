@@ -18,15 +18,21 @@ const httpUrl = (value: string, label: string, httpsOnly = false) => {
 
 /**
  * Checks a provider's settings and returns them cleaned. `stored` holds the saved
- * values: an empty secret field keeps the saved secret.
+ * values: an empty secret field keeps the saved secret, but only while the server
+ * address is the same. Otherwise the saved secret would be sent to the new address.
  */
 export function validateChannelConfig(kind: string, input: Record<string, string>, stored: Record<string, string> = {}): Record<string, string> {
   const provider = providerInfo(kind);
   if (!provider) throw new ChannelConfigError("Unknown channel type.");
+  const address = (u: string | undefined) => (u ?? "").trim().replace(/\/+$/, "").toLowerCase();
+  const sameTarget = provider.fields.every((f) => f.secret || f.type !== "url" || address(input[f.key]) === address(stored[f.key]));
   const out: Record<string, string> = {};
   for (const f of provider.fields) {
     let v = (input[f.key] ?? "").trim();
-    if (!v && f.secret && stored[f.key]) v = stored[f.key];
+    if (!v && f.secret && stored[f.key]) {
+      if (!sameTarget) throw new ChannelConfigError(`Enter ${f.label} again: the address changed.`);
+      v = stored[f.key];
+    }
     if (!v && f.type === "select" && f.options?.length) v = f.options[0].value;
     if (!v) {
       if (!f.optional) throw new ChannelConfigError(`Fill in ${f.label}.`);

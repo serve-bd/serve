@@ -20,8 +20,10 @@ type Tags = { name: string; updatedAt: string | null }[];
 
 /** Repository and tag of a reference: "ghcr.io/a/b:1" → ["ghcr.io/a/b", "1"]. */
 function splitTag(ref: string): [string, string | null] {
-  const at = ref.lastIndexOf(":");
-  return at > ref.lastIndexOf("/") ? [ref.slice(0, at), ref.slice(at + 1)] : [ref, null];
+  // A digest pin ("app@sha256:…") is not a tag.
+  const name = ref.split("@")[0];
+  const at = name.lastIndexOf(":");
+  return at > name.lastIndexOf("/") ? [name.slice(0, at), name.slice(at + 1)] : [name, null];
 }
 
 /**
@@ -73,7 +75,7 @@ export function ImagePicker({
     };
   }, [savedId]);
 
-  const latest = useLatest({ onChange, registry, repo, tag });
+  const latest = useLatest({ onChange, registry, repo, tag, pinned: image.includes("@") });
 
   // Tags of the image, once its name stops changing. A login typed by hand is not sent anywhere.
   const tagRepo = useDebounced(registry === "manual" ? "" : repo, 500);
@@ -91,7 +93,7 @@ export function ImagePicker({
         setTags(res.data.tags);
         // A freshly picked image gets its newest tag ("latest" when dates are unknown).
         const now = latest.current;
-        if (res.data.tags.length && !now.tag && now.repo === tagRepo) now.onChange(now.registry, `${tagRepo}:${res.data.tags[0].name}`);
+        if (res.data.tags.length && !now.tag && !now.pinned && now.repo === tagRepo) now.onChange(now.registry, `${tagRepo}:${res.data.tags[0].name}`);
       })
       .catch(() => live && setTagsError("Could not list the tags."))
       .finally(() => live && setLoadingTags(false));

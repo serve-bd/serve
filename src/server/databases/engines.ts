@@ -193,7 +193,18 @@ export const engines: Record<DbEngine, EngineInfo> = {
     imagePattern: /(^|\/)(postgres|postgis|pgvector|timescaledb[\w-]*|paradedb|pgvecto-rs|supabase-postgres|postgresql)(:|$)/i,
     initScripts: true,
     config: { kind: "pg-args", placeholder: "max_connections = 200\nshared_buffers = 256MB\nwork_mem = 16MB\nlog_min_duration_statement = 500" },
-    tlsArgs: (dir) => ["-c", "ssl=on", "-c", `ssl_cert_file=${dir}/server.crt`, "-c", `ssl_key_file=${dir}/server.key`, "-c", `ssl_ca_file=${dir}/ca.crt`],
+    tlsArgs: (dir, mode) => [
+      "-c",
+      "ssl=on",
+      "-c",
+      `ssl_cert_file=${dir}/server.crt`,
+      "-c",
+      `ssl_key_file=${dir}/server.key`,
+      "-c",
+      `ssl_ca_file=${dir}/ca.crt`,
+      // Require: the start step writes this file: no plain TCP from outside the container's networks.
+      ...(mode === "require" ? ["-c", `hba_file=${dir}/pg_hba.conf`] : []),
+    ],
   },
   mysql: {
     engine: "mysql",

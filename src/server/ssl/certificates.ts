@@ -448,6 +448,7 @@ export async function deleteCertificateFiles(cert: Cert) {
   }
   await ctx.fs.rm(path.posix.join(ctx.paths.certs, cert.id)).catch(() => {});
   await ctx.fs.rm(path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${cert.id}.ini`)).catch(() => {});
+  await ctx.fs.rm(path.posix.join(ctx.paths.letsencrypt, "..", "letsencrypt-creds", `${cert.id}.ini`)).catch(() => {});
   if (cert.provider.startsWith("letsencrypt")) {
     await docker(ctx, ["run", "--rm", "-v", `${ctx.paths.letsencrypt}:/etc/letsencrypt`, CERTBOT_IMAGE, "delete", "--non-interactive", "--cert-name", cert.id]).catch(() => {});
   }

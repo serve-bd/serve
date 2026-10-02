@@ -1,4 +1,4 @@
-import { eq, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull } from "@/server/crypto";
 import { engines } from "@/server/databases/engines";
@@ -11,6 +11,9 @@ import { runServerIds } from "@/server/deploy/distribution";
 import { resolveSecretRefs } from "@/server/secrets/resolve";
 import { branchVars } from "@/server/databases/branches";
 import { SECRETS_SCOPE } from "@/lib/secret-providers";
+import { composeVariables } from "@/lib/compose-vars";
+import { composeSecurityIssues } from "@/server/security";
+import { UserError } from "@/server/action";
 
 type Service = typeof schema.service.$inferSelect;
 type Domain = typeof schema.domain.$inferSelect;
@@ -282,4 +285,113 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     failedSecrets: secretRefs.errors.map((e) => `\${{${e.ref}}}: ${e.message}`),
     replicas,
   };
+}
+
+/**
+ * The variables a compose stack with host options passes into them, through references at any depth:
+ * "own:KEY" for its own variables, "environment:KEY", "project:KEY" and "org:KEY" for shared ones.
+ */
+export function hostStackReach(
+  content: string,
+  own: Record<string, string>,
+  shared: { environment: Record<string, string>; project: Record<string, string>; org: Record<string, string> },
+) {
+  const reached = new Set<string>();
+  const texts: string[] = [];
+  const visit = (id: string, value: string | undefined) => {
+    if (reached.has(id)) return;
+    reached.add(id);
+    if (value !== undefined) texts.push(value);
+  };
+  for (const v of composeVariables(content)) visit(`own:${v.name}`, own[v.name]);
+  const scopes: Record<string, keyof typeof shared> = { shared: "environment", environment: "environment", project: "project", org: "org", team: "org" };
+  while (texts.length) {
+    for (const m of texts.pop()!.matchAll(REF)) {
+      const ref = m[1];
+      const dot = ref.indexOf(".");
+      if (dot === -1) {
+        if (own[ref] !== undefined) visit(`own:${ref}`, own[ref]);
+        else visit(`environment:${ref}`, shared.environment[ref]);
+        continue;
+      }
+      const scope = scopes[ref.slice(0, dot).toLowerCase()];
+      const key = ref.slice(dot + 1);
+      if (scope) visit(`${scope}:${key}`, shared[scope][key]);
+    }
+  }
+  return reached;
+}
+
+/**
+ * The changed shared variables (by key) that a compose stack with host options in the scope passes
+ * into those options: like the stack's own variables, only admins of the Root organization change them.
+ */
+export async function hostStackSharedUse(
+  scope: { environmentId: string } | { projectId: string } | { organizationId: string },
+  before: Record<string, string>,
+  after: Record<string, string>,
+) {
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((k) => before[k] !== after[k]);
+  if (!changed.length) return [];
+  const rows = await db
+    .select({ service: schema.service, organizationId: schema.project.organizationId })
+    .from(schema.service)
+    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .where(
+      and(
+        eq(schema.service.type, "compose"),
+        "environmentId" in scope
+          ? eq(schema.service.environmentId, scope.environmentId)
+          : "projectId" in scope
+            ? eq(schema.service.projectId, scope.projectId)
+            : eq(schema.project.organizationId, scope.organizationId),
+      ),
+    );
+  const stacks = rows.filter(({ service: s }) => {
+    if (!s.compose?.hostAccess) return false;
+    try {
+      return composeSecurityIssues(s.compose.content).length > 0;
+    } catch {
+      return true;
+    }
+  });
+  const name = "environmentId" in scope ? "environment" : "projectId" in scope ? "project" : "org";
+  const used = new Set<string>();
+  for (const { service: s, organizationId } of stacks) {
+    const reach = await hostStackReachOf(s, organizationId);
+    for (const k of changed) if (reach.has(`${name}:${k}`)) used.add(k);
+  }
+  return [...used];
+}
+
+/** Shared variables a compose stack with host options passes into them change only by admins of the Root organization. */
+export async function assertHostStackShared(
+  ctx: { isInstanceAdmin: boolean; isRoot: boolean },
+  scope: { environmentId: string } | { projectId: string } | { organizationId: string },
+  data: { key: string; value: string }[],
+) {
+  if (ctx.isInstanceAdmin && ctx.isRoot) return;
+  const where =
+    "organizationId" in scope
+      ? eq(schema.sharedVar.organizationId, scope.organizationId)
+      : "projectId" in scope
+        ? eq(schema.sharedVar.projectId, scope.projectId)
+        : eq(schema.sharedVar.environmentId, scope.environmentId);
+  const stored = await db.select({ key: schema.sharedVar.key, value: schema.sharedVar.value }).from(schema.sharedVar).where(where);
+  const used = await hostStackSharedUse(scope, Object.fromEntries(stored.map((v) => [v.key, decryptOrNull(v.value) ?? ""])), Object.fromEntries(data.map((v) => [v.key, v.value])));
+  if (used.length) throw new UserError(`A compose file with host options uses ${used.slice(0, 3).join(", ")}, so only admins of the Root organization can change it.`);
+}
+
+/** hostStackReach with the stack's stored variables. */
+export async function hostStackReachOf(s: Service, organizationId: string) {
+  const [own, shared] = await Promise.all([
+    db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, s.id)),
+    db
+      .select()
+      .from(schema.sharedVar)
+      .where(or(eq(schema.sharedVar.environmentId, s.environmentId), eq(schema.sharedVar.projectId, s.projectId), eq(schema.sharedVar.organizationId, organizationId))),
+  ]);
+  const maps = { environment: {} as Record<string, string>, project: {} as Record<string, string>, org: {} as Record<string, string> };
+  for (const v of shared) (v.environmentId ? maps.environment : v.projectId ? maps.project : maps.org)[v.key] = decryptOrNull(v.value) ?? "";
+  return hostStackReach(s.compose?.content ?? "", Object.fromEntries(own.map((v) => [v.key, decryptOrNull(v.value) ?? ""])), maps);
 }

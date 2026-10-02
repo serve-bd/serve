@@ -18,8 +18,7 @@ export function DnsCheck({ host, serverIp }: { host: string; serverIp: string | 
         loading={pending}
         onClick={async () => {
           setPending(true);
-          const r = await checkDns(host);
-          setPending(false);
+          const r = await checkDns(host).finally(() => setPending(false));
           // Compare against the server this domain belongs to, not only the local one.
           if (r.ok) setResult({ host, records: r.data.records, pointsHere: serverIp ? r.data.records.includes(serverIp) : r.data.pointsHere });
         }}

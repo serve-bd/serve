@@ -10,6 +10,7 @@ import { Tab, Tabs, TabsList } from "@/components/ui/tabs";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuLinkItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
+import { useCan } from "@/components/permissions";
 import { type ComposeMount, readComposeMounts } from "@/lib/compose-mounts";
 import { type ComposeVolumeUsage, composeVolumeUsage, saveComposeMounts } from "@/server/actions/compose-storage";
 import { deleteVolumeData } from "@/server/actions/databases";
@@ -86,6 +87,8 @@ export function ComposeStorageSection({
   const add = (m: ComposeMount) => setDraft((d) => [...d, m]);
   const isSaved = (m: ComposeMount) => saved.some((s) => JSON.stringify(s) === JSON.stringify(m));
   const archive = (path: string) => `/api/services/${serviceId}/volumes/archive?container=${encodeURIComponent(current)}&path=${encodeURIComponent(path)}`;
+  // The archive holds the files as they are, secrets included: the download needs to see them.
+  const canDownload = useCan()("variables.view-secrets");
   const sizeOf = (volume: string) => usage?.volumes.find((u) => u.volume === volume);
 
   if (!parsed) {
@@ -225,7 +228,7 @@ export function ComposeStorageSection({
                           {(m.kind === "volume" || m.kind === "bind") && (
                             <MenuItem onClick={() => update(i, { readOnly: !m.readOnly })}>{m.readOnly ? "Make writable" : "Make read-only"}</MenuItem>
                           )}
-                          {m.kind === "volume" && running && isSaved(m) && (
+                          {m.kind === "volume" && running && canDownload && isSaved(m) && (
                             <MenuLinkItem render={<a href={archive(m.target)} download />}>
                               <Download /> Download as .tar
                             </MenuLinkItem>

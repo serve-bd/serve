@@ -141,12 +141,16 @@ export function defaultLayout(): DashboardLayout {
 }
 
 const idSchema = z.string().regex(/^[a-z0-9]{1,24}$/);
-// Inside Serve ("/servers") or a web address. Never `javascript:` or a protocol-relative "//host".
+// Inside Serve ("/servers") or a web address. Never `javascript:` or a protocol-relative "//host"
+// (browsers drop tabs and newlines and read "\" as "/", so "/\t/host" would be one).
 const hrefSchema = z
   .string()
   .trim()
   .max(500)
-  .refine((v) => /^\/(?![/\\])/.test(v) || /^https?:\/\/[^\s]+$/i.test(v), "Use a path like /servers or a web address starting with https://");
+  .refine(
+    (v) => !/[\\\u0000-\u001f\u007f]/.test(v) && (/^\/(?![/\\])/.test(v) || /^https?:\/\/[^\s]+$/i.test(v)),
+    "Use a path like /servers or a web address starting with https://",
+  );
 
 export const widgetSchema = z.object({
   kind: z.literal("widget"),

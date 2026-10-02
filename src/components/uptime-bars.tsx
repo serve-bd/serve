@@ -20,7 +20,7 @@ export function UptimeBars({ bars, className, height = 28 }: { bars: UptimeBar[]
       {bars.map((b) => (
         <span
           key={b.day}
-          title={`${formatDay(b.day)}: ${b.uptime === null ? "no data" : `${b.uptime.toFixed(b.uptime >= 99.95 ? 0 : 2)}% up`}`}
+          title={`${formatDay(b.day)}: ${b.uptime === null ? "no data" : `${b.uptime.toFixed(b.uptime >= 99.995 ? 0 : 2)}% up`}`}
           className={cn("min-w-[2px] flex-1 rounded-[2px] transition-opacity hover:opacity-70", tone(b.uptime))}
         />
       ))}

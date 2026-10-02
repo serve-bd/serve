@@ -136,7 +136,9 @@ export const localContainerTarget = (): ContainerTarget => ({ docker, proxyConta
 
 export async function startContainer(spec: ContainerSpec, target: ContainerTarget = localContainerTarget()) {
   const container = await target.docker.createContainer(createSpec(spec));
-  await container.start().catch((error: Error) => {
+  await container.start().catch(async (error: Error) => {
+    // A container that never started is not in the caller's list to clean up: it must not stay behind.
+    await container.remove({ force: true }).catch(() => {});
     throw gpuError(error, spec.runtime) ?? error;
   });
   return container;

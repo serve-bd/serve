@@ -19,6 +19,7 @@ import { anyServerTrustsCloudflare, refreshCloudflareRanges } from "@/server/pro
 import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
 import { recoverInterruptedDeployment, runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
+import { queueDeployment } from "@/server/services/create";
 import { issueCertificate, renewDueCertificates } from "@/server/ssl/certificates";
 import { backupFile, importBackup, restoreBackup, runBackup } from "@/server/backups";
 import { collectMetrics } from "@/server/metrics";
@@ -64,7 +65,9 @@ async function handle(job: Job, signal: AbortSignal) {
     case "service.stop":
       return stopService(p.serviceId);
     case "service.start":
-      return void (await startService(p.serviceId));
+      // Its containers were removed outside Serve: the start becomes a deployment, not a stuck "deploying".
+      if ((await startService(p.serviceId)) === "needs-deploy") await queueDeployment(p.serviceId, "manual");
+      return;
     case "service.restart":
       return restartService(p.serviceId);
     case "service.delete":
@@ -379,6 +382,27 @@ async function recover() {
   await failInterruptedInstanceBackups().catch(() => {});
   const stale = await recoverStaleJobs();
   if (stale.length) log(`Recovered ${stale.length} interrupted job(s)`);
+  // A removal cut off half way: its service row is gone, so nothing else would ever remove the rest.
+  for (const j of stale as unknown as { type: string; payload: JobPayloads["service.delete"] }[]) {
+    if (j.type === "service.delete") await enqueue("service.delete", j.payload, { concurrencyKey: `service:${j.payload.serviceId}` });
+  }
+  // Task runs cut off by the restart: failed now, so "Run now" is not blocked by a run that never ends.
+  const cutRuns = (stale as unknown as { type: string; payload: { runId?: string } }[]).filter((j) => j.type === "task.run" && j.payload?.runId).map((j) => j.payload.runId!);
+  if (cutRuns.length) {
+    await db
+      .update(schema.taskRun)
+      .set({ status: "failed", finishedAt: new Date(), output: "Interrupted: the worker restarted during this run." })
+      .where(and(inArray(schema.taskRun.id, cutRuns), eq(schema.taskRun.status, "running")));
+  }
+  // A start cut off by the restart left "deploying", which the monitor does not look at: the containers say what runs.
+  for (const j of stale as unknown as { type: string; payload: { serviceId?: string } }[]) {
+    if (j.type !== "service.start" || !j.payload?.serviceId) continue;
+    const [service] = await db.select().from(schema.service).where(eq(schema.service.id, j.payload.serviceId));
+    if (service?.status !== "deploying") continue;
+    const server = await getServer(service.serverId).catch(() => null);
+    const up = server ? await listServiceContainers(service.id, false, server.docker).catch(() => null) : null;
+    if (up) await setServiceStatus(service.id, up.length ? "running" : "crashed");
+  }
   const stuck = await db
     .update(schema.deployment)
     .set({ status: "failed", error: "The worker restarted during this deployment.", finishedAt: new Date() })

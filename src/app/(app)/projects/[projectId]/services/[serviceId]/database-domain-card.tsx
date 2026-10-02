@@ -118,7 +118,17 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
               </Field>
               <div className="flex gap-2">
                 {info.hostname && (
-                  <Button type="button" variant="ghost" size="sm" className="h-9" disabled={canManage === false} loading={save.pending && !value} onClick={() => save.run(null)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9"
+                    disabled={canManage === false}
+                    loading={save.pending && !value}
+                    onClick={async () => {
+                      if ((await save.run(null)) !== undefined) setValue("");
+                    }}
+                  >
                     Remove
                   </Button>
                 )}

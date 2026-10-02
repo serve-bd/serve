@@ -49,11 +49,18 @@ export async function saveMonitor(serviceId: string, input: z.input<typeof monit
     const values = { ...data, url: data.url || null, keyword: data.keyword || null };
     const [existing] = await db.select().from(schema.monitor).where(eq(schema.monitor.serviceId, serviceId));
     if (existing) {
-      // New settings start a fresh status; the history stays.
+      // New settings start a fresh status; the history stays. A service that is down stays down
+      // until a check passes, so its incident is resolved (and channels told) as usual.
+      const status = data.enabled ? (existing.status === "down" ? "down" : "pending") : "paused";
       await db
         .update(schema.monitor)
-        .set({ ...values, status: data.enabled ? "pending" : "paused", consecutiveFailures: 0, lastCheckedAt: null })
+        .set({ ...values, status, consecutiveFailures: 0, lastCheckedAt: null })
         .where(eq(schema.monitor.id, existing.id));
+      // A paused check is not an outage (like a service stopped on purpose).
+      if (!data.enabled) {
+        const { resolveIncident } = await import("@/server/monitoring/incidents");
+        await resolveIncident(`down:${serviceId}`);
+      }
     } else {
       await db.insert(schema.monitor).values({ id: newId(), serviceId, ...values, status: data.enabled ? "pending" : "paused" });
     }
@@ -78,7 +85,9 @@ export async function checkMonitorNow(serviceId: string) {
     if (!m) throw new UserError("Save the check first.");
     const { containerCheck, httpCheck, recordCheck } = await import("@/server/monitoring/checks");
     const result = m.kind === "container" ? await containerCheck(service) : await httpCheck(m, service.id);
-    await recordCheck(m, service, result);
+    // Only members who may deploy change the monitor's state (incidents and alerts); others just see the result.
+    // A paused check stays as it is: a test run does not open incidents for it.
+    if (ctx.can("services.deploy") && m.enabled) await recordCheck(m, service, result);
     return result;
   });
 }

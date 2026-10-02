@@ -20,6 +20,11 @@ beforeAll(async () => {
       res.writeHead(302, { location: "http://169.254.169.254/latest/meta-data/" });
       return res.end();
     }
+    if (req.url?.includes("cutoff")) {
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-length": "100" });
+      res.write("du");
+      return setTimeout(() => res.destroy(), 20);
+    }
     res.writeHead(200, { "content-type": "application/octet-stream" });
     res.end("dump");
   });
@@ -56,6 +61,13 @@ describe("S3 requests", () => {
     await s3Download(cfg(`http://127.0.0.1:${port}`, false), "x/dump", file);
     expect(fs.readFileSync(file, "utf8")).toBe("dump");
     fs.rmSync(path.dirname(file), { recursive: true, force: true });
+  });
+
+  it("leaves no file behind when a download is cut off", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "serve-s3-"));
+    await expect(s3Download(cfg(`http://127.0.0.1:${port}`, false, "cutoff"), "x/dump", path.join(dir, "dump"))).rejects.toThrow();
+    expect(fs.readdirSync(dir)).toEqual([]);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 

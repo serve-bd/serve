@@ -1,6 +1,7 @@
 /** Terminal colour codes in log lines: parsed into styled parts, or removed for search and download. */
 
-const ESCAPE = /\x1b\[([0-9;]*)([A-Za-z])/g;
+// CSI sequences (private modes like \x1b[?25l and colon colours included) and OSC ones (window titles).
+const ESCAPE = /\x1b(?:\[([0-9;:?<=>]*)([A-Za-z])|\][^\x07\x1b]*(?:\x07|\x1b\\))/g;
 
 const palette: Record<number, string> = {
   30: "#8e8e93",
@@ -24,7 +25,7 @@ const palette: Record<number, string> = {
 export type AnsiPart = { text: string; color?: string; bold?: boolean; dim?: boolean };
 
 export function hasAnsi(text: string) {
-  return text.includes("\x1b[");
+  return text.includes("\x1b");
 }
 
 export function stripAnsi(text: string) {
@@ -39,7 +40,7 @@ export function parseAnsi(text: string): AnsiPart[] {
     if (m.index > last) parts.push({ text: text.slice(last, m.index), ...style });
     last = m.index + m[0].length;
     if (m[2] !== "m") continue; // cursor movement and the like: dropped
-    const codes = m[1] === "" ? [0] : m[1].split(";").map(Number);
+    const codes = m[1] === "" ? [0] : m[1].split(";").map(Number); // colon colours give NaN: ignored
     for (let i = 0; i < codes.length; i++) {
       const c = codes[i];
       if (c === 0) style = {};

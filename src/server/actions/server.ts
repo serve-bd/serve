@@ -82,6 +82,8 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
     if (tunnelId && domain && (data.dashboardTunnelId !== undefined || data.dashboardDomain !== undefined)) {
       const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
       if (tunnel?.serverId !== "local") throw new UserError("Choose a tunnel on the server the dashboard runs on.");
+      // Cloudflare decrypts what a tunnel carries: the dashboard only goes through the Root organization's own account.
+      if (tunnel.organizationId !== before.rootOrganizationId) throw new UserError("Choose a tunnel of the Root organization.");
       const { Cloudflare } = await import("@/server/cloudflare/api");
       const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
       const zone = await cf.zoneFor(domain).catch(() => null);

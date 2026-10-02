@@ -47,9 +47,18 @@ export function ProjectSettings({
   const [groupServices, setGroupServices] = React.useState(project.groupServices);
   const initialRaw = shared.map((s) => `${s.key}=${/[\s#"'$]/.test(s.value) ? JSON.stringify(s.value) : s.value}`).join("\n");
   const [raw, setRaw] = React.useState(initialRaw);
+  // The text last saved: the server writes it back normalized, so it no longer equals initialRaw.
+  const [savedRaw, setSavedRaw] = React.useState<string | null>(null);
+  const sentRaw = React.useRef(raw);
 
   const save = useAction(() => updateProject(project.id, { name, description, color, groupServices }), { success: "Project updated" });
-  const saveVars = useAction(() => saveSharedVars(environment.id, parseEnv(raw)), { success: "Shared variables saved" });
+  const saveVars = useAction(
+    () => {
+      sentRaw.current = raw;
+      return saveSharedVars(environment.id, parseEnv(raw));
+    },
+    { success: "Shared variables saved", onSuccess: () => setSavedRaw(sentRaw.current) },
+  );
   const redeploy = useAction(() => redeployEnvironment(environment.id), { success: (d) => `Redeploying ${d.count} services` });
   const removeEnv = useAction(deleteEnvironment, { success: "Environment deleted", onSuccess: () => router.replace(`/projects/${project.id}/settings/environments`) });
   const remove = useAction(() => deleteProject(project.id), { refresh: false, success: "Project deleted", onSuccess: () => router.replace("/projects") });
@@ -143,7 +152,7 @@ export function ProjectSettings({
             <Button size="sm" variant="ghost" onClick={() => redeploy.run()} loading={redeploy.pending} disabled={!canDeploy}>
               Redeploy services
             </Button>
-            <Button size="sm" variant="primary" onClick={() => saveVars.run()} loading={saveVars.pending} disabled={raw === initialRaw || !canEditShared}>
+            <Button size="sm" variant="primary" onClick={() => saveVars.run()} loading={saveVars.pending} disabled={raw === initialRaw || raw === savedRaw || !canEditShared}>
               Save variables
             </Button>
           </CardFooter>

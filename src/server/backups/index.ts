@@ -428,7 +428,8 @@ async function applyRetention(serviceId: string, target: string | null, keepLoca
     .from(schema.backup)
     .where(and(eq(schema.backup.serviceId, serviceId), eq(schema.backup.status, "success"), target ? eq(schema.backup.target, target) : isNull(schema.backup.target)))
     .orderBy(desc(schema.backup.createdAt));
-  const own = rows.filter((b) => b.trigger !== "import" && b.id !== protect);
+  // A backup queued for a restore (marked running when queued) waits for it, after this job.
+  const own = rows.filter((b) => b.trigger !== "import" && b.id !== protect && b.restoreStatus !== "running");
   const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, serviceId));
   for (const [i, b] of own.entries()) {
     if (!b.filename) continue;
@@ -464,11 +465,15 @@ export async function openS3Backup(b: typeof schema.backup.$inferSelect) {
   return s3Stream(s3, s3Key(s3.prefix, svc.slug, b.filename));
 }
 
-export async function deleteBackupFiles(b: typeof schema.backup.$inferSelect, s3Id?: string | null) {
+/**
+ * Removes a backup's file and its S3 copy. Only `destination` says where a copy is: a local backup
+ * (an import, a failed upload, a copy retention removed) has none, and an object of the same name
+ * in the service's bucket is not its own. `_s3Id` (the service's destination) is not used.
+ */
+export async function deleteBackupFiles(b: typeof schema.backup.$inferSelect, _s3Id?: string | null) {
   if (!b.filename) return;
   await fs.promises.rm(backupFile(b.serviceId, b.filename), { force: true });
-  const destination = b.destination !== "local" ? b.destination : s3Id;
-  const s3 = await s3For(destination);
+  const s3 = b.destination !== "local" ? await s3For(b.destination) : null;
   if (s3) {
     const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, b.serviceId));
     if (svc) await s3Delete(s3, s3Key(s3.prefix, svc.slug, b.filename)).catch(() => {});
@@ -642,7 +647,7 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
         .update(schema.backup)
         .set({ status: "failed", error: (error as Error).message.slice(0, 2000), finishedAt: new Date() })
         .where(eq(schema.backup.id, backupId));
-    }
+    } else await restoreNotRun(backupId, `Restore failed: ${(error as Error).message.slice(0, 2000)}`);
     throw error;
   }
 
@@ -653,9 +658,21 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
     try {
       await runBackup(id, backupId);
     } catch (e) {
-      await logLine(backupId, `The safety backup failed, so nothing was restored: ${(e as Error).message}`);
+      await restoreNotRun(backupId, `The safety backup failed, so nothing was restored: ${(e as Error).message}`);
       throw new Error("The safety backup failed, so nothing was restored.");
     }
   }
   await restoreBackup(backupId, { users: opts.users });
+}
+
+/**
+ * A restore that stopped before restoreBackup ran. A restore with a safety backup comes here, and
+ * it was marked running when it was queued: it must not stay "restoring" until the worker restarts.
+ */
+async function restoreNotRun(backupId: string, line: string) {
+  await db
+    .update(schema.backup)
+    .set({ restoreStatus: "failed", restoredAt: new Date() })
+    .where(and(eq(schema.backup.id, backupId), eq(schema.backup.restoreStatus, "running")));
+  await logLine(backupId, line);
 }

@@ -433,29 +433,35 @@ function indent(lines: string[], depth: number) {
     .join("\n");
 }
 
-function proxyLocation(target: string, o: SiteOptions | null | undefined, tls: boolean, errorPages = true) {
-  const inner: string[] = [];
+function proxyLocation(target: string, o: SiteOptions | null | undefined, tls: boolean, errorPages = true, guard: string[] = []) {
+  // nginx does not pass `if`, `set`, `return` or `limit_except` on to a nested location: the
+  // static files location repeats these checks.
+  const access: string[] = [...guard];
   // Basic auth lives in the location so the ACME challenge and error pages stay open.
   if (o?.authFile) {
     const auth = [`auth_basic "Restricted";`, `auth_basic_user_file ${o.authFile};`];
     // CORS preflights carry no credentials; let OPTIONS through.
-    if (o.corsOrigins?.length) inner.push("limit_except OPTIONS {", ...auth.map((l) => `    ${l}`), "}");
-    else inner.push(...auth);
+    if (o.corsOrigins?.length) access.push("limit_except OPTIONS {", ...auth.map((l) => `    ${l}`), "}");
+    else access.push(...auth);
   }
   if (o?.corsOrigins?.length) {
-    if (o.corsOrigins.includes("*")) inner.push(`set $serve_cors "*";`);
+    if (o.corsOrigins.includes("*")) access.push(`set $serve_cors "*";`);
     else {
-      inner.push(`set $serve_cors "";`);
-      inner.push(`if ($http_origin ~* "^(${o.corsOrigins.map(regexLiteral).join("|")})$") {`, "    set $serve_cors $http_origin;", "}");
+      access.push(`set $serve_cors "";`);
+      access.push(`if ($http_origin ~* "^(${o.corsOrigins.map(regexLiteral).join("|")})$") {`, "    set $serve_cors $http_origin;", "}");
     }
-    inner.push("if ($request_method = OPTIONS) {", "    return 204;", "}");
+    access.push("if ($request_method = OPTIONS) {", "    return 204;", "}");
   }
+  const inner = [...access];
   const headers = responseHeaders(o, tls);
   inner.push(...proxyDirectives(target, o), ...headers);
   if (o?.cacheStatic) {
     inner.push(
       `location ~* \\.(${STATIC_FILES})$ {`,
-      indent([...proxyDirectives(target, o), "proxy_hide_header Cache-Control;", ...responseHeaders(o, tls, [`add_header Cache-Control "public, max-age=604800" always;`])], 1),
+      indent(
+        [...access, ...proxyDirectives(target, o), "proxy_hide_header Cache-Control;", ...responseHeaders(o, tls, [`add_header Cache-Control "public, max-age=604800" always;`])],
+        1,
+      ),
       "}",
     );
   }
@@ -510,10 +516,7 @@ function maintenanceBody(s: SiteServer, m: NonNullable<SiteServer["maintenance"]
     }`;
   const target = s.upstream ?? s.directTarget;
   if (!m.geoVar || !target) return `    location / {\n        return 503;\n    }\n\n${page}`;
-  const app = proxyLocation(target, s.options, !!s.tls, false).replace(
-    "    location / {\n",
-    `    location / {\n        if ($${m.geoVar} = 0) {\n            return 503;\n        }\n`,
-  );
+  const app = proxyLocation(target, s.options, !!s.tls, false, [`if ($${m.geoVar} = 0) {`, "    return 503;", "}"]);
   return `${app}\n\n${page}`;
 }
 

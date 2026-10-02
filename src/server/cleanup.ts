@@ -135,8 +135,20 @@ async function doCleanup(trigger: Trigger, serverId: string): Promise<CleanupRun
   }
 
   const result: CleanupRun = { at: new Date().toISOString(), trigger, reclaimed, durationMs: Date.now() - started, error, serverId, serverName };
-  const latest = await getSettings();
-  await updateSettings({ lastCleanup: result, cleanupHistory: [result, ...latest.cleanupHistory].slice(0, 30) });
+  await updateSettings({ lastCleanup: result });
+  // Prepended in one statement: runs on several servers end together, and a lost entry repeats a run.
+  // The newest 30 stay, and also each server's last scheduled and low-disk run, which the schedule reads.
+  const entry = JSON.stringify([result]);
+  await db.execute(dsql`
+    INSERT INTO setting (key, value, updated_at) VALUES ('cleanupHistory', ${entry}::jsonb, now())
+    ON CONFLICT (key) DO UPDATE SET value = (
+      SELECT coalesce(jsonb_agg(e ORDER BY i), '[]'::jsonb) FROM (
+        SELECT e, i, row_number() OVER (PARTITION BY coalesce(e->>'serverId', 'local'), e->>'trigger' ORDER BY i) AS r
+        FROM jsonb_array_elements(${entry}::jsonb || setting.value) WITH ORDINALITY AS t(e, i)
+      ) runs
+      WHERE i <= 30 OR (r = 1 AND e->>'trigger' IN ('schedule', 'disk'))
+    ), updated_at = now()
+  `);
   return result;
 }
 

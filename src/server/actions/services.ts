@@ -5,6 +5,7 @@ import { z } from "zod";
 import { PASSWORD_PATTERN } from "@/server/databases/password";
 import { normalizeTrustedRanges } from "@/lib/trusted-proxies";
 import { act, UserError } from "@/server/action";
+import { cannotMessage } from "@/lib/permissions";
 import { requirePermission } from "@/server/auth";
 import { db, schema, sql } from "@/server/db";
 import { encrypt, randomPassword } from "@/server/crypto";
@@ -24,7 +25,6 @@ import { ensureCertificateFor } from "@/server/ssl/certificates";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { getSettings } from "@/server/settings";
 import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
-import { composeVariables } from "@/lib/compose-vars";
 import { teardownServices } from "@/server/services/teardown";
 import { composeNameClashes, composeSecurityIssues, safeRedirectUrl } from "@/server/security";
 import type { OrgContext } from "@/server/auth";
@@ -678,6 +678,8 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         if (!ctx.can("domains.manage")) throw new UserError("You need permission to manage domains to set the preview URL.");
         const problem = previewTemplateProblem(template);
         if (problem) throw new UserError(problem);
+        // Like domains (hostnameSchema), with room for a pull request number of seven digits.
+        if (template.replace("{pr}", "1234567").length > 100) throw new UserError("Use a preview URL of at most 100 characters.");
         // Every preview host sits under one wildcard: check it like a wildcard domain.
         const wildcard = `*.${template.slice(template.indexOf(".") + 1)}`;
         await assertNotDashboardHost(ctx, wildcard);
@@ -918,7 +920,10 @@ export async function cancelDeployment(deploymentId: string) {
         .set({ status: "cancelled", finishedAt: new Date(), logs: "Cancelled before it started.\n" })
         .where(and(eq(schema.deployment.id, deploymentId), eq(schema.deployment.status, "queued")))
         .returning({ id: schema.deployment.id });
-      if (cancelled) return null;
+      if (cancelled) {
+        await settleCancelledStatus(dep.serviceId);
+        return null;
+      }
       // The worker picked it up in the meantime: cancel the running deployment instead.
       const [now] = await db.select({ status: schema.deployment.status }).from(schema.deployment).where(eq(schema.deployment.id, deploymentId));
       dep.status = now?.status ?? dep.status;
@@ -930,6 +935,38 @@ export async function cancelDeployment(deploymentId: string) {
     }
     return null;
   });
+}
+
+/** A move sets "deploying" before it queues its deployment: cancelling that deployment must not leave it so. */
+async function settleCancelledStatus(serviceId: string) {
+  const [service] = await db.select().from(schema.service).where(eq(schema.service.id, serviceId));
+  if (service?.status !== "deploying") return;
+  const [active] = await db
+    .select({ id: schema.deployment.id })
+    .from(schema.deployment)
+    .where(and(eq(schema.deployment.serviceId, serviceId), inArray(schema.deployment.status, ["queued", "building", "deploying"])))
+    .limit(1);
+  // A queued start or restart job sets its own status when it runs.
+  const [job] = await db
+    .select({ id: schema.job.id })
+    .from(schema.job)
+    .where(
+      and(
+        eq(schema.job.concurrencyKey, `service:${serviceId}`),
+        inArray(schema.job.status, ["pending", "running"]),
+        inArray(schema.job.type, ["service.start", "service.restart"]),
+      ),
+    )
+    .limit(1);
+  if (active || job) return;
+  const { getServer } = await import("@/server/servers/context");
+  const { listServiceContainers } = await import("@/server/docker/client");
+  const server = await getServer(service.serverId).catch(() => null);
+  const running = server ? (await listServiceContainers(serviceId, false, server.docker).catch(() => [])).length > 0 : false;
+  await db
+    .update(schema.service)
+    .set({ status: running ? "running" : "idle" })
+    .where(and(eq(schema.service.id, serviceId), eq(schema.service.status, "deploying")));
 }
 
 export async function serviceControl(serviceId: string, command: "stop" | "start" | "restart") {
@@ -1007,7 +1044,16 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
     // Old containers go first (same concurrency key as deployments, so it runs before the new deploy).
     await enqueue(
       "service.delete",
-      { serviceId, slug: service.slug, type: service.type, removeVolumes: false, environmentId: service.environmentId, serverId: service.serverId, keepFiles: true },
+      {
+        serviceId,
+        slug: service.slug,
+        type: service.type,
+        removeVolumes: false,
+        environmentId: service.environmentId,
+        serverId: service.serverId,
+        keepFiles: true,
+        keepServerFiles: true,
+      },
       { concurrencyKey: `service:${serviceId}` },
     );
     // Stop routing on the old server right away; the delete job also cleans it up.
@@ -1136,6 +1182,8 @@ async function writeEnvVars(serviceId: string, vars: VarInput[]) {
 export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy: boolean) {
   return act(async () => {
     const ctx = await requirePermission("variables.edit");
+    // The redeploy is a deployment: it needs that permission too, checked before anything is saved.
+    if (redeploy && !ctx.can("services.deploy")) throw new UserError(cannotMessage("services.deploy"));
     const vars = varsSchema.parse(input);
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (hasHostAccess(service.runtime)) assertHostAccess(ctx, "Changing the variables of a service that has host-level access");
@@ -1152,10 +1200,12 @@ export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy
     // A compose file a Root admin allowed host options for: its variables can point those options
     // anywhere (a bind source of ${DATA_DIR}), so only Root admins change the ones it uses.
     if (service.compose?.hostAccess && !(ctx.isInstanceAdmin && ctx.isRoot) && composeSecurityIssues(service.compose.content).length) {
-      const used = new Set(composeVariables(service.compose.content).map((v) => v.name));
+      // Also the ones they reference: DATA_DIR=${{BASE}} changes with BASE.
+      const { hostStackReachOf } = await import("@/server/services/variables");
+      const used = [...(await hostStackReachOf(service, ctx.org.id))].filter((k) => k.startsWith("own:")).map((k) => k.slice(4));
       const before = new Map(stored.map((v) => [v.key, decryptOrNull(v.value) ?? ""]));
       const after = new Map(next.map((v) => [v.key, v.value]));
-      const changed = [...used].filter((k) => before.get(k) !== after.get(k));
+      const changed = used.filter((k) => before.get(k) !== after.get(k));
       if (changed.length) throw new UserError(`This compose file uses host options, so only admins of the Root organization can change ${changed.slice(0, 3).join(", ")}.`);
     }
     await writeEnvVars(serviceId, next);
@@ -1172,6 +1222,8 @@ export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy
 export async function saveReplicaVars(serviceId: string, replica: number, input: { key: string; value: string; keep?: string }[], redeploy: boolean) {
   return act(async () => {
     const ctx = await requirePermission("variables.edit");
+    // The redeploy is a deployment: it needs that permission too, checked before anything is saved.
+    if (redeploy && !ctx.can("services.deploy")) throw new UserError(cannotMessage("services.deploy"));
     const vars = varsSchema.parse(input);
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "app") throw new UserError("Only apps have replicas.");
@@ -1260,7 +1312,13 @@ const hostnameSchema = z
   .trim()
   .toLowerCase()
   .transform((h) => h.replace(/^https?:\/\//, "").replace(/\/.*$/, ""))
-  .pipe(z.string().regex(/^(?=.{1,253}$)(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/, "Enter a valid domain like app.example.com"));
+  // The proxy's server name table holds names up to about 110 characters: a longer one fails its whole config.
+  .pipe(
+    z
+      .string()
+      .max(100, "Use a domain of at most 100 characters.")
+      .regex(/^(?=.{1,253}$)(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/, "Enter a valid domain like app.example.com"),
+  );
 
 const domainSchema = z.object({
   hostname: hostnameSchema,

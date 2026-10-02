@@ -129,9 +129,13 @@ export async function sendMessage(kind: string, config: Record<string, string>, 
   if (plan.kind === "email") {
     if (!plan.to.length) throw new Error("No email addresses to send to.");
     const { sendNotificationEmail } = await import("@/server/email/messages");
-    const results = await Promise.allSettled(plan.to.map((to) => sendNotificationEmail(to, { title: m.title, body: m.body, url: m.url ?? undefined, ok: m.ok })));
+    const to = plan.to.filter((a) => !m.emailedTo?.includes(a));
+    const results = await Promise.allSettled(to.map((a) => sendNotificationEmail(a, { title: m.title, body: m.body, url: m.url ?? undefined, ok: m.ok })));
     const failed = results.find((r) => r.status === "rejected");
-    if (failed) throw new Error(`Email failed: ${(failed.reason as Error).message}`);
+    if (failed) {
+      const sent = to.filter((_, i) => results[i].status === "fulfilled");
+      throw Object.assign(new Error(`Email failed: ${(failed.reason as Error).message}`), { emailedTo: [...(m.emailedTo ?? []), ...sent] });
+    }
     return {};
   }
   for (const r of plan.requests) {
@@ -188,9 +192,12 @@ export async function attemptDelivery(deliveryId: string, opts: { scheduleRetry?
     const error = (e as Error).message.slice(0, 1000) || "Unknown error";
     const delay = opts.scheduleRetry === false ? null : retryDelay(attempts);
     const nextAttemptAt = delay ? new Date(Date.now() + delay) : null;
+    // Addresses this attempt reached are not mailed again by the retry.
+    const emailedTo = (e as { emailedTo?: string[] }).emailedTo;
+    const message = emailedTo ? { ...row.d.message, emailedTo } : row.d.message;
     const [updated] = await db
       .update(schema.notificationDelivery)
-      .set({ status: "failed", error, attempts, nextAttemptAt })
+      .set({ status: "failed", error, attempts, nextAttemptAt, message })
       .where(eq(schema.notificationDelivery.id, deliveryId))
       .returning();
     await touchChannel(row.c.id, "failed", error);
@@ -260,7 +267,8 @@ async function deliverToChannel(channel: Channel, base: OutgoingMessage) {
   const m = { ...applyTemplate(channel, base), id: newId() };
   const groupKey = groupKeyOf(m);
   const throttled = channel.throttleMinutes > 0 && m.status !== "recovered";
-  const since = throttled ? throttleSince(m, await lastSent(channel.id, groupKey), m.dedupKey ? await lastOfProblem(channel.id, m.dedupKey) : null) : null;
+  const previous = throttled ? await lastSent(channel.id, groupKey) : null;
+  const since = throttled ? throttleSince(m, previous, m.dedupKey ? await lastOfProblem(channel.id, m.dedupKey) : null) : null;
   const decision = decide({
     quietHours: providerInfo(channel.kind)?.alerting ? null : channel.quietHours,
     severity: m.severity,
@@ -268,10 +276,15 @@ async function deliverToChannel(channel: Channel, base: OutgoingMessage) {
     lastSentAt: since,
   });
   if (decision === "hold") return record(channel, m, "held");
-  if (decision === "suppress") return record(channel, m, "suppressed", { error: "Quiet hours" });
+  if (decision === "suppress") {
+    // A recovery of an alert the channel got is kept for after quiet hours, or the channel would show it down.
+    const told = m.status === "recovered" && m.dedupKey ? await lastOfProblem(channel.id, m.dedupKey) : null;
+    if (told && told !== "recovered") return record(channel, m, "held");
+    return record(channel, m, "suppressed", { error: "Quiet hours" });
+  }
   if (decision === "group") return record(channel, m, "grouped");
-  // Repeats grouped since the last message are counted in this one.
-  if (channel.throttleMinutes > 0 && m.status !== "recovered") {
+  // Repeats grouped since the last message are counted in this one (not those an earlier message counted).
+  if (throttled && previous) {
     const [{ n }] = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(schema.notificationDelivery)
@@ -280,7 +293,7 @@ async function deliverToChannel(channel: Channel, base: OutgoingMessage) {
           eq(schema.notificationDelivery.channelId, channel.id),
           eq(schema.notificationDelivery.groupKey, groupKey),
           eq(schema.notificationDelivery.status, "grouped"),
-          gt(schema.notificationDelivery.createdAt, sql`now() - make_interval(mins => ${channel.throttleMinutes * 2})`),
+          gt(schema.notificationDelivery.createdAt, previous),
         ),
       );
     if (n > 0) m.body = `${m.body}\n\n${n} similar notification${n === 1 ? " was" : "s were"} grouped into this one.`.trim();

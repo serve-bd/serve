@@ -95,7 +95,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
           : null
       }
       templates={catalog}
-      canManageTemplates={ctx.isAdmin}
+      canManageTemplates={ctx.can("integrations.manage")}
       engines={engineList.map((e) => ({
         engine: e.engine,
         label: e.label,

@@ -286,8 +286,7 @@ function CustomConfigCard({ initial }: { initial: string }) {
           e.preventDefault();
           setError(null);
           setPending(true);
-          const res = await saveProxyCustomConfig(value);
-          setPending(false);
+          const res = await saveProxyCustomConfig(value).finally(() => setPending(false));
           if (!res.ok) {
             // nginx errors are long: show them inline instead of a toast.
             setError(res.error);

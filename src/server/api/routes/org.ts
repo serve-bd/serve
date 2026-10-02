@@ -6,7 +6,7 @@ import { organizationRoles } from "@/server/permissions";
 import { getSetting } from "@/server/settings";
 import { PERMISSION_INFO, PERMISSIONS } from "@/lib/permissions";
 import { iso, page } from "../data";
-import { type ApiRoute, route, unwrap } from "../router";
+import { ApiError, type ApiRoute, route, unwrap } from "../router";
 
 export const orgRoutes: ApiRoute[] = [
   route({
@@ -34,6 +34,8 @@ export const orgRoutes: ApiRoute[] = [
           .from(schema.apiToken)
           .where(eq(schema.apiToken.id, auth.tokenId)),
       ]);
+      // Deleted while this request ran.
+      if (!token) throw new ApiError(401, "This token no longer exists.");
       return {
         token: { id: token.id, name: token.name, granted: token.scopes, expiresAt: iso(token.expiresAt), createdAt: iso(token.createdAt) },
         user,

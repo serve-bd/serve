@@ -156,8 +156,9 @@ export function CopyField({ value, secret, className }: { value: string; secret?
 export function TimeAgo({ date, className }: { date: Date | string | number | null | undefined; className?: string }) {
   const now = useNow();
   const mounted = now !== null;
-  if (!date) return <span className={className}>—</span>;
-  const d = new Date(date);
+  const d = date ? new Date(date) : null;
+  // An unreadable date shows as unknown instead of throwing in toISOString.
+  if (!d || Number.isNaN(d.getTime())) return <span className={className}>—</span>;
   return (
     <time dateTime={d.toISOString()} title={mounted ? d.toLocaleString() : undefined} className={className} suppressHydrationWarning>
       {mounted ? timeAgo(d) : ""}

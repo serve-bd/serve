@@ -135,6 +135,8 @@ export async function saveSharedVars(environmentId: string, vars: z.input<typeof
       if (keys.has(v.key)) throw new UserError(`${v.key} is defined twice.`);
       keys.add(v.key);
     }
+    const { assertHostStackShared } = await import("@/server/services/variables");
+    await assertHostStackShared(ctx, { environmentId }, data);
     await db.transaction(async (tx) => {
       await tx.delete(schema.sharedVar).where(eq(schema.sharedVar.environmentId, environmentId));
       if (data.length) {

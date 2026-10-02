@@ -95,6 +95,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
         hasAcme={!!settings.acmeEmail}
         serverIp={addressing.publicIp}
         tunnels={tunnels}
+        isAdmin={ctx.isAdmin}
         serverName={server.name}
         canGenerate={!!addressing.wildcardDomain || (addressing.sslipFallback && !!addressing.publicIp)}
         certificates={certs.map(({ certificate: c, serverName }) => ({

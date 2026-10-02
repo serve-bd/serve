@@ -11,6 +11,7 @@ import { Input, InputGroup } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useAction } from "@/hooks/use-action";
+import { useNow } from "@/hooks/use-client";
 import { updateService } from "@/server/actions/services";
 import { saveComposeBackup } from "@/server/actions/compose-backups";
 import { cn } from "@/lib/utils";
@@ -49,9 +50,9 @@ function fromCron(cron: string | null): Plan {
   return { ...base, mode: "custom" };
 }
 
-function nextRuns(cron: string, tz: string, count = 3): Date[] | null {
+function nextRuns(cron: string, tz: string, count = 3, from?: number): Date[] | null {
   try {
-    const it = CronExpressionParser.parse(cron, { tz });
+    const it = CronExpressionParser.parse(cron, { tz, currentDate: from });
     return Array.from({ length: count }, () => it.next().toDate());
   } catch {
     return null;
@@ -87,12 +88,15 @@ export function ScheduleCard(props: {
   const [retention, setRetention] = React.useState(initial.retention);
   const [retentionS3, setRetentionS3] = React.useState(initial.retentionS3);
   const [dest, setDest] = React.useState(initial.dest);
-  const [saved, setSaved] = React.useState(() => JSON.stringify(initial));
+  // The plan only counts while the schedule is on: turned off, the saved schedule has none.
+  const [saved, setSaved] = React.useState(() => JSON.stringify({ ...initial, plan: initial.enabled ? initial.plan : null }));
 
   const cron = toCron(plan);
-  const runs = enabled ? nextRuns(cron, props.timezone) : null;
-  const invalid = enabled && (!cron || !runs);
-  const snapshot = JSON.stringify({ enabled, plan: enabled ? plan : initial.plan, retention, retentionS3, dest });
+  // The run times wait for the browser clock, so the server render matches the first client one.
+  const now = useNow();
+  const runs = enabled && now ? nextRuns(cron, props.timezone, 3, now) : null;
+  const invalid = enabled && (!cron || !nextRuns(cron, props.timezone, 1));
+  const snapshot = JSON.stringify({ enabled, plan: enabled ? plan : null, retention, retentionS3, dest });
   const dirty = snapshot !== saved;
   const set = (patch: Partial<Plan>) => setPlan((p) => ({ ...p, ...patch }));
 

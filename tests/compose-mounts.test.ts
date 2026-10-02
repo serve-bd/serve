@@ -88,6 +88,40 @@ describe("compose storage", () => {
     expect(readComposeMounts(out)[0].mounts).toEqual([{ kind: "bind", source: "/etc/ca.pem", target: "/ca.pem", readOnly: true, hostType: "file" }]);
   });
 
+  it("keeps what the page cannot edit as written: defaults, mount options, extra keys, interpolation", () => {
+    const src = `services:
+  app:
+    image: x
+    volumes:
+      - \${DATA_DIR:-./data}:/data
+      - data:/d:z
+      - type: volume
+        source: keep
+        target: /k
+        volume:
+          nocopy: true
+    configs:
+      - source: c
+        target: /c
+configs:
+  c:
+    content: host=\${DOMAIN}
+volumes:
+  data:
+  keep:
+`;
+    const [app] = readComposeMounts(src);
+    expect(app.mounts.slice(0, 3).map((m) => [m.kind, m.target])).toEqual([
+      ["other", "/data"],
+      ["other", "/d"],
+      ["other", "/k"],
+    ]);
+    const doc = YAML.parse(writeComposeMounts(src, "app", app.mounts));
+    expect(doc.services.app.volumes.slice(0, 2)).toEqual(["${DATA_DIR:-./data}:/data", "data:/d:z"]);
+    expect(Object.keys(doc.volumes)).toEqual(["data", "keep"]);
+    expect(doc.configs.c.content).toBe("host=${DOMAIN}");
+  });
+
   it("names volumes like Docker Compose", () => {
     expect(composeVolumeName(file, "mm-abc123", "config")).toBe("mm-abc123_config");
     expect(composeVolumeName("services: {}\nvolumes:\n  d:\n    name: shared\n", "p", "d")).toBe("shared");

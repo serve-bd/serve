@@ -54,7 +54,8 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
     },
     ...(envKeys.length ? [{ name: "environment", label: "Environment variables", keys: envKeys }] : []),
     ...siblings
-      .filter((s) => s.id !== service.id)
+      // Previews come and go with their pull request: nothing should reference them.
+      .filter((s) => s.id !== service.id && !s.parentServiceId)
       .map((s) => {
         // Names two services share do not resolve; point at the unique slug instead.
         const shared = siblings.filter((x) => referenceName(x.name) === referenceName(s.name)).length > 1;

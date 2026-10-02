@@ -118,11 +118,15 @@ const clickhouseScripts = {
     const stores = "(engine LIKE '%MergeTree' OR engine IN ('Log', 'TinyLog', 'StripeLog', 'Memory'))";
     return [
       "set -e",
+      // dash (Debian images) exits on an unknown set option, even with || true: test in a subshell first.
+      "(set -o pipefail) 2>/dev/null && set -o pipefail",
       `ch() { ${ch} "$@"; }`,
       `ch -q ${q(`DROP DATABASE IF EXISTS \`${b.database}\` SYNC`)}`,
       `ch -q ${q(`CREATE DATABASE \`${b.database}\``)}`,
       // Tables first, copied with their rows; then plain views, pointed at the branch's tables.
       `ch -q ${q(`SELECT name FROM system.tables WHERE database = ${literal(from)} AND NOT is_temporary AND name NOT LIKE '.inner%' AND ${stores} ORDER BY name FORMAT TSVRaw`)} | while IFS= read -r t; do
+  # A backquoted name ends at a backquote: escape it (and backslashes) in the table's name.
+  t=$(printf '%s' "$t" | sed 's/[\\\\\`]/\\\\&/g')
   ch -q "CREATE TABLE \\\`${b.database}\\\`.\\\`$t\\\` AS \\\`${from}\\\`.\\\`$t\\\`"
   ch -q "INSERT INTO \\\`${b.database}\\\`.\\\`$t\\\` SELECT * FROM \\\`${from}\\\`.\\\`$t\\\`"
 done`,

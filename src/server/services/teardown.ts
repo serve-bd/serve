@@ -24,7 +24,11 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
       .from(schema.deployment)
       .where(and(eq(schema.deployment.serviceId, s.id), inArray(schema.deployment.status, ["queued", "building", "deploying"])));
     for (const d of active) {
-      if (d.status === "queued") await db.update(schema.deployment).set({ status: "cancelled" }).where(eq(schema.deployment.id, d.id));
+      if (d.status === "queued")
+        await db
+          .update(schema.deployment)
+          .set({ status: "cancelled", finishedAt: new Date() })
+          .where(and(eq(schema.deployment.id, d.id), eq(schema.deployment.status, "queued")));
       else await sql.notify(CANCEL_CHANNEL, d.id);
     }
   }

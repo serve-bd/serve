@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { instanceAdminPage } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
@@ -10,14 +10,15 @@ export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   await instanceAdminPage();
-  const [s, [local], tunnels] = await Promise.all([
-    getSettings(),
+  const s = await getSettings();
+  const [[local], tunnels] = await Promise.all([
     db.select({ publicIp: schema.server.publicIp }).from(schema.server).where(eq(schema.server.id, LOCAL_SERVER_ID)),
     db
       .select({ id: schema.cloudflareTunnel.id, account: schema.cloudflareAccount.name, status: schema.cloudflareTunnel.status })
       .from(schema.cloudflareTunnel)
       .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
-      .where(eq(schema.cloudflareTunnel.serverId, LOCAL_SERVER_ID)),
+      // Only the Root organization's tunnels may carry the dashboard (saving checks it too).
+      .where(and(eq(schema.cloudflareTunnel.serverId, LOCAL_SERVER_ID), eq(schema.cloudflareTunnel.organizationId, s.rootOrganizationId ?? ""))),
   ]);
   // A tunnel id whose tunnel is gone means "waiting for a tunnel", not a usable choice.
   const tunnelId = s.dashboardTunnelId && tunnels.some((t) => t.id === s.dashboardTunnelId) ? s.dashboardTunnelId : null;

@@ -10,6 +10,7 @@ import { decryptOrNull, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
 import { projectInOrg } from "@/server/services/access";
+import { assertHostStackShared } from "@/server/services/variables";
 
 const varsSchema = z.array(
   z.object({
@@ -45,7 +46,9 @@ async function replaceVars(scope: Scope, data: { key: string; value: string }[])
 export async function saveOrgSharedVars(vars: z.input<typeof varsSchema>) {
   return act(async () => {
     const ctx = await requireOrgAdmin();
-    await replaceVars({ organizationId: ctx.org.id }, parseVars(vars));
+    const data = parseVars(vars);
+    await assertHostStackShared(ctx, { organizationId: ctx.org.id }, data);
+    await replaceVars({ organizationId: ctx.org.id }, data);
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "variables.shared", message: "Updated organization shared variables" });
     return null;
   });
@@ -58,7 +61,9 @@ export async function saveProjectSharedVars(projectId: string, vars: z.input<typ
     // The values are replaced as a whole, so only roles that can see them may write them.
     if (!ctx.can("variables.view-secrets")) throw new UserError(cannotMessage("variables.view-secrets"));
     const project = await projectInOrg(projectId, ctx.org.id);
-    await replaceVars({ projectId }, parseVars(vars));
+    const data = parseVars(vars);
+    await assertHostStackShared(ctx, { projectId }, data);
+    await replaceVars({ projectId }, data);
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, projectId, action: "variables.shared", message: `Updated shared variables of ${project.name}` });
     return null;
   });
@@ -73,7 +78,10 @@ export async function redeployReferencing(scope: "org" | { projectId: string }) 
     const ctx = await requirePermission("services.deploy");
     const projectIds =
       scope === "org"
-        ? (await db.select({ id: schema.project.id }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id))).map((p) => p.id)
+        ? (await db.select({ id: schema.project.id }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id)))
+            .map((p) => p.id)
+            // A member limited to some projects redeploys only those.
+            .filter((id) => ctx.canAccessProject(id))
         : [(await projectInOrg(scope.projectId, ctx.org.id)).id];
     if (!projectIds.length) return { count: 0 };
     const services = await db

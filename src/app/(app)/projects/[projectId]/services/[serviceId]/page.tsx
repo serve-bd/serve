@@ -99,7 +99,9 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
           publicAddress={published?.label ?? null}
           name={service.name}
           hideSecrets={hideSecrets}
-          canManage={ctx.can("services.manage")}
+          // Public access is saved and then applied with a restart, which needs deploy rights too.
+          canManage={ctx.can("services.manage") && ctx.can("services.deploy")}
+          canManageDomain={ctx.can("domains.manage")}
           uptime={<UptimeCard summary={monitoring} settingsHref={`/projects/${projectId}/services/${service.id}/settings/monitoring`} />}
           uptimeInSide={!monitoring.monitor}
           branches={branches}

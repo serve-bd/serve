@@ -14,6 +14,8 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/webhook
   const [cred] = await db.select().from(schema.gitCredential).where(eq(schema.gitCredential.id, credentialId));
   if (cred?.provider !== "github-app") return NextResponse.json({ error: "Unknown app" }, { status: 404 });
   const secret = readAppSecret(cred);
+  // An app whose setup never finished has no webhook secret: nothing can be signed for it.
+  if (!secret.webhookSecret) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   const signature = request.headers.get("x-hub-signature-256") ?? "";
   const expected = `sha256=${crypto.createHmac("sha256", secret.webhookSecret).update(raw).digest("hex")}`;
   if (!timingSafeEqual(signature, expected)) return NextResponse.json({ error: "Invalid signature" }, { status: 401 });

@@ -100,7 +100,7 @@ export function traefikBaseDynamic(opts: { pagesUrl: string; resolver: boolean; 
 
 function hostRule(h: HostModel, deny: string[] | undefined, tunnelSubnets?: string[]) {
   // Traefik's Host() takes no wildcard: those become a regular expression.
-  const host = h.hostname.startsWith("*.") ? `HostRegexp(\`^[^.]+\\.${h.hostname.slice(2).replace(/\./g, "\\\\.")}$\`)` : `Host(\`${h.hostname}\`)`;
+  const host = h.hostname.startsWith("*.") ? `HostRegexp(\`^[^.]+\\.${h.hostname.slice(2).replace(/\./g, "\\.")}$\`)` : `Host(\`${h.hostname}\`)`;
   const parts = [host];
   // A tunnel host reached on the server's own ports would skip Cloudflare: only the tunnel network matches.
   if (tunnelSubnets?.length) parts.push(`(${tunnelSubnets.map((s) => `ClientIP(\`${s}\`)`).join(" || ")})`);
@@ -109,7 +109,10 @@ function hostRule(h: HostModel, deny: string[] | undefined, tunnelSubnets?: stri
   return parts.join(" && ");
 }
 
-export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; trusted: string[]; defaults?: Required<ProxyDefaults>; tunnelSubnets?: string[] }) {
+export function renderTraefikSite(
+  site: SiteModel,
+  opts: { resolver: boolean; trusted: string[]; defaults?: Required<ProxyDefaults>; tunnelSubnets?: string[]; dnsChallenge?: boolean },
+) {
   const defaults = opts.defaults ?? { catchAll: true, unknownRedirect: null, unavailablePage: true, httpsRedirect: true };
   const o = site.options;
   const p = site.name;
@@ -124,6 +127,9 @@ export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; tr
   const allowAll = [...new Set([...(site.hosts[0]?.allow ?? []), ...(o?.allow ?? [])])];
   if (allowAll.length) {
     middlewares[`${p}-allow`] = { ipAllowList: { sourceRange: allowAll, ...(opts.trusted.length ? { ipStrategy: { excludedIPs: opts.trusted } } : {}) } };
+    // excludedIPs reads X-Forwarded-For alone, which a direct visitor has none of (Traefik drops
+    // it from untrusted clients): they would always get 403. Those get the connection's address.
+    if (opts.trusted.length) middlewares[`${p}-allow-direct`] = { ipAllowList: { sourceRange: allowAll } };
     chain.push(`${p}-allow`);
   }
   const headers: Obj = {};
@@ -200,7 +206,9 @@ export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; tr
   site.hosts.forEach((h, i) => {
     const base = `${p}-${i}`;
     const rule = hostRule(h, o?.deny, h.tunnel ? opts.tunnelSubnets : undefined);
-    const tls = h.https ? (h.tls ? {} : opts.resolver ? { certResolver: "le" } : {}) : undefined;
+    // Traefik takes no names from HostRegexp: a wildcard names its certificate (DNS challenge only).
+    const names = h.hostname.startsWith("*.") && opts.dnsChallenge ? { domains: [{ main: h.hostname }] } : {};
+    const tls = h.https ? (h.tls ? {} : opts.resolver ? { certResolver: "le", ...names } : {}) : undefined;
     if (h.tls) certificates.push({ certFile: h.tls.cert, keyFile: h.tls.key });
 
     let service: string;
@@ -237,6 +245,16 @@ export function renderTraefikSite(site: SiteModel, opts: { resolver: boolean; tr
       // The dashboard outranks every service router: Traefik ranks by rule length, so a longer
       // service rule (a wildcard with a path) would otherwise win on the dashboard's hostname.
       const priority = site.name === "_dashboard" ? { priority: 100_000 + r.length } : {};
+      if (opts.trusted.length && middlewareList.includes(`${p}-allow`)) {
+        // Split by who connects: trusted proxies (visitor from X-Forwarded-For) or the visitor itself.
+        // Both keep the rank of the plain rule, so the longer rules do not outrank other sites.
+        const proxies = opts.trusted.map((t) => `ClientIP(\`${t}\`)`).join(" || ");
+        const rank = { priority: priority.priority ?? r.length };
+        const direct = middlewareList.map((mw) => (mw === `${p}-allow` ? `${p}-allow-direct` : mw));
+        routers[name] = { rule: `${r} && !(${proxies})`, entryPoints, service: svc, middlewares: direct, ...rank, ...extra };
+        routers[`${name}-proxied`] = { rule: `${r} && (${proxies})`, entryPoints, service: svc, middlewares: middlewareList, ...rank, ...extra };
+        return;
+      }
       routers[name] = { rule: r, entryPoints, service: svc, ...(middlewareList.length ? { middlewares: middlewareList } : {}), ...priority, ...extra };
     };
     if (allowed) {

@@ -16,6 +16,8 @@ set -euo pipefail
 BUNDLE="${1:-}"
 DATA_DIR="${SERVE_DATA_DIR:-/data/serve}"
 COMPOSE=(docker compose --project-directory "$DATA_DIR" -f "$DATA_DIR/docker-compose.yml")
+# An explicit -f skips the override file Compose reads by itself: name it too, as updates do.
+[ -f "$DATA_DIR/docker-compose.override.yml" ] && COMPOSE+=(-f "$DATA_DIR/docker-compose.override.yml")
 
 fail() { printf '\033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 info() { printf '\033[1m==>\033[0m %s\n' "$1"; }

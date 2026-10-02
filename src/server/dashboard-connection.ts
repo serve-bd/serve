@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { env } from "@/server/env";
@@ -245,7 +245,11 @@ async function httpsStep(domain: string, route: "ip" | "tunnel", https: boolean,
   const title = secure ? "HTTPS" : "HTTP";
   let cert: ConnectionStep | null = null;
   if (route === "ip" && https && rootOrg) {
-    const certs = await db.select().from(schema.certificate).where(eq(schema.certificate.organizationId, rootOrg));
+    // The local proxy serves the dashboard with the Root organization's certificates stored on it.
+    const certs = await db
+      .select()
+      .from(schema.certificate)
+      .where(and(eq(schema.certificate.organizationId, rootOrg), eq(schema.certificate.serverId, LOCAL_SERVER_ID)));
     const c = certs.find((x) => certificateCovers(x.domains, domain));
     const link = { href: "/certificates", label: "Certificates" };
     if (!c) cert = { id: "https", title, state: "fail", summary: "No certificate yet", detail: "Save the domain with HTTPS on and set a Let's Encrypt email below.", link };

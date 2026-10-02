@@ -42,6 +42,20 @@ E=`);
       { key: "E", value: "" },
     ]);
   });
+  it("drops comments after a value only when a space comes before the #", () => {
+    const vars = parseEnv(`A=1 # one
+B=a#b
+C="x # y" # z
+D='q' # r
+E="say \\"hi\\"" # s`);
+    expect(vars).toEqual([
+      { key: "A", value: "1" },
+      { key: "B", value: "a#b" },
+      { key: "C", value: "x # y" },
+      { key: "D", value: "q" },
+      { key: "E", value: 'say "hi"' },
+    ]);
+  });
 });
 
 describe("isCloudflareIp", () => {
@@ -79,6 +93,7 @@ networks:
     expect(out.services.db.networks).toBeUndefined();
     expect(out.services.host.networks).toBeUndefined();
     expect(out.services.web.labels["serve.service"]).toBe("svc1");
+    expect(out.services.host.labels["serve.service"]).toBe("svc1");
     expect(Object.keys(out.networks)).toEqual(["front", "default"]);
     expect(out.networks.default.ipam.config[0].subnet).toBe("10.210.3.0/24");
   });

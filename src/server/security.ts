@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { UserError } from "@/server/action";
+import { type ComposeConfig, hasHostAccess, type RuntimeConfig } from "@/server/services/types";
 
 /** Characters allowed in a redirect URL written into nginx config. */
 const SAFE_URL = /^https?:\/\/[A-Za-z0-9._~:/?#@!&'()*+,=%-]+$/;
@@ -168,6 +169,19 @@ export function composeSecurityIssues(content: string): string[] {
     else if (v?.name !== undefined) issues.push(`volume ${name}: a custom volume name is not allowed`);
   }
   return [...issues, ...composeNetworkIssues(content)];
+}
+
+/**
+ * Whether a service reaches the host (host mounts, privileged, host ports…, or a stack with
+ * such options): a shell in it is close to a shell on the host.
+ */
+export function serviceHasHostAccess(s: { runtime: RuntimeConfig; compose: ComposeConfig | null }) {
+  if (hasHostAccess(s.runtime)) return true;
+  const c = s.compose;
+  if (!c?.hostAccess) return false;
+  // A file from git is checked at deploy, which records what it uses.
+  if (c.hostAccessIssues?.length) return true;
+  return c.mode === "inline" && composeSecurityIssues(c.content).length > 0;
 }
 
 /**

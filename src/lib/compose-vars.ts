@@ -23,7 +23,10 @@ function stripComments(content: string) {
  */
 export function composeVariables(content: string): { name: string; hasDefault: boolean }[] {
   const seen = new Map<string, boolean>();
-  for (const m of stripComments(content).matchAll(/(?<!\$)\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-?+][^}]*)?\}/g)) {
+  // `$$` is a literal dollar: dropped first, so `$$${VAR}` still names VAR.
+  for (const m of stripComments(content)
+    .replace(/\$\$/g, "")
+    .matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-?+][^}]*)?\}/g)) {
     const hasDefault = !!m[2] && /^:?[-+]/.test(m[2]);
     seen.set(m[1], (seen.get(m[1]) ?? false) || hasDefault);
   }

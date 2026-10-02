@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, KeyRound, Plus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge, Card, CardBody, CardHeader, CopyButton, CopyField, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { AlertTriangle, BookOpen, KeyRound, Plus, Trash2 } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Badge, Card, CardHeader, CopyButton, CopyField, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -32,16 +32,6 @@ type Token = {
   userId: string;
 };
 type Project = { id: string; name: string };
-
-const EXAMPLES: { method: string; path: string; description: string }[] = [
-  { method: "GET", path: "/api/v1/me", description: "What this token may do" },
-  { method: "GET", path: "/api/v1/projects", description: "Projects, then /projects/:id for environments and services" },
-  { method: "POST", path: "/api/v1/services", description: "Create an app, database or compose stack" },
-  { method: "POST", path: "/api/v1/services/:id/deploy", description: "Deploy the latest version" },
-  { method: "PATCH", path: "/api/v1/services/:id/variables", description: "Set or remove variables" },
-  { method: "POST", path: "/api/v1/services/:id/domains", description: "Add a domain" },
-  { method: "GET", path: "/api/v1/services/:id/logs", description: "Recent container logs" },
-];
 
 const SENSITIVE: Permission[] = ["variables.view-secrets", "console.access", "members.manage", "integrations.manage"];
 
@@ -350,16 +340,21 @@ export function TokensView({
           title="Tokens"
           description={`${tokens.length} token${tokens.length === 1 ? "" : "s"} for this organization`}
           actions={
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => {
-                setDialog((d) => d + 1);
-                setOpen(true);
-              }}
-            >
-              <Plus /> Create token
-            </Button>
+            <div className="flex items-center gap-2">
+              <a href="https://serve.bd/docs/api" target="_blank" rel="noreferrer" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                <BookOpen /> API docs
+              </a>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  setDialog((d) => d + 1);
+                  setOpen(true);
+                }}
+              >
+                <Plus /> Create token
+              </Button>
+            </div>
           }
         />
         {tokens.length === 0 ? (
@@ -380,32 +375,6 @@ export function TokensView({
             ))}
           </div>
         )}
-      </Card>
-
-      <Card className="overflow-hidden">
-        <CardHeader
-          title="Using the API"
-          description="Everything the dashboard does. Send the token as a bearer token; answers are JSON."
-          actions={
-            <a href={`${baseUrl}/api/v1/openapi.json`} target="_blank" rel="noreferrer" className="text-[12.5px] font-medium text-accent hover:underline">
-              OpenAPI spec
-            </a>
-          }
-        />
-        <CardBody className="flex flex-col gap-4 py-5">
-          <pre className="scrollbar-thin overflow-x-auto rounded-xl bg-log-bg p-4 font-mono text-[12px] leading-relaxed text-log-fg">{`curl -X POST \\\n  -H "Authorization: Bearer $SERVE_TOKEN" \\\n  ${baseUrl}/api/v1/services/<service-id>/deploy`}</pre>
-          <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
-            {EXAMPLES.map((e) => (
-              <div key={`${e.method} ${e.path}`} className="flex flex-col gap-1 px-3.5 py-2.5 sm:flex-row sm:items-center sm:gap-3">
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className="w-12 flex-none font-mono text-[11px] font-semibold text-accent">{e.method}</span>
-                  <code className="truncate font-mono text-[12px] text-fg">{e.path}</code>
-                </span>
-                <span className="min-w-0 flex-1 truncate pl-14 text-[12.5px] text-muted sm:pl-0">{e.description}</span>
-              </div>
-            ))}
-          </div>
-        </CardBody>
       </Card>
 
       <CreateTokenDialog key={dialog} open={open} onOpenChange={setOpen} projects={projects} baseUrl={baseUrl} allowed={allowed} limitedToProjects={limitedToProjects} />

@@ -53,6 +53,17 @@ describe("maintenance mode", () => {
     expect(maintenanceGeo(variable, m.allow)).toBe(`geo $${variable} {\n    default 0;\n    203.0.113.7 1;\n}\n`);
   });
 
+  it("nginx keeps the checks on cached static files", () => {
+    const m = maintenanceOf("abc", on(["203.0.113.7"]))!;
+    const variable = maintenanceVar("abc");
+    const options = { cacheStatic: true, corsOrigins: ["https://a.example.com"], authFile: "/etc/nginx/auth/x" };
+    const conf = serverBlocks({ hostname: "app.example.com", upstream: "up", forceHttps: false, options, maintenance: { ...m, geoVar: variable } });
+    const nested = conf.slice(conf.indexOf("location ~*"));
+    expect(nested).toContain(`if ($${variable} = 0) {`);
+    expect(nested).toContain("set $serve_cors");
+    expect(nested).toContain("auth_basic_user_file /etc/nginx/auth/x;");
+  });
+
   it("nginx keeps redirects", () => {
     const conf = serverBlocks({ hostname: "www.example.com", upstream: null, redirectTo: "https://example.com", forceHttps: false, maintenance: maintenanceOf("abc", on()) });
     expect(conf).toContain("return 308 https://example.com$request_uri;");

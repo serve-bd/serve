@@ -261,12 +261,13 @@ function GitForm({ props, onBack, access }: { props: Props; onBack: () => void; 
   const repos = canList ? (repoData ?? null) : null;
 
   const loadBranches = React.useCallback(
-    async (repo: string) => {
+    // `preferred`: the branch just picked with the repository; `branch` is still the old one here.
+    async (repo: string, preferred = branch) => {
       if (!repo.trim()) return;
       const res = await fetchBranches(repo, credentialId === "public" ? null : credentialId);
       if (res.ok) {
         setBranches(res.data);
-        if (res.data.length && !res.data.includes(branch)) setBranch(res.data.includes("main") ? "main" : res.data.includes("master") ? "master" : res.data[0]);
+        if (res.data.length && !res.data.includes(preferred)) setBranch(res.data.includes("main") ? "main" : res.data.includes("master") ? "master" : res.data[0]);
       }
     },
     [credentialId, branch],
@@ -442,7 +443,7 @@ function GitForm({ props, onBack, access }: { props: Props; onBack: () => void; 
                       setRepository(r.cloneUrl);
                       setBranch(r.defaultBranch);
                       setName((n) => n || repoName(r.fullName));
-                      void loadBranches(r.cloneUrl);
+                      void loadBranches(r.cloneUrl, r.defaultBranch);
                     }}
                     className={cn(
                       "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-hover",

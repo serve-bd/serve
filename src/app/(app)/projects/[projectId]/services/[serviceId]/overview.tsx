@@ -67,7 +67,9 @@ const triggerLabel: Record<string, string> = {
 function duration(d: Deployment) {
   if (!d.startedAt || !d.finishedAt) return null;
   const ms = new Date(d.finishedAt).getTime() - new Date(d.startedAt).getTime();
-  return ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+  // Whole seconds first, so 119.5 s reads "2m 0s", not "1m 60s".
+  const s = Math.max(1, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
 /** Web page of a repository from its HTTPS or SSH (git@host:owner/repo) URL; null when it has none. */

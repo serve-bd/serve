@@ -665,7 +665,8 @@ func (a *agent) services(ctx context.Context) []Service {
 		}()
 	}
 	for i, c := range containers {
-		if c.Labels["serve.service"] != "" {
+		// The dashboard takes service ids of up to 64 characters.
+		if id := c.Labels["serve.service"]; id != "" && len(id) <= 64 {
 			jobs <- i
 		}
 	}

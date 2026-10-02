@@ -503,7 +503,7 @@ function TlsSection(props: DatabaseSettingsProps) {
               label="Mode"
               description={
                 config.engine === "postgres"
-                  ? "Postgres always offers TLS; Require sets sslmode=require in the generated connection URLs."
+                  ? "Postgres always offers TLS. Require also refuses plain connections from outside the private network, and sets sslmode=require in the connection URLs."
                   : "Require rejects connections without TLS."
               }
             >

@@ -16,7 +16,11 @@ describe("trusted proxy ranges", () => {
     expect(normalizeTrustedRange("2001:DB8::1")).toEqual({ range: "2001:db8::1/128" });
     expect(normalizeTrustedRange("2001:db8:0:0:1::/64")).toEqual({ range: "2001:db8::/64" });
     expect(normalizeTrustedRange("2606:4700::/32")).toEqual({ range: "2606:4700::/32" });
-    expect(normalizeTrustedRange("::ffff:192.0.2.1")).toEqual({ range: "::ffff:c000:201/128" });
+    // IPv4-mapped addresses and ranges become IPv4, which is how mapped visitors are compared.
+    expect(normalizeTrustedRange("::ffff:192.0.2.1")).toEqual({ range: "192.0.2.1/32" });
+    expect(normalizeTrustedRange("::ffff:10.0.0.0/104")).toEqual({ range: "10.0.0.0/8" });
+    expect(inRanges("10.1.2.3", ["::ffff:10.0.0.0/104"])).toBe(true);
+    expect(inRanges("::ffff:10.1.2.3", ["::ffff:10.0.0.0/104"])).toBe(true);
   });
 
   it("refuses junk and ranges wide enough to fake any visitor", () => {
@@ -121,7 +125,8 @@ describe("Caddy and Traefik visitor IP config", () => {
   it("keeps today's Caddy options when off", () => {
     expect(caddy(off)).toContain(`trusted_proxies static ${TUNNEL}\n\t\tclient_ip_headers CF-Connecting-IP X-Forwarded-For\n`);
     expect(caddy({ tunnel: [], ranges: [], header: null })).not.toContain("trusted_proxies");
-    expect(renderCaddySite(site)).not.toContain("X-Real-IP");
+    // A visitor's own X-Real-IP never reaches the app.
+    expect(renderCaddySite(site)).toContain("header_up X-Real-IP {client_ip}");
   });
 
   it("trusts the ranges in Caddy with the chosen header", () => {

@@ -1,18 +1,15 @@
-import { and, eq } from "drizzle-orm";
-import { db, schema } from "@/server/db";
 import { getSession } from "@/server/auth";
+import { memberAccess } from "@/server/permissions";
 import type { AppState } from "./github-app";
 
-/** The signed-in user must be the one who started the flow and still be an org admin. */
+/** The signed-in user must be the one who started the flow and may still manage integrations. */
 export async function authorizeState(state: AppState | null) {
   if (!state) return { error: "This link has expired. Start again from Git providers." };
   const session = await getSession();
   if (!session || session.user.id !== state.userId) return { error: "Sign in with the account that started the GitHub setup." };
-  const [member] = await db
-    .select({ role: schema.member.role })
-    .from(schema.member)
-    .where(and(eq(schema.member.organizationId, state.organizationId), eq(schema.member.userId, state.userId)));
-  if (!member || (member.role !== "owner" && member.role !== "admin")) return { error: "You need to be an organization admin." };
+  // The same permission that started the flow (startGithubApp, githubAppInstallUrl).
+  const access = await memberAccess(state.organizationId, state.userId);
+  if (!access?.permissions.has("integrations.manage")) return { error: "Your role cannot manage integrations." };
   return { ok: true as const };
 }
 

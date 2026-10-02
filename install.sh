@@ -53,7 +53,8 @@ if [ -n "${SERVE_INSTALLER_COPY:-}" ]; then rm -f "$SERVE_INSTALLER_COPY"; fi
 INTERACTIVE=0
 if [ -z "${SERVE_YES:-}" ] && { : </dev/tty; } 2>/dev/null; then INTERACTIVE=1; fi
 
-port_busy() { ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1\$"; }
+# grep reads all input (no -q): an early exit would fail the pipe under pipefail and hide a busy port.
+port_busy() { ss -ltn 2>/dev/null | awk '{print $4}' | grep -E "[:.]$1\$" >/dev/null; }
 
 # ask_port VAR "question" default: keeps an override, else asks (Enter keeps the default).
 ask_port() {
@@ -245,8 +246,8 @@ chmod 700 "$DATA_DIR/restore-instance.sh"
 
 # 7. Ports ---------------------------------------------------------------------------
 for p in "$HTTP_PORT" "$HTTPS_PORT" "$PORT"; do
-  if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$p\$"; then
-    if ! docker ps --format '{{.Names}}' | grep -qE '^(serve|serve-proxy)$'; then
+  if port_busy "$p"; then
+    if ! docker ps --format '{{.Names}}' | grep -E '^(serve|serve-proxy)$' >/dev/null; then
       printf '  \033[33m!\033[0m Port %s is already in use. Serve may not start its proxy until it is free.\n' "$p"
     fi
   fi

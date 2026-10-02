@@ -899,7 +899,13 @@ async function renderModel(kind: RunningKind, ctx: ServerCtx, model: SiteModel |
   const settings = await getSettings();
   return (
     stamp +
-    renderTraefikSite(model, { resolver: !!settings.acmeEmail, trusted: headerTrusted(visitor), defaults: defaultsOf(config.traefik?.defaults), tunnelSubnets: visitor.tunnel })
+    renderTraefikSite(model, {
+      resolver: !!settings.acmeEmail,
+      trusted: headerTrusted(visitor),
+      defaults: defaultsOf(config.traefik?.defaults),
+      tunnelSubnets: visitor.tunnel,
+      dnsChallenge: config.traefik?.acmeChallenge === "dns-cloudflare" && !!config.traefik.cloudflareAccountId,
+    })
   );
 }
 
@@ -1129,7 +1135,8 @@ export async function servicesUsingCertificate(cert: CertRow): Promise<string[]>
       .from(schema.domain)
       .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
       .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
-      .where(and(eq(schema.project.organizationId, cert.organizationId), eq(schema.service.serverId, cert.serverId)))
+      // Extra servers of a service serve its domains with their own certificates too.
+      .where(and(eq(schema.project.organizationId, cert.organizationId), or(eq(schema.service.serverId, cert.serverId), runsAsExtraOn(cert.serverId))))
   ).map((r) => r.domain);
   return [...new Set(domains.filter((d) => d.certificateId === cert.id || certificateCovers(cert.domains, d.hostname)).map((d) => d.serviceId))];
 }
@@ -1423,6 +1430,8 @@ export async function clearProxyForNewOwner(ctx: ServerCtx) {
   }
   // Cloudflare tokens certbot used for the old owner's certificates.
   await ctx.fs.rm(path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare")).catch(() => removeAsRoot(ctx, ctx.paths.letsencrypt, ["serve-cloudflare"]));
+  const parent = path.posix.dirname(ctx.paths.letsencrypt);
+  await ctx.fs.rm(path.posix.join(parent, "letsencrypt-creds")).catch(() => removeAsRoot(ctx, parent, ["letsencrypt-creds"]));
 }
 
 /** Deletes folders inside `dir` on the server through a short-lived container. */

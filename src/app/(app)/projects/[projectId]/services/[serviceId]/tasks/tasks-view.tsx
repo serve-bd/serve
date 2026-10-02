@@ -101,15 +101,14 @@ function TaskDialog({
               <Field label="Schedule">
                 <Select value={preset} onValueChange={setPreset} options={presets} />
               </Field>
-              {preset === "custom" ? (
+              {preset === "custom" && (
                 <Field label="Cron expression">
                   <Input value={cron} onChange={(e) => setCron(e.target.value)} className="font-mono" placeholder="30 2 * * *" />
                 </Field>
-              ) : (
-                <Field label="Timeout (seconds)">
-                  <Input value={timeout} onChange={(e) => setTimeoutValue(e.target.value.replace(/\D/g, ""))} inputMode="numeric" />
-                </Field>
               )}
+              <Field label="Timeout (seconds)">
+                <Input value={timeout} onChange={(e) => setTimeoutValue(e.target.value.replace(/\D/g, ""))} inputMode="numeric" />
+              </Field>
             </div>
             {composeServices.length > 0 && (
               <Field label="Run in">

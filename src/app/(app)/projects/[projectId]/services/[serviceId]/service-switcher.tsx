@@ -19,7 +19,7 @@ export type SiblingService = {
 
 /** Tabs a service of this type has, so switching can keep the one in view. */
 function hasTab(type: string, tab: string) {
-  if (tab === "backups") return type === "database";
+  if (tab === "branches") return type === "database";
   if (tab === "domains" || tab === "tasks") return type !== "database";
   return true;
 }

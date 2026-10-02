@@ -4,7 +4,7 @@ import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import * as actions from "@/server/actions/services";
 import { deploymentView, domainView, loadDomain, loadService, page, projectFilter, serviceView } from "../data";
-import { ApiError, type ApiRoute, route, unwrap } from "../router";
+import { ApiError, type ApiRoute, assertCan, route, unwrap } from "../router";
 
 const id = z.string().min(1);
 const listQuery = z.object({
@@ -316,6 +316,7 @@ export const serviceRoutes: ApiRoute[] = [
     body: z.object({ variables: z.array(variable).max(500), redeploy: z.boolean().default(false) }),
     handler: async ({ auth, params, body }) => {
       await loadService(auth, params.serviceId);
+      if (body.redeploy) assertCan(auth, "services.deploy");
       return unwrap(actions.saveEnvVars(params.serviceId, body.variables, body.redeploy));
     },
   }),
@@ -338,6 +339,7 @@ export const serviceRoutes: ApiRoute[] = [
     }),
     handler: async ({ auth, params, body }) => {
       await loadService(auth, params.serviceId);
+      if (body.redeploy) assertCan(auth, "services.deploy");
       const stored = await db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, params.serviceId));
       const changes = body.variables;
       const next = stored
@@ -366,6 +368,7 @@ export const serviceRoutes: ApiRoute[] = [
     body: z.object({ variables: z.array(z.object({ key: z.string(), value: z.string() })).max(500), redeploy: z.boolean().default(false) }),
     handler: async ({ auth, params, body }) => {
       await loadService(auth, params.serviceId);
+      if (body.redeploy) assertCan(auth, "services.deploy");
       return (await unwrap(actions.saveReplicaVars(params.serviceId, Number(params.replica), body.variables, body.redeploy))) ?? { ok: true };
     },
   }),
@@ -532,7 +535,7 @@ export const serviceRoutes: ApiRoute[] = [
     path: "/services/{serviceId}/backups",
     tag: "Backups",
     summary: "List backups",
-    needs: ["projects.view"],
+    needs: ["databases.backups"],
     handler: async ({ auth, params }) => {
       await loadService(auth, params.serviceId);
       const rows = await db.select().from(schema.backup).where(eq(schema.backup.serviceId, params.serviceId)).orderBy(desc(schema.backup.createdAt)).limit(200);

@@ -64,23 +64,25 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise
       signal: opts.signal,
     });
     let output = "";
-    let pending = "";
-    const onData = (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
+    // A partial line per stream, so stdout and stderr lines do not mix.
+    const pending = { stdout: "", stderr: "" };
+    const onData = (stream: keyof typeof pending) => (text: string) => {
       output += text;
       if (output.length > 2_000_000) output = output.slice(-1_000_000);
-      pending += text;
-      const lines = pending.split(/\r?\n|\r/);
-      pending = lines.pop() ?? "";
+      const lines = (pending[stream] + text).split(/\r?\n|\r/);
+      pending[stream] = lines.pop() ?? "";
       for (const line of lines) if (line.trim()) opts.onLine?.(redact(line));
     };
-    child.stdout.on("data", onData);
-    child.stderr.on("data", onData);
+    // Decoded per stream, so a character split between two chunks stays whole.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", onData("stdout"));
+    child.stderr.on("data", onData("stderr"));
     if (opts.input !== undefined) child.stdin.end(opts.input);
     else child.stdin.end();
     child.on("error", (error) => reject(new CommandError(error.message, null, redact(output))));
     child.on("close", (code) => {
-      if (pending.trim()) opts.onLine?.(redact(pending));
+      for (const rest of [pending.stdout, pending.stderr]) if (rest.trim()) opts.onLine?.(redact(rest));
       if (code === 0) resolve(redact(output));
       else reject(new CommandError(`${cmd} ${args[0] ?? ""} exited with code ${code}`, code, redact(output)));
     });

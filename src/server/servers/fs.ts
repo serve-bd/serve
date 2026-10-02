@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -36,9 +37,15 @@ export const localFs: ServerFs = {
   readBuffer: (file) => fs.readFile(file),
   async writeFile(file, content, mode) {
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, content, mode ? { mode } : undefined);
-    await fs.rename(tmp, file);
+    // A random name: two writes of the same file at once would otherwise share one temp file.
+    const tmp = `${file}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+    try {
+      await fs.writeFile(tmp, content, mode ? { mode } : undefined);
+      await fs.rename(tmp, file);
+    } catch (e) {
+      await fs.rm(tmp, { force: true }).catch(() => {});
+      throw e;
+    }
   },
   async writeIfChanged(file, content) {
     try {
@@ -108,10 +115,15 @@ export function remoteFs(target: SshTarget): ServerFs {
     async writeFile(file, content, mode) {
       const s: SFTPWrapper = await session();
       await self.mkdir(path.posix.dirname(file));
-      const tmp = `${file}.serve.tmp`;
-      await sftpCall<void>((cb) => s.writeFile(tmp, content, mode ? { mode } : {}, cb));
-      // posix-rename@openssh.com replaces the target atomically.
-      await sftpCall<void>((cb) => s.ext_openssh_rename(tmp, file, cb)).catch(() => run(`mv -f ${sh(tmp)} ${sh(file)}`));
+      const tmp = `${file}.${crypto.randomBytes(6).toString("hex")}.serve.tmp`;
+      try {
+        await sftpCall<void>((cb) => s.writeFile(tmp, content, mode ? { mode } : {}, cb));
+        // posix-rename@openssh.com replaces the target atomically.
+        await sftpCall<void>((cb) => s.ext_openssh_rename(tmp, file, cb)).catch(() => run(`mv -f ${sh(tmp)} ${sh(file)}`));
+      } catch (e) {
+        await run(`rm -f ${sh(tmp)}`).catch(() => {});
+        throw e;
+      }
     },
     async writeIfChanged(file, content) {
       const current = await self.readFile(file).catch(() => null);

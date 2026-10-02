@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
+import { useCan } from "@/components/permissions";
 import { deleteVolumeData } from "@/server/actions/databases";
 import type { VolumeMount } from "@/server/services/types";
 
@@ -139,6 +140,8 @@ export function StorageSection({
   const remove = (i: number) => setValue((s) => ({ ...s, volumes: s.volumes.filter((_, j) => j !== i) }));
   const startAdding = (type: MountType) => setEditing({ at: "new", draft: TYPES[type].blank() });
   const archive = (path: string) => `/api/services/${serviceId}/volumes/archive?path=${encodeURIComponent(path)}`;
+  // The archive holds the files as they are, secrets included: the download needs to see them.
+  const canDownload = useCan()("variables.view-secrets");
   const savedVolumes = (JSON.parse(saved) as typeof initial).volumes;
   const isSaved = (v: VolumeMount) => savedVolumes.some((s) => s.kind === v.kind && s.source === v.source && s.mountPath === v.mountPath);
   const canAdd = (type: MountType) => !TYPES[type].root || isRootAdmin;
@@ -233,7 +236,7 @@ export function StorageSection({
                 unsaved={moved}
                 actions={
                   <>
-                    {running ? (
+                    {!canDownload ? null : running ? (
                       <a
                         href={archive(data.mountPath)}
                         download
@@ -270,7 +273,7 @@ export function StorageSection({
                 unsaved={!isSaved(v)}
                 actions={
                   <>
-                    {v.kind === "volume" && running && isSaved(v) && (
+                    {v.kind === "volume" && running && canDownload && isSaved(v) && (
                       <a href={archive(v.mountPath)} download title="Download as .tar" aria-label="Download as .tar" className={buttonVariants({ variant: "ghost", size: "icon" })}>
                         <Download />
                       </a>

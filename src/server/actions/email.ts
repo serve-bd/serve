@@ -29,10 +29,13 @@ export async function saveEmailSettings(input: EmailSettingsInput) {
         port: v.smtpPort ?? defaultSmtpPort[security],
         security,
         username: v.smtpUsername || null,
-        password: v.smtpPassword ? encrypt(v.smtpPassword) : v.smtpUsername ? (before?.smtp?.password ?? null) : null,
+        // The stored password is kept only for the same server: it would otherwise be sent to the new one.
+        password: v.smtpPassword ? encrypt(v.smtpPassword) : v.smtpUsername && before?.smtp?.host === v.smtpHost ? (before?.smtp?.password ?? null) : null,
       };
+      if (v.smtpUsername && !next.smtp.password && before?.smtp?.password) throw new UserError("Enter the password again: the server changed.");
     } else {
-      const key = v.apiKey ? encrypt(v.apiKey) : before?.provider === v.provider ? (before.apiKey ?? null) : null;
+      const sameTarget = before?.provider === v.provider && (v.provider !== "mailroom" || before.baseUrl === mailroomBase(v.baseUrl ?? ""));
+      const key = v.apiKey ? encrypt(v.apiKey) : sameTarget ? (before.apiKey ?? null) : null;
       if (!key) throw new UserError("Enter the API key.");
       next.apiKey = key;
       if (v.provider === "mailroom") next.baseUrl = mailroomBase(v.baseUrl ?? "");

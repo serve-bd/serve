@@ -81,6 +81,8 @@ type Props = {
   canGenerate: boolean;
   /** Tunnels from this service's server (one per Cloudflare account). */
   tunnels: { id: string; accountId: string; accountName: string; status: string; statusMessage: string | null }[];
+  /** Routing a domain through a tunnel is for organization admins only. */
+  isAdmin: boolean;
   /** Name of the service's server, for messages. */
   serverName: string;
   /** `here`: stored on this service's server, the only ones its proxy can serve. */
@@ -405,7 +407,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
     return res.ok ? res.data : null;
   });
   const zone = props.hasCloudflare && /\.[a-z]{2,}$/i.test(hostname) ? (zoneData ?? null) : null;
-  const tunnel = zone ? props.tunnels.find((t) => t.accountId === zone.accountId) : undefined;
+  const tunnel = props.isAdmin && zone ? props.tunnels.find((t) => t.accountId === zone.accountId) : undefined;
   // A tunnel, when the domain's Cloudflare account has one, is the default: it needs no public IP or open port.
   const [chosenRoute, setRoute] = React.useState<"ip" | "tunnel" | null>(null);
   const route = chosenRoute ?? (tunnel ? "tunnel" : "ip");
@@ -623,7 +625,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                     )}
                   </div>
                 )}
-                {!zone && hostname && props.tunnels.length > 0 && (
+                {!zone && hostname && props.isAdmin && props.tunnels.length > 0 && (
                   <p className="text-xs leading-relaxed text-muted">
                     Domains in {props.tunnels.map((t) => t.accountName).join(" or ")} can use the Cloudflare Tunnel of this server.
                   </p>
@@ -683,13 +685,14 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
   const submit = async () => {
     const wantTunnel = route === "tunnel";
     const usesTunnel = domain.tunnel || domain.wantsTunnel;
-    if (wantTunnel && !domain.tunnel) {
+    // Only admins see (and may change) the route: for others it stays as it is.
+    if (props.isAdmin && wantTunnel && !domain.tunnel) {
       if (!tunnel) {
         // Still waiting for a tunnel: nothing to change; otherwise there is no tunnel to switch to.
         if (!domain.wantsTunnel)
           return void toast.error("No tunnel can serve this domain", `Create a Cloudflare Tunnel on ${props.serverName} for the account that manages ${domain.hostname}.`);
       } else if ((await reroute.run(tunnel.id)) === undefined) return;
-    } else if (!wantTunnel && usesTunnel) {
+    } else if (props.isAdmin && !wantTunnel && usesTunnel) {
       // run() resolves to undefined when the action failed (the error is already shown).
       if ((await reroute.run(null)) === undefined) return;
     }
@@ -723,7 +726,7 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
         >
           <DialogHeader title={`Edit ${domain.hostname}`} description="Where traffic for this domain goes. Applies right away; no redeploy needed." />
           <DialogBody>
-            {(props.tunnels.length > 0 || domain.wantsTunnel) && (
+            {props.isAdmin && (props.tunnels.length > 0 || domain.wantsTunnel) && (
               <Field
                 label="Route traffic through"
                 description={
@@ -908,7 +911,7 @@ export function DomainsManager(props: Props) {
                     <MoreHorizontal className="size-4" />
                   </MenuTrigger>
                   <MenuContent>
-                    {d.wantsTunnel && !d.tunnel && (
+                    {props.isAdmin && d.wantsTunnel && !d.tunnel && (
                       <>
                         <MenuItem onClick={() => reconnect.run(d.id)}>
                           <RefreshCw /> Reconnect to tunnel

@@ -10,6 +10,8 @@ import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { serviceInOrg } from "@/server/services/access";
 import { backupFile, importFilename } from "@/server/backups";
+import { crossSiteRequest } from "@/lib/same-origin";
+import { env } from "@/server/env";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,8 @@ const MAX_BYTES = 20 * 1024 ** 3;
  * Body: the raw file. Query: ?filename=…&backupFirst=1&users=1 (MongoDB: also its users)
  */
 export async function POST(request: Request, ctx: RouteContext<"/api/services/[serviceId]/backups/import">) {
+  // Outside the proxy matcher, so its cross-site check is done here.
+  if (crossSiteRequest(request, env.appUrl)) return NextResponse.json({ error: "Cross-site request refused." }, { status: 403 });
   const { serviceId } = await ctx.params;
   let org;
   try {

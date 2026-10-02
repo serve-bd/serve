@@ -9,6 +9,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
+import { useCan } from "@/components/permissions";
 import { deleteOrg, updateOrg } from "@/server/actions/org";
 
 export function OrgSettings({ org, role, isRoot }: { org: { id: string; name: string; slug: string }; role: string; isRoot: boolean }) {
@@ -16,6 +17,8 @@ export function OrgSettings({ org, role, isRoot }: { org: { id: string; name: st
   const confirm = useConfirm();
   const [name, setName] = React.useState(org.name);
   const isAdmin = role === "owner" || role === "admin";
+  // Renaming checks members.manage, which a custom role can grant too.
+  const canRename = useCan()("members.manage");
   const save = useAction(() => updateOrg({ name }), { success: "Organization updated" });
   const remove = useAction(deleteOrg, {
     refresh: false,
@@ -38,7 +41,7 @@ export function OrgSettings({ org, role, isRoot }: { org: { id: string; name: st
           <CardHeader title="General" />
           <CardBody className="flex flex-col gap-4 py-5">
             <Field label="Name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} disabled={!isAdmin} required />
+              <Input value={name} onChange={(e) => setName(e.target.value)} disabled={!canRename} required />
             </Field>
             <Field label="Organization ID">
               <CopyField value={org.id} />
@@ -47,7 +50,7 @@ export function OrgSettings({ org, role, isRoot }: { org: { id: string; name: st
               <p className="rounded-xl bg-accent-soft px-3.5 py-2.5 text-[13px] text-fg-2">This is the Root organization. Its owners and admins manage server-wide settings.</p>
             )}
           </CardBody>
-          {isAdmin && (
+          {canRename && (
             <CardFooter className="justify-end">
               <Button type="submit" size="sm" variant="primary" disabled={name === org.name} loading={save.pending}>
                 Save

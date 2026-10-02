@@ -1,6 +1,6 @@
 "use server";
 
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { act, UserError } from "@/server/action";
 import { requirePermission } from "@/server/auth";
@@ -18,6 +18,25 @@ async function authorize(serviceIds: string[], targetEnvironmentId: string) {
   return { ctx, preview };
 }
 
+/**
+ * A compose stack with host options reads the shared variables of its new environment and project,
+ * and a move rewrites its references: only admins of the Root organization move one whose host options use them.
+ */
+async function assertHostStacksMovable(ctx: Awaited<ReturnType<typeof authorize>>["ctx"], preview: Awaited<ReturnType<typeof previewMove>>) {
+  if (ctx.isInstanceAdmin && ctx.isRoot) return;
+  const ids = preview.services.map((s) => s.id);
+  if (!ids.length) return;
+  const { serviceHasHostAccess } = await import("@/server/security");
+  const { hostStackReachOf } = await import("@/server/services/variables");
+  for (const s of await db.select().from(schema.service).where(inArray(schema.service.id, ids))) {
+    if (s.type !== "compose" || !serviceHasHostAccess(s)) continue;
+    const reach = await hostStackReachOf(s, ctx.org.id);
+    const rewritten = new Set((preview.rewrites[s.id] ?? []).map((v) => `own:${v.key}`));
+    if ([...reach].some((k) => k.startsWith("environment:") || k.startsWith("project:") || rewritten.has(k)))
+      throw new UserError(`${s.name} uses host options with shared variables or references, so only admins of the Root organization can move it.`);
+  }
+}
+
 /** What a move would do: new names, references that break, services worth moving along. Changes nothing. */
 export async function planServiceMove(serviceIds: string[], targetEnvironmentId: string) {
   return act(async () => {
@@ -30,7 +49,8 @@ export async function planServiceMove(serviceIds: string[], targetEnvironmentId:
 
 export async function moveServicesTo(serviceIds: string[], targetEnvironmentId: string) {
   return act(async () => {
-    const { ctx } = await authorize(serviceIds, targetEnvironmentId);
+    const { ctx, preview: planned } = await authorize(serviceIds, targetEnvironmentId);
+    await assertHostStacksMovable(ctx, planned);
     const { preview, warnings } = await executeMove(serviceIds, targetEnvironmentId, ctx.org.id);
     const names = preview.services.filter((s) => serviceIds.includes(s.id)).map((s) => s.newName);
     await logActivity({

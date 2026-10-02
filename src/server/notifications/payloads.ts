@@ -26,6 +26,8 @@ export type OutgoingMessage = {
   data: Record<string, unknown>;
   /** Product name the message comes from (white-label). */
   brand?: string;
+  /** Email addresses an earlier attempt already reached; a retry skips them. */
+  emailedTo?: string[];
 };
 
 export type HttpRequest = {

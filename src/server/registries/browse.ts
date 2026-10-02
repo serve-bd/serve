@@ -1,5 +1,6 @@
 import { decrypt } from "@/server/crypto";
 import { hostIsPrivate } from "@/server/net/public-host";
+import { publicRequest } from "@/server/net/public-fetch";
 import type { RegistryRow } from "./index";
 
 /**
@@ -60,6 +61,17 @@ async function get(url: string, headers: Record<string, string> = {}, init: Requ
   const length = Number(res.headers.get("content-length") ?? 0);
   if (length > MAX_BYTES) throw new Error("The registry answered with too much data.");
   return res;
+}
+
+/**
+ * GET that connects only to public addresses: the address checked is the one connected to, so a
+ * name cannot resolve publicly for the check and privately for the request. No redirects.
+ */
+async function publicOnlyGet(url: string, headers: Record<string, string> = {}) {
+  const res = await publicRequest(url, { method: "GET", headers: { accept: "application/json", "user-agent": "serve", ...headers }, timeoutMs: TIMEOUT_MS, maxBytes: MAX_BYTES });
+  const h = new Headers();
+  for (const [k, v] of Object.entries(res.headers)) for (const one of Array.isArray(v) ? v : v === undefined ? [] : [v]) h.append(k, one);
+  return new Response([101, 204, 205, 304].includes(res.status) ? null : res.text, { status: res.status, headers: h });
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -191,7 +203,7 @@ async function registryGet(host: string, path: string, login: Login, scope: stri
   if (!allowPrivate && (await hostIsPrivate(host))) throw new Error("That registry is on a private network.");
   const url = `https://${apiHost(host)}${path}`;
   // No redirects: a public registry must not point the request at a private address.
-  const once = (u: string, headers: Record<string, string> = {}) => get(u, headers, { redirect: allowPrivate ? "follow" : "error" });
+  const once = (u: string, headers: Record<string, string> = {}) => (allowPrivate ? get(u, headers) : publicOnlyGet(u, headers));
   const res = await once(url);
   if (res.status !== 401) return res;
   const challenge = res.headers.get("www-authenticate") ?? "";

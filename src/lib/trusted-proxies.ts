@@ -109,6 +109,10 @@ function parseRange(value: string): Parsed | null {
   if (prefixText !== undefined && !/^\d{1,3}$/.test(prefixText)) return null;
   const prefix = prefixText === undefined ? width(ip.version) : Number(prefixText);
   if (prefix > width(ip.version)) return null;
+  // An IPv4-mapped range (::ffff:10.0.0.0/104) is the IPv4 range: mapped addresses are compared as IPv4.
+  if (ip.version === 6 && prefix >= 96 && ip.bits >> BigInt(32) === BigInt(0xffff)) {
+    return { version: 4, bits: ip.bits & BigInt(0xffffffff) & mask(4, prefix - 96), prefix: prefix - 96 };
+  }
   return { version: ip.version, bits: ip.bits & mask(ip.version, prefix), prefix };
 }
 

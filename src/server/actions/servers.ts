@@ -214,6 +214,14 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
     if (data.privateKeyId && data.privateKeyId !== before.privateKeyId) {
       await usableKey(ctx, data.privateKeyId, data.ownerOrganizationId === undefined ? before.ownerOrganizationId : data.ownerOrganizationId);
     }
+    // An instance key may open other machines: only instance admins point it at a new address.
+    const moved = (data.host && data.host !== before.host) || (data.port && data.port !== before.port) || (data.username && data.username !== before.username);
+    const signInKey = data.privateKeyId ?? before.privateKeyId;
+    if (moved && !ctx.isInstanceAdmin && signInKey) {
+      const [key] = await db.select({ organizationId: schema.privateKey.organizationId }).from(schema.privateKey).where(eq(schema.privateKey.id, signInKey));
+      if (key && key.organizationId !== before.ownerOrganizationId)
+        throw new UserError("This server signs in with an SSH key of the instance. Choose a key of your organization first.");
+    }
     if (data.host && data.host !== before.host && !ownerChanged && before.ownerOrganizationId && !before.tunnel) {
       await assertPublicHost(data.host);
     }

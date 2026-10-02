@@ -148,6 +148,8 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
     db: database ? { engine: database.config.engine, initScripts: !!database.engine.initScripts, tls: database.engine.tls } : null,
   });
   if (!nav.some((n) => n.id === section)) notFound();
+  // Maintenance mode changes what visitors get, so saving it needs deploy rights.
+  if (section === "maintenance" && !ctx.can("services.deploy")) return <NoAccess permission="services.deploy" />;
   return (
     <ServiceSettings
       projectId={projectId}

@@ -366,7 +366,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
             </p>
             {(can("services.manage") || can("services.deploy")) && (
               <div className="flex flex-none items-center gap-2">
-                {can("services.manage") && (
+                {can("services.manage") && can("services.deploy") && (
                   <Link href={`${base}/settings/maintenance`} className="text-[13px] font-medium text-fg-2 hover:text-fg">
                     Edit page
                   </Link>

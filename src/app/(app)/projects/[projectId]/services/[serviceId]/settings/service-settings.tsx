@@ -18,6 +18,7 @@ import { SwitchRow } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
+import { useCan } from "@/components/permissions";
 import { applyDatabaseChanges, deleteService, moveService, regenerateWebhookSecret, updateService } from "@/server/actions/services";
 import { cn } from "@/lib/utils";
 import type { BuildConfig, RepoWebhook, RuntimeConfig, VolumeMount } from "@/server/services/types";
@@ -165,6 +166,7 @@ function ServerCard({ service, server, servers }: { service: Props["service"]; s
 
 export function ServiceSettings(props: Props) {
   const router = useRouter();
+  const can = useCan();
   const confirm = useConfirm();
   const { service } = props;
   const save = useAction((patch: Parameters<typeof updateService>[1]) => updateService(service.id, patch), {
@@ -205,7 +207,7 @@ export function ServiceSettings(props: Props) {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-6">
-      {isDb && <ApplyBar pending={pendingApply} running={running} applying={applyDb.pending} onApply={() => applyDb.run()} />}
+      {isDb && can("services.deploy") && <ApplyBar pending={pendingApply} running={running} applying={applyDb.pending} onApply={() => applyDb.run()} />}
       {show("general") && (
         <Section
           id="general"
@@ -507,7 +509,8 @@ export function ServiceSettings(props: Props) {
           initial={{ content: service.compose.content, path: service.compose.path }}
           onSave={(v) => save.run({ compose: service.compose?.mode === "git" ? { path: v.path } : { content: v.content } })}
           footerAction={() =>
-            service.compose?.mode === "inline" && (
+            service.compose?.mode === "inline" &&
+            can("integrations.manage") && (
               <Link href={`/templates/new?service=${service.id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
                 <LayoutTemplate /> Save as template
               </Link>

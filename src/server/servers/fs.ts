@@ -138,6 +138,14 @@ export function remoteFs(target: SshTarget): ServerFs {
     for (const key of [...listed.keys()]) if (key === target || key.startsWith(`${target}/`)) listed.delete(key);
     listed.get(path.posix.dirname(target))?.delete(path.posix.basename(target));
   };
+  // A folder (and its parents) now exists: remembered, and shown as such to a fresh lookup.
+  const madeDirs = (dir: string) => {
+    for (let d = dir; d && d !== "/" && d !== "."; d = path.posix.dirname(d)) {
+      made.add(d);
+      if (seen.has(d)) seen.set(d, { dir: true, size: 0, mtime: 0, hash: null });
+      listed.get(path.posix.dirname(d))?.add(path.posix.basename(d));
+    }
+  };
   const forget = (target: string) => {
     for (const key of [...written.keys(), ...made]) if (key === target || key.startsWith(`${target}/`)) written.delete(key), made.delete(key);
     unsee(target);
@@ -157,7 +165,7 @@ export function remoteFs(target: SshTarget): ServerFs {
     written.delete(file);
     const r = await sshExec(target, command, { timeoutMs: 120_000, stdin: typeof content === "string" ? content : () => Readable.from([content]) });
     if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || `Could not write ${file}`);
-    for (let d = dir; d && d !== "/" && d !== "."; d = path.posix.dirname(d)) made.add(d);
+    madeDirs(dir);
     listed.get(dir)?.add(path.posix.basename(file));
     const [size, mtime] = r.stdout.trim().split(/\s+/).map(Number);
     return { size, mtime: mtime * 1000 };
@@ -220,7 +228,7 @@ export function remoteFs(target: SshTarget): ServerFs {
         return;
       }
       await run(`mkdir -p ${sh(dir)}`);
-      for (let d = dir; d && d !== "/" && d !== "."; d = path.posix.dirname(d)) made.add(d);
+      madeDirs(dir);
     },
     async rm(target) {
       forget(target);

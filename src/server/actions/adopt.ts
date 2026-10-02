@@ -11,6 +11,9 @@ import { getServer } from "@/server/servers/context";
 import { projectInOrg } from "@/server/services/access";
 import { requireRoom } from "@/server/limits";
 import { adoptContainer, adoptionPlan, checkDatabaseLogin } from "@/server/adopt";
+import { and } from "drizzle-orm";
+import { assertCredentialHost, normalizeRepoUrl } from "@/server/deploy/git";
+import { repoUrlProblem } from "@/lib/repo-url";
 
 const containerInput = z.object({ serverId: z.string().min(1), containerId: z.string().regex(/^[a-f0-9]{12,64}$/) });
 
@@ -48,6 +51,11 @@ export async function adoptionPreview(raw: z.input<typeof containerInput>) {
           )
       : [];
     const { password: _password, ...database } = plan.database ?? { password: "" };
+    const credentials = await db
+      .select({ id: schema.gitCredential.id, name: schema.gitCredential.name, provider: schema.gitCredential.provider })
+      .from(schema.gitCredential)
+      .where(eq(schema.gitCredential.organizationId, ctx.org.id))
+      .orderBy(asc(schema.gitCredential.name));
     return {
       name: plan.container.name,
       running: plan.container.running,
@@ -61,6 +69,8 @@ export async function adoptionPreview(raw: z.input<typeof containerInput>) {
       blockers: plan.blockers,
       database: plan.database ? { ...(database as Omit<NonNullable<typeof plan.database>, "password">), passwordFound: !!plan.database.password, loginWorks } : null,
       databaseProblems: plan.databaseProblems,
+      git: plan.git,
+      credentials,
       projects: projects.map((p) => ({ ...p, environments: envs.filter((e) => e.projectId === p.id).map((e) => ({ id: e.id, name: e.name })) })),
     };
   });
@@ -73,6 +83,15 @@ const adoptInput = containerInput.extend({
   as: z.enum(["database", "container"]),
   mode: z.enum(["move", "copy"]).default("move"),
   password: z.string().max(500).optional(),
+  /** Containers: deploy from this repository after the move. */
+  git: z
+    .object({
+      repository: z.string().trim().min(3).max(500),
+      branch: z.string().trim().min(1).max(200).default("main"),
+      credentialId: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 /** Moves a container into a project (a service takes its place on the same data, ports and names), or copies it. */
@@ -83,8 +102,31 @@ export async function moveContainerIntoProject(raw: z.input<typeof adoptInput>) 
     await projectInOrg(input.projectId, ctx.org.id);
     const [env] = await db.select({ projectId: schema.environment.projectId }).from(schema.environment).where(eq(schema.environment.id, input.environmentId));
     if (env?.projectId !== input.projectId) throw new UserError("Environment not found.");
+    let git = null;
+    if (input.git && input.as === "container") {
+      const repository = normalizeRepoUrl(input.git.repository);
+      const problem = repoUrlProblem(repository);
+      if (problem) throw new UserError(problem);
+      const credentialId = input.git.credentialId || null;
+      if (credentialId) {
+        const [cred] = await db
+          .select({ id: schema.gitCredential.id, provider: schema.gitCredential.provider, baseUrl: schema.gitCredential.baseUrl })
+          .from(schema.gitCredential)
+          .where(and(eq(schema.gitCredential.id, credentialId), eq(schema.gitCredential.organizationId, ctx.org.id)));
+        if (!cred) throw new UserError("Git connection not found.");
+        // The token goes only to the repository's own server.
+        if (/^https?:\/\//i.test(repository)) {
+          try {
+            assertCredentialHost(cred, repository);
+          } catch (e) {
+            throw new UserError((e as Error).message);
+          }
+        }
+      }
+      git = { repository, branch: input.git.branch, credentialId };
+    }
     const reserved = await requireRoom(ctx.org.id, { services: 1, type: input.as === "database" ? "database" : "app", serverId: input.serverId });
-    const made = await adoptContainer({ ...input, userId: ctx.user.id }, reserved);
+    const made = await adoptContainer({ ...input, git, userId: ctx.user.id }, reserved);
     await logActivity({
       userId: ctx.user.id,
       projectId: input.projectId,

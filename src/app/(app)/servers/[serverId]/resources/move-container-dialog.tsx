@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, Box, Database, HardDrive, Loader2, Network, Plug } from "lucide-react";
+import { AlertTriangle, Box, Database, GitBranch, HardDrive, Loader2, Network, Plug } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useRouter } from "@/hooks/use-router";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -38,6 +39,10 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
   const [name, setName] = React.useState("");
   const [as, setAs] = React.useState<"database" | "container">("container");
   const [mode, setMode] = React.useState<"move" | "copy">("move");
+  const [fromGit, setFromGit] = React.useState(false);
+  const [repository, setRepository] = React.useState("");
+  const [branch, setBranch] = React.useState("main");
+  const [credentialId, setCredentialId] = React.useState("");
   const [password, setPassword] = React.useState("");
 
   React.useEffect(() => {
@@ -51,6 +56,10 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
       const p = res.data;
       setPreview(p);
       setMode("move");
+      setFromGit(!!p.git.repository);
+      setRepository(p.git.repository ?? "");
+      setBranch(p.git.branch ?? "main");
+      setCredentialId("");
       setName(p.name);
       setAs(p.database ? "database" : "container");
       setProjectId(p.projects[0]?.id ?? "");
@@ -71,6 +80,7 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
         name,
         as,
         mode,
+        git: as === "container" && fromGit && repository.trim() ? { repository, branch, credentialId: credentialId || null } : null,
         password: as === "database" && password ? password : undefined,
       }),
     {
@@ -199,6 +209,51 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                   >
                     <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" required />
                   </Field>
+                )}
+                {as === "container" && (
+                  <div className="flex flex-col gap-3 rounded-xl border border-line p-3.5">
+                    <label className="flex items-start justify-between gap-3">
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-1.5 text-[13px] font-medium text-fg [&_svg]:size-3.5">
+                          <GitBranch /> Deploy from git after the move
+                        </span>
+                        <span className="text-xs leading-relaxed text-muted">
+                          It runs its current image now. Later deploys build from the repository, with the same variables.
+                          {preview.git.repository
+                            ? " Serve found the repository in the image's labels."
+                            : preview.git.revision
+                              ? ` Its image names commit ${preview.git.revision.slice(0, 7)}, not the repository.`
+                              : ""}
+                        </span>
+                      </span>
+                      <Switch checked={fromGit} onCheckedChange={setFromGit} />
+                    </label>
+                    {fromGit && (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_9rem]">
+                        <Field label="Repository">
+                          <Input
+                            value={repository}
+                            onChange={(e) => setRepository(e.target.value)}
+                            placeholder="https://github.com/owner/repo"
+                            className="font-mono text-[13px]"
+                            required
+                          />
+                        </Field>
+                        <Field label="Branch">
+                          <Input value={branch} onChange={(e) => setBranch(e.target.value)} className="font-mono text-[13px]" required />
+                        </Field>
+                        {preview.credentials.length > 0 && (
+                          <Field label="Git connection" className="sm:col-span-2">
+                            <Select
+                              value={credentialId || "none"}
+                              onValueChange={(v) => setCredentialId(v === "none" ? "" : v)}
+                              options={[{ value: "none", label: "None (public repository)" }, ...preview.credentials.map((c) => ({ value: c.id, label: c.name }))]}
+                            />
+                          </Field>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {as === "database" && db?.loginWorks && <p className="text-xs text-ok">Serve signed in as {db.username} with the password it runs with.</p>}
 

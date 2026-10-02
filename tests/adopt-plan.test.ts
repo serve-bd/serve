@@ -132,3 +132,13 @@ describe("Redis and Valkey", () => {
     expect(redis(["redis-server", "/etc/redis.conf"]).databaseProblems.join(" ")).toMatch(/file/);
   });
 });
+
+describe("repository labels", () => {
+  it("never keeps a login in the URL, and reads ssh addresses as web ones", async () => {
+    const { repoUrlWithoutLogin } = await import("@/lib/repo-url");
+    expect(repoUrlWithoutLogin("https://x-access-token:ghp_secret@github.com/acme/web.git")).toBe("https://github.com/acme/web");
+    expect(repoUrlWithoutLogin("git@github.com:acme/web.git")).toBe("https://github.com/acme/web");
+    expect(repoUrlWithoutLogin("ssh://git@git.example.com:2222/acme/web.git")).toBe("https://git.example.com/acme/web");
+    expect(repoUrlWithoutLogin("/srv/repo")).toBeNull();
+  });
+});

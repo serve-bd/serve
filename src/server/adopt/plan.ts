@@ -38,6 +38,8 @@ export type AdoptPlan = {
   notes: string[];
   /** Why it cannot be moved at all. */
   blockers: string[];
+  /** Where its image came from, as far as the image says: to deploy from git after the move. */
+  git: { repository: string | null; branch: string | null; revision: string | null };
   /** It can become a database service of Serve (backups, Data tab, users) when this is set. */
   database: DatabasePlan | null;
   /** Why it moves as a plain container rather than a database, when it looks like one. */
@@ -189,6 +191,7 @@ export function planAdoption(info: Docker.ContainerInspectInfo, image: Docker.Im
     extraHosts: ((host.ExtraHosts ?? []) as string[]).filter((h) => !h.startsWith("host.docker.internal:")),
     notes,
     blockers,
+    git: gitOrigin(image, tag),
     database: null,
     databaseProblems: [],
   };
@@ -331,6 +334,18 @@ function databasePlanFor(plan: AdoptPlan, engine: DbEngine, env: Map<string, str
     },
     databaseProblems: [],
   };
+}
+
+/**
+ * The repository, branch and commit an image was built from: the standard labels (set by many
+ * builders, and by Serve), else a commit hash used as its tag.
+ */
+export function gitOrigin(image: Docker.ImageInspectInfo | null, tag: string | null): AdoptPlan["git"] {
+  const labels = (image?.Config?.Labels ?? {}) as Record<string, string>;
+  const source = labels["org.opencontainers.image.source"] ?? "";
+  const repository = /^(https?:\/\/|[\w.-]+@[\w.-]+:)/.test(source) ? source : null;
+  const tagCommit = tag && /:([a-f0-9]{7,40})$/.exec(tag)?.[1];
+  return { repository, branch: labels["serve.branch"] || null, revision: labels["org.opencontainers.image.revision"] || tagCommit || null };
 }
 
 /** TCP ports a container listens on, from /proc/net/tcp and tcp6 (state 0A), loopback-only ones left out. */

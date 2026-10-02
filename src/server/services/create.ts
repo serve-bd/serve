@@ -56,7 +56,7 @@ export async function queueDeployment(
     commitMessage?: string | null;
     branch?: string | null;
     /** A container made outside Serve that this deployment takes over. */
-    adopt?: { containerId: string; name: string; mode?: "move" | "copy"; volumes?: { from: string; to: string }[] } | null;
+    adopt?: import("@/server/adopt/handoff").Handoff | null;
   } = {},
 ) {
   const id = newId();

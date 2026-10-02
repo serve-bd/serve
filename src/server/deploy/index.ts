@@ -14,6 +14,7 @@ import { syncServiceProxy } from "@/server/proxy/nginx";
 import { resolveEnv } from "@/server/services/variables";
 import { composeVariables } from "@/lib/compose-vars";
 import { networkAliases } from "@/lib/hostname";
+import { repoUrlWithoutLogin } from "@/lib/repo-url";
 import { parseCompose } from "@/server/deploy/compose";
 import { engines } from "@/server/databases/engines";
 import { logActivity } from "@/server/activity";
@@ -197,6 +198,8 @@ async function prepareAppImage(
   signal?.addEventListener("abort", onAbort);
   const timer = timeoutMinutes ? setTimeout(() => buildController.abort(new Error(`The build exceeded ${timeoutMinutes} minutes.`)), timeoutMinutes * 60_000) : undefined;
   const buildSignal = buildController.signal;
+  // Standard image labels: the repository and commit an image was built from, readable by any tool.
+  const origin: Record<string, string> = {};
   try {
     if (source.type === "git") {
       log.step("Cloning repository");
@@ -208,6 +211,10 @@ async function prepareAppImage(
         commitAuthor: clone.commitAuthor,
         branch: source.branch,
       });
+      const repo = repoUrlWithoutLogin(source.repository);
+      if (repo) origin["org.opencontainers.image.source"] = repo;
+      if (clone.commitSha) origin["org.opencontainers.image.revision"] = clone.commitSha;
+      origin[LABEL.branch] = source.branch;
     } else {
       log.step("Preparing the Dockerfile");
       if (build.noCache) log.line("Building without cache");
@@ -235,7 +242,7 @@ async function prepareAppImage(
       image: target,
       build,
       buildEnv: env.build,
-      labels: { [LABEL.managed]: "true", [LABEL.service]: service.id, [LABEL.deployment]: dep.id },
+      labels: { ...origin, [LABEL.managed]: "true", [LABEL.service]: service.id, [LABEL.deployment]: dep.id },
       log: log.line,
       signal: buildSignal,
       redact: env.secrets,
@@ -1353,6 +1360,21 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       await deployDatabase(service, log, signal, dep.adopt ?? null);
       await db.update(schema.service).set({ currentDeploymentId: dep.id }).where(eq(schema.service.id, service.id));
     } else await deployCompose(service, dep, log, server, signal);
+
+    // A container moved in from a git build: it ran as it was; deploys build from the repository from now on.
+    if (dep.adopt?.git && service.type === "app") {
+      const fresh = await db.query.service.findFirst({ where: eq(schema.service.id, service.id) });
+      if (fresh) {
+        const { detectPort: _keep, pullPolicy: _pull, ...runtime } = fresh.runtime;
+        await db
+          .update(schema.service)
+          .set({ source: { type: "git", ...dep.adopt.git }, build: { ...defaultBuild() }, runtime })
+          .where(eq(schema.service.id, service.id));
+        const { registerRepoWebhook } = await import("@/server/git/repo-webhooks");
+        await registerRepoWebhook(service.id).catch(() => {});
+        log.line(`From the next deployment on, it builds from ${dep.adopt.git.repository} (${dep.adopt.git.branch})`);
+      }
+    }
 
     const seconds = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
     log.step(`Deployed successfully in ${seconds}s`);

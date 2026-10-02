@@ -12,7 +12,7 @@ import { newWebhookSecret, queueDeployment, uniqueServiceName, uniqueServiceSlug
 import { defaultRuntime, type RuntimeConfig } from "@/server/services/types";
 import { toServiceName } from "@/lib/service-name";
 import { type AdoptPlan, choosePort, listeningPorts, planAdoption } from "./plan";
-import { retiredName } from "./handoff";
+import { type GitAfter, retiredName } from "./handoff";
 import { volumeName } from "@/server/deploy/containers";
 import { volumesFor } from "@/server/deploy/image-volumes";
 
@@ -111,6 +111,8 @@ export type AdoptInput = {
   mode: "move" | "copy";
   /** The database password, when the one in its variables is wrong or missing. */
   password?: string;
+  /** Containers: deploy from this repository after the move (the move itself runs the image as it is). */
+  git?: GitAfter | null;
   userId: string;
 };
 
@@ -226,7 +228,12 @@ export async function adoptContainer(input: AdoptInput, reserved: { cpuLimit: nu
   }
   const deploymentId = await queueDeployment(id, "create", {
     userId: input.userId,
-    adopt: { containerId: plan.container.id, name: plan.container.name, ...(copy ? { mode: "copy" as const, volumes: copied } : {}) },
+    adopt: {
+      containerId: plan.container.id,
+      name: plan.container.name,
+      ...(copy ? { mode: "copy" as const, volumes: copied } : {}),
+      ...(!asDatabase && input.git ? { git: input.git } : {}),
+    },
   });
   return { id, name, deploymentId };
 }

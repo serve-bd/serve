@@ -13,6 +13,8 @@ export const LABEL = {
   deployment: "serve.deployment",
   slug: "serve.slug",
   kind: "serve.kind",
+  /** Images built from git: the branch (the standard labels hold the repository and commit). */
+  branch: "serve.branch",
 } as const;
 
 export type LogFn = (line: string) => void;

@@ -1430,6 +1430,8 @@ export const databaseBranch = pgTable(
     copiedAt: timestamp("copied_at", { withTimezone: true }),
     /** Every copy into this branch runs the clean-up SQL (personal data hidden). */
     scrubbed: boolean("scrubbed").notNull().default(false),
+    /** The branch this one copies (made and reset from); null copies the main database. */
+    sourceBranchId: text("source_branch_id").references((): AnyPgColumn => databaseBranch.id, { onDelete: "set null" }),
     /** The pull request preview that uses this branch; removed when the preview closes. */
     previewServiceId: text("preview_service_id").references((): AnyPgColumn => service.id, { onDelete: "set null" }),
     createdBy: text("created_by"),
@@ -1437,4 +1439,30 @@ export const databaseBranch = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex("database_branch_service_name_idx").on(t.serviceId, t.name), index("database_branch_preview_idx").on(t.previewServiceId)],
+);
+
+export type DatabaseUserAccess = "read" | "readwrite" | "owner";
+
+/**
+ * A login Serve made inside a database service (Users page). The login itself lives in the
+ * database; this row keeps its password so its connection URL can be copied later.
+ */
+export const databaseUser = pgTable(
+  "database_user",
+  {
+    id: id(),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    username: text("username").notNull(),
+    /** Encrypted. */
+    password: text("password").notNull(),
+    access: text("access").$type<DatabaseUserAccess>().notNull(),
+    /** The databases inside the service this login can reach. */
+    databases: jsonb("databases").$type<string[]>().notNull().default([]),
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("database_user_service_username_idx").on(t.serviceId, t.username)],
 );

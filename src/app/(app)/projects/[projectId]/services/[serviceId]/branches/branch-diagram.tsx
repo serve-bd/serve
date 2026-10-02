@@ -10,6 +10,7 @@ export type DiagramBranch = {
   status: "creating" | "ready" | "resetting" | "failed" | "deleting";
   sizeBytes: number | null;
   scrubbed: boolean;
+  sourceBranchId: string | null;
   preview: { id: string; pr: number | null } | null;
   consumers: { id: string; name: string; status: string; previewPr: number | null; keys: string[] }[];
 };
@@ -19,6 +20,8 @@ const NODE_H = 68;
 const ROW = 84;
 const COL = [0, 340, 690];
 const PAD = 40;
+/** A branch of a branch sits this much to the right of its source, like a tree. */
+const INDENT = 28;
 
 const busy = (s: DiagramBranch["status"]) => s === "creating" || s === "resetting" || s === "deleting";
 
@@ -103,13 +106,22 @@ export function BranchDiagram({
   running: boolean;
   branches: DiagramBranch[];
 }) {
+  // Tree order: each branch right after the branch it copies. Copies of a missing branch start a tree.
+  const ordered: { b: DiagramBranch; depth: number }[] = [];
+  const visit = (b: DiagramBranch, depth: number) => {
+    if (ordered.some((o) => o.b.id === b.id)) return;
+    ordered.push({ b, depth });
+    for (const c of branches) if (c.sourceBranchId === b.id) visit(c, depth + 1);
+  };
+  for (const b of branches) if (!b.sourceBranchId || !branches.some((x) => x.id === b.sourceBranchId)) visit(b, 0);
+  for (const b of branches) visit(b, 0);
   // Each branch takes as many rows as the services that use it, at least one.
   let row = 0;
-  const placed = branches.map((b) => {
+  const placed = ordered.map(({ b, depth }) => {
     const rows = Math.max(1, b.consumers.length);
     const top = row;
     row += rows;
-    return { b, top, rows };
+    return { b, top, rows, dx: Math.min(depth, 3) * INDENT };
   });
   const totalRows = Math.max(1, row);
   const height = PAD * 2 + (totalRows - 1) * ROW + NODE_H;
@@ -127,17 +139,21 @@ export function BranchDiagram({
         >
           <svg className="pointer-events-none absolute inset-0" width={width} height={height} aria-hidden>
             <style>{"@keyframes serve-dash{to{stroke-dashoffset:-24}}@keyframes serve-progress{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}"}</style>
-            {placed.map(({ b, top, rows }) => {
+            {placed.map(({ b, top, rows, dx }) => {
               const by = yOf(top + (rows - 1) / 2) + NODE_H / 2;
               const x1 = PAD + COL[0] + NODE_W;
               const x2 = PAD + COL[1];
               const my = mainY + NODE_H / 2;
               const mid = (x1 + x2) / 2;
               const copying = b.status === "creating" || b.status === "resetting";
+              // A copy of another branch: an elbow from under that branch's icon into this one.
+              const from = placed.find((p) => p.b.id === b.sourceBranchId);
+              const fx = from ? x2 + from.dx + 18 : 0;
+              const fy = from ? yOf(from.top + (from.rows - 1) / 2) + NODE_H : 0;
               return (
                 <g key={b.id}>
                   <path
-                    d={`M ${x1} ${my} C ${mid} ${my}, ${mid} ${by}, ${x2} ${by}`}
+                    d={from ? `M ${fx} ${fy} V ${by - 8} Q ${fx} ${by}, ${fx + 8} ${by} H ${x2 + dx}` : `M ${x1} ${my} C ${mid} ${my}, ${mid} ${by}, ${x2} ${by}`}
                     fill="none"
                     strokeWidth={1.5}
                     className={copying ? "stroke-info" : b.status === "failed" ? "stroke-bad/60" : "stroke-line-strong"}
@@ -146,7 +162,7 @@ export function BranchDiagram({
                   />
                   {b.consumers.map((c, i) => {
                     const cy = yOf(top + i) + NODE_H / 2;
-                    const a = PAD + COL[1] + NODE_W;
+                    const a = PAD + COL[1] + NODE_W + dx;
                     const z = PAD + COL[2];
                     const m = (a + z) / 2;
                     return <path key={c.id} d={`M ${a} ${by} C ${m} ${by}, ${m} ${cy}, ${z} ${cy}`} fill="none" strokeWidth={1.5} className="stroke-line-strong" />;
@@ -161,9 +177,10 @@ export function BranchDiagram({
           </span>
           <Node x={PAD + COL[0]} y={mainY} icon={<Database />} title={serviceName} subtitle={`${engineLabel} · main data`} tone={running ? "ok" : "idle"} highlight />
 
-          {placed.map(({ b, top, rows }) => {
+          {placed.map(({ b, top, rows, dx }) => {
             const y = yOf(top + (rows - 1) / 2);
-            const kind = b.preview ? `preview #${b.preview.pr}` : "branch";
+            const source = branches.find((x) => x.id === b.sourceBranchId);
+            const kind = b.preview ? `preview #${b.preview.pr}` : source ? `from ${source.name}` : "branch";
             const subtitle =
               b.status === "creating" || b.status === "resetting" ? (
                 <span className="text-info">Copying data…</span>
@@ -172,7 +189,7 @@ export function BranchDiagram({
               ) : b.status === "failed" ? (
                 <span className="text-bad">Copy failed</span>
               ) : b.scrubbed ? (
-                b.preview ? (
+                b.preview || source ? (
                   `${kind} · data hidden`
                 ) : (
                   "personal data hidden"
@@ -183,7 +200,7 @@ export function BranchDiagram({
             return (
               <div key={b.id}>
                 <Node
-                  x={PAD + COL[1]}
+                  x={PAD + COL[1] + dx}
                   y={y}
                   icon={<GitBranch />}
                   title={b.name}
@@ -194,7 +211,7 @@ export function BranchDiagram({
                 {b.consumers.map((c, i) => {
                   const cy = yOf(top + i);
                   const label = c.keys.length > 1 ? `${c.keys[0]} +${c.keys.length - 1}` : c.keys[0];
-                  const a = PAD + COL[1] + NODE_W;
+                  const a = PAD + COL[1] + NODE_W + dx;
                   const z = PAD + COL[2];
                   const pillY = (y + cy) / 2 + NODE_H / 2;
                   return (

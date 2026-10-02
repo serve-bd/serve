@@ -1,0 +1,2 @@
+ALTER TABLE "database_branch" ADD COLUMN "source_branch_id" text;--> statement-breakpoint
+ALTER TABLE "database_branch" ADD CONSTRAINT "database_branch_source_branch_id_database_branch_id_fk" FOREIGN KEY ("source_branch_id") REFERENCES "public"."database_branch"("id") ON DELETE set null ON UPDATE no action;

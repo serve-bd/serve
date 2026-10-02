@@ -18,8 +18,9 @@ export type SiblingService = {
 };
 
 /** Tabs a service of this type has, so switching can keep the one in view. */
-function hasTab(type: string, tab: string) {
+function hasTab(type: string, tab: string, engine: string | null) {
   if (tab === "branches") return type === "database";
+  if (tab === "users") return type === "database" && ["postgres", "mysql", "mariadb", "mongodb"].includes(engine ?? "");
   if (tab === "domains" || tab === "tasks") return type !== "database";
   return true;
 }
@@ -29,7 +30,7 @@ export function ServiceSwitcher({ projectId, current, services }: { projectId: s
   const pathname = usePathname();
   // Same tab on the other service (a deployment's page falls back to the list).
   const tab = pathname.split(`/services/${current.id}/`)[1]?.split("/")[0] ?? "";
-  const hrefOf = (s: SiblingService) => `/projects/${projectId}/services/${s.id}${tab && hasTab(s.type, tab) ? `/${tab}` : ""}`;
+  const hrefOf = (s: SiblingService) => `/projects/${projectId}/services/${s.id}${tab && hasTab(s.type, tab, s.engine) ? `/${tab}` : ""}`;
 
   if (services.length < 2) return <span className="truncate text-fg-2">{current.name}</span>;
   return (

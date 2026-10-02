@@ -189,6 +189,28 @@ run("main flows", () => {
     }
   });
 
+  it("adds a database user with read-only access, changes it, and deletes it", async () => {
+    const psqlAs = (user: string, password: string, q: string) => `PGPASSWORD='${password}' psql -h 127.0.0.1 -U ${user} -d "$POSTGRES_DB" -tAc "${q}"`;
+    expect((await runCommand(dbId, `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "create table zz_users (v text); insert into zz_users values ('a')"`)).exitCode).toBe(0);
+    const list = await ok(ADMIN, "GET", `/services/${dbId}/users`);
+    expect(list.users.find((u: any) => u.protectedReason === "Serve's own login")).toBeTruthy();
+    const made = (await ok(ADMIN, "POST", `/services/${dbId}/users`, { username: "zz_reader", access: "read", databases: [list.mainDatabase] }, 201)).user;
+    expect(made.privateUrl).toContain("zz_reader");
+    expect((await runCommand(dbId, psqlAs("zz_reader", made.password, "select v from zz_users"))).output).toContain("a");
+    expect((await runCommand(dbId, psqlAs("zz_reader", made.password, "insert into zz_users values ('b')"))).exitCode).not.toBe(0);
+    await ok(ADMIN, "PUT", `/services/${dbId}/users/zz_reader/access`, { access: "readwrite", databases: [list.mainDatabase] });
+    expect((await runCommand(dbId, psqlAs("zz_reader", made.password, "insert into zz_users values ('b')"))).exitCode).toBe(0);
+    const changed = (await ok(ADMIN, "POST", `/services/${dbId}/users/zz_reader/password`, {})).user;
+    expect(changed.password).not.toBe(made.password);
+    expect((await ok(ADMIN, "GET", `/services/${dbId}/users/zz_reader/connection`)).user.password).toBe(changed.password);
+    // Serve's own login is never changed from the Users page.
+    const own = list.users.find((u: any) => u.protectedReason === "Serve's own login").username;
+    expect((await api(ADMIN, "DELETE", `/services/${dbId}/users/${own}`)).status).toBe(400);
+    if (sql) expect((await api(tokens.read, "POST", `/services/${dbId}/users`, { username: "zz_x", access: "read", databases: [list.mainDatabase] })).status).toBe(403);
+    await ok(ADMIN, "DELETE", `/services/${dbId}/users/zz_reader`);
+    expect((await ok(ADMIN, "GET", `/services/${dbId}/users`)).users.some((u: any) => u.username === "zz_reader")).toBe(false);
+  });
+
   it("backs up a database and restores it", async () => {
     const psql = (q: string) => `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "${q}"`;
     expect((await runCommand(dbId, psql("create table zz_e2e (v text); insert into zz_e2e values ('before')"))).exitCode).toBe(0);
@@ -240,6 +262,21 @@ run("main flows", () => {
     await new Promise((r) => setTimeout(r, 1500));
     branch = await ready();
     expect((await inBranch()).output).toContain("hidden@example.com");
+    // A branch of this branch copies its data (a row only it has), and hides personal data too.
+    await runCommand(dbId, psql("insert into zz_people values ('only-in-safe@example.com')", branch.database));
+    await ok(ADMIN, "POST", `/services/${dbId}/branches`, { name: "child", sourceBranchId: branch.id }, 202);
+    const child = await until("child branch", async () => {
+      const b = (await ok(ADMIN, "GET", `/services/${dbId}/branches`)).branches.find((x: any) => x.name === "child");
+      return b && b.status !== "creating" && b.status !== "resetting" ? b : null;
+    });
+    expect(child.status).toBe("ready");
+    expect(child.sourceBranchId).toBe(branch.id);
+    expect(child.personalDataHidden).toBe(true);
+    // Two rows (the main data has one), both hidden again by the clean-up SQL.
+    expect((await runCommand(dbId, psql("select count(*) from zz_people", child.database))).output.trim()).toBe("2");
+    expect((await runCommand(dbId, psql("select count(*) from zz_people"))).output.trim()).toBe("1");
+    expect((await runCommand(dbId, psql("select email from zz_people", child.database))).output).not.toContain("only-in-safe");
+    await ok(ADMIN, "DELETE", `/branches/${child.id}`);
     await ok(ADMIN, "DELETE", `/branches/${branch.id}`);
   });
 

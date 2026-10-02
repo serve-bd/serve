@@ -51,7 +51,7 @@ export async function saveBranchCleanupSql(serviceId: string, sql: string | null
   });
 }
 
-export async function createDatabaseBranch(serviceId: string, rawName: string, opts: { hidePersonalData?: boolean } = {}) {
+export async function createDatabaseBranch(serviceId: string, rawName: string, opts: { hidePersonalData?: boolean; sourceBranchId?: string | null } = {}) {
   return act(async () => {
     const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
@@ -63,8 +63,21 @@ export async function createDatabaseBranch(serviceId: string, rawName: string, o
     // Each branch is a full copy of the data; Redis and Valkey have 15 spare database numbers.
     const max = maxBranches(service.database.engine);
     if (existing.length >= max) throw new UserError(`A database can have up to ${max} branches. Delete one first.`);
-    if (opts.hidePersonalData && !service.database.branchCleanupSql?.trim()) throw new UserError("Add the clean-up SQL first: it is what hides the personal data.");
-    const branch = await createBranch(service, name, { userId: ctx.user.id, scrubbed: !!opts.hidePersonalData });
+    // A copy of another branch: one of this database's own, with its data in place.
+    let source: typeof schema.databaseBranch.$inferSelect | null = null;
+    if (opts.sourceBranchId) {
+      [source] = await db
+        .select()
+        .from(schema.databaseBranch)
+        .where(and(eq(schema.databaseBranch.id, opts.sourceBranchId), eq(schema.databaseBranch.serviceId, service.id)));
+      if (!source) throw new UserError("That branch is not there any more.");
+      if (source.previewServiceId) throw new UserError("Branches of pull request previews cannot be copied.");
+      if (source.status !== "ready") throw new UserError(`Branch ${source.name} is not ready. Try again when it is.`);
+    }
+    // A copy of a branch with personal data hidden hides it too: a reset after the source is gone copies the main data.
+    const hide = !!opts.hidePersonalData || !!source?.scrubbed;
+    if (hide && !service.database.branchCleanupSql?.trim()) throw new UserError("Add the clean-up SQL first: it is what hides the personal data.");
+    const branch = await createBranch(service, name, { userId: ctx.user.id, scrubbed: hide, sourceBranchId: source?.id ?? null });
     await enqueueBranchJob({ branchId: branch.id, op: "create" }, service.id);
     await logActivity({
       userId: ctx.user.id,
@@ -73,7 +86,7 @@ export async function createDatabaseBranch(serviceId: string, rawName: string, o
       action: "database.branch",
       targetType: "service",
       targetId: service.id,
-      message: `Started branch ${name} of ${service.name}${opts.hidePersonalData ? " with personal data hidden" : ""}`,
+      message: `Started branch ${name} of ${service.name}${source ? ` from branch ${source.name}` : ""}${hide ? " with personal data hidden" : ""}`,
     });
     return { id: branch.id };
   });

@@ -1,8 +1,10 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/server/db";
 import * as databases from "@/server/actions/databases";
 import * as branches from "@/server/actions/database-branches";
+import * as dbUsers from "@/server/actions/database-users";
+import { databasePublicEndpoint } from "@/server/databases/public-url";
 import { saveDatabaseDomain } from "@/server/actions/database-domains";
 import * as tasks from "@/server/actions/tasks";
 import * as monitoring from "@/server/actions/monitoring";
@@ -57,27 +59,14 @@ export const databaseRoutes: ApiRoute[] = [
       const secrets = auth.can("variables.view-secrets");
       const cfg = service.database!;
       let publicUrl: string | null = null;
-      if (secrets && cfg.publicPort && cfg.publicBind !== "127.0.0.1") {
+      const endpoint = secrets ? await databasePublicEndpoint(service, auth.organizationId) : null;
+      if (endpoint) {
         const { databaseUrl } = await import("@/server/databases/options");
         const { decryptOrNull } = await import("@/server/crypto");
-        const { serverPublicIp } = await import("@/server/servers/access");
-        const direct = !!cfg.domain && !cfg.domainTunnelId;
-        const host = direct ? cfg.domain! : await serverPublicIp(service.serverId);
-        // verify-full only once the domain's certificate is issued: the server serves it then.
-        let verified = false;
-        if (direct && cfg.tls?.enabled) {
-          const { certificateCovers } = await import("@/server/ssl/match");
-          const certs = await db
-            .select({ domains: schema.certificate.domains })
-            .from(schema.certificate)
-            .where(and(eq(schema.certificate.organizationId, auth.organizationId), eq(schema.certificate.serverId, service.serverId), eq(schema.certificate.status, "active")));
-          verified = certs.some((c) => certificateCovers(c.domains, cfg.domain!));
-        }
-        if (host)
-          publicUrl = databaseUrl(cfg, { username: cfg.username, password: decryptOrNull(cfg.password) ?? "", database: cfg.database }, host, cfg.publicPort, {
-            public: true,
-            verified,
-          });
+        publicUrl = databaseUrl(cfg, { username: cfg.username, password: decryptOrNull(cfg.password) ?? "", database: cfg.database }, endpoint.host, endpoint.port, {
+          public: true,
+          verified: endpoint.verified,
+        });
       }
       return {
         connection: {
@@ -196,6 +185,7 @@ export const databaseRoutes: ApiRoute[] = [
           error: b.error,
           sizeBytes: b.sizeBytes,
           personalDataHidden: b.scrubbed,
+          sourceBranchId: b.sourceBranchId,
           copiedAt: iso(b.copiedAt),
           previewServiceId: b.previewServiceId,
           createdAt: iso(b.createdAt),
@@ -209,13 +199,15 @@ export const databaseRoutes: ApiRoute[] = [
     tag: "Databases",
     summary: "Create a database branch",
     description:
-      "A copy of the database inside the same container, with a user of its own. hidePersonalData: true runs the database's branch clean-up SQL on every copy (PUT /services/{serviceId}/branches/cleanup-sql).",
+      "A copy of the database inside the same container, with a user of its own. hidePersonalData: true runs the database's branch clean-up SQL on every copy (PUT /services/{serviceId}/branches/cleanup-sql). sourceBranchId copies another ready branch instead of the main database; a copy of a branch with personal data hidden hides it too.",
     needs: ["services.manage"],
-    body: z.object({ name: z.string(), hidePersonalData: z.boolean().optional() }),
+    body: z.object({ name: z.string(), hidePersonalData: z.boolean().optional(), sourceBranchId: z.string().nullable().optional() }),
     status: 202,
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
-      return (await unwrap(branches.createDatabaseBranch(params.serviceId, body.name, { hidePersonalData: body.hidePersonalData }))) ?? { ok: true };
+      return (
+        (await unwrap(branches.createDatabaseBranch(params.serviceId, body.name, { hidePersonalData: body.hidePersonalData, sourceBranchId: body.sourceBranchId }))) ?? { ok: true }
+      );
     },
   }),
   route({
@@ -235,7 +227,7 @@ export const databaseRoutes: ApiRoute[] = [
     method: "POST",
     path: "/branches/{branchId}/reset",
     tag: "Databases",
-    summary: "Copy the main database into a branch again",
+    summary: "Copy the data into a branch again, from the main database or its source branch",
     needs: ["services.manage"],
     status: 202,
     handler: async ({ params }) => (await unwrap(branches.resetDatabaseBranch(params.branchId))) ?? { ok: true },
@@ -247,6 +239,85 @@ export const databaseRoutes: ApiRoute[] = [
     summary: "Delete a database branch",
     needs: ["services.manage"],
     handler: async ({ params }) => (await unwrap(branches.deleteDatabaseBranch(params.branchId))) ?? { ok: true },
+  }),
+
+  // Users
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/users",
+    tag: "Databases",
+    summary: "List the users of a database",
+    description:
+      "The logins inside a running PostgreSQL, MySQL, MariaDB or MongoDB database, read from the database. managed: made by Serve, which knows its access and password. protectedReason: Serve's own login, a branch's login or one built into the database; these are not changed here.",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => {
+      await databaseOf(auth, params.serviceId);
+      return await unwrap(dbUsers.listDatabaseUsers(params.serviceId));
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/users",
+    tag: "Databases",
+    summary: "Add a database user",
+    description:
+      "access: read, readwrite or owner, on each of databases. Leave out password and Serve makes one. Returns the password and the connection URLs. Needs variables.view-secrets too.",
+    needs: ["services.manage", "variables.view-secrets"],
+    body: z.object({ username: z.string(), password: z.string().optional(), access: z.enum(["read", "readwrite", "owner"]), databases: z.array(z.string()).min(1) }),
+    status: 201,
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return { user: await unwrap(dbUsers.createDatabaseUser(params.serviceId, body)) };
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/users/{username}/connection",
+    tag: "Databases",
+    summary: "Password and connection URLs of a database user Serve made",
+    needs: ["projects.view", "variables.view-secrets"],
+    handler: async ({ auth, params }) => {
+      await databaseOf(auth, params.serviceId);
+      return { user: await unwrap(dbUsers.databaseUserUrls(params.serviceId, params.username)) };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/users/{username}/access",
+    tag: "Databases",
+    summary: "Change the access of a database user",
+    description: "The new access replaces the old one on every database.",
+    needs: ["services.manage"],
+    body: z.object({ access: z.enum(["read", "readwrite", "owner"]), databases: z.array(z.string()).min(1) }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return (await unwrap(dbUsers.setDatabaseUserAccess(params.serviceId, params.username, body.access, body.databases))) ?? { ok: true };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/users/{username}/password",
+    tag: "Databases",
+    summary: "Change the password of a database user",
+    description: "Leave out password and Serve makes one. Returns the new password and connection URLs.",
+    needs: ["services.manage", "variables.view-secrets"],
+    body: z.object({ password: z.string().optional() }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return { user: await unwrap(dbUsers.changeDatabaseUserPassword(params.serviceId, params.username, body.password)) };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/services/{serviceId}/users/{username}",
+    tag: "Databases",
+    summary: "Delete a database user",
+    description: "On PostgreSQL, objects the user made are given to the main login first.",
+    needs: ["services.manage"],
+    handler: async ({ auth, params }) => {
+      await databaseOf(auth, params.serviceId);
+      return (await unwrap(dbUsers.deleteDatabaseUser(params.serviceId, params.username))) ?? { ok: true };
+    },
   }),
 
   // Scheduled tasks

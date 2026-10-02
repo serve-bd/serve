@@ -152,6 +152,9 @@ function keyValueScripts(bin: "redis-cli" | "valkey-cli") {
       const n = Number(b.database);
       if (!Number.isInteger(n) || n < 1 || n > 15) throw new Error(`Unexpected database number ${b.database}`);
       const cli = rcli(bin, { username: main.username, password: main.password, database: "0", tlsRequired: !!main.tlsRequired });
+      // The main data is database 0; a branch made from another branch copies that branch's number.
+      const from = /^\d+$/.test(main.database) ? Number(main.database) : 0;
+      if (from === n) throw new Error("A branch cannot copy itself.");
       // A Lua loop in batches of 1000 keys: any key name works, and the server never blocks for long.
       const lua = "local r = redis.call('SCAN', ARGV[1], 'COUNT', 1000) for _, k in ipairs(r[2]) do redis.call('COPY', k, k, 'DB', ARGV[2], 'REPLACE') end return r[1]";
       return [
@@ -159,7 +162,7 @@ function keyValueScripts(bin: "redis-cli" | "valkey-cli") {
         `${cli} -n ${n} FLUSHDB >/dev/null`,
         "cursor=0",
         // redis-cli exits 0 on an error reply, so the reply itself is checked: anything but a number stops the copy.
-        `while :; do cursor=$(${cli} -n 0 EVAL ${q(lua)} 0 "$cursor" ${n}); case "$cursor" in '' | *[!0-9]*) echo "$cursor" >&2; exit 1 ;; esac; [ "$cursor" = "0" ] && break; done`,
+        `while :; do cursor=$(${cli} -n ${from} EVAL ${q(lua)} 0 "$cursor" ${n}); case "$cursor" in '' | *[!0-9]*) echo "$cursor" >&2; exit 1 ;; esac; [ "$cursor" = "0" ] && break; done`,
         `echo "SERVE_KEYS=$(${cli} -n ${n} DBSIZE)"`,
       ].join("\n");
     },
@@ -290,7 +293,11 @@ async function run(service: Service, script: string, secrets: string[]) {
 }
 
 /** Add a branch and queue its copy. */
-export async function createBranch(service: Service, name: string, opts: { userId?: string | null; previewServiceId?: string | null; scrubbed?: boolean } = {}) {
+export async function createBranch(
+  service: Service,
+  name: string,
+  opts: { userId?: string | null; previewServiceId?: string | null; scrubbed?: boolean; sourceBranchId?: string | null } = {},
+) {
   if (!branchesSupported(service) || !service.database) throw new Error("Branches are available for database services.");
   const engine = service.database.engine;
   let database = branchDatabaseName(service.database.database, name);
@@ -321,6 +328,7 @@ export async function createBranch(service: Service, name: string, opts: { userI
       createdBy: opts.userId ?? null,
       previewServiceId: opts.previewServiceId ?? null,
       scrubbed: opts.scrubbed ?? false,
+      sourceBranchId: opts.sourceBranchId ?? null,
     })
     .returning();
   return branch;
@@ -361,10 +369,12 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
     if (service.status !== "running") throw new Error(`${service.name} is not running. Start it, then reset the branch.`);
     // Every copy (a reset too) of a branch that hides personal data runs the clean-up SQL.
     const scrubSql = await branchCleanupSql(service, branch, payload.preview?.previewId);
-    const out = await run(service, scripts.create(main, { database: branch.database, username: branch.username, password: branchPassword }, scrubSql), [
-      mainPassword,
-      branchPassword,
-    ]);
+    const source = await sourceOf(branch);
+    const out = await run(
+      service,
+      scripts.create(source ? { ...main, database: source.database } : main, { database: branch.database, username: branch.username, password: branchPassword }, scrubSql),
+      [mainPassword, branchPassword],
+    );
     const size = Number(out.match(/SERVE_SIZE=(\d+)/)?.[1] ?? Number.NaN);
     await db
       .update(schema.databaseBranch)
@@ -397,6 +407,15 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
     const { queueDeployment } = await import("@/server/services/create");
     await queueDeployment(payload.preview.previewId, "webhook", payload.preview.deployment);
   }
+}
+
+/** The branch a branch copies, when it was made from one; it must hold its data. */
+async function sourceOf(branch: Branch) {
+  if (!branch.sourceBranchId) return null;
+  const [source] = await db.select().from(schema.databaseBranch).where(eq(schema.databaseBranch.id, branch.sourceBranchId));
+  if (!source) return null;
+  if (source.status !== "ready") throw new Error(`Branch ${source.name}, which this branch copies, is not ready. Try again when it is.`);
+  return source;
 }
 
 /**

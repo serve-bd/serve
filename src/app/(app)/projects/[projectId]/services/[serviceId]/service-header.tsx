@@ -126,6 +126,9 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
     ...(service.type !== "database" ? [{ href: `${base}/tasks`, label: "Tasks" }] : []),
     ...(can("databases.backups") && ["database", "compose", "app"].includes(service.type) ? [{ href: `${base}/backups`, label: "Backups" }] : []),
     ...(service.type === "database" && !service.isPreview ? [{ href: `${base}/branches`, label: "Branches" }] : []),
+    ...(service.type === "database" && !service.isPreview && ["postgres", "mysql", "mariadb", "mongodb"].includes(service.engine ?? "")
+      ? [{ href: `${base}/users`, label: "Users" }]
+      : []),
     ...(can("services.manage") ? [{ href: `${base}/settings`, to: `${base}/settings/general`, label: "Settings" }] : []),
   ];
 

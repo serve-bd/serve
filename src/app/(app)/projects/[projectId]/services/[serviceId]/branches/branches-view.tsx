@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { Badge, Card, CardBody, CardHeader, CopyButton, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select } from "@/components/ui/select";
 import { CodeEditor } from "@/components/code-editor";
 import { ViewToggle } from "@/components/view-toggle";
 import { useAction } from "@/hooks/use-action";
@@ -31,6 +32,7 @@ type Branch = {
   createdAt: string;
   preview: { id: string; pr: number | null } | null;
   scrubbed: boolean;
+  sourceBranchId: string | null;
   consumers: DiagramBranch["consumers"];
 };
 
@@ -111,6 +113,7 @@ export function BranchesView({
           <ul className="divide-y divide-line">
             {branches.map((b) => {
               const ref = branchReference(refName, b.name);
+              const source = branches.find((x) => x.id === b.sourceBranchId);
               const label = busyLabel[b.status];
               return (
                 <li key={b.id} className="flex items-start gap-3 px-4 py-3.5 sm:px-5">
@@ -124,6 +127,7 @@ export function BranchesView({
                           for PR #{b.preview.pr}
                         </Link>
                       )}
+                      {source && <span className="text-xs text-muted">from {source.name}</span>}
                       {b.scrubbed && (
                         <Badge tone="ok" className="self-center">
                           <EyeOff className="size-3" /> Personal data hidden
@@ -167,7 +171,7 @@ export function BranchesView({
                             if (
                               await confirm({
                                 title: `Reset ${b.name}?`,
-                                description: `Its data is replaced with a fresh copy of ${serviceName}. Changes made in the branch are lost.`,
+                                description: `Its data is replaced with a fresh copy of ${source ? `branch ${source.name}` : serviceName}. Changes made in the branch are lost.`,
                                 confirmLabel: "Reset branch",
                                 danger: true,
                               })
@@ -175,7 +179,7 @@ export function BranchesView({
                               reset.run(b.id);
                           }}
                         >
-                          <RotateCcw /> Reset to the main data
+                          <RotateCcw /> {source ? `Reset to ${source.name}` : "Reset to the main data"}
                         </MenuItem>
                         <MenuSeparator />
                         <MenuItem
@@ -207,13 +211,14 @@ export function BranchesView({
         Use a branch from any service in this environment with a reference like <span className="font-mono text-fg-2">{branchReference(refName, "<name>")}</span>. Pull request
         previews can get a branch each: turn it on in the app&apos;s Settings → Previews. Each branch uses about as much disk as the main database.
       </p>
-      {scrubSupported && <CleanupCard serviceId={serviceId} initial={cleanupSql} canManage={canManage} />}
+      {scrubSupported && <CleanupCard key={cleanupSql} serviceId={serviceId} initial={cleanupSql} canManage={canManage} />}
       {creating && (
         <NewBranchDialog
           serviceId={serviceId}
           serviceName={serviceName}
-          canHide={scrubSupported && !!cleanupSql.trim()}
+          cleanupSql={cleanupSql}
           scrubSupported={scrubSupported}
+          sources={branches.filter((b) => b.status === "ready" && !b.preview)}
           onClose={() => setCreating(false)}
         />
       )}
@@ -268,30 +273,52 @@ function CleanupCard({ serviceId, initial, canManage }: { serviceId: string; ini
 function NewBranchDialog({
   serviceId,
   serviceName,
-  canHide,
+  cleanupSql,
   scrubSupported,
+  sources,
   onClose,
 }: {
   serviceId: string;
   serviceName: string;
-  canHide: boolean;
+  cleanupSql: string;
   scrubSupported: boolean;
+  sources: Branch[];
   onClose: () => void;
 }) {
   const [name, setName] = React.useState("");
-  const [hide, setHide] = React.useState(canHide);
-  const create = useAction(() => createDatabaseBranch(serviceId, name, { hidePersonalData: hide }), { success: "Branch started. Copying the data…", onSuccess: onClose });
+  const [sourceId, setSourceId] = React.useState("main");
+  const source = sources.find((b) => b.id === sourceId) ?? null;
+  const hasSql = !!cleanupSql.trim();
+  const [hide, setHide] = React.useState(hasSql);
+  const [sql, setSql] = React.useState("");
+  // A copy of a branch with personal data hidden always hides it too.
+  const hidden = hide || !!source?.scrubbed;
+  const needsSql = hidden && !hasSql;
+  const create = useAction(
+    async () => {
+      // The clean-up SQL written here is saved for the database first, like on the page.
+      if (needsSql) {
+        const saved = await saveBranchCleanupSql(serviceId, sql.trim());
+        if (!saved.ok) return saved;
+      }
+      return createDatabaseBranch(serviceId, name, { hidePersonalData: hidden, sourceBranchId: source?.id ?? null });
+    },
+    { success: "Branch started. Copying the data…", onSuccess: onClose },
+  );
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent size="sm">
+      <DialogContent size={needsSql ? "md" : "sm"}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             void create.run();
           }}
         >
-          <DialogHeader title="New branch" description={`A copy of ${serviceName}'s data as it is now. The main database keeps running while it copies.`} />
-          <DialogBody>
+          <DialogHeader
+            title="New branch"
+            description={`A copy of ${source ? `branch ${source.name}` : `${serviceName}'s data`} as it is now. ${source ? "It" : "The main database"} keeps running while it copies.`}
+          />
+          <DialogBody className="flex flex-col gap-4">
             <Field label="Name" description="Lowercase letters, digits and dashes.">
               <Input
                 value={name}
@@ -302,23 +329,49 @@ function NewBranchDialog({
                 autoFocus
               />
             </Field>
+            {sources.length > 0 && (
+              <Field label="Copy from" description="Resets copy from here again.">
+                <Select
+                  value={sourceId}
+                  onValueChange={setSourceId}
+                  options={[
+                    { value: "main", label: "Main data", description: serviceName },
+                    ...sources.map((b) => ({ value: b.id, label: b.name, description: b.scrubbed ? "Branch · personal data hidden" : "Branch" })),
+                  ]}
+                />
+              </Field>
+            )}
             {scrubSupported && (
-              <label className={cn("mt-4 flex items-start gap-3", canHide ? "cursor-pointer" : "cursor-default opacity-60")}>
-                <Checkbox checked={hide} disabled={!canHide} onCheckedChange={setHide} className="mt-0.5" />
+              <label className={cn("flex items-start gap-3", source?.scrubbed ? "cursor-default" : "cursor-pointer")}>
+                <Checkbox checked={hidden} disabled={!!source?.scrubbed} onCheckedChange={setHide} className="mt-0.5" />
                 <span className="flex flex-col gap-0.5">
                   <span className="text-[13px] font-medium text-fg">Hide personal data</span>
                   <span className="text-[12.5px] leading-snug text-muted">
-                    {canHide ? "Run the clean-up SQL on the copy, now and on every reset." : "Add the clean-up SQL on this page first."}
+                    {source?.scrubbed
+                      ? `On, because ${source.name} hides it too.`
+                      : hasSql
+                        ? "Run the clean-up SQL on the copy, now and on every reset."
+                        : "Run clean-up SQL on the copy, now and on every reset. Write it below."}
                   </span>
                 </span>
               </label>
+            )}
+            {needsSql && (
+              <CodeEditor
+                language="text"
+                value={sql}
+                onChange={setSql}
+                minRows={4}
+                placeholder={"UPDATE users SET email = 'user' || id || '@example.com', name = 'User ' || id;\nDELETE FROM sessions;"}
+                aria-label="Branch clean-up SQL"
+              />
             )}
           </DialogBody>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" loading={create.pending} disabled={!name}>
+            <Button type="submit" variant="primary" loading={create.pending} disabled={!name || (needsSql && !sql.trim())}>
               Create branch
             </Button>
           </DialogFooter>

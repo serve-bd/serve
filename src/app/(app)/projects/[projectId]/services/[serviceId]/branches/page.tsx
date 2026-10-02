@@ -80,6 +80,7 @@ export default async function BranchesPage(props: PageProps<"/projects/[projectI
             createdAt: b.createdAt.toISOString(),
             preview: preview ? { id: preview.id, pr: preview.pr } : null,
             scrubbed: b.scrubbed,
+            sourceBranchId: b.sourceBranchId,
             consumers: consumers.get(b.name) ?? [],
           };
         })}

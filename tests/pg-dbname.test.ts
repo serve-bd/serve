@@ -25,7 +25,7 @@ afterAll(() => fs.rmSync(stubs, { recursive: true, force: true }));
 for (const name of ["psql", "pg_dump", "pg_restore"])
   fs.writeFileSync(
     path.join(stubs, name),
-    `#!/bin/sh\ncat >/dev/null 2>&1 &\nlisting=\nwhile [ $# -gt 0 ]; do case "$1" in -At) listing=1;; -d) shift; printf '%s\\n' "$1" >> "$SERVE_STUB_LOG";; esac; shift; done\n[ -n "$listing" ] && printf '%s\\n' ${NAMES.map((n) => `'${n.replace(/'/g, `'\\''`)}'`).join(" ")}\nexit 0\n`,
+    `#!/bin/sh\ncat >/dev/null 2>&1\nlisting=\nwhile [ $# -gt 0 ]; do case "$1" in -At) listing=1;; -d) shift; printf '%s\\n' "$1" >> "$SERVE_STUB_LOG";; esac; shift; done\n[ -n "$listing" ] && printf '%s\\n' ${NAMES.map((n) => `'${n.replace(/'/g, `'\\''`)}'`).join(" ")}\nexit 0\n`,
     { mode: 0o755 },
   );
 const run = (script: string) => {

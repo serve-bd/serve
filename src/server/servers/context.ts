@@ -123,7 +123,8 @@ export async function sshTargetFor(row: ServerRow, previous?: string): Promise<S
   const [key] = await db.select().from(schema.privateKey).where(eq(schema.privateKey.id, row.privateKeyId));
   if (!key) throw new Error(`The SSH key of ${row.name} was deleted.`);
   // A server that connects out is reached through its relay on the worker, not at its own address.
-  const via = row.tunnel ? { host: relayHost(), port: row.tunnel.relayPort } : { host: row.host, port: row.port };
+  // An IPv6 address may be saved in brackets ([2001:db8::1]); sockets and ssh take it bare.
+  const via = row.tunnel ? { host: relayHost(), port: row.tunnel.relayPort } : { host: row.host.replace(/^\[|\]$/g, ""), port: row.port };
   if (!row.tunnel && row.ownerOrganizationId) {
     // An organization's server must be a public machine: Serve never connects into its own network for them.
     const address = await publicAddress(row.host, previous);

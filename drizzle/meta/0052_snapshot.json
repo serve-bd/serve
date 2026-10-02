@@ -1420,13 +1420,13 @@
           "name": "password",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "access": {
           "name": "access",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "databases": {
           "name": "databases",

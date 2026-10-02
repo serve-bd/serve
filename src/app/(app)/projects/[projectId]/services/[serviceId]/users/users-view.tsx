@@ -113,18 +113,18 @@ export function UsersView({
                     <span className="text-xs text-muted">
                       {u.protectedReason
                         ? `${u.protectedReason}. Not changed here.`
-                        : u.managed
+                        : u.access
                           ? `On ${u.databases.join(", ")}`
-                          : "Made outside Serve. Change its access to manage it here."}
+                          : "Made outside Serve. Its own grants are kept until you change its access."}
                     </span>
                   </div>
-                  {!locked && (canManage || (u.managed && canSecrets)) && (
+                  {!locked && (canManage || (u.knowsPassword && canSecrets)) && (
                     <Menu>
                       <MenuTrigger render={<Button size="icon-sm" variant="ghost" aria-label={`Actions for ${u.username}`} />}>
                         <MoreHorizontal />
                       </MenuTrigger>
                       <MenuContent>
-                        {u.managed && canSecrets && (
+                        {u.knowsPassword && canSecrets && (
                           <MenuItem onClick={() => void urls.run(u.username)}>
                             <Link2 /> Show connection URL
                           </MenuItem>

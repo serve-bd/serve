@@ -45,8 +45,10 @@ const passwordSchema = z
 
 export type DatabaseUserRow = {
   username: string;
-  /** Made from the Users page: Serve knows its access and password. */
+  /** Serve set its access or password (from the Users page). */
   managed: boolean;
+  /** Serve has its password, so its connection URL can be shown. */
+  knowsPassword: boolean;
   /** Serve's own login, a branch's login or one of the engine's: not changed here. */
   protectedReason: string | null;
   access: DatabaseUserAccess | null;
@@ -113,7 +115,7 @@ async function listing(service: Service & { database: NonNullable<Service["datab
 async function changeable(service: Service & { database: NonNullable<Service["database"]> }, rawName: string) {
   const username = usernameSchema.parse(rawName);
   const reason = (await protectedReasons(service))(username);
-  if (reason) throw new UserError(`${username} is ${reason.charAt(0).toLowerCase()}${reason.slice(1)}. Change it from its own page.`);
+  if (reason) throw new UserError(`${username} is not changed here (${reason}).`);
   const { users, databases } = await listing(service);
   if (!users.includes(username)) throw new UserError(`There is no user named ${username} in ${service.name}.`);
   return { username, databases };
@@ -142,6 +144,7 @@ export async function listDatabaseUsers(serviceId: string) {
       return {
         username,
         managed: !!row,
+        knowsPassword: !!row?.password,
         protectedReason: reasonOf(username),
         access: row?.access ?? null,
         databases: row?.databases ?? [],
@@ -164,7 +167,7 @@ export async function createDatabaseUser(serviceId: string, input: { username: s
     const access = accessSchema.parse(input.access);
     const password = passwordSchema.parse(input.password ?? "") ?? randomPassword(32);
     const reason = (await protectedReasons(service))(username);
-    if (reason) throw new UserError(`${username} is taken: ${reason.charAt(0).toLowerCase()}${reason.slice(1)}.`);
+    if (reason) throw new UserError(`The name ${username} is taken (${reason}).`);
     const { users, databases: available } = await listing(service);
     if (users.includes(username)) throw new UserError(`A user named ${username} exists already.`);
     const databases = checkDatabases(input.databases, available);
@@ -199,10 +202,11 @@ export async function changeDatabaseUserPassword(serviceId: string, rawName: str
     const password = passwordSchema.parse(rawPassword ?? "") ?? randomPassword(32);
     const { scripts, mainPassword } = scriptsFor(service);
     await runScript(service, scripts.setPassword(username, password), [mainPassword, password]);
+    // A login made outside Serve is remembered from now on, with its grants left as they are.
     const [row] = await db
-      .update(schema.databaseUser)
-      .set({ password: encrypt(password), updatedAt: new Date() })
-      .where(and(eq(schema.databaseUser.serviceId, service.id), eq(schema.databaseUser.username, username)))
+      .insert(schema.databaseUser)
+      .values({ id: newId(), serviceId: service.id, username, password: encrypt(password), access: null, databases: [], createdBy: ctx.user.id })
+      .onConflictDoUpdate({ target: [schema.databaseUser.serviceId, schema.databaseUser.username], set: { password: encrypt(password), updatedAt: new Date() } })
       .returning();
     await logActivity({
       userId: ctx.user.id,
@@ -227,9 +231,9 @@ export async function setDatabaseUserAccess(serviceId: string, rawName: string, 
     const { scripts, mainPassword } = scriptsFor(service);
     await runScript(service, scripts.setAccess(username, access, databases), [mainPassword]);
     await db
-      .update(schema.databaseUser)
-      .set({ access, databases, updatedAt: new Date() })
-      .where(and(eq(schema.databaseUser.serviceId, service.id), eq(schema.databaseUser.username, username)));
+      .insert(schema.databaseUser)
+      .values({ id: newId(), serviceId: service.id, username, password: null, access, databases, createdBy: ctx.user.id })
+      .onConflictDoUpdate({ target: [schema.databaseUser.serviceId, schema.databaseUser.username], set: { access, databases, updatedAt: new Date() } });
     await logActivity({
       userId: ctx.user.id,
       organizationId: ctx.org.id,

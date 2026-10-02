@@ -1455,9 +1455,10 @@ export const databaseUser = pgTable(
       .notNull()
       .references(() => service.id, { onDelete: "cascade" }),
     username: text("username").notNull(),
-    /** Encrypted. */
-    password: text("password").notNull(),
-    access: text("access").$type<DatabaseUserAccess>().notNull(),
+    /** Encrypted. Null for a login made outside Serve whose password Serve was never given. */
+    password: text("password"),
+    /** Null until Serve sets it (a login made outside Serve keeps its own grants). */
+    access: text("access").$type<DatabaseUserAccess>(),
     /** The databases inside the service this login can reach. */
     databases: jsonb("databases").$type<string[]>().notNull().default([]),
     createdBy: text("created_by"),

@@ -190,7 +190,8 @@ export function buildProxyConfig(input: z.output<typeof proxyInputSchema>, previ
     wwwRedirect: input.wwwRedirect ?? "none",
     gzip: input.gzip ?? true,
     cacheStatic: input.cacheStatic ?? false,
-    customDirectives: input.customDirectives?.trim() || null,
+    // Left out (a form for another proxy, an API call without it): the saved value stays.
+    customDirectives: input.customDirectives === undefined ? (previous?.customDirectives ?? null) : input.customDirectives?.trim() || null,
     caddyDirectives: input.caddyDirectives === undefined ? (previous?.caddyDirectives ?? null) : input.caddyDirectives?.trim() || null,
     traefikMiddlewares: input.traefikMiddlewares === undefined ? (previous?.traefikMiddlewares ?? null) : input.traefikMiddlewares?.trim() || null,
   };

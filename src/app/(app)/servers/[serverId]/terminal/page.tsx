@@ -8,5 +8,5 @@ export default async function ServerTerminalPage(props: PageProps<"/servers/[ser
   const { serverId } = await props.params;
   const { row, server } = await loadServer(serverId);
   const host = await withTimeout(server().then((ctx) => hostInfo(ctx)));
-  return <HostTerminal serverId={serverId} hostname={host?.name ?? row.name} user={row.isLocal ? "root" : row.username} local={row.isLocal} />;
+  return <HostTerminal serverId={serverId} hostname={host?.name ?? row.name} user={row.isLocal ? "root" : row.username} />;
 }

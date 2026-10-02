@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, Eraser, RotateCw } from "lucide-react";
+import { Eraser, RotateCw } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Terminal, type TerminalHandle, type TerminalStatus } from "@/components/terminal";
 import { cn } from "@/lib/utils";
@@ -27,7 +27,7 @@ const KEYS: { label: string; data: string }[] = [
 
 const SUGGESTIONS = ["docker ps", "df -h", "free -h", "uptime", "journalctl -u docker -n 50 --no-pager"];
 
-export function HostTerminal({ serverId, hostname, user, local }: { serverId: string; hostname: string; user: string; local: boolean }) {
+export function HostTerminal({ serverId, hostname, user }: { serverId: string; hostname: string; user: string }) {
   const [session, setSession] = React.useState(0);
   const [status, setStatus] = React.useState<TerminalStatus>("connecting");
   const terminal = React.useRef<TerminalHandle>(null);
@@ -40,19 +40,6 @@ export function HostTerminal({ serverId, hostname, user, local }: { serverId: st
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-3 rounded-2xl border border-warn/25 bg-warn-soft px-4 py-3.5">
-        <AlertTriangle className="mt-0.5 size-4 flex-none text-warn" />
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <p className="text-[13px] font-medium text-fg">{user === "root" ? "This is a root shell on the server" : `This is a shell on the server as ${user}`}</p>
-          <p className="text-[12.5px] leading-relaxed text-fg-2">
-            {local
-              ? "Commands run directly on the machine this dashboard runs on and can break the server and the dashboard itself."
-              : "Commands run over SSH directly on this server and can break it and the services running there."}{" "}
-            Every session is recorded in the activity log.
-          </p>
-        </div>
-      </div>
-
       <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-log-bg shadow-sm">
         <div className="flex h-10 items-center gap-3 border-b border-white/[0.06] pr-2 pl-4 text-[11.5px] text-white/45">
           <span className="flex min-w-0 items-center gap-2">

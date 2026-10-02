@@ -1615,7 +1615,7 @@ export async function removeDomain(domainId: string, deleteDns: boolean) {
     const ctx = await requirePermission("domains.manage");
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
-    await serviceInOrg(domain.serviceId, ctx.org.id);
+    const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
     if (deleteDns && domain.cloudflareAccountId && domain.cloudflareZoneId && domain.cloudflareRecordId) {
       const cf = await Cloudflare.forAccount(domain.cloudflareAccountId);
       await cf.deleteDnsRecord(domain.cloudflareZoneId, domain.cloudflareRecordId).catch(() => {});
@@ -1626,6 +1626,9 @@ export async function removeDomain(domainId: string, deleteDns: boolean) {
       await syncTunnelIngress(domain.tunnelId).catch(() => {});
     }
     await syncServiceProxy(domain.serviceId).catch(() => {});
+    // The certificate Serve got for this name alone goes too, once nothing else uses it.
+    const { retireCertificateFor } = await import("@/server/ssl/certificates");
+    await retireCertificateFor(domain.hostname, service.serverId, ctx.org.id).catch(() => {});
     return null;
   });
 }

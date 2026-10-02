@@ -7,6 +7,7 @@ import { db, schema } from "@/server/db";
 import { serviceInOrg } from "@/server/services/access";
 import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 import { ensureDatabaseCertificate, freePublicPort } from "@/server/databases/domain-tls";
+import { retireCertificateFor } from "@/server/ssl/certificates";
 import { engines } from "@/server/databases/engines";
 import { queueDeployment } from "@/server/services/create";
 import { cloudflareAccountFor } from "@/server/ssl/certificates";
@@ -142,8 +143,10 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
       const cert = await ensureDatabaseCertificate(hostname, service.serverId, ctx.org.id);
       if ("error" in cert) warnings.push(cert.error);
     }
-    // A domain given up: remove the DNS records Serve made for it (never anyone else's).
+    // A domain given up: remove the DNS records Serve made for it (never anyone else's), and the
+    // certificate it got for it, in the background.
     if (previousHost && previousHost !== hostname) {
+      await retireCertificateFor(previousHost, service.serverId, ctx.org.id).catch(() => {});
       const accountId = await cloudflareAccountFor([previousHost], ctx.org.id).catch(() => null);
       if (accountId)
         try {

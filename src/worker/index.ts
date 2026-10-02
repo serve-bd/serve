@@ -20,7 +20,7 @@ import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, finishJob,
 import { recoverInterruptedDeployment, runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
 import { queueDeployment } from "@/server/services/create";
-import { issueCertificate, renewDueCertificates } from "@/server/ssl/certificates";
+import { issueCertificate, renewDueCertificates, retireCertificate } from "@/server/ssl/certificates";
 import { backupFile, importBackup, restoreBackup, runBackup } from "@/server/backups";
 import { collectMetrics } from "@/server/metrics";
 import { containerLister, type ContainerView, withTimeout } from "@/server/monitoring/containers";
@@ -80,6 +80,8 @@ async function handle(job: Job, signal: AbortSignal) {
       return runBranchJob(job.payload as JobPayloads["database.branch"]);
     case "certificate.issue":
       return issueCertificate(p.certificateId);
+    case "certificate.retire":
+      return retireCertificate(p.certificateId);
     case "certificate.renew-all":
       return renewDueCertificates();
     case "backup.run":

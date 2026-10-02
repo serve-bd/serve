@@ -9,6 +9,7 @@ export type JobType =
   | "service.restart"
   | "service.delete"
   | "certificate.issue"
+  | "certificate.retire"
   | "certificate.renew-all"
   | "backup.run"
   | "backup.restore"
@@ -45,6 +46,7 @@ export type JobPayloads = {
     keepServerFiles?: boolean;
   };
   "certificate.issue": { certificateId: string };
+  "certificate.retire": { certificateId: string };
   "certificate.renew-all": Record<string, never>;
   "backup.run": { backupId: string };
   "backup.restore": { backupId: string; users?: boolean };

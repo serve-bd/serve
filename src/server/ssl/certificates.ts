@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { and, asc, eq, lt } from "drizzle-orm";
+import { and, asc, eq, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { decrypt } from "@/server/crypto";
@@ -438,6 +438,41 @@ export async function certificatesWithServers(organizationId: string) {
     .innerJoin(schema.server, eq(schema.certificate.serverId, schema.server.id))
     .where(eq(schema.certificate.organizationId, organizationId))
     .orderBy(asc(schema.certificate.createdAt));
+}
+
+/** Whether a site, a database domain or the dashboard on the certificate's server still uses it. */
+async function certificateInUse(cert: Cert) {
+  if ((await servicesUsingCertificate(cert)).length) return true;
+  const databases = await db
+    .select({ domain: sql<string | null>`${schema.service.database}->>'domain'` })
+    .from(schema.service)
+    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .where(and(eq(schema.project.organizationId, cert.organizationId), eq(schema.service.serverId, cert.serverId), eq(schema.service.type, "database")));
+  if (databases.some((d) => d.domain && certificateCovers(cert.domains, d.domain))) return true;
+  const settings = await getSettings();
+  return cert.serverId === LOCAL_SERVER_ID && !!settings.dashboardDomain && certificateCovers(cert.domains, settings.dashboardDomain);
+}
+
+/**
+ * A domain was given up: the certificate Serve got for that one name goes too, with its files,
+ * unless something else on the server still uses it. Certificates someone made (uploaded, several
+ * names, a wildcard) stay.
+ */
+export async function retireCertificateFor(hostname: string, serverId: string, organizationId: string) {
+  const certs = await db
+    .select({ id: schema.certificate.id })
+    .from(schema.certificate)
+    .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, serverId), eq(schema.certificate.name, hostname)));
+  for (const c of certs) await enqueue("certificate.retire", { certificateId: c.id }, { concurrencyKey: `cert:${c.id}` });
+}
+
+export async function retireCertificate(certificateId: string) {
+  const [cert] = await db.select().from(schema.certificate).where(eq(schema.certificate.id, certificateId));
+  if (!cert) return;
+  if (!cert.provider.startsWith("letsencrypt") || cert.domains.length !== 1 || cert.domains[0] !== cert.name) return;
+  if (await certificateInUse(cert)) return;
+  await db.delete(schema.certificate).where(eq(schema.certificate.id, cert.id));
+  await deleteCertificateFiles(cert);
 }
 
 export async function deleteCertificateFiles(cert: Cert) {

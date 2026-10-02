@@ -14,6 +14,8 @@ import { createBackup, deleteBackup, restoreFromBackup } from "@/server/actions/
 import { cn, formatBytes } from "@/lib/utils";
 import { ScheduleCard } from "./schedule-card";
 import { ImportCard } from "./import-card";
+import { type DatabaseChoices, DatabasePicker, defaultDatabases } from "./database-picker";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 
 type Backup = {
   id: string;
@@ -27,6 +29,8 @@ type Backup = {
   restoreStatus: "running" | "success" | "failed" | null;
   restoredAt: string | null;
   log: string | null;
+  /** The databases it holds; null for the main database (or a stack's dump). */
+  databases: string[] | null;
   local: boolean;
   createdAt: string;
   finishedAt: string | null;
@@ -90,6 +94,11 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
         <Led color={b.status === "success" ? "var(--ok)" : b.status === "failed" ? "var(--bad)" : "var(--info)"} pulse={busy} />
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate font-mono text-[12.5px] text-fg-2">{b.filename ?? (b.status === "running" ? "Backing up…" : "Failed backup")}</span>
+          {b.databases && b.databases.length > 0 && (
+            <span className="truncate text-xs text-muted" title={b.databases.join(", ")}>
+              {b.databases.length === 1 ? "Database" : `${b.databases.length} databases`}: {b.databases.join(", ")}
+            </span>
+          )}
           <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
             <TimeAgo date={b.createdAt} />
             {b.size !== null && <span>· {formatBytes(b.size)}</span>}
@@ -193,13 +202,23 @@ export function BackupsManager(props: {
   s3DestinationId: string | null;
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
+  /** A database service whose backups can take several databases of its server. */
+  databaseChoices?: DatabaseChoices | null;
 }) {
   const confirm = useConfirm();
+  const [picking, setPicking] = React.useState(false);
   const { data, mutate } = useSWR<{ backups: Backup[] }>(`/api/services/${props.serviceId}/backups${props.target ? `?target=${encodeURIComponent(props.target)}` : ""}`, {
     refreshInterval: (d) => (d?.backups.some((b) => b.status === "running" || b.restoreStatus === "running") ? 1500 : 10000),
   });
 
-  const run = useAction(() => createBackup(props.serviceId, props.target ?? null), { success: "Backup started", onSuccess: () => void mutate() });
+  const run = useAction((databases?: string[]) => createBackup(props.serviceId, props.target ?? null, { databases }), {
+    success: "Backup started",
+    onSuccess: () => {
+      setPicking(false);
+      void mutate();
+    },
+  });
+  const choices = props.databaseChoices && props.databaseChoices.databases.length > 1 ? props.databaseChoices : null;
   const restore = useAction((id: string, backupFirst: boolean, users: boolean) => restoreFromBackup(id, { backupFirst, users }), {
     success: "Restore started",
     onSuccess: () => void mutate(),
@@ -217,7 +236,7 @@ export function BackupsManager(props: {
             title={props.title ?? "Backups"}
             description={props.description ?? "Consistent dumps taken with the database's own tools. Download, restore or import one."}
             actions={
-              <Button size="sm" variant="primary" onClick={() => run.run()} loading={run.pending} disabled={!props.running}>
+              <Button size="sm" variant="primary" onClick={() => (choices ? setPicking(true) : run.run())} loading={run.pending && !picking} disabled={!props.running}>
                 <Play /> Back up now
               </Button>
             }
@@ -290,9 +309,34 @@ export function BackupsManager(props: {
           destinations={props.destinations}
           timezone={props.timezone}
           canEdit={props.isAdmin}
+          databaseChoices={choices}
         />
         {props.aside}
       </div>
+      {picking && choices && <BackupNowDialog choices={choices} pending={run.pending} onClose={() => setPicking(false)} onRun={(dbs) => void run.run(dbs)} />}
     </div>
+  );
+}
+
+/** Back up now, for a server with several databases: which of them this backup takes. */
+function BackupNowDialog({ choices, pending, onClose, onRun }: { choices: DatabaseChoices; pending: boolean; onClose: () => void; onRun: (databases: string[]) => void }) {
+  const [picked, setPicked] = React.useState<string[]>(() => (choices.selected?.length ? choices.selected : defaultDatabases(choices)));
+  return (
+    <Dialog open onOpenChange={(o) => !o && !pending && onClose()}>
+      <DialogContent size="sm">
+        <DialogHeader title="Back up now" description="The databases this backup takes. A restore brings each back as it was." />
+        <DialogBody>
+          <DatabasePicker choices={choices} value={picked} onChange={setPicked} />
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={() => onRun(picked)} loading={pending} disabled={!picked.length}>
+            Back up {picked.length === 1 ? "1 database" : `${picked.length} databases`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

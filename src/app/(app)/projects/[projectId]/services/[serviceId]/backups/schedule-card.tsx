@@ -15,6 +15,7 @@ import { useNow } from "@/hooks/use-client";
 import { updateService } from "@/server/actions/services";
 import { saveComposeBackup } from "@/server/actions/compose-backups";
 import { cn } from "@/lib/utils";
+import { type DatabaseChoices, DatabasePicker, defaultDatabases, savedChoice } from "./database-picker";
 
 type Mode = "hourly" | "daily" | "weekly" | "custom";
 type Plan = { mode: Mode; everyHours: number; minute: number; time: string; days: number[]; cron: string };
@@ -72,7 +73,11 @@ export function ScheduleCard(props: {
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
   canEdit: boolean;
+  /** A database service whose backups can take several databases: which ones the schedule takes. */
+  databaseChoices?: DatabaseChoices | null;
 }) {
+  const choices = props.databaseChoices ?? null;
+  const [dbs, setDbs] = React.useState<string[]>(() => (choices ? (choices.selected?.length ? choices.selected : defaultDatabases(choices)) : []));
   const initial = React.useMemo(
     () => ({
       enabled: !!props.schedule,
@@ -89,14 +94,16 @@ export function ScheduleCard(props: {
   const [retentionS3, setRetentionS3] = React.useState(initial.retentionS3);
   const [dest, setDest] = React.useState(initial.dest);
   // The plan only counts while the schedule is on: turned off, the saved schedule has none.
-  const [saved, setSaved] = React.useState(() => JSON.stringify({ ...initial, plan: initial.enabled ? initial.plan : null }));
+  const [saved, setSaved] = React.useState(() =>
+    JSON.stringify({ ...initial, plan: initial.enabled ? initial.plan : null, dbs: props.databaseChoices?.selected?.length ? [...props.databaseChoices.selected].sort() : null }),
+  );
 
   const cron = toCron(plan);
   // The run times wait for the browser clock, so the server render matches the first client one.
   const now = useNow();
   const runs = enabled && now ? nextRuns(cron, props.timezone, 3, now) : null;
   const invalid = enabled && (!cron || !nextRuns(cron, props.timezone, 1));
-  const snapshot = JSON.stringify({ enabled, plan: enabled ? plan : null, retention, retentionS3, dest });
+  const snapshot = JSON.stringify({ enabled, plan: enabled ? plan : null, retention, retentionS3, dest, dbs: choices ? savedChoice(choices, dbs) : null });
   const dirty = snapshot !== saved;
   const set = (patch: Partial<Plan>) => setPlan((p) => ({ ...p, ...patch }));
 
@@ -106,7 +113,15 @@ export function ScheduleCard(props: {
       const keepS3 = dest === "local" ? null : Math.max(1, Math.min(3650, Number(retentionS3) || Number(retention) || 7));
       const s3 = dest === "local" ? null : dest;
       if (props.target) return saveComposeBackup(props.serviceId, props.target, { schedule: enabled ? cron : null, retention: keep, retentionS3: keepS3, s3DestinationId: s3 });
-      return updateService(props.serviceId, { database: { backupSchedule: enabled ? cron : null, backupRetention: keep, backupRetentionS3: keepS3, s3DestinationId: s3 } });
+      return updateService(props.serviceId, {
+        database: {
+          backupSchedule: enabled ? cron : null,
+          backupRetention: keep,
+          backupRetentionS3: keepS3,
+          s3DestinationId: s3,
+          ...(choices ? { backupDatabases: savedChoice(choices, dbs) } : {}),
+        },
+      });
     },
     { success: enabled ? "Backup schedule saved" : "Automatic backups turned off", onSuccess: () => setSaved(snapshot) },
   );
@@ -234,6 +249,12 @@ export function ScheduleCard(props: {
               )}
             </div>
           </>
+        )}
+
+        {choices && (
+          <Field label="Databases to back up" description="Every backup takes these, also Back up now (which can pick others).">
+            <DatabasePicker choices={choices} value={dbs} onChange={setDbs} disabled={!props.canEdit} />
+          </Field>
         )}
 
         <Field label="Store backups in">

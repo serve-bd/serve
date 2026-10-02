@@ -880,6 +880,8 @@ export const backup = pgTable(
     /** Upload to S3: uploaded, failed, or null when no S3 destination was set. */
     /** Compose service the dump came from; null for a database service. */
     target: text("target"),
+    /** The databases this backup holds; null for the main database only (or a compose stack's dump). */
+    databases: jsonb("databases").$type<string[] | null>(),
     s3Status: text("s3_status").$type<"uploaded" | "failed" | "deleted">(),
     /** Last restore of this backup. */
     restoreStatus: text("restore_status").$type<"running" | "success" | "failed">(),

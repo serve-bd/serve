@@ -591,6 +591,7 @@ const updateSchema = z.object({
       publicBind: z.enum(["0.0.0.0", "127.0.0.1"]).optional(),
       publicAllow: z.array(z.string().max(100)).max(200).nullable(),
       backupSchedule: z.string().nullable(),
+      backupDatabases: z.array(z.string().min(1).max(128)).min(1).max(100).nullable(),
       backupRetention: z.number().int().min(1).max(365),
       backupRetentionS3: z.number().int().min(1).max(3650).nullable(),
       s3DestinationId: z.string().nullable(),
@@ -1650,7 +1651,7 @@ export async function generateDomain(serviceId: string) {
 /* -------------------------------------------------------------------------- */
 
 /** Starts a backup of a database service, or of one backup target of a compose stack. */
-export async function createBackup(serviceId: string, target?: string | null) {
+export async function createBackup(serviceId: string, target?: string | null, opts: { databases?: string[] | null } = {}) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
@@ -1661,9 +1662,42 @@ export async function createBackup(serviceId: string, target?: string | null) {
     if (service.status !== "running") throw new UserError(service.type === "database" ? "Start the database before backing it up." : "Start the service before backing it up.");
     await requireNotOver(ctx.org.id, "backupStorage");
     const id = newId();
-    await db.insert(schema.backup).values({ id, serviceId, target: target ?? null, trigger: "manual" });
+    // Chosen databases (a database service): checked now, so a typo fails here and not in the job.
+    let databases: string[] | null = null;
+    if (!target && opts.databases?.length) {
+      const list = z.array(z.string().min(1).max(128)).max(100).parse(opts.databases);
+      const { listDatabases } = await import("@/server/databases/list");
+      const found = await listDatabases(service).catch(() => null);
+      const missing = found ? list.filter((d) => !found.includes(d) && d !== service.database?.database) : [];
+      if (missing.length) throw new UserError(`There is no database named ${missing[0]}.`);
+      databases = [...new Set(list)];
+    }
+    await db.insert(schema.backup).values({ id, serviceId, target: target ?? null, trigger: "manual", databases });
     await enqueue("backup.run", { backupId: id }, { concurrencyKey: `backup:${serviceId}` });
     return { id };
+  });
+}
+
+/** The databases a backup of this service can take, and the ones its backups take now. */
+export async function backupDatabaseChoices(serviceId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("databases.backups");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    const cfg = service.database;
+    if (!cfg) throw new UserError("Not a database.");
+    const { engines } = await import("@/server/databases/engines");
+    if (!engines[cfg.engine].backupDatabasesCommand || service.status !== "running") return { supported: false, databases: [], selected: null, main: cfg.database };
+    const { listDatabases } = await import("@/server/databases/list");
+    const found = await listDatabases(service).catch(() => [] as string[]);
+    // Copies of branches are backed up with the branch's database, not on their own.
+    const branchRows = await db
+      .select({ database: schema.databaseBranch.database, extra: schema.databaseBranch.extraDatabases, name: schema.databaseBranch.name })
+      .from(schema.databaseBranch)
+      .where(eq(schema.databaseBranch.serviceId, service.id));
+    const { copyDatabaseName } = await import("@/server/databases/branches");
+    const copies = new Set(branchRows.flatMap((b) => [b.database, ...b.extra.map((d) => copyDatabaseName(d, b.name))]));
+    const databases = [...new Set([cfg.database, ...found])].filter((d) => d && !copies.has(d)).sort();
+    return { supported: true, databases, selected: cfg.backupDatabases ?? null, main: cfg.database, engine: cfg.engine };
   });
 }
 

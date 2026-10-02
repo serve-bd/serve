@@ -271,6 +271,8 @@ export type DatabaseConfig = {
   domainOpened?: { public?: boolean; publicBind?: BindAddress | null; tls?: boolean } | null;
   /** Cron expression for automatic backups. */
   backupSchedule?: string | null;
+  /** Databases of the server each backup takes; null takes the main database only. */
+  backupDatabases?: string[] | null;
   backupRetention: number;
   /** Clean-up SQL for branches made with "hide personal data": runs on the copy after each refill. */
   branchCleanupSql?: string | null;

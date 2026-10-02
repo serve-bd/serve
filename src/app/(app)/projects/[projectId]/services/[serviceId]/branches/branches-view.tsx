@@ -285,7 +285,7 @@ function CleanupCard({ serviceId, initial, canManage }: { serviceId: string; ini
     <Card>
       <CardHeader
         title="Hide personal data"
-        description="SQL that runs on a branch's copy right after the data is copied, every time, before anything uses it. Branches made with “Hide personal data” use it; if it fails, the branch is marked failed instead of holding real data. Pull request previews use the clean-up SQL in the app's Settings → Previews."
+        description="SQL that runs on a branch's copy right after the data is copied (also on every reset), before anything uses it. It runs on each branch made with “Hide personal data” ticked, the ones marked “Personal data hidden”, and on its main database only (branches of every database cannot hide personal data). If it fails, the branch is marked failed instead of holding real data. Pull request previews use the clean-up SQL in the app's Settings → Previews."
       />
       <CardBody className="flex flex-col gap-3">
         <CodeEditor

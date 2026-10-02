@@ -15,6 +15,7 @@ import { engines } from "@/server/databases/engines";
 import { IMPORT_EXTENSIONS } from "@/server/backups";
 import { DEFAULT_MAX_BODY_SIZE } from "@/server/proxy/config";
 import { LOCAL_SERVER_ID } from "@/server/servers/context";
+import { backupDatabaseChoices } from "@/server/actions/services";
 
 export const metadata = { title: "Backups" };
 
@@ -74,6 +75,10 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
   // Uploads go through the dashboard's proxy on the server Serve runs on, with its limit.
   const [local] = settings.dashboardDomain ? await db.select({ proxyConfig: schema.server.proxyConfig }).from(schema.server).where(eq(schema.server.id, LOCAL_SERVER_ID)) : [];
   const maxUpload = settings.dashboardDomain ? local?.proxyConfig?.nginx?.maxBodySize || DEFAULT_MAX_BODY_SIZE : null;
+  // The databases a backup can take, read from the running database.
+  const choices = service.status === "running" ? await backupDatabaseChoices(service.id) : null;
+  const databaseChoices =
+    choices?.ok && choices.data.supported ? { databases: choices.data.databases, selected: choices.data.selected, main: choices.data.main, engine: service.database.engine } : null;
   return (
     <PageBody>
       <BackupsManager
@@ -90,6 +95,7 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
         s3DestinationId={service.database.s3DestinationId ?? null}
         destinations={destinations}
         timezone={settings.timezone}
+        databaseChoices={databaseChoices}
       />
     </PageBody>
   );

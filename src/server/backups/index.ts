@@ -72,6 +72,8 @@ type Commands = {
   restore: string;
   /** Postgres: psql for plain SQL files instead of pg_restore. */
   restorePlain?: string;
+  /** MongoDB: restores a backup of several databases (a packed folder of dumps). */
+  restoreFolder?: string;
   /** MongoDB: restores the dump's users and roles, keeping Serve's account. */
   restoreUsers?: string;
   /** Masked in any output. */
@@ -98,20 +100,23 @@ type Target = {
   restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>, opts?: RestoreOptions): Promise<{ out: string; format: string }>;
 };
 
-async function databaseCommands(service: ServiceRow): Promise<Commands> {
+/** databases: the ones a backup takes when they are more (or other) than the main one. */
+async function databaseCommands(service: ServiceRow, databases?: string[] | null): Promise<Commands> {
   const cfg = service.database;
   if (!cfg) throw new Error(`${service.name} is not a database`);
   const engine = engines[cfg.engine];
   const creds = databaseCreds(cfg, decrypt(cfg.password));
+  const several = databases?.length && engine.backupDatabasesCommand ? engine.backupDatabasesCommand(creds, databases) : null;
   const { docker } = await serverOf(service);
   const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
   return {
     docker,
     container: await databaseContainer(docker, service),
     engine: cfg.engine,
-    backup: engine.backupCommand(creds),
+    backup: several ? several.command : engine.backupCommand(creds),
     restore: engine.restoreCommand(creds),
     restoreUsers: engine.restoreUsersCommand?.(creds),
+    restoreFolder: engine.restoreFolderCommand?.(creds),
     restorePlain:
       cfg.engine === "postgres" ? `PGPASSWORD=${q(creds.password)} psql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(creds.username)} -d ${q(creds.database)}` : undefined,
     password: creds.password,
@@ -251,7 +256,8 @@ async function restoreWith(t: Commands, file: string, log: (line: string) => voi
   const filter = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb" ? await plainSqlFilter(t, file, gz, log) : undefined;
   // The command's output goes to the log while it runs, so a long or failing restore can be followed.
   const out = await runIn(t, command, fs.createReadStream(file), gz, log, filter);
-  if (opts.users && t.restoreUsers) {
+  // A backup of chosen databases (a packed folder) holds no users: they live in admin.
+  if (opts.users && t.restoreUsers && !/\.dir\.tar\.gz$/i.test(file)) {
     log("Restoring the users of the dump; the account Serve connects with keeps its password");
     await runIn(t, t.restoreUsers, fs.createReadStream(file), gz, log);
   }
@@ -288,18 +294,20 @@ const fileSafe = (s: string) =>
 const keyHash = (key: string) => crypto.createHash("sha256").update(key).digest("hex").slice(0, 6);
 
 /** The target of a backup row: a compose key when it has one, else the database service. */
-export async function targetOf(service: ServiceRow, key: string | null): Promise<Target> {
+export async function targetOf(service: ServiceRow, key: string | null, databases?: string[] | null): Promise<Target> {
   if (!key) {
     const cfg = service.database;
     if (!cfg) throw new Error(`${service.name} is not a database`);
+    const engine = engines[cfg.engine];
+    const several = databases?.length && engine.backupDatabasesCommand ? engine.backupDatabasesCommand(databaseCreds(cfg, ""), databases) : null;
     return {
       label: service.name,
       stem: service.slug,
-      extension: engines[cfg.engine].backupExtension,
+      extension: several ? several.extension : engine.backupExtension,
       s3DestinationId: cfg.s3DestinationId ?? null,
       retention: cfg.backupRetention,
       retentionS3: cfg.backupRetentionS3 ?? cfg.backupRetention,
-      dump: async (file) => dumpWith(await databaseCommands(service), file),
+      dump: async (file) => dumpWith(await databaseCommands(service, databases), file),
       restore: async (file, log, _onStopped, opts) => restoreWith(await databaseCommands(service), file, log, opts),
     };
   }
@@ -339,6 +347,24 @@ export async function targetOf(service: ServiceRow, key: string | null): Promise
   };
 }
 
+/**
+ * The databases a backup takes now: null for the engine's usual backup (the main database;
+ * every database on MongoDB). Chosen ones the server no longer has are left out, with a line
+ * in the log; none left takes the usual backup.
+ */
+async function backupDatabasesNow(service: ServiceRow, chosen: string[] | null, log: (line: string) => Promise<void>) {
+  const cfg = service.database;
+  if (!cfg || !chosen?.length || !engines[cfg.engine].backupDatabasesCommand) return null;
+  // Only the main database: the usual backup (and file format) is that.
+  if (chosen.length === 1 && chosen[0] === cfg.database && cfg.engine !== "mongodb") return null;
+  const { listDatabases } = await import("@/server/databases/list");
+  const found = await listDatabases(service).catch(() => null);
+  if (!found) return chosen;
+  const kept = chosen.filter((d) => found.includes(d) || (d === cfg.database && cfg.engine !== "mongodb"));
+  for (const d of chosen.filter((x) => !kept.includes(x))) await log(`Left out ${d}: the server has no database by that name any more.`);
+  return kept.length ? kept : null;
+}
+
 /** Takes a backup. `protect` is a backup retention must keep (the one a safety backup precedes). */
 export async function runBackup(backupId: string, protect?: string) {
   const backup = await db.query.backup.findFirst({
@@ -353,8 +379,11 @@ export async function runBackup(backupId: string, protect?: string) {
   let label = service.name;
 
   try {
-    const t = await targetOf(service, backup.target);
+    // The databases asked for (this backup's, else the service's choice), those still there.
+    const databases = backup.target ? null : await backupDatabasesNow(service, backup.databases ?? service.database?.backupDatabases ?? null, (l) => logLine(backup.id, l));
+    const t = await targetOf(service, backup.target, databases);
     label = t.label;
+    if (databases) await db.update(schema.backup).set({ databases }).where(eq(schema.backup.id, backup.id));
     const filename = `${t.stem}-${stamp}.${t.extension}`;
     file = backupFile(service.id, filename);
     // Known before the dump starts, so a restart mid-way can remove the partial file.
@@ -518,6 +547,7 @@ async function peek(file: string, gz: boolean, bytes = 8): Promise<Buffer> {
 
 /** The command that restores this file: pg_restore for custom dumps, psql for plain SQL. */
 async function restoreCommandFor(t: Commands, file: string, gz: boolean) {
+  if (t.restoreFolder && /\.dir\.tar\.gz$/i.test(file)) return { command: t.restoreFolder, format: "dumps of several databases" };
   if (t.engine === "postgres" && t.restorePlain) {
     const head = await peek(file, gz, 5);
     if (head.toString("latin1") !== "PGDMP") return { command: t.restorePlain, format: "plain SQL" };

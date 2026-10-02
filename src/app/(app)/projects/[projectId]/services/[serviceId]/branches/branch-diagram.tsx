@@ -127,7 +127,9 @@ export function BranchDiagram({
   });
   const totalRows = Math.max(1, row);
   const height = PAD * 2 + (totalRows - 1) * ROW + NODE_H;
-  const width = PAD * 2 + COL[2] + NODE_W;
+  // As wide as the columns in use: no service uses a branch, no third column (and no scrollbar).
+  const indent = Math.max(0, ...placed.map((p) => p.dx));
+  const width = placed.some((p) => p.b.consumers.length) ? PAD * 2 + COL[2] + NODE_W : PAD * 2 + COL[1] + NODE_W + indent;
   const yOf = (r: number) => PAD + r * ROW;
   const mainY = PAD + ((totalRows - 1) * ROW) / 2;
   const anyBusy = branches.some((b) => busy(b.status));

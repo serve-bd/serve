@@ -24,6 +24,13 @@ export type EngineInfo = {
   /** MongoDB: restores only the users and roles of a dump from stdin, keeping Serve's account. */
   restoreUsersCommand?: (c: EngineCreds) => string;
   backupExtension: string;
+  /**
+   * A backup of several databases of the server (each restored as a database of its own), and its
+   * file's extension. Without it, backups take the main database (MongoDB: every database).
+   */
+  backupDatabasesCommand?: (c: EngineCreds, databases: string[]) => { command: string; extension: string };
+  /** MongoDB: restores that backup (a packed folder of dumps) from stdin. */
+  restoreFolderCommand?: (c: EngineCreds) => string;
 
   /** Server process argv when Serve passes arguments (image default otherwise). */
   server?: string[];
@@ -185,6 +192,18 @@ export const engines: Record<DbEngine, EngineInfo> = {
     healthcheck: (c) => ["CMD-SHELL", `pg_isready -U ${sh(c.username)} -d ${sh(c.database)}`],
     url: (c) => `postgresql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
     backupCommand: (c) => `PGPASSWORD=${sh(c.password)} pg_dump -U ${sh(c.username)} -d ${sh(c.database)} -Fc`,
+    // Plain SQL, a \connect before each database: the restore keeps them apart and creates the missing ones.
+    backupDatabasesCommand: (c, databases) => ({
+      command: [
+        "set -e",
+        "(set -o pipefail) 2>/dev/null && set -o pipefail",
+        `export PGPASSWORD=${sh(c.password)}`,
+        `{ ${databases
+          .map((d) => `printf '%s\\n' ${sh(`\\connect "${d.replace(/"/g, '""')}"`)}; pg_dump -U ${sh(c.username)} -d ${sh(d)} --clean --if-exists --no-owner --no-privileges -Fp`)
+          .join("; ")}; } | gzip -c`,
+      ].join("\n"),
+      extension: "sql.gz",
+    }),
     restoreCommand: (c) => `PGPASSWORD=${sh(c.password)} pg_restore -U ${sh(c.username)} -d ${sh(c.database)} --clean --if-exists --no-owner --no-privileges`,
     backupExtension: "dump",
     server: ["postgres"],
@@ -226,6 +245,10 @@ export const engines: Record<DbEngine, EngineInfo> = {
     healthcheck: (c) => ["CMD-SHELL", `MYSQL_PWD=${sh(c.password)} mysqladmin ping -h 127.0.0.1 -uroot --silent`],
     url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
     backupCommand: (c) => `MYSQL_PWD=${sh(c.password)} mysqldump -uroot --single-transaction --routines --triggers --databases ${sh(c.database)}`,
+    backupDatabasesCommand: (c, databases) => ({
+      command: `MYSQL_PWD=${sh(c.password)} mysqldump -uroot --single-transaction --routines --triggers --databases ${databases.map(sh).join(" ")}`,
+      extension: "sql",
+    }),
     restoreCommand: (c) => `MYSQL_PWD=${sh(c.password)} mysql -uroot ${sh(c.database)}`,
     backupExtension: "sql",
     server: ["mysqld"],
@@ -261,6 +284,10 @@ export const engines: Record<DbEngine, EngineInfo> = {
     healthcheck: () => ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"],
     url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
     backupCommand: (c) => `MYSQL_PWD=${sh(c.password)} mariadb-dump -uroot --single-transaction --routines --triggers --databases ${sh(c.database)}`,
+    backupDatabasesCommand: (c, databases) => ({
+      command: `MYSQL_PWD=${sh(c.password)} mariadb-dump -uroot --single-transaction --routines --triggers --databases ${databases.map(sh).join(" ")}`,
+      extension: "sql",
+    }),
     restoreCommand: (c) => `MYSQL_PWD=${sh(c.password)} mariadb -uroot ${sh(c.database)}`,
     backupExtension: "sql",
     server: ["mariadbd"],
@@ -291,6 +318,25 @@ export const engines: Record<DbEngine, EngineInfo> = {
     healthcheck: (c) => ["CMD-SHELL", `mongosh --quiet${mongoTls(c)} --eval "db.adminCommand('ping').ok" | grep -q 1`],
     url: (c) => `mongodb://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}?authSource=admin`,
     backupCommand: (c) => `mongodump --quiet${mongoToolsTls(c)} --archive --gzip -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
+    // mongodump takes one --db at a time (and no filter): each goes into a folder, packed into one file.
+    backupDatabasesCommand: (c, databases) => ({
+      command: [
+        "set -e",
+        "D=$(mktemp -d)",
+        "trap 'rm -rf \"$D\"' EXIT",
+        ...databases.map((d) => `mongodump --quiet${mongoToolsTls(c)} -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin --db ${sh(d)} --out "$D" >&2`),
+        'tar -C "$D" -czf - .',
+      ].join("\n"),
+      extension: "dir.tar.gz",
+    }),
+    /** Restores a backup of several databases (a packed dump folder) from stdin. */
+    restoreFolderCommand: (c) =>
+      [
+        "D=$(mktemp -d)",
+        "trap 'rm -rf \"$D\"' EXIT",
+        'tar -xzf - -C "$D" || exit 1',
+        `mongorestore${mongoToolsTls(c)} --drop --nsExclude='admin.system.*' -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin --dir "$D"`,
+      ].join("\n"),
     // Not quiet: its progress goes to the restore log. Users and roles of the dump stay out: a dump
     // of all databases from another install would replace the account Serve connects with.
     restoreCommand: (c) =>

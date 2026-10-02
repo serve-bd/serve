@@ -359,6 +359,31 @@ run("main flows", () => {
     expect((await runCommand(dbId, psql("select v from zz_e2e"))).output).toContain("before");
   });
 
+  it("backs up chosen databases together and restores each", async () => {
+    const psql = (q: string, db = '"$POSTGRES_DB"') => `psql -U "$POSTGRES_USER" -d ${db} -tAc "${q}"`;
+    await runCommand(dbId, psql("CREATE DATABASE zz_second"));
+    await runCommand(dbId, psql("CREATE TABLE t (v int); INSERT INTO t VALUES (1), (2), (3)", "zz_second"));
+    const main = (await ok(ADMIN, "GET", `/services/${dbId}/users`)).mainDatabase;
+    expect((await api(ADMIN, "POST", `/services/${dbId}/backups`, { databases: ["zz_missing"] })).status).toBe(400);
+    const { id } = await ok(ADMIN, "POST", `/services/${dbId}/backups`, { databases: [main, "zz_second"] }, 202);
+    const backup = await until("backup of two databases", async () => {
+      const b = (await ok(ADMIN, "GET", `/services/${dbId}/backups`)).backups.find((x: any) => x.id === id);
+      return b && b.status !== "running" ? b : null;
+    });
+    expect(backup.status).toBe("success");
+    expect(backup.databases).toEqual([main, "zz_second"]);
+    expect(backup.filename).toMatch(/\.sql\.gz$/);
+    await runCommand(dbId, psql("DELETE FROM t", "zz_second"));
+    await ok(ADMIN, "POST", `/backups/${id}/restore`, { backupFirst: false }, 202);
+    await until("restore", async () => {
+      const b = (await ok(ADMIN, "GET", `/services/${dbId}/backups`)).backups.find((x: any) => x.id === id);
+      return b?.restoreStatus && b.restoreStatus !== "running" ? b.restoreStatus : null;
+    });
+    await until("database back after restore", async () => ((await ok(ADMIN, "GET", `/services/${dbId}`)).service.status === "running" ? true : null));
+    expect((await runCommand(dbId, psql("SELECT count(*) FROM t", "zz_second"))).output.trim()).toBe("3");
+    await runCommand(dbId, psql("DROP DATABASE zz_second"));
+  });
+
   it("branches a database", async () => {
     await ok(ADMIN, "POST", `/services/${dbId}/branches`, { name: "dev" }, 202);
     const branch = await until("branch", async () => {

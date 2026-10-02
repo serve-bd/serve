@@ -33,7 +33,13 @@ export function isSystemContainer(labels: Record<string, string>, name: string) 
 
 function systemRole(labels: Record<string, string>, name: string) {
   const kind = labels[LABEL.kind];
-  if (kind === "proxy" || name === env.proxyContainer || name === "serve-proxy") return "nginx proxy";
+  if (kind === "proxy" || name === env.proxyContainer || name === "serve-proxy") {
+    // Set by the proxy's own spec (nginx.ts); containers from before it are nginx.
+    const proxyKind = labels["serve.proxy-kind"] ?? "nginx";
+    return `${proxyKind === "caddy" ? "Caddy" : proxyKind === "traefik" ? "Traefik" : "nginx"} proxy`;
+  }
+  if (kind === "proxy-relay") return "Host port relay";
+  if (kind === "proxy-host-ports") return "Host port listeners";
   if (kind === "mesh") return "Private network";
   if (kind === "mesh-link") return "Private network name";
   if (kind) return kind.replace(/[-_]/g, " ");

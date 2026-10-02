@@ -14,7 +14,7 @@ vi.mock("@/server/db", () => ({
   schema: new Proxy({}, { get: () => new Proxy({}, { get: () => ({}) }) }),
 }));
 
-const ctx = { isInstanceAdmin: false, isRoot: true, org: { id: "org" }, user: { id: "u" } };
+const ctx = { isInstanceAdmin: false, isRoot: true, org: { id: "org" }, user: { id: "u" }, secrets: false, can: (p: string) => p !== "variables.view-secrets" || ctx.secrets };
 vi.mock("@/server/auth", () => ({ requirePermission: async () => ctx }));
 vi.mock("@/server/activity", () => ({ logActivity: async () => {} }));
 vi.mock("@/server/services/tasks", () => ({ startTaskRun: async () => "run" }));
@@ -32,8 +32,8 @@ const service = {
 };
 vi.mock("@/server/services/access", () => ({ serviceInOrg: async () => ({ service, project: { id: "p" } }) }));
 
+import { changeDatabasePassword, updateDatabaseSettings } from "@/server/actions/databases";
 import { saveTask } from "@/server/actions/tasks";
-import { updateDatabaseSettings } from "@/server/actions/databases";
 
 const task = { name: "t", schedule: "* * * * *", command: "id", timeoutSeconds: 60, enabled: true };
 
@@ -41,6 +41,7 @@ describe("host-level access guards", () => {
   beforeEach(() => {
     writes.length = 0;
     ctx.isInstanceAdmin = false;
+    ctx.secrets = false;
     runtime.volumes = [];
     runtime.privileged = false;
   });
@@ -73,5 +74,15 @@ describe("host-level access guards", () => {
 
   it("saves database settings without host access", async () => {
     expect((await updateDatabaseSettings("s", { description: "main" })).ok).toBe(true);
+  });
+
+  it("lets only members who see secrets choose a database password or turn on trust", async () => {
+    const chosen = await changeDatabasePassword("s", "known-password-123");
+    expect(chosen.ok).toBe(false);
+    if (!chosen.ok) expect(chosen.error).toMatch(/secret/i);
+    expect((await updateDatabaseSettings("s", { hostAuthMethod: "trust" })).ok).toBe(false);
+    ctx.secrets = true;
+    expect((await updateDatabaseSettings("s", { hostAuthMethod: "trust" })).ok).toBe(true);
+    expect(writes).toEqual(["update"]);
   });
 });

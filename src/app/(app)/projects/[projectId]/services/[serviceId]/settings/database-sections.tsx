@@ -183,9 +183,12 @@ function CredentialsSection(props: DatabaseSettingsProps) {
         <DialogContent size="sm">
           <DialogHeader title="Change password" description={`The password is changed inside the running ${engine.label} and saved, then the database restarts.`} />
           <DialogBody>
-            <Field label="New password" optional description="Leave empty to generate a strong one. 12 to 128 letters, numbers, dots, dashes, underscores or tildes.">
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Generate" className="font-mono" />
-            </Field>
+            {/* Choosing a password needs secret access; without it a strong one is generated. */}
+            {!props.hideSecrets && (
+              <Field label="New password" optional description="Leave empty to generate a strong one. 12 to 128 letters, numbers, dots, dashes, underscores or tildes.">
+                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Generate" className="font-mono" />
+              </Field>
+            )}
             {!props.running && engine.label !== "ClickHouse" && (
               <p className="flex items-start gap-1.5 text-xs text-warn">
                 <TriangleAlert className="mt-px size-3.5 flex-none" /> Start the database first.

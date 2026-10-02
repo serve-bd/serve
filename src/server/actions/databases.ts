@@ -79,6 +79,9 @@ export async function updateDatabaseSettings(serviceId: string, input: z.input<t
       const value = data[key];
       if (value !== undefined) next[key] = value?.trim() ? (key === "customConfig" ? value : value.trim()) : null;
     }
+    // Trust lets anyone who reaches the database in without the password: as good as seeing it.
+    if (next.hostAuthMethod === "trust" && service.database.hostAuthMethod !== "trust" && !ctx.can("variables.view-secrets"))
+      throw new UserError(cannotMessage("variables.view-secrets"));
     const issues = databaseConfigIssues(next);
     if (issues.length) throw new UserError(issues[0]);
     await db.update(schema.service).set({ database: next }).where(eq(schema.service.id, serviceId));

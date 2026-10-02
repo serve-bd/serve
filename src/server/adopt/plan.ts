@@ -81,7 +81,7 @@ const restartOf = (name: string | undefined): RestartPolicy =>
   name === "always" || name === "unless-stopped" || name === "on-failure" ? name : name === "no" || name === "" || !name ? "no" : "unless-stopped";
 
 /** Engines Serve can run as a database service from data made elsewhere. */
-const ADOPTABLE: DbEngine[] = ["postgres", "mysql", "mariadb", "mongodb"];
+const ADOPTABLE: DbEngine[] = ["postgres", "mysql", "mariadb", "mongodb", "redis", "valkey"];
 
 export function detectEngine(image: string): DbEngine | null {
   for (const e of Object.values(engines)) if (e.imagePattern.test(image)) return e.engine;
@@ -211,7 +211,40 @@ function databasePlanFor(plan: AdoptPlan, engine: DbEngine, env: Map<string, str
   let password = "";
   let database = "";
   let pgdata: string | null = null;
-  if (engine === "postgres") {
+  const imageArgv = [...(image?.Config?.Entrypoint ?? []), ...(image?.Config?.Cmd ?? [])];
+  let extraArgs: string | null = null;
+  if (engine === "redis" || engine === "valkey") {
+    // Serve starts it as "<server> --requirepass <password> --appendonly yes" plus extra flags: an
+    // old one started the same way keeps its data and its clients. A config file, no password (Serve
+    // would add one) or no append-only file (Serve would turn it on) keep it a container.
+    const bin = `${engine}-server`;
+    const cmd = plan.entrypoint ?? imageArgv;
+    const i = cmd.indexOf(bin);
+    const prefix = cmd.slice(0, Math.max(i, 0));
+    const imagePrefix = imageArgv.slice(0, Math.max(imageArgv.indexOf(bin), 0));
+    const flags = i >= 0 ? cmd.slice(i + 1) : [];
+    if (i < 0 || !same(prefix, imagePrefix)) problems.push(`It starts with its own command (${cmd.join(" ").slice(0, 80)}).`);
+    else if (flags[0] && !flags[0].startsWith("--")) problems.push(`It reads its settings from a file (${flags[0]}).`);
+    const rest: string[] = [];
+    let appendonly = false;
+    for (let j = 0; j < flags.length; j++) {
+      const f = flags[j];
+      const [name, inline] = f.includes("=") ? [f.slice(0, f.indexOf("=")), f.slice(f.indexOf("=") + 1)] : [f, undefined];
+      const value = inline ?? flags[j + 1];
+      if (name === "--requirepass") {
+        password = value ?? "";
+        if (inline === undefined) j++;
+      } else if (name === "--appendonly") {
+        appendonly = value === "yes";
+        if (inline === undefined) j++;
+      } else rest.push(f);
+    }
+    if (!password) problems.push("It has no password (--requirepass). Serve would add one, and its clients would stop working.");
+    if (!appendonly) problems.push("Its append-only file is off (--appendonly yes). Serve turns it on, which could start it empty.");
+    username = "default";
+    database = "0";
+    extraArgs = rest.map(shellQuote).join(" ") || null;
+  } else if (engine === "postgres") {
     username = get("POSTGRES_USER") ?? "postgres";
     password = get("POSTGRES_PASSWORD") ?? "";
     database = get("POSTGRES_DB") ?? username;
@@ -230,7 +263,7 @@ function databasePlanFor(plan: AdoptPlan, engine: DbEngine, env: Map<string, str
     database = get("MONGO_INITDB_DATABASE") ?? "admin";
     if (!username) problems.push("It has no root user (MONGO_INITDB_ROOT_USERNAME).");
   }
-  if (!password && !fileVar) problems.push("No password is set in its variables.");
+  if (!password && !fileVar && engine !== "redis" && engine !== "valkey") problems.push("No password is set in its variables.");
 
   // The data mount: the one holding the data directory.
   const dataDir = pgdata ?? info.dataPath;
@@ -239,9 +272,7 @@ function databasePlanFor(plan: AdoptPlan, engine: DbEngine, env: Map<string, str
   if (!data) problems.push(`No volume holds its data directory (${dataDir}); its data would not move.`);
 
   // The image's own server command with extra flags is kept as extra arguments; anything else is not.
-  let extraArgs: string | null = null;
-  const imageArgv = [...(image?.Config?.Entrypoint ?? []), ...(image?.Config?.Cmd ?? [])];
-  if (plan.entrypoint) {
+  if (plan.entrypoint && engine !== "redis" && engine !== "valkey") {
     const server = info.server?.[0];
     const cmd = plan.entrypoint;
     const i = server ? cmd.indexOf(server) : -1;

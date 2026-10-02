@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 type Preview = Extract<Awaited<ReturnType<typeof adoptionPreview>>, { ok: true }>["data"];
 
-const engineLabel: Record<string, string> = { postgres: "PostgreSQL", mysql: "MySQL", mariadb: "MariaDB", mongodb: "MongoDB" };
+const engineLabel: Record<string, string> = { postgres: "PostgreSQL", mysql: "MySQL", mariadb: "MariaDB", mongodb: "MongoDB", redis: "Redis", valkey: "Valkey" };
 
 function Kept({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
   return (
@@ -170,12 +170,12 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                 {needsPassword && (
                   <Field
                     label="Database password"
-                    description={db?.passwordFound ? "The password in its variables did not work. It may have been changed since." : "Serve found no password in its variables."}
+                    description={db?.passwordFound ? "The password it was started with did not work. It may have been changed since." : "Serve found no password in its settings."}
                   >
                     <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" required />
                   </Field>
                 )}
-                {as === "database" && db?.loginWorks && <p className="text-xs text-ok">Serve signed in as {db.username} with the password in its variables.</p>}
+                {as === "database" && db?.loginWorks && <p className="text-xs text-ok">Serve signed in as {db.username} with the password it runs with.</p>}
 
                 <div className="divide-y divide-line rounded-xl border border-line">
                   <Kept icon={<Box />} label="Image">

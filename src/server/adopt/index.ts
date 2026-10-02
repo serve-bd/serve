@@ -79,6 +79,9 @@ export async function checkDatabaseLogin(server: ServerCtx, plan: AdoptPlan, pas
   if (d.engine === "mysql" || d.engine === "mariadb") {
     return run(`C=$(command -v mariadb || command -v mysql); MYSQL_PWD="$SERVE_PW" "$C" -h127.0.0.1 -uroot -N -e "select 'serve-ok'"`);
   }
+  if (d.engine === "redis" || d.engine === "valkey") {
+    return run(`C=$(command -v ${d.engine}-cli || command -v redis-cli); R=$(REDISCLI_AUTH="$SERVE_PW" "$C" ping 2>&1); [ "$R" = PONG ] && echo serve-ok`);
+  }
   if (d.engine === "mongodb") {
     return run(
       `C=$(command -v mongosh || command -v mongo); "$C" --quiet -u "$SERVE_USER" -p "$SERVE_PW" --authenticationDatabase admin --eval "if (db.runCommand({ ping: 1 }).ok) print('serve-ok')"`,

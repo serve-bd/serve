@@ -109,3 +109,26 @@ describe("listening ports", () => {
     expect(choosePort(80, [8080], [80, 8080])).toBe(8080);
   });
 });
+
+describe("Redis and Valkey", () => {
+  const redisImage = {
+    Id: "sha256:" + "a".repeat(64),
+    Config: { Env: ["PATH=/usr/bin"], Entrypoint: ["docker-entrypoint.sh"], Cmd: ["redis-server"] },
+  } as unknown as Docker.ImageInspectInfo;
+  const redis = (cmd: string[]) => {
+    const c = container({ image: "redis:7-alpine", env: ["PATH=/usr/bin"], cmd, mounts: [{ Type: "volume", Name: "cache", Destination: "/data", RW: true }] });
+    c.Config.ExposedPorts = { "6379/tcp": {} };
+    return planAdoption(c, redisImage);
+  };
+
+  it("becomes a database when it runs with a password and the append-only file, extra flags kept", () => {
+    const d = redis(["redis-server", "--requirepass", "pw-1", "--appendonly", "yes", "--maxmemory", "256mb"]).database!;
+    expect(d).toMatchObject({ engine: "redis", password: "pw-1", username: "default", dataVolume: "cache", dataMountPath: "/data", extraArgs: "--maxmemory 256mb" });
+  });
+
+  it("stays a container without a password, without the append-only file, or with a config file", () => {
+    expect(redis(["redis-server", "--appendonly", "yes"]).databaseProblems.join(" ")).toMatch(/no password/);
+    expect(redis(["redis-server", "--requirepass", "pw"]).databaseProblems.join(" ")).toMatch(/append-only/);
+    expect(redis(["redis-server", "/etc/redis.conf"]).databaseProblems.join(" ")).toMatch(/file/);
+  });
+});

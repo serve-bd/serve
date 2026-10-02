@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { AlertTriangle, ChevronRight, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldCheck, Server as ServerIcon, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, ChevronRight, FileCode2, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldCheck, Server as ServerIcon, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, Copyable, EmptyState } from "@/components/ui/misc";
+import { Card, Copyable, CopyField, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
@@ -36,6 +36,9 @@ type Cert = {
   autoRenew: boolean;
   lastError: string | null;
   createdAt: string;
+  /** Where the proxy finds the files, for custom proxy configs. */
+  certPath: string | null;
+  keyPath: string | null;
 };
 
 const providerLabel: Record<string, string> = {
@@ -234,6 +237,35 @@ function LogsDialog({ certId, onClose }: { certId: string | null; onClose: () =>
   );
 }
 
+/** The certificate's file paths inside the proxy, to use it in a custom proxy config. */
+function PathsDialog({ cert, open, onClose }: { cert: Cert; open: boolean; onClose: () => void }) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader title="Use in a custom config" description={`The proxy of this certificate's server reads ${cert.name} at these paths.`} />
+        <DialogBody className="flex flex-col gap-4">
+          <Field label="Certificate">
+            <CopyField value={cert.certPath ?? ""} />
+          </Field>
+          <Field label="Private key">
+            <CopyField value={cert.keyPath ?? ""} />
+          </Field>
+          <Field label="For nginx">
+            <Copyable value={`ssl_certificate     ${cert.certPath};\nssl_certificate_key ${cert.keyPath};`}>
+              <pre className="overflow-x-auto rounded-md border border-line bg-surface-2 py-2.5 pr-9 pl-3 font-mono text-[12px] leading-relaxed text-fg-2">
+                {`ssl_certificate     ${cert.certPath};\nssl_certificate_key ${cert.keyPath};`}
+              </pre>
+            </Copyable>
+          </Field>
+        </DialogBody>
+        <DialogFooter>
+          <DialogClose render={<Button variant="ghost" size="sm" />}>Close</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CertificateRow({
   cert: c,
   isAdmin,
@@ -254,6 +286,7 @@ function CertificateRow({
   onDelete: () => void;
 }) {
   const [details, setDetails] = React.useState(false);
+  const [paths, setPaths] = React.useState(false);
   const days = daysLeft(c.expiresAt);
   const failed = c.status === "failed";
   const managed = c.provider !== "custom";
@@ -328,6 +361,11 @@ function CertificateRow({
                     <RefreshCw /> {c.autoRenew ? "Turn off auto-renew" : "Turn on auto-renew"}
                   </MenuItem>
                 )}
+                {c.certPath && c.keyPath && c.status === "active" && (
+                  <MenuItem onClick={() => setPaths(true)}>
+                    <FileCode2 /> Use in a custom config
+                  </MenuItem>
+                )}
                 {!managed && (
                   <MenuItem onClick={onUpload}>
                     <Upload /> Upload replacement
@@ -374,6 +412,7 @@ function CertificateRow({
           )}
         </div>
       )}
+      {c.certPath && c.keyPath && <PathsDialog cert={c} open={paths} onClose={() => setPaths(false)} />}
     </div>
   );
 }

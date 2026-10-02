@@ -47,6 +47,8 @@ export default async function CertificatesPage() {
         autoRenew: c.autoRenew,
         lastError: c.lastError,
         createdAt: c.createdAt.toISOString(),
+        certPath: c.certPath,
+        keyPath: c.keyPath,
       }))}
     />
   );

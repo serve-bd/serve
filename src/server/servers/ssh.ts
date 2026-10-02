@@ -205,16 +205,30 @@ async function channel<T>(t: SshTarget, open: (client: Client) => Promise<T & { 
   }
 }
 
-/** Raw exec channel. Callers handle stdout/stderr and the exit code. */
+/** An exec channel with the exit status it reported, kept from the moment it opened. */
+export type ExecChannel = ClientChannel & { exitStatus: () => number | null };
+
+/**
+ * Raw exec channel. Callers handle stdout/stderr and the exit code. The exit status can arrive
+ * in the same packet as the open confirmation, before a caller could listen for "exit": it is
+ * recorded here, synchronously, and read with exitStatus().
+ */
 export function execChannel(t: SshTarget, command: string, opts: { pty?: { cols: number; rows: number } | false; env?: Record<string, string> } = {}) {
-  return channel<ClientChannel>(
+  return channel<ExecChannel>(
     t,
     (client) =>
       new Promise((resolve, reject) => {
         client.exec(
           command,
           { pty: opts.pty ? { term: "xterm-256color", cols: opts.pty.cols, rows: opts.pty.rows } : false, env: opts.env as NodeJS.ProcessEnv | undefined },
-          (err, ch) => (err ? reject(err) : resolve(ch)),
+          (err, ch) => {
+            if (err) return reject(err);
+            let status: number | null = null;
+            ch.once("exit", (code: number | null, signal?: string) => {
+              status = code ?? (signal ? 128 : 1);
+            });
+            resolve(Object.assign(ch, { exitStatus: () => status }));
+          },
         );
       }),
   );
@@ -273,7 +287,6 @@ export async function sshExec(
 
   return new Promise((resolve) => {
     let timer: NodeJS.Timeout | undefined;
-    let exitCode: number | null = null;
     let settled = false;
     const done = (code: number) => {
       if (settled) return;
@@ -283,9 +296,8 @@ export async function sshExec(
       partial = "";
       resolve({ code, stdout, stderr });
     };
-    // "exit" carries the status; "close" comes last, after all output was read.
-    ch.once("exit", (code: number | null, signal?: string) => (exitCode = code ?? (signal ? 128 : 1)));
-    ch.once("close", () => done(exitCode ?? 1));
+    // "exit" carries the status (recorded since the channel opened); "close" comes last, after all output was read.
+    ch.once("close", () => done(ch.exitStatus() ?? 1));
     if (opts.timeoutMs) timer = setTimeout(() => (ch.close(), done(124)), opts.timeoutMs);
     // A signal that already fired sends no abort event.
     const abort = () => (ch.close(), done(130));

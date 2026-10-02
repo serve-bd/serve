@@ -29,6 +29,9 @@ const literal = (s: string) => `'${s.replace(/'/g, "''")}'`;
  */
 export const pipeSql = (sql: string) => `printf '%s' '${Buffer.from(sql, "utf8").toString("base64")}' | base64 -d`;
 
+/** A branch name that cannot be used; shown to the person who chose it. */
+export class BranchNameError extends Error {}
+
 export function branchesSupported(service: Pick<Service, "type" | "database">) {
   return service.type === "database" && !!service.database;
 }
@@ -315,6 +318,12 @@ export async function createBranch(
     // MySQL user names are at most 32 characters.
     username = database.length <= 32 ? database : `${database.slice(0, 27)}_${crypto.createHash("sha256").update(database).digest("hex").slice(0, 4)}`;
   }
+  // A login made on the Users page with this name would be taken over (its password changed).
+  const [taken] = await db
+    .select({ id: schema.databaseUser.id })
+    .from(schema.databaseUser)
+    .where(and(eq(schema.databaseUser.serviceId, service.id), eq(schema.databaseUser.username, username)));
+  if (taken && !isKeyValue(engine)) throw new BranchNameError(`The database user ${username} uses this name. Choose another branch name.`);
   const [branch] = await db
     .insert(schema.databaseBranch)
     .values({

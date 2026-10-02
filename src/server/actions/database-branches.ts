@@ -6,7 +6,7 @@ import { act, UserError } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { serviceInOrg } from "@/server/services/access";
-import { branchesSupported, branchScrubEngines, createBranch, enqueueBranchJob, maxBranches } from "@/server/databases/branches";
+import { BranchNameError, branchesSupported, branchScrubEngines, createBranch, enqueueBranchJob, maxBranches } from "@/server/databases/branches";
 import { logActivity } from "@/server/activity";
 import { branchNamePattern } from "@/lib/database-branches";
 
@@ -77,7 +77,9 @@ export async function createDatabaseBranch(serviceId: string, rawName: string, o
     // A copy of a branch with personal data hidden hides it too: a reset after the source is gone copies the main data.
     const hide = !!opts.hidePersonalData || !!source?.scrubbed;
     if (hide && !service.database.branchCleanupSql?.trim()) throw new UserError("Add the clean-up SQL first: it is what hides the personal data.");
-    const branch = await createBranch(service, name, { userId: ctx.user.id, scrubbed: hide, sourceBranchId: source?.id ?? null });
+    const branch = await createBranch(service, name, { userId: ctx.user.id, scrubbed: hide, sourceBranchId: source?.id ?? null }).catch((e) => {
+      throw e instanceof BranchNameError ? new UserError(e.message) : e;
+    });
     await enqueueBranchJob({ branchId: branch.id, op: "create" }, service.id);
     await logActivity({
       userId: ctx.user.id,

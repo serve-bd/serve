@@ -112,7 +112,7 @@ export function BranchesView({
           }
           actions={
             <div className="flex items-center gap-2">
-              {branches.length > 0 && <ViewToggle view={view} views={["canvas", "list"]} onChange={setView} />}
+              {branches.length > 0 && <ViewToggle view={view} views={["list", "canvas"]} onChange={setView} />}
               {canManage && (
                 <Button size="sm" variant="primary" disabled={!running} title={running ? undefined : "Start the database to branch it"} onClick={() => setCreating(true)}>
                   <Plus /> New branch

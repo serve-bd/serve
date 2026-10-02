@@ -711,6 +711,14 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         // Left out: keeps the registry it had (older clients do not send the field).
         const registryId = data.source.registryId === undefined ? (prev?.registryId ?? null) : data.source.registryId;
         await assertImageRegistry(registryId, data.source.image, ctx.org.id);
+        // The pull logs in to the image's registry: a stored password only goes to the registry it was saved for.
+        if (
+          !registryId &&
+          data.source.registryPassword === undefined &&
+          prev?.registryPassword &&
+          !sameRegistryHost(splitImage(data.source.image).host, splitImage(prev.image).host)
+        )
+          throw new UserError("Enter the registry password again: the image is on another registry.");
         patch.source = registryId
           ? { type: "image", image: data.source.image, registryId, registryUsername: null, registryPassword: null }
           : {

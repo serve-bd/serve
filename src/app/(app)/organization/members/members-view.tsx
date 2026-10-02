@@ -88,7 +88,6 @@ export function MembersView({
   const invite = useAction(() => inviteMember({ email, roleId }), {
     onSuccess: (d) => {
       if (!d.id) {
-        toast.success(`${email} was added`);
         setOpen(false);
         return;
       }
@@ -97,16 +96,15 @@ export function MembersView({
     },
   });
   const makeResetLink = useAction((userId: string) => createPasswordResetLink(userId), { refresh: false });
-  const changeRole = useAction((id: string, r: string) => setMemberRole(id, r), { success: "Role updated" });
+  const changeRole = useAction((id: string, r: string) => setMemberRole(id, r));
   const remove = useAction(removeMember, {
     onSuccess: (d) => {
       if (d.self) {
-        toast.success("You left the organization");
         router.replace("/");
-      } else toast.success("Member removed");
+      }
     },
   });
-  const revoke = useAction(revokeInvitation, { success: "Invitation revoked" });
+  const revoke = useAction(revokeInvitation);
   // Only admins change admins and owners; only owners change owners.
   const canChange = (m: Member) => canManage && m.userId !== me && (m.role === "owner" ? myRoleId === "owner" : m.role === "admin" ? isAdmin : true);
 
@@ -340,7 +338,7 @@ export function MembersView({
 function ProjectAccessDialog({ member, projects, onClose }: { member: Member; projects: { id: string; name: string }[]; onClose: () => void }) {
   const [all, setAll] = React.useState(!member.projectIds);
   const [chosen, setChosen] = React.useState<Set<string>>(new Set(member.projectIds ?? []));
-  const save = useAction(() => setMemberProjects(member.id, all ? null : [...chosen]), { success: "Project access updated", onSuccess: onClose });
+  const save = useAction(() => setMemberProjects(member.id, all ? null : [...chosen]), { onSuccess: onClose });
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>

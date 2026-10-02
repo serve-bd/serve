@@ -25,9 +25,7 @@ export function MaintenanceSection({
   /** Traefik behind trusted proxies matches the proxy's address, not the visitor's. */
   traefikBehindProxy?: boolean;
 }) {
-  const save = useAction((v: Parameters<typeof setMaintenance>[1]) => setMaintenance(serviceId, v), {
-    success: (d) => (d.enabled ? "Maintenance mode is on" : "Maintenance settings saved"),
-  });
+  const save = useAction((v: Parameters<typeof setMaintenance>[1]) => setMaintenance(serviceId, v));
   const initial = {
     enabled: !!config?.enabled,
     title: config?.title ?? DEFAULT_TITLE,

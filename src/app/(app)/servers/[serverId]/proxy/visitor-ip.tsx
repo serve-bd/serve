@@ -10,7 +10,6 @@ import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
-import { toast } from "@/components/ui/toast";
 import { saveTrustedProxies } from "@/server/actions/server-proxy";
 import { CLIENT_IP_HEADERS, clientIpHeaderNames, normalizeTrustedRanges, type ClientIpHeader, type TrustedProxies } from "@/lib/trusted-proxies";
 import type { RunningKind } from "@/server/proxy/config";
@@ -60,7 +59,6 @@ export function VisitorIpCard({ serverId, kind, initial, disabled }: { serverId:
     const res = await saveTrustedProxies(serverId, value.on ? { ranges: value.ranges.split("\n"), header, cloudflare, machine: value.machine } : null);
     setPending(false);
     if (!res.ok) return setError(res.error);
-    toast.success(value.on ? "Trusted proxies applied" : "Trusted proxies turned off");
     router.refresh();
   };
 

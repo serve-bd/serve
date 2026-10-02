@@ -10,7 +10,6 @@ import { Textarea } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
 import { LogViewer, type LogLine } from "@/components/log-viewer";
 import { useAction } from "@/hooks/use-action";
-import { toast } from "@/components/ui/toast";
 import { getProxyLogs, rebuildProxyNow, reloadProxyNow, restartProxyNow, saveProxyCustomConfig, startProxyNow, stopProxyNow } from "@/server/actions/server-proxy";
 import { proxyLabels, type CaddySettings, type NginxSettings, type ProxyDefaults, type ProxyFile, type ProxyKind, type ProxySwitchState } from "@/server/proxy/config";
 import { ProxyPicker } from "./proxy-picker";
@@ -72,11 +71,11 @@ export function ProxyView({
   const shown: ProxyKind = status.kind ?? kind;
   const label = proxyLabels[shown];
   const busy = switching || stopped;
-  const reload = useAction(() => reloadProxyNow(serverId), { success: "Proxy reloaded" });
-  const restart = useAction(() => restartProxyNow(serverId), { success: "Proxy restarted" });
-  const rebuild = useAction(() => rebuildProxyNow(serverId), { success: "Rebuilding proxy configuration" });
-  const stop = useAction(() => stopProxyNow(serverId), { success: "Proxy stopped" });
-  const start = useAction(() => startProxyNow(serverId), { success: "Proxy started" });
+  const reload = useAction(() => reloadProxyNow(serverId));
+  const restart = useAction(() => restartProxyNow(serverId));
+  const rebuild = useAction(() => rebuildProxyNow(serverId));
+  const stop = useAction(() => stopProxyNow(serverId));
+  const start = useAction(() => startProxyNow(serverId));
 
   return (
     <>
@@ -293,7 +292,6 @@ function CustomConfigCard({ initial }: { initial: string }) {
             return;
           }
           setSaved(value);
-          toast.success("Custom configuration applied");
           router.refresh();
         }}
       >

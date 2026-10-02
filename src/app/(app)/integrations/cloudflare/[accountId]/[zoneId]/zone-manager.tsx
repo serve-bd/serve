@@ -147,15 +147,13 @@ export function ZoneManager({
   const save = useAction(
     (r: { type: string; name: string; content: string; proxied: boolean; ttl: number; priority?: number }) =>
       upsertDnsRecord(accountId, zone.id, editing?.id ?? null, r as Parameters<typeof upsertDnsRecord>[3]),
-    { success: editing ? "Record updated" : "Record added", onSuccess: () => setOpen(false) },
+    { onSuccess: () => setOpen(false) },
   );
-  const remove = useAction((id: string) => deleteDnsRecord(accountId, zone.id, id), { success: "Record deleted" });
-  const toggleProxy = useAction((r: Rec) => upsertDnsRecord(accountId, zone.id, r.id, { type: r.type as "A", name: r.name, content: r.content, proxied: !r.proxied, ttl: r.ttl }), {
-    success: "Proxy updated",
-  });
-  const ssl = useAction((m: string) => setZoneSsl(accountId, zone.id, m as "full"), { success: "SSL mode updated" });
-  const https = useAction((on: boolean) => setZoneAlwaysHttps(accountId, zone.id, on), { success: "Setting updated" });
-  const purge = useAction(() => purgeZoneCache(accountId, zone.id), { success: "Cache purged", refresh: false });
+  const remove = useAction((id: string) => deleteDnsRecord(accountId, zone.id, id));
+  const toggleProxy = useAction((r: Rec) => upsertDnsRecord(accountId, zone.id, r.id, { type: r.type as "A", name: r.name, content: r.content, proxied: !r.proxied, ttl: r.ttl }));
+  const ssl = useAction((m: string) => setZoneSsl(accountId, zone.id, m as "full"));
+  const https = useAction((on: boolean) => setZoneAlwaysHttps(accountId, zone.id, on));
+  const purge = useAction(() => purgeZoneCache(accountId, zone.id), { refresh: false });
 
   const filtered = records.filter((r) => (typeFilter === "all" || r.type === typeFilter) && `${r.name} ${r.content}`.toLowerCase().includes(query.toLowerCase()));
   const short = (n: string) => (n === zone.name ? "@" : n.replace(`.${zone.name}`, ""));

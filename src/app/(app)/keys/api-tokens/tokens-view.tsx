@@ -331,7 +331,7 @@ export function TokensView({
   const confirm = useConfirm();
   const [dialog, setDialog] = React.useState(0);
   const [open, setOpen] = React.useState(false);
-  const revoke = useAction(revokeApiToken, { success: "Token revoked" });
+  const revoke = useAction(revokeApiToken);
 
   return (
     <div className="flex flex-col gap-6">

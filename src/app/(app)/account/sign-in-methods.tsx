@@ -8,7 +8,6 @@ import { SsoMark } from "@/components/sso-mark";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Badge, Card, CardHeader, TimeAgo } from "@/components/ui/misc";
-import { toast } from "@/components/ui/toast";
 import { authClient } from "@/lib/auth-client";
 import { ssoErrorMessage } from "@/lib/sso-errors";
 
@@ -55,7 +54,6 @@ export function SignInMethods({ providers, error }: { providers: { id: string; l
     const { error } = await authClient.unlinkAccount({ accountId });
     setBusy(null);
     if (error) return showError("Could not unlink", error.message);
-    toast.success(`${names[id] ?? id} unlinked`);
     void mutate();
   };
 

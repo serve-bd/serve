@@ -33,7 +33,6 @@ export function AddKeyDialog({
   const [pem, setPem] = React.useState("");
   const [created, setCreated] = React.useState<{ id: string; publicKey: string } | null>(null);
   const create = useAction(() => createPrivateKey({ name, privateKey: mode === "import" ? pem : undefined }), {
-    success: mode === "import" ? "Key imported" : "Key generated",
     onSuccess: (k) => {
       setCreated(k);
       onCreated?.({ id: k.id, name, publicKey: k.publicKey });
@@ -135,7 +134,7 @@ export function KeysView({ keys }: { keys: Key[] }) {
   const confirm = useConfirm();
   const [open, setOpen] = React.useState(false);
   const [viewing, setViewing] = React.useState<Key | null>(null);
-  const remove = useAction(deletePrivateKey, { success: "Key deleted" });
+  const remove = useAction(deletePrivateKey);
 
   return (
     <>

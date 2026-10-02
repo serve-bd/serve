@@ -77,7 +77,6 @@ export function EmailSettingsForm({ initial, mailrooms }: { initial: Initial; ma
         baseUrl: v.baseUrl,
       }),
     {
-      success: "Email settings saved",
       onSuccess: () => {
         const next = { ...v, smtpPassword: "", apiKey: "", hasPassword: v.hasPassword || !!v.smtpPassword, hasApiKey: v.hasApiKey || !!v.apiKey };
         setV(next);
@@ -85,8 +84,8 @@ export function EmailSettingsForm({ initial, mailrooms }: { initial: Initial; ma
       },
     },
   );
-  const test = useAction(sendTestEmail, { success: (d) => `Test email sent to ${d.to}`, refresh: false });
-  const remove = useAction(removeEmailSettings, { success: "Email turned off" });
+  const test = useAction(sendTestEmail, { result: (d) => `Test email sent to ${d.to}`, refresh: false });
+  const remove = useAction(removeEmailSettings);
 
   return (
     <Card>

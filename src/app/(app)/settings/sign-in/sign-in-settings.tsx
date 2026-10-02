@@ -328,9 +328,9 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
         defaultRoleId: v.role === "admin" ? null : v.role,
         ...(row.id === "oidc" ? { issuer: v.issuer, scopes: list(v.scopes), label: v.label } : {}),
       }),
-    { success: `${titles[row.id]} sign-in saved`, onSuccess: () => onOpenChange(false) },
+    { onSuccess: () => onOpenChange(false) },
   );
-  const remove = useAction(() => removeSsoProvider(row.id), { success: `${titles[row.id]} sign-in removed`, onSuccess: () => onOpenChange(false) });
+  const remove = useAction(() => removeSsoProvider(row.id), { onSuccess: () => onOpenChange(false) });
   const test = useAction(testOidcIssuer, { refresh: false });
   const ready = !!v.clientId.trim() && (!!v.clientSecret || !!c?.hasSecret) && (row.id !== "oidc" || !!v.issuer.trim());
   const where = consoles[row.id];

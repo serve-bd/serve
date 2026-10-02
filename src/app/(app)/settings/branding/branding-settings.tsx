@@ -35,11 +35,9 @@ export function BrandingSettings({ initial, brand, has }: { initial: Values; bra
   const tokens = hex ? accentTokens(hex)?.[theme] : null;
 
   const save = useAction(() => saveBranding({ name: v.name, showName: v.showName, accent: v.accent.trim() || null }), {
-    success: "Branding saved",
     onSuccess: () => setSaved(JSON.stringify(v)),
   });
   const reset = useAction(resetBranding, {
-    success: "Branding reset",
     onSuccess: () => {
       const next = { name: DEFAULT_PRODUCT_NAME, showName: true, accent: "" };
       setV(next);
@@ -234,15 +232,12 @@ function ImageSlot({
   square?: boolean;
 }) {
   const input = React.useRef<HTMLInputElement>(null);
-  const upload = useAction(
-    (file: File) => {
-      const form = new FormData();
-      form.set("file", file);
-      return uploadBrandImage(kind, form);
-    },
-    { success: `${title} updated` },
-  );
-  const remove = useAction(() => removeBrandImage(kind), { success: `${title} removed` });
+  const upload = useAction((file: File) => {
+    const form = new FormData();
+    form.set("file", file);
+    return uploadBrandImage(kind, form);
+  });
+  const remove = useAction(() => removeBrandImage(kind));
 
   return (
     <div className="flex min-w-0 flex-col gap-3 rounded-xl border border-line p-4">

@@ -33,11 +33,9 @@ export function CloneEnvironmentDialog({
   const [copyData, setCopyData] = React.useState(false);
   const [summary, setSummary] = React.useState<(CloneSummary & { name: string }) | null>(null);
   const clone = useAction(() => cloneEnvironmentAction(environment.id, { name, generatedDomains, copyData }), {
-    success: "Environment cloned",
     onSuccess: (s) => setSummary({ ...s, name: name.trim().toLowerCase() }),
   });
   const deployAll = useAction((id: string) => deployEnvironment(id), {
-    success: (d) => `${d.count} deployment${d.count === 1 ? "" : "s"} queued`,
     onSuccess: () => {
       if (summary) router.push(`/projects/${projectId}?env=${summary.name}`);
       close(false);

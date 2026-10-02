@@ -51,17 +51,17 @@ export function ProjectSettings({
   const [savedRaw, setSavedRaw] = React.useState<string | null>(null);
   const sentRaw = React.useRef(raw);
 
-  const save = useAction(() => updateProject(project.id, { name, description, color, groupServices }), { success: "Project updated" });
+  const save = useAction(() => updateProject(project.id, { name, description, color, groupServices }));
   const saveVars = useAction(
     () => {
       sentRaw.current = raw;
       return saveSharedVars(environment.id, parseEnv(raw));
     },
-    { success: "Shared variables saved", onSuccess: () => setSavedRaw(sentRaw.current) },
+    { onSuccess: () => setSavedRaw(sentRaw.current) },
   );
-  const redeploy = useAction(() => redeployEnvironment(environment.id), { success: (d) => `Redeploying ${d.count} services` });
-  const removeEnv = useAction(deleteEnvironment, { success: "Environment deleted", onSuccess: () => router.replace(`/projects/${project.id}/settings/environments`) });
-  const remove = useAction(() => deleteProject(project.id), { refresh: false, success: "Project deleted", onSuccess: () => router.replace("/projects") });
+  const redeploy = useAction(() => redeployEnvironment(environment.id));
+  const removeEnv = useAction(deleteEnvironment, { onSuccess: () => router.replace(`/projects/${project.id}/settings/environments`) });
+  const remove = useAction(() => deleteProject(project.id), { refresh: false, onSuccess: () => router.replace("/projects") });
 
   return (
     <div className="flex flex-col gap-6">

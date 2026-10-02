@@ -76,11 +76,10 @@ export function ComposeStorageSection({
   React.useEffect(loadUsage, [loadUsage, content]);
 
   const save = useAction((mounts: ComposeMount[]) => saveComposeMounts(serviceId, current, mounts), {
-    success: "Storage saved",
     onSuccess: () => setDeployHint(true),
   });
   const deploy = useAction(() => deployService(serviceId), { onSuccess: () => setDeployHint(false) });
-  const purge = useAction((name: string) => deleteVolumeData(serviceId, name), { success: "Volume data deleted", onSuccess: loadUsage });
+  const purge = useAction((name: string) => deleteVolumeData(serviceId, name), { onSuccess: loadUsage });
 
   const update = (i: number, patch: Partial<ComposeMount>) => setDraft((d) => d.map((m, j) => (j === i ? ({ ...m, ...patch } as ComposeMount) : m)));
   const remove = (i: number) => setDraft((d) => d.filter((_, j) => j !== i));

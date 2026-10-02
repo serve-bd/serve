@@ -31,7 +31,7 @@ export function PreviewsList(props: {
   // The preview a redeploy was started for, to open its deployment.
   const lastId = React.useRef("");
   const redeploy = useAction((id: string) => deployService(id), { onSuccess: (d) => router.push(`${base}/${lastId.current}/deployments/${d.id}`) });
-  const remove = useAction((id: string) => removePreviewService(id), { success: "Preview removed" });
+  const remove = useAction((id: string) => removePreviewService(id));
   const settings = `${base}/${props.serviceId}/settings/previews`;
 
   return (

@@ -103,7 +103,6 @@ function ServerCard({ service, server, servers }: { service: Props["service"]; s
   const others = servers.filter((s) => s.id !== server.id);
   const [target, setTarget] = React.useState<string | null>(null);
   const move = useAction((force: boolean) => moveService(service.id, target!, { force }), {
-    success: "Moving. The service redeploys on the new server.",
     onSuccess: () => {
       setTarget(null);
       router.refresh();
@@ -170,12 +169,12 @@ export function ServiceSettings(props: Props) {
   const confirm = useConfirm();
   const { service } = props;
   const save = useAction((patch: Parameters<typeof updateService>[1]) => updateService(service.id, patch), {
-    success: "Settings saved. Deploy to apply runtime changes.",
+    result: "Settings saved. Deploy to apply runtime changes.",
   });
   // Kept outside the page so it survives moving between settings sub-pages.
   const pendingApply = usePendingApply(service.id);
   const needsRestart = React.useCallback((what: string) => addPendingApply(service.id, what), [service.id]);
-  const applyDb = useAction(() => applyDatabaseChanges(service.id), { success: "Restarting the database with the new settings", onSuccess: () => clearPendingApply(service.id) });
+  const applyDb = useAction(() => applyDatabaseChanges(service.id), { onSuccess: () => clearPendingApply(service.id) });
   const saveDataMount = useAction((dataMountPath: string | null) => updateDatabaseSettings(service.id, { dataMountPath }));
   const isDb = service.type === "database";
   const running = service.status === "running" || service.status === "deploying" || service.status === "restarting";
@@ -194,10 +193,9 @@ export function ServiceSettings(props: Props) {
     if (isDb) needsRestart("Storage");
     return r;
   };
-  const regen = useAction(() => regenerateWebhookSecret(service.id), { success: "New secret generated" });
+  const regen = useAction(() => regenerateWebhookSecret(service.id));
   const remove = useAction((volumes: boolean) => deleteService(service.id, volumes), {
     refresh: false,
-    success: "Service deleted",
     onSuccess: () => router.replace(`/projects/${props.projectId}`),
   });
   const [removeVolumes, setRemoveVolumes] = React.useState(true);
@@ -679,8 +677,8 @@ const hookProviderNames: Record<string, string> = { github: "GitHub", gitlab: "G
 
 /** Status of the repository webhook Serve manages through the provider API. */
 function RepoWebhookStatus({ serviceId, webhook }: { serviceId: string; webhook: RepoWebhook | null }) {
-  const register = useAction(() => registerServiceWebhook(serviceId), { success: "Webhook registered" });
-  const remove = useAction(() => removeServiceWebhook(serviceId), { success: "Webhook removed" });
+  const register = useAction(() => registerServiceWebhook(serviceId));
+  const remove = useAction(() => removeServiceWebhook(serviceId));
   const name = webhook ? hookProviderNames[webhook.provider] : "the provider";
   if (webhook?.id) {
     return (

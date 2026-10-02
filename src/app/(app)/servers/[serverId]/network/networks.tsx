@@ -79,9 +79,9 @@ export function Networks({ serverId, serverName, networks, refresh }: { serverId
   const [renaming, setRenaming] = React.useState<MeshNetworkView | null>(null);
   const [toggling, setToggling] = React.useState<string | null>(null);
   const toggle = useAction((networkId: string, member: boolean) => setNetworkMember(networkId, serverId, member), { onSuccess: refresh });
-  const create = useAction((name: string) => createNetwork(name, [serverId]), { success: "Private network created", onSuccess: refresh });
-  const rename = useAction((id: string, name: string) => renameNetwork(id, name), { success: "Private network renamed", onSuccess: refresh });
-  const remove = useAction(deleteNetwork, { success: "Private network deleted", onSuccess: refresh });
+  const create = useAction((name: string) => createNetwork(name, [serverId]), { onSuccess: refresh });
+  const rename = useAction((id: string, name: string) => renameNetwork(id, name), { onSuccess: refresh });
+  const remove = useAction(deleteNetwork, { onSuccess: refresh });
   const inAny = networks.some((n) => n.member);
 
   return (

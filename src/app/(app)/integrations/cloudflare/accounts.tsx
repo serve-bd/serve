@@ -127,7 +127,6 @@ export function ConnectCloudflareDialog({ open, onOpenChange }: { open: boolean;
   const [token, setToken] = React.useState("");
   const [originKey, setOriginKey] = React.useState("");
   const { run, pending } = useAction(() => connectCloudflare({ name, apiToken: token, originCaKey: originKey }), {
-    success: (d) => `Connected · ${d.zones} zones`,
     onSuccess: () => {
       onOpenChange(false);
       setToken("");
@@ -193,7 +192,7 @@ export function CloudflareAccounts({
 }) {
   const [open, setOpen] = React.useState(false);
   const confirm = useConfirm();
-  const remove = useAction(disconnectCloudflare, { success: "Account disconnected" });
+  const remove = useAction(disconnectCloudflare);
   return (
     <>
       <PageHeader

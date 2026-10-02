@@ -279,7 +279,6 @@ function Canvas({ projectId, environmentId, services, saved, canManage }: Props)
   // Refreshed after saving, so the page cache (used by Back) knows the new places.
   const save = useAction((positions: Record<string, Pos>) => saveCanvasPositions(environmentId, positions));
   const reset = useAction(() => resetCanvasLayout(environmentId), {
-    success: "Layout reset",
     onSuccess: () => {
       setNodes(services.map((s) => ({ id: s.id, type: "service", position: auto[s.id], data: { s, projectId }, draggable: canManage })));
       requestAnimationFrame(() => void flow.fitView({ padding: 0.2, duration: 300 }));

@@ -49,7 +49,6 @@ export function DistributionSection(props: {
   const dirty = JSON.stringify(value) !== saved;
   const set = (patch: Partial<Distribution>) => setValue((v) => ({ ...v, ...patch }));
   const save = useAction((deploy: boolean) => saveDistribution(props.serviceId, value, { deploy }), {
-    success: "Saved",
     onSuccess: (r) => {
       setSaved(JSON.stringify(value));
       if (r.deploymentId) router.push(`/projects/${props.projectId}/services/${props.serviceId}/deployments/${r.deploymentId}`);

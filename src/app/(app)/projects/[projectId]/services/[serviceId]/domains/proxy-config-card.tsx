@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, EmptyState, Copyable } from "@/components/ui/misc";
 import { Textarea } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
-import { toast } from "@/components/ui/toast";
 import { CodeView } from "@/components/code-view";
 import { saveServiceProxyCustom } from "@/server/actions/service-proxy";
 import { cn } from "@/lib/utils";
@@ -50,7 +49,6 @@ export function ProxyConfigCard({
     const res = await saveServiceProxyCustom(serviceId, content);
     setPending(false);
     if (!res.ok) return setError(res.error);
-    toast.success(content === null ? "Back to the generated configuration" : `Custom ${LABEL[kind]} configuration applied`);
     router.refresh();
   };
 

@@ -141,16 +141,14 @@ export function TasksView({ serviceId, composeServices }: { serviceId: string; c
   const [dialogKey, setDialogKey] = React.useState(0);
   const [selectedRun, setSelectedRun] = React.useState<string | null>(null);
   const save = useAction((v: Parameters<typeof saveTask>[2]) => saveTask(serviceId, editing?.id ?? null, v), {
-    success: "Task saved",
     onSuccess: () => {
       setOpen(false);
       void mutate();
     },
   });
   const toggle = useAction((id: string, on: boolean) => toggleTask(id, on), { onSuccess: () => void mutate() });
-  const remove = useAction(deleteTask, { success: "Task deleted", onSuccess: () => void mutate() });
+  const remove = useAction(deleteTask, { onSuccess: () => void mutate() });
   const runNow = useAction(runTaskNow, {
-    success: "Task started",
     onSuccess: (d) => {
       setSelectedRun(d.id);
       void mutate();

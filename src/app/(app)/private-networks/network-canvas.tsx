@@ -212,9 +212,7 @@ function Canvas({ networks, servers, saved, canArrange }: Props) {
     setNodes((prev) => build(prev));
   }, [build, setNodes]);
 
-  const member = useAction((networkId: string, serverId: string, on: boolean) => setNetworkMember(networkId, serverId, on), {
-    success: "Saved. Servers pick up the change within seconds.",
-  });
+  const member = useAction((networkId: string, serverId: string, on: boolean) => setNetworkMember(networkId, serverId, on));
   // Refreshed after saving, so the page cache (used by Back) knows the new places.
   const save = useAction((positions: Record<string, Pos>) => saveNetworkCanvas(positions));
   /** Put a server in a network, from a drop or a drawn line. */
@@ -233,7 +231,6 @@ function Canvas({ networks, servers, saved, canArrange }: Props) {
     void member.run(networkId, serverId, true);
   };
   const reset = useAction(() => resetNetworkCanvas(), {
-    success: "Layout reset",
     onSuccess: () => {
       setNodes((prev) => prev.map((n) => ({ ...n, position: auto[n.id] ?? n.position })));
       requestAnimationFrame(() => void flow.fitView({ padding: 0.2, duration: 300, maxZoom: 1 }));

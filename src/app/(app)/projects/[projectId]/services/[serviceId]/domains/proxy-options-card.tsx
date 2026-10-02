@@ -141,7 +141,6 @@ export function ProxyOptionsCard({
       return res;
     },
     {
-      success: "HTTP options applied",
       onSuccess: () => {
         const next = { ...form, authPassword: "" };
         setForm(next);

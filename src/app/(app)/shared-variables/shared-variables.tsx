@@ -108,10 +108,10 @@ export function SharedVariables({
 
   const save = useAction(
     () => (scope === "org" ? saveOrgSharedVars(clean) : scope === "project" ? saveProjectSharedVars(project!.id, clean) : saveSharedVars(environment!.id, clean)),
-    { success: "Shared variables saved", onSuccess: () => setSaved(clean) },
+    { onSuccess: () => setSaved(clean) },
   );
   const redeploy = useAction(() => (scope === "environment" ? redeployEnvironment(environment!.id) : redeployReferencing(scope === "org" ? "org" : { projectId: project!.id })), {
-    success: (d) => (d.count ? `Redeploying ${d.count} service${d.count === 1 ? "" : "s"}` : "No running service uses these variables"),
+    result: (d) => (d.count ? `Redeploying ${d.count} service${d.count === 1 ? "" : "s"}` : "No running service uses these variables"),
   });
 
   const update = (id: number, patch: Partial<Row>) => setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));

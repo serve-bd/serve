@@ -63,7 +63,7 @@ export type DatabaseSettingsProps = {
 };
 
 function useDbSave(props: DatabaseSettingsProps, what: string) {
-  const save = useAction((patch: Parameters<typeof updateDatabaseSettings>[1]) => updateDatabaseSettings(props.serviceId, patch), { success: "Saved" });
+  const save = useAction((patch: Parameters<typeof updateDatabaseSettings>[1]) => updateDatabaseSettings(props.serviceId, patch));
   return async (patch: Parameters<typeof updateDatabaseSettings>[1]) => {
     const r = await save.run(patch);
     if (r?.restart) props.onNeedsRestart(what);
@@ -130,7 +130,6 @@ function CredentialsSection(props: DatabaseSettingsProps) {
   const [password, setPassword] = React.useState("");
   const [dependents, setDependents] = React.useState<{ id: string; name: string }[] | null>(null);
   const change = useAction((pw: string) => changeDatabasePassword(props.serviceId, pw || undefined), {
-    success: "Password changed. The database restarts with it.",
     onSuccess: (r) => {
       setOpen(false);
       setPassword("");
@@ -385,7 +384,7 @@ function ConfigurationSection(props: DatabaseSettingsProps) {
 }
 
 function NetworkSection(props: DatabaseSettingsProps) {
-  const save = useAction((patch: Parameters<typeof updateService>[1]) => updateService(props.serviceId, patch), { success: "Saved" });
+  const save = useAction((patch: Parameters<typeof updateService>[1]) => updateService(props.serviceId, patch));
   const { config, engine } = props;
   return (
     <Section

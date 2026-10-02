@@ -41,7 +41,6 @@ function EnvironmentSwitcher({ project, environments, environment, view }: Pick<
   const [open, setOpen] = React.useState(false);
   const [cloning, setCloning] = React.useState(false);
   const { run, pending } = useAction((name: string) => createEnvironment(project.id, name), {
-    success: "Environment created",
     onSuccess: () => setOpen(false),
   });
   return (

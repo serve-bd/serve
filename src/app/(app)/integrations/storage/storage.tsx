@@ -116,8 +116,8 @@ export function StorageDestinations({ destinations, isAdmin }: { destinations: D
   // null = closed, "new" = add, otherwise the destination being edited.
   const [editing, setEditing] = React.useState<Dest | "new" | null>(null);
   const [testing, setTesting] = React.useState<string | null>(null);
-  const test = useAction(testS3Destination, { success: "Connection works", refresh: false });
-  const remove = useAction(deleteS3Destination, { success: "Storage removed" });
+  const test = useAction(testS3Destination, { result: "Connection works", refresh: false });
+  const remove = useAction(deleteS3Destination);
 
   return (
     <>
@@ -286,7 +286,7 @@ function DestinationDialog({ destination, onClose }: { destination: Dest | null;
       destination
         ? updateS3Destination(destination.id, { ...form, accessKeyId: form.accessKeyId || undefined, secretAccessKey: form.secretAccessKey || undefined })
         : addS3Destination(form),
-    { success: destination ? "Storage updated" : "Storage added", onSuccess: onClose },
+    { onSuccess: onClose },
   );
 
   return (

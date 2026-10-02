@@ -62,7 +62,7 @@ export function ResourcesView({ serverId, containers, summary }: { serverId: str
   const { data } = useSWR<{ stats: Stats }>(`/api/servers/${serverId}/resources/stats`, { refreshInterval: 10_000 });
   const stats = data?.stats ?? {};
   const confirm = useConfirm();
-  const control = useAction(controlUnmanagedContainer, { success: "Done" });
+  const control = useAction(controlUnmanagedContainer);
 
   const running = containers.filter((c) => c.state === "running").length;
   const counts = {

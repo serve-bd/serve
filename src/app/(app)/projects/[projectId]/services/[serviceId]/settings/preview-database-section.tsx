@@ -25,7 +25,7 @@ export function PreviewDatabaseSection({
   databases: { id: string; name: string; engine: string; label: string }[];
   previewsEnabled: boolean;
 }) {
-  const save = useAction((v: Parameters<typeof savePreviewDatabase>[1]) => savePreviewDatabase(serviceId, v), { success: "Preview database saved" });
+  const save = useAction((v: Parameters<typeof savePreviewDatabase>[1]) => savePreviewDatabase(serviceId, v));
   const initial = {
     enabled: !!config,
     sourceServiceId: config?.sourceServiceId ?? databases[0]?.id ?? "",

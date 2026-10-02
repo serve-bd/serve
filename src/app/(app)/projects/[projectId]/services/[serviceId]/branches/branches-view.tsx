@@ -86,8 +86,8 @@ export function BranchesView({
       localStorage.setItem("serve.branches.view", next);
     } catch {}
   };
-  const reset = useAction(resetDatabaseBranch, { success: "Copying the data again" });
-  const remove = useAction(deleteDatabaseBranch, { success: "Branch deleted" });
+  const reset = useAction(resetDatabaseBranch);
+  const remove = useAction(deleteDatabaseBranch);
 
   const keyValue = engine === "redis" || engine === "valkey";
   /** Branches copied from this one, and from those, all the way down. */
@@ -280,7 +280,7 @@ const engineLabel = (engine: string) => ENGINE_LABEL[engine] ?? engine;
 function CleanupCard({ serviceId, initial, canManage }: { serviceId: string; initial: string; canManage: boolean }) {
   const [sql, setSql] = React.useState(initial);
   const [saved, setSaved] = React.useState(initial);
-  const save = useAction(() => saveBranchCleanupSql(serviceId, sql.trim() || null), { success: "Clean-up SQL saved", onSuccess: () => setSaved(sql) });
+  const save = useAction(() => saveBranchCleanupSql(serviceId, sql.trim() || null), { onSuccess: () => setSaved(sql) });
   return (
     <Card>
       <CardHeader
@@ -346,7 +346,7 @@ function NewBranchDialog({
       }
       return createDatabaseBranch(serviceId, name, { hidePersonalData: hidden, sourceBranchId: source?.id ?? null, allDatabases: all });
     },
-    { success: "Branch started. Copying the data…", onSuccess: onClose },
+    { onSuccess: onClose },
   );
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>

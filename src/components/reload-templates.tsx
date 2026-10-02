@@ -8,7 +8,7 @@ import { reloadTemplateCatalog } from "@/server/actions/templates";
 
 /** Fetches the newest built-in templates from GitHub and shows them. */
 export function ReloadTemplates({ className }: { className?: string }) {
-  const { run, pending } = useAction(reloadTemplateCatalog, { success: (d) => `Template list updated: ${d.count} templates` });
+  const { run, pending } = useAction(reloadTemplateCatalog, { result: (d) => `Template list updated: ${d.count} templates` });
   return (
     <Button
       type="button"

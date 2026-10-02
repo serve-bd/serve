@@ -59,13 +59,12 @@ export function ComposeBackups(props: {
   const current = selected && keys.includes(selected) ? selected : (keys[0] ?? null);
 
   const add = useAction(addComposeBackup, {
-    success: "Backup added",
     onSuccess: (r) => {
       setSelected(r.key);
       router.refresh();
     },
   });
-  const remove = useAction(removeComposeBackup, { success: "Stopped backing it up", onSuccess: () => router.refresh() });
+  const remove = useAction(removeComposeBackup, { onSuccess: () => router.refresh() });
 
   const parse = (key: string) => {
     const i = key.indexOf(":");

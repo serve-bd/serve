@@ -33,7 +33,7 @@ export function MonitoringSection({
   /** Primary domain the check uses without a URL of its own. */
   defaultUrl: string | null;
 }) {
-  const save = useAction((v: Parameters<typeof saveMonitor>[1]) => saveMonitor(serviceId, v), { success: "Monitoring saved" });
+  const save = useAction((v: Parameters<typeof saveMonitor>[1]) => saveMonitor(serviceId, v));
   const check = useAction(() => checkMonitorNow(serviceId), {
     refresh: true,
     onSuccess: (r) => (r.ok ? toast.success("Check passed", r.latencyMs !== null ? `${r.latencyMs} ms` : undefined) : showError("Check failed", r.error ?? undefined)),

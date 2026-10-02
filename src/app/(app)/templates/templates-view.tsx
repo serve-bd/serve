@@ -20,7 +20,7 @@ export function TemplatesView({ canManage, custom, builtIn }: { canManage: boole
   const [tab, setTab] = React.useState<"custom" | "builtin">(custom.length || canManage ? "custom" : "builtin");
   const [query, setQuery] = React.useState("");
   const confirm = useConfirm();
-  const remove = useAction(deleteCustomTemplate, { success: "Template deleted" });
+  const remove = useAction(deleteCustomTemplate);
   const q = query.trim().toLowerCase();
   const match = (t: { name: string; description: string; category: string }) => !q || `${t.name} ${t.description} ${t.category}`.toLowerCase().includes(q);
 

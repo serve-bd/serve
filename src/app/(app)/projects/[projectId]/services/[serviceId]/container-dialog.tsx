@@ -36,7 +36,7 @@ export function ContainerDialog({
 }) {
   const can = useCan();
   const { data, error, isLoading, mutate } = useSWR(containerId ? `/api/services/${serviceId}/containers/${containerId}` : null, fetcher, { refreshInterval: 5000 });
-  const restart = useAction(() => restartContainer(serviceId, containerId!), { success: "Container restarted", onSuccess: () => mutate() });
+  const restart = useAction(() => restartContainer(serviceId, containerId!), { onSuccess: () => mutate() });
   const d = data?.id.startsWith(containerId ?? "-") ? data : undefined;
   const key = d?.composeService ?? d?.name;
 

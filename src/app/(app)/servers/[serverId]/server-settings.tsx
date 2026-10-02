@@ -142,7 +142,7 @@ export function ValidationCard({ server }: { server: ServerDetails }) {
   const confirm = useConfirm();
   const [watching, setWatching] = React.useState(server.status === "validating" || server.status !== "ready");
   const validate = useAction((installDocker: boolean) => validateServer(server.id, { installDocker }), { onSuccess: () => setWatching(true) });
-  const reset = useAction(() => resetHostKey(server.id), { success: "Host key reset. Validate to pin the new key." });
+  const reset = useAction(() => resetHostKey(server.id), { result: "Host key reset. Validate to pin the new key." });
 
   return (
     <Card>
@@ -382,7 +382,7 @@ export function AccessCard({ server, organizations }: { server: ServerDetails; o
 export function DangerZone({ server }: { server: ServerDetails }) {
   const router = useRouter();
   const confirm = useConfirm();
-  const remove = useAction(() => deleteServer(server.id), { success: `${server.name} removed`, refresh: false, onSuccess: () => router.push("/servers") });
+  const remove = useAction(() => deleteServer(server.id), { refresh: false, onSuccess: () => router.push("/servers") });
   return (
     <Card className="border-bad/25">
       <CardHeader title="Remove server" description={<>This server is forgotten. Containers already running there keep running until you stop them on the server.</>} />

@@ -66,7 +66,6 @@ export function AccountView({
             const { error } = await authClient.updateUser({ name });
             setSaving(false);
             if (error) return showError(error.message ?? "Could not save");
-            toast.success("Profile updated");
             router.refresh();
           }}
         >
@@ -238,7 +237,6 @@ function TwoFactorCard({ enabled, hasPassword }: { enabled: boolean; hasPassword
       if (enabled) {
         const { error } = await authClient.twoFactor.disable({ password });
         if (error) return showError(error.message ?? "Could not disable two-factor authentication");
-        toast.success("Two-factor authentication disabled");
         setOpen(false);
         router.refresh();
       } else if (step === "password") {
@@ -251,7 +249,6 @@ function TwoFactorCard({ enabled, hasPassword }: { enabled: boolean; hasPassword
       } else {
         const { error } = await authClient.twoFactor.verifyTotp({ code });
         if (error) return showError(error.message ?? "That code is not valid");
-        toast.success("Two-factor authentication enabled");
         setOpen(false);
         router.refresh();
       }

@@ -10,7 +10,6 @@ import { Select } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tab, Tabs, TabsList } from "@/components/ui/tabs";
 import { useConfirm } from "@/components/ui/confirm";
-import { toast } from "@/components/ui/toast";
 import { useAction, showError } from "@/hooks/use-action";
 import { importBackupFromRemote } from "@/server/actions/databases";
 import { cn, formatBytes } from "@/lib/utils";
@@ -41,7 +40,6 @@ export function ImportCard(props: {
   const [drag, setDrag] = React.useState(false);
   const input = React.useRef<HTMLInputElement>(null);
   const remote = useAction(() => importBackupFromRemote(props.serviceId, source === "url" ? { kind: "url", url } : { kind: "s3", destinationId: dest, key }, backupFirst, users), {
-    success: "Import started",
     onSuccess: () => props.onStarted(),
   });
 
@@ -62,7 +60,6 @@ export function ImportCard(props: {
           message = xhr.status === 413 ? `The file is larger than the dashboard proxy allows${props.maxUpload ? ` (${props.maxUpload})` : ""}.` : "";
         }
         if (xhr.status >= 200 && xhr.status < 300) {
-          toast.success("Uploaded. Restoring now.");
           setFile(null);
           props.onStarted();
         } else showError(message || `Upload failed (HTTP ${xhr.status}).`);

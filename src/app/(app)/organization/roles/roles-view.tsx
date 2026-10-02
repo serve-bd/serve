@@ -22,7 +22,7 @@ const editableRole = (r: Role) => !r.builtin || (isBuiltinRole(r.builtin) && BUI
 export function RolesView({ roles, canEdit }: { roles: Role[]; canEdit: boolean }) {
   const confirm = useConfirm();
   const [editing, setEditing] = React.useState<Role | "new" | null>(null);
-  const remove = useAction(deleteRole, { success: "Role deleted" });
+  const remove = useAction(deleteRole);
   const custom = roles.filter((r) => !r.builtin);
 
   return (
@@ -151,7 +151,6 @@ function RoleDialog({ role, readOnly, onClose }: { role: Role | null; readOnly: 
   const [perms, setPerms] = React.useState<Set<Permission>>(new Set(role?.permissions ?? ["projects.view"]));
   const builtin = role?.builtin ?? null;
   const save = useAction(() => (builtin ? saveBuiltinPermissions(builtin, [...perms]) : saveRole(role?.id ?? null, { name, description, permissions: [...perms] })), {
-    success: "Role saved",
     onSuccess: onClose,
   });
   const toggle = (p: Permission, on: boolean) =>

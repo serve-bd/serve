@@ -84,12 +84,10 @@ export function PrivateNetworks({
   const meshConfirm = useMeshConfirm();
   const [creating, setCreating] = React.useState(false);
   const [renaming, setRenaming] = React.useState<{ id: string; name: string } | null>(null);
-  const create = useAction((name: string) => createNetwork(name), { success: "Private network created" });
-  const rename = useAction((id: string, name: string) => renameNetwork(id, name), { success: "Private network renamed" });
-  const remove = useAction(deleteNetwork, { success: "Private network deleted" });
-  const member = useAction((networkId: string, serverId: string, on: boolean) => setNetworkMember(networkId, serverId, on), {
-    success: "Saved. Servers pick up the change within seconds.",
-  });
+  const create = useAction((name: string) => createNetwork(name));
+  const rename = useAction((id: string, name: string) => renameNetwork(id, name));
+  const remove = useAction(deleteNetwork);
+  const member = useAction((networkId: string, serverId: string, on: boolean) => setNetworkMember(networkId, serverId, on));
   const byId = new Map(servers.map((s) => [s.id, s]));
   const inSome = new Set(networks.flatMap((n) => n.servers.map((s) => s.id)));
   const notJoined = servers.filter((s) => !s.joined);

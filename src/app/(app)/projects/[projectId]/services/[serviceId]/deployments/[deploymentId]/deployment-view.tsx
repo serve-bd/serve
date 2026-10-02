@@ -143,8 +143,7 @@ export function DeploymentView({
   React.useEffect(() => {
     if (!cancelling || active) return;
     setCancelling(false);
-    if (state.status === "cancelled") toast.success("Deployment cancelled");
-    else toast.info(`The deployment ${state.status === "success" ? "finished" : state.status} before it could be cancelled`);
+    if (state.status !== "cancelled") toast.info(`The deployment ${state.status === "success" ? "finished" : state.status} before it could be cancelled`);
   }, [cancelling, active, state.status]);
   const redeploy = useAction(() => redeployDeployment(deployment.id), {
     onSuccess: (d) => router.push(`${backHref}/${d.id}`),

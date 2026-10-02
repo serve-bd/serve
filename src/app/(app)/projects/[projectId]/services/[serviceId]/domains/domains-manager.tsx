@@ -438,7 +438,6 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
     {
       onSuccess: (d) => {
         if (d.warning) toast.warning("Domain added", d.warning);
-        else toast.success("Domain added");
         close(false);
         setHostname("");
       },
@@ -678,7 +677,6 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
   const save = useAction(
     () => updateDomain(domain.id, { port: port ? Number(port) : null, ...(compose ? { composeService: composeService || null } : {}), ...(showTls ? tlsChange() : {}) }),
     {
-      success: "Domain updated",
       onSuccess: onClose,
     },
   );
@@ -712,7 +710,6 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
   const reroute = useAction((to: string | null) => setDomainRoute(domain.id, to), {
     onSuccess: (r) => {
       if (r?.warning) toast.warning("Route updated", r.warning);
-      else toast.success("Route updated. DNS points to the new target.");
     },
   });
   return (
@@ -808,12 +805,12 @@ export function DomainsManager(props: Props) {
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DomainRow | null>(null);
   const confirm = useConfirm();
-  const generate = useAction(() => generateDomain(props.serviceId), { success: "Domain generated" });
-  const remove = useAction((id: string, dns: boolean) => removeDomain(id, dns), { success: "Domain removed" });
-  const toggleHttps = useAction((id: string, https: boolean) => updateDomain(id, { https, forceHttps: https }), { success: "Domain updated" });
-  const retry = useAction(retryCertificate, { success: "Requesting a new certificate" });
-  const reconnect = useAction(reconnectDomainTunnel, { success: "Reconnected to the tunnel" });
-  const makePrimary = useAction(setPrimaryDomain, { success: "Primary domain set. Redeploy so SERVE_PUBLIC_URL uses it." });
+  const generate = useAction(() => generateDomain(props.serviceId));
+  const remove = useAction((id: string, dns: boolean) => removeDomain(id, dns));
+  const toggleHttps = useAction((id: string, https: boolean) => updateDomain(id, { https, forceHttps: https }));
+  const retry = useAction(retryCertificate);
+  const reconnect = useAction(reconnectDomainTunnel);
+  const makePrimary = useAction(setPrimaryDomain);
   const used = new Set(props.domains.map((d) => d.tunnelId));
   const starting = props.tunnels.some((t) => used.has(t.id) && (t.status === "pending" || t.status === "down"));
   // While a tunnel these domains use is coming up, ask Cloudflare every few seconds instead of waiting for the worker's check.

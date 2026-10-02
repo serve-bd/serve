@@ -151,7 +151,6 @@ function ReplicaCard({
       return preview ? savePreviewVars(serviceId, list) : saveReplicaVars(serviceId, replica, list, redeploy);
     },
     {
-      success: (d) => (d.deploymentId ? "Saved. Redeploying…" : preview ? "Preview variables saved" : `Replica ${replica} variables saved`),
       onSuccess: () => {
         // A renamed hidden value is now stored under its new name.
         setRows(current.map((r) => (r.hidden ? { ...r, from: r.key } : r)));

@@ -102,9 +102,9 @@ function RequestDialog({
         cloudflareAccountId: provider === "letsencrypt-http" ? null : account,
         serverId,
       }),
-    { success: "Certificate requested", onSuccess: close },
+    { onSuccess: close },
   );
-  const upload = useAction(() => uploadCertificate({ name, certificate: cert, privateKey: key, serverId }), { success: "Certificate uploaded", onSuccess: close });
+  const upload = useAction(() => uploadCertificate({ name, certificate: cert, privateKey: key, serverId }), { onSuccess: close });
   const needsCf = provider !== "letsencrypt-http";
 
   return (
@@ -453,9 +453,9 @@ export function CertificatesView({
   const confirm = useConfirm();
   const [open, setOpen] = React.useState(false);
   const [logsFor, setLogsFor] = React.useState<string | null>(null);
-  const renew = useAction(renewCertificate, { success: "Renewal started" });
+  const renew = useAction(renewCertificate);
   const auto = useAction((id: string, on: boolean) => setCertificateAutoRenew(id, on));
-  const remove = useAction(deleteCertificate, { success: "Certificate deleted" });
+  const remove = useAction(deleteCertificate);
 
   return (
     <>

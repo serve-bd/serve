@@ -161,7 +161,7 @@ export function UsersView({ me, users, orgs, roles }: { me: string; users: User[
 function AddToOrgDialog({ user, orgs, roles, onClose }: { user: User; orgs: Org[]; roles: Record<string, Role[]>; onClose: () => void }) {
   const [orgId, setOrgId] = React.useState(orgs[0]?.id ?? "");
   const [roleId, setRoleId] = React.useState("developer");
-  const add = useAction(() => addUserToOrganization(orgId, user.id, roleId), { success: `${user.name} was added`, onSuccess: onClose });
+  const add = useAction(() => addUserToOrganization(orgId, user.id, roleId), { onSuccess: onClose });
   const options = roles[orgId] ?? [];
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>

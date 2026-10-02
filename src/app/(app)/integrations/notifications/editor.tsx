@@ -100,11 +100,10 @@ export function ChannelEditor(props: {
 
   const payload = () => ({ ...form, kind: props.kind, template: form.template });
   const save = useAction(() => saveNotificationChannel(props.channelId, payload()), {
-    success: props.channelId ? "Channel saved" : "Channel added",
     onSuccess: () => router.push("/integrations/notifications"),
   });
   const test = useAction(() => testNotificationChannel(props.channelId, { kind: props.kind, config: form.config, template: form.template }), {
-    success: "Test sent",
+    result: "Test sent",
     refresh: !!props.channelId,
   });
 

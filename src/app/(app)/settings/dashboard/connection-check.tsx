@@ -117,7 +117,7 @@ function StepRow({ step, onFixed }: { step: ConnectionStep; onFixed: () => void 
   // Problems start open; the user can still fold them.
   const [open, setOpen] = React.useState<boolean | null>(null);
   const expanded = open ?? (step.state === "fail" || step.state === "warn");
-  const fix = useAction(fixDashboardConnection, { success: "Done. Checking again…", refresh: false, onSuccess: onFixed });
+  const fix = useAction(fixDashboardConnection, { refresh: false, onSuccess: onFixed });
 
   return (
     <li className="px-5 py-3.5">

@@ -39,8 +39,8 @@ export function InstanceBackups({
   timezone: string;
 }) {
   const confirm = useConfirm();
-  const run = useAction(startInstanceBackup, { success: "Backup started" });
-  const remove = useAction(removeInstanceBackup, { success: "Backup deleted" });
+  const run = useAction(startInstanceBackup);
+  const remove = useAction(removeInstanceBackup);
   const running = backups.some((b) => b.status === "running");
 
   return (

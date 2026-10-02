@@ -52,7 +52,7 @@ const host = (url: string | null, provider: OAuthProvider) =>
 export function OAuthApps({ apps, isAdmin }: { apps: OAuthAppRow[]; isAdmin: boolean }) {
   const confirm = useConfirm();
   const connect = useAction(startGitOAuth, { refresh: false, onSuccess: (url) => (window.location.href = url) });
-  const remove = useAction(deleteGitOAuthApp, { success: "OAuth app removed" });
+  const remove = useAction(deleteGitOAuthApp);
   if (!apps.length) return null;
   return (
     <Card className="overflow-hidden">
@@ -184,7 +184,6 @@ export function OAuthSetupDialog({ provider, base, isInstanceAdmin, onClose }: {
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const connect = useAction(startGitOAuth, { refresh: false, onSuccess: (url) => (window.location.href = url) });
   const create = useAction(() => createGitOAuthApp({ provider: provider!, ...form, name: form.name || names[provider!] }), {
-    success: "OAuth app saved. Opening the provider to connect…",
     onSuccess: (d) => void connect.run(d.id),
   });
   // Reset when opened for another provider.

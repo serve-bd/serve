@@ -133,7 +133,6 @@ export function StorageSection({
   const dirty = JSON.stringify(value) !== saved;
   const purging = React.useRef("");
   const purge = useAction((source: string) => ((purging.current = source), deleteVolumeData(serviceId, source)), {
-    success: "Volume data deleted",
     onSuccess: () => setRemoved((r) => r.filter((x) => x !== purging.current)),
   });
 

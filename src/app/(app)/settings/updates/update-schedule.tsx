@@ -101,9 +101,7 @@ export function UpdateSchedule({ initial, canAutoUpdate }: { initial: UpdateSche
   const set = (patch: Partial<UpdateScheduleSettings>) => setS((x) => ({ ...x, ...patch }));
   const changed = JSON.stringify(s) !== JSON.stringify(initial);
   const valid = !!nextRun(s.checkSchedule, s.timezone, Date.now()) && !!nextRun(s.autoSchedule, s.timezone, Date.now());
-  const save = useAction(() => saveUpdateSettings({ checkEnabled: s.checkEnabled, checkSchedule: s.checkSchedule, autoUpdate: s.autoUpdate, autoSchedule: s.autoSchedule }), {
-    success: "Update settings saved",
-  });
+  const save = useAction(() => saveUpdateSettings({ checkEnabled: s.checkEnabled, checkSchedule: s.checkSchedule, autoUpdate: s.autoUpdate, autoSchedule: s.autoSchedule }));
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">

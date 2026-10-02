@@ -7,7 +7,11 @@ import type { ActionResult } from "@/server/action";
 import { useLatest } from "./use-client";
 
 type Options<T> = {
-  success?: string | ((data: T) => string);
+  /**
+   * A toast after success, only for news the page does not show itself (a test passed, an email
+   * sent, a step left). A change the page reflects needs none.
+   */
+  result?: string | ((data: T) => string);
   onSuccess?: (data: T) => void;
   /** Refresh server components after success (default true). */
   refresh?: boolean;
@@ -90,8 +94,8 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
           showError(res.error);
           return undefined;
         }
-        const { success, onSuccess, refresh = true } = optsRef.current;
-        if (success) toast.success(typeof success === "function" ? success(res.data) : success);
+        const { result, onSuccess, refresh = true } = optsRef.current;
+        if (result) toast.success(typeof result === "function" ? result(res.data) : result);
         onSuccess?.(res.data);
         if (refresh && !mounted.current) router.refresh();
         else if (refresh) {

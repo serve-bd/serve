@@ -9,7 +9,6 @@ import { Field } from "@/components/ui/field";
 import { Input, InputGroup, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
-import { toast } from "@/components/ui/toast";
 import { saveProxySettings } from "@/server/actions/proxy-kind";
 import type { CaddySettings, NginxSettings, ProxyKind, TraefikSettings } from "@/server/proxy/config";
 
@@ -32,7 +31,6 @@ function useSettingsForm<T>(serverId: string, kind: ProxyKind, initial: T, toInp
     setPending(false);
     if (!res.ok) return setError(res.error);
     setSaved(JSON.stringify(value));
-    toast.success("Proxy settings applied");
     router.refresh();
   };
   return { value, set, dirty: JSON.stringify(value) !== saved, error, pending, submit, reset: () => (setValue(JSON.parse(saved)), setError(null)) };

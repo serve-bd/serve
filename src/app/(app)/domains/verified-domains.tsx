@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, TimeAgo } from "@/components/ui/misc";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
-import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
 import { useCan } from "@/components/permissions";
 import { DomainProof } from "@/components/domain-proof";
@@ -23,13 +22,12 @@ export function VerifiedDomainsCard({ rows }: { rows: Row[] }) {
   const check = useAction(() => checkDomainOwnership(name), {
     onSuccess: (r) => {
       if (r.verified) {
-        toast.success(`${r.name ?? name} is verified`);
         setName("");
         setProof(null);
       } else setProof({ recordName: r.recordName, recordValue: r.recordValue });
     },
   });
-  const remove = useAction((id: string) => removeVerifiedDomain(id), { success: "Verification removed" });
+  const remove = useAction((id: string) => removeVerifiedDomain(id));
 
   return (
     <Card>

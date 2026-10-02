@@ -43,8 +43,8 @@ export function Registries({ registries, isAdmin }: { registries: RegistryItem[]
   const confirm = useConfirm();
   const [editing, setEditing] = React.useState<RegistryItem | "new" | null>(null);
   const [testing, setTesting] = React.useState<string | null>(null);
-  const test = useAction(testRegistry, { success: "Login works", refresh: false });
-  const remove = useAction(deleteRegistry, { success: "Registry removed" });
+  const test = useAction(testRegistry, { result: "Login works", refresh: false });
+  const remove = useAction(deleteRegistry);
 
   return (
     <>
@@ -188,7 +188,6 @@ function RegistryDialog({ registry, onClose }: { registry: RegistryItem | null; 
   const preset = registryPresets[form.kind];
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const save = useAction(() => (registry ? updateRegistry(registry.id, form) : addRegistry(form)), {
-    success: registry ? "Registry updated" : "Registry added",
     onSuccess: onClose,
   });
   // Self-hosted GitLab and other registries need a host; the public services have a fixed one.

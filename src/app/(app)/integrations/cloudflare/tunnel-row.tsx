@@ -76,14 +76,12 @@ export function TunnelRow({
   }, [open, load]);
 
   const restart = useAction(restartTunnelConnector, {
-    success: "Connector restarted",
     onSuccess: () => setTimeout(() => void load(), 4000),
   });
   const update = useAction(updateTunnelConnector, {
-    success: "Connector updated. The tunnel stayed online.",
     onSuccess: () => setTimeout(() => void load(), 4000),
   });
-  const remove = useAction(disableTunnel, { success: "Tunnel removed" });
+  const remove = useAction(disableTunnel);
 
   const cf = details?.cloudflare;
   const connector = details?.connector;

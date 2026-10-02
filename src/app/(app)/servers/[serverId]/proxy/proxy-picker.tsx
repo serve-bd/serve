@@ -43,7 +43,7 @@ export function ProxyPicker({
     [onLiveChange],
   );
   const running = live?.state === "running";
-  const change = useAction((to: ProxyKind) => setProxyKind(serverId, to), { success: "Switching the proxy" });
+  const change = useAction((to: ProxyKind) => setProxyKind(serverId, to));
 
   // While a switch runs, follow its log.
   React.useEffect(() => {

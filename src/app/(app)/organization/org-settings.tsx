@@ -19,10 +19,9 @@ export function OrgSettings({ org, role, isRoot }: { org: { id: string; name: st
   const isAdmin = role === "owner" || role === "admin";
   // Renaming checks members.manage, which a custom role can grant too.
   const canRename = useCan()("members.manage");
-  const save = useAction(() => updateOrg({ name }), { success: "Organization updated" });
+  const save = useAction(() => updateOrg({ name }));
   const remove = useAction(deleteOrg, {
     refresh: false,
-    success: "Organization deleted",
     onSuccess: () => {
       router.replace("/");
       router.refresh();

@@ -25,7 +25,7 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
   const go = (id: string) => router.push(`/projects/${projectId}/services/${target.current}/deployments/${id}`);
   const rollback = useAction(rollbackTo, { onSuccess: (d) => go(d.id) });
   const redeploy = useAction(redeployDeployment, { onSuccess: (d) => go(d.id) });
-  const cancel = useAction(cancelDeployment, { success: "Cancel requested. It stops in a moment.", onSuccess: () => void mutate() });
+  const cancel = useAction(cancelDeployment, { result: "Cancel requested. It stops in a moment.", onSuccess: () => void mutate() });
 
   if (!data) return null;
   const { currentDeploymentId, containers } = data;

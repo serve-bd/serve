@@ -12,7 +12,6 @@ import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm";
-import { toast } from "@/components/ui/toast";
 import { CodeView } from "@/components/code-view";
 import { useAction } from "@/hooks/use-action";
 import { getSiteFile, reloadProxyNow } from "@/server/actions/server-proxy";
@@ -70,8 +69,8 @@ export function DynamicConfigsCard({
   const router = useRouter();
   const confirm = useConfirm();
   const [editing, setEditing] = React.useState<{ original: string | null; name: string; content: string } | null>(null);
-  const reload = useAction(() => reloadProxyNow(serverId), { success: "Proxy reloaded" });
-  const remove = useAction((name: string) => deleteProxyFile(serverId, kind, name), { success: "File deleted" });
+  const reload = useAction(() => reloadProxyNow(serverId));
+  const remove = useAction((name: string) => deleteProxyFile(serverId, kind, name));
   const help = CUSTOM_HELP[kind];
 
   return (
@@ -244,7 +243,6 @@ function FileForm({
     const res = await saveProxyFile(serverId, kind, { originalName: value?.original ?? null, name, content });
     setPending(false);
     if (!res.ok) return setError(res.error);
-    toast.success(`${name} applied`);
     onSaved();
   };
 
@@ -336,7 +334,6 @@ export function BuiltInDefaultsCard({ serverId, kind, initial, disabled }: { ser
     const res = await saveProxyDefaults(serverId, kind, next);
     setPending(false);
     if (!res.ok) return setError(res.error);
-    toast.success("Built-in defaults applied");
     router.refresh();
   };
   return (
@@ -503,7 +500,6 @@ export function ProxyContainerCard({
     const res = await saveProxyContainer(serverId, kind, input);
     setPending(false);
     if (!res.ok) return setError(res.error);
-    toast.success(input === null ? "Proxy container reset" : "Proxy container updated");
     router.refresh();
   };
 

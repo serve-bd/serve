@@ -68,7 +68,7 @@ function accessText(access: SecretProviderAccess, projects: Project[]) {
 export function SecretProviders({ providers, projects }: { providers: Provider[]; projects: Project[] }) {
   const confirm = useConfirm();
   const [editing, setEditing] = React.useState<Provider | "new" | null>(null);
-  const remove = useAction(deleteSecretProvider, { success: "Secret manager removed" });
+  const remove = useAction(deleteSecretProvider);
 
   return (
     <>
@@ -211,7 +211,6 @@ function ProviderDialog({ provider, projects, onClose }: { provider: Provider | 
     return { name, kind, config, credentials, access };
   };
   const save = useAction(() => (provider ? updateSecretProvider(provider.id, input()) : createSecretProvider(input())), {
-    success: provider ? "Secret manager updated" : "Secret manager added",
     onSuccess: onClose,
   });
   const [testing, setTesting] = React.useState(false);

@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/misc";
-import { toast } from "@/components/ui/toast";
 import { createOrg, switchOrganization } from "@/server/actions/org";
 
 export type OrgItem = { id: string; name: string; logo: string | null; role: string; isRoot: boolean };
@@ -75,7 +74,6 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
               const res = await createOrg(name).finally(() => setPending(false));
               if (!res.ok) return showError(res.error);
               setCreateOpen(false);
-              toast.success(`Created ${name}`);
               router.push("/");
               router.refresh();
             }}

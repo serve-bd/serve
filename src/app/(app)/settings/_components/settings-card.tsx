@@ -44,7 +44,6 @@ export function SettingsCard<T extends Record<string, unknown>>({
   // clamp or default what was typed, like 0 builds or an empty port).
   const adopt = React.useRef(false);
   const save = useAction(() => (onSave ? onSave(values) : saveServerSettings(transform ? transform(values) : (values as Values))), {
-    success: "Settings saved",
     onSuccess: () => {
       adopt.current = true;
       setSaved(JSON.stringify(values));

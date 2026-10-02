@@ -123,7 +123,7 @@ export function ScheduleCard(props: {
         },
       });
     },
-    { success: enabled ? "Backup schedule saved" : "Automatic backups turned off", onSuccess: () => setSaved(snapshot) },
+    { onSuccess: () => setSaved(snapshot) },
   );
 
   const fmt = new Intl.DateTimeFormat(undefined, { timeZone: props.timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });

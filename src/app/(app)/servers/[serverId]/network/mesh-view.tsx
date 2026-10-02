@@ -143,7 +143,6 @@ function JoinForm({
         ...(joined ? {} : { networks: chosen, newNetwork }),
       }),
     {
-      success: joined ? "Private network updated" : "Joining the private network",
       onSuccess: onDone,
     },
   );
@@ -400,8 +399,8 @@ function Section({ title, description, children }: { title: string; description:
 
 function Joined({ mesh, serverId, serverName, onEdit, refresh }: { mesh: MeshOverview; serverId: string; serverName: string; onEdit: () => void; refresh: () => void }) {
   const meshConfirm = useMeshConfirm();
-  const leave = useAction(() => saveMesh(serverId, { enabled: false }), { success: `${serverName} is leaving the private network`, onSuccess: refresh });
-  const apply = useAction(() => resyncMesh(serverId), { success: "Applying the configuration again", onSuccess: refresh });
+  const leave = useAction(() => saveMesh(serverId, { enabled: false }), { onSuccess: refresh });
+  const apply = useAction(() => resyncMesh(serverId), { onSuccess: refresh });
   const problem = problemOf(mesh);
   return (
     <>

@@ -135,7 +135,6 @@ export function LimitsDialog({ org, initial, servers, onClose }: { org: Org | nu
   };
   const invalid = Object.entries(draft).some(([, v]) => v.trim() !== "" && (!Number.isFinite(Number(v)) || Number(v) < 0));
   const save = useAction(() => (org ? saveOrgLimits(org.id, useDefaults ? null : limits) : saveDefaultOrgLimits(limits)), {
-    success: "Limits saved",
     onSuccess: onClose,
   });
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft((d) => ({ ...d, [k]: e.target.value.replace(/[^\d.]/g, "") }));

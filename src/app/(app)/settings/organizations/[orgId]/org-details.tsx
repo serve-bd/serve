@@ -46,8 +46,8 @@ export function OrgDetails({
   const confirm = useConfirm();
   const [adding, setAdding] = React.useState(false);
   const [limits, setLimits] = React.useState(false);
-  const changeRole = useAction((memberId: string, roleId: string) => setOrganizationMemberRole(org.id, memberId, roleId), { success: "Role updated" });
-  const remove = useAction((memberId: string) => removeOrganizationMember(org.id, memberId), { success: "Member removed" });
+  const changeRole = useAction((memberId: string, roleId: string) => setOrganizationMemberRole(org.id, memberId, roleId));
+  const remove = useAction((memberId: string) => removeOrganizationMember(org.id, memberId));
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? "Viewer";
 
   return (
@@ -208,7 +208,7 @@ export function OrgDetails({
 function AddMemberDialog({ org, roles, users, onClose }: { org: Org; roles: Role[]; users: User[]; onClose: () => void }) {
   const [userId, setUserId] = React.useState<string | null>(null);
   const [roleId, setRoleId] = React.useState("developer");
-  const add = useAction(() => addUserToOrganization(org.id, userId!, roleId), { success: "Member added", onSuccess: onClose });
+  const add = useAction(() => addUserToOrganization(org.id, userId!, roleId), { onSuccess: onClose });
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>

@@ -84,8 +84,8 @@ export function NotificationChannels({ channels, deliveries, isAdmin }: { channe
   const confirm = useConfirm();
   const [testing, setTesting] = React.useState<string | null>(null);
   const toggle = useAction((id: string, on: boolean) => toggleNotificationChannel(id, on));
-  const test = useAction((id: string) => testNotificationChannel(id), { success: "Test sent" });
-  const remove = useAction(deleteNotificationChannel, { success: "Channel removed" });
+  const test = useAction((id: string) => testNotificationChannel(id), { result: "Test sent" });
+  const remove = useAction(deleteNotificationChannel);
 
   return (
     <>
@@ -215,7 +215,7 @@ export function NotificationChannels({ channels, deliveries, isAdmin }: { channe
 function DeliveryHistory({ deliveries, channels, isAdmin }: { deliveries: DeliveryRow[]; channels: ChannelCard[]; isAdmin: boolean }) {
   const [filter, setFilter] = React.useState("all");
   const [retrying, setRetrying] = React.useState<string | null>(null);
-  const retry = useAction(retryNotificationDelivery, { success: "Sent" });
+  const retry = useAction(retryNotificationDelivery, { result: "Sent" });
   const rows = deliveries.filter((d) => (filter === "all" ? true : filter === "failed" ? d.status === "failed" : d.channelId === filter));
   const byId = new Map(channels.map((c) => [c.id, c]));
   return (

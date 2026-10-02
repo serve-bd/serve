@@ -212,7 +212,6 @@ export function BackupsManager(props: {
   });
 
   const run = useAction((databases?: string[]) => createBackup(props.serviceId, props.target ?? null, { databases }), {
-    success: "Backup started",
     onSuccess: () => {
       setPicking(false);
       void mutate();
@@ -220,10 +219,9 @@ export function BackupsManager(props: {
   });
   const choices = props.databaseChoices && props.databaseChoices.databases.length > 1 ? props.databaseChoices : null;
   const restore = useAction((id: string, backupFirst: boolean, users: boolean) => restoreFromBackup(id, { backupFirst, users }), {
-    success: "Restore started",
     onSuccess: () => void mutate(),
   });
-  const remove = useAction(deleteBackup, { success: "Backup deleted", onSuccess: () => void mutate() });
+  const remove = useAction(deleteBackup, { onSuccess: () => void mutate() });
   const backups = data?.backups ?? [];
   const safety = React.useRef(true);
   const users = React.useRef(false);

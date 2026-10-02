@@ -22,7 +22,7 @@ export function AlertsView({ serverId, serverName, config, incidents }: { server
   const [v, setV] = React.useState(config);
   const set = (patch: Partial<ServerAlertConfig>) => setV((c) => ({ ...c, ...patch }));
   const dirty = JSON.stringify(v) !== JSON.stringify(config);
-  const save = useAction(() => saveServerAlerts(serverId, v), { success: "Alerts saved" });
+  const save = useAction(() => saveServerAlerts(serverId, v));
   const open = incidents.filter((i) => !i.resolvedAt);
 
   return (

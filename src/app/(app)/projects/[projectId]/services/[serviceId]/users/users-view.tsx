@@ -63,7 +63,7 @@ export function UsersView({
   const confirm = useConfirm();
   const [dialog, setDialog] = React.useState<{ mode: "create" } | { mode: "access"; user: DatabaseUserRow } | null>(null);
   const [shown, setShown] = React.useState<{ creds: Credentials; title: string } | null>(null);
-  const remove = useAction((name: string) => deleteDatabaseUser(serviceId, name), { success: "User deleted" });
+  const remove = useAction((name: string) => deleteDatabaseUser(serviceId, name));
   const password = useAction((name: string) => changeDatabaseUserPassword(serviceId, name), {
     onSuccess: (creds) => setShown({ creds, title: `New password for ${creds.username}` }),
   });
@@ -224,13 +224,12 @@ function UserDialog({
   const [access, setAccess] = React.useState<DatabaseUserAccess>(user?.access ?? "readwrite");
   const [chosen, setChosen] = React.useState<string[]>(user?.databases.length ? user.databases : databases.includes(mainDatabase) ? [mainDatabase] : databases.slice(0, 1));
   const create = useAction(() => createDatabaseUser(serviceId, { username, password, access, databases: chosen }), {
-    success: "User added",
     onSuccess: (creds) => {
       onClose();
       onCreated(creds);
     },
   });
-  const save = useAction(() => setDatabaseUserAccess(serviceId, user!.username, access, chosen), { success: "Access changed", onSuccess: onClose });
+  const save = useAction(() => setDatabaseUserAccess(serviceId, user!.username, access, chosen), { onSuccess: onClose });
   const pending = create.pending || save.pending;
   const toggle = (d: string, on: boolean) => setChosen((c) => (on ? [...c, d] : c.filter((x) => x !== d)));
 

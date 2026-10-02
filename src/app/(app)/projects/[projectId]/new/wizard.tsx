@@ -274,12 +274,10 @@ function GitForm({ props, onBack, access }: { props: Props; onBack: () => void; 
 
   const { run, pending } = useAction(createAppService, {
     refresh: false,
-    success: "Service created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
   const stack = useAction(createComposeService, {
     refresh: false,
-    success: "Stack created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
 
@@ -562,7 +560,6 @@ function ImageForm({ props, onBack, onDatabase }: { props: Props; onBack: () => 
   const volumesIssue = storage ? volumeRowsIssue(volumes) : null;
   const { run, pending } = useAction(createAppService, {
     refresh: false,
-    success: "Service created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
   const guessName = image.split("/").pop()?.split(":")[0] ?? "";
@@ -716,7 +713,6 @@ function DockerfileForm({ props, onBack }: { props: Props; onBack: () => void })
   const volumesIssue = storage ? volumeRowsIssue(volumes) : null;
   const { run, pending } = useAction(createAppService, {
     refresh: false,
-    success: "Service created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
   return (
@@ -778,7 +774,6 @@ function DatabaseForm({ props, onBack, initialEngine }: { props: Props; onBack: 
   const [database, setDatabase] = React.useState("");
   const { run, pending } = useAction(createDatabaseService, {
     refresh: false,
-    success: "Database created. Start it when you are ready.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
   return (
@@ -862,7 +857,6 @@ function ComposeForm({ props, onBack }: { props: Props; onBack: () => void }) {
   const [credentialId, setCredentialId] = React.useState("public");
   const { run, pending } = useAction(createComposeService, {
     refresh: false,
-    success: "Stack created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
   return (
@@ -1121,7 +1115,6 @@ function TemplateConfigure({ props, template, onBack }: { props: Props; template
   const automatic = template.vars.filter(isAutomatic);
   const { run, pending } = useAction(createComposeService, {
     refresh: false,
-    success: "Service created. Review the settings, then deploy.",
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
   });
   const overrides = { ...values, ...Object.fromEntries(Object.entries(custom).filter(([, v]) => v.trim())) };

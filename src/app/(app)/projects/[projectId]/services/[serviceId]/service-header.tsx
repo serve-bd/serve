@@ -95,9 +95,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
   const control = useAction((cmd: "stop" | "start" | "restart") => serviceControl(service.id, cmd), {
     onSuccess: () => void mutate(),
   });
-  const toggleMaintenance = useAction((enabled: boolean) => setMaintenance(service.id, { enabled }), {
-    success: (d) => (d.enabled ? "Maintenance mode is on" : "Maintenance mode is off"),
-  });
+  const toggleMaintenance = useAction((enabled: boolean) => setMaintenance(service.id, { enabled }));
   const turnOnMaintenance = async () => {
     if (
       await confirm({

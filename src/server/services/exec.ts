@@ -80,9 +80,16 @@ export async function execCommand(
       finish();
     });
   });
-  const info = await exec.inspect().catch(() => null);
+  // Docker can report the exec as still running for a moment after its output ended; its exit
+  // code comes only after that. A stream cut off (a dropped connection) leaves it unknown, which is
+  // not a success.
+  let info = await exec.inspect().catch(() => null);
+  for (let i = 0; i < 20 && !timedOut && !opts.signal?.aborted && info?.Running; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    info = await exec.inspect().catch(() => null);
+  }
   return {
-    exitCode: timedOut ? 124 : (info?.ExitCode ?? (opts.signal?.aborted ? 130 : 0)),
+    exitCode: timedOut ? 124 : (info?.ExitCode ?? (opts.signal?.aborted ? 130 : 1)),
     output: output.length >= max ? `${output}\n… output truncated` : output,
     timedOut,
   };

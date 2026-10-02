@@ -231,9 +231,23 @@ export async function scheduleInstanceBackups(enqueueBackup: (id: string) => Pro
   await enqueueBackup(await queueInstanceBackupRecord("schedule"));
 }
 
-/** Records left "running" by a worker that stopped mid-backup. */
+/**
+ * Records left "running" by a worker that stopped mid-backup. Only the worker makes backups, so at
+ * its start no backup runs: what one cut off left goes too. Its staging folder holds the database
+ * dump and the certificate keys unencrypted, and its dump container would stay behind.
+ */
 export async function failInterruptedInstanceBackups() {
   await mutateBackups((list) =>
     list.map((b) => (b.status === "running" ? { ...b, status: "failed", finishedAt: new Date().toISOString(), error: "The worker restarted during this backup." } : b)),
   );
+  const dir = instanceBackupDir();
+  for (const name of await fs.promises.readdir(dir).catch(() => [] as string[])) {
+    if (name.startsWith(".tmp-")) await fs.promises.rm(path.join(dir, name), { recursive: true, force: true }).catch(() => {});
+  }
+  const left = await docker.listContainers({ all: true, filters: { label: ["serve.kind=instance-backup"] } }).catch(() => []);
+  for (const c of left)
+    await docker
+      .getContainer(c.Id)
+      .remove({ force: true })
+      .catch(() => {});
 }

@@ -444,11 +444,12 @@ export async function certificatesWithServers(organizationId: string) {
 async function certificateInUse(cert: Cert) {
   if ((await servicesUsingCertificate(cert)).length) return true;
   const databases = await db
-    .select({ domain: sql<string | null>`${schema.service.database}->>'domain'` })
+    .select({ domain: sql<string | null>`${schema.service.database}->>'domain'`, tunnel: sql<string | null>`${schema.service.database}->>'domainTunnelId'` })
     .from(schema.service)
     .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
     .where(and(eq(schema.project.organizationId, cert.organizationId), eq(schema.service.serverId, cert.serverId), eq(schema.service.type, "database")));
-  if (databases.some((d) => d.domain && certificateCovers(cert.domains, d.domain))) return true;
+  // A database on its domain through a tunnel needs no certificate: Cloudflare carries the TLS.
+  if (databases.some((d) => d.domain && !d.tunnel && certificateCovers(cert.domains, d.domain))) return true;
   const settings = await getSettings();
   return cert.serverId === LOCAL_SERVER_ID && !!settings.dashboardDomain && certificateCovers(cert.domains, settings.dashboardDomain);
 }

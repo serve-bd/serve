@@ -166,7 +166,9 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
     // certificate it got for it, in the background.
     // Another database on the same name keeps both (the certificate checks that itself).
     const stillShared = previousHost && previousHost !== hostname ? (await sharingDatabases(previousHost, service.id)).length > 0 : false;
-    if (previousHost && previousHost !== hostname) await retireCertificateFor(previousHost, service.serverId, ctx.org.id).catch(() => {});
+    // Moved from its own port to a tunnel under the same name: the certificate is not needed either.
+    const toTunnel = !!previousHost && previousHost === hostname && tunnelMode && !previousTunnel;
+    if (previousHost && (previousHost !== hostname || toTunnel)) await retireCertificateFor(previousHost, service.serverId, ctx.org.id).catch(() => {});
     if (previousHost && previousHost !== hostname && !stillShared) {
       const accountId = await cloudflareAccountFor([previousHost], ctx.org.id).catch(() => null);
       if (accountId)

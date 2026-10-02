@@ -73,11 +73,11 @@ export function VariablesEditor({
   const [revealed, setRevealed] = React.useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [collapsed, toggleCollapsed] = useCollapsed(`serve:vars-collapsed:${serviceId}`);
-  const [baseline, setBaseline] = React.useState(() =>
+  const baselineOf = (rows: Omit<Var, "id">[]) =>
     JSON.stringify(
-      initial.filter((v) => v.key).map((v) => ({ key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime, ...(v.hidden ? { keep: v.from ?? v.key } : {}) })),
-    ),
-  );
+      rows.filter((v) => v.key).map((v) => ({ key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime, ...(v.hidden ? { keep: v.from ?? v.key } : {}) })),
+    );
+  const [baseline, setBaseline] = React.useState(() => baselineOf(initial));
 
   const current =
     raw !== null
@@ -316,6 +316,8 @@ export function VariablesEditor({
                         onClick={() => {
                           const rows = initial.map(withId);
                           setVars(rows);
+                          // The page may hold newer values than the last save (someone else saved since).
+                          setBaseline(baselineOf(initial));
                           setSavedValues(new Map(rows.map((v) => [v.id!, v.value])));
                           setRaw(null);
                         }}

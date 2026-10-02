@@ -278,6 +278,7 @@ function ReplicaCard({
                       const next = initial.map(withId);
                       setRows(next);
                       setSaved(new Map(next.map((x) => [x.id, x.value])));
+                      setBaseline(JSON.stringify(initial.map((v) => [v.key, v.value])));
                     }}
                   >
                     Discard

@@ -6,7 +6,7 @@ process.on("unhandledRejection", (reason) => console.error("[worker] unhandled r
 import fs from "node:fs";
 import { checkLimitNotices, hasRoomFor, measureOrgDisk } from "@/server/limits";
 import { copyEnvironmentData, preparePreviewDatabase } from "@/server/services/environments";
-import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import type { ProxyKind } from "@/server/proxy/config";
 import { CronExpressionParser } from "cron-parser";
 import { db, schema, sql } from "@/server/db";
@@ -288,10 +288,26 @@ async function checkServiceContainers(s: typeof schema.service.$inferSelect, rep
     next = containerStatus(s, live as ContainerView[]);
     if (next === s.status) return;
   }
+  // Only if nothing changed since the services were read: a deploy that started meanwhile
+  // ("building") or switched to new containers (the old ones are gone) must not be marked crashed.
+  const settle = async (status: "running" | "restarting" | "crashed") =>
+    (
+      await db
+        .update(schema.service)
+        .set({ status })
+        .where(
+          and(
+            eq(schema.service.id, s.id),
+            eq(schema.service.status, s.status),
+            s.currentDeploymentId ? eq(schema.service.currentDeploymentId, s.currentDeploymentId) : isNull(schema.service.currentDeploymentId),
+          ),
+        )
+        .returning({ id: schema.service.id })
+    ).length > 0;
   // Every container is gone (removed by hand or by a Docker reset).
   if (next === null) {
     if (s.status === "crashed") return;
-    await setServiceStatus(s.id, "crashed");
+    if (!(await settle("crashed"))) return;
     void notify(await orgOfService(s.id), "service.crashed", {
       ok: false,
       title: `${s.name} has no containers`,
@@ -302,7 +318,7 @@ async function checkServiceContainers(s: typeof schema.service.$inferSelect, rep
     });
     return;
   }
-  await setServiceStatus(s.id, next);
+  if (!(await settle(next))) return;
   if (next === "crashed") {
     void notify(await orgOfService(s.id), "service.crashed", {
       ok: false,

@@ -177,7 +177,8 @@ async function certbotOn(ctx: ServerCtx, cert: Cert, log: (l: string) => void) {
       path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${account.id}.ini`),
     );
     await ctx.fs.writeFile(credsFile, `dns_cloudflare_api_token = ${decrypt(account.apiToken)}\n`, 0o600);
-    args.splice(args.indexOf("certonly"), 0, "-v", `${credsDir}:/etc/serve-creds:ro`);
+    // A docker option: before the image, or certbot gets it as its own argument.
+    args.splice(args.indexOf(CERTBOT_CF_IMAGE), 0, "-v", `${credsDir}:/etc/serve-creds:ro`);
     args.push("--dns-cloudflare", "--dns-cloudflare-credentials", `/etc/serve-creds/${cert.id}.ini`, "--dns-cloudflare-propagation-seconds", "30");
   } else {
     await ensureServerProxy(ctx, log);

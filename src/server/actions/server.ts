@@ -111,6 +111,22 @@ export async function saveServerSettings(input: z.input<typeof settingsSchema>) 
     await updateLocalAddressing({ publicIp: serverIp, wildcardDomain, sslipFallback });
     await updateSettings(rest);
     const after = await getSettings();
+    // Off the tunnel (or to another domain): the record Serve pointed at the tunnel goes, or the
+    // old name keeps reaching a tunnel that no longer routes it (Cloudflare answers 404).
+    const offTunnel = !!before.dashboardTunnelId && !!before.dashboardDomain && !(after.dashboardTunnelId && after.dashboardDomain === before.dashboardDomain);
+    if (offTunnel) {
+      const { cloudflareAccountFor } = await import("@/server/ssl/certificates");
+      const { Cloudflare } = await import("@/server/cloudflare/api");
+      const accountId = await cloudflareAccountFor([before.dashboardDomain!], before.rootOrganizationId ?? "").catch(() => null);
+      if (accountId)
+        await (async () => {
+          const cf = await Cloudflare.forAccount(accountId);
+          const zone = await cf.zoneFor(before.dashboardDomain!);
+          if (!zone) return;
+          for (const r of await cf.dnsRecords(zone.id, { name: before.dashboardDomain! }))
+            if (r.type === "CNAME" && r.content.endsWith(".cfargotunnel.com") && r.comment === "Managed by Serve") await cf.deleteDnsRecord(zone.id, r.id);
+        })().catch(() => {});
+    }
     if (before.dashboardTunnelId !== after.dashboardTunnelId || before.dashboardDomain !== after.dashboardDomain) {
       const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
       for (const id of new Set([before.dashboardTunnelId, after.dashboardTunnelId].filter(Boolean) as string[])) await syncTunnelIngress(id).catch(() => {});

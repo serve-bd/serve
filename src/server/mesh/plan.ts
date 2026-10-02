@@ -40,9 +40,12 @@ export function reachesPrivately(members: MeshMembers, from: string[], provider:
   return from.every((x) => provider.servers.includes(x) || privatelyConnected(members, x, provider.serverId));
 }
 
-/** Two servers of the mesh that share a private network. */
-export function linked(a: Pick<PlanServer, "id" | "networks">, b: Pick<PlanServer, "id" | "networks">) {
-  return a.id !== b.id && a.networks.some((n) => b.networks.includes(n));
+/**
+ * Two servers of the mesh that share a private network and can connect: at least one of them has
+ * a public address (two behind NAT never reach each other, see privatelyConnected).
+ */
+export function linked(a: Pick<PlanServer, "id" | "networks" | "endpoint">, b: Pick<PlanServer, "id" | "networks" | "endpoint">) {
+  return a.id !== b.id && (!!a.endpoint || !!b.endpoint) && a.networks.some((n) => b.networks.includes(n));
 }
 
 export type PlanService = {

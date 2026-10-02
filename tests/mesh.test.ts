@@ -495,3 +495,13 @@ describe("what a private network change breaks", () => {
     ]);
   });
 });
+
+describe("servers behind NAT", () => {
+  it("links two servers only when one of them has a public address", async () => {
+    const { linked } = await import("@/server/mesh/plan");
+    const server = (id: string, endpoint: string | null) => ({ id, endpoint, networks: ["n1"] });
+    expect(linked(server("a", null), server("b", null))).toBe(false);
+    expect(linked(server("a", null), server("b", "203.0.113.5"))).toBe(true);
+    expect(linked(server("a", "198.51.100.1"), server("b", "203.0.113.5"))).toBe(true);
+  });
+});

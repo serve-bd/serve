@@ -31,31 +31,17 @@ function Kept({ icon, label, children }: { icon: React.ReactNode; label: string;
 
 const Name = ({ children }: { children: React.ReactNode }) => <code className="rounded bg-fg/[0.06] px-1 py-px font-mono text-[12px] text-fg">{children}</code>;
 
-function Segmented<V extends string>({ value, onChange, options }: { value: V; onChange: (v: V) => void; options: { value: V; label: string; icon?: React.ReactNode }[] }) {
-  return (
-    <div role="radiogroup" className="grid h-9 auto-cols-fr grid-flow-col gap-0.5 rounded-lg border border-line p-0.5">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          role="radio"
-          aria-checked={value === o.value}
-          onClick={() => onChange(o.value)}
-          className={cn(
-            "flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors [&_svg]:size-3.5 [&_svg]:flex-none",
-            value === o.value ? "bg-fg/[0.08] text-fg" : "text-muted hover:bg-fg/[0.03] hover:text-fg",
-          )}
-        >
-          {o.icon}
-          <span className="truncate">{o.label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /** Moves a container Serve does not manage into a project: a service takes over its data, ports and names. */
-export function MoveContainerDialog({ serverId, container, onClose }: { serverId: string; container: { id: string; name: string } | null; onClose: () => void }) {
+export function MoveContainerDialog({
+  serverId,
+  container,
+  onClose,
+}: {
+  serverId: string;
+  /** The container, and whether it moves or is copied (chosen in its menu). */
+  container: { id: string; name: string; mode: "move" | "copy" } | null;
+  onClose: () => void;
+}) {
   const router = useRouter();
   const [preview, setPreview] = React.useState<Preview | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -80,7 +66,7 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
       if (!res.ok) return setLoadError(res.error);
       const p = res.data;
       setPreview(p);
-      setMode("move");
+      setMode(container.mode);
       setFromGit(!!p.git.repository);
       setRepository(p.git.repository ?? "");
       setBranch(p.git.branch ?? "main");
@@ -183,30 +169,41 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                   </Field>
                 )}
 
-                <div className={cn("grid grid-cols-1 gap-4", db && "sm:grid-cols-2")}>
-                  <Field label="Action">
-                    <Segmented
-                      value={mode}
-                      onChange={setMode}
-                      options={[
-                        { value: "move", label: "Move" },
-                        { value: "copy", label: "Copy" },
-                      ]}
-                    />
+                {db && (
+                  <Field label="Run as">
+                    <div role="radiogroup" className="divide-y divide-line rounded-xl border border-line">
+                      {(
+                        [
+                          ["database", <Database key="d" />, "Database", `A ${engineLabel[db.engine] ?? db.engine} service with backups, the Data tab and users`],
+                          ["container", <Box key="c" />, "Container", "Runs exactly as it does now, without database tools"],
+                        ] as const
+                      ).map(([id, icon, title, body]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          role="radio"
+                          aria-checked={as === id}
+                          onClick={() => setAs(id)}
+                          className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-fg/[0.025]"
+                        >
+                          <span
+                            className={cn(
+                              "flex size-4 flex-none items-center justify-center rounded-full border transition-colors",
+                              as === id ? "border-accent bg-accent" : "border-line-strong",
+                            )}
+                          >
+                            {as === id && <span className="size-1.5 rounded-full bg-bg" />}
+                          </span>
+                          <span className="flex-none text-muted [&_svg]:size-4">{icon}</span>
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="text-[13px] font-medium text-fg">{title}</span>
+                            <span className="text-xs text-muted">{body}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </Field>
-                  {db && (
-                    <Field label="Run as">
-                      <Segmented
-                        value={as}
-                        onChange={setAs}
-                        options={[
-                          { value: "database", label: "Database", icon: <Database /> },
-                          { value: "container", label: "Container", icon: <Box /> },
-                        ]}
-                      />
-                    </Field>
-                  )}
-                </div>
+                )}
                 {!db && preview.databaseProblems.length > 0 && <p className="text-xs leading-relaxed text-muted">It moves as a container: {preview.databaseProblems.join(" ")}</p>}
                 {needsPassword && (
                   <Field
@@ -267,7 +264,6 @@ export function MoveContainerDialog({ serverId, container, onClose }: { serverId
                     {copy
                       ? "The original keeps running. The service gets its own copy of the data."
                       : "The service takes over its data, ports and names. The old container is kept, stopped."}
-                    {as === "database" && db && ` It runs as a ${engineLabel[db.engine] ?? db.engine} service, with backups, the Data tab and users.`}
                   </Kept>
                   {as === "database" && db?.loginWorks && (
                     <Kept icon={<KeyRound />} label="Password">

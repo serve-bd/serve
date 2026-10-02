@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { Box, Boxes, FolderInput, HardDrive, Layers, MoreHorizontal, Network, Play, RotateCw, Search, Square } from "lucide-react";
+import { Box, Boxes, Copy as CopyIcon, FolderInput, HardDrive, Layers, MoreHorizontal, Network, Play, RotateCw, Search, Square } from "lucide-react";
 import { Badge, Card, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { Input } from "@/components/ui/input";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
@@ -69,7 +69,7 @@ export function ResourcesView({
   /** Root admins move containers into projects. */
   canMove: boolean;
 }) {
-  const [moving, setMoving] = React.useState<{ id: string; name: string } | null>(null);
+  const [moving, setMoving] = React.useState<{ id: string; name: string; mode: "move" | "copy" } | null>(null);
   const [filter, setFilter] = React.useState<Filter>("all");
   const [query, setQuery] = React.useState("");
   const { data } = useSWR<{ stats: Stats }>(`/api/servers/${serverId}/resources/stats`, { refreshInterval: 10_000 });
@@ -188,8 +188,11 @@ export function ResourcesView({
                           <MenuContent>
                             {canMove && !c.retired && (
                               <>
-                                <MenuItem onClick={() => setMoving({ id: c.id, name: c.name })}>
+                                <MenuItem onClick={() => setMoving({ id: c.id, name: c.name, mode: "move" })}>
                                   <FolderInput /> Move into a project
+                                </MenuItem>
+                                <MenuItem onClick={() => setMoving({ id: c.id, name: c.name, mode: "copy" })}>
+                                  <CopyIcon /> Copy into a project
                                 </MenuItem>
                                 <MenuSeparator />
                               </>

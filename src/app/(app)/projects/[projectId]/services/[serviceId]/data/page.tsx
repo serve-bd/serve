@@ -37,6 +37,8 @@ export default async function DataPage(props: { params: Promise<{ projectId: str
         error={res && !res.ok ? res.error : null}
         initial={res?.ok ? res.data : null}
         mainDatabase={service.database.database}
+        // Changing the data also needs the permission to manage services.
+        canWrite={ctx.can("services.manage")}
         // Each copied database by its original name: the copies are <database>__<branch>.
         branches={branches.map((b) => ({ name: b.name, database: b.database, copies: b.extraDatabases.map((d) => ({ original: d, database: copyDatabaseName(d, b.name) })) }))}
       />

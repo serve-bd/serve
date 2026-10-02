@@ -13,12 +13,17 @@ import type { Cell, Structure } from "@/server/actions/database-explorer";
 type Column = Structure["columns"][number];
 type Values = Record<string, Cell>;
 export type GridChanges = {
-  updates: { key: { column: string; value: string }[]; values: Values }[];
+  /** original: what the row showed, so a row someone changed since is not overwritten. */
+  updates: { key: { column: string; value: string }[]; values: Values; original: Values }[];
   inserts: { values: Values }[];
-  deletes: { key: { column: string; value: string }[] }[];
+  deletes: { key: { column: string; value: string }[]; original: Values }[];
 };
 
 const NOT_EDITABLE = /blob|binary|^bit\b|geometry|point|polygon|linestring/i;
+/** Characters the rows show of one value (MAX_CELL); a longer value is cut and ends in an ellipsis. */
+const MAX_CELL = 20_000;
+/** A value shown cut short: saving it would write only its start. */
+const capped = (v: Cell) => v !== null && v.length === MAX_CELL + 1 && v.endsWith("…");
 /** Values a one-line box would hide: they open in the row panel instead. */
 const long = (v: Cell) => v !== null && (v.length > 300 || v.includes("\n"));
 
@@ -138,6 +143,7 @@ export function EditableGrid({
     if (!column || !canEdit(spot.kind, column)) return;
     if (spot.kind === "row" && deleted.has(spot.index)) return;
     const v = valueAt(spot, column);
+    if (spot.kind === "row" && capped(original(spot.index, column))) return setPanel({ kind: spot.kind, index: spot.index });
     if (typed === undefined && long(v)) return setPanel({ kind: spot.kind, index: spot.index });
     setActive(spot);
     setEditing({ spot, text: typed ?? v ?? "", isNull: typed === undefined && v === null });
@@ -173,6 +179,8 @@ export function EditableGrid({
   };
 
   const keyOf = (index: number) => primary.map((p) => ({ column: p, value: original(index, p) ?? "" }));
+  /** What the row showed in these columns: the save fails when the row holds something else now. */
+  const shown = (index: number, cols: string[]) => Object.fromEntries(cols.map((c) => [c, original(index, c)]));
   /** New rows without a value a column needs (not null, no default): the database would refuse them. */
   const missing = inserts
     .map((r, i) => ({ i, need: structure.columns.filter((c) => !c.nullable && !c.default && !(c.name in r.values)).map((c) => c.name) }))
@@ -187,9 +195,9 @@ export function EditableGrid({
     setSaving(true);
     setError(null);
     const changes: GridChanges = {
-      updates: [...edits.entries()].filter(([i]) => !deleted.has(i)).map(([i, values]) => ({ key: keyOf(i), values })),
+      updates: [...edits.entries()].filter(([i]) => !deleted.has(i)).map(([i, values]) => ({ key: keyOf(i), values, original: shown(i, Object.keys(values)) })),
       inserts: inserts.filter((r) => Object.keys(r.values).length).map((r) => ({ values: r.values })),
-      deletes: [...deleted].map((i) => ({ key: keyOf(i) })),
+      deletes: [...deleted].map((i) => ({ key: keyOf(i), original: shown(i, columns) })),
     };
     const failed = await onSave(changes);
     setSaving(false);
@@ -455,7 +463,8 @@ export function EditableGrid({
           columns={columns}
           info={info}
           values={Object.fromEntries(columns.map((c) => [c, valueAt(panel, c)]))}
-          editable={(c) => canEdit(panel.kind, c) && !(panel.kind === "row" && deleted.has(panel.index))}
+          // A value shown cut short is not changed here: only its start would be saved.
+          editable={(c) => canEdit(panel.kind, c) && !(panel.kind === "row" && (deleted.has(panel.index) || capped(original(panel.index, c))))}
           isNew={panel.kind === "new"}
           onClose={() => setPanel(null)}
           onApply={(values) => {

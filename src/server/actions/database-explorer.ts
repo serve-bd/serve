@@ -3,7 +3,8 @@
 import crypto from "node:crypto";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requirePermission } from "@/server/auth";
+import { ForbiddenError, requirePermission } from "@/server/auth";
+import { cannotMessage } from "@/lib/permissions";
 import { decrypt } from "@/server/crypto";
 import { logActivity } from "@/server/activity";
 import type { schema } from "@/server/db";
@@ -19,6 +20,8 @@ import {
   type ColumnInfo,
   editCellScript,
   changesScript,
+  cappedCell,
+  NOT_EDITABLE,
   staleChange,
   type TableChanges,
   COUNT_CAP,
@@ -78,9 +81,13 @@ export type DocumentsPage = { documents: string[]; total: number | null; totalCa
 export type ExplorerQueryResult = { result: QueryResult | null; error: string | null; ms: number };
 export type { Cell, ColumnInfo, IndexInfo, KeyInfo, KeyValue, QueryResult, RowsPage, Structure };
 
-/** Browsing and querying data is like opening a shell on the database: the console permission. */
-async function explorerService(serviceId: string) {
+/**
+ * Browsing and querying data is like opening a shell on the database: the console permission.
+ * Changing the data (`write`) also needs the permission to manage services.
+ */
+async function explorerService(serviceId: string, write = false) {
   const ctx = await requirePermission("console.access");
+  if (write && !ctx.can("services.manage")) throw new ForbiddenError(cannotMessage("services.manage"));
   const { service } = await serviceInOrg(serviceId, ctx.org.id);
   if (service.type !== "database" || !service.database) throw new UserError("Not a database.");
   return { ctx, service: service as DatabaseService };
@@ -330,8 +337,8 @@ const querySchema = z.object({
  */
 export async function explorerQuery(serviceId: string, input: z.input<typeof querySchema>) {
   return act(async (): Promise<ExplorerQueryResult> => {
-    const { ctx, service } = await explorerService(serviceId);
     const req = querySchema.parse(input);
+    const { ctx, service } = await explorerService(serviceId, !req.readOnly);
     if (Buffer.byteLength(req.query, "utf8") > MAX_QUERY_BYTES) throw new UserError(`Queries are limited to ${MAX_QUERY_BYTES / 1024} KB.`);
     const engine = service.database.engine;
     const family = explorerFamily(engine);
@@ -422,16 +429,31 @@ const editSchema = z.object({
     .string()
     .max(MAX_QUERY_BYTES / 2)
     .nullable(),
+  /** The value the row showed: when the row holds another one now, nothing is changed. */
+  original: z
+    .string()
+    .max(MAX_QUERY_BYTES / 2)
+    .nullable()
+    .optional(),
 });
 
-/** Types whose values the rows show as hex or text that would not write back as they read. */
-const NOT_EDITABLE = /blob|binary|^bit\b|geometry|point|polygon|linestring/i;
+/** The values a row showed, with their columns' types; a value shown cut short cannot be changed. */
+function typedOriginal(original: Record<string, string | null> | undefined, types: Map<string, { type: string }>, changed: string[]) {
+  if (!original) return undefined;
+  for (const name of changed) if (cappedCell(original[name] ?? null)) throw new UserError(`The value of ${name} is too long to change here. Change it in the Query tab.`);
+  return Object.fromEntries(
+    Object.entries(original).flatMap(([name, value]) => {
+      const col = types.get(name);
+      return col ? [[name, { value, type: col.type }]] : [];
+    }),
+  );
+}
 
 /** Sets one value of one row, found by its primary key. */
 export async function explorerEditCell(serviceId: string, input: z.input<typeof editSchema>) {
   return act(async () => {
-    const { ctx, service } = await explorerService(serviceId);
-    const edit = editSchema.parse(input) as CellEdit;
+    const { ctx, service } = await explorerService(serviceId, true);
+    const { original, ...edit } = editSchema.parse(input);
     const engine = sqlEngine(service);
     if (engine === "clickhouse") throw new UserError("Rows of ClickHouse tables are changed with ALTER TABLE … UPDATE, in the Query tab.");
     const c = credsOf(service);
@@ -457,11 +479,16 @@ export async function explorerEditCell(serviceId: string, input: z.input<typeof 
     if (column.primaryKey) throw new UserError("Values of the primary key are changed in the Query tab.");
     if (NOT_EDITABLE.test(column.type)) throw new UserError(`Values of type ${column.type} are changed in the Query tab.`);
     if (edit.value === null && !column.nullable) throw new UserError(`${edit.column} cannot be NULL.`);
+    const shown = typedOriginal(original === undefined ? undefined : { [edit.column]: original }, new Map(structure.columns.map((col) => [col.name, col])), [edit.column]);
+    const cellEdit: CellEdit = { ...edit, schema: ref.schema, original: shown?.[edit.column] };
     const r = await runOk(
       service,
-      scripted(() => editCellScript(engine, c, { ...edit, schema: ref.schema })),
+      scripted(() => editCellScript(engine, c, cellEdit)),
     );
-    if (!parseEditCount(r.stdout)) throw new UserError("No row has this key any more. Refresh the rows and try again.");
+    if (!parseEditCount(r.stdout))
+      throw new UserError(
+        original === undefined ? "No row has this key any more. Refresh the rows and try again." : "This row changed or went since it was shown. Refresh the rows and try again.",
+      );
     const key = edit.key.map((k) => `${k.column} = ${k.value.length > 60 ? `${k.value.slice(0, 60)}…` : k.value}`).join(", ");
     await logActivity({
       userId: ctx.user.id,
@@ -481,12 +508,14 @@ const keySchema = z
   .min(1)
   .max(32);
 const valuesSchema = z.record(nameSchema.min(1), z.string().max(MAX_QUERY_BYTES).nullable());
+/** The values the row showed (some or all of its columns): a row that holds others now is not changed. */
+const originalSchema = valuesSchema.optional();
 const changesSchema = z.object({
   database: nameSchema,
   schema: nameSchema.nullable().optional(),
   table: nameSchema.min(1),
   updates: z
-    .array(z.object({ key: keySchema, values: valuesSchema }))
+    .array(z.object({ key: keySchema, values: valuesSchema, original: originalSchema }))
     .max(500)
     .default([]),
   inserts: z
@@ -494,7 +523,7 @@ const changesSchema = z.object({
     .max(500)
     .default([]),
   deletes: z
-    .array(z.object({ key: keySchema }))
+    .array(z.object({ key: keySchema, original: originalSchema }))
     .max(500)
     .default([]),
 });
@@ -505,7 +534,7 @@ const changesSchema = z.object({
  */
 export async function explorerSaveChanges(serviceId: string, input: z.input<typeof changesSchema>) {
   return act(async () => {
-    const { ctx, service } = await explorerService(serviceId);
+    const { ctx, service } = await explorerService(serviceId, true);
     const req = changesSchema.parse(input);
     const engine = sqlEngine(service);
     if (engine === "clickhouse") throw new UserError("Rows of ClickHouse tables are changed with ALTER TABLE … UPDATE, in the Query tab.");
@@ -548,7 +577,14 @@ export async function explorerSaveChanges(serviceId: string, input: z.input<type
     }
     for (const d of req.deletes) checkKey(d.key);
     for (const i of req.inserts) checkValues(i.values, true);
-    const changes: TableChanges = { database: req.database, schema: ref.schema, table: req.table, updates: req.updates, inserts: req.inserts, deletes: req.deletes };
+    const changes: TableChanges = {
+      database: req.database,
+      schema: ref.schema,
+      table: req.table,
+      updates: req.updates.map((u) => ({ ...u, original: typedOriginal(u.original, byName, Object.keys(u.values)) })),
+      inserts: req.inserts,
+      deletes: req.deletes.map((d) => ({ ...d, original: typedOriginal(d.original, byName, []) })),
+    };
     const r = await runInDatabase(
       service,
       scripted(() => changesScript(engine, c, changes)),
@@ -588,7 +624,7 @@ const documentSchema = z.object({ database: nameSchema, collection: nameSchema.m
 /** Replaces one MongoDB document (found by its _id) with an edited one. */
 export async function explorerEditDocument(serviceId: string, input: z.input<typeof documentSchema>) {
   return act(async () => {
-    const { ctx, service } = await explorerService(serviceId);
+    const { ctx, service } = await explorerService(serviceId, true);
     if (explorerFamily(service.database.engine) !== "mongo") throw new UserError("Documents are for MongoDB.");
     const req = documentSchema.parse(input);
     const r = await runOk(

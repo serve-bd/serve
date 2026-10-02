@@ -380,6 +380,8 @@ export function parseClickhouseJson(text: string): ChResult[] | null {
 /** A value as text for a table cell: strings as they are, everything else as JSON. */
 export const asCell = (v: unknown): Cell => (v === null || v === undefined ? null : typeof v === "string" ? v : JSON.stringify(v));
 const capCell = (v: Cell): Cell => (v !== null && v.length > MAX_CELL ? `${v.slice(0, MAX_CELL)}…` : v);
+/** A value the rows showed cut short (by capCell): only its start is known, so it cannot be written back. */
+export const cappedCell = (v: Cell) => v !== null && v.length === MAX_CELL + 1 && v.endsWith("…");
 
 /* -------------------------------------------------------------- PostgreSQL */
 
@@ -1306,7 +1308,43 @@ export type CellEdit = {
   column: string;
   /** null sets NULL. */
   value: string | null;
+  /** The value the row showed in this column, with the column's type: a row changed since is not overwritten. */
+  original?: { value: Cell; type: string };
 };
+
+/** Types whose values the rows show as hex or text that would not write back as they read. */
+export const NOT_EDITABLE = /blob|binary|^bit\b|geometry|point|polygon|linestring/i;
+
+/**
+ * Conditions that a row still holds the values it showed (`original`, with each column's type), so
+ * a save does not overwrite a change someone made since. Values whose text does not compare back
+ * exactly are left out: binary ones, ones cut short, and floating point numbers on MySQL (FLOAT
+ * reads back rounded). Long values compare by their MD5, to keep the script short.
+ */
+export function unchangedConditions(engine: "postgres" | "mysql" | "mariadb", original: Record<string, { value: Cell; type: string }> | undefined): string[] {
+  const out: string[] = [];
+  const md5 = (v: string) => `'${crypto.createHash("md5").update(v, "utf8").digest("hex")}'`;
+  for (const [column, { value, type }] of Object.entries(original ?? {})) {
+    if (NOT_EDITABLE.test(type) || cappedCell(value)) continue;
+    if (engine === "postgres") {
+      const id = pgIdent(column);
+      if (value === null) out.push(`${id} IS NULL`);
+      // json and xml have no = operator; their text is what the rows showed. char(n) loses its padding as text.
+      else if (value.length > 1000 && !/^(character|char|bpchar)\b(?! varying)/i.test(type)) out.push(`md5(${id}::text) = ${md5(value)}`);
+      else if (/json|xml/i.test(type)) out.push(`${id}::text = ${pgLiteral(value)}`);
+      // The text takes the column's type: 't' reads as true, a timestamp in the session's time zone.
+      else out.push(`${id} = ${pgLiteral(value)}`);
+    } else {
+      if (/float|double|real/i.test(type)) continue;
+      const id = myIdent(column);
+      if (value === null) out.push(`${id} IS NULL`);
+      else if (value.length > 1000) out.push(`MD5(CAST(${id} AS CHAR)) = ${md5(value)}`);
+      else if (/json/i.test(type)) out.push(`CAST(${id} AS CHAR) = ${myLiteral(value)}`);
+      else out.push(`${id} = ${myLiteral(value)}`);
+    }
+  }
+  return out;
+}
 
 /**
  * Sets one value of one row, found by its whole primary key (so at most one row). Prints how many
@@ -1314,12 +1352,13 @@ export type CellEdit = {
  */
 export function editCellScript(engine: "postgres" | "mysql" | "mariadb", c: EngineCreds, edit: CellEdit): string[] {
   if (!edit.key.length) throw new ExplorerInputError("Only rows of a table with a primary key can be changed here.");
+  const unchanged = unchangedConditions(engine, edit.original ? { [edit.column]: edit.original } : undefined);
   if (engine === "postgres") {
-    const where = edit.key.map((k) => `${pgIdent(k.column)} = ${pgLiteral(k.value)}`).join(" AND ");
+    const where = [...edit.key.map((k) => `${pgIdent(k.column)} = ${pgLiteral(k.value)}`), ...unchanged].join(" AND ");
     const sql = `UPDATE ${pgIdent(edit.schema ?? "public")}.${pgIdent(edit.table)} SET ${pgIdent(edit.column)} = ${edit.value === null ? "NULL" : pgLiteral(edit.value)} WHERE ${where}`;
     return [...pgEnv(c, { readOnly: false, timeoutSeconds: QUERY_TIMEOUT }), shVar("U", sql), `${psql(c, edit.database, "-At")} -c "$U" -c '\\echo SERVE_ROWS :ROW_COUNT'`];
   }
-  const where = edit.key.map((k) => `${myIdent(k.column)} = ${myLiteral(k.value)}`).join(" AND ");
+  const where = [...edit.key.map((k) => `${myIdent(k.column)} = ${myLiteral(k.value)}`), ...unchanged].join(" AND ");
   const table = `${myIdent(edit.database)}.${myIdent(edit.table)}`;
   const cli = myCli(engine, c, "-N -B -r");
   return [
@@ -1342,11 +1381,14 @@ export type TableChanges = {
   database: string;
   schema: string | null;
   table: string;
-  /** A row found by its whole primary key, with the new values of some columns (null sets NULL). */
-  updates: { key: { column: string; value: string }[]; values: Record<string, string | null> }[];
+  /**
+   * A row found by its whole primary key, with the new values of some columns (null sets NULL).
+   * original: the values the row showed (with each column's type); a row that holds others now is stale.
+   */
+  updates: { key: { column: string; value: string }[]; values: Record<string, string | null>; original?: Record<string, { value: Cell; type: string }> }[];
   /** New rows: the columns given; the others get their defaults. */
   inserts: { values: Record<string, string | null> }[];
-  deletes: { key: { column: string; value: string }[] }[];
+  deletes: { key: { column: string; value: string }[]; original?: Record<string, { value: Cell; type: string }> }[];
 };
 
 /**
@@ -1362,7 +1404,8 @@ export function changesScript(engine: "postgres" | "mysql" | "mariadb", c: Engin
   if (engine === "postgres") {
     const table = `${pgIdent(ch.schema ?? "public")}.${pgIdent(ch.table)}`;
     const value = (v: string | null) => (v === null ? "NULL" : pgLiteral(v));
-    const where = (key: TableChanges["deletes"][number]["key"]) => key.map((k) => `${pgIdent(k.column)} = ${pgLiteral(k.value)}`).join(" AND ");
+    const where = (row: TableChanges["deletes"][number]) =>
+      [...row.key.map((k) => `${pgIdent(k.column)} = ${pgLiteral(k.value)}`), ...unchangedConditions(engine, row.original)].join(" AND ");
     // A dollar tag no value can end: chosen until none of the statements contains it.
     const statements: string[] = [];
     const checked: string[] = [];
@@ -1371,9 +1414,9 @@ export function changesScript(engine: "postgres" | "mysql" | "mariadb", c: Engin
       checked.push(
         `UPDATE ${table} SET ${Object.entries(u.values)
           .map(([col, v]) => `${pgIdent(col)} = ${value(v)}`)
-          .join(", ")} WHERE ${where(u.key)};\n  IF NOT FOUND THEN RAISE EXCEPTION 'SERVE_STALE ${++n}'; END IF;`,
+          .join(", ")} WHERE ${where(u)};\n  IF NOT FOUND THEN RAISE EXCEPTION 'SERVE_STALE ${++n}'; END IF;`,
       );
-    for (const d of ch.deletes) checked.push(`DELETE FROM ${table} WHERE ${where(d.key)};\n  IF NOT FOUND THEN RAISE EXCEPTION 'SERVE_STALE ${++n}'; END IF;`);
+    for (const d of ch.deletes) checked.push(`DELETE FROM ${table} WHERE ${where(d)};\n  IF NOT FOUND THEN RAISE EXCEPTION 'SERVE_STALE ${++n}'; END IF;`);
     let tag = "serve";
     while (checked.some((x) => x.includes(`$${tag}$`))) tag = `serve_${crypto.randomBytes(4).toString("hex")}`;
     if (checked.length) statements.push(`DO $${tag}$ BEGIN\n  ${checked.join("\n  ")}\nEND $${tag}$;`);
@@ -1386,24 +1429,25 @@ export function changesScript(engine: "postgres" | "mysql" | "mariadb", c: Engin
   }
   const table = `${myIdent(ch.database)}.${myIdent(ch.table)}`;
   const value = (v: string | null) => (v === null ? "NULL" : myLiteral(v));
-  const where = (key: TableChanges["deletes"][number]["key"]) => key.map((k) => `${myIdent(k.column)} = ${myLiteral(k.value)}`).join(" AND ");
+  const where = (row: TableChanges["deletes"][number]) =>
+    [...row.key.map((k) => `${myIdent(k.column)} = ${myLiteral(k.value)}`), ...unchangedConditions(engine, row.original)].join(" AND ");
   // MySQL has no conditional error outside stored programs: a subquery of two rows in a scalar
   // place fails (1242), so a row not found stops the script, and the transaction is undone.
-  const found = (n: number, key: TableChanges["deletes"][number]["key"]) =>
-    `SELECT IF((SELECT COUNT(*) FROM ${table} WHERE ${where(key)}) = 1, 'ok', (SELECT 'SERVE_STALE ${n}' UNION ALL SELECT 'SERVE_STALE ${n}')) INTO @serve_found;`;
+  const found = (n: number, row: TableChanges["deletes"][number]) =>
+    `SELECT IF((SELECT COUNT(*) FROM ${table} WHERE ${where(row)}) = 1, 'ok', (SELECT 'SERVE_STALE ${n}' UNION ALL SELECT 'SERVE_STALE ${n}')) INTO @serve_found;`;
   const lines = [myTimeout(engine, QUERY_TIMEOUT), "START TRANSACTION;"];
   let n = 0;
   for (const u of ch.updates) {
-    lines.push(`SELECT 'SERVE_STEP ${++n}';`, found(n, u.key));
+    lines.push(`SELECT 'SERVE_STEP ${++n}';`, found(n, u));
     lines.push(
       `UPDATE ${table} SET ${Object.entries(u.values)
         .map(([col, v]) => `${myIdent(col)} = ${value(v)}`)
-        .join(", ")} WHERE ${where(u.key)} LIMIT 1;`,
+        .join(", ")} WHERE ${where(u)} LIMIT 1;`,
     );
   }
   for (const d of ch.deletes) {
-    lines.push(`SELECT 'SERVE_STEP ${++n}';`, found(n, d.key));
-    lines.push(`DELETE FROM ${table} WHERE ${where(d.key)} LIMIT 1;`);
+    lines.push(`SELECT 'SERVE_STEP ${++n}';`, found(n, d));
+    lines.push(`DELETE FROM ${table} WHERE ${where(d)} LIMIT 1;`);
   }
   for (const i of ch.inserts) {
     const cols = Object.keys(i.values);

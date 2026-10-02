@@ -7,8 +7,11 @@ import {
   checkKvCommand,
   chIdent,
   chLiteral,
+  changesScript,
   editCellScript,
   explorerFamily,
+  MAX_CELL,
+  unchangedConditions,
   framed,
   kvBytes,
   kvCommandScript,
@@ -284,6 +287,46 @@ describe("database explorer", () => {
       expect(() => editCellScript("postgres", creds, { ...edit, key: [] })).toThrow(/primary key/);
       expect(parseEditCount("SERVE_ROWS 1\n")).toBe(1);
       expect(parseEditCount("")).toBeNull();
+    });
+
+    it("changes the row only while it holds the value it showed", () => {
+      const pg = decoded(editCellScript("postgres", creds, { ...edit, original: { value: "old", type: "text" } }));
+      expect(pg).toContain(`WHERE "id" = '1'' OR ''1''=''1' AND "k\`2" = 'b' AND "c""z" = 'old'`);
+      expect(decoded(editCellScript("mysql", creds, { ...edit, original: { value: null, type: "varchar(10)" } }))).toContain(`AND \`c"z\` IS NULL LIMIT 1;`);
+    });
+
+    it("compares what the rows showed in a way each type reads back", () => {
+      const o = (value: string | null, type: string) => ({ c: { value, type } });
+      expect(unchangedConditions("postgres", o("t", "boolean"))).toEqual([`"c" = 't'`]);
+      expect(unchangedConditions("postgres", o('{"a": 1}', "jsonb"))).toEqual([`"c"::text = '{"a": 1}'`]);
+      expect(unchangedConditions("postgres", o("<a/>", "xml"))).toEqual([`"c"::text = '<a/>'`]);
+      expect(unchangedConditions("postgres", o(null, "integer"))).toEqual([`"c" IS NULL`]);
+      expect(unchangedConditions("postgres", o("x".repeat(2000), "text"))[0]).toMatch(/^md5\("c"::text\) = '[0-9a-f]{32}'$/);
+      // char(n) loses its padding as text: compared as itself.
+      expect(unchangedConditions("postgres", o("x".repeat(2000), "character(2000)"))[0]).toMatch(/^"c" = 'x+'$/);
+      expect(unchangedConditions("mysql", o("1.5", "double"))).toEqual([]);
+      expect(unchangedConditions("mysql", o("1.5", "float"))).toEqual([]);
+      expect(unchangedConditions("mysql", o("0x01", "varbinary(4)"))).toEqual([]);
+      expect(unchangedConditions("mysql", o('{"a": 1}', "json"))).toEqual([`CAST(\`c\` AS CHAR) = ${myLiteral('{"a": 1}')}`]);
+      // A value shown cut short is not compared.
+      expect(unchangedConditions("postgres", o(`${"x".repeat(MAX_CELL)}…`, "text"))).toEqual([]);
+    });
+
+    it("saves changes only to rows that still hold what they showed", () => {
+      const changes = {
+        database: "app",
+        schema: "public",
+        table: "t",
+        updates: [{ key: [{ column: "id", value: "1" }], values: { name: "new" }, original: { name: { value: "old", type: "text" } } }],
+        inserts: [],
+        deletes: [{ key: [{ column: "id", value: "2" }], original: { name: { value: "gone", type: "text" }, id: { value: "2", type: "integer" } } }],
+      };
+      const pg = decoded(changesScript("postgres", creds, changes));
+      expect(pg).toContain(`UPDATE "public"."t" SET "name" = 'new' WHERE "id" = '1' AND "name" = 'old';\n  IF NOT FOUND THEN RAISE EXCEPTION 'SERVE_STALE 1'`);
+      expect(pg).toContain(`DELETE FROM "public"."t" WHERE "id" = '2' AND "name" = 'gone' AND "id" = '2';`);
+      const my = decoded(changesScript("mysql", creds, changes));
+      expect(my).toContain(`(SELECT COUNT(*) FROM \`app\`.\`t\` WHERE \`id\` = ${myLiteral("1")} AND \`name\` = ${myLiteral("old")}) = 1`);
+      expect(my).toContain(`UPDATE \`app\`.\`t\` SET \`name\` = ${myLiteral("new")} WHERE \`id\` = ${myLiteral("1")} AND \`name\` = ${myLiteral("old")} LIMIT 1;`);
     });
   });
 

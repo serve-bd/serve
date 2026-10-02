@@ -75,6 +75,7 @@ export function DataBrowser({
   initial,
   mainDatabase,
   branches = [],
+  canWrite = true,
 }: {
   serviceId: string;
   serviceName: string;
@@ -85,6 +86,8 @@ export function DataBrowser({
   mainDatabase?: string;
   /** Branches of this database: each is a database (or a Redis database number) of the same server. */
   branches?: { name: string; database: string; copies?: { original: string; database: string }[] }[];
+  /** May change the data (manage services); otherwise the page stays read only. */
+  canWrite?: boolean;
 }) {
   const confirm = useConfirm();
   const [readOnly, setReadOnly] = React.useState(true);
@@ -140,7 +143,8 @@ export function DataBrowser({
           description={`Browse and query the data inside ${serviceName}. Read only mode keeps it safe from changes.`}
           actions={
             running &&
-            overview && (
+            overview &&
+            canWrite && (
               <div className="flex items-center gap-2.5">
                 {!readOnly && (
                   <Badge tone="warn">
@@ -244,7 +248,8 @@ export function DataBrowser({
         )}
       </Card>
       <p className="px-1 text-xs leading-relaxed text-muted">
-        Like the console, this page needs the console permission. Queries run as Serve&apos;s own login, stop after 30 seconds and show up to 1,000 rows.
+        Like the console, this page needs the console permission{canWrite ? "" : "; changing the data also needs the permission to manage services"}. Queries run as Serve&apos;s
+        own login, stop after 30 seconds and show up to 1,000 rows.
       </p>
     </div>
   );

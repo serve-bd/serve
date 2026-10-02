@@ -13,7 +13,7 @@ import * as monitoring from "@/server/actions/monitoring";
 import { setMaintenance } from "@/server/actions/maintenance";
 import { applyDatabaseChanges } from "@/server/actions/services";
 import { iso, loadService } from "../data";
-import { ApiError, type ApiRoute, route, unwrap } from "../router";
+import { ApiError, type ApiRoute, assertCan, route, unwrap } from "../router";
 
 const SECRET_KEYS = new Set(["PASSWORD", "DATABASE_URL", "REDIS_URL", "MONGO_URL", "POSTGRES_URL", "MYSQL_URL"]);
 
@@ -399,8 +399,8 @@ export const databaseRoutes: ApiRoute[] = [
     tag: "Databases",
     summary: "Change one value of a row",
     description:
-      "PostgreSQL, MySQL and MariaDB. The row is found by its whole primary key (key: each column with the value the row shows); value null sets NULL. Values of the primary key and binary values are changed with a query instead. Written to the activity log.",
-    needs: ["projects.view", "console.access"],
+      "PostgreSQL, MySQL and MariaDB. The row is found by its whole primary key (key: each column with the value the row shows); value null sets NULL. original: the value the row showed in column; when it holds another one now, nothing is changed. Values of the primary key and binary values are changed with a query instead. Needs services.manage too. Written to the activity log.",
+    needs: ["projects.view", "console.access", "services.manage"],
     body: z.object({
       database: z.string(),
       schema: z.string().nullable().optional(),
@@ -408,6 +408,7 @@ export const databaseRoutes: ApiRoute[] = [
       key: z.array(z.object({ column: z.string(), value: z.string() })).min(1),
       column: z.string(),
       value: z.string().nullable(),
+      original: z.string().nullable().optional(),
     }),
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
@@ -420,15 +421,25 @@ export const databaseRoutes: ApiRoute[] = [
     tag: "Databases",
     summary: "Save changed, new and deleted rows of a table together",
     description:
-      "PostgreSQL, MySQL and MariaDB, in one transaction: all of them or none. updates and deletes find each row by its whole primary key (key: each column with the value the row shows); values maps columns to new values (null sets NULL). inserts give the columns to set; the others get their defaults. When a row changed or went since it was shown, nothing is saved. At most 500 changes. Written to the activity log.",
-    needs: ["projects.view", "console.access"],
+      "PostgreSQL, MySQL and MariaDB, in one transaction: all of them or none. updates and deletes find each row by its whole primary key (key: each column with the value the row shows); values maps columns to new values (null sets NULL). inserts give the columns to set; the others get their defaults. original (updates and deletes): the values the row showed, for some or all of its columns. When a row went, or holds other values than original, nothing is saved. At most 500 changes. Needs services.manage too. Written to the activity log.",
+    needs: ["projects.view", "console.access", "services.manage"],
     body: z.object({
       database: z.string(),
       schema: z.string().nullable().optional(),
       table: z.string(),
-      updates: z.array(z.object({ key: z.array(z.object({ column: z.string(), value: z.string() })).min(1), values: z.record(z.string(), z.string().nullable()) })).optional(),
+      updates: z
+        .array(
+          z.object({
+            key: z.array(z.object({ column: z.string(), value: z.string() })).min(1),
+            values: z.record(z.string(), z.string().nullable()),
+            original: z.record(z.string(), z.string().nullable()).optional(),
+          }),
+        )
+        .optional(),
       inserts: z.array(z.object({ values: z.record(z.string(), z.string().nullable()) })).optional(),
-      deletes: z.array(z.object({ key: z.array(z.object({ column: z.string(), value: z.string() })).min(1) })).optional(),
+      deletes: z
+        .array(z.object({ key: z.array(z.object({ column: z.string(), value: z.string() })).min(1), original: z.record(z.string(), z.string().nullable()).optional() }))
+        .optional(),
     }),
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
@@ -441,8 +452,8 @@ export const databaseRoutes: ApiRoute[] = [
     tag: "Databases",
     summary: "Replace a MongoDB document",
     description:
-      'id: the _id of the document as Extended JSON (like {"$oid": "…"} or 42). document: the new document as Extended JSON; its _id, if given, must stay the same. Written to the activity log.',
-    needs: ["projects.view", "console.access"],
+      'id: the _id of the document as Extended JSON (like {"$oid": "…"} or 42). document: the new document as Extended JSON; its _id, if given, must stay the same. Needs services.manage too. Written to the activity log.',
+    needs: ["projects.view", "console.access", "services.manage"],
     body: z.object({ database: z.string(), collection: z.string(), id: z.string(), document: z.string() }),
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
@@ -482,7 +493,7 @@ export const databaseRoutes: ApiRoute[] = [
     path: "/services/{serviceId}/data/query",
     tag: "Databases",
     summary: "Run a query",
-    description: `SQL for PostgreSQL, MySQL, MariaDB and ClickHouse; a command for Redis and Valkey (like GET "my key"); for MongoDB, an operation (${[...MONGO_READ_OPS, ...MONGO_WRITE_OPS].join(", ")}) on collection with query as Extended JSON (find and count: a filter; aggregate: a pipeline; distinct: a filter, with field; insert: documents; update: { filter, update }; delete: a filter). readOnly (true unless set to false) runs it where it cannot change data: a read-only transaction of one statement, readonly=2 on ClickHouse, read commands on Redis. At most 1000 rows, 30 seconds. An error of the database comes back as error with status 200. Queries with readOnly false are written to the activity log.`,
+    description: `SQL for PostgreSQL, MySQL, MariaDB and ClickHouse; a command for Redis and Valkey (like GET "my key"); for MongoDB, an operation (${[...MONGO_READ_OPS, ...MONGO_WRITE_OPS].join(", ")}) on collection with query as Extended JSON (find and count: a filter; aggregate: a pipeline; distinct: a filter, with field; insert: documents; update: { filter, update }; delete: a filter). readOnly (true unless set to false) runs it where it cannot change data: a read-only transaction of one statement, readonly=2 on ClickHouse, read commands on Redis. At most 1000 rows, 30 seconds. An error of the database comes back as error with status 200. Queries with readOnly false need services.manage too, and are written to the activity log.`,
     needs: ["projects.view", "console.access"],
     body: z.object({
       database: z.string(),
@@ -494,6 +505,7 @@ export const databaseRoutes: ApiRoute[] = [
     }),
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
+      if (!body.readOnly) assertCan(auth, "services.manage");
       return await unwrap(explorer.explorerQuery(params.serviceId, body as Parameters<typeof explorer.explorerQuery>[1]));
     },
   }),

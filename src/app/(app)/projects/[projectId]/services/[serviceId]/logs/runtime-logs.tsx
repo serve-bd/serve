@@ -63,6 +63,8 @@ export function RuntimeLogs({
           if (l.t && (!prev || sortable(l.t) > sortable(prev))) last.set(l.c, l.t);
         }
         buffer.current.push(...batch.map((l) => ({ text: l.m, time: l.t, source: l.s, error: l.e })));
+        // Paused: keep only what the view would keep, not everything since the pause.
+        if (buffer.current.length > 5000) buffer.current.splice(0, buffer.current.length - 5000);
       });
       es.addEventListener("info", (ev) => {
         const { message } = JSON.parse((ev as MessageEvent).data) as { message: string };

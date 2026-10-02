@@ -1098,18 +1098,31 @@ export async function writeAllFiles(ctx: ServerCtx, kind: ProxyKind, config: Ser
  * server's error is rethrown.
  */
 export async function syncAllProxy(log?: Log) {
-  const servers = await activeServers();
-  let localError: unknown = null;
-  for (const ctx of servers) {
-    try {
-      if (!ctx.local) await ensureServerProxy(ctx, log);
-      await syncServer(ctx);
-    } catch (error) {
-      if (ctx.local) localError = error;
-      else log?.(`Proxy sync failed on ${ctx.name}: ${(error as Error).message}`);
-    }
-  }
-  if (localError) throw localError;
+  await syncLocalProxy();
+  await syncRemoteProxies(log);
+}
+
+/** The dashboard's own server: its sites, which the dashboard is reached through. */
+export async function syncLocalProxy() {
+  for (const ctx of await activeServers()) if (ctx.local) await syncServer(ctx);
+}
+
+/**
+ * Every other server at once: one over a slow link (a remote proxy takes tens of seconds)
+ * must not hold back the others. Failures are logged, not thrown.
+ */
+export async function syncRemoteProxies(log?: Log) {
+  const remote = (await activeServers()).filter((ctx) => !ctx.local);
+  await Promise.all(
+    remote.map(async (ctx) => {
+      try {
+        await ensureServerProxy(ctx, log);
+        await syncServer(ctx);
+      } catch (error) {
+        log?.(`Proxy sync failed on ${ctx.name}: ${(error as Error).message}`);
+      }
+    }),
+  );
 }
 
 /** Regenerate every site on one server (after setup or a ports change). */

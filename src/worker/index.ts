@@ -14,7 +14,7 @@ import { runMigrations } from "@/server/db/migrate";
 import { fullBuildServers } from "@/lib/server-limits";
 import { newId } from "@/server/id";
 import { docker, ensureNetwork, LABEL, listServiceContainers } from "@/server/docker/client";
-import { ensureProxy, ensureServerProxy, syncAllProxy, syncCloudflareTrusting } from "@/server/proxy/nginx";
+import { ensureProxy, ensureServerProxy, syncAllProxy, syncCloudflareTrusting, syncLocalProxy, syncRemoteProxies } from "@/server/proxy/nginx";
 import { anyServerTrustsCloudflare, refreshCloudflareRanges } from "@/server/proxy/trusted-proxies";
 import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
 import { recoverInterruptedDeployment, runDeployment, setServiceStatus } from "@/server/deploy";
@@ -507,11 +507,13 @@ async function main() {
   await recover();
   try {
     await ensureProxy((l) => log(l));
-    await syncAllProxy();
+    await syncLocalProxy();
     log("Proxy ready");
   } catch (error) {
     log("Proxy setup failed:", (error as Error).message);
   }
+  // Remote servers take tens of seconds each over SSH: jobs start without waiting for them.
+  void syncRemoteProxies((l) => log(l)).then(() => log("Remote proxies synced"));
 
   await sql.listen(JOB_CHANNEL, () => wake?.());
   await sql.listen(CANCEL_CHANNEL, (deploymentId) => {

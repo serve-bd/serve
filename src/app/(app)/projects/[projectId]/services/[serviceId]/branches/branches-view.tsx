@@ -9,7 +9,7 @@ import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
-import { Badge, Card, CardBody, CardHeader, CopyButton, EmptyState, TimeAgo } from "@/components/ui/misc";
+import { Badge, Card, CardHeader, CopyButton, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip } from "@/components/ui/tooltip";
 import { copyText } from "@/components/ui/clipboard";
@@ -73,6 +73,7 @@ export function BranchesView({
   const router = useRouter();
   const confirm = useConfirm();
   const [creating, setCreating] = React.useState(false);
+  const [cleaning, setCleaning] = React.useState(false);
   // The list by default; the last view chosen in this browser after that.
   const [view, setViewState] = React.useState<"canvas" | "list">("list");
   React.useEffect(() => {
@@ -110,6 +111,13 @@ export function BranchesView({
           actions={
             <div className="flex items-center gap-2">
               {branches.length > 0 && <ViewToggle view={view} views={["list", "canvas"]} onChange={setView} />}
+              {scrubSupported && (
+                <Tooltip content="Hide personal data">
+                  <Button size="sm" variant="ghost" className="px-2" aria-label="Hide personal data" onClick={() => setCleaning(true)}>
+                    <EyeOff />
+                  </Button>
+                </Tooltip>
+              )}
               {canManage && (
                 <Button size="sm" variant="primary" disabled={!running} title={running ? undefined : "Start the database to branch it"} onClick={() => setCreating(true)}>
                   <Plus /> New branch
@@ -246,7 +254,7 @@ export function BranchesView({
         Use a branch from any service in this environment with a reference like <span className="font-mono text-fg-2">{branchReference(refName, "<name>")}</span>. Pull request
         previews can get a branch each: turn it on in the app&apos;s Settings → Previews. Each branch uses about as much disk as the main database.
       </p>
-      {scrubSupported && <CleanupCard key={cleanupSql} serviceId={serviceId} initial={cleanupSql} canManage={canManage} />}
+      {scrubSupported && <CleanupDialog serviceId={serviceId} initial={cleanupSql} canManage={canManage} open={cleaning} onClose={() => setCleaning(false)} />}
       {creating && (
         <NewBranchDialog
           serviceId={serviceId}
@@ -274,35 +282,45 @@ const ENGINE_LABEL: Record<string, string> = {
 const engineLabel = (engine: string) => ENGINE_LABEL[engine] ?? engine;
 
 /** The SQL that hides personal data in branches made with that option. */
-function CleanupCard({ serviceId, initial, canManage }: { serviceId: string; initial: string; canManage: boolean }) {
+function CleanupDialog({ serviceId, initial, canManage, open, onClose }: { serviceId: string; initial: string; canManage: boolean; open: boolean; onClose: () => void }) {
   const [sql, setSql] = React.useState(initial);
-  const [saved, setSaved] = React.useState(initial);
-  const save = useAction(() => saveBranchCleanupSql(serviceId, sql.trim() || null), { onSuccess: () => setSaved(sql) });
+  const save = useAction(() => saveBranchCleanupSql(serviceId, sql.trim() || null), { onSuccess: onClose });
   return (
-    <Card>
-      <CardHeader
-        title="Hide personal data"
-        description="Runs on the branches you create with “Hide personal data” ticked, right after their data is copied and on every reset. If it fails, the branch fails, so it never holds real data."
-      />
-      <CardBody className="flex flex-col gap-3">
-        <CodeEditor
-          language="text"
-          value={sql}
-          onChange={setSql}
-          minRows={5}
-          readOnly={!canManage}
-          placeholder={"UPDATE users SET email = 'user' || id || '@example.com', name = 'User ' || id;\nDELETE FROM sessions;"}
-          aria-label="Branch clean-up SQL"
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (o) setSql(initial);
+        else onClose();
+      }}
+    >
+      <DialogContent size="lg">
+        <DialogHeader
+          title="Hide personal data"
+          description="Runs on the branches you create with “Hide personal data” ticked, right after their data is copied and on every reset. If it fails, the branch fails, so it never holds real data."
         />
+        <DialogBody>
+          <CodeEditor
+            language="text"
+            value={sql}
+            onChange={setSql}
+            minRows={6}
+            readOnly={!canManage}
+            placeholder={"UPDATE users SET email = 'user' || id || '@example.com', name = 'User ' || id;\nDELETE FROM sessions;"}
+            aria-label="Branch clean-up SQL"
+          />
+        </DialogBody>
         {canManage && (
-          <div className="flex justify-end">
-            <Button size="sm" variant="primary" loading={save.pending} disabled={sql === saved} onClick={() => void save.run()}>
+          <DialogFooter>
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" loading={save.pending} disabled={sql === initial} onClick={() => void save.run()}>
               Save
             </Button>
-          </div>
+          </DialogFooter>
         )}
-      </CardBody>
-    </Card>
+      </DialogContent>
+    </Dialog>
   );
 }
 

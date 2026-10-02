@@ -383,39 +383,47 @@ run("main flows", () => {
     await ok(ADMIN, "DELETE", `/branches/${branch.id}`);
   });
 
-  it("reaches an app on this machine's 127.0.0.1 from a custom proxy file", async () => {
+  it("reaches and balances apps on this machine's 127.0.0.1 from a custom proxy file", async () => {
     const proxyUrl = process.env.SERVE_E2E_PROXY_URL;
     if (!proxyUrl || process.env.SERVE_E2E_SERVER) return;
-    // Listens on loopback only: the proxy container could not reach it without the relay.
-    const app = http.createServer((req, res) => res.end(`host app saw ${req.headers.host}`));
-    await new Promise<void>((resolve) => app.listen(0, "127.0.0.1", resolve));
-    const port = (app.address() as { port: number }).port;
+    // Two apps on loopback only: the proxy container could not reach them without the relay.
+    const apps = [0, 1].map((i) => http.createServer((req, res) => res.end(`app${i} saw ${req.headers.host}`)));
+    await Promise.all(apps.map((a) => new Promise<void>((resolve) => a.listen(0, "127.0.0.1", resolve))));
+    const ports = apps.map((a) => (a.address() as { port: number }).port);
     const name = "zz-e2e-host-port.conf";
     const host = "zz-e2e-host-port.test";
+    // fetch() leaves out a Host header it is given: a plain request sends it.
+    const get = () =>
+      new Promise<string>((resolve) => {
+        const req = http.get(proxyUrl, { headers: { host, connection: "close" } }, (r) => {
+          let data = "";
+          r.on("data", (c) => (data += c));
+          r.on("end", () => resolve(r.statusCode === 200 ? data : `HTTP ${r.statusCode}`));
+        });
+        req.on("error", () => resolve(""));
+      });
+    const tally = async (n: number) => {
+      const seen: Record<string, number> = {};
+      for (let i = 0; i < n; i++) {
+        const r = await get();
+        seen[r] = (seen[r] ?? 0) + 1;
+      }
+      return seen;
+    };
     try {
       await ok(ADMIN, "PUT", `/servers/local/proxy/files/${name}`, {
-        content: `server {\n    listen 80;\n    server_name ${host};\n    location / {\n        proxy_pass http://127.0.0.1:${port};\n        proxy_set_header Host $host;\n    }\n}\n`,
+        content: `upstream zz_e2e_host {\n    server 127.0.0.1:${ports[0]} max_fails=1 fail_timeout=10s;\n    server localhost:${ports[1]} max_fails=1 fail_timeout=10s;\n}\nserver {\n    listen 80;\n    server_name ${host};\n    location / {\n        proxy_pass http://zz_e2e_host;\n        proxy_set_header Host $host;\n    }\n}\n`,
       });
-      const body = await until(
-        "host port relay",
-        async () => {
-          // fetch() leaves out a Host header it is given: a plain request sends it.
-          const text = await new Promise<string>((resolve) => {
-            const req = http.get(proxyUrl, { headers: { host } }, (r) => {
-              let data = "";
-              r.on("data", (c) => (data += c));
-              r.on("end", () => resolve(data));
-            });
-            req.on("error", () => resolve(""));
-          });
-          return text.startsWith("host app saw") ? text : null;
-        },
-        60_000,
-      );
-      expect(body).toBe(`host app saw ${host}`);
+      await until("host port relay", async () => ((await get()).startsWith("app") ? true : null), 60_000);
+      const both = await tally(20);
+      expect(both[`app0 saw ${host}`]).toBeGreaterThan(0);
+      expect(both[`app1 saw ${host}`]).toBeGreaterThan(0);
+      // One app stops: every request still gets an answer, from the other.
+      await new Promise((resolve) => apps[1].close(resolve));
+      expect(await tally(20)).toEqual({ [`app0 saw ${host}`]: 20 });
     } finally {
       await api(ADMIN, "DELETE", `/servers/local/proxy/files/${name}`);
-      await new Promise((resolve) => app.close(resolve));
+      await Promise.all(apps.map((a) => new Promise((resolve) => a.close(() => resolve(null)))));
     }
   });
 

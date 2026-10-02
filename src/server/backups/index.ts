@@ -61,8 +61,11 @@ async function logLine(backupId: string, line: string) {
 type ServiceRow = typeof schema.service.$inferSelect;
 
 /** A database container and the commands that dump into and restore from it. */
-/** `users`: also restore the dump's database users (MongoDB). */
-export type RestoreOptions = { users?: boolean };
+/**
+ * `users`: also restore the dump's database users (MongoDB). `keepNames`: a backup of chosen
+ * databases of this server; each goes back into the database of its name, even when it is one.
+ */
+export type RestoreOptions = { users?: boolean; keepNames?: boolean };
 
 type Commands = {
   docker: Docker;
@@ -253,7 +256,7 @@ async function restoreWith(t: Commands, file: string, log: (line: string) => voi
   const gz = /\.gz$/i.test(file) && t.engine !== "mongodb";
   const { command, format } = await restoreCommandFor(t, file, gz);
   log(`Format: ${format}${gz ? " (gzip)" : ""}`);
-  const filter = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb" ? await plainSqlFilter(t, file, gz, log) : undefined;
+  const filter = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb" ? await plainSqlFilter(t, file, gz, log, !!opts.keepNames) : undefined;
   // The command's output goes to the log while it runs, so a long or failing restore can be followed.
   const out = await runIn(t, command, fs.createReadStream(file), gz, log, filter);
   // A backup of chosen databases (a packed folder) holds no users: they live in admin.
@@ -513,16 +516,16 @@ export async function deleteBackupFiles(b: typeof schema.backup.$inferSelect, _s
  * Cleans a plain SQL dump on its way in (see sql-filter.ts): reads it once to find its databases,
  * then leaves out users, roles and system databases. Says in the log what it changed.
  */
-async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line: string) => void) {
+async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line: string) => void, keepNames: boolean) {
   const engine = t.engine as SqlEngine;
   const src = fs.createReadStream(file);
   const lines = readline.createInterface({ input: gz ? src.pipe(zlib.createGunzip()) : src, crlfDelay: Number.POSITIVE_INFINITY });
   const plan = await planSql(engine, lines).finally(() => src.destroy());
-  const filter = sqlLineFilter(engine, plan, t.database);
+  const filter = sqlLineFilter(engine, plan, t.database, { keepNames });
   const named = plan.databases.filter((d) => d !== "");
   log(
-    named.length > 1
-      ? `The dump holds ${named.length} databases (${named.join(", ")}); each is restored as a database of its own.`
+    named.length > 1 || (keepNames && named.length === 1)
+      ? `The dump holds ${named.length === 1 ? "the database" : `${named.length} databases`} (${named.join(", ")}); each is restored as a database of its own.`
       : named[0] && named[0] !== t.database
         ? `Restoring the dump's database ${named[0]} into ${t.database}.`
         : `Restoring into ${t.database || "the database"}.`,
@@ -580,7 +583,8 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
           .update(schema.backup)
           .set({ restoreStopped: ids.length ? ids : null })
           .where(eq(schema.backup.id, backupId))),
-      opts,
+      // A backup of chosen databases (one that is not the main one, say) goes back where it came from.
+      { ...opts, keepNames: !backup.target && !!backup.databases?.length },
     );
     // Database restores logged their format and output as they ran.
     if (format === "tar.gz" && clean) await logLine(backupId, clean.slice(-2000));

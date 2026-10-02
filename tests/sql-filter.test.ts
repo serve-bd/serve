@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { mysqlDatabaseOf, pgConnectTarget, planSql, type SqlEngine, sqlLineFilter } from "@/server/backups/sql-filter";
 
-async function clean(engine: SqlEngine, dump: string, target: string) {
+async function clean(engine: SqlEngine, dump: string, target: string, opts: { keepNames?: boolean } = {}) {
   const lines = dump.split("\n");
   const plan = await planSql(engine, lines);
-  const filter = sqlLineFilter(engine, plan, target);
+  const filter = sqlLineFilter(engine, plan, target, opts);
   return { out: lines.flatMap((l) => filter.push(l)).join("\n"), report: filter.report, plan };
 }
 
@@ -75,6 +75,13 @@ describe("postgres dumps", () => {
     expect(out).toBe(["SET client_encoding = 'UTF8';", "CREATE TABLE public.t (n int);"].join("\n"));
   });
 
+  it("restores a backup of one chosen database into that database, not the service's", async () => {
+    const dump = ['\\connect "other"', "CREATE TABLE public.t (n integer);"].join("\n");
+    const { out } = await clean("postgres", dump, "app", { keepNames: true });
+    expect(out).toContain('\\connect "other"');
+    expect(out).not.toContain('\\connect "app"');
+  });
+
   it("reads every form of \\connect", () => {
     expect(pgConnectTarget("\\connect app")).toBe("app");
     expect(pgConnectTarget('\\connect "My DB"')).toBe("My DB");
@@ -115,6 +122,13 @@ describe("mysql dumps", () => {
     expect(out).toContain("USE `shop`;");
     expect(out).toContain("USE `blog`;");
     expect(report.created).toEqual(["shop", "blog"]);
+  });
+
+  it("keeps the name of the one database of a backup of chosen databases", async () => {
+    const { out, report } = await clean("mysql", myAll, "app", { keepNames: true });
+    expect(out).toContain("USE `shop`;");
+    expect(out).not.toContain("`app`");
+    expect(report.into).toBeNull();
   });
 
   it("reads database names", () => {

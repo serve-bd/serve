@@ -89,13 +89,14 @@ export type SqlFilterReport = { skipped: Set<string>; created: string[]; into: s
 
 /**
  * A line filter for one dump. `target` is the service's database. Returns the lines to send for
- * each line of the dump (none, the line itself, or replacements).
+ * each line of the dump (none, the line itself, or replacements). `keepNames`: every database
+ * keeps its name, even alone (a backup Serve took of chosen databases of this server).
  */
-export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string) {
+export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, opts: { keepNames?: boolean } = {}) {
   const report: SqlFilterReport = { skipped: new Set(), created: [], into: null };
   const named = plan.databases.filter((d) => d !== "");
   // One database: its content goes into the service's database. Several: each keeps its name.
-  const single = named.length <= 1;
+  const single = named.length <= 1 && !opts.keepNames;
   const map = (db: string) => (single || db === "" ? target : db);
   if (single && named[0] && named[0] !== target) report.into = named[0];
 

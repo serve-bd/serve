@@ -683,7 +683,9 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
 
   if (opts.backupFirst) {
     const id = newId();
-    await db.insert(schema.backup).values({ id, serviceId: service.id, target: backup.target, trigger: "pre-import" });
+    // A backup of chosen databases replaces those: the safety backup takes the same ones, not only
+    // the service's usual choice (which may be the main database alone).
+    await db.insert(schema.backup).values({ id, serviceId: service.id, target: backup.target, trigger: "pre-import", databases: backup.databases });
     await logLine(backupId, "Backing up the current data first");
     try {
       await runBackup(id, backupId);

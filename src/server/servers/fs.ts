@@ -109,15 +109,37 @@ export function remoteFs(target: SshTarget): ServerFs {
     const s = await session();
     return sftpCall<Buffer>((cb) => s.readFile(file, cb));
   };
+  /*
+   * Every call is a few round trips to the server (hundreds of milliseconds far away). What this
+   * client wrote and made is remembered, so an unchanged file costs one stat instead of a read,
+   * and a directory it made is not made again.
+   */
+  const written = new Map<string, { size: number; mtime: number; hash: string }>();
+  const made = new Set<string>();
+  const forget = (target: string) => {
+    for (const key of [...written.keys(), ...made]) if (key === target || key.startsWith(`${target}/`)) written.delete(key), made.delete(key);
+  };
+  const sha = (content: string | Buffer) => crypto.createHash("sha256").update(content).digest("hex");
+  const remember = async (file: string, hash: string) => {
+    const st = await self.stat(file);
+    if (st) written.set(file, { size: st.size, mtime: st.mtime.getTime(), hash });
+  };
   const self: ServerFs = {
     readFile: async (file) => (await readBuffer(file)).toString("utf8"),
     readBuffer,
     async writeFile(file, content, mode) {
       const s: SFTPWrapper = await session();
-      await self.mkdir(path.posix.dirname(file));
+      const dir = path.posix.dirname(file);
+      await self.mkdir(dir);
+      written.delete(file);
       const tmp = `${file}.${crypto.randomBytes(6).toString("hex")}.serve.tmp`;
       try {
-        await sftpCall<void>((cb) => s.writeFile(tmp, content, mode ? { mode } : {}, cb));
+        await sftpCall<void>((cb) => s.writeFile(tmp, content, mode ? { mode } : {}, cb)).catch(async () => {
+          // The directory was removed behind our back: make it again, once.
+          made.delete(dir);
+          await self.mkdir(dir);
+          await sftpCall<void>((cb) => s.writeFile(tmp, content, mode ? { mode } : {}, cb));
+        });
         // posix-rename@openssh.com replaces the target atomically.
         await sftpCall<void>((cb) => s.ext_openssh_rename(tmp, file, cb)).catch(() => run(`mv -f ${sh(tmp)} ${sh(file)}`));
       } catch (e) {
@@ -126,9 +148,21 @@ export function remoteFs(target: SshTarget): ServerFs {
       }
     },
     async writeIfChanged(file, content) {
-      const current = await self.readFile(file).catch(() => null);
-      if (current === content) return false;
+      const hash = sha(content);
+      const st = await self.stat(file);
+      const known = written.get(file);
+      if (st && known && known.size === st.size && known.mtime === st.mtime.getTime()) {
+        if (known.hash === hash) return false;
+      } else if (st && st.size === Buffer.byteLength(content) && !st.isDirectory) {
+        // Not written by this client (or changed since): compare on the server, not by downloading it.
+        const remote = (await run(`sha256sum -- ${sh(file)}`).catch(() => "")).split(/\s/)[0];
+        if (remote === hash) {
+          written.set(file, { size: st.size, mtime: st.mtime.getTime(), hash });
+          return false;
+        }
+      }
       await self.writeFile(file, content);
+      await remember(file, hash);
       return true;
     },
     async exists(file) {
@@ -144,8 +178,15 @@ export function remoteFs(target: SshTarget): ServerFs {
       const list = await sftpCall<{ filename: string }[]>((cb) => s.readdir(dir, cb)).catch(() => []);
       return list.map((e) => e.filename);
     },
-    mkdir: async (dir) => void (await run(`mkdir -p ${sh(dir)}`)),
-    rm: async (target) => void (await run(`rm -rf ${sh(target)}`)),
+    async mkdir(dir) {
+      if (made.has(dir)) return;
+      await run(`mkdir -p ${sh(dir)}`);
+      for (let d = dir; d && d !== "/" && d !== "."; d = path.posix.dirname(d)) made.add(d);
+    },
+    async rm(target) {
+      forget(target);
+      await run(`rm -rf ${sh(target)}`);
+    },
     async uploadDir(localDir, remoteDir) {
       // Stream a tarball over SSH; much faster than per-file SFTP for repositories.
       let tarError = "";

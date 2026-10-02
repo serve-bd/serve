@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/server/db";
 import * as databases from "@/server/actions/databases";
@@ -61,11 +61,22 @@ export const databaseRoutes: ApiRoute[] = [
         const { databaseUrl } = await import("@/server/databases/options");
         const { decryptOrNull } = await import("@/server/crypto");
         const { serverPublicIp } = await import("@/server/servers/access");
-        const host = cfg.domain && !cfg.domainTunnelId ? cfg.domain : await serverPublicIp(service.serverId);
+        const direct = !!cfg.domain && !cfg.domainTunnelId;
+        const host = direct ? cfg.domain! : await serverPublicIp(service.serverId);
+        // verify-full only once the domain's certificate is issued: the server serves it then.
+        let verified = false;
+        if (direct && cfg.tls?.enabled) {
+          const { certificateCovers } = await import("@/server/ssl/match");
+          const certs = await db
+            .select({ domains: schema.certificate.domains })
+            .from(schema.certificate)
+            .where(and(eq(schema.certificate.organizationId, auth.organizationId), eq(schema.certificate.serverId, service.serverId), eq(schema.certificate.status, "active")));
+          verified = certs.some((c) => certificateCovers(c.domains, cfg.domain!));
+        }
         if (host)
           publicUrl = databaseUrl(cfg, { username: cfg.username, password: decryptOrNull(cfg.password) ?? "", database: cfg.database }, host, cfg.publicPort, {
             public: true,
-            verified: !!cfg.domain && !!cfg.tls?.enabled,
+            verified,
           });
       }
       return {

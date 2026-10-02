@@ -241,9 +241,13 @@ export const orgRoutes: ApiRoute[] = [
     path: "/tokens/{tokenId}",
     tag: "Token",
     summary: "Revoke an API token",
-    description: "Your own, or anyone's with members.manage. A token can revoke itself.",
+    description: "A token can always revoke itself; other tokens need members.manage.",
     needs: [],
-    handler: async ({ params }) => (await unwrap(org.revokeApiToken(params.tokenId))) ?? { ok: true },
+    handler: async ({ auth, params }) => {
+      // A leaked token must not switch off its owner's other tokens (a CI deploy token, say).
+      if (params.tokenId !== auth.tokenId && !auth.can("members.manage")) throw new ApiError(403, "This token can only revoke itself. Revoking other tokens needs members.manage.");
+      return (await unwrap(org.revokeApiToken(params.tokenId))) ?? { ok: true };
+    },
   }),
 
   // Activity

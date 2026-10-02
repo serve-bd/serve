@@ -415,12 +415,20 @@ export async function flushHeldNotifications() {
   }
 }
 
-/** Failed deliveries whose retry job was lost (for example to a restart) are picked up again. */
+/**
+ * Failed deliveries whose retry job was lost (for example to a restart) are picked up again, and
+ * so are first attempts the process stopped during: they would stay "pending" and never be sent.
+ */
 export async function retryDueDeliveries() {
   const due = await db
     .select({ id: schema.notificationDelivery.id })
     .from(schema.notificationDelivery)
-    .where(and(eq(schema.notificationDelivery.status, "failed"), lt(schema.notificationDelivery.nextAttemptAt, sql`now() - interval '2 minutes'`)))
+    .where(
+      or(
+        and(eq(schema.notificationDelivery.status, "failed"), lt(schema.notificationDelivery.nextAttemptAt, sql`now() - interval '2 minutes'`)),
+        and(eq(schema.notificationDelivery.status, "pending"), lt(schema.notificationDelivery.createdAt, sql`now() - interval '10 minutes'`)),
+      ),
+    )
     .limit(50);
   for (const d of due) await attemptDelivery(d.id);
 }

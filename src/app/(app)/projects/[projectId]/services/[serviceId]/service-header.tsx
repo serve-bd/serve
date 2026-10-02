@@ -12,7 +12,6 @@ import {
   ChevronDown,
   Construction,
   FolderInput,
-  Layers,
   Play,
   Plug,
   Power,
@@ -170,7 +169,8 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
           <Breadcrumbs
             items={[
               { label: "Projects", href: "/projects" },
-              { label: project.name, href: `/projects/${project.id}?env=${environment}` },
+              { label: project.name, href: `/projects/${project.id}` },
+              { label: environment, href: `/projects/${project.id}?env=${environment}` },
               {
                 label: (
                   <ServiceSwitcher
@@ -237,10 +237,6 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                     </span>
                   ),
                 )}
-                <span className="inline-flex items-center gap-1 text-[12px]" title="Environment">
-                  <Layers className="size-3 shrink-0 text-faint" />
-                  {environment}
-                </span>
                 {server && (
                   <Link href={`/servers/${server.id}`} title="Server" className="inline-flex max-w-full items-center gap-1 text-[12px] hover:text-fg">
                     <ServerIcon className="size-3 shrink-0 text-faint" />

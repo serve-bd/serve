@@ -73,7 +73,7 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
           sourceType: service.source?.type ?? null,
           sourceLabel:
             service.source?.type === "git"
-              ? `${service.source.repository.replace(/^https?:\/\/(www\.)?/, "").replace(/\.git$/, "")} · ${service.source.branch}`
+              ? `${repoPath(service.source.repository)} · ${service.source.branch}`
               : service.source?.type === "image"
                 ? service.source.image
                 : service.source?.type === "dockerfile"
@@ -101,4 +101,13 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
       {props.children}
     </>
   );
+}
+
+/** owner/repo of a git URL (https or ssh): the host adds nothing in the header. */
+function repoPath(url: string) {
+  return url
+    .replace(/^[a-z+]+:\/\/([^@/]+@)?[^/]+\//i, "")
+    .replace(/^[^@\s]+@[^:]+:/, "")
+    .replace(/\.git$/, "")
+    .replace(/\/$/, "");
 }

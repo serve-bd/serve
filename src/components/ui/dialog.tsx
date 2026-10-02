@@ -24,10 +24,10 @@ export function DialogContent({
   return (
     <BaseDialog.Portal>
       <BaseDialog.Backdrop className="fixed inset-0 z-50 bg-[var(--backdrop)] backdrop-blur-[2px] transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
-      <BaseDialog.Viewport className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-4 py-[8vh] sm:py-[12vh]">
+      <BaseDialog.Viewport className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-4 py-6 sm:py-10">
         <BaseDialog.Popup
           className={cn(
-            "relative w-full rounded-2xl border border-line bg-surface shadow-lg outline-none transition-[transform,opacity] duration-200 ease-[var(--ease-out-quint)] data-[ending-style]:translate-y-2 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:translate-y-2 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0",
+            "relative my-auto w-full rounded-2xl border border-line bg-surface shadow-lg outline-none transition-[transform,opacity] duration-200 ease-[var(--ease-out-quint)] data-[ending-style]:translate-y-2 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:translate-y-2 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0",
             width,
             className,
           )}

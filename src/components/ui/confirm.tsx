@@ -112,7 +112,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       <AlertDialog.Root open={open} onOpenChange={(o) => !o && (busy ? setOpen(false) : close(false))} onOpenChangeComplete={(o) => !o && !open && setPending(null)}>
         <AlertDialog.Portal>
           <AlertDialog.Backdrop className="fixed inset-0 z-50 bg-[var(--backdrop)] backdrop-blur-[2px] transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
-          <AlertDialog.Viewport className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[18vh]">
+          <AlertDialog.Viewport className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
             <AlertDialog.Popup className="w-full max-w-md rounded-2xl border border-line bg-surface shadow-lg outline-none transition-[transform,opacity] duration-200 ease-[var(--ease-out-quint)] data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0">
               <form
                 onSubmit={(e) => {

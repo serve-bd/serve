@@ -147,7 +147,8 @@ export function composeSecurityIssues(content: string): string[] {
     const envFiles = typeof svc.env_file === "string" ? [svc.env_file] : Array.isArray(svc.env_file) ? svc.env_file : [];
     for (const f of envFiles) {
       const file = typeof f === "string" ? f : ((f as { path?: string })?.path ?? "");
-      if (file && outside(file)) issues.push(`${name}: env_file "${file}" is not allowed`);
+      // Compose fills in variables here too: one could name any host file.
+      if (file && (outside(file) || interpolated(file))) issues.push(`${name}: env_file "${file}" is not allowed`);
     }
     const volumes = Array.isArray(svc.volumes) ? svc.volumes : [];
     for (const v of volumes) {

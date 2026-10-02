@@ -305,6 +305,11 @@ describe("compose build contexts", () => {
 `);
     expect(issues).toHaveLength(2);
   });
+  it("rejects env files named by a variable", () => {
+    expect(composeSecurityIssues("services:\n  a:\n    image: x\n    env_file: ${SECRET_FILE}\n")).toHaveLength(1);
+    expect(composeSecurityIssues("services:\n  a:\n    image: x\n    env_file: [{ path: \"${X}/.env\" }]\n")).toHaveLength(1);
+    expect(composeSecurityIssues("services:\n  a:\n    image: x\n    env_file: ./app.env\n")).toHaveLength(0);
+  });
 });
 
 describe("explainCertError", () => {

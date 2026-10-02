@@ -2,6 +2,7 @@
   "name": "serve",
   "version": "0.1.16",
   "private": true,
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "next dev",
     "dev:worker": "tsx watch --clear-screen=false src/worker/index.ts",

@@ -95,4 +95,4 @@ You pick the dashboard and app ports during install. The defaults:
 
 ## License
 
-[MIT](LICENSE)
+[Apache License 2.0](LICENSE)

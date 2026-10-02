@@ -92,6 +92,11 @@ export function DataBrowser({
   const [overview, setOverview] = React.useState(initial);
   const [loadError, setLoadError] = React.useState(error);
   const [loading, setLoading] = React.useState(false);
+  // Opened while the database was stopped: once it runs, the page refresh brings the tables.
+  if (!overview && initial) {
+    setOverview(initial);
+    setLoadError(null);
+  }
   const family: Family = overview?.family ?? (engine === "mongodb" ? "mongo" : engine === "redis" || engine === "valkey" ? "kv" : "sql");
 
   const load = async (database: string | null) => {
@@ -499,8 +504,10 @@ function RowsView({
   const shownColumns = data?.columns.length ? data.columns : columns;
   const column = draft.column || shownColumns[0] || "";
   const needsValue = draft.op !== "null" && draft.op !== "notnull";
-  const [dirty, setDirty] = React.useState(false);
+  const [changed, setDirty] = React.useState(false);
   const grid = editable && !readOnly && structure && data;
+  // Read only turned back on drops the grid and its unsaved changes: they no longer hold the page.
+  const dirty = changed && !!grid;
   const saveChanges = async (changes: GridChanges) => {
     const res = await explorerSaveChanges(serviceId, { ...reference, ...changes }).catch((e: Error) => ({ ok: false as const, error: e.message }));
     if (!res.ok) return res.error;

@@ -96,6 +96,14 @@ export async function enqueue<T extends JobType>(type: T, payload: JobPayloads[T
   return id;
 }
 
+/**
+ * A deployment (d) of a service (s) that builds an image: git and Dockerfile apps, and compose
+ * stacks (they may build some of their services). Rollbacks reuse an earlier image; image apps
+ * only pull, and databases never build.
+ */
+export const BUILDS_SQL = `(d.rollback_of IS NULL AND (s.type = 'compose' OR (s.type = 'app' AND s.source->>'type' IN ('git', 'dockerfile'))))`;
+const BUILDS = dsql.raw(BUILDS_SQL);
+
 /** Claim the next runnable job, respecting per-key concurrency. */
 export async function claimJob(excludeKeys: string[] = [], filter: { excludeTypes?: string[]; onlyTypes?: string[]; fullBuildServers?: string[] } = {}): Promise<Job | null> {
   const exclude = JSON.stringify(filter.excludeTypes ?? []);
@@ -109,11 +117,12 @@ export async function claimJob(excludeKeys: string[] = [], filter: { excludeType
         AND NOT (${exclude}::jsonb ? j.type)
         AND (${only}::jsonb IS NULL OR ${only}::jsonb ? j.type)
         -- A deploy waits only while its own build server is full; other servers keep building.
+        -- One that builds nothing (a rollback, an image or a database) never waits for a slot.
         AND NOT (
           j.type = 'deploy' AND ${fullServers}::jsonb ? COALESCE((
             SELECT COALESCE(NULLIF(s.distribution->>'buildServerId', ''), s.server_id)
             FROM deployment d JOIN service s ON s.id = d.service_id
-            WHERE d.id = j.payload->>'deploymentId'
+            WHERE d.id = j.payload->>'deploymentId' AND ${BUILDS}
           ), '')
         )
         AND (
@@ -135,11 +144,14 @@ export async function claimJob(excludeKeys: string[] = [], filter: { excludeType
   return (rows[0] as unknown as Job) ?? null;
 }
 
-/** The server that builds a deploy job's service, for counting build slots. */
+/**
+ * The server that builds a deploy job's service, for counting build slots. Null when the deploy
+ * builds nothing: it takes no slot.
+ */
 export async function buildServerForDeployment(deploymentId: string): Promise<string | null> {
   const rows = await db.execute<{ id: string | null }>(dsql`
     SELECT COALESCE(NULLIF(s.distribution->>'buildServerId', ''), s.server_id) AS id
-    FROM deployment d JOIN service s ON s.id = d.service_id WHERE d.id = ${deploymentId}
+    FROM deployment d JOIN service s ON s.id = d.service_id WHERE d.id = ${deploymentId} AND ${BUILDS}
   `);
   return (rows[0] as { id: string | null } | undefined)?.id ?? null;
 }
@@ -155,6 +167,18 @@ export async function finishJob(id: string, error?: string | null) {
       run_at = CASE WHEN ${error ?? null}::text IS NOT NULL THEN now() + (attempts * interval '30 seconds') ELSE run_at END,
       finished_at = now()
     WHERE id = ${id}
+  `);
+}
+
+/**
+ * A job that ran past its time limit: failed for good (another attempt would most likely hang the
+ * same way), which frees its concurrency key. Only while it still runs: a handler that finished
+ * meanwhile already recorded its outcome.
+ */
+export async function failJob(id: string, error: string) {
+  await db.execute(dsql`
+    UPDATE job SET status = 'failed', error = ${error}, finished_at = now()
+    WHERE id = ${id} AND status = 'running'
   `);
 }
 

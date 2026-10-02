@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { PassThrough } from "node:stream";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
@@ -41,11 +42,13 @@ export async function execCommand(
 ): Promise<ExecResult> {
   const docker = opts.docker ?? localDocker;
   const container = docker.getContainer(containerId);
+  // Marks the command's processes (children inherit it), so a timeout can find and stop them.
+  const marker = `SERVE_EXEC=${randomBytes(8).toString("hex")}`;
   const exec = await container.exec({
     Cmd: ["sh", "-c", command],
     AttachStdout: true,
     AttachStderr: true,
-    Env: ["TERM=dumb"],
+    Env: ["TERM=dumb", marker],
   });
   const stream = await exec.start({ hijack: true, stdin: false });
   const max = opts.maxOutput ?? 256_000;
@@ -88,11 +91,47 @@ export async function execCommand(
     await new Promise((r) => setTimeout(r, 100));
     info = await exec.inspect().catch(() => null);
   }
+  // Dropping the stream does not stop the command: Docker has no call to kill an exec, so it would
+  // keep running (and holding locks or load) in the container.
+  if (timedOut) await killMarked(container, marker);
   return {
     exitCode: timedOut ? 124 : (info?.ExitCode ?? (opts.signal?.aborted ? 130 : 1)),
     output: output.length >= max ? `${output}\n… output truncated` : output,
     timedOut,
   };
+}
+
+/**
+ * The shell script that kills every process whose environment holds `marker`, by reading
+ * /proc in the container. The killer's own environment does not hold it, so it never kills itself.
+ */
+export function killMarkedScript(marker: string) {
+  if (!/^SERVE_EXEC=[0-9a-f]+$/.test(marker)) throw new Error("Invalid exec marker");
+  return `for p in /proc/[0-9]*; do grep -qs '${marker}' "$p/environ" && kill -9 "\${p#/proc/}" 2>/dev/null; done; exit 0`;
+}
+
+/** Best effort and bounded: a container without a shell or grep, or one that stopped, keeps what it has. */
+async function killMarked(container: Docker.Container, marker: string) {
+  try {
+    const killer = await container.exec({ Cmd: ["sh", "-c", killMarkedScript(marker)], AttachStdout: true, AttachStderr: true });
+    const stream = await killer.start({ hijack: true, stdin: false });
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        (stream as unknown as { destroy: () => void }).destroy();
+        done();
+      }, 10_000);
+      stream.on("end", done);
+      stream.on("close", done);
+      stream.on("error", done);
+      stream.resume();
+    });
+  } catch {
+    // The container went away or cannot run the script: nothing more to stop.
+  }
 }
 
 export async function getService(serviceId: string) {

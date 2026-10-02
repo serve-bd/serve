@@ -7,18 +7,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { paths } from "@/server/paths";
 import { checkLimitNotices, hasRoomFor, measureOrgDisk } from "@/server/limits";
-import { copyEnvironmentData, preparePreviewDatabase } from "@/server/services/environments";
-import { and, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
+import { copyEnvironmentData, failInterruptedCopy, preparePreviewDatabase } from "@/server/services/environments";
+import { and, sql as dsql, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import type { ProxyKind } from "@/server/proxy/config";
 import { CronExpressionParser } from "cron-parser";
 import { db, schema, sql } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
 import { fullBuildServers } from "@/lib/server-limits";
+import { JobTimeout, jobTimeoutMinutes } from "@/lib/job-timeouts";
+import type { ServiceStatus } from "@/server/db/schema";
 import { newId } from "@/server/id";
 import { docker, ensureNetwork, LABEL, listServiceContainers } from "@/server/docker/client";
 import { ensureProxy, ensureServerProxy, syncAllProxy, syncCloudflareTrusting, syncHostRelays, syncLocalProxy, syncRemoteProxies } from "@/server/proxy/nginx";
 import { anyServerTrustsCloudflare, refreshCloudflareRanges } from "@/server/proxy/trusted-proxies";
-import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
+import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, failJob, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
 import { recoverInterruptedDeployment, runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
 import { queueDeployment } from "@/server/services/create";
@@ -42,7 +44,7 @@ import { checkTunnels } from "@/server/cloudflare/tunnels";
 import { shutdownTunnels, syncTunnels } from "@/server/tunnel/listener";
 import { checkContainerHealth, checkServerResources, pruneMonitoring, runUptimeChecks } from "@/server/monitoring/checks";
 import { enforceCrashLimits } from "@/server/monitoring/crash-limit";
-import { failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBackups } from "@/server/instance/backups";
+import { failInstanceBackup, failInterruptedInstanceBackups, runInstanceBackup, scheduleInstanceBackups } from "@/server/instance/backups";
 import { runBranchJob } from "@/server/databases/branches";
 import { periodicUpdateCheck, reconcileUpdate, runUpdate } from "@/server/instance/updates";
 import { syncMesh } from "@/server/mesh";
@@ -122,12 +124,43 @@ async function handle(job: Job, signal: AbortSignal) {
   }
 }
 
+/** The limits a job set for itself (a service's build timeout, a task's timeout) raise its own. */
+async function timeoutOf(job: Job) {
+  const p = job.payload as Record<string, string>;
+  if (job.type === "deploy") {
+    const [row] = await db
+      .select({ build: schema.service.build })
+      .from(schema.deployment)
+      .innerJoin(schema.service, eq(schema.service.id, schema.deployment.serviceId))
+      .where(eq(schema.deployment.id, p.deploymentId));
+    return jobTimeoutMinutes(job.type, { buildTimeoutMinutes: row?.build?.buildTimeoutMinutes });
+  }
+  if (job.type === "task.run") {
+    const [row] = await db
+      .select({ timeoutSeconds: schema.scheduledTask.timeoutSeconds })
+      .from(schema.taskRun)
+      .innerJoin(schema.scheduledTask, eq(schema.scheduledTask.id, schema.taskRun.taskId))
+      .where(eq(schema.taskRun.id, p.runId));
+    return jobTimeoutMinutes(job.type, { taskTimeoutSeconds: row?.timeoutSeconds });
+  }
+  return jobTimeoutMinutes(job.type);
+}
+
+/** After the abort, a deploy still puts the previous version back and records the outcome. */
+const TIMEOUT_GRACE_MS = 60_000;
+
 async function execute(job: Job, buildServer: string | null = null) {
   const controller = new AbortController();
   running.set(job.id, { job, controller, buildServer });
   const started = Date.now();
+  const minutes = await timeoutOf(job).catch(() => jobTimeoutMinutes(job.type));
+  const work = handle(job, controller.signal);
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<"expired">((resolve) => {
+    timer = setTimeout(() => resolve("expired"), minutes * 60_000);
+  });
   try {
-    await handle(job, controller.signal);
+    if ((await Promise.race([work, expired])) === "expired") return await giveUp(job, controller, work, minutes);
     await finishJob(job.id, null);
     log(`${job.type} ${job.id} done in ${Date.now() - started}ms`);
   } catch (error) {
@@ -135,8 +168,141 @@ async function execute(job: Job, buildServer: string | null = null) {
     await finishJob(job.id, message.slice(0, 4000));
     log(`${job.type} ${job.id} failed: ${message.split("\n")[0]}`);
   } finally {
+    clearTimeout(timer);
     running.delete(job.id);
     wake?.();
+  }
+}
+
+/**
+ * A job past its time limit: aborted (handlers that take a signal stop there), given a moment to
+ * wind down, then failed whether or not it returned, which frees its concurrency key for the jobs
+ * waiting behind it. What it left half done is settled like after a restart. A handler that hangs
+ * on regardless keeps running in the background, but nothing waits for it any more.
+ */
+async function giveUp(job: Job, controller: AbortController, work: Promise<unknown>, minutes: number) {
+  const reason = new JobTimeout(minutes);
+  log(`${job.type} ${job.id} ran past its ${minutes} minute limit; stopping it`);
+  controller.abort(reason);
+  let grace: NodeJS.Timeout | undefined;
+  await Promise.race([work.catch(() => {}), new Promise<void>((resolve) => (grace = setTimeout(resolve, TIMEOUT_GRACE_MS)))]);
+  clearTimeout(grace);
+  await failJob(job.id, reason.message);
+  await settleTimedOut(job, reason.message).catch((e: Error) => log(`settling ${job.type} ${job.id} failed: ${e.message}`));
+}
+
+/** Service status from its containers, for a start or stop that never finished. */
+async function settleFromContainers(serviceId: string, pending: ServiceStatus) {
+  const [service] = await db.select().from(schema.service).where(eq(schema.service.id, serviceId));
+  if (service?.status !== pending) return;
+  const server = await getServer(service.serverId).catch(() => null);
+  const up = server ? await listServiceContainers(service.id, false, server.docker).catch(() => null) : null;
+  if (up) await setServiceStatus(service.id, up.length ? "running" : pending === "stopped" ? "stopped" : "crashed");
+}
+
+async function failProxySwitch(serverId: string, line: string) {
+  const [row] = await db.select({ sw: schema.server.proxySwitch }).from(schema.server).where(eq(schema.server.id, serverId));
+  if (row?.sw?.state !== "running") return;
+  await db
+    .update(schema.server)
+    .set({ proxySwitch: { ...row.sw, state: "failed", finishedAt: new Date().toISOString(), log: `${row.sw.log}${line}\n` } })
+    .where(eq(schema.server.id, serverId));
+}
+
+async function failBranch(payload: JobPayloads["database.branch"], error: string) {
+  await db
+    .update(schema.databaseBranch)
+    .set({ status: "failed", error, updatedAt: new Date() })
+    .where(and(eq(schema.databaseBranch.id, payload.branchId), inArray(schema.databaseBranch.status, ["creating", "resetting", "deleting"])));
+}
+
+/** Put what a job past its time limit left half done in a final state, like recover() after a restart. */
+async function settleTimedOut(job: Job, error: string) {
+  const p = job.payload as Record<string, string>;
+  switch (job.type) {
+    case "deploy": {
+      const [dep] = await db
+        .update(schema.deployment)
+        .set({ status: "failed", error, finishedAt: new Date() })
+        .where(and(eq(schema.deployment.id, p.deploymentId), inArray(schema.deployment.status, ["building", "deploying"])))
+        .returning({ id: schema.deployment.id, serviceId: schema.deployment.serviceId, startedAt: schema.deployment.startedAt });
+      if (!dep) return;
+      const [service] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, dep.serviceId));
+      const server = service ? await getServer(service.serverId).catch(() => null) : null;
+      const up = server ? await recoverInterruptedDeployment(dep, server.docker).catch(() => false) : false;
+      return setServiceStatus(dep.serviceId, up ? "running" : "failed");
+    }
+    case "service.start":
+      return settleFromContainers(p.serviceId, "deploying");
+    case "service.stop":
+      // Containers that kept running must be watched again: the monitor skips stopped services.
+      return settleFromContainers(p.serviceId, "stopped");
+    case "task.run":
+      await db
+        .update(schema.taskRun)
+        .set({ status: "failed", finishedAt: new Date(), output: dsql`${schema.taskRun.output} || ${`\n${error}`}` })
+        .where(and(eq(schema.taskRun.id, p.runId), eq(schema.taskRun.status, "running")));
+      return;
+    case "proxy.switch":
+      return failProxySwitch(p.serverId, `${error} Switch again to finish it.`);
+    case "database.branch":
+      return failBranch(job.payload as JobPayloads["database.branch"], error);
+    case "preview.database":
+      return void (await preparePreviewDatabase(job.payload as JobPayloads["preview.database"], { interrupted: true }));
+    case "environment.copy-data":
+      return failInterruptedCopy(job.payload as JobPayloads["environment.copy-data"], "it ran past its time limit.");
+    case "server.setup":
+      // As a failed setup leaves it: the health probe tries it again.
+      await db
+        .update(schema.server)
+        .set({ status: "unreachable", statusMessage: error })
+        .where(and(eq(schema.server.id, p.serverId), eq(schema.server.status, "validating")));
+      return;
+    case "certificate.issue":
+      await db
+        .update(schema.certificate)
+        .set({ status: "failed", lastError: error })
+        .where(and(eq(schema.certificate.id, p.certificateId), eq(schema.certificate.status, "issuing")));
+      return;
+    case "backup.run":
+    case "backup.restore":
+    case "backup.import": {
+      const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, p.backupId));
+      if (!b) return;
+      if (b.status === "running") {
+        await db
+          .update(schema.backup)
+          .set({ status: "failed", error, finishedAt: new Date() })
+          .where(and(eq(schema.backup.id, b.id), eq(schema.backup.status, "running")));
+        // A partial file; an uploaded import is complete and stays.
+        if (b.filename && !(b.trigger === "import" && b.size != null)) {
+          await fs.promises.rm(backupFile(b.serviceId, b.filename), { force: true }).catch(() => {});
+          await db.update(schema.backup).set({ filename: null }).where(eq(schema.backup.id, b.id));
+        }
+      }
+      if (b.restoreStatus === "running") {
+        await db
+          .update(schema.backup)
+          .set({ restoreStatus: "failed", restoredAt: new Date() })
+          .where(and(eq(schema.backup.id, b.id), eq(schema.backup.restoreStatus, "running")));
+        // Containers a storage restore stopped come back.
+        if (b.restoreStopped?.length) {
+          const [service] = await db.select().from(schema.service).where(eq(schema.service.id, b.serviceId));
+          const server = service ? await getServer(service.serverId).catch(() => null) : null;
+          if (server) await startStoppedContainers(server.docker, b.restoreStopped).catch(() => {});
+          await db.update(schema.backup).set({ restoreStopped: null }).where(eq(schema.backup.id, b.id));
+        }
+      }
+      return;
+    }
+    case "instance.backup":
+      return failInstanceBackup(p.backupId, error);
+    case "instance.update": {
+      const run = (await getSettings()).updateRun;
+      if (run?.state === "backing-up" && run.to === p.to)
+        await updateSettings({ updateRun: { ...run, state: "failed", finishedAt: new Date().toISOString(), log: `${run.log}==> ${error} Nothing was changed.\n` } });
+      return;
+    }
   }
 }
 
@@ -200,15 +366,20 @@ function every(ms: number, name: string, fn: () => Promise<unknown>, runNow = fa
   const tick = async () => {
     if (busy || stopping) return;
     busy = true;
+    let timer: NodeJS.Timeout | undefined;
     try {
       // A tick stuck on a server that never answers must not stop every later tick.
       await Promise.race([
         fn(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("still running after an hour; letting the next tick run")), 3_600_000).unref()),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("still running after an hour; letting the next tick run")), 3_600_000).unref();
+        }),
       ]);
     } catch (error) {
       log(`${name} failed:`, (error as Error).message);
     } finally {
+      // Ticks every few seconds would otherwise pile up an hour's worth of pending timers.
+      clearTimeout(timer);
       busy = false;
     }
   };
@@ -426,31 +597,33 @@ async function recover() {
   // A proxy switch cut off by the restart would show as running, and refuse the next switch, for ten minutes.
   for (const j of stale as unknown as { type: string; payload: JobPayloads["proxy.switch"] }[]) {
     if (j.type !== "proxy.switch" || !j.payload?.serverId) continue;
-    const [row] = await db.select({ sw: schema.server.proxySwitch }).from(schema.server).where(eq(schema.server.id, j.payload.serverId));
-    if (row?.sw?.state !== "running") continue;
-    await db
-      .update(schema.server)
-      .set({
-        proxySwitch: {
-          ...row.sw,
-          state: "failed",
-          finishedAt: new Date().toISOString(),
-          log: `${row.sw.log}The worker restarted during the switch. Switch again to finish it.\n`,
-        },
-      })
-      .where(eq(schema.server.id, j.payload.serverId));
+    await failProxySwitch(j.payload.serverId, "The worker restarted during the switch. Switch again to finish it.");
   }
   // A branch copy or removal cut off by the restart would show "Copying data…" forever and block a reset.
   for (const j of stale as unknown as { type: string; payload: JobPayloads["database.branch"] }[]) {
     if (j.type !== "database.branch" || !j.payload?.branchId) continue;
-    await db
-      .update(schema.databaseBranch)
-      .set({
-        status: "failed",
-        error: j.payload.op === "delete" ? "Not deleted: the worker restarted. Delete it again." : "The worker restarted during the copy. Reset the branch to copy it again.",
-        updatedAt: new Date(),
-      })
-      .where(and(eq(schema.databaseBranch.id, j.payload.branchId), inArray(schema.databaseBranch.status, ["creating", "resetting", "deleting"])));
+    await failBranch(
+      j.payload,
+      j.payload.op === "delete" ? "Not deleted: the worker restarted. Delete it again." : "The worker restarted during the copy. Reset the branch to copy it again.",
+    );
+  }
+  // A data copy of a cloned environment cut off by the restart: its databases may be half filled.
+  for (const j of stale as unknown as { type: string; payload: JobPayloads["environment.copy-data"] }[]) {
+    if (j.type !== "environment.copy-data" || !j.payload?.environmentId) continue;
+    await failInterruptedCopy(j.payload, "the worker restarted.").catch((e: Error) => log(`data copy recovery failed: ${e.message}`));
+  }
+  // A stop cut off by the restart left "stopped", which the monitor does not look at, while some
+  // containers may still run: it runs again. Unless something else was asked for the service since.
+  for (const j of stale as unknown as { type: string; payload: { serviceId?: string } }[]) {
+    if (j.type !== "service.stop" || !j.payload?.serviceId) continue;
+    const [service] = await db.select({ status: schema.service.status }).from(schema.service).where(eq(schema.service.id, j.payload.serviceId));
+    if (service?.status !== "stopped") continue;
+    const [later] = await db
+      .select({ id: schema.job.id })
+      .from(schema.job)
+      .where(and(eq(schema.job.concurrencyKey, `service:${j.payload.serviceId}`), eq(schema.job.status, "pending")))
+      .limit(1);
+    if (!later) await enqueue("service.stop", { serviceId: j.payload.serviceId }, { concurrencyKey: `service:${j.payload.serviceId}` });
   }
   // A preview's database copy cut off by the restart: the preview would never deploy, and a copy
   // that was restored but not cleaned up would keep the personal data its clean-up SQL removes.
@@ -465,12 +638,7 @@ async function recover() {
   }
   // A start cut off by the restart left "deploying", which the monitor does not look at: the containers say what runs.
   for (const j of stale as unknown as { type: string; payload: { serviceId?: string } }[]) {
-    if (j.type !== "service.start" || !j.payload?.serviceId) continue;
-    const [service] = await db.select().from(schema.service).where(eq(schema.service.id, j.payload.serviceId));
-    if (service?.status !== "deploying") continue;
-    const server = await getServer(service.serverId).catch(() => null);
-    const up = server ? await listServiceContainers(service.id, false, server.docker).catch(() => null) : null;
-    if (up) await setServiceStatus(service.id, up.length ? "running" : "crashed");
+    if (j.type === "service.start" && j.payload?.serviceId) await settleFromContainers(j.payload.serviceId, "deploying");
   }
   const stuck = await db
     .update(schema.deployment)

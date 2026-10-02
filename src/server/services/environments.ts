@@ -307,6 +307,39 @@ export async function copyEnvironmentData(payload: { environmentId: string; pair
   if (failed.length) throw new Error(`Data copy failed for ${failed.join(", ")}`);
 }
 
+/**
+ * A data copy that stopped part way (the worker restarted, or it ran past its time limit): every
+ * database it had not finished says so in Activity, where the clone dialog points. Its data may be
+ * incomplete, and nothing else would tell.
+ */
+export async function failInterruptedCopy(payload: { environmentId: string; pairs: { from: string; to: string }[] }, why: string) {
+  const [env] = await db.select().from(schema.environment).where(eq(schema.environment.id, payload.environmentId));
+  if (!env) return;
+  const targets = payload.pairs.map((p) => p.to);
+  if (!targets.length) return;
+  // The targets are new services: any outcome recorded for one belongs to this copy.
+  const done = new Set(
+    (
+      await db
+        .select({ targetId: schema.activity.targetId })
+        .from(schema.activity)
+        .where(and(inArray(schema.activity.action, ["environment.data-copied", "environment.data-copy-failed"]), inArray(schema.activity.targetId, targets)))
+    ).map((r) => r.targetId),
+  );
+  for (const id of targets) {
+    if (done.has(id)) continue;
+    const [target] = await db.select({ name: schema.service.name }).from(schema.service).where(eq(schema.service.id, id));
+    if (!target) continue;
+    await logActivity({
+      projectId: env.projectId,
+      action: "environment.data-copy-failed",
+      targetType: "service",
+      targetId: id,
+      message: `The data copy of ${target.name} into ${env.name} stopped: ${why} It may hold only part of the data.`,
+    });
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /*                          Databases for PR previews                          */
 /* -------------------------------------------------------------------------- */

@@ -288,17 +288,35 @@ export async function requireResourceChange(
   }
 }
 
-/** A deploy may start when the organization has a free build slot. */
-export async function buildSlotFree(organizationId: string, deploymentId: string) {
+/**
+ * A deploy may start when the organization has a free build slot. Run it inside `claimBuildSlot`'s
+ * lock (pass its transaction): checked alone, builds starting at once could all see the last slot.
+ */
+export async function buildSlotFree(organizationId: string, deploymentId: string, tx: Pick<typeof db, "select"> = db) {
   const limits = await effectiveLimits(organizationId);
   if (limits.concurrentBuilds == null) return true;
-  const [row] = await db
+  const [row] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(schema.deployment)
     .innerJoin(schema.service, eq(schema.service.id, schema.deployment.serviceId))
     .innerJoin(schema.project, eq(schema.project.id, schema.service.projectId))
     .where(and(eq(schema.project.organizationId, organizationId), inArray(schema.deployment.status, ["building", "deploying"]), sql`${schema.deployment.id} <> ${deploymentId}`));
   return (row?.n ?? 0) < Math.max(1, limits.concurrentBuilds);
+}
+
+/**
+ * Check the organization's build slot and claim it in one step: one lock per organization holds
+ * other deploys' checks back until this one's claim (`claim`, run in the same transaction) is
+ * committed, so they count it. Returns null when the organization is at its limit.
+ */
+export async function claimBuildSlot<T>(organizationId: string | null, deploymentId: string, claim: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => Promise<T>) {
+  return db.transaction(async (tx) => {
+    if (organizationId) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`serve-builds:${organizationId}`}))`);
+      if (!(await buildSlotFree(organizationId, deploymentId, tx))) return null;
+    }
+    return { value: await claim(tx) };
+  });
 }
 
 /** Tells the organization once when a limit fills up (again after usage dropped below it). */

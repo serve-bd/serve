@@ -8,7 +8,8 @@ import { type BuildConfig, buildsImage, defaultBuild, type ImageSource, type Por
 import { ensureNetwork, imageExists, imageExistsFor, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
 import { forgetServer, getServer, serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
-import { buildSlotFree } from "@/server/limits";
+import { claimBuildSlot } from "@/server/limits";
+import { JobTimeout } from "@/lib/job-timeouts";
 import { syncServiceProxy } from "@/server/proxy/nginx";
 import { resolveEnv } from "@/server/services/variables";
 import { composeVariables } from "@/lib/compose-vars";
@@ -1211,25 +1212,28 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     return;
   }
 
-  // The organization's builds-at-once limit: wait in the queue instead of failing.
+  const log = new DeployLogger(dep.id);
+  const previousStatus = service.status;
+  const startedAt = new Date();
+  // The organization's builds-at-once limit: wait in the queue instead of failing. The check and
+  // the claim are one step, so deploys starting together cannot all take the last slot.
   const organizationId = await orgIdOf(service);
-  if (organizationId && !(await buildSlotFree(organizationId, dep.id))) {
+  const slot = await claimBuildSlot(organizationId, dep.id, async (tx) => {
+    // Only from the queue: a deployment cancelled in the meantime stays cancelled.
+    const [claimed] = await tx
+      .update(schema.deployment)
+      .set({ status: "building", startedAt })
+      .where(and(eq(schema.deployment.id, dep.id), eq(schema.deployment.status, "queued")))
+      .returning({ id: schema.deployment.id });
+    return !!claimed;
+  });
+  if (!slot) {
     await setDeployment(dep.id, { logs: "Waiting for a free build slot: this organization is at its limit of builds at once.\n" });
     const { enqueue } = await import("@/server/queue");
     await enqueue("deploy", { deploymentId: dep.id }, { concurrencyKey: `service:${service.id}`, runAt: new Date(Date.now() + 10_000) });
     return;
   }
-
-  const log = new DeployLogger(dep.id);
-  const previousStatus = service.status;
-  const startedAt = new Date();
-  // Only from the queue: a deployment cancelled in the meantime stays cancelled.
-  const [claimed] = await db
-    .update(schema.deployment)
-    .set({ status: "building", startedAt })
-    .where(and(eq(schema.deployment.id, dep.id), eq(schema.deployment.status, "queued")))
-    .returning({ id: schema.deployment.id });
-  if (!claimed) return;
+  if (!slot.value) return;
   await setServiceStatus(service.id, "building");
   log.line(`Deployment ${dep.id} started (${dep.trigger})`);
 
@@ -1272,8 +1276,11 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       dedupKey: `deploy:${service.id}`,
       data: { durationSeconds: seconds, commit: commitSha ?? null, commitMessage: commitMessage ?? null },
     });
-  } catch (error) {
-    const cancelled = error instanceof DeployCancelled || signal?.aborted;
+  } catch (thrown) {
+    // A deploy the worker stopped for running too long failed; it was not cancelled by anyone.
+    const timedOut = signal?.reason instanceof JobTimeout ? signal.reason : null;
+    const error = timedOut ?? thrown;
+    const cancelled = !timedOut && (error instanceof DeployCancelled || signal?.aborted);
     const output = (error as { output?: string }).output ?? "";
     // For failed commands, the useful part is the tail of their output.
     const tail = output

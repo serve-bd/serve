@@ -231,6 +231,11 @@ export async function scheduleInstanceBackups(enqueueBackup: (id: string) => Pro
   await enqueueBackup(await queueInstanceBackupRecord("schedule"));
 }
 
+/** One backup the worker gave up on while it still runs (it ran past its time limit). */
+export async function failInstanceBackup(id: string, error: string) {
+  await mutateBackups((list) => list.map((b) => (b.id === id && b.status === "running" ? { ...b, status: "failed", finishedAt: new Date().toISOString(), error } : b)));
+}
+
 /**
  * Records left "running" by a worker that stopped mid-backup. Only the worker makes backups, so at
  * its start no backup runs: what one cut off left goes too. Its staging folder holds the database

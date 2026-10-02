@@ -612,7 +612,7 @@ const MAX_IMPORT_BYTES = 20 * 1024 ** 3;
  */
 /** File extensions Serve can restore, per engine. */
 export const IMPORT_EXTENSIONS: Record<DatabaseConfig["engine"], string[]> = {
-  postgres: [".dump", ".backup", ".sql", ".sql.gz", ".dump.gz"],
+  postgres: [".dump", ".dmp", ".backup", ".sql", ".sql.gz", ".dump.gz", ".dmp.gz"],
   mysql: [".sql", ".sql.gz"],
   mariadb: [".sql", ".sql.gz"],
   mongodb: [".archive.gz", ".gz"],

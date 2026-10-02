@@ -86,6 +86,8 @@ export async function updateRegistry(id: string, input: z.input<typeof registryS
     const row = await getRegistry(id, ctx.org.id);
     if (!row) throw new UserError("Registry not found.");
     const data = parseRegistry(input);
+    // The login check sends the password to the host: a stored one only goes to the host it was saved for.
+    if (!data.password && data.host !== row.host) throw new UserError("Enter the password again: the host changed.");
     const password = data.password || registryAuth(row).password;
     await assertRegistryHost(ctx, data.host);
     await assertLogin(data.host, data.username, password);

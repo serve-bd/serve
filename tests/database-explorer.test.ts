@@ -237,13 +237,14 @@ describe("database explorer", () => {
         "EVAL 'return 1' 0",
         "OBJECT FREQ2",
         "CLIENT KILL ID 1",
-        "KEYS *",
         "EXPIRE a 1",
         "RENAME a b",
         "SCRIPT FLUSH",
         "FUNCTION DELETE x",
       ])
         expect(check(bad), bad).toMatch(/not allowed in read only mode/);
+      // Read only, but it stops a big database: SCAN instead.
+      expect(check("KEYS *")).toMatch(/Use SCAN/);
       for (const never of ["MONITOR", "SUBSCRIBE c", "SHUTDOWN", "DEBUG SLEEP 1", "SELECT 2", "AUTH x"])
         expect(check(never, false), never).toMatch(/cannot run from here|Choose the database/);
       expect(check("SET a 1", false)).toBeNull();

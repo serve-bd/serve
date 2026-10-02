@@ -1090,7 +1090,10 @@ export function checkKvCommand(args: Buffer[], readOnly: boolean): string | null
     const sub = args[1]?.toString("latin1").toUpperCase() ?? "";
     return subs.has(sub) ? null : `${name} ${sub || "…"} is not allowed in read only mode. Allowed: ${[...subs].map((s) => `${name} ${s}`).join(", ")}.`;
   }
-  return KV_READ.has(name) ? null : `${name} can change data, so it is not allowed in read only mode. Allow changes to run it.`;
+  if (KV_READ.has(name)) return null;
+  // Reads every key at once: on a big database it stops the server for everyone until it ends.
+  if (name === "KEYS") return "KEYS can stop a big database while it runs. Use SCAN (or the key list) instead.";
+  return `${name} can change data, so it is not allowed in read only mode. Allow changes to run it.`;
 }
 
 /** An argument for redis-cli --quoted-input: "…" with every byte that is not plain printable ASCII as \xHH. */

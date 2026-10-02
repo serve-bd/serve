@@ -4,6 +4,8 @@ import "dotenv/config";
 // A rejected promise nobody awaits must not take the worker down.
 process.on("unhandledRejection", (reason) => console.error("[worker] unhandled rejection:", reason instanceof Error ? reason.message : reason));
 import fs from "node:fs";
+import path from "node:path";
+import { paths } from "@/server/paths";
 import { checkLimitNotices, hasRoomFor, measureOrgDisk } from "@/server/limits";
 import { copyEnvironmentData, preparePreviewDatabase } from "@/server/services/environments";
 import { and, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
@@ -400,6 +402,15 @@ async function recover() {
   await failInterruptedInstanceBackups().catch(() => {});
   const stale = await recoverStaleJobs();
   if (stale.length) log(`Recovered ${stale.length} interrupted job(s)`);
+  // Clones of builds and fetches cut off by the restart (none runs now). Their ".auth" folders
+  // hold the git SSH key, which is otherwise removed right after the clone.
+  for (const entry of await fs.promises.readdir(paths.builds).catch(() => [] as string[])) {
+    await fs.promises.rm(path.join(paths.builds, entry), { recursive: true, force: true }).catch(() => {});
+  }
+  const servicesDir = path.dirname(paths.service("x"));
+  for (const id of await fs.promises.readdir(servicesDir).catch(() => [] as string[])) {
+    await fs.promises.rm(path.join(servicesDir, id, "repo.auth"), { recursive: true, force: true }).catch(() => {});
+  }
   // A removal cut off half way: its service row is gone, so nothing else would ever remove the rest.
   for (const j of stale as unknown as { type: string; payload: JobPayloads["service.delete"] }[]) {
     if (j.type === "service.delete") await enqueue("service.delete", j.payload, { concurrencyKey: `service:${j.payload.serviceId}` });

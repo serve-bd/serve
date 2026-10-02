@@ -172,6 +172,8 @@ export async function createServer(input: Pick<z.input<typeof serverSchema>, "na
       // An organization's server is its own; an instance server starts with Root only, and Root admins share it.
       ownerOrganizationId: owner,
       organizationIds: owner ? [] : [ctx.org.id],
+      // Metrics are opt-in on added servers: the agent runs only once someone turns them on.
+      metricsEnabled: false,
     });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.create", message: `Added server ${data.name} (${data.host})` });
     return { id };

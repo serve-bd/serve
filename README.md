@@ -44,7 +44,7 @@ Use a server dedicated to Serve: it controls Docker, which is equal to root on t
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/serve-bd/serve/main/install.sh | bash
+curl -fsSL https://serve.bd/install.sh | bash
 ```
 
 The installer asks for your sudo password if you are not root. On a new server it asks for three ports; press Enter to keep the defaults:

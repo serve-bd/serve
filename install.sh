@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Serve installer.
-#   curl -fsSL https://raw.githubusercontent.com/serve-bd/serve/main/install.sh | bash
+#   curl -fsSL https://serve.bd/install.sh | bash
 #
 # Without root it restarts itself through sudo, which asks for your password.
 # A new install asks for the dashboard and proxy ports; running it again on an installed server
@@ -18,7 +18,24 @@ set -euo pipefail
 DATA_DIR=/data/serve
 REPO="${SERVE_REPO:-serve-bd/serve}"
 IMAGE_REPO="${SERVE_IMAGE_REPO:-ghcr.io/$REPO}"
-REPO_RAW="${SERVE_REPO_RAW:-https://raw.githubusercontent.com/serve-bd/serve/main}"
+# The installer and its files are served by serve.bd: GitHub's raw file server is slow or blocked
+# on some networks. SERVE_REPO_RAW points at a repository's raw files instead (a fork, a branch).
+INSTALL_BASE="${SERVE_INSTALL_BASE:-https://serve.bd}"
+REPO_RAW="${SERVE_REPO_RAW:-}"
+# installer_url install.sh | compose.yml | restore-instance.sh
+installer_url() {
+  if [ -n "$REPO_RAW" ]; then
+    case "$1" in
+      install.sh) echo "$REPO_RAW/install.sh" ;;
+      compose.yml) echo "$REPO_RAW/docker/compose.yml" ;;
+      restore-instance.sh) echo "$REPO_RAW/scripts/restore-instance.sh" ;;
+    esac
+  elif [ "$1" = install.sh ]; then
+    echo "$INSTALL_BASE/install.sh"
+  else
+    echo "$INSTALL_BASE/install/$1"
+  fi
+}
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  \033[34m→\033[0m %s\n' "$*"; }
@@ -36,12 +53,12 @@ if [ "$(id -u)" -ne 0 ]; then
   self="$0"
   if [ ! -f "$self" ] || [ "$(basename "$self")" = bash ]; then
     self="$(mktemp)"
-    curl -fsSL "$REPO_RAW/install.sh" -o "$self" || fail "Could not download the installer again to run it with sudo."
+    curl -fsSL "$(installer_url install.sh)" -o "$self" || fail "Could not download the installer again to run it with sudo."
     export SERVE_INSTALLER_COPY="$self"
   fi
   printf '  \033[34m→\033[0m %s\n' "Serve installs as root. sudo may ask for your password."
   pass=()
-  for v in SERVE_VERSION SERVE_IMAGE SERVE_DASHBOARD_PORT SERVE_PROXY_HTTP_PORT SERVE_PROXY_HTTPS_PORT SERVE_YES SERVE_REPO SERVE_IMAGE_REPO SERVE_REPO_RAW SERVE_INSTALLER_COPY; do
+  for v in SERVE_VERSION SERVE_IMAGE SERVE_DASHBOARD_PORT SERVE_PROXY_HTTP_PORT SERVE_PROXY_HTTPS_PORT SERVE_YES SERVE_REPO SERVE_IMAGE_REPO SERVE_REPO_RAW SERVE_INSTALL_BASE SERVE_INSTALLER_COPY; do
     if [ -n "${!v:-}" ]; then pass+=("$v=${!v}"); fi
   done
   exec sudo env ${pass[@]+"${pass[@]}"} bash "$self" "$@"
@@ -236,11 +253,11 @@ docker pull --quiet "$IMAGE" >/dev/null || fail "Could not pull $IMAGE."
 from_image() { docker run --rm --entrypoint cat "$IMAGE" "/app/deploy/$1" > "$2.next" 2>/dev/null && [ -s "$2.next" ] && mv "$2.next" "$2"; }
 if ! from_image compose.yml "$DATA_DIR/docker-compose.yml"; then
   rm -f "$DATA_DIR/docker-compose.yml.next"
-  curl -fsSL "$REPO_RAW/docker/compose.yml" -o "$DATA_DIR/docker-compose.yml"
+  curl -fsSL "$(installer_url compose.yml)" -o "$DATA_DIR/docker-compose.yml"
 fi
 if ! from_image restore-instance.sh "$DATA_DIR/restore-instance.sh"; then
   rm -f "$DATA_DIR/restore-instance.sh.next"
-  curl -fsSL "$REPO_RAW/scripts/restore-instance.sh" -o "$DATA_DIR/restore-instance.sh"
+  curl -fsSL "$(installer_url restore-instance.sh)" -o "$DATA_DIR/restore-instance.sh"
 fi
 chmod 700 "$DATA_DIR/restore-instance.sh"
 

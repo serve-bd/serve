@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Check, ChevronsUpDown } from "lucide-react";
-import { Menu, MenuContent, MenuLabel, MenuLinkItem, MenuTrigger } from "@/components/ui/menu";
+import { Check, ChevronsUpDown, Plus } from "lucide-react";
+import { Menu, MenuContent, MenuLabel, MenuLinkItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
+import { useCan } from "@/components/permissions";
 import { ServiceIcon } from "@/components/service-icon";
 import { StatusDot } from "@/components/ui/status";
 
@@ -27,13 +28,15 @@ function hasTab(type: string, tab: string, engine: string | null) {
 }
 
 /** The service's name in the breadcrumb, opening a list of the other services in its environment. */
-export function ServiceSwitcher({ projectId, current, services }: { projectId: string; current: SiblingService; services: SiblingService[] }) {
+export function ServiceSwitcher({ projectId, environment, current, services }: { projectId: string; environment: string; current: SiblingService; services: SiblingService[] }) {
   const pathname = usePathname();
+  const can = useCan();
+  const canCreate = can("services.manage");
   // Same tab on the other service (a deployment's page falls back to the list).
   const tab = pathname.split(`/services/${current.id}/`)[1]?.split("/")[0] ?? "";
   const hrefOf = (s: SiblingService) => `/projects/${projectId}/services/${s.id}${tab && hasTab(s.type, tab, s.engine) ? `/${tab}` : ""}`;
 
-  if (services.length < 2) return <span className="truncate text-fg-2">{current.name}</span>;
+  if (services.length < 2 && !canCreate) return <span className="truncate text-fg-2">{current.name}</span>;
   return (
     <Menu>
       <MenuTrigger className="-mx-1.5 flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-fg-2 outline-none transition-colors hover:bg-hover hover:text-fg data-[popup-open]:bg-hover data-[popup-open]:text-fg focus-visible:ring-2 focus-visible:ring-accent/40">
@@ -49,6 +52,14 @@ export function ServiceSwitcher({ projectId, current, services }: { projectId: s
             {s.id === current.id ? <Check className="flex-none text-accent!" /> : <StatusDot status={s.status} className="flex-none" />}
           </MenuLinkItem>
         ))}
+        {canCreate && (
+          <>
+            <MenuSeparator />
+            <MenuLinkItem render={<Link href={`/projects/${projectId}/new?env=${encodeURIComponent(environment)}`} />}>
+              <Plus /> New service
+            </MenuLinkItem>
+          </>
+        )}
       </MenuContent>
     </Menu>
   );

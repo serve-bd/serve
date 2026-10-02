@@ -5,21 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowUpRight,
-  ChevronDown,
-  Construction,
-  FolderInput,
-  Play,
-  Plug,
-  Power,
-  RotateCw,
-  Rocket,
-  Server as ServerIcon,
-  Square,
-} from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowUpRight, ChevronDown, Construction, FolderInput, Play, Plug, Power, RotateCw, Rocket, Square } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
 import { ServiceSwitcher, type SiblingService } from "./service-switcher";
 import { MoveServicesDialog } from "@/components/move-services-dialog";
@@ -77,7 +63,7 @@ export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
   });
 }
 
-export function ServiceHeader({ project, environment, service, initialLive, server, ports, maintenance, issues, siblings }: Props) {
+export function ServiceHeader({ project, environment, service, initialLive, ports, maintenance, issues, siblings }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const confirm = useConfirm();
@@ -176,6 +162,7 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                   <ServiceSwitcher
                     projectId={project.id}
                     current={parentMe ?? me}
+                    environment={environment}
                     services={siblings.some((s) => s.id === (parentMe ?? me).id) ? siblings : [...siblings, parentMe ?? me]}
                   />
                 ),
@@ -236,12 +223,6 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                       <span className="truncate">{p.label}/udp</span>
                     </span>
                   ),
-                )}
-                {server && (
-                  <Link href={`/servers/${server.id}`} title="Server" className="inline-flex max-w-full items-center gap-1 text-[12px] hover:text-fg">
-                    <ServerIcon className="size-3 shrink-0 text-faint" />
-                    <span className="truncate">{server.name}</span>
-                  </Link>
                 )}
               </div>
             </div>

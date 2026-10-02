@@ -1,5 +1,5 @@
 import { NoAccess } from "@/components/no-access";
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { pageProject } from "@/server/services/access";
@@ -39,6 +39,23 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
       .where(eq(schema.containerRegistry.organizationId, ctx.org.id))
       .orderBy(asc(schema.containerRegistry.name)),
   ]);
+  // Data of databases deleted with their volume kept, on servers this organization can use.
+  const kept = (
+    await db
+      .select({
+        id: schema.keptDatabase.id,
+        name: schema.keptDatabase.name,
+        engine: schema.keptDatabase.engine,
+        version: schema.keptDatabase.version,
+        serverId: schema.keptDatabase.serverId,
+        createdAt: schema.keptDatabase.createdAt,
+      })
+      .from(schema.keptDatabase)
+      .where(eq(schema.keptDatabase.organizationId, ctx.org.id))
+      .orderBy(desc(schema.keptDatabase.createdAt))
+  )
+    .filter((k) => servers.some((s) => s.id === k.serverId))
+    .map((k) => ({ ...k, serverName: servers.find((s) => s.id === k.serverId)!.name, createdAt: k.createdAt.toISOString() }));
   const catalog: CatalogTemplate[] = [
     ...custom.map((t) => ({
       id: `custom:${t.id}`,
@@ -95,6 +112,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
           : null
       }
       templates={catalog}
+      kept={kept}
       canManageTemplates={ctx.can("integrations.manage")}
       engines={engineList.map((e) => ({
         engine: e.engine,

@@ -57,6 +57,8 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
   }
   const retire: Retire[] = [];
   await removeDatabaseDomainRecords(all, retire);
+  // Databases deleted with their data kept: remembered, so a new database can start from it.
+  if (!removeVolumes) await keepDatabases(services.filter((s) => s.type === "database" && s.database && !s.parentServiceId));
   await db.delete(schema.service).where(
     inArray(
       schema.service.id,
@@ -78,7 +80,15 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
   for (const s of all) {
     await enqueue(
       "service.delete",
-      { serviceId: s.id, slug: s.slug, type: s.type, removeVolumes, environmentId: s.environmentId, serverId: s.serverId },
+      {
+        serviceId: s.id,
+        slug: s.slug,
+        type: s.type,
+        removeVolumes,
+        environmentId: s.environmentId,
+        serverId: s.serverId,
+        volumes: s.database?.dataVolume && s.database.dataVolumeOwned && !s.database.dataVolume.startsWith("/") ? [s.database.dataVolume] : [],
+      },
       { concurrencyKey: `service:${s.id}` },
     );
     // Extra servers (build once, run on many) have their own containers, sites and volumes.
@@ -93,6 +103,41 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
 }
 
 type Retire = { hostname: string; serverId: string; organizationId: string };
+
+async function keepDatabases(services: (typeof schema.service.$inferSelect)[]) {
+  if (!services.length) return;
+  const { volumeName } = await import("@/server/deploy/containers");
+  const { newId } = await import("@/server/id");
+  const projects = await db
+    .select({ id: schema.project.id, organizationId: schema.project.organizationId })
+    .from(schema.project)
+    .where(inArray(schema.project.id, [...new Set(services.map((s) => s.projectId))]));
+  const orgOf = new Map(projects.map((p) => [p.id, p.organizationId]));
+  const rows = services.flatMap((s) => {
+    const cfg = s.database!;
+    const organizationId = orgOf.get(s.projectId);
+    if (!organizationId) return [];
+    return [
+      {
+        id: newId(),
+        organizationId,
+        serverId: s.serverId,
+        name: s.name,
+        engine: cfg.engine,
+        version: cfg.version,
+        image: cfg.image ?? null,
+        username: cfg.username,
+        password: cfg.password,
+        database: cfg.database,
+        volume: cfg.dataVolume || volumeName(s.slug, "data"),
+        owned: !cfg.dataVolume || !!cfg.dataVolumeOwned,
+        dataMountPath: cfg.dataMountPath ?? null,
+        pgdata: cfg.pgdata ?? null,
+      },
+    ];
+  });
+  if (rows.length) await db.insert(schema.keptDatabase).values(rows);
+}
 
 /** The DNS records Serve made for databases' own domains (marked by their comment), never anyone else's. */
 async function removeDatabaseDomainRecords(services: (typeof schema.service.$inferSelect)[], retire: Retire[]) {

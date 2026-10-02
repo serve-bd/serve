@@ -967,7 +967,7 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
     : cfg.dataVolume.startsWith("/")
       ? { kind: "bind", source: cfg.dataVolume, mountPath: plan.dataMountPath }
       : { kind: "volume", source: cfg.dataVolume, mountPath: plan.dataMountPath, external: true };
-  if ((cfg.dataVolume || service.runtime.networks?.length) && (await orgIdOf(service)) !== (await getSetting("rootOrganizationId"))) {
+  if (((cfg.dataVolume && !cfg.dataVolumeOwned) || service.runtime.networks?.length) && (await orgIdOf(service)) !== (await getSetting("rootOrganizationId"))) {
     throw new Error("Only services of the Root organization may keep data or names in volumes and networks made outside Serve.");
   }
   log?.step("Starting database");

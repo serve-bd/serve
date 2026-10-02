@@ -5,6 +5,7 @@ import type {
   ComposeBackupConfig,
   ComposeConfig,
   DatabaseConfig,
+  DbEngine,
   DeploymentTarget,
   DistributionConfig,
   MaintenanceConfig,
@@ -675,6 +676,38 @@ export const verifiedDomain = pgTable(
 );
 
 export type CertificateProvider = "letsencrypt-http" | "letsencrypt-cloudflare" | "cloudflare-origin" | "custom";
+
+/**
+ * The data of a database deleted with its volume kept: enough to start a new database on it, with
+ * the account it was made with. Gone once a database uses it again.
+ */
+export const keptDatabase = pgTable(
+  "kept_database",
+  {
+    id: id(),
+    organizationId: orgRef(),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => server.id, { onDelete: "cascade" }),
+    /** The deleted service's name. */
+    name: text("name").notNull(),
+    engine: text("engine").$type<DbEngine>().notNull(),
+    version: text("version").notNull(),
+    image: text("image"),
+    username: text("username").notNull(),
+    /** Encrypted. */
+    password: text("password").notNull(),
+    database: text("database").notNull(),
+    /** Docker volume name, or an absolute host path. */
+    volume: text("volume").notNull(),
+    /** Made by Serve: deleting the database that uses it again may delete it. */
+    owned: boolean("owned").notNull().default(true),
+    dataMountPath: text("data_mount_path"),
+    pgdata: text("pgdata"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("kept_database_org_idx").on(t.organizationId)],
+);
 
 export type CertificateStatus = "pending" | "issuing" | "active" | "failed" | "expired";
 

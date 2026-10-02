@@ -319,6 +319,8 @@ export type DatabaseConfig = {
    * Serve: a database moved into a project keeps its data. Unset: Serve's own volume.
    */
   dataVolume?: string | null;
+  /** The data volume is Serve's (a database started from kept data): deleting with its volumes deletes it. */
+  dataVolumeOwned?: boolean;
   /** PostgreSQL: the data directory (PGDATA) inside the mount, when it is not Serve's default. */
   pgdata?: string | null;
   /** TLS with a certificate authority Serve creates for this database. */

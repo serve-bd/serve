@@ -88,6 +88,8 @@ type Props = {
   /** Git form filled in from a link (an existing app's "deploy its compose file"). */
   initialGit?: { repository: string; branch: string; credentialId: string | null; builder: string | null; rootDir?: string | null } | null;
   templates: CatalogTemplate[];
+  /** Data of databases deleted with their volume kept: a new database can start on it. */
+  kept?: { id: string; name: string; engine: DbEngine; version: string; serverId: string; serverName: string; createdAt: string }[];
   /** Organization admins can manage templates. */
   canManageTemplates: boolean;
   engines: {
@@ -765,13 +767,23 @@ function DatabaseForm({ props, onBack, initialEngine }: { props: Props; onBack: 
   const [engine, setEngine] = React.useState<DbEngine>(initialEngine ?? "postgres");
   const info = props.engines.find((e) => e.engine === engine)!;
   const [version, setVersion] = React.useState(info.defaultVersion);
+  // The defaults are filled in, not only hinted: what you see is what gets made.
+  const [name, setName] = React.useState(info.label.toLowerCase());
+  const [username, setUsername] = React.useState(info.defaultUser);
+  const [database, setDatabase] = React.useState(info.defaultDatabase);
   const pickEngine = (e: DbEngine) => {
+    const next = props.engines.find((x) => x.engine === e)!;
+    // Values still at the old engine's defaults follow the new engine.
+    if (name === info.label.toLowerCase()) setName(next.label.toLowerCase());
+    if (username === info.defaultUser) setUsername(next.defaultUser);
+    if (database === info.defaultDatabase) setDatabase(next.defaultDatabase);
     setEngine(e);
-    setVersion(props.engines.find((x) => x.engine === e)!.defaultVersion);
+    setVersion(next.defaultVersion);
   };
-  const [name, setName] = React.useState("");
-  const [username, setUsername] = React.useState("");
-  const [database, setDatabase] = React.useState("");
+  const kept = props.kept ?? [];
+  const [from, setFrom] = React.useState("new");
+  const keptRow = kept.find((k) => k.id === from) ?? null;
+  const keptInfo = keptRow ? props.engines.find((e) => e.engine === keptRow.engine) : null;
   const { run, pending } = useAction(createDatabaseService, {
     refresh: false,
     onSuccess: (d) => router.push(`/projects/${props.projectId}/services/${d.id}`),
@@ -779,19 +791,31 @@ function DatabaseForm({ props, onBack, initialEngine }: { props: Props; onBack: 
   return (
     <FormShell
       title="Add a database"
-      description="A strong password is generated for you. Other services reach it on the private network."
+      description={
+        keptRow ? "It starts on the kept data, with the user and password it had." : "A strong password is generated for you. Other services reach it on the private network."
+      }
       onBack={onBack}
       onSubmit={() =>
-        run({
-          projectId: props.projectId,
-          environmentId: props.environmentId,
-          serverId: props.serverId,
-          name: name || info.label.toLowerCase(),
-          engine,
-          version,
-          username: username || undefined,
-          database: database || undefined,
-        })
+        run(
+          keptRow
+            ? {
+                projectId: props.projectId,
+                environmentId: props.environmentId,
+                name: name || keptRow.name,
+                engine: keptRow.engine,
+                keptId: keptRow.id,
+              }
+            : {
+                projectId: props.projectId,
+                environmentId: props.environmentId,
+                serverId: props.serverId,
+                name: name || info.label.toLowerCase(),
+                engine,
+                version,
+                username: username || undefined,
+                database: database || undefined,
+              },
+        )
       }
       footer={
         <Button type="submit" variant="primary" size="sm" loading={pending}>
@@ -799,40 +823,81 @@ function DatabaseForm({ props, onBack, initialEngine }: { props: Props; onBack: 
         </Button>
       }
     >
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {props.engines.map((e) => (
-          <button
-            key={e.engine}
-            type="button"
-            onClick={() => pickEngine(e.engine)}
-            className={cn(
-              "flex flex-col items-center gap-2 rounded-xl border p-3 text-[13px] font-medium transition-all",
-              engine === e.engine ? "border-accent bg-accent-soft text-fg shadow-[0_0_0_1px_var(--accent)]" : "border-line text-fg-2 hover:border-line-strong hover:bg-hover/50",
+      {kept.length > 0 && (
+        <Field label="Start from">
+          <Select
+            value={from}
+            onValueChange={(v) => {
+              setFrom(v);
+              const k = kept.find((x) => x.id === v);
+              setName(k ? k.name : info.label.toLowerCase());
+            }}
+            options={[
+              { value: "new", label: "A new, empty database" },
+              ...kept.map((k) => ({
+                value: k.id,
+                label: `Kept data of ${k.name}`,
+                description: `${props.engines.find((e) => e.engine === k.engine)?.label ?? k.engine} ${k.version} · ${k.serverName} · deleted ${new Date(k.createdAt).toLocaleDateString()}`,
+              })),
+            ]}
+          />
+        </Field>
+      )}
+      {keptRow ? (
+        <>
+          <div className="flex items-center gap-3 rounded-xl border border-line px-3.5 py-3">
+            <ServiceIcon type="database" engine={keptRow.engine} size="sm" />
+            <div className="flex min-w-0 flex-col">
+              <span className="text-[13px] font-medium text-fg">
+                {keptInfo?.label ?? keptRow.engine} {keptRow.version}
+              </span>
+              <span className="text-xs text-muted">Runs on {keptRow.serverName}, where its data is.</span>
+            </div>
+          </div>
+          <Field label="Name">
+            <Input value={name} onChange={(e) => setName(typedServiceName(e.target.value))} />
+          </Field>
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {props.engines.map((e) => (
+              <button
+                key={e.engine}
+                type="button"
+                onClick={() => pickEngine(e.engine)}
+                className={cn(
+                  "flex flex-col items-center gap-2 rounded-xl border p-3 text-[13px] font-medium transition-all",
+                  engine === e.engine
+                    ? "border-accent bg-accent-soft text-fg shadow-[0_0_0_1px_var(--accent)]"
+                    : "border-line text-fg-2 hover:border-line-strong hover:bg-hover/50",
+                )}
+              >
+                <ServiceIcon type="database" engine={e.engine} size="sm" />
+                {e.label}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Name">
+              <Input value={name} onChange={(e) => setName(typedServiceName(e.target.value))} required />
+            </Field>
+            <Field label="Version">
+              <Select value={version} onValueChange={setVersion} options={info.versions.map((v) => ({ value: v, label: v }))} />
+            </Field>
+            {info.hasUser && (
+              <Field label="Username">
+                <Input value={username} onChange={(e) => setUsername(e.target.value)} required />
+              </Field>
             )}
-          >
-            <ServiceIcon type="database" engine={e.engine} size="sm" />
-            {e.label}
-          </button>
-        ))}
-      </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Name">
-          <Input value={name} onChange={(e) => setName(typedServiceName(e.target.value))} placeholder={info.label.toLowerCase()} />
-        </Field>
-        <Field label="Version">
-          <Select value={version} onValueChange={setVersion} options={info.versions.map((v) => ({ value: v, label: v }))} />
-        </Field>
-        {info.hasUser && (
-          <Field label="Username" optional>
-            <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={info.defaultUser} />
-          </Field>
-        )}
-        {info.hasDatabase && (
-          <Field label="Database name" optional>
-            <Input value={database} onChange={(e) => setDatabase(e.target.value)} placeholder={info.defaultDatabase} />
-          </Field>
-        )}
-      </div>
+            {info.hasDatabase && (
+              <Field label="Database name">
+                <Input value={database} onChange={(e) => setDatabase(e.target.value)} required />
+              </Field>
+            )}
+          </div>
+        </>
+      )}
     </FormShell>
   );
 }

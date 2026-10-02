@@ -178,6 +178,8 @@ export async function destroyService(opts: {
   keepFiles?: boolean;
   /** Keep the service's folder on that server too: a moved stack's ./data binds stay with its volumes. */
   keepServerFiles?: boolean;
+  /** Volumes it owns under other names than its own (data started from a kept database), removed with removeVolumes. */
+  volumes?: string[];
 }) {
   const server = await getServer(opts.serverId);
   const { docker } = server;
@@ -206,6 +208,13 @@ export async function destroyService(opts: {
           .remove()
           .catch(() => {});
     }
+  }
+  if (opts.removeVolumes) {
+    for (const name of opts.volumes ?? [])
+      await docker
+        .getVolume(name)
+        .remove()
+        .catch(() => {});
   }
   const images = await docker.listImages({ filters: { reference: [`serve/${opts.slug}:*`] } });
   for (const img of images) {

@@ -210,7 +210,8 @@ export function ServiceSettings(props: Props) {
         <Section
           id="general"
           title="General"
-          initial={{ name: service.name, hostname: service.hostname ?? "" }}
+          // The name it answers to is shown as is: its own slug until another one is chosen.
+          initial={{ name: service.name, hostname: service.hostname ?? service.slug }}
           onSave={(v) => save.run({ name: v.name, ...(service.type !== "compose" ? { hostname: v.hostname.trim() || null } : {}) })}
           footerNote={service.type !== "compose" ? "A new hostname applies after redeploying this service and the services that reference it." : undefined}
         >
@@ -224,11 +225,17 @@ export function ServiceSettings(props: Props) {
                   <CopyField value={service.slug} />
                 </Field>
               ) : (
-                <Field label="Private hostname" optional description={`Other services in this environment reach this one at this name. ${service.slug} keeps working as well.`}>
+                <Field
+                  label="Private hostname"
+                  description={
+                    v.hostname.trim() && v.hostname.trim() !== service.slug
+                      ? `Other services in this environment reach this one at this name. ${service.slug} keeps working as well.`
+                      : "Other services in this environment reach this one at this name."
+                  }
+                >
                   <Input
                     value={v.hostname}
                     onChange={(e) => set({ hostname: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
-                    placeholder={service.slug}
                     maxLength={63}
                     className="font-mono text-[13px]"
                   />
@@ -655,7 +662,9 @@ export function ServiceSettings(props: Props) {
                     title: `Delete ${service.name}?`,
                     description: removeVolumes
                       ? "All data stored in volumes is permanently deleted. This cannot be undone."
-                      : "Volumes are kept and can be reused by a new service with the same name.",
+                      : service.type === "database"
+                        ? "The data is kept on the server. Start a new database from it on the New service page."
+                        : "Volumes are kept on the server.",
                     confirmLabel: "Delete service",
                     danger: true,
                     typeToConfirm: service.name,

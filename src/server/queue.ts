@@ -44,6 +44,7 @@ export type JobPayloads = {
     serverId?: string;
     keepFiles?: boolean;
     keepServerFiles?: boolean;
+    volumes?: string[];
   };
   "certificate.issue": { certificateId: string };
   "certificate.retire": { certificateId: string };

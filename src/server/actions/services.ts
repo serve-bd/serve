@@ -285,6 +285,8 @@ const dbSchema = z.object({
     .optional(),
   password: z.string().regex(PASSWORD_PATTERN, "Use 12 to 128 letters, numbers, dots, dashes, underscores or tildes (these work in URLs).").optional(),
   serverId: z.string().nullable().optional(),
+  /** Start on the data of a database deleted with its volume kept: its engine, account and server. */
+  keptId: z.string().optional(),
 });
 
 export async function createDatabaseService(input: z.input<typeof dbSchema>) {
@@ -293,10 +295,30 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
     const data = dbSchema.parse(input);
     await projectInOrg(data.projectId, ctx.org.id);
     await assertEnvironment(data.projectId, data.environmentId);
-    const server = await resolveServerForOrg(data.serverId, ctx.org.id);
+    const [kept] = data.keptId
+      ? await db
+          .select()
+          .from(schema.keptDatabase)
+          .where(and(eq(schema.keptDatabase.id, data.keptId), eq(schema.keptDatabase.organizationId, ctx.org.id)))
+      : [];
+    if (data.keptId && !kept) throw new UserError("That kept data is gone.");
+    // Kept data lives on its server: the database runs there.
+    const server = await resolveServerForOrg(kept ? kept.serverId : data.serverId, ctx.org.id);
+    if (kept && !kept.volume.startsWith("/")) {
+      const { getServer } = await import("@/server/servers/context");
+      const there = await (await getServer(server.id)).docker
+        .getVolume(kept.volume)
+        .inspect()
+        .catch(() => null);
+      if (!there) {
+        await db.delete(schema.keptDatabase).where(eq(schema.keptDatabase.id, kept.id));
+        throw new UserError(`The volume ${kept.volume} is not on ${server.name} any more.`);
+      }
+    }
     const reserved = await requireRoom(ctx.org.id, { services: 1, type: "database", serverId: server.id });
+    if (kept) data.engine = kept.engine;
     const engine = engines[data.engine];
-    const version = data.version && engine.versions.includes(data.version) ? data.version : engine.defaultVersion;
+    const version = kept ? kept.version : data.version && engine.versions.includes(data.version) ? data.version : engine.defaultVersion;
     const id = newId();
     data.name = await uniqueServiceName(data.environmentId, data.name);
     await db.insert(schema.service).values({
@@ -308,19 +330,39 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
       slug: await uniqueServiceSlug(data.name),
       type: "database",
       runtime: withReservation({ ...defaultRuntime(engine.port), restartPolicy: "unless-stopped" as const }, reserved),
-      database: {
-        engine: data.engine,
-        version,
-        username: engine.hasUser ? data.username || engine.defaultUser : engine.defaultUser,
-        password: encrypt(data.password || randomPassword()),
-        database: engine.hasDatabase ? data.database || engine.defaultDatabase : engine.defaultDatabase,
-        publicPort: null,
-        backupSchedule: null,
-        backupRetention: 7,
-        s3DestinationId: null,
-      },
+      database: kept
+        ? {
+            // The data was made with this account: it signs in again as it did.
+            engine: kept.engine,
+            version,
+            image: kept.image,
+            username: kept.username,
+            password: kept.password,
+            database: kept.database,
+            dataVolume: kept.volume,
+            dataVolumeOwned: kept.owned,
+            dataMountPath: kept.dataMountPath,
+            pgdata: kept.pgdata,
+            publicPort: null,
+            backupSchedule: null,
+            backupRetention: 7,
+            s3DestinationId: null,
+          }
+        : {
+            engine: data.engine,
+            version,
+            username: engine.hasUser ? data.username || engine.defaultUser : engine.defaultUser,
+            password: encrypt(data.password || randomPassword()),
+            database: engine.hasDatabase ? data.database || engine.defaultDatabase : engine.defaultDatabase,
+            publicPort: null,
+            backupSchedule: null,
+            backupRetention: 7,
+            s3DestinationId: null,
+          },
       webhookSecret: newWebhookSecret(),
     });
+    // Used again: no longer offered as kept data.
+    if (kept) await db.delete(schema.keptDatabase).where(eq(schema.keptDatabase.id, kept.id));
     if (data.deploy) await queueDeployment(id, "create", { userId: ctx.user.id });
     await logActivity({
       userId: ctx.user.id,
@@ -328,7 +370,7 @@ export async function createDatabaseService(input: z.input<typeof dbSchema>) {
       action: "service.created",
       targetType: "service",
       targetId: id,
-      message: `Created ${engine.label} database ${data.name}`,
+      message: `Created ${engine.label} database ${data.name}${kept ? ` on the kept data of ${kept.name}` : ""}`,
     });
     return { id };
   });

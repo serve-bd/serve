@@ -222,7 +222,7 @@ export function TasksView({ serviceId, composeServices }: { serviceId: string; c
                       </Button>
                     </>
                   )}
-                  <Switch checked={t.enabled} onCheckedChange={(on) => toggle.run(t.id, on)} disabled={!canManage} />
+                  <Switch checked={t.enabled} onCheckedChange={(on) => toggle.run(t.id, on)} disabled={!canManage || toggle.pending} />
                 </div>
               ))}
             </div>

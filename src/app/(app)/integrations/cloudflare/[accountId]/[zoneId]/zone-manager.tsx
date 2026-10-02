@@ -288,7 +288,7 @@ export function ZoneManager({
                   <span className="text-[13px] font-medium text-fg">Always use HTTPS</span>
                   <span className="text-xs text-muted">Redirect HTTP requests at the edge.</span>
                 </span>
-                <Switch checked={alwaysHttps} disabled={!isAdmin} onCheckedChange={(on) => https.run(on)} />
+                <Switch checked={alwaysHttps} disabled={!isAdmin || https.pending} onCheckedChange={(on) => https.run(on)} />
               </label>
             )}
             <div className="flex items-center justify-between gap-4">

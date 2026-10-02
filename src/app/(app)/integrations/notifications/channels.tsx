@@ -137,7 +137,7 @@ export function NotificationChannels({ channels, deliveries, isAdmin }: { channe
                       <p className="truncate text-xs text-muted">{p?.label ?? c.kind}</p>
                     </div>
                     {isAdmin ? (
-                      <Switch checked={c.enabled} onCheckedChange={(on) => toggle.run(c.id, on)} aria-label={c.enabled ? "Turn off" : "Turn on"} />
+                      <Switch checked={c.enabled} disabled={toggle.pending} onCheckedChange={(on) => toggle.run(c.id, on)} aria-label={c.enabled ? "Turn off" : "Turn on"} />
                     ) : (
                       !c.enabled && <Badge>Off</Badge>
                     )}

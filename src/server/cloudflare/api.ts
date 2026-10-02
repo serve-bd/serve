@@ -173,6 +173,8 @@ export class Cloudflare {
     }
     if (foreign.length) return null;
     const a = existing.find((r) => r.type === "A");
+    // Serve's own CNAME to a tunnel (the name went through one before) blocks any A record for the name.
+    for (const r of existing) if (r !== a) await this.deleteDnsRecord(zoneId, r.id);
     if (a) return this.updateDnsRecord(zoneId, a.id, { content: ip, proxied, comment });
     return this.createDnsRecord(zoneId, { type: "A", name: hostname, content: ip, proxied, comment });
   }

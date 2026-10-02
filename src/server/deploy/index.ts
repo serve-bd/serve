@@ -1255,16 +1255,22 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       targetId: service.id,
       projectId: service.projectId,
     });
+    // The clone (or a rollback) filled in the commit after `dep` was read.
+    const [commit] = await db
+      .select({ commitSha: schema.deployment.commitSha, commitMessage: schema.deployment.commitMessage })
+      .from(schema.deployment)
+      .where(eq(schema.deployment.id, dep.id));
+    const { commitSha, commitMessage } = commit ?? dep;
     void notify(await orgOfService(service.id), "deploy.success", {
       ok: true,
       title: `${service.name} deployed`,
-      body: dep.commitMessage ? `Commit: ${dep.commitMessage}` : `Deployment finished in ${seconds}s.`,
+      body: commitMessage ? `Commit: ${commitMessage}` : `Deployment finished in ${seconds}s.`,
       url: `/projects/${service.projectId}/services/${service.id}/deployments/${dep.id}`,
       status: "succeeded",
       serviceId: service.id,
       deploymentId: dep.id,
       dedupKey: `deploy:${service.id}`,
-      data: { durationSeconds: seconds, commit: dep.commitSha ?? null, commitMessage: dep.commitMessage ?? null },
+      data: { durationSeconds: seconds, commit: commitSha ?? null, commitMessage: commitMessage ?? null },
     });
   } catch (error) {
     const cancelled = error instanceof DeployCancelled || signal?.aborted;

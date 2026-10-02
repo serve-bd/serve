@@ -84,7 +84,7 @@ export function DataBrowser({
   initial: ExplorerOverview | null;
   mainDatabase?: string;
   /** Branches of this database: each is a database (or a Redis database number) of the same server. */
-  branches?: { name: string; database: string }[];
+  branches?: { name: string; database: string; copies?: { original: string; database: string }[] }[];
 }) {
   const confirm = useConfirm();
   const [readOnly, setReadOnly] = React.useState(true);
@@ -121,8 +121,8 @@ export function DataBrowser({
   };
 
   // Branch databases are picked as branches, not among the databases of the main data.
-  const branchDatabases = new Set(branches.map((b) => b.database));
-  const branch = branches.find((b) => b.database === overview?.database) ?? null;
+  const branchDatabases = new Set(branches.flatMap((b) => [b.database, ...(b.copies ?? []).map((c) => c.database)]));
+  const branch = branches.find((b) => b.database === overview?.database || b.copies?.some((c) => c.database === overview?.database)) ?? null;
   const databases = (overview?.databases ?? []).filter((d) => !branchDatabases.has(d.name));
   const databaseLabel = (d: { name: string; size: number | null }) =>
     family === "kv" ? `Database ${d.name}${d.size ? ` · ${count(d.size)} ${d.size === 1 ? "key" : "keys"}` : ""}` : d.name;
@@ -184,6 +184,19 @@ export function DataBrowser({
                     options={[
                       { value: "main", label: "Main data", description: serviceName, icon: <Database className="size-3.5" /> },
                       ...branches.map((b) => ({ value: `branch:${b.name}`, label: b.name, description: "Branch", icon: <GitBranch className="size-3.5" /> })),
+                    ]}
+                  />
+                )}
+                {branch && !!branch.copies?.length && (
+                  <Select
+                    size="sm"
+                    aria-label="Branch database"
+                    className="w-auto min-w-40 max-w-full"
+                    value={overview.database}
+                    onValueChange={(v) => void load(v)}
+                    options={[
+                      { value: branch.database, label: mainDatabase ?? branch.database, description: branch.database },
+                      ...branch.copies.map((c) => ({ value: c.database, label: c.original, description: c.database })),
                     ]}
                   />
                 )}

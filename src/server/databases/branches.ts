@@ -12,6 +12,7 @@ import { databaseCreds, databaseUrl } from "./options";
 import { engines, mongoToolsTls, mongoTls, rcli } from "./engines";
 import { privateHost } from "@/lib/hostname";
 import { branchDatabaseName, previewBranchName, branchReference } from "@/lib/database-branches";
+import { parseListing, userScripts } from "./users";
 
 type Service = typeof schema.service.$inferSelect;
 type Branch = typeof schema.databaseBranch.$inferSelect;
@@ -295,11 +296,85 @@ async function run(service: Service, script: string, secrets: string[]) {
   return output;
 }
 
+/* ------------------------------------------------- Every database of the server */
+
+/** Engines whose branches can copy every database of the server, not only the main one. */
+export const allDatabaseEngines = new Set(["postgres", "mysql", "mariadb", "mongodb", "clickhouse"]);
+
+/** The databases of the server, without the engine's own (the listing of the Users page; ClickHouse here). */
+function listDatabasesScript(engine: string, main: Main) {
+  if (engine === "clickhouse")
+    return `clickhouse-client -u ${q(main.username)} --password ${q(main.password)} -q "SELECT concat('SERVE_DB', char(9), name) FROM system.databases WHERE name NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema') FORMAT TSVRaw"`;
+  return userScripts(engine, { username: main.username, password: main.password, database: main.database, tlsRequired: !!main.tlsRequired }).list();
+}
+
+/** Removes one copied database (the branch's login stays: the main copy still has it). */
+function dropCopyScript(engine: string, main: Main, database: string) {
+  switch (engine) {
+    case "postgres":
+      return `set -e\nexport PGPASSWORD=${q(main.password)}\npsql -X -v ON_ERROR_STOP=1 -q -o /dev/null -U ${q(main.username)} -d ${q(main.database)} <<'SERVE_SQL'
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ${literal(database)} AND pid <> pg_backend_pid();
+DROP DATABASE IF EXISTS ${ident(database)};
+SERVE_SQL`;
+    case "mysql":
+    case "mariadb":
+      return `set -e\nexport MYSQL_PWD=${q(main.password)}\n${engine} -uroot -e ${q(`DROP DATABASE IF EXISTS \`${database}\``)}`;
+    case "mongodb": {
+      const c = { username: main.username, password: main.password, database: main.database, tlsRequired: !!main.tlsRequired };
+      return `set -e\nmongosh --quiet${mongoTls(c)} -u ${q(main.username)} -p ${q(main.password)} --authenticationDatabase admin --eval ${q(`db.getSiblingDB(${JSON.stringify(database)}).dropDatabase()`)}`;
+    }
+    case "clickhouse":
+      return `set -e\nclickhouse-client -u ${q(main.username)} --password ${q(main.password)} -q ${q(`DROP DATABASE IF EXISTS \`${database}\` SYNC`)}`;
+    default:
+      throw new Error(`Branches of ${engine} have one database.`);
+  }
+}
+
+/**
+ * MongoDB: the branch's login lives in its main copy; it becomes the owner of every copy there,
+ * and the logins each copy's script made in the other copies go.
+ */
+function mongoOwnAllScript(main: Main, branch: BranchCreds, copies: string[]) {
+  const c = { username: main.username, password: main.password, database: main.database, tlsRequired: !!main.tlsRequired };
+  const js = `const home = db.getSiblingDB(${JSON.stringify(branch.database)});
+const roles = ${JSON.stringify([branch.database, ...copies].map((d) => ({ role: "dbOwner", db: d })))};
+home.updateUser(${JSON.stringify(branch.username)}, { roles });
+for (const d of ${JSON.stringify(copies)}) { try { db.getSiblingDB(d).dropUser(${JSON.stringify(branch.username)}); } catch (e) {} }`;
+  return `set -e\nmongosh --quiet${mongoTls(c)} -u ${q(main.username)} -p ${q(main.password)} --authenticationDatabase admin --eval ${q(js)}`;
+}
+
+/** A copied database's name: the original's and the branch's, like the main copy. */
+export const copyDatabaseName = (database: string, branch: string) => branchDatabaseName(database, branch);
+
+/**
+ * The other databases a branch copies now: every database of the server but the main one, the
+ * engine's own and every branch's copies. A copy name that is a database of its own (or that two
+ * databases would share) stops the copy: the copy would drop that database first.
+ */
+async function otherDatabases(service: Service, branch: Branch, main: Main) {
+  const engine = service.database!.engine;
+  const out = await run(service, listDatabasesScript(engine, main), [main.password]);
+  const found = parseListing(engine, out).databases;
+  const siblings = await db.select().from(schema.databaseBranch).where(eq(schema.databaseBranch.serviceId, service.id));
+  const copies = new Set(siblings.flatMap((b) => [b.database, ...b.extraDatabases.map((d) => copyDatabaseName(d, b.name))]));
+  const extras = found.filter((d) => d !== main.database && !copies.has(d)).sort();
+  const names = new Map<string, string>();
+  for (const d of [main.database, ...extras]) {
+    const copy = copyDatabaseName(d, branch.name);
+    if (names.has(copy)) throw new Error(`${names.get(copy)} and ${d} would both be copied as ${copy}. Rename one of them.`);
+    names.set(copy, d);
+    const own = d === main.database ? branch.database : copy;
+    if (found.includes(own) && !copies.has(own))
+      throw new Error(`The copy of ${d} would replace the database ${own}, which is not a copy. Rename it, or choose another branch name.`);
+  }
+  return extras;
+}
+
 /** Add a branch and queue its copy. */
 export async function createBranch(
   service: Service,
   name: string,
-  opts: { userId?: string | null; previewServiceId?: string | null; scrubbed?: boolean; sourceBranchId?: string | null } = {},
+  opts: { userId?: string | null; previewServiceId?: string | null; scrubbed?: boolean; sourceBranchId?: string | null; allDatabases?: boolean } = {},
 ) {
   if (!branchesSupported(service) || !service.database) throw new Error("Branches are available for database services.");
   const engine = service.database.engine;
@@ -338,6 +413,7 @@ export async function createBranch(
       previewServiceId: opts.previewServiceId ?? null,
       scrubbed: opts.scrubbed ?? false,
       sourceBranchId: opts.sourceBranchId ?? null,
+      allDatabases: opts.allDatabases ?? false,
     })
     .returning();
   return branch;
@@ -362,6 +438,8 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
     // and a login Serve forgot would stay valid (preview branches hand theirs to pull request code).
     try {
       if (service.status !== "running") throw new Error("The database is not running. Start it, then delete the branch again.");
+      // The other copies first: the main copy's removal also removes the login they use.
+      for (const d of branch.extraDatabases) await run(service, dropCopyScript(service.database.engine, main, copyDatabaseName(d, branch.name)), [mainPassword]);
       await run(service, scripts.remove(main, { ...branch, password: branchPassword }), [mainPassword, branchPassword]);
     } catch (e) {
       await db
@@ -384,10 +462,52 @@ export async function runBranchJob(payload: JobPayloads["database.branch"]) {
       scripts.create(source ? { ...main, database: source.database } : main, { database: branch.database, username: branch.username, password: branchPassword }, scrubSql),
       [mainPassword, branchPassword],
     );
-    const size = Number(out.match(/SERVE_SIZE=(\d+)/)?.[1] ?? Number.NaN);
+    let size = Number(out.match(/SERVE_SIZE=(\d+)/)?.[1] ?? Number.NaN);
+    let extras = branch.extraDatabases;
+    if (branch.allDatabases) {
+      const engine = service.database.engine;
+      // Every other database of the server, each copied as <database>__<branch> with the same login;
+      // from a branch of every database, its copies of them.
+      extras = source ? source.extraDatabases : await otherDatabases(service, branch, main);
+      // Recorded before copying: a copy that fails half way is still removed with the branch.
+      await db
+        .update(schema.databaseBranch)
+        .set({ extraDatabases: [...new Set([...branch.extraDatabases, ...extras])] })
+        .where(eq(schema.databaseBranch.id, branch.id));
+      const creds = { username: branch.username, password: branchPassword };
+      for (const d of extras) {
+        const from = source ? copyDatabaseName(d, source.name) : d;
+        const copied = await run(service, scripts.create({ ...main, database: from }, { database: copyDatabaseName(d, branch.name), ...creds }, null), [
+          mainPassword,
+          branchPassword,
+        ]);
+        const n = Number(copied.match(/SERVE_SIZE=(\d+)/)?.[1] ?? Number.NaN);
+        if (Number.isFinite(n) && Number.isFinite(size)) size += n;
+      }
+      // Databases removed from the server since the last copy: their copies go too.
+      for (const d of branch.extraDatabases.filter((x) => !extras.includes(x))) await run(service, dropCopyScript(engine, main, copyDatabaseName(d, branch.name)), [mainPassword]);
+      if (engine === "mongodb")
+        await run(
+          service,
+          mongoOwnAllScript(
+            main,
+            { database: branch.database, ...creds },
+            extras.map((d) => copyDatabaseName(d, branch.name)),
+          ),
+          [mainPassword, branchPassword],
+        );
+    }
     await db
       .update(schema.databaseBranch)
-      .set({ status: "ready", error: null, copiedAt: new Date(), sizeBytes: Number.isFinite(size) ? size : null, scrubbed: !!scrubSql?.trim(), updatedAt: new Date() })
+      .set({
+        status: "ready",
+        error: null,
+        copiedAt: new Date(),
+        sizeBytes: Number.isFinite(size) ? size : null,
+        scrubbed: !!scrubSql?.trim(),
+        extraDatabases: extras,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.databaseBranch.id, branch.id));
     await logActivity({
       projectId: service.projectId,
@@ -511,6 +631,17 @@ export function branchVars(service: Service, branches: Branch[]): Record<string,
     }
     const p = `branches.${b.name}.`;
     const alias = URL_ALIAS[cfg.engine];
+    // Every database a branch copied: ${{db.branches.<name>.databases.<database>.DATABASE_URL}}.
+    if (b.allDatabases && !keyValue) {
+      for (const original of [cfg.database, ...b.extraDatabases]) {
+        const copy = original === cfg.database ? b.database : copyDatabaseName(original, b.name);
+        let other = databaseUrl({ ...cfg, username: b.username, database: copy }, { ...databaseCreds(cfg, password), username: b.username, database: copy }, host, portNumber);
+        // A MongoDB branch login lives in its main copy.
+        if (cfg.engine === "mongodb") other = other.replace("authSource=admin", `authSource=${encodeURIComponent(b.database)}`);
+        out[`${p}databases.${original}.DATABASE_URL`] = other;
+        out[`${p}databases.${original}.DATABASE`] = copy;
+      }
+    }
     Object.assign(out, {
       [`${p}DATABASE_URL`]: url,
       ...(alias ? { [`${p}${alias}`]: url } : {}),

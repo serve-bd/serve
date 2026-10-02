@@ -1,0 +1,2 @@
+ALTER TABLE "database_branch" ADD COLUMN "all_databases" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "database_branch" ADD COLUMN "extra_databases" jsonb DEFAULT '[]'::jsonb NOT NULL;

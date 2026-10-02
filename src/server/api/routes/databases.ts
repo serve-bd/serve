@@ -188,6 +188,8 @@ export const databaseRoutes: ApiRoute[] = [
           sizeBytes: b.sizeBytes,
           personalDataHidden: b.scrubbed,
           sourceBranchId: b.sourceBranchId,
+          allDatabases: b.allDatabases,
+          extraDatabases: b.extraDatabases,
           copiedAt: iso(b.copiedAt),
           previewServiceId: b.previewServiceId,
           createdAt: iso(b.createdAt),
@@ -201,14 +203,20 @@ export const databaseRoutes: ApiRoute[] = [
     tag: "Databases",
     summary: "Create a database branch",
     description:
-      "A copy of the database inside the same container, with a user of its own. hidePersonalData: true runs the database's branch clean-up SQL on every copy (PUT /services/{serviceId}/branches/cleanup-sql). sourceBranchId copies another ready branch instead of the main database; a copy of a branch with personal data hidden hides it too.",
+      "A copy of the database inside the same container, with a user of its own. hidePersonalData: true runs the database's branch clean-up SQL on every copy (PUT /services/{serviceId}/branches/cleanup-sql). sourceBranchId copies another ready branch instead of the main database; a copy of a branch with personal data hidden hides it too. allDatabases: true also copies every other database of the server as <database>__<branch>, reached by the same login and by ${{db.branches.<name>.databases.<database>.DATABASE_URL}}.",
     needs: ["services.manage"],
-    body: z.object({ name: z.string(), hidePersonalData: z.boolean().optional(), sourceBranchId: z.string().nullable().optional() }),
+    body: z.object({ name: z.string(), hidePersonalData: z.boolean().optional(), sourceBranchId: z.string().nullable().optional(), allDatabases: z.boolean().optional() }),
     status: 202,
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
       return (
-        (await unwrap(branches.createDatabaseBranch(params.serviceId, body.name, { hidePersonalData: body.hidePersonalData, sourceBranchId: body.sourceBranchId }))) ?? { ok: true }
+        (await unwrap(
+          branches.createDatabaseBranch(params.serviceId, body.name, {
+            hidePersonalData: body.hidePersonalData,
+            sourceBranchId: body.sourceBranchId,
+            allDatabases: body.allDatabases,
+          }),
+        )) ?? { ok: true }
       );
     },
   }),
@@ -239,8 +247,10 @@ export const databaseRoutes: ApiRoute[] = [
     path: "/branches/{branchId}",
     tag: "Databases",
     summary: "Delete a database branch",
+    description: "?children=true also deletes the branches copied from it, and the ones copied from those. Without it they stay, and copy the main data on their next reset.",
     needs: ["services.manage"],
-    handler: async ({ params }) => (await unwrap(branches.deleteDatabaseBranch(params.branchId))) ?? { ok: true },
+    query: z.object({ children: z.enum(["true", "false"]).optional() }),
+    handler: async ({ params, query }) => (await unwrap(branches.deleteDatabaseBranch(params.branchId, { withChildren: query.children === "true" }))) ?? { ok: true },
   }),
 
   // Users

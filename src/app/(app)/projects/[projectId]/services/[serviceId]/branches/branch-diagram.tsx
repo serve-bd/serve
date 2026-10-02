@@ -11,6 +11,8 @@ export type DiagramBranch = {
   sizeBytes: number | null;
   scrubbed: boolean;
   sourceBranchId: string | null;
+  allDatabases?: boolean;
+  extraDatabases?: string[];
   preview: { id: string; pr: number | null } | null;
   consumers: { id: string; name: string; status: string; previewPr: number | null; keys: string[] }[];
 };
@@ -195,7 +197,8 @@ export function BranchDiagram({
                   "personal data hidden"
                 )
               ) : (
-                `${kind}${b.sizeBytes !== null ? ` · ${formatBytes(b.sizeBytes)}` : ""}`
+                // A branch of every database says how many it holds instead of "branch".
+                `${b.allDatabases && !b.preview ? `${1 + (b.extraDatabases?.length ?? 0)} databases` : kind}${b.sizeBytes !== null ? ` · ${formatBytes(b.sizeBytes)}` : ""}`
               );
             return (
               <div key={b.id}>

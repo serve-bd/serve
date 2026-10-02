@@ -7,6 +7,7 @@ import { pageService } from "@/server/services/access";
 import { explorerOverview } from "@/server/actions/database-explorer";
 import { PageBody } from "@/components/shell/page-header";
 import { DataBrowser } from "./data-view";
+import { copyDatabaseName } from "@/server/databases/branches";
 
 export const metadata = { title: "Data" };
 
@@ -22,7 +23,7 @@ export default async function DataPage(props: { params: Promise<{ projectId: str
   const res = running ? await explorerOverview(service.id) : null;
   // Branches with their data in place: each is a database (a number on Redis) of this server.
   const branches = await db
-    .select({ name: schema.databaseBranch.name, database: schema.databaseBranch.database })
+    .select({ name: schema.databaseBranch.name, database: schema.databaseBranch.database, extraDatabases: schema.databaseBranch.extraDatabases })
     .from(schema.databaseBranch)
     .where(and(eq(schema.databaseBranch.serviceId, service.id), inArray(schema.databaseBranch.status, ["ready", "resetting"])))
     .orderBy(asc(schema.databaseBranch.name));
@@ -36,7 +37,8 @@ export default async function DataPage(props: { params: Promise<{ projectId: str
         error={res && !res.ok ? res.error : null}
         initial={res?.ok ? res.data : null}
         mainDatabase={service.database.database}
-        branches={branches}
+        // Each copied database by its original name: the copies are <database>__<branch>.
+        branches={branches.map((b) => ({ name: b.name, database: b.database, copies: b.extraDatabases.map((d) => ({ original: d, database: copyDatabaseName(d, b.name) })) }))}
       />
     </PageBody>
   );

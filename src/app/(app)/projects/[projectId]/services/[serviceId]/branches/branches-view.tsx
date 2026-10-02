@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { EyeOff, GitBranch, Loader2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { EyeOff, GitBranch, Layers, Loader2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -33,6 +33,8 @@ type Branch = {
   preview: { id: string; pr: number | null } | null;
   scrubbed: boolean;
   sourceBranchId: string | null;
+  allDatabases: boolean;
+  extraDatabases: string[];
   consumers: DiagramBranch["consumers"];
 };
 
@@ -49,6 +51,7 @@ export function BranchesView({
   projectId,
   cleanupSql,
   scrubSupported,
+  allSupported,
 }: {
   serviceId: string;
   serviceName: string;
@@ -57,6 +60,7 @@ export function BranchesView({
   status: string;
   cleanupSql: string;
   scrubSupported: boolean;
+  allSupported: boolean;
   running: boolean;
   canManage: boolean;
   branches: Branch[];
@@ -70,6 +74,8 @@ export function BranchesView({
   const remove = useAction(deleteDatabaseBranch, { success: "Branch deleted" });
 
   const keyValue = engine === "redis" || engine === "valkey";
+  /** Branches copied from this one, and from those, all the way down. */
+  const descendantsOf = (id: string): string[] => branches.filter((x) => x.sourceBranchId === id).flatMap((x) => [x.name, ...descendantsOf(x.id)]);
   // The worker updates branches; refresh while one of them is busy.
   const busy = branches.some((b) => busyLabel[b.status]);
   React.useEffect(() => {
@@ -128,6 +134,11 @@ export function BranchesView({
                         </Link>
                       )}
                       {source && <span className="text-xs text-muted">from {source.name}</span>}
+                      {b.allDatabases && (
+                        <Badge tone="info" className="self-center" title={b.extraDatabases.length ? `Also copies ${b.extraDatabases.join(", ")}` : undefined}>
+                          <Layers className="size-3" /> {b.extraDatabases.length + 1} databases
+                        </Badge>
+                      )}
                       {b.scrubbed && (
                         <Badge tone="ok" className="self-center">
                           <EyeOff className="size-3" /> Personal data hidden
@@ -185,17 +196,18 @@ export function BranchesView({
                         <MenuItem
                           danger
                           onClick={async () => {
+                            const children = descendantsOf(b.id);
+                            const choice = { withChildren: true };
                             if (
                               await confirm({
                                 title: `Delete ${b.name}?`,
-                                description: `The branch's database and login are removed. Services that reference it lose their connection.${
-                                  branches.some((x) => x.sourceBranchId === b.id) ? " Branches copied from it copy the main data on their next reset." : ""
-                                }`,
+                                description: `The branch's ${b.allDatabases ? "databases" : "database"} and login are removed. Services that reference it lose their connection.`,
+                                children: children.length ? <ChildrenChoice names={children} onChange={(v) => (choice.withChildren = v)} /> : undefined,
                                 confirmLabel: "Delete branch",
                                 danger: true,
                               })
                             )
-                              remove.run(b.id);
+                              remove.run(b.id, { withChildren: choice.withChildren });
                           }}
                         >
                           <Trash2 /> Delete
@@ -220,6 +232,7 @@ export function BranchesView({
           serviceName={serviceName}
           cleanupSql={cleanupSql}
           scrubSupported={scrubSupported}
+          allSupported={allSupported}
           sources={branches.filter((b) => b.status === "ready" && !b.preview)}
           onClose={() => setCreating(false)}
         />
@@ -277,6 +290,7 @@ function NewBranchDialog({
   serviceName,
   cleanupSql,
   scrubSupported,
+  allSupported,
   sources,
   onClose,
 }: {
@@ -284,6 +298,7 @@ function NewBranchDialog({
   serviceName: string;
   cleanupSql: string;
   scrubSupported: boolean;
+  allSupported: boolean;
   sources: Branch[];
   onClose: () => void;
 }) {
@@ -291,10 +306,12 @@ function NewBranchDialog({
   const [sourceId, setSourceId] = React.useState("main");
   const source = sources.find((b) => b.id === sourceId) ?? null;
   const hasSql = !!cleanupSql.trim();
+  const [all, setAll] = React.useState(false);
   const [hide, setHide] = React.useState(hasSql);
   const [sql, setSql] = React.useState("");
   // A copy of a branch with personal data hidden always hides it too.
-  const hidden = hide || !!source?.scrubbed;
+  // Every database copies the main data, and the clean-up SQL runs on the main database only.
+  const hidden = !all && (hide || !!source?.scrubbed);
   const needsSql = hidden && !hasSql;
   const create = useAction(
     async () => {
@@ -303,7 +320,7 @@ function NewBranchDialog({
         const saved = await saveBranchCleanupSql(serviceId, sql.trim());
         if (!saved.ok) return saved;
       }
-      return createDatabaseBranch(serviceId, name, { hidePersonalData: hidden, sourceBranchId: source?.id ?? null });
+      return createDatabaseBranch(serviceId, name, { hidePersonalData: hidden, sourceBranchId: source?.id ?? null, allDatabases: all });
     },
     { success: "Branch started. Copying the data…", onSuccess: onClose },
   );
@@ -338,12 +355,38 @@ function NewBranchDialog({
                   onValueChange={setSourceId}
                   options={[
                     { value: "main", label: "Main data", description: serviceName },
-                    ...sources.map((b) => ({ value: b.id, label: b.name, description: b.scrubbed ? "Branch · personal data hidden" : "Branch" })),
+                    // Every database copies from the main data or from a branch that has them all.
+                    ...sources
+                      .filter((b) => !all || b.allDatabases)
+                      .map((b) => ({
+                        value: b.id,
+                        label: b.name,
+                        description: b.allDatabases ? "Branch · every database" : b.scrubbed ? "Branch · personal data hidden" : "Branch",
+                      })),
                   ]}
                 />
               </Field>
             )}
-            {scrubSupported && (
+            {allSupported && (
+              <label className="flex cursor-pointer items-start gap-3">
+                <Checkbox
+                  checked={all}
+                  onCheckedChange={(on) => {
+                    setAll(on);
+                    // A branch with the main database only cannot be the source of every database.
+                    if (on && source && !source.allDatabases) setSourceId("main");
+                  }}
+                  className="mt-0.5"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-[13px] font-medium text-fg">Copy every database</span>
+                  <span className="text-[12.5px] leading-snug text-muted">
+                    Also copies the other databases{source ? ` of ${source.name}` : ` of ${serviceName}`}, each as name__branch, with the same login. Personal data is not hidden.
+                  </span>
+                </span>
+              </label>
+            )}
+            {scrubSupported && !all && (
               <label className={cn("flex items-start gap-3", source?.scrubbed ? "cursor-default" : "cursor-pointer")}>
                 <Checkbox checked={hidden} disabled={!!source?.scrubbed} onCheckedChange={setHide} className="mt-0.5" />
                 <span className="flex flex-col gap-0.5">
@@ -380,5 +423,28 @@ function NewBranchDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** In the delete confirmation: whether the branches copied from this one go too (they do unless unticked). */
+function ChildrenChoice({ names, onChange }: { names: string[]; onChange: (withChildren: boolean) => void }) {
+  const [on, setOn] = React.useState(true);
+  return (
+    <label className="mt-1 flex cursor-pointer items-start gap-2.5 rounded-lg border border-line bg-surface-2 px-3 py-2.5">
+      <Checkbox
+        checked={on}
+        onCheckedChange={(v) => {
+          setOn(v);
+          onChange(v);
+        }}
+        className="mt-0.5"
+      />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[13px] font-medium text-fg">Also delete the {names.length === 1 ? "branch" : `${names.length} branches`} copied from it</span>
+        <span className="text-[12.5px] leading-snug break-words text-muted">
+          {names.join(", ")}. {on ? "" : "Kept, they copy the main data on their next reset."}
+        </span>
+      </span>
+    </label>
   );
 }

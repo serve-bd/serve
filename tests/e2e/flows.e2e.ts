@@ -369,6 +369,32 @@ run("main flows", () => {
     await ok(ADMIN, "DELETE", `/branches/${branch.id}`);
   });
 
+  it("branches every database of the server, and deletes a branch with the ones copied from it", async () => {
+    const psql = (q: string, db = '"$POSTGRES_DB"') => `psql -U "$POSTGRES_USER" -d ${db} -tAc "${q}"`;
+    await runCommand(dbId, psql("CREATE DATABASE zz_extra"));
+    await runCommand(dbId, psql("CREATE TABLE t (v int); INSERT INTO t VALUES (1), (2)", "zz_extra"));
+    const ready = (name: string) =>
+      until(`branch ${name}`, async () => {
+        const b = (await ok(ADMIN, "GET", `/services/${dbId}/branches`)).branches.find((x: any) => x.name === name);
+        return b && b.status !== "creating" && b.status !== "resetting" ? b : null;
+      });
+    // Personal data is hidden in the main database only: not with every database.
+    expect((await api(ADMIN, "POST", `/services/${dbId}/branches`, { name: "zz-bad", allDatabases: true, hidePersonalData: true })).status).toBe(400);
+    await ok(ADMIN, "POST", `/services/${dbId}/branches`, { name: "everything", allDatabases: true }, 202);
+    const all = await ready("everything");
+    expect(all.status).toBe("ready");
+    expect(all.extraDatabases).toContain("zz_extra");
+    expect((await runCommand(dbId, psql("SELECT count(*) FROM t", "zz_extra__everything"))).output.trim()).toBe("2");
+    await ok(ADMIN, "POST", `/services/${dbId}/branches`, { name: "under", sourceBranchId: all.id }, 202);
+    expect((await ready("under")).status).toBe("ready");
+    expect((await ok(ADMIN, "DELETE", `/branches/${all.id}?children=true`)).deleted).toBe(2);
+    await until("branches gone", async () =>
+      (await ok(ADMIN, "GET", `/services/${dbId}/branches`)).branches.some((x: any) => ["everything", "under"].includes(x.name)) ? null : true,
+    );
+    expect((await runCommand(dbId, psql("SELECT count(*) FROM pg_database WHERE datname LIKE '%__everything' OR datname LIKE '%__under'"))).output.trim()).toBe("0");
+    await runCommand(dbId, psql("DROP DATABASE zz_extra"));
+  });
+
   it("hides personal data in a branch, also after a reset", async () => {
     const psql = (q: string, db = '"$POSTGRES_DB"') => `psql -U "$POSTGRES_USER" -d ${db} -tAc "${q}"`;
     await runCommand(dbId, psql("create table if not exists zz_people (email text); insert into zz_people values ('real@person.example')"));

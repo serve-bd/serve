@@ -1,12 +1,12 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { serviceInOrg } from "@/server/services/access";
-import { BranchNameError, branchesSupported, branchScrubEngines, createBranch, enqueueBranchJob, maxBranches } from "@/server/databases/branches";
+import { allDatabaseEngines, BranchNameError, branchesSupported, branchScrubEngines, createBranch, enqueueBranchJob, maxBranches } from "@/server/databases/branches";
 import { logActivity } from "@/server/activity";
 import { branchNamePattern } from "@/lib/database-branches";
 
@@ -51,7 +51,7 @@ export async function saveBranchCleanupSql(serviceId: string, sql: string | null
   });
 }
 
-export async function createDatabaseBranch(serviceId: string, rawName: string, opts: { hidePersonalData?: boolean; sourceBranchId?: string | null } = {}) {
+export async function createDatabaseBranch(serviceId: string, rawName: string, opts: { hidePersonalData?: boolean; sourceBranchId?: string | null; allDatabases?: boolean } = {}) {
   return act(async () => {
     const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
@@ -76,8 +76,15 @@ export async function createDatabaseBranch(serviceId: string, rawName: string, o
     }
     // A copy of a branch with personal data hidden hides it too: a reset after the source is gone copies the main data.
     const hide = !!opts.hidePersonalData || !!source?.scrubbed;
+    if (opts.allDatabases) {
+      if (!allDatabaseEngines.has(service.database.engine)) throw new UserError("Only PostgreSQL, MySQL, MariaDB, MongoDB and ClickHouse branches can copy every database.");
+      if (source && !source.allDatabases)
+        throw new UserError(`Branch ${source.name} copied only the main database. Copy every database from the main data, or from a branch that copied every database.`);
+      // The clean-up SQL runs on the main database only: the other copies would keep the real data.
+      if (hide) throw new UserError("Hide personal data works on the main database only, so it cannot be combined with copying every database.");
+    }
     if (hide && !service.database.branchCleanupSql?.trim()) throw new UserError("Add the clean-up SQL first: it is what hides the personal data.");
-    const branch = await createBranch(service, name, { userId: ctx.user.id, scrubbed: hide, sourceBranchId: source?.id ?? null }).catch((e) => {
+    const branch = await createBranch(service, name, { userId: ctx.user.id, scrubbed: hide, sourceBranchId: source?.id ?? null, allDatabases: !!opts.allDatabases }).catch((e) => {
       throw e instanceof BranchNameError ? new UserError(e.message) : e;
     });
     await enqueueBranchJob({ branchId: branch.id, op: "create" }, service.id);
@@ -88,7 +95,7 @@ export async function createDatabaseBranch(serviceId: string, rawName: string, o
       action: "database.branch",
       targetType: "service",
       targetId: service.id,
-      message: `Started branch ${name} of ${service.name}${source ? ` from branch ${source.name}` : ""}${hide ? " with personal data hidden" : ""}`,
+      message: `Started branch ${name} of ${service.name}${source ? ` from branch ${source.name}` : ""}${hide ? " with personal data hidden" : ""}${opts.allDatabases ? ", every database" : ""}`,
     });
     return { id: branch.id };
   });
@@ -106,15 +113,36 @@ export async function resetDatabaseBranch(id: string) {
   });
 }
 
-export async function deleteDatabaseBranch(id: string) {
+/** The branches copied from this one, and the ones copied from those, all the way down. */
+async function descendants(branchId: string, serviceId: string) {
+  const all = await db
+    .select({ id: schema.databaseBranch.id, name: schema.databaseBranch.name, sourceBranchId: schema.databaseBranch.sourceBranchId })
+    .from(schema.databaseBranch)
+    .where(eq(schema.databaseBranch.serviceId, serviceId));
+  const out: { id: string; name: string; depth: number }[] = [];
+  const visit = (id: string, depth: number) => {
+    for (const child of all.filter((b) => b.sourceBranchId === id && !out.some((o) => o.id === b.id))) {
+      out.push({ id: child.id, name: child.name, depth });
+      visit(child.id, depth + 1);
+    }
+  };
+  visit(branchId, 1);
+  return out;
+}
+
+/**
+ * Deletes a branch. withChildren: the branches copied from it (and from those) go too, the
+ * deepest first; otherwise they stay, and copy the main data on their next reset.
+ */
+export async function deleteDatabaseBranch(id: string, opts: { withChildren?: boolean } = {}) {
   return act(async () => {
     const ctx = await requirePermission("services.manage");
     const { branch, service } = await branchInOrg(id, ctx.org.id);
-    await db
-      .update(schema.databaseBranch)
-      .set({ status: "deleting", updatedAt: new Date() })
-      .where(and(eq(schema.databaseBranch.id, id)));
-    await enqueueBranchJob({ branchId: id, op: "delete" }, service.id);
+    const children = opts.withChildren ? await descendants(branch.id, service.id) : [];
+    // Deepest first, the branch itself last: the jobs run in this order (one at a time per database).
+    const order = [...children.sort((a, b) => b.depth - a.depth).map((c) => c.id), branch.id];
+    await db.update(schema.databaseBranch).set({ status: "deleting", updatedAt: new Date() }).where(inArray(schema.databaseBranch.id, order));
+    for (const branchId of order) await enqueueBranchJob({ branchId, op: "delete" }, service.id);
     await logActivity({
       userId: ctx.user.id,
       organizationId: ctx.org.id,
@@ -122,8 +150,8 @@ export async function deleteDatabaseBranch(id: string) {
       action: "database.branch-deleted",
       targetType: "service",
       targetId: service.id,
-      message: `Deleted branch ${branch.name} of ${service.name}`,
+      message: `Deleted branch ${branch.name} of ${service.name}${children.length ? ` and the branches copied from it (${children.map((c) => c.name).join(", ")})` : ""}`,
     });
-    return null;
+    return { deleted: order.length };
   });
 }

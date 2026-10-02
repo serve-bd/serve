@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { pageService } from "@/server/services/access";
-import { branchesSupported, branchScrubEngines } from "@/server/databases/branches";
+import { allDatabaseEngines, branchesSupported, branchScrubEngines } from "@/server/databases/branches";
 import { decryptOrNull } from "@/server/crypto";
 import { PageBody } from "@/components/shell/page-header";
 import { referenceName } from "@/lib/refs";
@@ -65,6 +65,7 @@ export default async function BranchesPage(props: PageProps<"/projects/[projectI
         status={service.status}
         cleanupSql={service.database?.branchCleanupSql ?? ""}
         scrubSupported={branchScrubEngines.has(service.database?.engine ?? "")}
+        allSupported={allDatabaseEngines.has(service.database?.engine ?? "")}
         running={service.status === "running"}
         canManage={ctx.can("services.manage")}
         branches={rows.map((b) => {
@@ -81,6 +82,8 @@ export default async function BranchesPage(props: PageProps<"/projects/[projectI
             preview: preview ? { id: preview.id, pr: preview.pr } : null,
             scrubbed: b.scrubbed,
             sourceBranchId: b.sourceBranchId,
+            allDatabases: b.allDatabases,
+            extraDatabases: b.extraDatabases,
             consumers: consumers.get(b.name) ?? [],
           };
         })}

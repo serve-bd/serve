@@ -1430,6 +1430,10 @@ export const databaseBranch = pgTable(
     copiedAt: timestamp("copied_at", { withTimezone: true }),
     /** Every copy into this branch runs the clean-up SQL (personal data hidden). */
     scrubbed: boolean("scrubbed").notNull().default(false),
+    /** Also copies the server's other databases, each as <database>__<branch>, reached by the same login. */
+    allDatabases: boolean("all_databases").notNull().default(false),
+    /** The other databases the last copy took (their original names). */
+    extraDatabases: jsonb("extra_databases").$type<string[]>().notNull().default([]),
     /** The branch this one copies (made and reset from); null copies the main database. */
     sourceBranchId: text("source_branch_id").references((): AnyPgColumn => databaseBranch.id, { onDelete: "set null" }),
     /** The pull request preview that uses this branch; removed when the preview closes. */

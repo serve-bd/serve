@@ -235,6 +235,14 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
 
 export function AppShell(props: ShellProps) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  // The drawer is hidden from lg up: a window widened (or a tablet turned) while it is open would
+  // keep an invisible modal that blocks the page.
+  React.useEffect(() => {
+    const wide = window.matchMedia("(min-width: 64rem)");
+    const close = () => wide.matches && setMobileOpen(false);
+    wide.addEventListener("change", close);
+    return () => wide.removeEventListener("change", close);
+  }, []);
 
   return (
     <PermissionsProvider value={props.access}>

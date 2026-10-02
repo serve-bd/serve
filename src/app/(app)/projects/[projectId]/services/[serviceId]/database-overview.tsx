@@ -54,6 +54,16 @@ export function DatabaseOverview(props: {
   const [port, setPort] = React.useState(String(props.publicPort ?? props.engine.port + 10000));
   const [bind, setBind] = React.useState(props.publicBind);
   const [allow, setAllow] = React.useState(props.publicAllow.join("\n"));
+  // Saved settings changed elsewhere (a domain opens or closes the port): the form shows them.
+  const saved = `${props.publicPort}|${props.publicBind}|${props.publicAllow.join(",")}`;
+  const [lastSaved, setLastSaved] = React.useState(saved);
+  if (saved !== lastSaved) {
+    setLastSaved(saved);
+    setPublicOn(!!props.publicPort);
+    setPort(String(props.publicPort ?? props.engine.port + 10000));
+    setBind(props.publicBind);
+    setAllow(props.publicAllow.join("\n"));
+  }
   const allowList = allow
     .split(/[\s,]+/)
     .map((a) => a.trim())

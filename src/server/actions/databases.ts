@@ -4,7 +4,8 @@ import { databaseContainer } from "@/server/databases/container";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { requirePermission } from "@/server/auth";
+import { ForbiddenError, requirePermission } from "@/server/auth";
+import { cannotMessage } from "@/lib/permissions";
 import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull, encrypt, randomPassword } from "@/server/crypto";
 import { logActivity } from "@/server/activity";
@@ -122,6 +123,8 @@ export async function databaseDependents(serviceId: string) {
 export async function changeDatabasePassword(serviceId: string, password?: string) {
   return act(async () => {
     const ctx = await requirePermission("services.manage");
+    // A password of one's own choosing is a known password: like seeing the current one.
+    if (password?.trim() && !ctx.can("variables.view-secrets")) throw new ForbiddenError(cannotMessage("variables.view-secrets"));
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const cfg = service.database;
     if (!cfg) throw new UserError("Not a database.");

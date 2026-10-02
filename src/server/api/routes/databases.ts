@@ -115,7 +115,7 @@ export const databaseRoutes: ApiRoute[] = [
     path: "/services/{serviceId}/database/password",
     tag: "Databases",
     summary: "Change the database password",
-    description: "Without password a new one is generated. Services that use it get the new value on their next deploy.",
+    description: "Without password a new one is generated. Choosing the password needs variables.view-secrets too. Services that use it get the new value on their next deploy.",
     needs: ["services.manage"],
     body: z.object({ password: z.string().optional() }),
     handler: async ({ auth, params, body }) => {

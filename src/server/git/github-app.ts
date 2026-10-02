@@ -158,6 +158,17 @@ export async function getInstallation(secret: GithubAppSecret, installationId: n
   return githubJson<{ id: number; account: { login: string; type: string } }>(`${API}/app/installations/${installationId}`, appJwt(secret.appId, secret.pem));
 }
 
+/**
+ * Whether an installation GitHub reported without Serve's signed state may be stored for this app:
+ * the installation it already has, or one on the account it is installed on (or was created on).
+ * Anyone can install an app made public in GitHub, and a link with their installation id must not
+ * point the organization's connection at their account.
+ */
+export function unsignedInstallationAllowed(secret: GithubAppSecret, installation: { id: number; account: { login: string } }) {
+  if (secret.installationId === installation.id) return true;
+  return !!secret.account && secret.account.toLowerCase() === installation.account.login.toLowerCase();
+}
+
 const tokenCache = new Map<string, { token: string; expires: number }>();
 
 /** Installation access token (1 hour), cached until 5 minutes before expiry. */

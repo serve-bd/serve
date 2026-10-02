@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 // The module reads these at import time; no database connection is made.
 process.env.BETTER_AUTH_SECRET = "test-secret-for-github-app-state";
 process.env.DATABASE_URL = "postgres://test@127.0.0.1:1/test";
-const { appJwt, repoFullName, signState, verifyState } = await import("@/server/git/github-app");
+const { appJwt, repoFullName, signState, unsignedInstallationAllowed, verifyState } = await import("@/server/git/github-app");
 
 describe("github app", () => {
   it("round-trips signed state and rejects tampering", () => {
@@ -32,5 +32,13 @@ describe("github app", () => {
     expect(repoFullName("https://github.com/Acme/Web.git")).toBe("acme/web");
     expect(repoFullName("git@github.com:acme/web.git")).toBe("acme/web");
     expect(repoFullName("https://www.github.com/acme/web/")).toBe("acme/web");
+  });
+
+  it("takes an installation without signed state only on the app's own account", () => {
+    const secret = { appId: 1, slug: "s", htmlUrl: "", pem: "", webhookSecret: "", clientId: "", clientSecret: "", installationId: 7, account: "Acme" };
+    expect(unsignedInstallationAllowed(secret, { id: 7, account: { login: "someone" } })).toBe(true);
+    expect(unsignedInstallationAllowed(secret, { id: 8, account: { login: "acme" } })).toBe(true);
+    expect(unsignedInstallationAllowed(secret, { id: 9, account: { login: "attacker" } })).toBe(false);
+    expect(unsignedInstallationAllowed({ ...secret, installationId: null, account: null }, { id: 9, account: { login: "attacker" } })).toBe(false);
   });
 });

@@ -387,7 +387,8 @@ export async function targetOf(service: ServiceRow, key: string | null, database
  */
 /**
  * The databases of a database service a backup can take: its main database and the others on the
- * server, without the copies made for branches (those go with the branch's own backups).
+ * server (PostgreSQL's "postgres" included), without the copies made for branches (those go with
+ * the branch's own backups).
  */
 export async function backupableDatabases(service: ServiceRow): Promise<string[] | null> {
   const cfg = service.database;
@@ -401,7 +402,9 @@ export async function backupableDatabases(service: ServiceRow): Promise<string[]
     .where(eq(schema.databaseBranch.serviceId, service.id));
   const { copyDatabaseName } = await import("@/server/databases/branches");
   const copies = new Set(branchRows.flatMap((b) => [b.database, ...b.extra.map((d) => copyDatabaseName(d, b.name))]));
-  return [...new Set([cfg.database, ...found])].filter((d) => d && !copies.has(d)).sort();
+  // PostgreSQL's own "postgres" database is often used for data too: it is offered like the others.
+  const own = cfg.engine === "postgres" ? ["postgres"] : [];
+  return [...new Set([cfg.database, ...found, ...own])].filter((d) => d && !copies.has(d)).sort();
 }
 
 async function backupDatabasesNow(service: ServiceRow, asked: string[] | null, log: (line: string) => Promise<void>) {
@@ -424,7 +427,7 @@ async function backupDatabasesNow(service: ServiceRow, asked: string[] | null, l
   const { listDatabases } = await import("@/server/databases/list");
   const found = await listDatabases(service).catch(() => null);
   if (!found) return chosen;
-  const kept = chosen.filter((d) => found.includes(d) || (d === cfg.database && cfg.engine !== "mongodb"));
+  const kept = chosen.filter((d) => found.includes(d) || (d === cfg.database && cfg.engine !== "mongodb") || (d === "postgres" && cfg.engine === "postgres"));
   for (const d of chosen.filter((x) => !kept.includes(x))) await log(`Left out ${d}: the server has no database by that name any more.`);
   return kept.length ? kept : null;
 }

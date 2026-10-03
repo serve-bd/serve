@@ -1736,7 +1736,9 @@ export async function createBackup(serviceId: string, target?: string | null, op
       const list = z.array(z.string().min(1).max(128)).parse(opts.databases);
       const { listDatabases } = await import("@/server/databases/list");
       const found = await listDatabases(service).catch(() => null);
-      const missing = found ? list.filter((d) => !found.includes(d) && d !== service.database?.database && d !== ALL_DATABASES) : [];
+      const missing = found
+        ? list.filter((d) => !found.includes(d) && d !== service.database?.database && d !== ALL_DATABASES && !(d === "postgres" && service.database?.engine === "postgres"))
+        : [];
       if (missing.length) throw new UserError(`There is no database named ${missing[0]}.`);
       databases = [...new Set(list)];
     }

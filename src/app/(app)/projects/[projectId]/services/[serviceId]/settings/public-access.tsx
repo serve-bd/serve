@@ -364,7 +364,9 @@ function AddonCard({ serviceId, which, addon, view, canManage }: { serviceId: st
       description={
         pooler
           ? "For apps hosted outside Serve. TLS only."
-          : `For reporting tools outside Serve. Opens on ${addon.servers === 1 ? "the replica's server" : `each of the ${addon.servers} replica servers`}. TLS only.`
+          : `For reporting tools outside Serve. Opens on ${addon.servers === 1 ? "the replica's server" : `each of the ${addon.servers} replica servers`}. ${
+              addon.domainNeedsTls ? "Without TLS, like the database's own port: turn on TLS to encrypt it." : "TLS only."
+            }`
       }
       badge={addon.open && addon.domain ? <CertBadge certificates={addon.certificates} /> : undefined}
       on={on}
@@ -382,13 +384,24 @@ function AddonCard({ serviceId, which, addon, view, canManage }: { serviceId: st
       }
     >
       <div className="flex flex-col gap-4 sm:flex-row">
-        <Field label="Domain" optional className="min-w-0 flex-1" description={pooler ? undefined : "Leads to every replica server."}>
+        <Field
+          label="Domain"
+          optional
+          className="min-w-0 flex-1"
+          description={
+            pooler
+              ? undefined
+              : addon.domainNeedsTls && !addon.domain
+                ? "A domain needs TLS: turn it on for the database first, in Settings → TLS."
+                : "Leads to every replica server."
+          }
+        >
           <Input
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
             placeholder={pooler ? "pool.example.com" : "read.example.com"}
             spellCheck={false}
-            disabled={!canManage}
+            disabled={!canManage || (addon.domainNeedsTls && !addon.domain)}
           />
         </Field>
         <PortInput value={port} onChange={setPort} locked={!!addon.port} placeholder="Auto detect" disabled={!canManage} />

@@ -76,7 +76,9 @@ export async function preparePrimary(service: Service, docker: Docker, members: 
   const cfg = service.database!;
   if (cfg.engine === "redis" || cfg.engine === "valkey") return;
   if (cfg.engine === "mysql" || cfg.engine === "mariadb") {
-    // A replica promoted to be the database still knows the database it followed: it forgets it.
+    // A replica promoted to be the database: root gets back the rights the replica took (MariaDB),
+    // and it forgets the database it followed. Each runs again until done, so a half finished one completes.
+    if (cfg.engine === "mariadb") await restoreRootRights(service, docker);
     const source = await primarySql(service, docker, "SHOW REPLICA STATUS", "Could not read the replication state").catch(() => "");
     if (source) {
       log("This database followed another one before: it stops following it");
@@ -85,7 +87,8 @@ export async function preparePrimary(service: Service, docker: Docker, members: 
         docker,
         cfg.engine === "mysql"
           ? "STOP REPLICA; RESET REPLICA ALL; RESET PERSIST IF EXISTS super_read_only; SET GLOBAL super_read_only = OFF; SET GLOBAL read_only = OFF;"
-          : "STOP SLAVE; RESET SLAVE ALL; SET GLOBAL read_only = OFF;",
+          : // It starts without --read-only already, so only replication is left.
+            "STOP SLAVE; RESET SLAVE ALL;",
         "Could not stop following the old database",
       );
     }
@@ -123,6 +126,24 @@ export async function preparePrimary(service: Service, docker: Docker, members: 
     return;
   }
   if (cfg.engine === "mongodb") await prepareMongoPrimary(service, docker, members, log);
+}
+
+/** MariaDB: root gets back the rights it had before this database was a read-only replica. */
+async function restoreRootRights(service: Service, docker: Docker) {
+  const cfg = service.database!;
+  const password = decryptOrNull(cfg.password) ?? "";
+  const dir = await primarySql(service, docker, "SELECT @@datadir", "Could not read the data directory");
+  const file = path.posix.join(dir, ROOT_RIGHTS_FILE);
+  const container = await databaseContainer(docker, service);
+  const saved = await execCommand(container.id, `cat ${sh(file)} 2>/dev/null`, { docker, timeoutSeconds: 10 }).catch(() => null);
+  const rows = (saved?.exitCode === 0 ? saved.output : "")
+    .split("\n")
+    .map((l) => l.split("\t"))
+    .filter((r) => r.length === 2 && r[1].trim().startsWith("{"));
+  if (!rows.length) return;
+  const sql = rows.map(([host, priv]) => `UPDATE mysql.global_priv SET Priv = ${sqlString(priv.trim())} WHERE User = 'root' AND Host = ${sqlString(host)};`).join(" ");
+  await primarySql(service, docker, `${sql} FLUSH PRIVILEGES;`, "Could not give root its rights back");
+  await exec(docker, container.id, `rm -f ${sh(file)}`, "Could not tidy the data directory", password);
 }
 
 /**
@@ -193,6 +214,8 @@ export const replicationPassword = (engine: DbEngine, password: string) => (engi
 
 /** Where a replica keeps the error of its last failed copy: the container's own files, kept across restarts. */
 const COPY_ERROR = "/var/lib/serve-replica/error";
+/** MariaDB: root's rights before the replica took one away, in its data directory. */
+const ROOT_RIGHTS_FILE = ".serve-root-rights";
 /** In the data directory once the copy finished: without it, a started copy is wiped and tried again. */
 const COPY_DONE = ".serve-replica-ready";
 
@@ -215,8 +238,9 @@ function retryCopyWrapper(dataDir: string, inner: string[]) {
  * last lines are kept (COPY_ERROR) for the replicas card; the next start tries again from scratch.
  */
 function copyScript(dataDir: string, steps: string) {
-  return `#!/bin/sh
-set -e
+  // bash for pipefail: a dump that breaks half way must fail the copy, not end it early.
+  return `#!/bin/bash
+set -eo pipefail
 exec 3>&2 2>/tmp/serve-replica.err
 trap 'code=$?; cat /tmp/serve-replica.err >&3; if [ $code -ne 0 ]; then { printf "%s" "$STEP"; tail -c 400 /tmp/serve-replica.err | grep -v "Using a password" | tail -n 2 | sed "s/^/: /"; } > ${COPY_ERROR}; fi' EXIT
 ${steps}
@@ -258,11 +282,15 @@ echo "Waiting for $PRIMARY_HOST" >&3
 n=0; until mariadb-admin ping -h "$PRIMARY_HOST" -uroot --silent 2>/dev/null; do n=$((n+1)); [ $n -lt 150 ] || exit 1; sleep 2; done
 STEP="Could not copy the database"
 echo "Copying the database from $PRIMARY_HOST" >&3
-mariadb-dump -h "$PRIMARY_HOST" -uroot --all-databases --ignore-database=mysql --system=users --insert-ignore --single-transaction --gtid --master-data=1 --routines --events --triggers | L
+# The database's health check login keeps its own password here: the replica's check uses its own.
+mariadb-dump -h "$PRIMARY_HOST" -uroot --all-databases --ignore-database=mysql --system=users --insert-ignore --single-transaction --gtid --master-data=1 --routines --events --triggers \\
+  | grep -v -E '^(CREATE USER|GRANT|/\\*M!100005 SET DEFAULT ROLE|/\\*!80001 ALTER USER).*.healthcheck.@' | L
 STEP="Could not start following the database"
 L -e "FLUSH PRIVILEGES; CHANGE MASTER TO MASTER_HOST='$PRIMARY_HOST', MASTER_PORT=3306, MASTER_USER='${REPLICATION_USER}', MASTER_PASSWORD='$REPLICA_PASSWORD', MASTER_USE_GTID=slave_pos, MASTER_SSL=$REPLICA_SSL; START SLAVE;"
-# Read-only lets users with READ ONLY ADMIN write (root has it): not on this copy. Replication itself is not affected.
+# Read-only lets users with READ ONLY ADMIN write (root has it): not on this copy. Replication itself
+# is not affected. Root's rights are kept aside first, to give back if this copy becomes the database.
 STEP="Could not make the replica read-only"
+L -N -e "SELECT Host, Priv FROM mysql.global_priv WHERE User = 'root'" > ${dataDir}/${ROOT_RIGHTS_FILE}
 for account in "'root'@'%'" "'root'@'localhost'"; do L -e "SET sql_log_bin = 0; REVOKE READ_ONLY ADMIN ON *.* FROM $account;" 2>/dev/null || true; done`,
   );
 }

@@ -664,7 +664,7 @@ function replicaFacts(engine: string) {
 }
 
 function replicaLabel(state: { state: string; lagSeconds: number | null } | undefined) {
-  if (!state) return "Starting";
+  if (!state) return "Checking…";
   if (state.state === "following") return state.lagSeconds ? `Following, ${state.lagSeconds}s behind` : "Following, up to date";
   if (state.state === "copying") return "Copying the database";
   if (state.state === "failed") return "Not running: see its logs";
@@ -797,7 +797,7 @@ function ReplicaSection(props: DatabaseSettingsProps) {
                 {props.hideSecrets ? <CopyField value={props.replicaUrl} /> : <SecretField value={props.replicaUrl} />}
               </Field>
               <p className="text-xs leading-relaxed text-muted">
-                One replica only: <code className="font-mono">{`\${{${props.refName}.READ_DATABASE_URL_1}}`}</code> and so on.
+                One replica only: <code className="font-mono">{`\${{${props.refName}.READ_DATABASE_URL_${v.instances.find((r) => r.id)?.id ?? "1"}}}`}</code> and so on.
                 {v.instances.some((r) => r.serverId !== home) &&
                   ` Replicas on another server reach the database over the private network, and apps on ${homeName} reach them the same way.`}
               </p>

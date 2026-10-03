@@ -2,6 +2,7 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import { engines } from "@/server/databases/engines";
 import { act, UserError } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -135,7 +136,7 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
             if (busy.has(data.port) && data.port !== before?.port) throw new UserError(`Port ${data.port} is already used on one of the servers.`);
           }
           port = data.port;
-        } else port = before?.port ?? data.port ?? (await freePortOn(service, servers, holder, which === "pooler" ? 16432 : 17432));
+        } else port = before?.port ?? data.port ?? (await freePortOn(service, servers, holder, which === "pooler" ? 16432 : engines[cfg.engine].port + 12000));
       }
       next = { port, bind: data.bind ?? "0.0.0.0", allow, domain: hostname, tunnelId };
     }

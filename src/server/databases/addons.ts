@@ -104,7 +104,9 @@ async function lastLogLine(docker: Docker, id: string) {
 /** The version a replica was copied for: its image tag, kept in its environment (older replicas: their image). */
 function copiedFor(container: { Config: { Image: string; Env?: string[] | null } } | null) {
   if (!container) return null;
-  return container.Config.Env?.find((e) => e.startsWith("SERVE_IMAGE="))?.slice("SERVE_IMAGE=".length) ?? container.Config.Image;
+  const noted = container.Config.Env?.find((e) => e.startsWith("SERVE_IMAGE="))?.slice("SERVE_IMAGE=".length);
+  // Pinned by digest with no note: the version is not known, so it is not taken as changed (a copy is costly).
+  return noted ?? (container.Config.Image.includes("@") ? null : container.Config.Image);
 }
 
 /**
@@ -348,8 +350,8 @@ export async function ensureReplicas(service: Service, log: (l: string) => void 
       .inspect()
       .then(() => true)
       .catch(() => false);
-    const fresh = !kept || (!!current && copiedFor(current) !== tag);
-    if (current && copiedFor(current) !== tag) {
+    const fresh = !kept || (!!current && copiedFor(current) !== null && copiedFor(current) !== tag);
+    if (current && copiedFor(current) !== null && copiedFor(current) !== tag) {
       log(`Replica ${r.id}: the database's version changed, copying it again`);
       await removeContainer(name, 30, d);
       await d
@@ -453,8 +455,8 @@ async function ensureOtherReplicas(service: Service, instances: ReplicaInstance[
       .inspect()
       .then(() => true)
       .catch(() => false);
-    const fresh = !kept || (!!current && copiedFor(current) !== tag);
-    if (current && copiedFor(current) !== tag) {
+    const fresh = !kept || (!!current && copiedFor(current) !== null && copiedFor(current) !== tag);
+    if (current && copiedFor(current) !== null && copiedFor(current) !== tag) {
       log(`Replica ${r.id}: the database's version changed, copying it again`);
       await removeContainer(name, 30, d);
       await d

@@ -175,13 +175,19 @@ function AccessCard({
       />
       <CardBody className="flex flex-col gap-4">
         {on ? (
-          children
+          <>
+            {children}
+            {footer}
+          </>
         ) : (
-          <p className="flex items-center gap-2 text-[13px] text-muted">
-            <Lock className="size-3.5" /> {offText}
-          </p>
+          // Switched off: the note and the button to save it on one line.
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-muted">
+              <Lock className="size-3.5 flex-none" /> {offText}
+            </p>
+            {footer}
+          </div>
         )}
-        {footer}
       </CardBody>
     </Card>
   );

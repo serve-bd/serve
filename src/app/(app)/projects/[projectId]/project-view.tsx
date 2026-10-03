@@ -20,6 +20,7 @@ import { createEnvironment } from "@/server/actions/projects";
 import type { ServiceCardData } from "@/server/project-data";
 import { CloneEnvironmentDialog } from "./clone-environment";
 import { ProjectCanvas } from "./project-canvas";
+import { WaitingMark } from "./waiting-mark";
 import { ViewToggle } from "@/components/view-toggle";
 import { cn } from "@/lib/utils";
 import { useCan } from "@/components/permissions";
@@ -164,10 +165,14 @@ function ServiceCard({ projectId, s }: { projectId: string; s: ServiceCardData }
       )}
       <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2.5">
         <StatusLabel status={s.status} className="text-xs" />
-        {s.lastDeploy && (
-          <span className="truncate text-xs text-faint">
-            <TimeAgo date={s.lastDeploy.createdAt} />
-          </span>
+        {s.lastDeploy?.status === "waiting" ? (
+          <WaitingMark />
+        ) : (
+          s.lastDeploy && (
+            <span className="truncate text-xs text-faint">
+              <TimeAgo date={s.lastDeploy.createdAt} />
+            </span>
+          )
         )}
       </div>
     </Link>
@@ -203,7 +208,9 @@ function ServiceRow({ projectId, s }: { projectId: string; s: ServiceCardData })
       </span>
       <span className="hidden w-32 truncate text-[13px] text-fg-2 lg:block">{s.serverName}</span>
       <StatusLabel status={s.status} className="w-24 flex-none text-xs" />
-      <span className="hidden w-20 flex-none text-right text-xs text-faint sm:block">{s.lastDeploy ? <TimeAgo date={s.lastDeploy.createdAt} /> : null}</span>
+      <span className="hidden w-20 flex-none text-right text-xs text-faint sm:block">
+        {s.lastDeploy?.status === "waiting" ? <WaitingMark short /> : s.lastDeploy ? <TimeAgo date={s.lastDeploy.createdAt} /> : null}
+      </span>
     </Link>
   );
 }

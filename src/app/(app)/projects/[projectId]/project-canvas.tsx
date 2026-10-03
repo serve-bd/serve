@@ -27,6 +27,7 @@ import { AlertTriangle, ArrowUpRight, LayoutGrid, Maximize2, Minimize2, Minus, P
 import { useRouter } from "@/hooks/use-router";
 import { engineColors, ServiceIcon } from "@/components/service-icon";
 import { StatusLabel } from "@/components/ui/status";
+import { WaitingMark } from "./waiting-mark";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
@@ -169,11 +170,15 @@ function ServiceCardNode({ data, selected }: NodeProps<ServiceNode>) {
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-line px-3.5 py-2">
         <StatusLabel status={s.status} className="text-[11px]" />
-        {issue && (
-          <span className={cn("flex min-w-0 items-center gap-1 text-[11px]", issue.tone === "bad" ? "text-bad" : "text-warn")} title={s.issues.map((i) => i.text).join("\n")}>
-            <AlertTriangle className="size-3 flex-none" />
-            <span className="truncate">{s.issues.length > 1 ? `${s.issues.length} issues` : "Needs attention"}</span>
-          </span>
+        {s.lastDeploy?.status === "waiting" ? (
+          <WaitingMark className="text-[11px]" />
+        ) : (
+          issue && (
+            <span className={cn("flex min-w-0 items-center gap-1 text-[11px]", issue.tone === "bad" ? "text-bad" : "text-warn")} title={s.issues.map((i) => i.text).join("\n")}>
+              <AlertTriangle className="size-3 flex-none" />
+              <span className="truncate">{s.issues.length > 1 ? `${s.issues.length} issues` : "Needs attention"}</span>
+            </span>
+          )
         )}
       </div>
       <Handle type="source" position={Position.Right} className="!size-2 !min-h-0 !min-w-0 !border-0 !bg-transparent" isConnectable={false} />

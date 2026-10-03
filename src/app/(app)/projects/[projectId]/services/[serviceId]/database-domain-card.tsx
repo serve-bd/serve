@@ -45,8 +45,9 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
   const ownPortReady = info.directSupported && !!info.publicIp;
   const defaultVia = ownPortReady || info.tunnels.length === 0 ? "direct" : "tunnel";
   const [picked, setVia] = React.useState<"direct" | "tunnel">(info.hostname ? info.via : defaultVia);
-  // With a public IP the domain just works on its own port: no route to pick, unless a tunnel domain is set.
-  const showRoutes = info.tunnels.length > 0 && (!ownPortReady || (!!info.hostname && info.via === "tunnel"));
+  // With a tunnel on the server the route is a choice: with a public IP too, a tunnel lets the
+  // domain work with the public port closed. Its own port stays the default then.
+  const showRoutes = info.tunnels.length > 0;
   const via = showRoutes ? picked : defaultVia;
   // The card shows what happened (the URL, the certificate): errors and steps left stay in it too, no toasts.
   const [notice, setNotice] = React.useState<{ error: string | null; warnings: string[] }>({ error: null, warnings: [] });

@@ -45,12 +45,13 @@ function Tile({ icon, label, value, sub }: { icon: React.ReactNode; label: strin
   );
 }
 
-function Usage({ stats, running }: { stats: Stats[string] | undefined; running: boolean }) {
+/** CPU as a share of the whole server: Docker counts 100% per core. */
+function Usage({ stats, running, cpus }: { stats: Stats[string] | undefined; running: boolean; cpus: number }) {
   if (!running) return <span className="text-faint">—</span>;
   if (!stats) return <span className="inline-block h-3 w-16 animate-pulse rounded bg-sunken" />;
   return (
     <span className="tabular-nums">
-      <span className="text-fg-2">{stats.cpu.toFixed(1)}%</span>
+      <span className="text-fg-2">{(stats.cpu / cpus).toFixed(1)}%</span>
       <span className="text-faint"> · </span>
       <span className="text-fg-2">{formatBytes(stats.memory)}</span>
     </span>
@@ -72,8 +73,9 @@ export function ResourcesView({
   const [moving, setMoving] = React.useState<{ id: string; name: string; mode: "move" | "copy" } | null>(null);
   const [filter, setFilter] = React.useState<Filter>("all");
   const [query, setQuery] = React.useState("");
-  const { data } = useSWR<{ stats: Stats }>(`/api/servers/${serverId}/resources/stats`, { refreshInterval: 10_000 });
+  const { data } = useSWR<{ stats: Stats; cpus?: number }>(`/api/servers/${serverId}/resources/stats`, { refreshInterval: 10_000 });
   const stats = data?.stats ?? {};
+  const cpus = data?.cpus || 1;
   const confirm = useConfirm();
   const control = useAction(controlUnmanagedContainer);
 
@@ -105,7 +107,7 @@ export function ResourcesView({
                 <span className="text-[14px] font-medium text-faint"> / {containers.length}</span>
               </>
             }
-            sub={data ? `${totals.cpu.toFixed(0)}% CPU · ${formatBytes(totals.memory)}` : "running"}
+            sub={data ? `${(totals.cpu / cpus).toFixed(0)}% CPU · ${formatBytes(totals.memory)}` : "running"}
           />
           <Tile icon={<Layers />} label="Images" value={summary.images} />
           <Tile icon={<HardDrive />} label="Volumes" value={summary.volumes} />
@@ -235,7 +237,7 @@ export function ResourcesView({
                       {c.ports.length > 0 && <span className="truncate font-mono text-[11px] text-faint">{c.ports.join("  ")}</span>}
                     </div>
                     <div className="col-span-2 flex items-center gap-3 pl-5 text-xs md:col-span-1 md:col-start-3 md:row-start-1 md:pl-0">
-                      <Usage stats={stats[c.id]} running={isRunning} />
+                      <Usage stats={stats[c.id]} running={isRunning} cpus={cpus} />
                       <span className="text-faint md:hidden">·</span>
                       <span className="text-muted md:hidden">
                         <TimeAgo date={c.created} />

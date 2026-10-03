@@ -9,16 +9,18 @@ export const dynamic = "force-dynamic";
 type Sample = { cpu: number; memory: number; memoryLimit: number | null };
 
 // Several open tabs share one round of `docker stats` calls.
-const store = globalThis as unknown as { __serveHostStats?: Map<string, { at: number; data: Promise<Record<string, Sample>> }> };
+type Result = { stats: Record<string, Sample>; cpus: number };
+
+const store = globalThis as unknown as { __serveHostStats?: Map<string, { at: number; data: Promise<Result> }> };
 const cache = (store.__serveHostStats ??= new Map());
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   return Promise.race([promise, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
 }
 
-async function collect(server: ServerCtx): Promise<Record<string, Sample>> {
+async function collect(server: ServerCtx): Promise<Result> {
   const docker = server.docker;
-  const [containers, samples] = await Promise.all([docker.listContainers(), latestServiceSamples()]);
+  const [containers, samples, info] = await Promise.all([docker.listContainers(), latestServiceSamples(), docker.info().catch(() => null) as Promise<{ NCPU?: number } | null>]);
   const byService = new Map(samples.map((s) => [s.serviceId, s]));
   const perService = new Map<string, number>();
   for (const c of containers) {
@@ -54,10 +56,10 @@ async function collect(server: ServerCtx): Promise<Record<string, Sample>> {
     }
   };
   await Promise.all(Array.from({ length: Math.min(10, queue.length) }, worker));
-  return out;
+  return { stats: out, cpus: info?.NCPU || 1 };
 }
 
-/** CPU and memory for every running container on a server. */
+/** CPU and memory for every running container on a server. CPU is per core (100 = one core); `cpus` is the server's core count. */
 export async function GET(_request: NextRequest, ctx: RouteContext<"/api/servers/[serverId]/resources/stats">) {
   const { serverId } = await ctx.params;
   const auth = await serverRoute(serverId);
@@ -65,9 +67,9 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/servers
   const cached = cache.get(serverId);
   if (!cached || Date.now() - cached.at > 8000) cache.set(serverId, { at: Date.now(), data: collect(auth.server) });
   try {
-    return NextResponse.json({ stats: await cache.get(serverId)!.data });
+    return NextResponse.json(await cache.get(serverId)!.data);
   } catch {
     cache.delete(serverId);
-    return NextResponse.json({ stats: {} });
+    return NextResponse.json({ stats: {}, cpus: 1 });
   }
 }

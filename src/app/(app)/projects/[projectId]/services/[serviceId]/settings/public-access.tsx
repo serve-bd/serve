@@ -229,7 +229,14 @@ function AddonAccessCard({
       <CardBody className="flex flex-col gap-4">
         {on ? (
           <>
-            <Field label="Domain" description={which === "replicas" ? "Optional. Leads to every replica server." : "Optional."}>
+            <Field
+              label="Domain"
+              description={
+                which === "replicas"
+                  ? "Optional. To connect by name instead of IP, add a domain. It leads to every replica server and gets its own certificate."
+                  : "Optional. To connect by name instead of IP, add a domain. It gets its own certificate."
+              }
+            >
               <Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder={which === "pooler" ? "pool.example.com" : "read.example.com"} disabled={!canManage} />
             </Field>
             {

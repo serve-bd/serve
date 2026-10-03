@@ -109,11 +109,11 @@ export function UpdatesView({
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <p className="text-[15px] font-semibold text-fg">
               {available && check?.latest
-                ? `${productName} v${check.latest} is available`
+                ? `v${check.latest} is available`
                 : check?.error
                   ? "Could not check for updates"
                   : check?.latest
-                    ? `${productName} is up to date`
+                    ? "Up to date"
                     : check
                       ? "No releases published yet"
                       : "Not checked yet"}

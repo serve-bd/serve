@@ -55,9 +55,17 @@ export function vectorConfig(serverName: string, drains: DrainSpec[], csv: strin
   // The table is reloaded with the config: its hash in the config makes a changed table a changed config.
   const tableHash = crypto.createHash("sha256").update(csv).digest("hex").slice(0, 16);
   const transforms: Record<string, unknown> = {
+    // When a container stops, Vector reads its log once more from the last line it saw: that line
+    // would go out twice. A line is the same one only with the same container, stream and time.
+    serve_dedupe: {
+      type: "dedupe",
+      inputs: ["serve_docker"],
+      fields: { match: ["container_id", "stream", "timestamp", "message"] },
+      cache: { num_events: 10_000 },
+    },
     serve_enrich: {
       type: "remap",
-      inputs: ["serve_docker"],
+      inputs: ["serve_dedupe"],
       source: [
         `# services ${tableHash}`,
         'sid = string(.label."serve.service") ?? ""',

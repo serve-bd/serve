@@ -32,7 +32,15 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & Varian
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant, size, loading, disabled, children, type = "button", ...props }, ref) {
   return (
-    <button ref={ref} type={type} className={cn(buttonVariants({ variant, size }), className)} disabled={disabled || loading} aria-busy={loading || undefined} {...props}>
+    <button
+      ref={ref}
+      type={type}
+      // While loading, the spinner takes the place of the button's own leading icon (not next to it).
+      className={cn(buttonVariants({ variant, size }), "[&>svg.animate-spin+svg]:hidden", className)}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...props}
+    >
       {loading && <Loader2 className="animate-spin" />}
       {children}
     </button>

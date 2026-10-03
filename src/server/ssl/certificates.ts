@@ -22,7 +22,19 @@ import { publicRequest } from "@/server/net/public-fetch";
 type Cert = typeof schema.certificate.$inferSelect;
 
 // Pinned by digest: they run with every private key mounted.
-const CERTBOT_IMAGE = "certbot/certbot:v5.8.0@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20";
+const CERTBOT_IMAGE = "certbot/certbot:v5.8.0@sha256:f70ad0adbb7e117f0fe42a63c553f28ea451edabc0148757b6efcd9735acaa20"; /**
+ * The organization (else common name) of a certificate's issuer, as Node prints it: one
+ * "key=value" per line, with commas inside a value escaped ("O=CloudFlare\\, Inc.").
+ */
+export function issuerName(issuer: string) {
+  const field = (key: string) =>
+    issuer
+      .match(new RegExp(`(?:^|\\n)${key}=(.+)`))?.[1]
+      ?.replace(/\\(.)/g, "$1")
+      .trim();
+  return field("O") ?? field("CN") ?? "Unknown";
+}
+
 const CERTBOT_CF_IMAGE = "certbot/dns-cloudflare:v5.8.0@sha256:c45edb002b883da1a1235abb205dff474a7a1a459d878e8d5fdc7f9d83073aea";
 
 export function parseCertificate(pem: string) {
@@ -37,7 +49,7 @@ export function parseCertificate(pem: string) {
   const cn = x509.subject.match(/CN=([^\n,]+)/)?.[1];
   return {
     names: names.length ? names : cn ? [cn] : [],
-    issuer: x509.issuer.match(/O=([^\n,]+)/)?.[1] ?? x509.issuer.match(/CN=([^\n,]+)/)?.[1] ?? "Unknown",
+    issuer: issuerName(x509.issuer),
     expiresAt: new Date(x509.validTo),
     x509,
   };

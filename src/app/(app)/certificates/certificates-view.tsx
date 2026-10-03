@@ -425,6 +425,13 @@ function CertificateRow({
           )}
           <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted">
             <span>{providerLabel[c.provider]}</span>
+            {c.issuer && c.issuer !== "Unknown" && (
+              <>
+                <span className="text-faint">·</span>
+                {/* Issuers saved before the comma fix end in a stray backslash ("CloudFlare\\"). */}
+                <span title="Issued by">by {c.issuer.replace(/\\$/, "")}</span>
+              </>
+            )}
             {c.server && (
               <>
                 <span className="text-faint">·</span>

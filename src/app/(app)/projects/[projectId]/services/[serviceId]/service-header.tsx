@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { AlertTriangle, ArrowLeft, ArrowUpRight, ChevronDown, Construction, FolderInput, Play, Plug, Power, RotateCw, Rocket, Square } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowUpRight, Construction, FolderInput, Play, Plug, Power, RotateCw, Rocket, Square } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
 import { ServiceSwitcher, type SiblingService } from "./service-switcher";
 import { MoveServicesDialog } from "@/components/move-services-dialog";
@@ -239,7 +239,7 @@ export function ServiceHeader({ project, environment, service, initialLive, port
                   title={cannot("services.deploy")}
                   className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "h-9 gap-1.5 sm:h-8 disabled:cursor-not-allowed")}
                 >
-                  <Power className="size-3.5" /> Manage <ChevronDown className="size-3.5 text-muted" />
+                  <Power className="size-3.5" /> Manage
                 </MenuTrigger>
                 <MenuContent>
                   {notDeployed ? (

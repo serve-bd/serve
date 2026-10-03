@@ -8,6 +8,7 @@ import { publishedPorts } from "@/server/services/ports";
 import { serverPublicIp } from "@/server/servers/access";
 import { dashboardVisitorIp } from "@/server/proxy/trusted-proxies";
 import { certificateCovers } from "@/server/ssl/match";
+import { clientTrusted } from "@/server/databases/domain-tls";
 import { replicaInstances } from "@/server/services/types";
 import { inRanges } from "@/lib/trusted-proxies";
 import { privateHost } from "@/lib/hostname";
@@ -33,12 +34,13 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
       domains: schema.certificate.domains,
       serverId: schema.certificate.serverId,
       provider: schema.certificate.provider,
+      expiresAt: schema.certificate.expiresAt,
     })
     .from(schema.certificate)
     .where(eq(schema.certificate.organizationId, org.id));
   const certFor = (hostname: string, serverId: string) =>
     certs
-      .filter((c) => c.serverId === serverId && c.provider !== "cloudflare-origin" && certificateCovers(c.domains, hostname))
+      .filter((c) => c.serverId === serverId && clientTrusted(c) && certificateCovers(c.domains, hostname))
       .sort((a, b) => Number(b.status === "active") - Number(a.status === "active"))[0];
   const hostname = cfg.domain ?? null;
   const domainCert = hostname ? certFor(hostname, service.serverId) : undefined;

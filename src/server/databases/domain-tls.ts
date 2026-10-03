@@ -27,11 +27,17 @@ const MOUNT = "/etc/serve-domain-cert";
  * wildcard counts), or a new Let's Encrypt one. HTTP validation needs Serve's nginx on port 80;
  * other servers need the domain in a connected Cloudflare account.
  */
+/** Publicly trusted certificates last 398 days at most (CA/Browser Forum); a little room for clocks. */
+const PUBLIC_MAX_LIFETIME_MS = 400 * 24 * 3600_000;
+
 /**
- * Certificates a database client can trust: a Cloudflare origin certificate is trusted by
+ * Certificates a database client can trust. A Cloudflare origin certificate is trusted by
  * Cloudflare's proxy only, and database traffic does not go through it (its DNS is "DNS only").
+ * One uploaded by hand is caught too: no public authority issues for longer than 398 days, so a
+ * certificate valid much longer (origin certificates last 15 years) comes from a private one.
  */
-export const clientTrusted = (c: { provider: string }) => c.provider !== "cloudflare-origin";
+export const clientTrusted = (c: { provider: string; expiresAt?: Date | null }) =>
+  c.provider !== "cloudflare-origin" && !(c.expiresAt && c.expiresAt.getTime() - Date.now() > PUBLIC_MAX_LIFETIME_MS);
 
 export async function ensureDatabaseCertificate(hostname: string, serverId: string, organizationId: string): Promise<CertRow | { error: string }> {
   const certs = await db

@@ -20,11 +20,12 @@ export async function databasePublicEndpoint(service: Service, organizationId: s
   if (direct && cfg.tls?.enabled) {
     const { certificateCovers } = await import("@/server/ssl/match");
     const certs = await db
-      .select({ domains: schema.certificate.domains, provider: schema.certificate.provider })
+      .select({ domains: schema.certificate.domains, provider: schema.certificate.provider, expiresAt: schema.certificate.expiresAt })
       .from(schema.certificate)
       .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, service.serverId), eq(schema.certificate.status, "active")));
-    // A Cloudflare origin certificate is not one clients trust.
-    verified = certs.some((c) => c.provider !== "cloudflare-origin" && certificateCovers(c.domains, cfg.domain!));
+    // Only a certificate clients trust (not a Cloudflare origin or other private one).
+    const { clientTrusted } = await import("./domain-tls");
+    verified = certs.some((c) => clientTrusted(c) && certificateCovers(c.domains, cfg.domain!));
   }
   return { host, port: cfg.publicPort, verified };
 }

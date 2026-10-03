@@ -234,7 +234,9 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                     label={`Connection URL${info.port ? ` · port ${info.port}` : ""}`}
                     description={
                       cert?.status !== "active"
-                        ? "Encrypted. The domain's certificate is used once it is active."
+                        ? cert?.status === "failed"
+                          ? "Not open yet: the database opens this port once its certificate is active."
+                          : "Ready once the certificate is active: the database then restarts once to open this port with it."
                         : info.engine === "postgres"
                           ? "Encrypted with the domain's certificate. To also check it, use sslmode=verify-full&sslrootcert=system (PostgreSQL 16+ clients)."
                           : "Encrypted with the domain's certificate, which clients check."

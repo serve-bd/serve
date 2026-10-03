@@ -62,6 +62,7 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
     const previousTunnel = cfg.domainTunnelId ?? null;
     const previousHost = cfg.domain ?? null;
     const warnings: string[] = [];
+    let certReady = false;
 
     if (hostname) {
       if (!hostnamePattern.test(hostname)) throw new UserError("Enter a domain like db.example.com.");
@@ -164,6 +165,7 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
       }
       const cert = await ensureDatabaseCertificate(hostname, service.serverId, ctx.org.id);
       if ("error" in cert) warnings.push(cert.error);
+      else certReady = cert.status === "active";
     }
     // A domain given up: remove the DNS records Serve made for it (never anyone else's), and the
     // certificate it got for it, in the background.
@@ -183,9 +185,11 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
           warnings.push(`The DNS record of ${previousHost} was not removed: ${(e as Error).message}`);
         }
     }
-    // The container serves the domain's certificate and port itself: start it again with them.
+    // The container serves the domain's certificate and port itself: start it again with them, once.
+    // A certificate still being issued: the deploy waits for it (it starts when the certificate is
+    // active), so adding a domain restarts the database one time, not twice.
     // A stopped database stays stopped: it picks this up when it starts.
-    const containerChanged = direct || (!!previousHost && !previousTunnel);
+    const containerChanged = (direct && certReady) || (!direct && !!previousHost && !previousTunnel);
     if (containerChanged && service.status !== "idle" && service.status !== "stopped") await queueDeployment(service.id, "redeploy", { userId: ctx.user.id });
     await logActivity({
       userId: ctx.user.id,

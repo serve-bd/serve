@@ -26,7 +26,6 @@ import {
   providerInfo,
   type QuietHours,
   type Severity,
-  severityOptions,
   webhookExample,
 } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
@@ -211,7 +210,7 @@ export function ChannelEditor(props: {
                               onCheckedChange={(c) => set({ events: c ? [...form.events, ev.id] : form.events.filter((x) => x !== ev.id) })}
                             />
                             <span className="min-w-0 flex-1">{ev.label}</span>
-                            {ev.severity === "critical" && <span className="size-1.5 rounded-full bg-bad" title="Critical" />}
+                            {ev.severity !== "info" && <span className="size-1.5 rounded-full bg-bad" title="A problem" />}
                           </label>
                         ))}
                       </div>
@@ -219,16 +218,6 @@ export function ChannelEditor(props: {
                   );
                 })}
               </div>
-              <CardFooter className="flex-wrap">
-                <span className="text-[13px] text-fg-2">Send</span>
-                <Select
-                  size="sm"
-                  className="w-full sm:w-72"
-                  value={form.minSeverity}
-                  onValueChange={(v) => set({ minSeverity: v as Severity })}
-                  options={severityOptions.map((o) => ({ value: o.value, label: o.label, description: o.description }))}
-                />
-              </CardFooter>
             </Card>
 
             <ScopeCard tree={props.tree} scope={form.scope} onChange={(scope) => set({ scope })} isRoot={props.isRoot} hasServers={!!props.hasServers} />
@@ -265,7 +254,6 @@ export function ChannelEditor(props: {
                 </div>
                 <dl className="flex flex-col gap-2 border-t border-line pt-3 text-[13px]">
                   <Summary label="Events" value={`${form.events.length} of ${events.length}`} />
-                  <Summary label="Sends" value={severityOptions.find((s) => s.value === form.minSeverity)?.label ?? ""} />
                   <Summary label="Covers" value={scopeSummary(form.scope, props.tree)} />
                   {!alerting && <Summary label="Quiet hours" value={form.quietHours?.enabled ? `${form.quietHours.start}–${form.quietHours.end}` : "Off"} />}
                   <Summary

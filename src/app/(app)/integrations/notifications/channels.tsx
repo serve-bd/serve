@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { useConfirm } from "@/components/ui/confirm";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { useAction } from "@/hooks/use-action";
-import { eventInfo, providerCategories, providerInfo, providers, severityOptions } from "@/lib/notifications";
+import { eventInfo, providerCategories, providerInfo, providers } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 import { deleteNotificationChannel, retryNotificationDelivery, testNotificationChannel, toggleNotificationChannel } from "@/server/actions/notifications";
 import { ProviderIcon } from "./provider-icon";
@@ -146,7 +146,6 @@ export function NotificationChannels({ channels, deliveries, isAdmin }: { channe
                     <Badge>
                       {c.events.length} event{c.events.length === 1 ? "" : "s"}
                     </Badge>
-                    <Badge>{severityOptions.find((s) => s.value === c.minSeverity)?.label ?? "Everything"}</Badge>
                     <Badge>{c.scoped ? "Some projects" : "All projects"}</Badge>
                     {c.quietHours && (
                       <Badge>

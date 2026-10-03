@@ -407,6 +407,13 @@
       "when": 1791004902684,
       "tag": "0057_deployment_config_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1791029443235,
+      "tag": "0058_notification_severity_to_events",
+      "breakpoints": true
     }
   ]
 }

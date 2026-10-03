@@ -1,9 +1,8 @@
-import { type ChannelScope, type QuietHours, type Severity, severityRank } from "@/lib/notifications";
+import type { ChannelScope, QuietHours, Severity } from "@/lib/notifications";
 
 export type RuleChannel = {
   events: string[];
   scope: ChannelScope | null;
-  minSeverity: Severity;
 };
 
 export type RuleEvent = {
@@ -20,8 +19,6 @@ export type RuleEvent = {
 /** Whether a channel wants this event: its event list, its minimum severity and its scope. */
 export function channelWants(channel: RuleChannel, e: RuleEvent) {
   if (!channel.events.includes(e.event)) return false;
-  // Recoveries resolve the problem they follow, so they pass whatever the minimum is.
-  if (!(e.ok && e.dedup) && severityRank[e.severity] < severityRank[channel.minSeverity]) return false;
   return inScope(channel.scope, e);
 }
 

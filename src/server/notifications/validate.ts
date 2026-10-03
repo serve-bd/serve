@@ -130,7 +130,8 @@ export const channelInput = z.object({
       includeGlobal: z.boolean(),
     })
     .nullable(),
-  minSeverity: z.enum(["info", "warning", "critical"]),
+  /** No longer used: the ticked events decide. Accepted so older API clients keep working. */
+  minSeverity: z.enum(["info", "warning", "critical"]).optional(),
   quietHours: z
     .object({
       enabled: z.boolean(),

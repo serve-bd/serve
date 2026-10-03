@@ -196,15 +196,10 @@ describe("webhook", () => {
 
 describe("rules", () => {
   const e = { event: "deploy.failed", severity: "warning" as const, ok: false, projectId: "p1", environmentId: "e1", serviceId: "s1" };
-  it("matches events and minimum severity", () => {
-    expect(channelWants({ events: ["deploy.failed"], scope: null, minSeverity: "info" }, e)).toBe(true);
-    expect(channelWants({ events: ["deploy.success"], scope: null, minSeverity: "info" }, e)).toBe(false);
-    expect(channelWants({ events: ["deploy.failed"], scope: null, minSeverity: "critical" }, e)).toBe(false);
-    // A recovery closing an alert passes "problems only".
-    expect(
-      channelWants({ events: ["service.recovered"], scope: null, minSeverity: "warning" }, { ...e, event: "service.recovered", ok: true, severity: "info", dedup: true }),
-    ).toBe(true);
-    expect(channelWants({ events: ["deploy.success"], scope: null, minSeverity: "warning" }, { ...e, event: "deploy.success", ok: true, severity: "info" })).toBe(false);
+  it("sends the ticked events, whatever their severity", () => {
+    expect(channelWants({ events: ["deploy.failed"], scope: null }, e)).toBe(true);
+    expect(channelWants({ events: ["deploy.success"], scope: null }, e)).toBe(false);
+    expect(channelWants({ events: ["deploy.success"], scope: null }, { ...e, event: "deploy.success", ok: true, severity: "info" })).toBe(true);
   });
 
   it("filters by project, environment or service", () => {

@@ -78,7 +78,8 @@ export async function saveNotificationChannel(id: string | null, input: ChannelI
       config: encrypt(JSON.stringify(config)),
       events: data.events,
       scope: await cleanScope(ctx.org.id, data.scope),
-      minSeverity: data.minSeverity,
+      // The ticked events decide alone; the old severity filter is no longer offered.
+      minSeverity: "info" as const,
       quietHours: data.quietHours,
       throttleMinutes: data.throttleMinutes,
       template: data.template && (data.template.title.trim() || data.template.body.trim()) ? data.template : null,

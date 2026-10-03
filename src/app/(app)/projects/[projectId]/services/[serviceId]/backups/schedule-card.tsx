@@ -236,14 +236,19 @@ export function ScheduleCard(props: {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label={dest === "local" ? "Keep the latest" : "Keep on this server"} description="Older copies are deleted automatically.">
-                <InputGroup suffix="backups">
-                  <Input value={retention} onChange={(e) => setRetention(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" className="font-mono" />
+                <InputGroup suffix="backups" className="w-full">
+                  <Input value={retention} onChange={(e) => setRetention(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" className="min-w-0 flex-1 font-mono" />
                 </InputGroup>
               </Field>
               {dest !== "local" && (
                 <Field label="Keep in S3" description="Usually longer: off-site history.">
-                  <InputGroup suffix="backups">
-                    <Input value={retentionS3} onChange={(e) => setRetentionS3(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" className="font-mono" />
+                  <InputGroup suffix="backups" className="w-full">
+                    <Input
+                      value={retentionS3}
+                      onChange={(e) => setRetentionS3(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      inputMode="numeric"
+                      className="min-w-0 flex-1 font-mono"
+                    />
                   </InputGroup>
                 </Field>
               )}

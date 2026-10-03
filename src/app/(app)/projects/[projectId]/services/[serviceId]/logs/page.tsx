@@ -14,7 +14,7 @@ export default async function LogsPage(props: PageProps<"/projects/[projectId]/s
   const ctx = await requireOrg();
   if (!ctx.can("logs.view")) return <NoAccess permission="logs.view" />;
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
-  // A PostgreSQL database with a pooler or replicas: a tab for each, the database's own first.
+  // A database with a pooler (PostgreSQL) or read replicas: a tab for each, the database's own first.
   const replicas = replicaInstances(service);
   const addonLabels =
     service.type === "database" && (poolerEnabled(service) || replicas.length)

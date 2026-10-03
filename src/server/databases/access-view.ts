@@ -17,8 +17,8 @@ import { tunnelTargetPort } from "@/lib/database-domains";
 type Service = typeof schema.service.$inferSelect;
 
 /**
- * What the Public access page shows for a database: its own public port and domain, and for
- * PostgreSQL its pooler's and replicas'. Built for the viewer: URLs are masked for roles that may
+ * What the Public access page shows for a database: its own public port and domain, its pooler's
+ * (PostgreSQL) and its read replicas'. Built for the viewer: URLs are masked for roles that may
  * not see secrets.
  */
 export async function databaseAccessView(service: Service, org: { id: string; can: (p: string) => boolean }) {

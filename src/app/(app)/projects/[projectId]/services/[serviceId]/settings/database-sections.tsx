@@ -70,7 +70,7 @@ export type DatabaseSettingsProps = {
     healthcheck: string;
   };
   internalUrl: string;
-  /** Connection URLs through the pooler and to the replica (PostgreSQL). */
+  /** Connection URLs through the pooler (PostgreSQL) and to the read replicas. */
   poolerUrl: string;
   replicaUrl: string;
   /** The name other services use in references: ${{<refName>.DATABASE_URL}}. */

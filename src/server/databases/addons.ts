@@ -190,6 +190,42 @@ ALTER SYSTEM SET max_slot_wal_keep_size = '${REPLICA_WAL_LIMIT}';
 SELECT pg_reload_conf();`;
 }
 
+/**
+ * PostgreSQL allows 10 replication connections and 10 slots by default. More replicas than that
+ * need higher limits, which only a restart applies: the database restarts once, when it is needed.
+ * Room is kept for the copy a new replica starts with and for slots made outside Serve.
+ */
+async function ensureReplicationRoom(service: Service, docker: Docker, replicas: number, log: (l: string) => void) {
+  const row = await runSql(
+    service,
+    docker,
+    "SELECT current_setting('max_wal_senders') || ' ' || current_setting('max_replication_slots') || ' ' || (SELECT count(*) FROM pg_replication_slots WHERE slot_name NOT LIKE 'serve_replica_%');",
+    "Could not read the replication limits",
+  );
+  const [senders, slots, others] = row.split(/\s+/).map(Number);
+  const needSenders = Math.max(10, replicas + 5);
+  const needSlots = Math.max(10, replicas + others + 5);
+  if (senders >= needSenders && slots >= needSlots) return;
+  log(`Raising the replication limits for ${replicas} replicas: the database restarts once`);
+  await runSql(
+    service,
+    docker,
+    `ALTER SYSTEM SET max_wal_senders = ${Math.max(senders, needSenders)};\nALTER SYSTEM SET max_replication_slots = ${Math.max(slots, needSlots)};`,
+    "Could not raise the replication limits",
+  );
+  const container = await databaseContainer(docker, service);
+  await docker.getContainer(container.id).restart({ t: 30 });
+  for (let i = 0; ; i++) {
+    const ready = await runSql(service, docker, "SELECT 1;", "not ready").then(
+      () => true,
+      () => false,
+    );
+    if (ready) break;
+    if (i >= 60) throw new Error("The database did not come back after raising the replication limits.");
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
 async function allowReplication(service: Service, docker: Docker) {
   const cfg = service.database!;
   const container = await databaseContainer(docker, service);
@@ -218,6 +254,7 @@ export async function ensureReplicas(service: Service, log: (l: string) => void 
     password = newPassword();
     await saveConfig(service.id, { replica: { ...cfg.replica!, password: encrypt(password) } });
   }
+  await ensureReplicationRoom(service, home.docker, instances.length, log);
   await runSql(
     service,
     home.docker,

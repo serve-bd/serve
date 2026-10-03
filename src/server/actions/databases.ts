@@ -345,7 +345,8 @@ const replicasSchema = z
       serverId: z.string().min(1),
     }),
   )
-  .max(10);
+  // Replica ids have up to three digits.
+  .max(999);
 
 /**
  * Sets the read replicas of a PostgreSQL database: each on the database's server or on one linked

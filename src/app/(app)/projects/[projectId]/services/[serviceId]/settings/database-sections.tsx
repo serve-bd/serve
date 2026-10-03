@@ -669,7 +669,7 @@ function ReplicaSection(props: DatabaseSettingsProps) {
         return save.run(v.instances);
       }}
       footerAction={(v, set) => (
-        <Button type="button" size="sm" disabled={v.instances.length >= 10 || !home} onClick={() => set({ instances: [...v.instances, { serverId: home }] })}>
+        <Button type="button" size="sm" disabled={!home} onClick={() => set({ instances: [...v.instances, { serverId: home }] })}>
           <Plus /> Add replica
         </Button>
       )}

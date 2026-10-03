@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and help
+    url: https://github.com/serve-bd/serve/discussions
+    about: Ask how to do something, share setups and ideas.
+  - name: Documentation
+    url: https://serve.bd/docs/
+    about: Install, deploy, domains, databases, backups and more.
+  - name: Report a security problem
+    url: https://github.com/serve-bd/serve/security/advisories/new
+    about: Privately, so it can be fixed before it is public.

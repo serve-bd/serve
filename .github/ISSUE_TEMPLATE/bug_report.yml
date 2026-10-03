@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in Serve does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. A short, exact report gets fixed fastest.
+        Security problems go to [a private report](https://github.com/serve-bd/serve/security/advisories/new), not here.
+  - type: input
+    id: version
+    attributes:
+      label: Serve version
+      description: Settings → Updates shows it.
+      placeholder: v0.2.5
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create an app from …
+        2. Deploy …
+        3. See …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The deployment log, or `docker logs serve-worker --tail 100` on the server. Remove secrets first.
+      render: shell
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Deployments and builds
+        - Databases and backups
+        - Domains, certificates and proxy
+        - Servers
+        - Notifications
+        - Templates
+        - Dashboard
+        - Install or update
+        - Other
+  - type: input
+    id: server
+    attributes:
+      label: Server
+      description: Operating system, CPU architecture and Docker version.
+      placeholder: Ubuntu 24.04, amd64, Docker 28.1

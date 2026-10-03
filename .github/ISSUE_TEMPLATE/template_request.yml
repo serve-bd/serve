@@ -1,0 +1,27 @@
+name: Template request
+description: An app you want in the one-click template catalog.
+labels: ["template"]
+body:
+  - type: input
+    id: app
+    attributes:
+      label: App
+      placeholder: Name of the app
+    validations:
+      required: true
+  - type: input
+    id: website
+    attributes:
+      label: Website or repository
+    validations:
+      required: true
+  - type: input
+    id: image
+    attributes:
+      label: Official Docker image
+      description: Leave empty if you do not know.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Databases it needs, a compose file you use, anything special.

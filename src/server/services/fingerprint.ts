@@ -92,7 +92,8 @@ export async function configFingerprint(service: Service) {
     hostname: service.hostname,
     distribution: service.distribution,
     source,
-    build: service.build,
+    // "Skip the cache once" is reset by the deploy that uses it.
+    build: service.build ? { ...service.build, noCacheOnce: undefined } : null,
     runtime: service.runtime,
     database,
     compose,

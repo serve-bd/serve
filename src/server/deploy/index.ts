@@ -1354,8 +1354,6 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
   if (!slot.value) return;
   await setServiceStatus(service.id, "building");
   log.line(`Deployment ${dep.id} started (${dep.trigger})`);
-  // The settings this deploy runs with: later changes show as waiting for a redeploy.
-  await setDeployment(dep.id, { configHash: await configFingerprint(service).catch(() => null) });
 
   // A service whose move never finished (it failed, then was deployed again) still takes over from
   // the container it was made from.
@@ -1398,6 +1396,11 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
         log.line(`From the next deployment on, it builds from ${dep.adopt.git.repository} (${dep.adopt.git.branch})`);
       }
     }
+
+    // The settings it now runs with, read after the deploy: it saves some itself (a detected port,
+    // the image's volumes, a compose file from git). Later changes show as waiting for a redeploy.
+    const deployed = await db.query.service.findFirst({ where: eq(schema.service.id, service.id) });
+    if (deployed) await setDeployment(dep.id, { configHash: await configFingerprint(deployed).catch(() => null) });
 
     const seconds = ((Date.now() - startedAt.getTime()) / 1000).toFixed(1);
     log.step(`Deployed successfully in ${seconds}s`);

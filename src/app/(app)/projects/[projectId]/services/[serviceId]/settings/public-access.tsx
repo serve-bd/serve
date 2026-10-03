@@ -227,8 +227,15 @@ function AddonAccessCard({
             {
               <>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
-                  <Field label="Port" description="Empty: a free one.">
-                    <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, "").slice(0, 5))} className="font-mono" inputMode="numeric" disabled={!canManage} />
+                  <Field label="Port">
+                    <Input
+                      placeholder="Auto detect"
+                      value={port}
+                      onChange={(e) => setPort(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                      className="font-mono"
+                      inputMode="numeric"
+                      disabled={!canManage}
+                    />
                   </Field>
                   <Field label="Reachable by">
                     <Select value={bind} onValueChange={(b) => setBind(b as typeof bind)} disabled={!canManage} options={reachableOptions} />

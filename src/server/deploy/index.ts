@@ -1,3 +1,4 @@
+import { replicasSupported } from "@/server/services/types";
 import { configFingerprint } from "@/server/services/fingerprint";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -1043,8 +1044,10 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
       await copyDatabaseInto(service, d, copyFrom, line);
     }
     await setServiceStatus(service.id, "running");
-    // PostgreSQL add-ons follow the database (a new version, new settings). A failing one does not fail the deploy.
-    if (cfg.engine === "postgres" && (cfg.pooler?.enabled || cfg.replica?.enabled)) {
+    // Add-ons follow the database (a new version, new settings): PostgreSQL's pooler, and read
+    // replicas of every engine that has them (also to tidy the database's side once they are off).
+    // A failing one does not fail the deploy.
+    if ((cfg.engine === "postgres" && (cfg.pooler?.enabled || cfg.replica?.enabled)) || (cfg.engine !== "postgres" && replicasSupported(cfg.engine) && cfg.replica)) {
       const { ensurePooler, ensureReplicas } = await import("@/server/databases/addons");
       const fresh = (await db.query.service.findFirst({ where: eq(schema.service.id, service.id) })) ?? service;
       await ensurePooler(fresh, line).catch((e) => line(`Warning: the connection pooler did not start: ${(e as Error).message}`));

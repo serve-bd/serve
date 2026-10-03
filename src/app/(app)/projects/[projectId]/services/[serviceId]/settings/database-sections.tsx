@@ -50,7 +50,7 @@ export type DatabaseSettingsProps = {
     publicPort: number | null;
     publicBind: "0.0.0.0" | "127.0.0.1";
     pooler: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number } | null;
-    replica: { enabled: boolean; instances: { id: string; serverId: string }[] } | null;
+    replica: { enabled: boolean; instances: { id: string; serverId: string }[]; primed?: boolean } | null;
   };
   /** Servers a replica can run on: the database's own and those linked to it privately. */
   replicaServers: { id: string; name: string; home: boolean; linked: boolean }[];
@@ -546,7 +546,7 @@ function HealthSection(props: DatabaseSettingsProps) {
 /** One database settings sub-page (storage is rendered by the shared storage section). */
 /** Polls how the pooler and the replica are doing, while the page is open. */
 function useAddonStatus(serviceId: string, active: boolean) {
-  const [status, setStatus] = React.useState<{ pooler: string | null; replicas: { id: string; state: string; lagSeconds: number | null }[] } | null>(null);
+  const [status, setStatus] = React.useState<{ pooler: string | null; replicas: { id: string; state: string; lagSeconds: number | null; error?: string | null }[] } | null>(null);
   React.useEffect(() => {
     if (!active) return;
     let stop = false;
@@ -626,6 +626,43 @@ function PoolingSection(props: DatabaseSettingsProps) {
   );
 }
 
+/** What each engine's replicas do and cost, in the words of the replicas card. */
+function replicaFacts(engine: string) {
+  switch (engine) {
+    case "mysql":
+      return {
+        how: "it copies the database once (with every user), then follows it by GTID",
+        restart: null,
+        cost: "Each replica uses as much disk as the database. A replica stopped for longer than the database keeps its binary log (30 days) must be copied again: remove it and add it back.",
+      };
+    case "mariadb":
+      return {
+        how: "it copies the database once (with every user), then follows it by GTID",
+        restart: "The first replica restarts the database once, for a few seconds, to turn on its binary log.",
+        cost: "Each replica uses as much disk as the database. The database keeps 7 days of its binary log for replicas; one stopped for longer must be copied again: remove it and add it back.",
+      };
+    case "mongodb":
+      return {
+        how: "it joins the database's replica set, copies it, then follows every change. It takes reads but never votes or becomes the primary",
+        restart: "The first replica restarts the database once, for a few seconds, to start its replica set.",
+        cost: "Each replica uses as much disk as the database. Connection URLs carry directConnection=true from then on: update URLs you copied before.",
+      };
+    case "redis":
+    case "valkey":
+      return {
+        how: "it copies the data once, then follows every write",
+        restart: null,
+        cost: "Each replica holds the whole data set in memory, like the database.",
+      };
+    default:
+      return {
+        how: "it copies the database once, then follows every change within about a second",
+        restart: null,
+        cost: "Each replica uses as much disk as the database. If one stops, the database keeps at most 4 GB of changes for it, so the disk cannot fill up.",
+      };
+  }
+}
+
 function replicaLabel(state: { state: string; lagSeconds: number | null } | undefined) {
   if (!state) return "Starting";
   if (state.state === "following") return state.lagSeconds ? `Following, ${state.lagSeconds}s behind` : "Following, up to date";
@@ -648,14 +685,24 @@ function ReplicaSection(props: DatabaseSettingsProps) {
   const status = useAddonStatus(props.serviceId, saved.length > 0);
   const home = props.replicaServers.find((s) => s.home)?.id ?? props.replicaServers[0]?.id ?? "";
   const homeName = props.replicaServers.find((s) => s.home)?.name ?? "the database's server";
+  const facts = replicaFacts(props.config.engine);
   return (
     <Section
       key={JSON.stringify(saved)}
       id="replica"
       title="Read replicas"
-      description="Live read-only copies of the database, for heavy reads like reports and search. Writes still go to the database. It keeps running and its URL stays the same."
+      description="Live read-only copies of the database, for heavy reads like reports and search. Writes still go to the database, and its URL stays the same."
       initial={{ instances: saved as { id?: string; serverId: string }[] }}
       onSave={async (v) => {
+        // MariaDB and MongoDB restart once, the first time, to be ready for replicas.
+        if (facts.restart && !props.config.replica?.primed && v.instances.length && props.running) {
+          const ok = await confirm({
+            title: "Restart the database once?",
+            description: `${facts.restart} Replicas start after it.`,
+            confirmLabel: "Restart and add",
+          });
+          if (!ok) return undefined;
+        }
         const removed = saved.filter((r) => !v.instances.some((x) => x.id === r.id && x.serverId === r.serverId));
         if (removed.length) {
           const ok = await confirm({
@@ -678,7 +725,7 @@ function ReplicaSection(props: DatabaseSettingsProps) {
         <>
           {v.instances.length === 0 ? (
             <p className="text-[13px] text-muted">
-              No replicas. Add one: it copies the database once, then follows every change within about a second. No restart, no data touched.
+              No replicas. Add one: {facts.how}. {facts.restart && !props.config.replica?.primed ? facts.restart : "The database keeps running and its data is not touched."}
             </p>
           ) : (
             <div className="flex flex-col divide-y divide-line rounded-xl border border-line">
@@ -693,6 +740,7 @@ function ReplicaSection(props: DatabaseSettingsProps) {
                         <span className={cn("size-1.5 flex-none rounded-full", tone)} />
                         {r.id ? replicaLabel(live) : "Starts after you save"}
                       </span>
+                      {live?.error && <span className="line-clamp-2 text-xs text-bad">{live.error}</span>}
                     </div>
                     <Select
                       size="sm"
@@ -755,7 +803,7 @@ function ReplicaSection(props: DatabaseSettingsProps) {
               </p>
               <p className="flex items-start gap-1.5 rounded-xl bg-surface-2 px-3 py-2.5 text-xs leading-relaxed text-muted">
                 <TriangleAlert className="mt-px size-3.5 flex-none text-warn" />
-                Each replica uses as much disk as the database. If one stops, the database keeps at most 4 GB of changes for it, so the disk cannot fill up.
+                {facts.cost}
               </p>
             </>
           )}

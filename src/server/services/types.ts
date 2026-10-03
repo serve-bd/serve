@@ -276,10 +276,14 @@ export type AddonAccess = {
   unreachable?: string[] | null;
 };
 
-/** The read replicas of a database service: none unless it is PostgreSQL with replicas on. */
+/** Engines with read replicas: PostgreSQL, MySQL, MariaDB, MongoDB, Redis and Valkey. */
+export const REPLICA_ENGINES: readonly DbEngine[] = ["postgres", "mysql", "mariadb", "mongodb", "redis", "valkey"];
+export const replicasSupported = (engine: DbEngine | null | undefined) => !!engine && REPLICA_ENGINES.includes(engine);
+
+/** The read replicas of a database service: none unless its engine has them and they are on. */
 export function replicaInstances(s: { serverId: string; database?: DatabaseConfig | null }): ReplicaInstance[] {
   const r = s.database?.replica;
-  if (s.database?.engine !== "postgres" || !r?.enabled) return [];
+  if (!replicasSupported(s.database?.engine) || !r?.enabled) return [];
   return r.instances?.length ? r.instances : [{ id: "1", serverId: s.serverId }];
 }
 
@@ -359,11 +363,22 @@ export type DatabaseConfig = {
   /** PostgreSQL: a PgBouncer in front, at <host>-pooler. `password` (encrypted) is its lookup login's. */
   pooler?: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number; password?: string | null; public?: AddonAccess | null } | null;
   /**
-   * PostgreSQL: streaming read-only copies, each at <host>-replica-<id> on its server (the
-   * database's or one linked to it privately); <host>-replica spreads reads over them all.
-   * `password` (encrypted) is the replication login's. No `instances`: one, on the database's server.
+   * Read-only copies that follow the database (PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey),
+   * each at <host>-replica-<id> on its server (the database's or one linked to it privately);
+   * <host>-replica spreads reads over them all. `password` (encrypted) is the replication login's
+   * (MongoDB: the replica set's key). No `instances`: one, on the database's server.
    */
-  replica?: { enabled: boolean; password?: string | null; instances?: ReplicaInstance[]; public?: AddonAccess | null } | null;
+  replica?: {
+    enabled: boolean;
+    password?: string | null;
+    instances?: ReplicaInstance[];
+    public?: AddonAccess | null;
+    /**
+     * MariaDB and MongoDB: the database runs ready for replicas (a binary log; a replica set), which
+     * only a restart turns on. It stays on once set, so turning replicas off and on does not restart it.
+     */
+    primed?: boolean;
+  } | null;
 };
 
 /** Whether a runtime has host-level access: host paths, host ports, privileges or hardware. */

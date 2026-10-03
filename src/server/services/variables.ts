@@ -77,8 +77,8 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
     const replicas = replicaInstances(service);
     if (replicas.length) {
       vars.READ_HOST = `${privateHost(service)}-replica`;
-      vars.READ_DATABASE_URL = databaseUrl(cfg, creds, vars.READ_HOST, engine.port);
-      for (const r of replicas) vars[`READ_DATABASE_URL_${r.id}`] = databaseUrl(cfg, creds, `${privateHost(service)}-replica-${r.id}`, engine.port);
+      vars.READ_DATABASE_URL = databaseUrl(cfg, creds, vars.READ_HOST, engine.port, { replica: true });
+      for (const r of replicas) vars[`READ_DATABASE_URL_${r.id}`] = databaseUrl(cfg, creds, `${privateHost(service)}-replica-${r.id}`, engine.port, { replica: true });
     }
   }
   return vars;

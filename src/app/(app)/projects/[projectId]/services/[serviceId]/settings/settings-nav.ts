@@ -25,12 +25,8 @@ export function databaseNav(db: NonNullable<SettingsNavInput["db"]>): SettingsNa
     { id: "public-access", label: "Public access" },
     ...(db.tls ? [{ id: "tls", label: "TLS" }] : []),
     { id: "health", label: "Health check" },
-    ...(db.engine === "postgres"
-      ? [
-          { id: "pooling", label: "Connection pooling" },
-          { id: "replica", label: "Read replica" },
-        ]
-      : []),
+    ...(db.engine === "postgres" ? [{ id: "pooling", label: "Connection pooling" }] : []),
+    ...(["postgres", "mysql", "mariadb", "mongodb", "redis", "valkey"].includes(db.engine) ? [{ id: "replica", label: "Read replicas" }] : []),
     { id: "storage", label: "Persistent storage" },
   ];
 }

@@ -9,7 +9,7 @@ import { serverPublicIp } from "@/server/servers/access";
 import { dashboardVisitorIp } from "@/server/proxy/trusted-proxies";
 import { certificateCovers } from "@/server/ssl/match";
 import { clientTrusted } from "@/server/databases/domain-tls";
-import { replicaInstances } from "@/server/services/types";
+import { replicaInstances, replicasSupported } from "@/server/services/types";
 import { inRanges } from "@/lib/trusted-proxies";
 import { privateHost } from "@/lib/hostname";
 import { tunnelTargetPort } from "@/lib/database-domains";
@@ -94,7 +94,11 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
     const pub = which === "pooler" ? cfg.pooler?.public : cfg.replica?.public;
     const servers = which === "pooler" ? [service.serverId] : [...new Set(replicaInstances(service).map((r) => r.serverId))];
     const host = pub?.domain || (pub?.port ? publicIp : null);
-    const url = pub?.port && host && !pub.tunnelId ? databaseUrl(cfg, creds, host, pub.port, { public: true, verified: !!pub.domain }) : null;
+    // PostgreSQL's pooler and replicas speak TLS on their public port themselves; other engines'
+    // replicas when the database has TLS on, with the domain's certificate when there is one.
+    const tlsOn = cfg.engine === "postgres" || !!cfg.tls?.enabled;
+    const url =
+      pub?.port && host && !pub.tunnelId ? databaseUrl(cfg, creds, host, pub.port, { public: true, verified: !!pub.domain && tlsOn, replica: which === "replicas" }) : null;
     return {
       open: !!pub,
       port: pub?.port ?? null,
@@ -121,9 +125,13 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
             }))
         : [],
       servers: servers.length,
+      // A domain works through TLS: other engines need it on for the database first.
+      domainNeedsTls: !tlsOn,
+      engine: engine.label,
     };
   };
   const postgres = cfg.engine === "postgres" && !service.parentServiceId;
+  const replicable = replicasSupported(cfg.engine) && !service.parentServiceId;
   return {
     hideSecrets,
     viewerIp,
@@ -138,7 +146,7 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
     domain,
     tunnels: tunnels.map((t) => ({ id: t.id, label: `Tunnel of ${t.account}` })),
     pooler: postgres && cfg.pooler?.enabled ? addon("pooler") : null,
-    replicas: postgres && replicaInstances(service).length ? addon("replicas") : null,
+    replicas: replicable && replicaInstances(service).length ? addon("replicas") : null,
     privateHost: privateHost(service),
   };
 }

@@ -60,7 +60,9 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
     if (!ctx.can("domains.manage")) throw new UserError("Public access needs the right to manage domains.");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const cfg = service.database;
-    if (cfg?.engine !== "postgres") throw new UserError("Public access for a pooler or replicas is for PostgreSQL databases.");
+    const { replicasSupported } = await import("@/server/services/types");
+    if (!cfg || (which === "pooler" ? cfg.engine !== "postgres" : !replicasSupported(cfg.engine)))
+      throw new UserError(which === "pooler" ? "Connection pooling is for PostgreSQL databases." : "This database has no read replicas.");
     if (service.parentServiceId) throw new UserError("Preview databases have no public access.");
     if (hasHostAccess(service.runtime) && !(ctx.isInstanceAdmin && ctx.isRoot))
       throw new UserError("Changing a database that has host-level access is only available to admins of the Root organization, for its own services.");
@@ -68,6 +70,9 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
     const replicas = replicaInstances(service);
     if (which === "replicas" && !replicas.length) throw new UserError("Add a read replica first.");
     const data = accessSchema.parse(input);
+    // A domain is reached over TLS with its certificate: other engines' replicas use the database's TLS.
+    if (which === "replicas" && data.open && data.domain?.trim() && cfg.engine !== "postgres" && !cfg.tls?.enabled)
+      throw new UserError("Turn on TLS for the database first (Settings → TLS): a replica domain is reached over TLS.");
     const before: AddonAccess | null = (which === "pooler" ? cfg.pooler?.public : cfg.replica?.public) ?? null;
     const servers = which === "pooler" ? [service.serverId] : [...new Set(replicas.map((r) => r.serverId))];
 

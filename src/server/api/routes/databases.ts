@@ -153,6 +153,53 @@ export const databaseRoutes: ApiRoute[] = [
     },
   }),
   route({
+    method: "GET",
+    path: "/services/{serviceId}/database/replicas",
+    tag: "Databases",
+    summary: "Read replicas and how they are doing",
+    description:
+      "PostgreSQL, MySQL, MariaDB, MongoDB, Redis and Valkey. Each replica: its number, server and state (copying, following, stopped, failed), how many seconds it is behind, and an error when it failed. Apps read from READ_DATABASE_URL (all replicas) or READ_DATABASE_URL_<n>.",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => {
+      const row = await databaseOf(auth, params.serviceId);
+      const { replicaInstances } = await import("@/server/services/types");
+      const status = await unwrap(databases.databaseAddonStatus(params.serviceId));
+      return {
+        replicas: replicaInstances(row.service).map((r) => {
+          const live = status.replicas.find((x) => x.id === r.id);
+          return { id: r.id, serverId: r.serverId, state: live?.state ?? "stopped", lagSeconds: live?.lagSeconds ?? null, error: live?.error ?? null };
+        }),
+      };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/database/replicas",
+    tag: "Databases",
+    summary: "Set the read replicas",
+    description:
+      "The list becomes the replicas: keep one by sending its id, add one with only a serverId (the database's server, or one on a private network with it), and leave one out to remove it with its copy. MariaDB and MongoDB restart once, the first time, to be ready for replicas.",
+    needs: ["services.manage"],
+    body: z.object({ replicas: z.array(z.object({ id: z.string().optional(), serverId: z.string() })) }),
+    handler: async ({ auth, params, body }) => {
+      await databaseOf(auth, params.serviceId);
+      return unwrap(databases.setDatabaseReplicas(params.serviceId, body.replicas));
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/database/replicas/{replicaId}/promote",
+    tag: "Databases",
+    summary: "Make a read replica the database",
+    description:
+      "For when the database's server is lost: the database stops (if its server answers) and deploys on the replica's server with the replica's data. Changes the replica had not received are lost. The other replicas copy the new database again.",
+    needs: ["services.manage", "services.deploy"],
+    handler: async ({ auth, params }) => {
+      await databaseOf(auth, params.serviceId);
+      return unwrap(databases.promoteDatabaseReplica(params.serviceId, params.replicaId));
+    },
+  }),
+  route({
     method: "POST",
     path: "/services/{serviceId}/database/import",
     tag: "Backups",

@@ -19,7 +19,7 @@ import { monitorUrl } from "@/server/monitoring/checks";
 import { logDrainsProps } from "@/server/log-drains/view";
 import { needsApproval } from "@/lib/deploy-rules";
 import { normalizeDistribution } from "@/server/deploy/distribution";
-import { buildsImage, replicaInstances } from "@/server/services/types";
+import { buildsImage, replicaInstances, replicasSupported } from "@/server/services/types";
 import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
 
 export async function generateMetadata(props: PageProps<"/projects/[projectId]/services/[serviceId]/settings/[section]">) {
@@ -60,7 +60,7 @@ function dbProps(
       publicPort: cfg.publicPort ?? null,
       publicBind: cfg.publicBind ?? ("0.0.0.0" as const),
       pooler: cfg.pooler ? { enabled: cfg.pooler.enabled, mode: cfg.pooler.mode, poolSize: cfg.pooler.poolSize, maxClients: cfg.pooler.maxClients } : null,
-      replica: cfg.replica ? { enabled: cfg.replica.enabled, instances: replicaInstances(service) } : null,
+      replica: cfg.replica ? { enabled: cfg.replica.enabled, instances: replicaInstances(service), primed: !!cfg.replica.primed } : null,
     },
     password: hideSecrets ? "" : password,
     hideSecrets,
@@ -86,7 +86,7 @@ function dbProps(
     refName: referenceName(service.name),
     replicaServers,
     poolerUrl: databaseUrl(cfg, hideSecrets ? databaseCreds(cfg, "********") : creds, `${privateHost(service)}-pooler`, engine.port),
-    replicaUrl: databaseUrl(cfg, hideSecrets ? databaseCreds(cfg, "********") : creds, `${privateHost(service)}-replica`, engine.port),
+    replicaUrl: databaseUrl(cfg, hideSecrets ? databaseCreds(cfg, "********") : creds, `${privateHost(service)}-replica`, engine.port, { replica: true }),
     dataPath: cfg.dataMountPath || engine.dataPath,
     defaultDataPath: engine.dataPath,
   };
@@ -154,7 +154,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
   const managedWebhook = credProvider === "github" || credProvider === "gitlab" || credProvider === "gitea" || credProvider === "bitbucket";
   const hideSecrets = !ctx.can("variables.view-secrets");
   // A replica runs on the database's server or one linked to it privately.
-  const members = service.database?.engine === "postgres" ? await meshMemberIds() : null;
+  const members = replicasSupported(service.database?.engine) ? await meshMemberIds() : null;
   const replicaServers = members
     ? // Unlinked servers are listed too, unavailable, so it is clear what to do to use them.
       servers.map((s) => ({ id: s.id, name: s.name, home: s.id === service.serverId, linked: privatelyConnected(members, service.serverId, s.id) }))

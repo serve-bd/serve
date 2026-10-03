@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import path from "node:path";
 import type { DatabaseConfig } from "@/server/services/types";
 import { engineImage, engines, type EngineCreds, type EngineInfo } from "./engines";
@@ -143,6 +144,29 @@ export function databaseConfigIssues(cfg: DatabaseConfig): string[] {
   return issues;
 }
 
+/** MongoDB replica set name, and where a member keeps the set's shared key. */
+export const MONGO_REPLICA_SET = "rs0";
+export const MONGO_KEY_FILE = "/run/serve-mongo/key";
+
+/**
+ * The key a MongoDB replica set's members prove they belong with, from the database's password:
+ * the database and its replicas get the same one without storing another secret.
+ */
+export function mongoReplicaKey(password: string) {
+  return crypto.createHash("sha256").update(`serve-mongo-replica-set:${password}`).digest("hex");
+}
+
+/**
+ * Settings the database itself needs for replicas that only a restart applies: MariaDB's binary
+ * log, MongoDB's replica set. On once replicas were first turned on (`primed`).
+ */
+function replicaPrimaryArgs(cfg: DatabaseConfig): string[] {
+  if (!cfg.replica?.primed) return [];
+  if (cfg.engine === "mariadb") return ["--log-bin=mysql-bin", "--server-id=1", "--binlog-format=ROW", "--binlog-expire-logs-seconds=604800"];
+  if (cfg.engine === "mongodb") return ["--replSet", MONGO_REPLICA_SET, "--keyFile", MONGO_KEY_FILE];
+  return [];
+}
+
 function mysqlConfig(content: string, engine: EngineInfo) {
   const trimmed = content.trim();
   if (!trimmed) return "";
@@ -197,6 +221,7 @@ export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: 
       args.push(...(engine.config.args?.(engine.config.path) ?? []));
     }
   }
+  args.push(...replicaPrimaryArgs(cfg));
   if ((cfg.engine === "mysql" || cfg.engine === "mariadb") && cfg.charset) args.push(`--character-set-server=${cfg.charset}`);
   if ((cfg.engine === "mysql" || cfg.engine === "mariadb") && cfg.collation) args.push(`--collation-server=${cfg.collation}`);
   if (tls) {
@@ -230,6 +255,13 @@ export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: 
   }
   // Engines started by their image's default command (ClickHouse) still need the TLS copy step.
   if (tls && !cmd && engine.tlsFile) cmd = [];
+  // A MongoDB replica set member's key file, written for the server user before it starts.
+  const mongoKey = cfg.engine === "mongodb" && !!cfg.replica?.primed && !!cmd;
+  if (mongoKey) env.SERVE_MONGO_KEY = mongoReplicaKey(password);
+  const keyStep = mongoKey
+    ? `mkdir -p ${path.posix.dirname(MONGO_KEY_FILE)} && printf %s "$SERVE_MONGO_KEY" > ${MONGO_KEY_FILE} && chown ${engine.runAs} ${MONGO_KEY_FILE} && chmod 400 ${MONGO_KEY_FILE}`
+    : "";
+  if (mongoKey && !tls && cmd) cmd = ["sh", "-c", `${keyStep} && exec ${engine.entrypoint} "$@"`, "sh", ...cmd];
   if (tls && cmd) {
     // Keys must belong to the server user; bind mounts keep the host owner, so copy them first.
     // With a domain, its certificate replaces the one from Serve's authority (which stays trusted
@@ -244,7 +276,7 @@ export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: 
     // The gateway is in samenet too, and the public port can come through it (Docker's proxy): it
     // goes first, refused without TLS. /proc/net/route keeps it as little-endian hex.
     const hba = cfg.engine === "postgres" && mode === "require" ? ` && ${pgRequireHba(TLS_DIR)}` : "";
-    const prepare = `mkdir -p ${TLS_DIR} && cp ${TLS_SOURCE}/* ${TLS_DIR}/ && rm -f ${TLS_DIR}/ca.key${domain}${hba} && chown -R ${engine.runAs} ${TLS_DIR} && chmod 600 ${TLS_DIR}/server.key ${TLS_DIR}/server.pem && exec ${engine.entrypoint} "$@"`;
+    const prepare = `mkdir -p ${TLS_DIR} && cp ${TLS_SOURCE}/* ${TLS_DIR}/ && rm -f ${TLS_DIR}/ca.key${domain}${hba} && chown -R ${engine.runAs} ${TLS_DIR} && chmod 600 ${TLS_DIR}/server.key ${TLS_DIR}/server.pem${keyStep ? ` && ${keyStep}` : ""} && exec ${engine.entrypoint} "$@"`;
     cmd = ["sh", "-c", prepare, "sh", ...cmd];
   }
 
@@ -276,9 +308,12 @@ export function databasePlan(cfg: DatabaseConfig, password: string, serviceDir: 
  * port when TLS is on. `verified`: the database has a certificate clients trust (its domain's), so they
  * check it; otherwise they encrypt without checking Serve's own certificate authority.
  */
-export function databaseUrl(cfg: DatabaseConfig, creds: EngineCreds, host: string, port: number, opts: { public?: boolean; verified?: boolean } = {}) {
+export function databaseUrl(cfg: DatabaseConfig, creds: EngineCreds, host: string, port: number, opts: { public?: boolean; verified?: boolean; replica?: boolean } = {}) {
   const engine = engines[cfg.engine];
-  const url = engine.url({ ...creds, host, port });
+  let url = engine.url({ ...creds, host, port });
+  // A MongoDB replica set: clients talk to the host they were given, not to the members' names
+  // (which only the private network knows); a replica takes reads.
+  if (cfg.engine === "mongodb" && cfg.replica?.primed) url += `&directConnection=true${opts.replica ? "&readPreference=secondaryPreferred" : ""}`;
   if (!cfg.tls?.enabled || !engine.tlsArgs) return url;
   const mode = cfg.tls.mode ?? "prefer";
   // Redis and Valkey speak TLS only, once it is on.

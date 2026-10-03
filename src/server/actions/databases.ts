@@ -293,13 +293,17 @@ export async function importBackupFromRemote(serviceId: string, input: z.input<t
 /*                     PostgreSQL: connection pooler and replica               */
 /* -------------------------------------------------------------------------- */
 
-async function postgresForAddon(serviceId: string) {
+async function databaseForAddon(serviceId: string, addon: "pooler" | "replicas") {
   const ctx = await requirePermission("services.manage");
   const { service } = await serviceInOrg(serviceId, ctx.org.id);
-  if (service.database?.engine !== "postgres") throw new UserError("Connection pooling and read replicas are for PostgreSQL databases.");
+  const { replicasSupported } = await import("@/server/services/types");
+  if (addon === "pooler" && service.database?.engine !== "postgres") throw new UserError("Connection pooling is for PostgreSQL databases.");
+  if (addon === "replicas" && !replicasSupported(service.database?.engine))
+    throw new UserError("Read replicas are for PostgreSQL, MySQL, MariaDB, MongoDB, Redis and Valkey databases.");
+  if (service.parentServiceId) throw new UserError("Preview databases have no add-ons.");
   if (hasHostAccess(service.runtime) && !(ctx.isInstanceAdmin && ctx.isRoot))
     throw new UserError("Changing a database that has host-level access is only available to admins of the Root organization, for its own services.");
-  return { ctx, service, cfg: service.database };
+  return { ctx, service, cfg: service.database! };
 }
 
 const poolerSchema = z.object({
@@ -312,7 +316,7 @@ const poolerSchema = z.object({
 /** Turns the PgBouncer of a PostgreSQL database on, off or to new settings. The database keeps running. */
 export async function setDatabasePooler(serviceId: string, input: z.input<typeof poolerSchema>) {
   return act(async () => {
-    const { ctx, service, cfg } = await postgresForAddon(serviceId);
+    const { ctx, service, cfg } = await databaseForAddon(serviceId, "pooler");
     const data = poolerSchema.parse(input);
     const pooler = { ...data, password: cfg.pooler?.password ?? null };
     await db
@@ -355,7 +359,7 @@ const replicasSchema = z
  */
 export async function setDatabaseReplicas(serviceId: string, input: z.input<typeof replicasSchema>) {
   return act(async () => {
-    const { ctx, service, cfg } = await postgresForAddon(serviceId);
+    const { ctx, service, cfg } = await databaseForAddon(serviceId, "replicas");
     const wanted = replicasSchema.parse(input);
     const { serversForOrg } = await import("@/server/servers/access");
     const { meshMemberIds, privatelyConnected } = await import("@/server/mesh/members");
@@ -382,7 +386,16 @@ export async function setDatabaseReplicas(serviceId: string, input: z.input<type
           throw new UserError(`Port ${pub.port} (the replicas' public port) is already used on ${servers.find((s) => s.id === serverId)?.name ?? "that server"}.`);
       }
     }
-    const replica = { enabled: instances.length > 0, password: cfg.replica?.password ?? null, instances, public: pub };
+    // MariaDB and MongoDB need a restart to be ready for replicas (a binary log, a replica set):
+    // once, the first time; it stays ready after that.
+    const restart = instances.length > 0 && (cfg.engine === "mariadb" || cfg.engine === "mongodb") && !cfg.replica?.primed;
+    const replica = {
+      enabled: instances.length > 0,
+      password: cfg.replica?.password ?? null,
+      instances,
+      public: pub,
+      primed: cfg.replica?.primed || restart || undefined,
+    };
     await db
       .update(schema.service)
       .set({ database: { ...cfg, replica } })
@@ -394,7 +407,9 @@ export async function setDatabaseReplicas(serviceId: string, input: z.input<type
       if (!now || now.serverId !== old.serverId) await removeReplicaInstance(service, old);
     }
     const live = service.status === "running";
-    if (instances.length && live) await ensureReplicas({ ...service, database: { ...cfg, replica } });
+    // The restart deploys the database, and its replicas start after it.
+    if (restart && live) await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
+    else if (live && (instances.length || before.length)) await ensureReplicas({ ...service, database: { ...cfg, replica } });
     // The replicas' domain follows them: A records and certificates on the servers they run on now.
     const domain = cfg.replica?.public?.domain ?? null;
     if (domain) {
@@ -425,7 +440,7 @@ export async function setDatabaseReplicas(serviceId: string, input: z.input<type
       targetId: service.id,
       message: `Read replicas of ${service.name}: ${instances.length}${added ? `, ${added} added` : ""}${removed ? `, ${removed} removed` : ""}`,
     });
-    return { started: instances.length > 0 && live };
+    return { started: instances.length > 0 && live, restarted: restart && live };
   });
 }
 
@@ -435,16 +450,18 @@ export async function databaseAddonStatus(serviceId: string) {
     const ctx = await requirePermission("projects.view");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const cfg = service.database;
-    if (cfg?.engine !== "postgres") return { pooler: null, replicas: [] };
+    const { replicasSupported } = await import("@/server/services/types");
+    if (!replicasSupported(cfg?.engine)) return { pooler: null, replicas: [] };
     const { poolerName, replicaStatuses } = await import("@/server/databases/addons");
     const server = await serverOf(service);
-    const pooler = cfg.pooler?.enabled
-      ? await server.docker
-          .getContainer(poolerName(service))
-          .inspect()
-          .then((i) => (i.State.Running ? "running" : "stopped"))
-          .catch(() => "stopped")
-      : null;
+    const pooler =
+      cfg!.engine === "postgres" && cfg!.pooler?.enabled
+        ? await server.docker
+            .getContainer(poolerName(service))
+            .inspect()
+            .then((i) => (i.State.Running ? "running" : "stopped"))
+            .catch(() => "stopped")
+        : null;
     const replicas = await replicaStatuses(service).catch(() => []);
     return { pooler, replicas };
   });
@@ -457,7 +474,7 @@ export async function databaseAddonStatus(serviceId: string) {
  */
 export async function promoteDatabaseReplica(serviceId: string, replicaId: string) {
   return act(async () => {
-    const { ctx, service, cfg } = await postgresForAddon(serviceId);
+    const { ctx, service, cfg } = await databaseForAddon(serviceId, "replicas");
     if (!ctx.can("services.deploy")) throw new UserError(cannotMessage("services.deploy"));
     const { replicaInstances } = await import("@/server/services/types");
     const replica = replicaInstances(service).find((r) => r.id === replicaId);

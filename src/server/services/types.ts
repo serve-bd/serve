@@ -270,6 +270,8 @@ export type AddonAccess = {
   allow?: string[] | null;
   domain?: string | null;
   tunnelId?: string | null;
+  /** Servers whose port did not answer from outside when last checked (a router or firewall in front): left out of the domain. */
+  unreachable?: string[] | null;
 };
 
 /** The read replicas of a database service: none unless it is PostgreSQL with replicas on. */

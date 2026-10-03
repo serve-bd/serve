@@ -399,7 +399,14 @@ export async function setDatabaseReplicas(serviceId: string, input: z.input<type
     if (domain) {
       const { syncAddonDomain } = await import("@/server/databases/addon-domains");
       const { retireCertificateFor } = await import("@/server/ssl/certificates");
-      await syncAddonDomain(service, cfg.replica!.public!, pub, afterServers, ctx.org.id).catch(() => []);
+      const sync = await syncAddonDomain(service, cfg.replica!.public!, pub, afterServers, ctx.org.id).catch(() => null);
+      // Servers whose port does not answer from outside stay out of the domain; the page names them.
+      if (sync && pub) {
+        await db
+          .update(schema.service)
+          .set({ database: { ...cfg, replica: { ...replica, public: { ...pub, unreachable: sync.unreachable.length ? sync.unreachable : null } } } })
+          .where(eq(schema.service.id, serviceId));
+      }
       for (const serverId of beforeServers.filter((id) => !afterServers.includes(id))) await retireCertificateFor(domain, serverId, ctx.org.id).catch(() => {});
     }
     // Firewalls of every server a replica left or joined.

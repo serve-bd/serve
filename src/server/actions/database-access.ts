@@ -135,14 +135,28 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
     const nextCfg = which === "pooler" ? { ...cfg, pooler: { ...cfg.pooler!, public: next } } : { ...cfg, replica: { ...cfg.replica!, enabled: true, public: next } };
     await db.update(schema.service).set({ database: nextCfg, updatedAt: new Date() }).where(eq(schema.service.id, serviceId));
 
-    const { syncAddonDomain } = await import("@/server/databases/addon-domains");
-    const warnings = await syncAddonDomain(service, before, next, servers, ctx.org.id);
-    // Start the pooler or replicas again with the new settings, then their servers' firewalls.
+    // Start the pooler or replicas with the new settings first: the domain's servers are tested
+    // through their open port, then DNS follows, then the servers' firewalls.
     const fresh = { ...service, database: nextCfg };
     if (service.status === "running") {
       const { ensurePooler, ensureReplicas } = await import("@/server/databases/addons");
       if (which === "pooler") await ensurePooler(fresh);
       else await ensureReplicas(fresh);
+    }
+    const { syncAddonDomain } = await import("@/server/databases/addon-domains");
+    const sync = await syncAddonDomain(service, before, service.status === "running" ? next : next && { ...next, port: null }, servers, ctx.org.id);
+    const warnings = sync.warnings;
+    // Servers whose port did not answer from outside: remembered, so the page names them.
+    if (next) {
+      next.unreachable = sync.unreachable.length ? sync.unreachable : null;
+      const saved = which === "pooler" ? { ...nextCfg, pooler: { ...nextCfg.pooler!, public: next } } : { ...nextCfg, replica: { ...nextCfg.replica!, public: next } };
+      await db.update(schema.service).set({ database: saved }).where(eq(schema.service.id, serviceId));
+    }
+    if (sync.unreachable.length) {
+      const named = which === "pooler" ? ["the pooler"] : replicas.filter((r) => sync.unreachable.includes(r.serverId)).map((r) => `replica ${r.id}`);
+      warnings.push(
+        `Port ${next?.port} does not answer from the internet for ${named.join(", ")}: a router or firewall in front of the server blocks it, so ${next?.domain ?? "the domain"} leaves it out. Open the port there and save again.`,
+      );
     }
     const { applyDatabaseAllowlists } = await import("@/server/databases/allowlist");
     for (const serverId of servers) await applyDatabaseAllowlists(serverId).catch((e) => warnings.push(`Firewall not updated: ${(e as Error).message}`));

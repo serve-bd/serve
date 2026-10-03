@@ -106,14 +106,20 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
       url,
       // Only servers the domain leads to (those with a public IP) count for its certificate.
       certificates:
-        pub?.domain && !pub.tunnelId ? servers.filter((id) => serverInfo.get(id)?.ip).map((id) => ({ serverId: id, status: certFor(pub.domain!, id)?.status ?? "missing" })) : [],
-      // Replicas the domain cannot reach: their server has no public IP.
-      unreachable:
-        pub?.domain && which === "replicas"
-          ? replicaInstances(service)
-              .filter((r) => !serverInfo.get(r.serverId)?.ip)
-              .map((r) => ({ id: r.id, server: serverInfo.get(r.serverId)?.name ?? "a server" }))
+        pub?.domain && !pub.tunnelId
+          ? servers.filter((id) => serverInfo.get(id)?.ip && !pub.unreachable?.includes(id)).map((id) => ({ serverId: id, status: certFor(pub.domain!, id)?.status ?? "missing" }))
           : [],
+      // What the domain cannot reach: a server with no public IP, or whose port did not answer from
+      // outside (a router or firewall in front of it).
+      unreachable: pub?.domain
+        ? (which === "replicas" ? replicaInstances(service) : [{ id: "", serverId: service.serverId }])
+            .filter((r) => !serverInfo.get(r.serverId)?.ip || pub.unreachable?.includes(r.serverId))
+            .map((r) => ({
+              id: r.id,
+              server: serverInfo.get(r.serverId)?.name ?? "a server",
+              reason: !serverInfo.get(r.serverId)?.ip ? ("no-ip" as const) : ("blocked" as const),
+            }))
+        : [],
       servers: servers.length,
     };
   };

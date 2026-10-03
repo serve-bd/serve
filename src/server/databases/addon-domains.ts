@@ -7,8 +7,16 @@ import type { AddonAccess } from "@/server/services/types";
  * DNS and certificates for a pooler's or replicas' domain: A records to the servers (or the tunnel's
  * record), a certificate on each server, and the old name's records and certificates gone.
  */
-export async function syncAddonDomain(service: typeof schema.service.$inferSelect, before: AddonAccess | null, next: AddonAccess | null, servers: string[], orgId: string) {
+export async function syncAddonDomain(
+  service: typeof schema.service.$inferSelect,
+  before: AddonAccess | null,
+  next: AddonAccess | null,
+  servers: string[],
+  orgId: string,
+): Promise<{ warnings: string[]; unreachable: string[] }> {
   const warnings: string[] = [];
+  // Servers with a public IP whose port does not answer from outside.
+  const unreachable: string[] = [];
   const { cloudflareAccountFor, retireCertificateFor } = await import("@/server/ssl/certificates");
   const { Cloudflare } = await import("@/server/cloudflare/api");
   const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
@@ -31,6 +39,18 @@ export async function syncAddonDomain(service: typeof schema.service.$inferSelec
       const reachable = (await Promise.all(servers.map(async (id) => ({ id, ip: await serverPublicIp(id).catch(() => null) })))).filter(
         (x): x is { id: string; ip: string } => !!x.ip,
       );
+      // A public IP is not enough: behind a router or a cloud firewall the port may not answer from
+      // the internet. Tested from another server; one that does not answer stays out of the domain.
+      // With an allowlist the test's own address may be refused: the port is not tested then.
+      if (next?.port && !next.allow?.length) {
+        const { portAnswersFromOutside } = await import("@/server/net/port-probe");
+        for (const x of [...reachable]) {
+          if ((await portAnswersFromOutside(x.ip, next.port, x.id)) === false) {
+            unreachable.push(x.id);
+            reachable.splice(reachable.indexOf(x), 1);
+          }
+        }
+      }
       const ips = reachable.map((x) => x.ip);
       if (accountId && ips.length) {
         try {
@@ -69,5 +89,5 @@ export async function syncAddonDomain(service: typeof schema.service.$inferSelec
         warnings.push(`The DNS records of ${old} were not removed: ${(e as Error).message}`);
       }
   }
-  return warnings;
+  return { warnings, unreachable };
 }

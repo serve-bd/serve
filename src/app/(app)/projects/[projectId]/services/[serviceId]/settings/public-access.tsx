@@ -237,16 +237,19 @@ function AddonAccessCard({
                 {bind === "0.0.0.0" && <AllowField value={allow} onChange={setAllow} viewerIp={view.viewerIp} disabled={!canManage} />}
               </>
             }
-            {!changed && addon.unreachable.length > 0 && (
-              <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-fg-2">
-                <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />
-                <span>
-                  {addon.domain} does not reach {addon.unreachable.map((r) => `replica ${r.id} (${r.server})`).join(", ")}:{" "}
-                  {addon.unreachable.length === 1 ? "its server has" : "their servers have"} no public IP. Apps in Serve still read from{" "}
-                  {addon.unreachable.length === 1 ? "it" : "them"} over the private network.
-                </span>
-              </p>
-            )}
+            {!changed &&
+              addon.unreachable.map((r) => (
+                <p key={`${r.id}-${r.server}`} className="flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-fg-2">
+                  <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />
+                  <span>
+                    {addon.domain} does not reach {r.id ? `replica ${r.id} (${r.server})` : `the pooler (${r.server})`}:{" "}
+                    {r.reason === "no-ip"
+                      ? "its server has no public IP."
+                      : `port ${addon.port} does not answer from the internet there. A router or firewall in front of the server blocks it: open the port there and save again.`}
+                    {r.id ? " Apps in Serve still read from it over the private network." : ""}
+                  </span>
+                </p>
+              ))}
             {!changed && addon.url && (
               <Field label="Public connection URL">
                 <SecretField value={addon.url} hidden={view.hideSecrets} shape={addon.url} />

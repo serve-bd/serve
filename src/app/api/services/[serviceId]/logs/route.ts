@@ -4,7 +4,8 @@ import type { NextRequest } from "next/server";
 import { requireOrg } from "@/server/auth";
 import { serviceInOrg } from "@/server/services/access";
 import { LABEL, listServiceContainers } from "@/server/docker/client";
-import { serverOf } from "@/server/servers/context";
+import { getServer, serverOf } from "@/server/servers/context";
+import { replicaInstances } from "@/server/services/types";
 
 export const dynamic = "force-dynamic";
 
@@ -32,19 +33,26 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
     const t = pair.slice(i + 1);
     if (i > 0 && !Number.isNaN(Date.parse(t))) since.set(pair.slice(0, i), sortable(t));
   }
+  // A database's tabs: "database", "pooler" or "replica-<id>" (a replica may run on another server).
+  const only = request.nextUrl.searchParams.get("container");
+  const replica = service.type === "database" && only?.startsWith("replica-") ? replicaInstances(service).find((r) => `replica-${r.id}` === only) : undefined;
   let docker;
   let all;
   try {
-    docker = (await serverOf(service)).docker;
+    docker = (replica ? await getServer(replica.serverId) : await serverOf(service)).docker;
     all = await listServiceContainers(serviceId, true, docker);
   } catch (e) {
     return new Response(`The server of this service is unreachable: ${(e as Error).message}`, { status: 503 });
   }
   const current = service.type === "app" && service.currentDeploymentId ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : all;
-  // One compose service or one app replica (the number its container name ends with), when the page asks for it.
-  const only = request.nextUrl.searchParams.get("container");
+  // One compose service, one app replica (the number its container name ends with), or one of a
+  // database's containers by kind, when the page asks for it.
   const replicaOf = (c: (typeof current)[number]) => c.Names[0]?.replace(/^\//, "").split("-").pop();
-  const containers = only ? current.filter((c) => (c.Labels["com.docker.compose.service"] ?? (service.type === "app" ? replicaOf(c) : undefined)) === only) : current;
+  const containers = only
+    ? current.filter((c) =>
+        service.type === "database" ? c.Labels[LABEL.kind] === only : (c.Labels["com.docker.compose.service"] ?? (service.type === "app" ? replicaOf(c) : undefined)) === only,
+      )
+    : current;
 
   const encoder = new TextEncoder();
   const streams: NodeJS.ReadableStream[] = [];

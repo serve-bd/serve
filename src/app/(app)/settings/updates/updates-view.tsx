@@ -97,10 +97,10 @@ export function UpdatesView({
   return (
     <>
       <Card>
-        <div className="flex items-start gap-4 px-5 py-5 sm:items-center">
+        <div className="flex items-center gap-3 px-5 py-4">
           <span
             className={cn(
-              "flex size-11 flex-none items-center justify-center rounded-xl [&_svg]:size-5",
+              "flex size-8 flex-none items-center justify-center rounded-lg [&_svg]:size-4",
               available ? "bg-accent-soft text-accent" : check?.error ? "bg-warn-soft text-warn" : check?.latest ? "bg-ok-soft text-ok" : "bg-fg/[0.05] text-muted",
             )}
           >

@@ -12,10 +12,11 @@ import { SwitchRow } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogBody } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { changeDatabasePassword, databaseAddonStatus, redeployServices, setDatabasePooler, setDatabaseReplica, updateDatabaseSettings } from "@/server/actions/databases";
+import { changeDatabasePassword, databaseAddonStatus, redeployServices, setDatabasePooler, setDatabaseReplicas, updateDatabaseSettings } from "@/server/actions/databases";
 import { updateService } from "@/server/actions/services";
 import type { RestartPolicy } from "@/server/services/types";
 import { Section, digits, num } from "./section";
+import { cn } from "@/lib/utils";
 
 export type DatabaseSettingsProps = {
   serviceId: string;
@@ -40,8 +41,10 @@ export type DatabaseSettingsProps = {
     publicPort: number | null;
     publicBind: "0.0.0.0" | "127.0.0.1";
     pooler: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number } | null;
-    replica: { enabled: boolean } | null;
+    replica: { enabled: boolean; instances: { id: string; serverId: string }[] } | null;
   };
+  /** Servers a replica can run on: the database's own and those linked to it privately. */
+  replicaServers: { id: string; name: string; home: boolean }[];
   password: string;
   /** The role cannot see secret values: the password arrives masked. */
   hideSecrets?: boolean;
@@ -578,7 +581,7 @@ function HealthSection(props: DatabaseSettingsProps) {
 /** One database settings sub-page (storage is rendered by the shared storage section). */
 /** Polls how the pooler and the replica are doing, while the page is open. */
 function useAddonStatus(serviceId: string, active: boolean) {
-  const [status, setStatus] = React.useState<{ pooler: string | null; replica: { state: string; lagSeconds: number | null } | null } | null>(null);
+  const [status, setStatus] = React.useState<{ pooler: string | null; replicas: { id: string; state: string; lagSeconds: number | null }[] } | null>(null);
   React.useEffect(() => {
     if (!active) return;
     let stop = false;
@@ -657,59 +660,100 @@ function PoolingSection(props: DatabaseSettingsProps) {
   );
 }
 
+function replicaLabel(state: { state: string; lagSeconds: number | null } | undefined) {
+  if (!state) return "Starting";
+  if (state.state === "following") return state.lagSeconds ? `Following, ${state.lagSeconds}s behind` : "Following, up to date";
+  if (state.state === "copying") return "Copying the database";
+  if (state.state === "failed") return "Not running: see its logs";
+  return "Not running";
+}
+
 function ReplicaSection(props: DatabaseSettingsProps) {
   const confirm = useConfirm();
-  const save = useAction((enabled: boolean) => setDatabaseReplica(props.serviceId, enabled), {
-    result: (r) => (r.started ? "Read replica starting: it copies the database first" : "Saved"),
+  const save = useAction((instances: { id?: string; serverId: string }[]) => setDatabaseReplicas(props.serviceId, instances), {
+    result: (r) => (r.started ? "Replicas updated: new ones copy the database first" : "Saved"),
   });
-  const r = props.config.replica;
-  const status = useAddonStatus(props.serviceId, !!r?.enabled);
-  const state = status?.replica;
-  const label = !state
-    ? null
-    : state.state === "following"
-      ? `Following the database${state.lagSeconds ? `, ${state.lagSeconds}s behind` : ""}`
-      : state.state === "copying"
-        ? "Copying the database"
-        : state.state === "failed"
-          ? "Not running: see the replica's logs"
-          : "Not running";
+  const saved = props.config.replica?.enabled ? props.config.replica.instances : [];
+  const status = useAddonStatus(props.serviceId, saved.length > 0);
+  const home = props.replicaServers.find((s) => s.home)?.id ?? props.replicaServers[0]?.id ?? "";
+  const homeName = props.replicaServers.find((s) => s.home)?.name ?? "the database's server";
   return (
     <Section
       id="replica"
-      title="Read replica"
-      description="A live read-only copy of the database, for heavy reads like reports and search. Writes still go to the database. It keeps running and its URL stays the same."
-      initial={{ enabled: !!r?.enabled }}
+      title="Read replicas"
+      description="Live read-only copies of the database, for heavy reads like reports and search. Writes still go to the database. It keeps running and its URL stays the same."
+      initial={{ instances: saved as { id?: string; serverId: string }[] }}
       onSave={async (v) => {
-        if (!v.enabled && r?.enabled) {
+        const removed = saved.filter((r) => !v.instances.some((x) => x.id === r.id && x.serverId === r.serverId));
+        if (removed.length) {
           const ok = await confirm({
-            title: "Remove the read replica?",
-            description: "Its copy is deleted. Apps that read from it lose that connection. The database itself is not touched.",
+            title: removed.length === 1 ? `Remove replica ${removed[0].id}?` : `Remove ${removed.length} replicas?`,
+            description: "Their copies are deleted. Apps reading from them move to the others, or lose the read URL if none are left. The database itself is not touched.",
             confirmLabel: "Remove",
             danger: true,
           });
           if (!ok) return undefined;
         }
-        return save.run(v.enabled);
+        return save.run(v.instances);
       }}
-      footerNote={label ?? undefined}
+      footerAction={(v, set) => (
+        <Button type="button" size="sm" disabled={v.instances.length >= 10 || !home} onClick={() => set({ instances: [...v.instances, { serverId: home }] })}>
+          <Plus /> Add replica
+        </Button>
+      )}
     >
       {(v, set) => (
         <>
-          <SwitchRow
-            title="Enable read replica"
-            description="Copies the database once, then follows every change within about a second. No restart, no data touched."
-            checked={v.enabled}
-            onCheckedChange={(c) => set({ enabled: c })}
-          />
-          {v.enabled && (
+          {v.instances.length === 0 ? (
+            <p className="text-[13px] text-muted">
+              No replicas. Add one: it copies the database once, then follows every change within about a second. No restart, no data touched.
+            </p>
+          ) : (
+            <div className="flex flex-col divide-y divide-line rounded-xl border border-line">
+              {v.instances.map((r, i) => {
+                const live = r.id ? status?.replicas.find((x) => x.id === r.id) : undefined;
+                const tone = !r.id ? "bg-faint" : live?.state === "following" ? "bg-ok" : live?.state === "copying" || !live ? "bg-info" : "bg-bad";
+                return (
+                  <div key={r.id ?? `new-${i}`} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:flex-nowrap">
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="text-[13.5px] font-medium text-fg">{r.id ? `Replica ${r.id}` : "New replica"}</span>
+                      <span className="flex items-center gap-1.5 text-xs text-muted">
+                        <span className={cn("size-1.5 flex-none rounded-full", tone)} />
+                        {r.id ? replicaLabel(live) : "Starts after you save"}
+                      </span>
+                    </div>
+                    <Select
+                      size="sm"
+                      aria-label="Server"
+                      className="w-full sm:w-56"
+                      value={r.serverId}
+                      onValueChange={(serverId) => set({ instances: v.instances.map((x, j) => (j === i ? { ...x, serverId } : x)) })}
+                      options={props.replicaServers.map((s) => ({ value: s.id, label: s.name, description: s.home ? "The database's server" : "Over the private network" }))}
+                    />
+                    <Button type="button" size="sm" variant="ghost" aria-label="Remove replica" onClick={() => set({ instances: v.instances.filter((_, j) => j !== i) })}>
+                      <Trash2 />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {v.instances.length > 0 && (
             <>
-              <Field label="Read URL" description={`Use \${{${props.refName}.READ_DATABASE_URL}} for reads. Writes to it are refused; send them to the database URL.`}>
+              <Field
+                label="Read URL"
+                description={`Use \${{${props.refName}.READ_DATABASE_URL}} for reads: it spreads them over every replica. Writes to it are refused; send them to the database URL.`}
+              >
                 {props.hideSecrets ? <CopyField value={props.replicaUrl} /> : <SecretField value={props.replicaUrl} />}
               </Field>
+              <p className="text-xs leading-relaxed text-muted">
+                One replica only: <code className="font-mono">{`\${{${props.refName}.READ_DATABASE_URL_1}}`}</code> and so on.
+                {v.instances.some((r) => r.serverId !== home) &&
+                  ` Replicas on another server reach the database over the private network, and apps on ${homeName} reach them the same way.`}
+              </p>
               <p className="flex items-start gap-1.5 rounded-xl bg-surface-2 px-3 py-2.5 text-xs leading-relaxed text-muted">
                 <TriangleAlert className="mt-px size-3.5 flex-none text-warn" />
-                It runs on the same server and uses as much disk as the database. If it stops, the database keeps at most 4 GB of changes for it, so the disk cannot fill up.
+                Each replica uses as much disk as the database. If one stops, the database keeps at most 4 GB of changes for it, so the disk cannot fill up.
               </p>
             </>
           )}

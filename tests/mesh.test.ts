@@ -94,7 +94,7 @@ describe("several private networks", () => {
     const cfgA = agentConfig({ ...a, privateKey: "k" }, all, services, addresses, needs);
     expect(cfgA.peers.map((p) => p.serverId)).toEqual(["b"]);
     // Only b's environment address may reach the database; c's may not.
-    expect(cfgA.exposures).toEqual([{ ip: "10.240.1.1", service: "db", compose: null, deployment: null, network: "serve-env-env1", allow: ["10.241.2.2"] }]);
+    expect(cfgA.exposures).toEqual([{ ip: "10.240.1.1", service: "db", kind: null, compose: null, deployment: null, network: "serve-env-env1", allow: ["10.241.2.2"] }]);
     expect(cfgA.imports.map((i) => i.ip)).toEqual(["10.240.1.2"]);
 
     const cfgC = agentConfig({ ...c, privateKey: "k" }, all, services, addresses, needs);
@@ -143,6 +143,32 @@ describe("several private networks", () => {
 });
 
 describe("private network planning", () => {
+  it("runs a database's replica on another server: each side reaches the other by name", () => {
+    // pg on a, its pooler on a, replica 2 on b (as the plan lists them).
+    const pg = svc("pg", { kind: "database" });
+    const pooler = svc("pg~pooler", { slug: "pg-pooler", hostname: "pg-pooler", kind: "pooler", container: "pg" });
+    const replica = svc("pg~replica-2", { serverId: "b", slug: "pg-replica-2", hostname: "pg-replica", kind: "replica-2", container: "pg" });
+    const services = [pg, pooler, replica];
+    const needs = neededAddresses([A, B], services);
+    expect(needs.map((n) => `${n.serverId} ${n.key}`).sort()).toEqual(["a env:env1", "a svc:pg", "a svc:pg~pooler", "b env:env1", "b svc:pg~replica-2"]);
+    const addresses: PlanAddress[] = [
+      { serverId: "a", key: serviceKey("pg"), ip: "10.240.1.1" },
+      { serverId: "a", key: serviceKey("pg~pooler"), ip: "10.240.1.2" },
+      { serverId: "b", key: serviceKey("pg~replica-2"), ip: "10.240.1.3" },
+      { serverId: "a", key: environmentKey("env1"), ip: "10.241.1.2" },
+      { serverId: "b", key: environmentKey("env1"), ip: "10.241.2.2" },
+    ];
+    const cfgA = agentConfig({ ...A, privateKey: "k" }, [A, B], services, addresses, needs);
+    // The database's address leads to the database container only, the pooler's to the pooler.
+    expect(cfgA.exposures.map((e) => `${e.ip} ${e.service} ${e.kind}`)).toEqual(["10.240.1.1 pg database", "10.240.1.2 pg pooler"]);
+    // Apps on a read from the replica on b by its own name and the shared read name.
+    expect(cfgA.imports).toEqual([{ name: "serve-link-10-240-1-3", ip: "10.240.1.3", network: "serve-env-env1", aliases: ["pg-replica-2", "pg-replica"] }]);
+    const cfgB = agentConfig({ ...B, privateKey: "k" }, [A, B], services, addresses, needs);
+    expect(cfgB.exposures.map((e) => `${e.ip} ${e.service} ${e.kind}`)).toEqual(["10.240.1.3 pg replica-2"]);
+    // The replica on b copies from the database by its name, and the pooler is there too.
+    expect(cfgB.imports.map((i) => i.aliases)).toEqual([["pg"], ["pg-pooler"]]);
+  });
+
   it("only wires environments that span two servers of the network", () => {
     expect(neededAddresses([A, B], [svc("db"), svc("app", { type: "app" })])).toEqual([]);
     // The app's server is not in the network: nothing to connect.
@@ -204,12 +230,12 @@ describe("private network planning", () => {
     expect(cfg.address).toBe("10.241.1.1");
     // Routes to B's own range and to the services of its environments there, nothing else.
     expect(cfg.peers).toEqual([{ serverId: "b", publicKey: "pub-b", endpoint: "10.0.0.2:51820", allowedIps: ["10.241.2.0/24", "10.240.1.2/32"] }]);
-    expect(cfg.exposures).toEqual([{ ip: "10.240.1.1", service: "db", compose: null, deployment: null, network: "serve-env-env1", allow: ["10.241.2.2"] }]);
+    expect(cfg.exposures).toEqual([{ ip: "10.240.1.1", service: "db", kind: null, compose: null, deployment: null, network: "serve-env-env1", allow: ["10.241.2.2"] }]);
     expect(cfg.sources).toEqual([{ ip: "10.241.1.2", networks: ["serve-env-env1"], subnets: [] }]);
     expect(cfg.localAddresses).toEqual(["10.240.1.1", "10.241.1.2"]);
     const cfgB = agentConfig({ ...B, privateKey: "priv-b" }, [A, B], services, addresses, needs);
     // Apps only forward to containers of their live deployment.
-    expect(cfgB.exposures).toEqual([{ ip: "10.240.1.2", service: "app", compose: null, deployment: "dep9", network: "serve-env-env1", allow: ["10.241.1.2"] }]);
+    expect(cfgB.exposures).toEqual([{ ip: "10.240.1.2", service: "app", kind: null, compose: null, deployment: "dep9", network: "serve-env-env1", allow: ["10.241.1.2"] }]);
     expect(cfgB.localAddresses).not.toContain("10.240.1.9");
     expect(cfgB.peers[0].allowedIps).toEqual(["10.241.1.0/24", "10.240.1.1/32"]);
   });
@@ -361,6 +387,45 @@ describe.runIf(!!process.env.PATH && fs.existsSync("/usr/bin/jq"))("private netw
     expect(lines.indexOf("-A SERVE-MESH-FWD -i serve-mesh -j DROP")).toBeGreaterThan(lines.findLastIndex((l) => l.includes("--ctorigdst")));
     expect(out).toContain("-A SERVE-MESH-IN -p udp --dport 51820 -j ACCEPT");
     expect(out.match(/^COMMIT$/gm)).toHaveLength(3);
+  });
+
+  it("sends a database's address to the database only, and its pooler and replicas to theirs", () => {
+    const withDb = write("db.json", {
+      ...config,
+      exposures: [
+        { ip: "10.240.1.5", service: "pg", kind: "database", compose: null, deployment: null, network: "serve-env-e", allow: [] },
+        { ip: "10.240.1.6", service: "pg", kind: "pooler", compose: null, deployment: null, network: "serve-env-e", allow: [] },
+        { ip: "10.240.1.7", service: "pg", kind: "replica-2", compose: null, deployment: null, network: "serve-env-e", allow: [] },
+      ],
+    });
+    const list = [
+      container("pg", "172.20.0.20", { "serve.kind": "database" }),
+      container("pg", "172.20.0.21", { "serve.kind": "pooler" }),
+      container("pg", "172.20.0.22", { "serve.kind": "replica-2" }),
+    ];
+    const out = execFileSync(
+      "jq",
+      [
+        "-r",
+        "--arg",
+        "if",
+        "serve-mesh",
+        "--slurpfile",
+        "c",
+        write("c2.json", list),
+        "--slurpfile",
+        "nets",
+        write("n2.json", { "serve-env-e": ["172.20.0.0/16"] }),
+        "-f",
+        rules,
+        withDb,
+      ],
+      { encoding: "utf8" },
+    );
+    expect(out).toContain("-d 10.240.1.5/32 -j DNAT --to-destination 172.20.0.20");
+    expect(out).toContain("-d 10.240.1.6/32 -j DNAT --to-destination 172.20.0.21");
+    expect(out).toContain("-d 10.240.1.7/32 -j DNAT --to-destination 172.20.0.22");
+    expect(out.match(/-d 10\.240\.1\.5\/32/g)).toHaveLength(1);
   });
 
   it("falls back to every container of the service before its first deployment finished", () => {

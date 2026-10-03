@@ -335,28 +335,65 @@ export async function setDatabasePooler(serviceId: string, input: z.input<typeof
   });
 }
 
-/** Adds or removes the read replica of a PostgreSQL database. The database keeps running. */
-export async function setDatabaseReplica(serviceId: string, enabled: boolean) {
+const replicasSchema = z
+  .array(
+    z.object({
+      id: z
+        .string()
+        .regex(/^[0-9]{1,3}$/)
+        .optional(),
+      serverId: z.string().min(1),
+    }),
+  )
+  .max(10);
+
+/**
+ * Sets the read replicas of a PostgreSQL database: each on the database's server or on one linked
+ * to it privately. New ones are copied from the database, removed ones lose their copy and slot.
+ * The database keeps running.
+ */
+export async function setDatabaseReplicas(serviceId: string, input: z.input<typeof replicasSchema>) {
   return act(async () => {
     const { ctx, service, cfg } = await postgresForAddon(serviceId);
-    const replica = { enabled, password: cfg.replica?.password ?? null };
+    const wanted = replicasSchema.parse(input);
+    const { serversForOrg } = await import("@/server/servers/access");
+    const { meshMemberIds, privatelyConnected } = await import("@/server/mesh/members");
+    const [servers, members] = await Promise.all([serversForOrg(ctx.org.id), meshMemberIds()]);
+    for (const r of wanted) {
+      const server = servers.find((s) => s.id === r.serverId);
+      if (!server) throw new UserError("One of the chosen servers was not found.");
+      if (!privatelyConnected(members, service.serverId, r.serverId))
+        throw new UserError(`${server.name} shares no private network with the database's server. Link them in Servers → Private network first.`);
+    }
+    const { replicaInstances } = await import("@/server/services/types");
+    const before = replicaInstances(service);
+    // Kept replicas keep their id (and copy); new ones take the next free number.
+    let next = Math.max(0, ...before.map((r) => Number(r.id) || 0)) + 1;
+    const instances = wanted.map((r) => (r.id && before.some((b) => b.id === r.id) ? { id: r.id, serverId: r.serverId } : { id: String(next++), serverId: r.serverId }));
+    const replica = { enabled: instances.length > 0, password: cfg.replica?.password ?? null, instances };
     await db
       .update(schema.service)
       .set({ database: { ...cfg, replica } })
       .where(eq(schema.service.id, serviceId));
-    const { ensureReplica, removeReplica } = await import("@/server/databases/addons");
+    const { ensureReplicas, removeReplicaInstance } = await import("@/server/databases/addons");
+    // A replica moved to another server is a new copy there.
+    for (const old of before) {
+      const now = instances.find((r) => r.id === old.id);
+      if (!now || now.serverId !== old.serverId) await removeReplicaInstance(service, old);
+    }
     const live = service.status === "running";
-    if (enabled && live) await ensureReplica({ ...service, database: { ...cfg, replica } });
-    else if (!enabled) await removeReplica(service);
+    if (instances.length && live) await ensureReplicas({ ...service, database: { ...cfg, replica } });
+    const added = instances.filter((r) => !before.some((b) => b.id === r.id)).length;
+    const removed = before.filter((b) => !instances.some((r) => r.id === b.id)).length;
     await logActivity({
       userId: ctx.user.id,
       projectId: service.projectId,
       action: "service.updated",
       targetType: "service",
       targetId: service.id,
-      message: enabled ? `Read replica added to ${service.name}` : `Read replica removed from ${service.name}`,
+      message: `Read replicas of ${service.name}: ${instances.length}${added ? `, ${added} added` : ""}${removed ? `, ${removed} removed` : ""}`,
     });
-    return { started: enabled && live };
+    return { started: instances.length > 0 && live };
   });
 }
 
@@ -366,8 +403,8 @@ export async function databaseAddonStatus(serviceId: string) {
     const ctx = await requirePermission("projects.view");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const cfg = service.database;
-    if (cfg?.engine !== "postgres") return { pooler: null, replica: null };
-    const { poolerName, replicaStatus } = await import("@/server/databases/addons");
+    if (cfg?.engine !== "postgres") return { pooler: null, replicas: [] };
+    const { poolerName, replicaStatuses } = await import("@/server/databases/addons");
     const server = await serverOf(service);
     const pooler = cfg.pooler?.enabled
       ? await server.docker
@@ -376,7 +413,7 @@ export async function databaseAddonStatus(serviceId: string) {
           .then((i) => (i.State.Running ? "running" : "stopped"))
           .catch(() => "stopped")
       : null;
-    const replica = cfg.replica?.enabled ? await replicaStatus(service).catch(() => ({ state: "stopped" as const, lagSeconds: null })) : null;
-    return { pooler, replica };
+    const replicas = await replicaStatuses(service).catch(() => []);
+    return { pooler, replicas };
   });
 }

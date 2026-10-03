@@ -256,6 +256,17 @@ export type ComposeBackupConfig = {
   s3DestinationId?: string | null;
 };
 
+export type ReplicaInstance = { id: string; serverId: string };
+
+/** The read replicas of a database service: none unless it is PostgreSQL with replicas on. */
+export function replicaInstances(s: { serverId: string; database?: DatabaseConfig | null }): ReplicaInstance[] {
+  const r = s.database?.replica;
+  if (s.database?.engine !== "postgres" || !r?.enabled) return [];
+  return r.instances?.length ? r.instances : [{ id: "1", serverId: s.serverId }];
+}
+
+export const poolerEnabled = (s: { database?: DatabaseConfig | null }) => s.database?.engine === "postgres" && !!s.database.pooler?.enabled;
+
 export type DatabaseConfig = {
   engine: DbEngine;
   version: string;
@@ -329,8 +340,12 @@ export type DatabaseConfig = {
   healthcheck?: { interval?: number | null; timeout?: number | null; retries?: number | null; startPeriod?: number | null } | null;
   /** PostgreSQL: a PgBouncer in front, at <host>-pooler. `password` (encrypted) is its lookup login's. */
   pooler?: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number; password?: string | null } | null;
-  /** PostgreSQL: a streaming read-only copy, at <host>-replica. `password` (encrypted) is its replication login's. */
-  replica?: { enabled: boolean; password?: string | null } | null;
+  /**
+   * PostgreSQL: streaming read-only copies, each at <host>-replica-<id> on its server (the
+   * database's or one linked to it privately); <host>-replica spreads reads over them all.
+   * `password` (encrypted) is the replication login's. No `instances`: one, on the database's server.
+   */
+  replica?: { enabled: boolean; password?: string | null; instances?: ReplicaInstance[] } | null;
 };
 
 /** Whether a runtime has host-level access: host paths, host ports, privileges or hardware. */

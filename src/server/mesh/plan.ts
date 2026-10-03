@@ -64,6 +64,14 @@ export type PlanService = {
   isolated: boolean;
   composeSubnet: string | null;
   currentDeploymentId: string | null;
+  /**
+   * The containers that answer for it, when not all of the service's: by their serve.kind label.
+   * A database answers with its own container only (never its pooler or replicas), and a
+   * database's pooler and replicas are entries of their own with the database's id as `container`.
+   */
+  kind?: string | null;
+  /** The serve.service label of its containers, when the entry is not a service itself (a database's pooler or replica). */
+  container?: string | null;
 };
 
 /** For services, `serverId` is the server that currently exposes the address. */
@@ -80,7 +88,7 @@ export type AgentConfig = {
   routes: string[];
   peers: { serverId: string; publicKey: string; endpoint: string | null; allowedIps: string[] }[];
   localAddresses: string[];
-  exposures: { ip: string; service: string; compose: string | null; deployment: string | null; network: string | null; allow: string[] }[];
+  exposures: { ip: string; service: string; kind: string | null; compose: string | null; deployment: string | null; network: string | null; allow: string[] }[];
   sources: { ip: string; networks: string[]; subnets: string[] }[];
   /** Services on other servers this server's environments use: a link container answers to their names. */
   imports: { name: string; ip: string; network: string; aliases: string[] }[];
@@ -184,7 +192,8 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
       .sort();
     exposures.push({
       ip: a.ip,
-      service: s.id,
+      service: s.container ?? s.id,
+      kind: s.kind ?? null,
       compose: compose ?? null,
       deployment: s.type === "app" ? s.currentDeploymentId : null,
       network: envNetworkName(s.environmentId),

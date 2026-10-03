@@ -17,7 +17,8 @@ import { settingsNav } from "../settings-nav";
 import { monitorSummary } from "@/server/monitoring/queries";
 import { monitorUrl } from "@/server/monitoring/checks";
 import { normalizeDistribution } from "@/server/deploy/distribution";
-import { buildsImage } from "@/server/services/types";
+import { buildsImage, replicaInstances } from "@/server/services/types";
+import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
 
 export async function generateMetadata(props: PageProps<"/projects/[projectId]/services/[serviceId]/settings/[section]">) {
   const { section } = await props.params;
@@ -25,7 +26,7 @@ export async function generateMetadata(props: PageProps<"/projects/[projectId]/s
   return { title: `${label} · Settings` };
 }
 
-function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean, hideSecrets: boolean) {
+function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean, hideSecrets: boolean, replicaServers: { id: string; name: string; home: boolean }[]) {
   const cfg = service.database;
   if (!cfg) return null;
   const engine = engines[cfg.engine];
@@ -52,7 +53,7 @@ function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean, 
       publicPort: cfg.publicPort ?? null,
       publicBind: cfg.publicBind ?? ("0.0.0.0" as const),
       pooler: cfg.pooler ? { enabled: cfg.pooler.enabled, mode: cfg.pooler.mode, poolSize: cfg.pooler.poolSize, maxClients: cfg.pooler.maxClients } : null,
-      replica: cfg.replica ? { enabled: cfg.replica.enabled } : null,
+      replica: cfg.replica ? { enabled: cfg.replica.enabled, instances: replicaInstances(service) } : null,
     },
     password: hideSecrets ? "" : password,
     hideSecrets,
@@ -76,6 +77,7 @@ function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean, 
     // The connection URL carries the password: masked for roles that may not see secrets.
     internalUrl: databaseUrl(cfg, hideSecrets ? databaseCreds(cfg, "********") : creds, privateHost(service), engine.port),
     refName: referenceName(service.name),
+    replicaServers,
     poolerUrl: databaseUrl(cfg, hideSecrets ? databaseCreds(cfg, "********") : creds, `${privateHost(service)}-pooler`, engine.port),
     replicaUrl: databaseUrl(cfg, hideSecrets ? databaseCreds(cfg, "********") : creds, `${privateHost(service)}-replica`, engine.port),
     dataPath: cfg.dataMountPath || engine.dataPath,
@@ -144,7 +146,12 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
   const viaApp = credProvider === "github-app";
   const managedWebhook = credProvider === "github" || credProvider === "gitlab" || credProvider === "gitea" || credProvider === "bitbucket";
   const hideSecrets = !ctx.can("variables.view-secrets");
-  const database = dbProps(service, ctx.isAdmin, hideSecrets);
+  // A replica runs on the database's server or one linked to it privately.
+  const members = service.database?.engine === "postgres" ? await meshMemberIds() : null;
+  const replicaServers = members
+    ? servers.filter((s) => privatelyConnected(members, service.serverId, s.id)).map((s) => ({ id: s.id, name: s.name, home: s.id === service.serverId }))
+    : [];
+  const database = dbProps(service, ctx.isAdmin, hideSecrets, replicaServers);
   const nav = settingsNav({
     type: service.type,
     hasSource: !!service.source,

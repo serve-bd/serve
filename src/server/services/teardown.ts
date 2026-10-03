@@ -1,3 +1,4 @@
+import { replicaInstances } from "@/server/services/types";
 import { removePreviewBranches } from "@/server/databases/branches";
 import { and, eq, inArray, sql as dsql } from "drizzle-orm";
 import { db, schema, sql } from "@/server/db";
@@ -53,6 +54,13 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
       await Cloudflare.forAccount(d.cloudflareAccountId)
         .then((cf) => cf.deleteDnsRecord(d.cloudflareZoneId!, d.cloudflareRecordId!))
         .catch(() => {});
+    }
+  }
+  // Read replicas on other servers than the database's: the delete job there only covers its own server.
+  for (const s of all) {
+    for (const r of replicaInstances(s).filter((r) => r.serverId !== s.serverId)) {
+      const { removeReplicaInstance } = await import("@/server/databases/addons");
+      await removeReplicaInstance(s, r).catch(() => {});
     }
   }
   const retire: Retire[] = [];

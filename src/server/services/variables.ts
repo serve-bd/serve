@@ -1,3 +1,4 @@
+import { replicaInstances } from "@/server/services/types";
 import { and, eq, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, decryptOrNull } from "@/server/crypto";
@@ -72,9 +73,12 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
       vars.POOLER_HOST = `${privateHost(service)}-pooler`;
       vars.POOLED_DATABASE_URL = databaseUrl(cfg, creds, vars.POOLER_HOST, engine.port);
     }
-    if (cfg.engine === "postgres" && cfg.replica?.enabled) {
+    // Read replicas: one name over all of them, and each one's own.
+    const replicas = replicaInstances(service);
+    if (replicas.length) {
       vars.READ_HOST = `${privateHost(service)}-replica`;
       vars.READ_DATABASE_URL = databaseUrl(cfg, creds, vars.READ_HOST, engine.port);
+      for (const r of replicas) vars[`READ_DATABASE_URL_${r.id}`] = databaseUrl(cfg, creds, `${privateHost(service)}-replica-${r.id}`, engine.port);
     }
   }
   return vars;

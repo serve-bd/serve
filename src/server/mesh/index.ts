@@ -11,6 +11,7 @@ import { composeServiceNames } from "@/server/deploy/compose";
 import { newId } from "@/server/id";
 import { envNetworkName } from "@/server/docker/networks";
 import { meshMemberIds } from "./members";
+import { poolerEnabled, replicaInstances } from "@/server/services/types";
 import { AGENT_CONTAINER, AGENT_DOCKERFILE, AGENT_IMAGE, AGENT_SCRIPT, AGENT_VERSION, LINKS_JQ, RULES_JQ, WG_JQ } from "./agent";
 import { addressChanges, type AgentConfig, agentConfig, allocateAddress, linked, type Need, neededAddresses, type PlanAddress, type PlanServer, type PlanService } from "./plan";
 
@@ -61,14 +62,41 @@ function toPlanService(s: Service): PlanService {
     isolated: !!s.compose?.isolated,
     composeSubnet: s.compose?.subnet ?? null,
     currentDeploymentId: s.currentDeploymentId,
+    // A database answers with its own container only: never its pooler or a replica.
+    kind: s.type === "database" ? "database" : null,
   };
+}
+
+/**
+ * A service and, for a PostgreSQL database, its pooler and read replicas: each its own entry with
+ * its own address, so they are reached from other servers by their names too. Replicas share
+ * <host>-replica (the read name that spreads over all of them) next to their own <host>-replica-<id>.
+ */
+function toPlanServices(s: Service): PlanService[] {
+  const main = toPlanService(s);
+  if (s.type !== "database") return [main];
+  const host = s.hostname || s.slug;
+  const extra: PlanService[] = [];
+  if (poolerEnabled(s)) extra.push({ ...main, id: `${s.id}~pooler`, slug: `${s.slug}-pooler`, hostname: `${host}-pooler`, kind: "pooler", container: s.id });
+  for (const r of replicaInstances(s)) {
+    extra.push({
+      ...main,
+      id: `${s.id}~replica-${r.id}`,
+      serverId: r.serverId,
+      slug: `${host}-replica-${r.id}`,
+      hostname: `${host}-replica`,
+      kind: `replica-${r.id}`,
+      container: s.id,
+    });
+  }
+  return [main, ...extra];
 }
 
 async function loadPlan() {
   const members = await meshMembers();
   if (!members.length) return null;
   const [services, addresses] = await Promise.all([db.select().from(schema.service), db.select().from(schema.meshAddress)]);
-  const plan = services.map(toPlanService);
+  const plan = services.flatMap(toPlanServices);
   return { members, servers: members.map(toPlanServer), services: plan, addresses: addresses as (PlanAddress & { id: string })[] };
 }
 
@@ -378,10 +406,14 @@ export async function meshBeforeStart(service: Pick<Service, "id" | "environment
     if (!members.has(serverId)) return;
     // This server and the servers of the environment: they learn about each other's addresses.
     const siblings = await db
-      .select({ serverId: schema.service.serverId, type: schema.service.type, distribution: schema.service.distribution })
+      .select({ serverId: schema.service.serverId, type: schema.service.type, distribution: schema.service.distribution, database: schema.service.database })
       .from(schema.service)
       .where(eq(schema.service.environmentId, service.environmentId));
-    const where = siblings.flatMap((s) => [s.serverId, ...(s.type === "app" ? (s.distribution?.extraServerIds ?? []) : [])]);
+    const where = siblings.flatMap((s) => [
+      s.serverId,
+      ...(s.type === "app" ? (s.distribution?.extraServerIds ?? []) : []),
+      ...replicaInstances({ serverId: s.serverId, database: s.database }).map((r) => r.serverId),
+    ]);
     await syncMesh({ servers: [...new Set([serverId, ...where])].filter((id) => members.has(id)), kick: [serverId] });
     const plan = await loadPlan();
     const self = plan?.servers.find((s) => s.id === serverId);

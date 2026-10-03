@@ -1,5 +1,6 @@
 "use server";
 
+import { ALL_DATABASES } from "@/lib/backup-databases";
 import { and, isNotNull, eq, inArray, ne, sql as dsql } from "drizzle-orm";
 import { z } from "zod";
 import { PASSWORD_PATTERN } from "@/server/databases/password";
@@ -645,7 +646,7 @@ const updateSchema = z.object({
       publicBind: z.enum(["0.0.0.0", "127.0.0.1"]).optional(),
       publicAllow: z.array(z.string().max(100)).max(200).nullable(),
       backupSchedule: z.string().nullable(),
-      backupDatabases: z.array(z.string().min(1).max(128)).min(1).max(100).nullable(),
+      backupDatabases: z.array(z.string().min(1).max(128)).min(1).nullable(),
       backupRetention: z.number().int().min(1).max(365),
       backupRetentionS3: z.number().int().min(1).max(3650).nullable(),
       s3DestinationId: z.string().nullable(),
@@ -1732,10 +1733,10 @@ export async function createBackup(serviceId: string, target?: string | null, op
     // Chosen databases (a database service): checked now, so a typo fails here and not in the job.
     let databases: string[] | null = null;
     if (!target && opts.databases?.length) {
-      const list = z.array(z.string().min(1).max(128)).max(100).parse(opts.databases);
+      const list = z.array(z.string().min(1).max(128)).parse(opts.databases);
       const { listDatabases } = await import("@/server/databases/list");
       const found = await listDatabases(service).catch(() => null);
-      const missing = found ? list.filter((d) => !found.includes(d) && d !== service.database?.database) : [];
+      const missing = found ? list.filter((d) => !found.includes(d) && d !== service.database?.database && d !== ALL_DATABASES) : [];
       if (missing.length) throw new UserError(`There is no database named ${missing[0]}.`);
       databases = [...new Set(list)];
     }
@@ -1754,16 +1755,8 @@ export async function backupDatabaseChoices(serviceId: string) {
     if (!cfg) throw new UserError("Not a database.");
     const { engines } = await import("@/server/databases/engines");
     if (!engines[cfg.engine].backupDatabasesCommand || service.status !== "running") return { supported: false, databases: [], selected: null, main: cfg.database };
-    const { listDatabases } = await import("@/server/databases/list");
-    const found = await listDatabases(service).catch(() => [] as string[]);
-    // Copies of branches are backed up with the branch's database, not on their own.
-    const branchRows = await db
-      .select({ database: schema.databaseBranch.database, extra: schema.databaseBranch.extraDatabases, name: schema.databaseBranch.name })
-      .from(schema.databaseBranch)
-      .where(eq(schema.databaseBranch.serviceId, service.id));
-    const { copyDatabaseName } = await import("@/server/databases/branches");
-    const copies = new Set(branchRows.flatMap((b) => [b.database, ...b.extra.map((d) => copyDatabaseName(d, b.name))]));
-    const databases = [...new Set([cfg.database, ...found])].filter((d) => d && !copies.has(d)).sort();
+    const { backupableDatabases } = await import("@/server/backups");
+    const databases = (await backupableDatabases(service)) ?? [cfg.database];
     return { supported: true, databases, selected: cfg.backupDatabases ?? null, main: cfg.database, engine: cfg.engine };
   });
 }

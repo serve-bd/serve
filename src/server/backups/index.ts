@@ -15,6 +15,7 @@ import { credsFromEnv, DUMP_EXTENSION, dumpCommands, engineOfImage, parseBackupK
 export { parseBackupKey };
 import { dumpStorage, restoreStorage, stackStorage } from "./storage";
 import { db, schema } from "@/server/db";
+import { ALL_DATABASES } from "@/lib/backup-databases";
 import { decrypt } from "@/server/crypto";
 import { serverOf } from "@/server/servers/context";
 import { engines, pgDbname } from "@/server/databases/engines";
@@ -384,9 +385,40 @@ export async function targetOf(service: ServiceRow, key: string | null, database
  * every database on MongoDB). Chosen ones the server no longer has are left out, with a line
  * in the log; none left takes the usual backup.
  */
-async function backupDatabasesNow(service: ServiceRow, chosen: string[] | null, log: (line: string) => Promise<void>) {
+/**
+ * The databases of a database service a backup can take: its main database and the others on the
+ * server, without the copies made for branches (those go with the branch's own backups).
+ */
+export async function backupableDatabases(service: ServiceRow): Promise<string[] | null> {
   const cfg = service.database;
-  if (!cfg || !chosen?.length || !engines[cfg.engine].backupDatabasesCommand) return null;
+  if (!cfg) return null;
+  const { listDatabases } = await import("@/server/databases/list");
+  const found = await listDatabases(service).catch(() => null);
+  if (!found) return null;
+  const branchRows = await db
+    .select({ database: schema.databaseBranch.database, extra: schema.databaseBranch.extraDatabases, name: schema.databaseBranch.name })
+    .from(schema.databaseBranch)
+    .where(eq(schema.databaseBranch.serviceId, service.id));
+  const { copyDatabaseName } = await import("@/server/databases/branches");
+  const copies = new Set(branchRows.flatMap((b) => [b.database, ...b.extra.map((d) => copyDatabaseName(d, b.name))]));
+  return [...new Set([cfg.database, ...found])].filter((d) => d && !copies.has(d)).sort();
+}
+
+async function backupDatabasesNow(service: ServiceRow, asked: string[] | null, log: (line: string) => Promise<void>) {
+  const cfg = service.database;
+  if (!cfg || !asked?.length || !engines[cfg.engine].backupDatabasesCommand) return null;
+  // Every database: the ones on the server at the time of the backup, new ones included.
+  let chosen = asked;
+  // MongoDB's usual backup already takes every database, in one archive.
+  if (asked.includes(ALL_DATABASES) && cfg.engine === "mongodb") return null;
+  if (asked.includes(ALL_DATABASES)) {
+    const all = await backupableDatabases(service);
+    if (!all) {
+      await log("Could not list the databases of the server: backing up the main database only.");
+      return null;
+    }
+    chosen = all;
+  }
   // Only the main database: the usual backup (and file format) is that.
   if (chosen.length === 1 && chosen[0] === cfg.database && cfg.engine !== "mongodb") return null;
   const { listDatabases } = await import("@/server/databases/list");

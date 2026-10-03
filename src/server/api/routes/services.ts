@@ -563,8 +563,7 @@ export const serviceRoutes: ApiRoute[] = [
     path: "/services/{serviceId}/backups",
     tag: "Backups",
     summary: "Back up now",
-    description:
-      "target picks a compose service's backup (see the stack's backup settings). databases (a database service): the databases of the server to take; without it the service's choice (database.backupDatabases) or the main database.",
+    description: `target picks a compose service's backup (see the stack's backup settings). databases (a database service): the databases of the server to take, or ["*"] for every one, new ones included; without it the service's choice (database.backupDatabases) or the main database.`,
     needs: ["databases.backups"],
     body: z.object({ target: z.string().nullable().optional(), databases: z.array(z.string()).optional() }),
     status: 202,

@@ -300,7 +300,23 @@ export function ServiceHeader({ project, environment, service, initialLive, port
                 variant="primary"
                 size="sm"
                 className="relative h-9 sm:h-8"
-                onClick={() => deploy.run()}
+                onClick={async () => {
+                  // A first deploy starts nothing that runs; a redeploy replaces what does, so it asks first.
+                  const first = live.status === "idle" || live.status === "stopped";
+                  if (
+                    !first &&
+                    !(await confirm({
+                      title: `Redeploy ${service.name}?`,
+                      description:
+                        service.type === "database"
+                          ? "The database restarts with its current settings. Connections drop for a few seconds; the data stays."
+                          : `${service.sourceType === "git" ? "Builds the latest commit and starts it" : "Starts a new version"} with the current settings. It takes over once it is healthy; if it fails, the running version stays.${pending ? " Saved setting changes apply with it." : ""}`,
+                      confirmLabel: "Redeploy",
+                    }))
+                  )
+                    return;
+                  deploy.run();
+                }}
                 loading={deploy.pending}
                 disabled={!can("services.deploy")}
                 title={cannot("services.deploy") ?? (pending ? "Settings changed since the last deploy. Redeploy to apply them." : undefined)}

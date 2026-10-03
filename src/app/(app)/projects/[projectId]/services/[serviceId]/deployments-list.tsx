@@ -121,7 +121,15 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                                 </MenuItem>
                               )}
                               <MenuItem
-                                onClick={() => {
+                                onClick={async () => {
+                                  if (
+                                    !(await confirm({
+                                      title: "Redeploy?",
+                                      description: "Deploys again with the current settings. It takes over once it is healthy; if it fails, the running version stays.",
+                                      confirmLabel: "Redeploy",
+                                    }))
+                                  )
+                                    return;
                                   target.current = d.preview?.id ?? serviceId;
                                   void redeploy.run(d.id);
                                 }}

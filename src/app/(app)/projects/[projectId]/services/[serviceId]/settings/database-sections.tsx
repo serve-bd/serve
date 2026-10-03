@@ -45,7 +45,7 @@ export type DatabaseSettingsProps = {
     replica: { enabled: boolean; instances: { id: string; serverId: string }[] } | null;
   };
   /** Servers a replica can run on: the database's own and those linked to it privately. */
-  replicaServers: { id: string; name: string; home: boolean }[];
+  replicaServers: { id: string; name: string; home: boolean; linked: boolean }[];
   password: string;
   /** The role cannot see secret values: the password arrives masked. */
   hideSecrets?: boolean;
@@ -735,7 +735,16 @@ function ReplicaSection(props: DatabaseSettingsProps) {
                       className="w-full sm:w-56"
                       value={r.serverId}
                       onValueChange={(serverId) => set({ instances: v.instances.map((x, j) => (j === i ? { ...x, serverId } : x)) })}
-                      options={props.replicaServers.map((s) => ({ value: s.id, label: s.name, description: s.home ? "The database's server" : "Over the private network" }))}
+                      options={props.replicaServers.map((s) => ({
+                        value: s.id,
+                        label: s.name,
+                        disabled: !s.linked,
+                        description: s.home
+                          ? "The database's server"
+                          : s.linked
+                            ? "Over the private network"
+                            : `Not on a private network with ${homeName}. Add it under Servers → ${s.name} → Private network.`,
+                      }))}
                     />
                     <Button type="button" size="sm" variant="ghost" aria-label="Remove replica" onClick={() => set({ instances: v.instances.filter((_, j) => j !== i) })}>
                       <Trash2 />

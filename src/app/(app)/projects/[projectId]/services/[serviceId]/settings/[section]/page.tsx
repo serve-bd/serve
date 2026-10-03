@@ -26,7 +26,12 @@ export async function generateMetadata(props: PageProps<"/projects/[projectId]/s
   return { title: `${label} · Settings` };
 }
 
-function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean, hideSecrets: boolean, replicaServers: { id: string; name: string; home: boolean }[]) {
+function dbProps(
+  service: typeof schema.service.$inferSelect,
+  isAdmin: boolean,
+  hideSecrets: boolean,
+  replicaServers: { id: string; name: string; home: boolean; linked: boolean }[],
+) {
   const cfg = service.database;
   if (!cfg) return null;
   const engine = engines[cfg.engine];
@@ -149,7 +154,8 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
   // A replica runs on the database's server or one linked to it privately.
   const members = service.database?.engine === "postgres" ? await meshMemberIds() : null;
   const replicaServers = members
-    ? servers.filter((s) => privatelyConnected(members, service.serverId, s.id)).map((s) => ({ id: s.id, name: s.name, home: s.id === service.serverId }))
+    ? // Unlinked servers are listed too, unavailable, so it is clear what to do to use them.
+      servers.map((s) => ({ id: s.id, name: s.name, home: s.id === service.serverId, linked: privatelyConnected(members, service.serverId, s.id) }))
     : [];
   const database = dbProps(service, ctx.isAdmin, hideSecrets, replicaServers);
   const nav = settingsNav({

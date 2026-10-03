@@ -24,7 +24,7 @@ import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, failJob, f
 import { recoverInterruptedDeployment, runDeployment, setServiceStatus } from "@/server/deploy";
 import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
 import { queueDeployment } from "@/server/services/create";
-import { issueCertificate, renewDueCertificates, retireCertificate } from "@/server/ssl/certificates";
+import { issueCertificate, renewDueCertificates, retireCertificate, retryFailedCertificates } from "@/server/ssl/certificates";
 import { backupFile, importBackup, restoreBackup, runBackup } from "@/server/backups";
 import { collectMetrics } from "@/server/metrics";
 import { containerLister, type ContainerView, withTimeout } from "@/server/monitoring/containers";
@@ -791,6 +791,8 @@ async function main() {
   every(60_000, "tasks", scheduleTasks);
   every(20_000, "analytics", ingestAccessLog, true);
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
+  // A certificate that failed (its name did not resolve yet) is asked for again once it does.
+  every(5 * 60_000, "certificate-retries", retryFailedCertificates);
   every(5 * 60_000, "cleanup", scheduleCleanup, true);
   // Databases on domains: routes, certificates picked up after renewal, and containers that moved.
   every(5 * 60_000, "db-allowlists", async () => (await import("@/server/databases/allowlist")).syncDatabaseAllowlists(), true);

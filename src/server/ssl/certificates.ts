@@ -398,6 +398,37 @@ export async function renewDueCertificates() {
 }
 
 /**
+ * Failed certificates are tried again on their own once they can pass: a name that did not
+ * resolve (or pointed elsewhere) when it was asked for, and now leads to its server. Checked
+ * first, so a name still not ready never spends Let's Encrypt's limit on failed attempts. A
+ * certificate proven through Cloudflare DNS needs no address: it is tried again every few hours.
+ */
+export async function retryFailedCertificates() {
+  const failed = await db
+    .select()
+    .from(schema.certificate)
+    .where(and(eq(schema.certificate.status, "failed"), eq(schema.certificate.autoRenew, true)));
+  const { domainDnsStatus } = await import("@/server/dns");
+  const { serverPublicIp } = await import("@/server/servers/access");
+  for (const cert of failed) {
+    if (cert.provider !== "letsencrypt-http" && cert.provider !== "letsencrypt-cloudflare") continue;
+    const since = Date.now() - (cert.updatedAt?.getTime() ?? 0);
+    if (cert.provider === "letsencrypt-cloudflare") {
+      if (since < 6 * 3600_000) continue;
+    } else {
+      // At most every 15 minutes, and only when every name now leads to the server.
+      if (since < 15 * 60_000) continue;
+      const ip = await serverPublicIp(cert.serverId).catch(() => null);
+      if (!ip) continue;
+      const names = cert.domains.filter((d) => !d.startsWith("*."));
+      const ready = await Promise.all(names.map((d) => domainDnsStatus(d, ip, { organizationId: cert.organizationId }).catch(() => null)));
+      if (!names.length || ready.some((r) => r?.status !== "ok")) continue;
+    }
+    await enqueue("certificate.issue", { certificateId: cert.id }, { concurrencyKey: `cert:${cert.id}`, maxAttempts: 1 });
+  }
+}
+
+/**
  * Make sure an HTTPS domain has a certificate. Reuses an existing one that covers
  * the hostname, otherwise requests a Let's Encrypt certificate.
  */

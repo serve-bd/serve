@@ -120,14 +120,17 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
       if (!tunnelMode) {
         const { busyPortsFor, freePortOn } = await import("@/server/databases/public-ports");
         const holder = which === "pooler" ? "pooler" : "replicas";
-        if (data.port) {
+        // A port once set stays: clients and firewalls point at it. Turning public access off frees it.
+        if (before?.port && data.port && data.port !== before.port)
+          throw new UserError(`The port is ${before.port} and stays: clients and firewalls use it. Turn public access off and on again for a new one.`);
+        if (data.port && data.port !== before?.port) {
           for (const serverId of servers) {
             const busy = await busyPortsFor(service, serverId, holder);
             // Its own current port is busy because it is open now.
             if (busy.has(data.port) && data.port !== before?.port) throw new UserError(`Port ${data.port} is already used on one of the servers.`);
           }
           port = data.port;
-        } else port = before?.port ?? (await freePortOn(service, servers, holder, which === "pooler" ? 16432 : 17432));
+        } else port = before?.port ?? data.port ?? (await freePortOn(service, servers, holder, which === "pooler" ? 16432 : 17432));
       }
       next = { port, bind: data.bind ?? "0.0.0.0", allow, domain: hostname, tunnelId };
     }

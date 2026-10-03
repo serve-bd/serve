@@ -234,6 +234,9 @@ function AddonAccessCard({
                       onChange={(e) => setPort(e.target.value.replace(/\D/g, "").slice(0, 5))}
                       className="font-mono"
                       inputMode="numeric"
+                      // Set once, it stays: clients and firewalls point at it.
+                      readOnly={!!addon.port}
+                      title={addon.port ? "The port stays once set. Turn public access off and on again for a new one." : undefined}
                       disabled={!canManage}
                     />
                   </Field>

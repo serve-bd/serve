@@ -303,40 +303,45 @@ export function DrainDialog({ drain, projects, onClose, preset }: { drain: Drain
                 )}
               </div>
             )}
-            <Field label="What to send" error={nothing ? "Pick at least one project or service." : undefined}>
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-2.5 text-[13px] text-fg-2">
-                  <Checkbox checked={everything} onCheckedChange={(c) => setEverything(!!c)} />
-                  Every service, new ones too
-                </label>
-                {!everything && (
-                  <div className="flex max-h-64 flex-col gap-3 overflow-y-auto rounded-xl border border-line p-3">
-                    {projects.map((p) => {
-                      const whole = form.projectIds.includes(p.id);
-                      return (
-                        <div key={p.id} className="flex flex-col gap-1.5">
-                          <label className="flex items-center gap-2.5 text-[13px] font-medium text-fg">
-                            <Checkbox checked={whole} onCheckedChange={(c) => set({ projectIds: toggle(form.projectIds, p.id, !!c) })} />
-                            {p.name}
-                            <span className="text-xs font-normal text-faint">whole project, new services too</span>
-                          </label>
-                          {p.services.map((sv) => (
-                            <label key={sv.id} className="flex items-center gap-2.5 pl-6 text-[13px] text-fg-2">
-                              <Checkbox
-                                checked={whole || form.serviceIds.includes(sv.id)}
-                                disabled={whole}
-                                onCheckedChange={(c) => set({ serviceIds: toggle(form.serviceIds, sv.id, !!c) })}
-                              />
-                              {sv.name}
+            {/* From a service's settings the drain is for that service: more can be picked on the Log drains page. */}
+            {preset ? (
+              <p className="text-xs leading-relaxed text-muted">Sends this service&apos;s logs. To send others too, edit the drain in Integrations → Log drains.</p>
+            ) : (
+              <Field label="What to send" error={nothing ? "Pick at least one project or service." : undefined}>
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2.5 text-[13px] text-fg-2">
+                    <Checkbox checked={everything} onCheckedChange={(c) => setEverything(!!c)} />
+                    Every service, new ones too
+                  </label>
+                  {!everything && (
+                    <div className="flex max-h-64 flex-col gap-3 overflow-y-auto rounded-xl border border-line p-3">
+                      {projects.map((p) => {
+                        const whole = form.projectIds.includes(p.id);
+                        return (
+                          <div key={p.id} className="flex flex-col gap-1.5">
+                            <label className="flex items-center gap-2.5 text-[13px] font-medium text-fg">
+                              <Checkbox checked={whole} onCheckedChange={(c) => set({ projectIds: toggle(form.projectIds, p.id, !!c) })} />
+                              {p.name}
+                              <span className="text-xs font-normal text-faint">whole project, new services too</span>
                             </label>
-                          ))}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </Field>
+                            {p.services.map((sv) => (
+                              <label key={sv.id} className="flex items-center gap-2.5 pl-6 text-[13px] text-fg-2">
+                                <Checkbox
+                                  checked={whole || form.serviceIds.includes(sv.id)}
+                                  disabled={whole}
+                                  onCheckedChange={(c) => set({ serviceIds: toggle(form.serviceIds, sv.id, !!c) })}
+                                />
+                                {sv.name}
+                              </label>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </Field>
+            )}
           </DialogBody>
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" size="sm" type="button" />}>Cancel</DialogClose>

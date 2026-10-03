@@ -253,7 +253,7 @@ export function ScheduleCard(props: {
 
         {choices && (
           <Field label="Databases to back up" description="Every backup takes these, also Back up now (which can pick others).">
-            <DatabasePicker choices={choices} value={dbs} onChange={setDbs} disabled={!props.canEdit} />
+            <DatabasePicker choices={choices} value={dbs} onChange={setDbs} disabled={!props.canEdit} scheduled />
           </Field>
         )}
 

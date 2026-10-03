@@ -15,7 +15,7 @@ import { credsFromEnv, DUMP_EXTENSION, dumpCommands, engineOfImage, parseBackupK
 export { parseBackupKey };
 import { dumpStorage, restoreStorage, stackStorage } from "./storage";
 import { db, schema } from "@/server/db";
-import { ALL_DATABASES } from "@/lib/backup-databases";
+import { readChoice } from "@/lib/backup-databases";
 import { decrypt } from "@/server/crypto";
 import { serverOf } from "@/server/servers/context";
 import { engines, pgDbname } from "@/server/databases/engines";
@@ -413,14 +413,21 @@ async function backupDatabasesNow(service: ServiceRow, asked: string[] | null, l
   // Every database: the ones on the server at the time of the backup, new ones included.
   let chosen = asked;
   // MongoDB's usual backup already takes every database, in one archive.
-  if (asked.includes(ALL_DATABASES) && cfg.engine === "mongodb") return null;
-  if (asked.includes(ALL_DATABASES)) {
+  const { all: every, skip } = readChoice(asked);
+  // MongoDB's usual backup takes every database in one archive; with some left out it goes one by one.
+  if (every && !skip.length && cfg.engine === "mongodb") return null;
+  if (every) {
     const all = await backupableDatabases(service);
     if (!all) {
       await log("Could not list the databases of the server: backing up the main database only.");
       return null;
     }
-    chosen = all;
+    chosen = all.filter((d) => !skip.includes(d));
+    if (skip.length) await log(`Leaving out ${skip.join(", ")}.`);
+    if (!chosen.length) {
+      await log("Every database is left out: backing up the main database.");
+      return null;
+    }
   }
   // Only the main database: the usual backup (and file format) is that.
   if (chosen.length === 1 && chosen[0] === cfg.database && cfg.engine !== "mongodb") return null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { ALL_DATABASES } from "@/lib/backup-databases";
+import { ALL_DATABASES, readChoice } from "@/lib/backup-databases";
 import * as React from "react";
 import useSWR from "swr";
 import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2 } from "lucide-react";
@@ -333,7 +333,11 @@ function BackupNowDialog({ choices, pending, onClose, onRun }: { choices: Databa
             Cancel
           </Button>
           <Button variant="primary" onClick={() => onRun(picked)} loading={pending} disabled={!picked.length}>
-            {picked.includes(ALL_DATABASES) ? "Back up every database" : `Back up ${picked.length === 1 ? "1 database" : `${picked.length} databases`}`}
+            {picked.includes(ALL_DATABASES)
+              ? readChoice(picked).skip.length
+                ? `Back up all but ${readChoice(picked).skip.length}`
+                : "Back up every database"
+              : `Back up ${picked.length === 1 ? "1 database" : `${picked.length} databases`}`}
           </Button>
         </DialogFooter>
       </DialogContent>

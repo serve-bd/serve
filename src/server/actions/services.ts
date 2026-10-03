@@ -1,6 +1,6 @@
 "use server";
 
-import { ALL_DATABASES } from "@/lib/backup-databases";
+import { ALL_DATABASES, SKIP_PREFIX } from "@/lib/backup-databases";
 import { and, isNotNull, eq, inArray, ne, sql as dsql } from "drizzle-orm";
 import { z } from "zod";
 import { PASSWORD_PATTERN } from "@/server/databases/password";
@@ -1737,7 +1737,14 @@ export async function createBackup(serviceId: string, target?: string | null, op
       const { listDatabases } = await import("@/server/databases/list");
       const found = await listDatabases(service).catch(() => null);
       const missing = found
-        ? list.filter((d) => !found.includes(d) && d !== service.database?.database && d !== ALL_DATABASES && !(d === "postgres" && service.database?.engine === "postgres"))
+        ? list.filter(
+            (d) =>
+              !found.includes(d) &&
+              d !== service.database?.database &&
+              d !== ALL_DATABASES &&
+              !d.startsWith(SKIP_PREFIX) &&
+              !(d === "postgres" && service.database?.engine === "postgres"),
+          )
         : [];
       if (missing.length) throw new UserError(`There is no database named ${missing[0]}.`);
       databases = [...new Set(list)];

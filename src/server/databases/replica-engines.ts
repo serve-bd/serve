@@ -45,8 +45,8 @@ async function primarySql(service: Service, docker: Docker, sql: string, what: s
   const cfg = service.database!;
   const password = decryptOrNull(cfg.password) ?? "";
   const container = await databaseContainer(docker, service);
-  // Vertical output (\G) needs the column names to be read.
-  const client = opts.names ? mysqlClient(cfg.engine, password).replace(" -N", "") : mysqlClient(cfg.engine, password);
+  // Vertical output (-E: one "name: value" line per column) to read fields by name.
+  const client = opts.names ? mysqlClient(cfg.engine, password).replace(" -N", " -E") : mysqlClient(cfg.engine, password);
   return exec(docker, container.id, `${client} -e ${sh(sql)}`, what, password);
 }
 
@@ -82,7 +82,7 @@ export async function preparePrimary(service: Service, docker: Docker, members: 
     // and it forgets the database it followed. Each runs again until done, so a half finished one completes.
     if (cfg.engine === "mariadb") await restoreRootRights(service, docker);
     // Only a source Serve set up (its own login): replication someone set up from elsewhere stays.
-    const source = await primarySql(service, docker, "SHOW REPLICA STATUS\\G", "Could not read the replication state", { names: true }).catch(() => "");
+    const source = await primarySql(service, docker, "SHOW REPLICA STATUS", "Could not read the replication state", { names: true }).catch(() => "");
     if (new RegExp(`^\\s*(Source|Master)_User:\\s*${REPLICATION_USER}\\s*$`, "m").test(source)) {
       log("This database followed another one before: it stops following it");
       await primarySql(
@@ -371,7 +371,7 @@ export async function replicaFollowState(service: Service, docker: Docker, conta
   const cfg = service.database!;
   const password = decryptOrNull(cfg.password) ?? "";
   if (cfg.engine === "mysql" || cfg.engine === "mariadb") {
-    const out = await execCommand(containerId, `${mysqlClient(cfg.engine, password).replace(" -N -B", "")} -h 127.0.0.1 -e 'SHOW REPLICA STATUS\\G'`, {
+    const out = await execCommand(containerId, `${mysqlClient(cfg.engine, password).replace(" -N -B", " -E")} -h 127.0.0.1 -e 'SHOW REPLICA STATUS'`, {
       docker,
       timeoutSeconds: 20,
     }).catch(() => null);

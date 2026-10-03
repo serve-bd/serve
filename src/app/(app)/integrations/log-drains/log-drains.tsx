@@ -31,6 +31,7 @@ export type DrainItem = {
   serviceIds: string[] | null;
   index: string | null;
   sourcetype: string | null;
+  insecure: boolean;
 };
 
 export type DrainProject = { id: string; name: string; services: { id: string; name: string }[] };
@@ -200,6 +201,7 @@ export function DrainDialog({ drain, projects, onClose, preset }: { drain: Drain
     serviceIds: drain?.serviceIds ?? preset?.serviceIds ?? [],
     index: drain?.index ?? "",
     sourcetype: drain?.sourcetype ?? "",
+    insecure: drain?.insecure ?? false,
   });
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
   const save = useAction(
@@ -241,6 +243,15 @@ export function DrainDialog({ drain, projects, onClose, preset }: { drain: Drain
                 spellCheck={false}
               />
             </Field>
+            {/^(https|tls):\/\//.test(form.url) && (
+              <label className="-mt-1 flex items-start gap-2.5 text-[13px] text-fg-2">
+                <Checkbox className="mt-0.5" checked={form.insecure} onCheckedChange={(c) => set({ insecure: !!c })} />
+                <span>
+                  Accept a self-signed certificate
+                  <span className="block text-xs text-muted">For your own Splunk or Elasticsearch. The connection stays encrypted, but its certificate is not checked.</span>
+                </span>
+              </label>
+            )}
             {form.kind === "http" && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <Field label="Header" optional>

@@ -33,6 +33,7 @@ const drainSchema = z
       .max(100)
       .regex(/^[a-z0-9_.-]*$/, "Use lowercase letters, digits, dots, dashes and underscores in the index."),
     sourcetype: z.string().trim().max(100),
+    insecure: z.boolean().default(false),
   })
   // Syslog takes tcp://, tls:// or udp:// with a port; the others http or https.
   .refine((d) => (d.kind === "syslog" ? !!syslogTarget(d.url) : /^https?:\/\//.test(d.url)), {
@@ -77,9 +78,12 @@ function mergeSecrets(data: z.infer<typeof drainSchema>, stored: Secrets): Secre
 }
 
 function optionsOf(data: z.infer<typeof drainSchema>) {
-  if (data.kind === "elasticsearch") return { index: data.index || null };
-  if (data.kind === "splunk") return { index: data.index || null, sourcetype: data.sourcetype || null };
-  return null;
+  const options = {
+    ...(data.kind === "elasticsearch" || data.kind === "splunk" ? { index: data.index || null } : {}),
+    ...(data.kind === "splunk" ? { sourcetype: data.sourcetype || null } : {}),
+    ...(data.insecure ? { insecure: true } : {}),
+  };
+  return Object.keys(options).length ? options : null;
 }
 
 /** Resync Vector on every server in the background: the drain works within a minute either way. */
@@ -212,7 +216,7 @@ export async function testLogDrain(id: string) {
     const secrets: Secrets = JSON.parse(decryptOrNull(row.secrets) ?? "{}");
     const line = sampleLine(ctx.org.id);
     if (row.kind === "syslog") {
-      await sendSyslogTest(row.url, line);
+      await sendSyslogTest(row.url, line, !!row.options?.insecure);
       return null;
     }
     let url = row.url;
@@ -246,14 +250,14 @@ export async function testLogDrain(id: string) {
       if (secrets.header?.name) headers[secrets.header.name] = secrets.header.value;
       body = JSON.stringify([line]);
     }
-    let res: Response;
+    let res: { status: number; text: string };
     try {
-      res = await fetch(url, { method: "POST", headers, body, redirect: "manual", signal: AbortSignal.timeout(10_000) });
+      res = await post(url, headers, body, !!row.options?.insecure);
     } catch (error) {
       throw new UserError(`Could not reach ${new URL(url).host}: ${(error as Error).message}`);
     }
-    const text = (await res.text().catch(() => "")).slice(0, 300);
-    if (!res.ok) throw new UserError(`${new URL(url).host} answered ${res.status}${text ? `: ${text}` : ""}`);
+    const text = res.text.slice(0, 300);
+    if (res.status < 200 || res.status >= 300) throw new UserError(`${new URL(url).host} answered ${res.status}${text ? `: ${text}` : ""}`);
     // A bulk request answers 200 even when every line was refused.
     if (row.kind === "elasticsearch" && /"errors"\s*:\s*true/.test(text)) throw new UserError(`Elasticsearch refused the line: ${text}`);
     return null;
@@ -261,7 +265,7 @@ export async function testLogDrain(id: string) {
 }
 
 /** One RFC 5424 line over TCP, TLS or UDP, the way Vector sends them. */
-async function sendSyslogTest(url: string, line: ReturnType<typeof sampleLine>) {
+async function sendSyslogTest(url: string, line: ReturnType<typeof sampleLine>, insecure: boolean) {
   const target = syslogTarget(url);
   if (!target) throw new UserError("Use tcp://, tls:// or udp:// with a port.");
   const text = `<14>1 ${line.timestamp} ${line.server} ${line.service} - - - ${line.message}\n`;
@@ -275,7 +279,9 @@ async function sendSyslogTest(url: string, line: ReturnType<typeof sampleLine>) 
   const net = await import("node:net");
   const tls = await import("node:tls");
   await new Promise<void>((resolve, reject) => {
-    const socket = target.tls ? tls.connect({ host: target.host, port: target.port, servername: target.host }) : net.connect({ host: target.host, port: target.port });
+    const socket = target.tls
+      ? tls.connect({ host: target.host, port: target.port, servername: target.host, rejectUnauthorized: !insecure })
+      : net.connect({ host: target.host, port: target.port });
     const timer = setTimeout(() => {
       socket.destroy();
       reject(new UserError(`${target.host}:${target.port} did not answer in time.`));
@@ -290,5 +296,28 @@ async function sendSyslogTest(url: string, line: ReturnType<typeof sampleLine>) 
       clearTimeout(timer);
       reject(fail(error));
     });
+  });
+}
+
+/** One POST, the way Vector sends it: with `insecure`, a self-signed certificate is accepted. */
+async function post(url: string, headers: Record<string, string>, body: string, insecure: boolean): Promise<{ status: number; text: string }> {
+  const target = new URL(url);
+  const lib = target.protocol === "https:" ? await import("node:https") : await import("node:http");
+  return new Promise((resolve, reject) => {
+    const req = lib.request(
+      target,
+      { method: "POST", headers: { ...headers, "content-length": Buffer.byteLength(body) }, timeout: 10_000, ...(insecure ? { rejectUnauthorized: false } : {}) },
+      (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          if (text.length < 2000) text += chunk;
+        });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("no answer in 10 seconds")));
+    req.on("error", reject);
+    req.end(body);
   });
 }

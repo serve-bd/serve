@@ -868,7 +868,7 @@ export const logDrain = pgTable("log_drain", {
   /** Single services whose logs are sent, next to whole projects. */
   serviceIds: text("service_ids").array(),
   /** Settings that are not secret: the Elasticsearch or Splunk index, the Splunk source type. */
-  options: jsonb("options").$type<{ index?: string | null; sourcetype?: string | null }>(),
+  options: jsonb("options").$type<{ index?: string | null; sourcetype?: string | null; insecure?: boolean }>(),
   enabled: boolean("enabled").notNull().default(true),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

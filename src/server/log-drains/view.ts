@@ -26,6 +26,7 @@ export async function logDrainsProps(organizationId: string, canManage: boolean)
       serviceIds: r.serviceIds?.length ? r.serviceIds : null,
       index: r.options?.index ?? null,
       sourcetype: r.options?.sourcetype ?? null,
+      insecure: !!r.options?.insecure,
     };
   });
   const projects = projectRows.map((p) => ({ ...p, services: services.filter((s) => s.projectId === p.id).map((s) => ({ id: s.id, name: s.name })) }));

@@ -26,6 +26,7 @@ export async function enabledDrains(): Promise<DrainSpec[]> {
       serviceIds: r.serviceIds?.length ? r.serviceIds : null,
       index: r.options?.index ?? null,
       sourcetype: r.options?.sourcetype ?? null,
+      insecure: !!r.options?.insecure,
     };
   });
 }

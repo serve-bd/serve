@@ -14,6 +14,8 @@ export type DrainSpec = {
   serviceIds?: string[] | null;
   index?: string | null;
   sourcetype?: string | null;
+  /** Accept a self-signed certificate (a self-hosted Splunk or Elasticsearch). */
+  insecure?: boolean;
 };
 
 /** tcp://, tls:// or udp:// host and port of a syslog drain. */
@@ -101,8 +103,10 @@ export function vectorConfig(serverName: string, drains: DrainSpec[], csv: strin
     if (!picked.length) continue;
     const conditions = [`.organization_id == ${vrl(d.organizationId)}`, picked.length > 1 ? `(${picked.join(" || ")})` : picked[0]];
     transforms[`drain_${d.id}`] = { type: "filter", inputs: ["serve_enrich"], condition: conditions.join(" && ") };
+    const tls = d.insecure ? { tls: { verify_certificate: false, verify_hostname: false } } : {};
     // A destination that is down must not make Vector hold everything in memory.
     const common = {
+      ...tls,
       inputs: [`drain_${d.id}`],
       buffer: { type: "memory", max_events: 10_000, when_full: "drop_newest" },
       batch: { timeout_secs: 5, max_events: 1000 },
@@ -165,7 +169,7 @@ export function vectorConfig(serverName: string, drains: DrainSpec[], csv: strin
         address: `${target.host.includes(":") ? `[${target.host}]` : target.host}:${target.port}`,
         encoding: { codec: "text" },
         ...(target.mode === "tcp" ? { framing: { method: "newline_delimited" } } : {}),
-        ...(target.tls ? { tls: { enabled: true } } : {}),
+        ...(target.tls ? { tls: { enabled: true, ...(d.insecure ? { verify_certificate: false, verify_hostname: false } : {}) } } : {}),
       };
     } else {
       sinks[`drain_${d.id}_out`] = {

@@ -1,3 +1,4 @@
+import { withRetry } from "@/server/net/retry";
 import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
@@ -163,11 +164,21 @@ export function appJwt(appId: number, pem: string) {
 }
 
 async function githubJson<T>(url: string, token: string, init: RequestInit = {}, scheme = "Bearer"): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: { accept: "application/vnd.github+json", authorization: `${scheme} ${token}`, "x-github-api-version": "2022-11-28", ...(init.headers ?? {}) },
-    signal: AbortSignal.timeout(20000),
-  });
+  // GitHub that is slow or briefly down (5xx) gets one more try a second later.
+  const res = await withRetry(
+    async () => {
+      const r = await fetch(url, {
+        ...init,
+        headers: { accept: "application/vnd.github+json", authorization: `${scheme} ${token}`, "x-github-api-version": "2022-11-28", ...(init.headers ?? {}) },
+        signal: AbortSignal.timeout(20000),
+      }).catch((e: Error) => {
+        throw e.name === "TimeoutError" ? Object.assign(new Error("GitHub did not answer within 20 seconds. It is usually brief: try again."), { name: "TimeoutError" }) : e;
+      });
+      if (r.status >= 500) throw new Error(`GitHub: HTTP ${r.status}`);
+      return r;
+    },
+    { what: "Asking GitHub", delays: [1000] },
+  );
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { message?: string };
     throw new Error(`GitHub: ${body.message ?? `HTTP ${res.status}`}`);

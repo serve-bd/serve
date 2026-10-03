@@ -1,3 +1,4 @@
+import { withRetry } from "@/server/net/retry";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { and, eq } from "drizzle-orm";
@@ -246,35 +247,40 @@ export async function cloneRepository(
   opts: { submodules?: boolean; inPlace?: boolean } = {},
 ): Promise<CloneResult> {
   if (opts.inPlace) return updateInPlace(source, dir, log, signal, organizationId, opts);
-  await fs.rm(dir, { recursive: true, force: true });
   const parent = path.dirname(dir);
   await fs.mkdir(parent, { recursive: true });
-  const access = await gitAccess(source, `${dir}.auth`, organizationId);
-
   const submodules = opts.submodules !== false;
-  try {
-    log(`Cloning ${access.url} (branch ${source.branch})`);
-    const options = { env: access.gitEnv, onLine: log, signal, redact: access.redact };
-    await run(
-      "git",
-      [
-        "clone",
-        "--depth",
-        "1",
-        "--branch",
-        source.branch,
-        "--single-branch",
-        ...(submodules && !access.publicOnly ? ["--recurse-submodules", "--shallow-submodules"] : []),
-        "--",
-        access.cloneUrl,
-        dir,
-      ],
-      options,
-    );
-    if (submodules && access.publicOnly) await publicSubmodules((args, o) => run("git", ["-C", dir, ...args], o), dir, access, options);
-  } finally {
-    await fs.rm(`${dir}.auth`, { recursive: true, force: true });
-  }
+  // A git host that does not answer in time or drops the connection gets two more tries.
+  await withRetry(
+    async () => {
+      await fs.rm(dir, { recursive: true, force: true });
+      const access = await gitAccess(source, `${dir}.auth`, organizationId);
+      try {
+        log(`Cloning ${access.url} (branch ${source.branch})`);
+        const options = { env: access.gitEnv, onLine: log, signal, redact: access.redact };
+        await run(
+          "git",
+          [
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            source.branch,
+            "--single-branch",
+            ...(submodules && !access.publicOnly ? ["--recurse-submodules", "--shallow-submodules"] : []),
+            "--",
+            access.cloneUrl,
+            dir,
+          ],
+          options,
+        );
+        if (submodules && access.publicOnly) await publicSubmodules((args, o) => run("git", ["-C", dir, ...args], o), dir, access, options);
+      } finally {
+        await fs.rm(`${dir}.auth`, { recursive: true, force: true });
+      }
+    },
+    { what: "Cloning", log, signal },
+  );
 
   const out = await run("git", ["-C", dir, "log", "-1", "--format=%H%x1f%an%x1f%s"]);
   return checkedOut(dir, out, log);
@@ -313,7 +319,7 @@ async function updateInPlace(
   for (const entry of await fs.readdir(gitDir, { recursive: true }).catch(() => [] as string[])) {
     if (entry.endsWith(".lock")) await fs.rm(path.join(gitDir, entry), { force: true });
   }
-  const access = await gitAccess(source, `${dir}.auth`, organizationId);
+  const access = await withRetry(() => gitAccess(source, `${dir}.auth`, organizationId), { what: "Getting access to the repository", log, signal });
   const options = { env: access.gitEnv, onLine: log, signal, redact: access.redact };
   const update = async () => {
     if (!(await fs.stat(path.join(gitDir, "HEAD")).catch(() => null))) await git(["init", "--quiet"]);
@@ -344,7 +350,7 @@ async function updateInPlace(
   try {
     log(`Fetching ${access.url} (branch ${source.branch})`);
     try {
-      await update();
+      await withRetry(update, { what: "Fetching", log, signal });
     } catch (error) {
       // Unreachable repository or branch: a new git directory would not help.
       const output = `${(error as Error).message}\n${(error as { output?: string }).output ?? ""}`;

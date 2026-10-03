@@ -852,6 +852,24 @@ export const gitCredential = pgTable("git_credential", {
 
 export type { NotificationKind } from "@/lib/notifications";
 
+export type LogDrainKind = "http" | "loki";
+
+/** Where an organization's container logs are sent, by Vector on each server. */
+export const logDrain = pgTable("log_drain", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  kind: text("kind").$type<LogDrainKind>().notNull(),
+  url: text("url").notNull(),
+  /** Encrypted JSON: { header?: { name, value }, username?, password? }. */
+  secrets: text("secrets"),
+  /** Projects whose logs are sent; null means every project. */
+  projectIds: text("project_ids").array(),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 export const notificationChannel = pgTable("notification_channel", {
   id: id(),
   organizationId: orgRef(),

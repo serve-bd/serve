@@ -793,6 +793,8 @@ async function main() {
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
   // A certificate that failed (its name did not resolve yet) is asked for again once it does.
   every(5 * 60_000, "certificate-retries", retryFailedCertificates);
+  // Vector on each server, with the organizations' log drains and the names their lines carry.
+  every(60_000, "log-drains", async () => (await import("@/server/log-drains/sync")).syncLogDrains(), true);
   every(5 * 60_000, "cleanup", scheduleCleanup, true);
   // Databases on domains: routes, certificates picked up after renewal, and containers that moved.
   every(5 * 60_000, "db-allowlists", async () => (await import("@/server/databases/allowlist")).syncDatabaseAllowlists(), true);

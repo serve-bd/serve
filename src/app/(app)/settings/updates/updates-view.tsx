@@ -97,7 +97,7 @@ export function UpdatesView({
   return (
     <>
       <Card>
-        <div className="flex flex-wrap items-center gap-4 px-5 py-5">
+        <div className="flex items-start gap-4 px-5 py-5 sm:items-center">
           <span
             className={cn(
               "flex size-11 flex-none items-center justify-center rounded-xl [&_svg]:size-5",
@@ -106,7 +106,7 @@ export function UpdatesView({
           >
             {available ? <Sparkles /> : check?.error ? <CircleAlert /> : check?.latest ? <CircleCheck /> : <Package />}
           </span>
-          <div className="flex min-w-[12rem] flex-1 flex-col gap-0.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <p className="text-[15px] font-semibold text-fg">
               {available && check?.latest
                 ? `${productName} v${check.latest} is available`
@@ -126,8 +126,9 @@ export function UpdatesView({
                   : `You run v${version}. Updates appear here once github.com/${repository} publishes a release.`}
             </p>
           </div>
-          <Button size="sm" onClick={() => checkNow.run()} loading={checkNow.pending} className="ml-auto flex-none">
-            <RefreshCw /> Check now
+          {/* Top right on every screen; phones show just the icon. */}
+          <Button size="sm" onClick={() => checkNow.run()} loading={checkNow.pending} className="flex-none" aria-label="Check now">
+            <RefreshCw /> <span className="hidden sm:inline">Check now</span>
           </Button>
         </div>
         <div className="grid grid-cols-2 gap-px border-y border-line bg-line sm:grid-cols-4">

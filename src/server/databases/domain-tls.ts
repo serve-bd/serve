@@ -33,11 +33,15 @@ const PUBLIC_MAX_LIFETIME_MS = 400 * 24 * 3600_000;
 /**
  * Certificates a database client can trust. A Cloudflare origin certificate is trusted by
  * Cloudflare's proxy only, and database traffic does not go through it (its DNS is "DNS only").
- * One uploaded by hand is caught too: no public authority issues for longer than 398 days, so a
- * certificate valid much longer (origin certificates last 15 years) comes from a private one.
+ * One uploaded by hand is caught too, by its issuer; and no public authority issues for longer
+ * than 398 days, so a certificate valid much longer comes from a private one.
  */
-export const clientTrusted = (c: { provider: string; expiresAt?: Date | null }) =>
-  c.provider !== "cloudflare-origin" && !(c.expiresAt && c.expiresAt.getTime() - Date.now() > PUBLIC_MAX_LIFETIME_MS);
+export const clientTrusted = (c: { provider: string; expiresAt?: Date | null; issuer?: string | null }) =>
+  c.provider !== "cloudflare-origin" &&
+  // Cloudflare's public certificates stay on its edge (their keys are never handed out): one that
+  // can be uploaded is from its origin authority, whatever its lifetime (7 days to 15 years).
+  !(c.provider === "custom" && /cloudflare/i.test(c.issuer ?? "")) &&
+  !(c.expiresAt && c.expiresAt.getTime() - Date.now() > PUBLIC_MAX_LIFETIME_MS);
 
 export async function ensureDatabaseCertificate(hostname: string, serverId: string, organizationId: string): Promise<CertRow | { error: string }> {
   const certs = await db

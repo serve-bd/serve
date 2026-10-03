@@ -35,6 +35,7 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
       serverId: schema.certificate.serverId,
       provider: schema.certificate.provider,
       expiresAt: schema.certificate.expiresAt,
+      issuer: schema.certificate.issuer,
     })
     .from(schema.certificate)
     .where(eq(schema.certificate.organizationId, org.id));

@@ -140,6 +140,26 @@ function DatabasePublicCard({ serviceId, view, canManage }: { serviceId: string;
 
 type Addon = NonNullable<DatabaseAccessView["pooler"]>;
 
+/** The domain's certificate, like the database domain's: across replica servers, the worst one counts. */
+function CertBadge({ certificates }: { certificates: Addon["certificates"] }) {
+  if (!certificates.length) return null;
+  const failed = certificates.filter((c) => c.status === "failed").length;
+  const active = certificates.filter((c) => c.status === "active").length;
+  const many = certificates.length > 1;
+  const [tone, text] =
+    failed > 0
+      ? (["bg-bad/10 text-bad", many ? `Certificate failed on ${failed} of ${certificates.length}` : "Certificate failed"] as const)
+      : active === certificates.length
+        ? (["bg-ok/10 text-ok", many ? `Certificates active on all ${certificates.length}` : "Certificate active"] as const)
+        : (["bg-hover text-muted", many ? `Getting certificates (${active} of ${certificates.length})` : "Getting a certificate…"] as const);
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${tone}`}>
+      <Lock className="size-3" />
+      {text}
+    </span>
+  );
+}
+
 /** Public access of the pooler or the read replicas: a port with TLS, an allowlist and a domain. */
 function AddonAccessCard({
   serviceId,
@@ -191,21 +211,19 @@ function AddonAccessCard({
             ? "Reach the pooler from outside Serve, for apps hosted elsewhere. Over its public port it speaks TLS only; apps in Serve keep the private address."
             : `Reach the replicas from outside Serve, for reporting tools. The same port opens on ${addon.servers === 1 ? "the replica's server" : `each of the ${addon.servers} replica servers`}, TLS only.`
         }
-        actions={<Switch checked={on} onCheckedChange={setOn} disabled={!canManage} aria-label={`${title} public access`} />}
+        actions={
+          <div className="flex items-center gap-3">
+            {addon.open && addon.domain && <CertBadge certificates={addon.certificates} />}
+            <Switch checked={on} onCheckedChange={setOn} disabled={!canManage} aria-label={`${title} public access`} />
+          </div>
+        }
       />
       <CardBody className="flex flex-col gap-4">
         {on ? (
           <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Domain" description={which === "replicas" ? "Optional. Leads to every replica server." : "Optional."}>
-                <Input
-                  value={domain}
-                  onChange={(e) => setDomain(e.target.value)}
-                  placeholder={which === "pooler" ? "pool.example.com" : "read.example.com"}
-                  disabled={!canManage}
-                />
-              </Field>
-            </div>
+            <Field label="Domain" description={which === "replicas" ? "Optional. Leads to every replica server." : "Optional."}>
+              <Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder={which === "pooler" ? "pool.example.com" : "read.example.com"} disabled={!canManage} />
+            </Field>
             {
               <>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
@@ -275,8 +293,13 @@ export function PublicAccess({ serviceId, view, canManage, canManageDomain }: { 
     <div className="flex flex-col gap-6">
       <DatabasePublicCard serviceId={serviceId} view={view} canManage={canManage} />
       {view.domain && <DatabaseDomainCard serviceId={serviceId} info={view.domain} hideSecrets={view.hideSecrets} canManage={canManageDomain} />}
-      {view.pooler && <AddonAccessCard serviceId={serviceId} which="pooler" addon={view.pooler} view={view} canManage={canManage && canManageDomain} />}
-      {view.replicas && <AddonAccessCard serviceId={serviceId} which="replicas" addon={view.replicas} view={view} canManage={canManage && canManageDomain} />}
+      {/* Keyed by what is saved: after a save the card shows the saved values (a port picked for it). */}
+      {view.pooler && (
+        <AddonAccessCard key={JSON.stringify(view.pooler)} serviceId={serviceId} which="pooler" addon={view.pooler} view={view} canManage={canManage && canManageDomain} />
+      )}
+      {view.replicas && (
+        <AddonAccessCard key={JSON.stringify(view.replicas)} serviceId={serviceId} which="replicas" addon={view.replicas} view={view} canManage={canManage && canManageDomain} />
+      )}
     </div>
   );
 }

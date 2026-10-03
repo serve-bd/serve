@@ -16,6 +16,7 @@ import { ServiceSettings } from "../service-settings";
 import { settingsNav } from "../settings-nav";
 import { monitorSummary } from "@/server/monitoring/queries";
 import { monitorUrl } from "@/server/monitoring/checks";
+import { logDrainsProps } from "@/server/log-drains/view";
 import { normalizeDistribution } from "@/server/deploy/distribution";
 import { buildsImage, replicaInstances } from "@/server/services/types";
 import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
@@ -250,6 +251,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
       monitoring={
         section === "monitoring" ? { monitor: (await monitorSummary(service.id)).monitor, defaultUrl: await monitorUrl({ url: null, path: "/" }, service.id) } : undefined
       }
+      logDrains={section === "log-drains" ? await logDrainsProps(ctx.org.id, ctx.can("integrations.manage")) : undefined}
       distribution={section === "servers" ? await distributionProps(service, servers, ctx.org.id, ctx.isAdmin) : undefined}
     />
   );

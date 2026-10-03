@@ -32,6 +32,8 @@ import { addPendingApply, clearPendingApply, usePendingApply } from "./pending-a
 import { StorageSection } from "./storage-section";
 import { ComposeStorageSection } from "./compose-storage-section";
 import { MonitoringSection } from "./monitoring-section";
+import { LogDrainsSection } from "./log-drains-section";
+import type { DrainItem, DrainProject } from "@/app/(app)/integrations/log-drains/log-drains";
 import { MaintenanceSection } from "./maintenance-section";
 import { PreviewDatabaseSection } from "./preview-database-section";
 import type { MaintenanceConfig, PreviewDatabaseConfig } from "@/server/services/types";
@@ -89,6 +91,8 @@ type Props = {
   section: string;
   /** Uptime check (only loaded for the Monitoring page). */
   monitoring?: { monitor: MonitorSummary["monitor"]; defaultUrl: string | null };
+  /** The organization's log drains (only loaded for the Log drains page). */
+  logDrains?: { drains: DrainItem[]; projects: DrainProject[]; canManage: boolean };
   /** Maintenance page (only loaded for the Maintenance page). */
   maintenance?: { config: MaintenanceConfig | null; domains: string[]; traefikBehindProxy?: boolean };
   /** Database copies for previews (only loaded for the Source page of Git apps). */
@@ -649,6 +653,8 @@ export function ServiceSettings(props: Props) {
       {show("monitoring") && props.monitoring && (
         <MonitoringSection serviceId={service.id} type={service.type} monitor={props.monitoring.monitor} defaultUrl={props.monitoring.defaultUrl} />
       )}
+
+      {show("log-drains") && props.logDrains && <LogDrainsSection serviceId={service.id} projectId={props.projectId} {...props.logDrains} />}
 
       {show("danger") && (
         <Card id="danger" className="scroll-mt-6 border-bad/30">

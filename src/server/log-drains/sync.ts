@@ -23,6 +23,9 @@ export async function enabledDrains(): Promise<DrainSpec[]> {
       username: secrets.username ?? null,
       password: secrets.password ?? null,
       projectIds: r.projectIds?.length ? r.projectIds : null,
+      serviceIds: r.serviceIds?.length ? r.serviceIds : null,
+      index: r.options?.index ?? null,
+      sourcetype: r.options?.sourcetype ?? null,
     };
   });
 }
@@ -124,4 +127,21 @@ export async function syncLogDrains(serverIds?: string[]) {
         }
       }),
   );
+}
+
+/** The services an organization's drains can pick, with their environment for names like "api (staging)". */
+export async function organizationServices(organizationId: string) {
+  const rows = await db
+    .select({ id: schema.service.id, name: schema.service.name, projectId: schema.service.projectId, environment: schema.environment.name, parent: schema.service.parentServiceId })
+    .from(schema.service)
+    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .innerJoin(schema.environment, eq(schema.service.environmentId, schema.environment.id))
+    .where(eq(schema.project.organizationId, organizationId));
+  // Previews come and go with their pull requests: they follow their project, not a pick.
+  const envCount = new Map<string, Set<string>>();
+  for (const r of rows) envCount.set(r.projectId, (envCount.get(r.projectId) ?? new Set()).add(r.environment));
+  return rows
+    .filter((r) => !r.parent)
+    .map((r) => ({ id: r.id, projectId: r.projectId, name: (envCount.get(r.projectId)?.size ?? 0) > 1 ? `${r.name} (${r.environment})` : r.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

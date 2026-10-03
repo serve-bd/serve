@@ -63,6 +63,7 @@ export function settingsNav(s: SettingsNavInput): SettingsNavItem[] {
     ...(s.type !== "database" ? [{ id: "webhooks", label: "Webhooks" }] : []),
     ...(s.type !== "database" ? [{ id: "maintenance", label: "Maintenance" }] : []),
     { id: "monitoring", label: "Monitoring" },
+    { id: "log-drains", label: "Log drains" },
     { id: "danger", label: "Danger zone" },
   ];
 }

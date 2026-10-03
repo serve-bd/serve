@@ -11,7 +11,18 @@ export type DrainSpec = {
   username?: string | null;
   password?: string | null;
   projectIds: string[] | null;
+  serviceIds?: string[] | null;
+  index?: string | null;
+  sourcetype?: string | null;
 };
+
+/** tcp://, tls:// or udp:// host and port of a syslog drain. */
+export function syslogTarget(url: string) {
+  const u = new URL(url);
+  const scheme = u.protocol.replace(/:$/, "");
+  if (!["tcp", "tls", "udp"].includes(scheme) || !u.hostname || !u.port) return null;
+  return { mode: scheme === "udp" ? ("udp" as const) : ("tcp" as const), tls: scheme === "tls", host: u.hostname.replace(/^\[|\]$/g, ""), port: Number(u.port) };
+}
 
 /** A service whose container logs may be sent, with the names a log line carries. */
 export type ServiceRow = { serviceId: string; organizationId: string; projectId: string; project: string; environment: string; service: string; type: string };
@@ -75,7 +86,12 @@ export function vectorConfig(serverName: string, drains: DrainSpec[], csv: strin
   const sinks: Record<string, unknown> = {};
   for (const d of drains) {
     const conditions = [`.organization_id == ${vrl(d.organizationId)}`];
-    if (d.projectIds?.length) conditions.push(`includes(${JSON.stringify(d.projectIds)}, .project_id)`);
+    // Picked projects (with their new services) and picked services; neither picked: everything.
+    const picked = [
+      ...(d.projectIds?.length ? [`includes(${JSON.stringify(d.projectIds)}, .project_id)`] : []),
+      ...(d.serviceIds?.length ? [`includes(${JSON.stringify(d.serviceIds)}, .service_id)`] : []),
+    ];
+    if (picked.length) conditions.push(picked.length > 1 ? `(${picked.join(" || ")})` : picked[0]);
     transforms[`drain_${d.id}`] = { type: "filter", inputs: ["serve_enrich"], condition: conditions.join(" && ") };
     // A destination that is down must not make Vector hold everything in memory.
     const common = {
@@ -93,6 +109,55 @@ export function vectorConfig(serverName: string, drains: DrainSpec[], csv: strin
         labels: { project: "{{ project }}", environment: "{{ environment }}", service: "{{ service }}", stream: "{{ stream }}", server: "{{ server }}" },
         out_of_order_action: "accept",
         ...(d.username || d.password ? { auth: { strategy: "basic", user: d.username ?? "", password: d.password ?? "" } } : {}),
+      };
+    } else if (d.kind === "elasticsearch") {
+      sinks[`drain_${d.id}_out`] = {
+        ...common,
+        type: "elasticsearch",
+        endpoints: [d.url.replace(/\/$/, "")],
+        mode: "bulk",
+        // A daily index, like serve-logs-2026.10.04: old days can be dropped whole.
+        bulk: { index: `${d.index || "serve-logs"}-%Y.%m.%d`, action: "create" },
+        api_version: "auto",
+        healthcheck: { enabled: false },
+        ...(d.username || d.password ? { auth: { strategy: "basic", user: d.username ?? "", password: d.password ?? "" } } : {}),
+      };
+    } else if (d.kind === "splunk") {
+      sinks[`drain_${d.id}_out`] = {
+        ...common,
+        type: "splunk_hec_logs",
+        endpoint: d.url.replace(/\/services\/collector.*$/, "").replace(/\/$/, ""),
+        default_token: d.password ?? "",
+        encoding: { codec: "json" },
+        ...(d.index ? { index: d.index } : {}),
+        sourcetype: d.sourcetype || "serve",
+        host_key: "server",
+        healthcheck: { enabled: false },
+      };
+    } else if (d.kind === "syslog") {
+      const target = syslogTarget(d.url);
+      if (!target) continue;
+      // RFC 5424 lines: <priority>1 time host app - - - message. 14 is user.info, 11 user.err (stderr).
+      transforms[`drain_${d.id}_syslog`] = {
+        type: "remap",
+        inputs: [`drain_${d.id}`],
+        source: [
+          'pri = if .stream == "stderr" { "11" } else { "14" }',
+          'app = replace(string(.service) ?? "serve", r\'[^A-Za-z0-9._-]\', "-")',
+          'host = replace(string(.server) ?? "serve", r\'[^A-Za-z0-9._-]\', "-")',
+          'ts = format_timestamp!(.timestamp, format: "%+")',
+          '. = {"message": "<" + pri + ">1 " + ts + " " + host + " " + app + " - - - " + (string(.message) ?? "")}',
+        ].join("\n"),
+      };
+      sinks[`drain_${d.id}_out`] = {
+        inputs: [`drain_${d.id}_syslog`],
+        buffer: common.buffer,
+        type: "socket",
+        mode: target.mode,
+        address: `${target.host.includes(":") ? `[${target.host}]` : target.host}:${target.port}`,
+        encoding: { codec: "text" },
+        ...(target.mode === "tcp" ? { framing: { method: "newline_delimited" } } : {}),
+        ...(target.tls ? { tls: { enabled: true } } : {}),
       };
     } else {
       sinks[`drain_${d.id}_out`] = {

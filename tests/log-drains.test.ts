@@ -27,6 +27,13 @@ describe("vectorConfig", () => {
     expect(config.transforms.drain_d2.condition).toBe('.organization_id == "o2" && includes(["p9"], .project_id)');
   });
 
+  it("sends picked projects and picked services together", () => {
+    const one = JSON.parse(vectorConfig("web-1", [{ id: "d3", organizationId: "o1", kind: "http", url: "https://x.example.com", projectIds: ["p1"], serviceIds: ["s9"] }], csv));
+    expect(one.transforms.drain_d3.condition).toBe('.organization_id == "o1" && (includes(["p1"], .project_id) || includes(["s9"], .service_id))');
+    const only = JSON.parse(vectorConfig("web-1", [{ id: "d4", organizationId: "o1", kind: "http", url: "https://x.example.com", projectIds: null, serviceIds: ["s9"] }], csv));
+    expect(only.transforms.drain_d4.condition).toBe('.organization_id == "o1" && includes(["s9"], .service_id)');
+  });
+
   it("writes an HTTP sink with the header and a Loki sink with basic auth", () => {
     expect(config.sinks.drain_d1_out.type).toBe("http");
     expect(config.sinks.drain_d1_out.request.headers).toEqual({ Authorization: "Bearer x" });

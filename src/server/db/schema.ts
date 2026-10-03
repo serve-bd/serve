@@ -852,7 +852,7 @@ export const gitCredential = pgTable("git_credential", {
 
 export type { NotificationKind } from "@/lib/notifications";
 
-export type LogDrainKind = "http" | "loki";
+export type LogDrainKind = "http" | "loki" | "elasticsearch" | "splunk" | "syslog";
 
 /** Where an organization's container logs are sent, by Vector on each server. */
 export const logDrain = pgTable("log_drain", {
@@ -863,8 +863,12 @@ export const logDrain = pgTable("log_drain", {
   url: text("url").notNull(),
   /** Encrypted JSON: { header?: { name, value }, username?, password? }. */
   secrets: text("secrets"),
-  /** Projects whose logs are sent; null means every project. */
+  /** Projects whose logs are sent (new services included); with no services picked either, null means everything. */
   projectIds: text("project_ids").array(),
+  /** Single services whose logs are sent, next to whole projects. */
+  serviceIds: text("service_ids").array(),
+  /** Settings that are not secret: the Elasticsearch or Splunk index, the Splunk source type. */
+  options: jsonb("options").$type<{ index?: string | null; sourcetype?: string | null }>(),
   enabled: boolean("enabled").notNull().default(true),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

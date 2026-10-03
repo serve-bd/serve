@@ -571,10 +571,23 @@ export function ServiceSettings(props: Props) {
           <CardHeader title="Webhooks" description="Trigger deployments from your Git provider or CI." />
           <CardBody className="flex flex-col gap-4 py-5">
             {props.viaGithubApp ? (
-              <p className="flex items-start gap-2 rounded-xl bg-ok-soft px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
-                <Check className="mt-0.5 size-4 shrink-0 text-ok" />
-                Push and pull request events arrive automatically through the GitHub App. No webhook setup is needed.
-              </p>
+              <>
+                <p className="flex items-start gap-2 rounded-xl bg-ok-soft px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
+                  <Check className="mt-0.5 size-4 shrink-0 text-ok" />
+                  Push and pull request events arrive automatically through the GitHub App. No webhook setup is needed.
+                </p>
+                <details className="group text-[13px]">
+                  <summary className="cursor-pointer text-muted select-none hover:text-fg">Git webhook URL, for a webhook of your own</summary>
+                  <div className="mt-3">
+                    <Field
+                      label="Git webhook URL"
+                      description="Not needed with the GitHub App: a webhook added as well deploys every push twice. Use the secret below. Content type: application/json."
+                    >
+                      <CopyField value={props.webhookUrl} />
+                    </Field>
+                  </div>
+                </details>
+              </>
             ) : (
               <>
                 {props.managedWebhook && service.source?.type === "git" && <RepoWebhookStatus serviceId={service.id} webhook={service.source.webhook ?? null} />}

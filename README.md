@@ -28,11 +28,12 @@ Push to deploy, get a domain with HTTPS and manage it all from one dashboard.
 - **Apps** from Git (GitHub, GitLab, Gitea/Forgejo, Bitbucket or any Git URL), a Docker image, a Dockerfile or a Docker Compose file. Builds with a Dockerfile, Nixpacks, Railpack, Cloud Native Buildpacks or built-in detection.
 - **Databases:** PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey and ClickHouse, with scheduled backups to disk or S3 and one-click restore.
 - **One-click services** from a catalog (n8n, Uptime Kuma, Plausible, Ghost, Nextcloud, Vaultwarden, Grafana, MinIO and more), plus your own templates.
-- **Deployments** with zero downtime, health checks, rollbacks, pull request previews, deploy hooks and an API.
+- **Deployments** with zero downtime, health checks, rollbacks, pull request previews, deploy hooks and an API. Deploys can wait for approval, and deploy freezes stop them at set times.
 - **Domains and HTTPS** through nginx, Caddy or Traefik, with Let's Encrypt certificates renewed automatically.
 - **Cloudflare:** DNS records and Tunnels, for servers without a public IP.
 - **Many servers** over SSH, including machines behind NAT, joined by an encrypted private network.
-- **Teams:** organizations, roles, project access, two-factor authentication and an activity log.
+- **Logs** sent to your own log service: an HTTP endpoint, Grafana Loki, Elasticsearch or OpenSearch, Splunk or syslog.
+- **Teams:** organizations, roles, project access, passkeys, two-factor authentication and an activity log.
 
 ## Requirements
 

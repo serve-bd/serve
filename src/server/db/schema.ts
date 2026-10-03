@@ -599,6 +599,8 @@ export const deployment = pgTable(
       volumes?: { from: string; to: string }[];
       git?: { repository: string; branch: string; credentialId: string | null };
     }>(),
+    /** Fingerprint of the settings this deployment ran with: a different one now means a redeploy would apply changes. */
+    configHash: text("config_hash"),
     logs: text("logs").notNull().default(""),
     error: text("error"),
     createdBy: text("created_by").references(() => user.id, {

@@ -1,3 +1,4 @@
+import { configFingerprint } from "@/server/services/fingerprint";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq, gt, isNotNull, ne, sql } from "drizzle-orm";
@@ -1353,6 +1354,8 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
   if (!slot.value) return;
   await setServiceStatus(service.id, "building");
   log.line(`Deployment ${dep.id} started (${dep.trigger})`);
+  // The settings this deploy runs with: later changes show as waiting for a redeploy.
+  await setDeployment(dep.id, { configHash: await configFingerprint(service).catch(() => null) });
 
   // A service whose move never finished (it failed, then was deployed again) still takes over from
   // the container it was made from.

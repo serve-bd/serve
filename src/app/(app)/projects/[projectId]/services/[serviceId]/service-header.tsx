@@ -69,6 +69,8 @@ export function ServiceHeader({ project, environment, service, initialLive, port
   const confirm = useConfirm();
   const { data, mutate } = useServiceLive(service.id, initialLive);
   const live = data ?? initialLive;
+  // Settings saved since the running deployment, while no deploy is on its way to apply them.
+  const pending = live.pendingChanges === true && !["building", "deploying", "queued"].includes(live.status);
   const base = `/projects/${project.id}/services/${service.id}`;
 
   const deploy = useAction(() => deployService(service.id), {
@@ -296,13 +298,20 @@ export function ServiceHeader({ project, environment, service, initialLive, port
               <Button
                 variant="primary"
                 size="sm"
-                className="h-9 sm:h-8"
+                className="relative h-9 sm:h-8"
                 onClick={() => deploy.run()}
                 loading={deploy.pending}
                 disabled={!can("services.deploy")}
-                title={cannot("services.deploy")}
+                title={cannot("services.deploy") ?? (pending ? "Settings changed since the last deploy. Redeploy to apply them." : undefined)}
+                aria-description={pending ? "Settings changed since the last deploy" : undefined}
               >
                 <Rocket /> {live.status === "idle" || live.status === "stopped" ? "Deploy" : "Redeploy"}
+                {pending && (
+                  <span className="absolute -top-1 -right-1 flex size-2.5">
+                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-warn opacity-60 motion-reduce:hidden" />
+                    <span className="relative inline-flex size-2.5 rounded-full bg-warn ring-2 ring-bg" />
+                  </span>
+                )}
               </Button>
             </div>
           )}

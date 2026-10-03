@@ -400,6 +400,13 @@
       "when": 1790974098370,
       "tag": "0056_kept_database",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1791004902684,
+      "tag": "0057_deployment_config_hash",
+      "breakpoints": true
     }
   ]
 }

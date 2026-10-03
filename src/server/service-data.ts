@@ -1,3 +1,4 @@
+import { redeployNeeded } from "@/server/services/fingerprint";
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { listServiceContainers, LABEL } from "@/server/docker/client";
@@ -40,6 +41,8 @@ export async function serviceLive(serviceId: string) {
     previews,
     status: shownServiceStatus(service.status, await getServerRow(service.serverId).catch(() => null)),
     currentDeploymentId: service.currentDeploymentId,
+    /** Settings changed since the running deployment: a redeploy applies them. Null when unknown. */
+    pendingChanges: await redeployNeeded(service).catch(() => null),
     domains: domains.map((d) => ({
       id: d.id,
       hostname: d.hostname,

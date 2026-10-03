@@ -1,5 +1,6 @@
 "use client";
 
+import { TimeInput } from "@/components/ui/time-input";
 import * as React from "react";
 import Link from "next/link";
 import { CronExpressionParser } from "cron-parser";
@@ -207,7 +208,7 @@ export function ScheduleCard(props: {
                   </Field>
                 )}
                 <Field label="At" description={`Time in ${props.timezone.replace(/_/g, " ")}. Change it in Settings → General.`}>
-                  <Input type="time" value={plan.time} onChange={(e) => set({ time: e.target.value || "03:00" })} className="w-32 font-mono" />
+                  <TimeInput value={plan.time} onChange={(time) => set({ time })} />
                 </Field>
               </>
             )}

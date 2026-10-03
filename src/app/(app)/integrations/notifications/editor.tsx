@@ -1,5 +1,6 @@
 "use client";
 
+import { TimeInput } from "@/components/ui/time-input";
 import * as React from "react";
 import Link from "next/link";
 import { ArrowUpRight, Moon, Send, Timer } from "lucide-react";
@@ -539,10 +540,10 @@ function QuietHoursFields({ value, onChange }: { value: QuietHours | null; onCha
         <div className="flex flex-col gap-4 rounded-xl border border-line bg-surface-2/60 p-4">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-[8rem_8rem_minmax(0,1fr)]">
             <Field label="From">
-              <Input type="time" value={q.start} onChange={(e) => onChange({ ...q, start: e.target.value || "22:00" })} />
+              <TimeInput value={q.start} onChange={(start) => onChange({ ...q, start })} />
             </Field>
             <Field label="Until">
-              <Input type="time" value={q.end} onChange={(e) => onChange({ ...q, end: e.target.value || "07:00" })} />
+              <TimeInput value={q.end} onChange={(end) => onChange({ ...q, end })} />
             </Field>
             <Field label="Time zone" className="col-span-2 sm:col-span-1">
               <Combobox value={q.timezone} onValueChange={(timezone) => onChange({ ...q, timezone })} options={zones} placeholder="Search time zones…" />

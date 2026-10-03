@@ -80,6 +80,16 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
   const viewerIp = ip && !inRanges(ip, ["127.0.0.0/8", "::1/128"]) ? ip : null;
 
   /** A pooler's or the replicas' public side, for their card. */
+  // Each add-on server's public IP and name: a domain only reaches servers that have a public IP.
+  const addonServerIds = [...new Set([service.serverId, ...replicaInstances(service).map((r) => r.serverId)])];
+  const serverInfo = new Map(
+    await Promise.all(
+      addonServerIds.map(async (id) => {
+        const [row] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, id));
+        return [id, { name: row?.name ?? "a server", ip: await serverPublicIp(id).catch(() => null) }] as const;
+      }),
+    ),
+  );
   const addon = (which: "pooler" | "replicas") => {
     const pub = which === "pooler" ? cfg.pooler?.public : cfg.replica?.public;
     const servers = which === "pooler" ? [service.serverId] : [...new Set(replicaInstances(service).map((r) => r.serverId))];
@@ -94,7 +104,16 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
       via: pub?.tunnelId ? ("tunnel" as const) : ("direct" as const),
       tunnelCommand: pub?.domain && pub.tunnelId ? `cloudflared access tcp --hostname ${pub.domain} --url localhost:5432` : null,
       url,
-      certificates: pub?.domain && !pub.tunnelId ? servers.map((id) => ({ serverId: id, status: certFor(pub.domain!, id)?.status ?? "missing" })) : [],
+      // Only servers the domain leads to (those with a public IP) count for its certificate.
+      certificates:
+        pub?.domain && !pub.tunnelId ? servers.filter((id) => serverInfo.get(id)?.ip).map((id) => ({ serverId: id, status: certFor(pub.domain!, id)?.status ?? "missing" })) : [],
+      // Replicas the domain cannot reach: their server has no public IP.
+      unreachable:
+        pub?.domain && which === "replicas"
+          ? replicaInstances(service)
+              .filter((r) => !serverInfo.get(r.serverId)?.ip)
+              .map((r) => ({ id: r.id, server: serverInfo.get(r.serverId)?.name ?? "a server" }))
+          : [],
       servers: servers.length,
     };
   };

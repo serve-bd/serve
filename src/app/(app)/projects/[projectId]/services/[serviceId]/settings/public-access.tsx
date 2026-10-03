@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Globe, Lock, Plus } from "lucide-react";
+import { Globe, Lock, Plus, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
@@ -237,6 +237,16 @@ function AddonAccessCard({
                 {bind === "0.0.0.0" && <AllowField value={allow} onChange={setAllow} viewerIp={view.viewerIp} disabled={!canManage} />}
               </>
             }
+            {!changed && addon.unreachable.length > 0 && (
+              <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-fg-2">
+                <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />
+                <span>
+                  {addon.domain} does not reach {addon.unreachable.map((r) => `replica ${r.id} (${r.server})`).join(", ")}:{" "}
+                  {addon.unreachable.length === 1 ? "its server has" : "their servers have"} no public IP. Apps in Serve still read from{" "}
+                  {addon.unreachable.length === 1 ? "it" : "them"} over the private network.
+                </span>
+              </p>
+            )}
             {!changed && addon.url && (
               <Field label="Public connection URL">
                 <SecretField value={addon.url} hidden={view.hideSecrets} shape={addon.url} />

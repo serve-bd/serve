@@ -9,7 +9,7 @@ import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
 import { productName } from "@/server/branding";
 import { type NotificationKind, providerInfo } from "@/lib/notifications";
-import { applyTemplate, attemptDelivery, channelConfig, sampleMessage, sendTest } from "@/server/notifications/deliver";
+import { absolute, applyTemplate, attemptDelivery, channelConfig, sampleMessage, sendTest } from "@/server/notifications/deliver";
 import { ChannelConfigError, type ChannelInput, channelInput, validateChannelConfig } from "@/server/notifications/validate";
 
 async function ownChannel(id: string, organizationId: string) {
@@ -138,7 +138,10 @@ export async function testNotificationChannel(id: string | null, form?: Pick<Cha
     const kind = existing?.kind ?? form?.kind ?? "";
     const config = form ? checkConfig(kind, form.config, existing ? channelConfig(existing) : undefined) : channelConfig(existing!);
     const template = form ? (form.template ?? null) : (existing?.template ?? null);
-    const m = applyTemplate({ kind: kind as NotificationKind, template }, sampleMessage({ id: ctx.org.id, name: ctx.org.name }, kind, await productName()));
+    const m = applyTemplate(
+      { kind: kind as NotificationKind, template },
+      sampleMessage({ id: ctx.org.id, name: ctx.org.name }, kind, await productName(), await absolute("/integrations/notifications")),
+    );
     let error: string | null = null;
     try {
       await sendTest(kind, config, m);

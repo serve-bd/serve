@@ -32,7 +32,16 @@ export type NotifyInput = {
   data?: Record<string, unknown>;
 };
 
-const absolute = (path?: string) => (path ? (/^https?:\/\//.test(path) ? path : `${env.appUrl.replace(/\/$/, "")}${path}`) : null);
+/** A link into the dashboard: its domain when it has one (https when that answers), else its own address. */
+export async function absolute(path?: string) {
+  if (!path) return null;
+  if (/^https?:\/\//.test(path)) return path;
+  const { preferHttps, publicBaseUrl } = await import("@/server/git/github-app");
+  const base = await publicBaseUrl()
+    .then(preferHttps)
+    .catch(() => env.appUrl);
+  return `${base.replace(/\/$/, "")}${path}`;
+}
 
 /** Names and ids around an event: organization, project, environment, service and server. */
 async function resolveMessage(organizationId: string, event: string, input: NotifyInput): Promise<OutgoingMessage> {
@@ -76,7 +85,7 @@ async function resolveMessage(organizationId: string, event: string, input: Noti
     status: input.status ?? (input.ok ? "succeeded" : "failed"),
     title: input.title,
     body: input.body,
-    url: absolute(input.url),
+    url: await absolute(input.url),
     error: input.error ?? (input.ok ? null : input.body || null),
     dedupKey: input.dedupKey ?? null,
     occurredAt: new Date().toISOString(),
@@ -328,7 +337,7 @@ export async function notify(organizationId: string | null, event: NotifyEvent, 
 }
 
 /** A sample message for "Send test" and the template preview. */
-export function sampleMessage(org: { id: string; name: string }, kind: string, brand = "Serve"): OutgoingMessage {
+export function sampleMessage(org: { id: string; name: string }, kind: string, brand = "Serve", url: string | null = null): OutgoingMessage {
   const alerting = !!providerInfo(kind)?.alerting;
   return {
     id: newId(),
@@ -340,7 +349,7 @@ export function sampleMessage(org: { id: string; name: string }, kind: string, b
     title: `Test notification from ${brand}`,
     brand,
     body: "This channel is set up. Real notifications look like this.",
-    url: absolute("/integrations/notifications"),
+    url,
     error: null,
     dedupKey: alerting ? `serve-test:${newId()}` : null,
     occurredAt: new Date().toISOString(),
@@ -395,7 +404,7 @@ export async function flushHeldNotifications() {
       status: "summary",
       title: `${rows.length} notification${rows.length === 1 ? "" : "s"} during quiet hours`,
       body: lines.join("\n"),
-      url: absolute("/integrations/notifications"),
+      url: await absolute("/integrations/notifications"),
       error: null,
       dedupKey: null,
       occurredAt: new Date().toISOString(),

@@ -40,20 +40,15 @@ export type DatabaseDomainInfo = {
 /** Reach the database at db.example.com on its own port, over TLS with the domain's certificate. */
 export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: { serviceId: string; info: DatabaseDomainInfo; hideSecrets?: boolean; canManage?: boolean }) {
   const [value, setValue] = React.useState(info.hostname ?? "");
-
-  // Own port when the server has a public IP: the domain then works with a plain URL, nothing to run.
-  const ownPortReady = info.directSupported && !!info.publicIp;
-  const defaultVia = ownPortReady || info.tunnels.length === 0 ? "direct" : "tunnel";
-  const [picked, setVia] = React.useState<"direct" | "tunnel">(info.hostname ? info.via : defaultVia);
-  // With a tunnel on the server the route is a choice: with a public IP too, a tunnel lets the
-  // domain work with the public port closed. Its own port stays the default then.
-  const showRoutes = info.tunnels.length > 0;
-  const via = showRoutes ? picked : defaultVia;
+  // A domain set up through a Cloudflare Tunnel (no longer offered) keeps working until it is changed or removed.
+  const legacyTunnel = !!info.hostname && info.via === "tunnel";
+  // A domain leads to the server's IP: without a public one, nothing outside can reach the port.
+  const noPublicIp = !info.publicIp;
   // The card shows what happened (the URL, the certificate): errors and steps left stay in it too, no toasts.
   const [notice, setNotice] = React.useState<{ error: string | null; warnings: string[] }>({ error: null, warnings: [] });
-  const save = useAction(async (hostname: string | null, route: "direct" | "tunnel" = via): Promise<ActionResult<{ warnings: string[] } | null>> => {
+  const save = useAction(async (hostname: string | null): Promise<ActionResult<{ warnings: string[] } | null>> => {
     setNotice({ error: null, warnings: [] });
-    const res = await saveDatabaseDomain(serviceId, hostname, route);
+    const res = await saveDatabaseDomain(serviceId, hostname, "direct");
     if (!res.ok) {
       setNotice({ error: res.error, warnings: [] });
       return { ok: true as const, data: null };
@@ -61,16 +56,17 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
     setNotice({ error: null, warnings: res.data.warnings });
     return res;
   });
-  const tunnel = via === "tunnel";
-  const changed = value.trim().toLowerCase() !== (info.hostname ?? "") || (!!info.hostname && (via !== info.via || info.unreachable));
+  const changed = value.trim().toLowerCase() !== (info.hostname ?? "") || (!!info.hostname && !legacyTunnel && info.unreachable);
   const cert = info.certificate;
+  // Without a public IP a new domain cannot work: the form is only there to remove one.
+  const canAdd = info.directSupported && !noPublicIp;
 
   return (
     <Card>
       <CardHeader
         actions={
           // The certificate's state, next to the title: the details below stay about connecting.
-          info.hostname && info.via !== "tunnel" ? (
+          info.hostname && !legacyTunnel ? (
             <span
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
@@ -86,56 +82,35 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
           <span className="flex items-center gap-1.5">
             Domain
             <HelpTip label="How database domains work">
-              The database gets its own port on this server, open to everyone, and turns on TLS with a certificate for the domain, so clients can check they reach the real server.
-              Saving restarts the database once.
+              The database gets its own port on this server and turns on TLS with a certificate for the domain, so clients can check they reach the real server. Saving restarts the
+              database once.
             </HelpTip>
           </span>
         }
         description={
-          !info.supported
-            ? undefined
-            : tunnel
-              ? "Reach the database through Cloudflare, from anywhere, even when this server has no public IP."
-              : `Connect from anywhere at your own domain${info.port ? `, on port ${info.port}` : ", on its own port"}, with a real certificate.`
+          canAdd || info.hostname ? `Connect from anywhere at your own domain${info.port ? `, on port ${info.port}` : ", on its own port"}, with a real certificate.` : undefined
         }
       />
       <CardBody className="flex flex-col gap-4">
-        {!info.supported ? (
+        {!info.directSupported && !info.hostname ? (
           <p className="text-[13px] leading-relaxed text-muted">
-            Serve cannot turn on TLS for {info.engineLabel}. Create a Cloudflare Tunnel for this server to reach it through Cloudflare, or use Public access.
+            Serve cannot turn on TLS for {info.engineLabel}, so it cannot take a domain. Use the public port above to reach it from outside.
+          </p>
+        ) : noPublicIp && !info.hostname ? (
+          <p className="flex items-start gap-2 text-[13px] leading-relaxed text-muted">
+            <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />
+            <span>
+              This server has no public IP, so a domain cannot reach the database from outside. Services in this project still connect over the private network. If the server has a
+              public IP, set it in the server&apos;s settings.
+            </span>
           </p>
         ) : (
           <>
-            {showRoutes && (
-              <div role="radiogroup" aria-label="Route" className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1">
-                {(
-                  [
-                    ["direct", "Own port", !info.directSupported],
-                    ["tunnel", "Cloudflare Tunnel", false],
-                  ] as const
-                ).map(([value, label, disabled]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={via === value}
-                    disabled={disabled || canManage === false}
-                    onClick={() => setVia(value)}
-                    className={cn(
-                      "h-8 rounded-lg text-[13px] transition-colors disabled:opacity-40",
-                      via === value ? "bg-surface font-medium text-fg shadow-sm" : "text-muted hover:text-fg",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
             <form
               className="flex flex-col gap-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (changed) void save.run(value.trim() || null);
+                if (changed && canAdd) void save.run(value.trim() || null);
               }}
             >
               <Field label="Domain" className="min-w-0 flex-1">
@@ -145,10 +120,10 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                   placeholder="db.example.com"
                   className="font-mono text-[13px]"
                   spellCheck={false}
-                  disabled={canManage === false}
+                  disabled={canManage === false || !canAdd}
                 />
               </Field>
-              {!tunnel && (
+              {!legacyTunnel && (
                 // One port, one list: the domain leads to the public port, so its allowlist is the port's.
                 <p className="text-xs leading-relaxed text-muted">
                   The domain leads to the public port, so the same addresses can connect:{" "}
@@ -166,18 +141,17 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                     disabled={canManage === false}
                     loading={save.pending && !value}
                     onClick={async () => {
-                      if (await save.run(null)) {
-                        setValue("");
-                        setVia(defaultVia);
-                      }
+                      if (await save.run(null)) setValue("");
                     }}
                   >
                     Remove
                   </Button>
                 )}
-                <Button type="submit" variant="primary" size="sm" className="h-9" disabled={!changed || canManage === false} loading={save.pending && !!value}>
-                  <Globe2 /> Save
-                </Button>
+                {canAdd && (
+                  <Button type="submit" variant="primary" size="sm" className="h-9" disabled={!changed || canManage === false} loading={save.pending && !!value}>
+                    <Globe2 /> Save
+                  </Button>
+                )}
               </div>
             </form>
             {notice.error && (
@@ -192,42 +166,19 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                 <span>{w}</span>
               </p>
             ))}
-            {info.hostname && info.via === "tunnel" && ownPortReady && (
-              <div className="flex flex-col gap-2.5 rounded-lg border border-line bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed sm:flex-row sm:items-center">
-                <p className="min-w-0 flex-1 text-fg-2">
-                  This server has a public IP ({info.publicIp}). With Own port, {info.hostname} works with a normal connection URL. Nothing to run on the computers that connect.
-                </p>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  className="h-8 flex-none"
-                  disabled={canManage === false}
-                  loading={save.pending}
-                  onClick={async () => {
-                    if (await save.run(info.hostname, "direct")) setVia("direct");
-                  }}
-                >
-                  Use Own port
-                </Button>
-              </div>
-            )}
-            {info.hostname && info.via === "tunnel" && (
+            {legacyTunnel && (
               <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed">
-                  <p className="flex items-start gap-2 text-fg-2">
-                    <Check className="mt-0.5 size-3.5 flex-none text-ok" />
-                    <span>This server&apos;s side of the tunnel is ready: cloudflared runs here and routes {info.hostname} to the database.</span>
-                  </p>
-                  <p className="text-muted">
-                    Cloudflare passes database connections only from cloudflared to cloudflared, so each computer or app that connects runs it too. It opens a port on that computer
-                    (localhost) that leads through the tunnel.
-                  </p>
-                </div>
+                <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-fg-2">
+                  <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />
+                  <span>
+                    {info.hostname} goes through a Cloudflare Tunnel, which database domains no longer use: every computer that connects must run cloudflared. It keeps working.
+                    {canAdd ? " Save it again to move it to its own port, which needs nothing on the computers that connect." : " Remove it when you no longer need it."}
+                  </span>
+                </p>
                 {info.tunnelCommand && (
                   <Field
                     label="On each computer that connects"
-                    description="Run it on the computer you connect from (your laptop, not the server), and keep it running while you connect. It needs cloudflared: winget install Cloudflare.cloudflared on Windows, brew install cloudflared on macOS, or Cloudflare's package on Linux."
+                    description="Run it on the computer you connect from (your laptop, not the server), and keep it running while you connect."
                   >
                     <CopyField value={info.tunnelCommand} />
                   </Field>
@@ -235,10 +186,29 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                 <Field label="Then connect to (on that computer)" description="The tunnel encrypts the connection, so the local URL needs no TLS.">
                   <SecretField value={info.localUrl} hidden={hideSecrets} shape={info.localUrl} />
                 </Field>
+                {canAdd && (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    className="self-end"
+                    disabled={canManage === false}
+                    loading={save.pending}
+                    onClick={() => save.run(info.hostname)}
+                  >
+                    <Check /> Move to its own port
+                  </Button>
+                )}
               </div>
             )}
-            {info.hostname && info.via !== "tunnel" && (
+            {info.hostname && !legacyTunnel && (
               <>
+                {noPublicIp && (
+                  <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-fg-2">
+                    <TriangleAlert className="mt-0.5 size-3.5 flex-none text-warn" />
+                    <span>This server has no public IP, so {info.hostname} cannot reach the database from outside.</span>
+                  </p>
+                )}
                 {cert?.status === "failed" && cert.error && (
                   <p className="flex items-start gap-2 text-[12.5px] leading-relaxed text-bad">
                     <TriangleAlert className="mt-0.5 size-3.5 flex-none" />

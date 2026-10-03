@@ -43,7 +43,10 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
     if (service.type !== "database" || !cfg) throw new UserError("Only databases get a database domain.");
     if (service.parentServiceId) throw new UserError("Preview databases cannot have a domain.");
     const hostname = raw?.trim().toLowerCase().replace(/\.$/, "") || null;
-    const tunnelMode = !!hostname && via === "tunnel";
+    // Database domains take their own port: a Cloudflare Tunnel made every client run cloudflared.
+    // One set up before keeps working (it is only changed or removed from here).
+    if (hostname && via === "tunnel") throw new UserError("Database domains use their own port. Cloudflare Tunnels are no longer offered for them.");
+    const tunnelMode = false;
     const engine = engines[cfg.engine];
     if (hostname && !tunnelMode && !engine.tlsArgs) throw new UserError(`Serve cannot turn on TLS for ${engine.label}. Use a Cloudflare Tunnel for its domain.`);
     // The addresses let through the domain's port (empty: everyone, with the password). Saved with

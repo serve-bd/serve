@@ -46,7 +46,7 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
   const domain = service.parentServiceId
     ? undefined
     : {
-        supported: !!engine.tlsArgs || tunnels.length > 0,
+        supported: !!engine.tlsArgs,
         directSupported: !!engine.tlsArgs,
         // With a public IP, a domain on its own port needs nothing on the computers that connect.
         publicIp,

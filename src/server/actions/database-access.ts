@@ -74,8 +74,9 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
     let next: AddonAccess | null = null;
     if (data.open) {
       const hostname = data.domain?.replace(/\.$/, "") || null;
-      const tunnelMode = !!hostname && data.via === "tunnel";
-      if (tunnelMode && which !== "pooler") throw new UserError("Replicas on several servers take their domain directly, not through a tunnel.");
+      // Domains take their own port: a Cloudflare Tunnel made every client run cloudflared.
+      if (hostname && data.via === "tunnel") throw new UserError("Domains use their own port. Cloudflare Tunnels are no longer offered for them.");
+      const tunnelMode = false;
       if (hostname) {
         if (!hostnamePattern.test(hostname)) throw new UserError("Enter a domain like pool.example.com.");
         const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, hostname);

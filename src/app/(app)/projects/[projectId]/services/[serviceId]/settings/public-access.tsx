@@ -159,7 +159,6 @@ function AddonAccessCard({
   const [bind, setBind] = React.useState(addon.bind);
   const [allow, setAllow] = React.useState(addon.allow.join("\n"));
   const [domain, setDomain] = React.useState(addon.domain ?? "");
-  const [via, setVia] = React.useState(addon.via);
   const allowList = useAllowList(allow);
   const save = useAction(
     () =>
@@ -169,7 +168,7 @@ function AddonAccessCard({
         bind,
         allow: allowList.list,
         domain: domain.trim() || null,
-        via,
+        via: "direct",
       }),
     {
       result: (r) => (r.warnings.length ? r.warnings.join(" ") : on ? "Public access saved" : "Public access off"),
@@ -179,12 +178,7 @@ function AddonAccessCard({
   const changed =
     on !== addon.open ||
     (on &&
-      ((port ? Number(port) : null) !== addon.port ||
-        bind !== addon.bind ||
-        allowList.normalized.join(",") !== addon.allow.join(",") ||
-        (domain.trim() || null) !== addon.domain ||
-        via !== addon.via));
-  const tunnel = which === "pooler" && via === "tunnel" && !!domain.trim();
+      ((port ? Number(port) : null) !== addon.port || bind !== addon.bind || allowList.normalized.join(",") !== addon.allow.join(",") || (domain.trim() || null) !== addon.domain));
   const title = which === "pooler" ? "Connection pooler" : "Read replicas";
   return (
     <Card>
@@ -209,21 +203,8 @@ function AddonAccessCard({
                   disabled={!canManage}
                 />
               </Field>
-              {which === "pooler" && view.tunnels.length > 0 && domain.trim() ? (
-                <Field label="Through">
-                  <Select
-                    value={via}
-                    onValueChange={(v) => setVia(v as typeof via)}
-                    disabled={!canManage}
-                    options={[
-                      { value: "direct", label: "Its own port", description: "A DNS record to this server" },
-                      { value: "tunnel", label: "Cloudflare Tunnel", description: "No port opened; clients run cloudflared" },
-                    ]}
-                  />
-                </Field>
-              ) : null}
             </div>
-            {!tunnel && (
+            {
               <>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
                   <Field label="Port" description="Empty: a free one.">
@@ -235,7 +216,7 @@ function AddonAccessCard({
                 </div>
                 {bind === "0.0.0.0" && <AllowField value={allow} onChange={setAllow} viewerIp={view.viewerIp} disabled={!canManage} />}
               </>
-            )}
+            }
             {!changed && addon.url && (
               <Field label="Public connection URL">
                 <SecretField value={addon.url} hidden={view.hideSecrets} shape={addon.url} />

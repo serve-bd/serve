@@ -68,6 +68,10 @@ export function UpdatesView({
     },
   });
   const active = run?.state === "backing-up" || run?.state === "running";
+  // A finished update shows to whoever watched it here; opened later, only a failure is worth showing.
+  const [watched, setWatched] = React.useState(active);
+  if (active && !watched) setWatched(true);
+  const shownRun = run && (run.state !== "success" || watched || starting) ? run : null;
 
   // While an update runs the dashboard restarts; keep polling and reload once it is back.
   React.useEffect(() => {
@@ -212,16 +216,16 @@ export function UpdatesView({
         </CardBody>
       </Card>
 
-      {run && (
+      {shownRun && (
         <Card>
           <CardHeader
-            title={`Update to v${run.to}`}
+            title={`Update to v${shownRun.to}`}
             description={
               <>
-                Started <TimeAgo date={run.startedAt} /> from v{run.from}
+                Started <TimeAgo date={shownRun.startedAt} /> from v{shownRun.from}
               </>
             }
-            actions={<Badge tone={runLabel[run.state].tone}>{runLabel[run.state].label}</Badge>}
+            actions={<Badge tone={runLabel[shownRun.state].tone}>{runLabel[shownRun.state].label}</Badge>}
           />
           <CardBody className="py-4">
             <Copyable value={log} dark>

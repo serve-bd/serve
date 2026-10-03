@@ -39,20 +39,63 @@ function compact(n: number) {
 }
 
 function StatusBars({ series }: { series: Req["series"] }) {
+  // Hovering a bar shows its numbers; a tap or click keeps them (phones have no hover).
+  const [hovered, setHovered] = React.useState<number | null>(null);
+  const [picked, setPicked] = React.useState<number | null>(null);
   const max = Math.max(1, ...series.map((p) => p.requests));
   if (series.length === 0) return <div className="flex h-[120px] items-center justify-center text-xs text-faint">No requests yet</div>;
+  const shown = series.find((p) => p.t === (hovered ?? picked));
   return (
-    <div className="flex h-[120px] items-end gap-px">
-      {series.map((p) => (
-        <div key={p.t} className="group relative flex h-full flex-1 flex-col justify-end" title={`${new Date(p.t).toLocaleString()} · ${p.requests} requests`}>
-          <div className="flex flex-col overflow-hidden rounded-t-[2px] transition-opacity group-hover:opacity-80" style={{ height: `${(p.requests / max) * 100}%` }}>
-            <div className="bg-bad" style={{ flex: p.s5xx }} />
-            <div className="bg-warn" style={{ flex: p.s4xx }} />
-            <div className="bg-info" style={{ flex: p.s3xx }} />
-            <div className="bg-ok" style={{ flex: p.s2xx }} />
-          </div>
-        </div>
-      ))}
+    <div className="flex flex-col gap-2">
+      <div className="flex h-[120px] items-end gap-px" onPointerLeave={() => setHovered(null)}>
+        {series.map((p) => (
+          <button
+            key={p.t}
+            type="button"
+            aria-label={`${new Date(p.t).toLocaleString()}: ${p.requests} requests`}
+            aria-pressed={picked === p.t}
+            onPointerEnter={(e) => e.pointerType === "mouse" && setHovered(p.t)}
+            onClick={() => setPicked((t) => (t === p.t ? null : p.t))}
+            className="group relative flex h-full flex-1 cursor-pointer flex-col justify-end rounded-t-[2px] outline-none focus-visible:bg-fg/[0.06]"
+          >
+            <div
+              className={cn("flex flex-col overflow-hidden rounded-t-[2px] transition-opacity", shown && shown.t !== p.t ? "opacity-40" : "group-hover:opacity-80")}
+              style={{ height: `${(p.requests / max) * 100}%` }}
+            >
+              <div className="bg-bad" style={{ flex: p.s5xx }} />
+              <div className="bg-warn" style={{ flex: p.s4xx }} />
+              <div className="bg-info" style={{ flex: p.s3xx }} />
+              <div className="bg-ok" style={{ flex: p.s2xx }} />
+            </div>
+          </button>
+        ))}
+      </div>
+      <div className="flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted">
+        {shown ? (
+          <>
+            <span className="font-medium text-fg">{new Date(shown.t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+            <span>{shown.requests} requests</span>
+            {(
+              [
+                ["2xx", shown.s2xx, "bg-ok"],
+                ["3xx", shown.s3xx, "bg-info"],
+                ["4xx", shown.s4xx, "bg-warn"],
+                ["5xx", shown.s5xx, "bg-bad"],
+              ] as const
+            )
+              .filter(([, n]) => n > 0)
+              .map(([l, n, c]) => (
+                <span key={l} className="flex items-center gap-1.5">
+                  <span className={cn("size-2 rounded-sm", c)} />
+                  {n} {l}
+                </span>
+              ))}
+            {shown.requests > 0 && <span>{Math.round(shown.avgMs)} ms avg</span>}
+          </>
+        ) : (
+          <span className="text-faint">Hover or tap a bar for its numbers.</span>
+        )}
+      </div>
     </div>
   );
 }

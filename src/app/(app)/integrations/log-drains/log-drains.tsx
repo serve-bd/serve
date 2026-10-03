@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { MoreHorizontal, Pencil, Plus, ScrollText, Trash2, Zap } from "lucide-react";
+import { ChevronDown, MoreHorizontal, Pencil, Plus, ScrollText, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, EmptyState } from "@/components/ui/misc";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,6 +14,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/compo
 import { useConfirm } from "@/components/ui/confirm";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { useAction } from "@/hooks/use-action";
+import { cn } from "@/lib/utils";
 import { addLogDrain, deleteLogDrain, setLogDrainEnabled, testLogDrain, updateLogDrain } from "@/server/actions/log-drains";
 
 export type DrainItem = {
@@ -209,6 +210,8 @@ export function DrainDialog({ drain, projects, onClose, preset }: { drain: Drain
   );
   // A stored secret is kept when its field is left empty, as long as the address stays the same.
   const keeps = !!drain?.hasSecret && form.url === drain.url;
+  // Projects start folded: with many of them, the list stays short.
+  const [expanded, setExpanded] = React.useState<string[]>([]);
   const toggle = (list: string[], id: string, on: boolean) => (on ? [...new Set([...list, id])] : list.filter((x) => x !== id));
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -312,23 +315,45 @@ export function DrainDialog({ drain, projects, onClose, preset }: { drain: Drain
                     <div className="flex max-h-64 flex-col gap-3 overflow-y-auto rounded-xl border border-line p-3">
                       {projects.map((p) => {
                         const whole = form.projectIds.includes(p.id);
+                        const picked = p.services.filter((sv) => form.serviceIds.includes(sv.id)).length;
+                        const open = expanded.includes(p.id);
                         return (
                           <div key={p.id} className="flex flex-col gap-1.5">
-                            <label className="flex items-center gap-2.5 text-[13px] font-medium text-fg">
-                              <Checkbox checked={whole} onCheckedChange={(c) => set({ projectIds: toggle(form.projectIds, p.id, !!c) })} />
-                              {p.name}
-                              <span className="text-xs font-normal text-faint">whole project, new services too</span>
-                            </label>
-                            {p.services.map((sv) => (
-                              <label key={sv.id} className="flex items-center gap-2.5 pl-6 text-[13px] text-fg-2">
-                                <Checkbox
-                                  checked={whole || form.serviceIds.includes(sv.id)}
-                                  disabled={whole}
-                                  onCheckedChange={(c) => set({ serviceIds: toggle(form.serviceIds, sv.id, !!c) })}
-                                />
-                                {sv.name}
-                              </label>
-                            ))}
+                            <div className="flex items-center gap-2.5">
+                              <Checkbox
+                                checked={whole}
+                                onCheckedChange={(c) => set({ projectIds: toggle(form.projectIds, p.id, !!c) })}
+                                aria-label={`Every service of ${p.name}, new ones too`}
+                              />
+                              {/* The name opens the project's services; the box picks the whole project. */}
+                              <button
+                                type="button"
+                                onClick={() => setExpanded((e) => toggle(e, p.id, !open))}
+                                aria-expanded={open}
+                                className="flex min-w-0 flex-1 items-center gap-2 text-left text-[13px] font-medium text-fg"
+                              >
+                                <span className="truncate">{p.name}</span>
+                                <span className="flex-none text-xs font-normal text-faint">
+                                  {whole
+                                    ? "whole project, new services too"
+                                    : picked
+                                      ? `${picked} of ${p.services.length}`
+                                      : `${p.services.length} service${p.services.length === 1 ? "" : "s"}`}
+                                </span>
+                                <ChevronDown className={cn("ml-auto size-4 flex-none text-muted transition-transform", open && "rotate-180")} />
+                              </button>
+                            </div>
+                            {open &&
+                              p.services.map((sv) => (
+                                <label key={sv.id} className="flex items-center gap-2.5 pl-6 text-[13px] text-fg-2">
+                                  <Checkbox
+                                    checked={whole || form.serviceIds.includes(sv.id)}
+                                    disabled={whole}
+                                    onCheckedChange={(c) => set({ serviceIds: toggle(form.serviceIds, sv.id, !!c) })}
+                                  />
+                                  {sv.name}
+                                </label>
+                              ))}
                           </div>
                         );
                       })}

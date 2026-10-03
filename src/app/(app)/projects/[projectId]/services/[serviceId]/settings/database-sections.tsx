@@ -13,7 +13,15 @@ import { SwitchRow } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogBody } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { changeDatabasePassword, databaseAddonStatus, redeployServices, setDatabasePooler, setDatabaseReplicas, updateDatabaseSettings } from "@/server/actions/databases";
+import {
+  changeDatabasePassword,
+  databaseAddonStatus,
+  redeployServices,
+  setDatabasePooler,
+  promoteDatabaseReplica,
+  setDatabaseReplicas,
+  updateDatabaseSettings,
+} from "@/server/actions/databases";
 import { updateService } from "@/server/actions/services";
 import type { RestartPolicy } from "@/server/services/types";
 import { Section, digits, num } from "./section";
@@ -636,6 +644,10 @@ function ReplicaSection(props: DatabaseSettingsProps) {
     onSuccess: () => router.refresh(),
   });
   const saved = props.config.replica?.enabled ? props.config.replica.instances : [];
+  const promote = useAction((id: string) => promoteDatabaseReplica(props.serviceId, id), {
+    result: () => "Promoted: the database deploys on the replica's server",
+    onSuccess: () => router.refresh(),
+  });
   const status = useAddonStatus(props.serviceId, saved.length > 0);
   const home = props.replicaServers.find((s) => s.home)?.id ?? props.replicaServers[0]?.id ?? "";
   const homeName = props.replicaServers.find((s) => s.home)?.name ?? "the database's server";
@@ -702,6 +714,27 @@ function ReplicaSection(props: DatabaseSettingsProps) {
                             : `Not on a private network with ${homeName}. Add it under Servers → ${s.name} → Private network.`,
                       }))}
                     />
+                    {r.id && saved.some((x) => x.id === r.id && x.serverId === r.serverId) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        loading={promote.pending}
+                        onClick={async () => {
+                          if (
+                            await confirm({
+                              title: `Make replica ${r.id} the database?`,
+                              description: `For when the database's server is lost. The database stops (if its server answers) and starts again on ${props.replicaServers.find((s) => s.id === r.serverId)?.name ?? "the replica's server"} with this replica's data: changes it had not received yet are lost. The old data stays in its volume. Other replicas copy the new database again; public access of the pooler and replicas is turned off.`,
+                              confirmLabel: "Promote",
+                              danger: true,
+                            })
+                          )
+                            promote.run(r.id!);
+                        }}
+                      >
+                        Promote
+                      </Button>
+                    )}
                     <Button type="button" size="sm" variant="ghost" aria-label="Remove replica" onClick={() => set({ instances: v.instances.filter((_, j) => j !== i) })}>
                       <Trash2 />
                     </Button>

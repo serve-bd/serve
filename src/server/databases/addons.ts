@@ -354,3 +354,60 @@ export async function replicaStatuses(service: Service): Promise<ReplicaState[]>
     }),
   );
 }
+
+/**
+ * Makes a replica the database: for when the database's server is lost. The database's container
+ * (when its server still answers) and the replica's stop; the replica's copy, no longer a standby,
+ * becomes the database's data on the replica's server, and the database deploys there on it. The
+ * old data stays in its volume. Other replicas copy the new database again.
+ */
+export async function promoteReplica(service: Service, id: string, log: (l: string) => void = () => {}) {
+  const cfg = service.database!;
+  const instances = replicaInstances(service);
+  const r = instances.find((x) => x.id === id);
+  if (!r) throw new Error("That replica is gone.");
+  // The old database stops first, if its server answers: two writable copies must never run.
+  const home = await serverOf(service).catch(() => null);
+  if (home) {
+    await removeContainer(service.slug, 30, home.docker).catch(() => {});
+    await removeContainer(poolerName(service), 10, home.docker).catch(() => {});
+    log(`Stopped ${service.name} on ${home.row.name}`);
+  } else log("The database's server does not answer: promoting without stopping it. Do not start it again.");
+  const server = await getServer(r.serverId);
+  await removeContainer(replicaName(service, r.id), 30, server.docker);
+  // Out of standby: its data opens as the database's own.
+  const plan = databasePlan(cfg, decryptOrNull(cfg.password) ?? "", server.paths.service(service.id), null);
+  const data = volumeName(service.slug, `replica-${r.id}-data`);
+  const pgdata = plan.env.PGDATA ?? plan.dataMountPath;
+  const rel = pgdata.startsWith(plan.dataMountPath) ? pgdata.slice(plan.dataMountPath.length).replace(/^\/+/, "") : "";
+  await ensureImage(server, "alpine:3.22.6", log);
+  const helper = await server.docker.createContainer({
+    Image: "alpine:3.22.6",
+    Cmd: ["rm", "-f", `/data/${rel ? `${rel}/` : ""}standby.signal`],
+    Labels: { [LABEL.managed]: "true", [LABEL.kind]: "helper" },
+    HostConfig: { Binds: [`${data}:/data`] },
+  });
+  try {
+    await helper.start();
+    await helper.wait();
+  } finally {
+    await helper.remove({ force: true }).catch(() => {});
+  }
+  // The other replicas followed the old database: they copy the new one when it is up.
+  const others = instances.filter((x) => x.id !== r.id);
+  for (const o of others) await removeReplicaInstance(service, o).catch(() => {});
+  await db
+    .update(schema.service)
+    .set({
+      serverId: r.serverId,
+      database: {
+        ...cfg,
+        dataVolume: data,
+        dataVolumeOwned: true,
+        replica: cfg.replica ? { ...cfg.replica, enabled: others.length > 0, instances: others } : cfg.replica,
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.service.id, service.id));
+  log(`Replica ${r.id} is the database now, on ${server.row.name}`);
+}

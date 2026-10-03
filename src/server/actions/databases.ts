@@ -441,3 +441,39 @@ export async function databaseAddonStatus(serviceId: string) {
     return { pooler, replicas };
   });
 }
+
+/**
+ * Makes a read replica the database (its server was lost, or it must move there now). The
+ * database deploys on the replica's server with the replica's data; the public side of its pooler
+ * and replicas is turned off, as their ports and DNS were on the old servers.
+ */
+export async function promoteDatabaseReplica(serviceId: string, replicaId: string) {
+  return act(async () => {
+    const { ctx, service, cfg } = await postgresForAddon(serviceId);
+    if (!ctx.can("services.deploy")) throw new UserError(cannotMessage("services.deploy"));
+    const { replicaInstances } = await import("@/server/services/types");
+    const replica = replicaInstances(service).find((r) => r.id === replicaId);
+    if (!replica) throw new UserError("That replica is gone.");
+    const { syncAddonDomain } = await import("@/server/databases/addon-domains");
+    if (cfg.pooler?.public) await syncAddonDomain(service, cfg.pooler.public, null, [service.serverId], ctx.org.id).catch(() => []);
+    if (cfg.replica?.public) await syncAddonDomain(service, cfg.replica.public, null, [...new Set(replicaInstances(service).map((r) => r.serverId))], ctx.org.id).catch(() => []);
+    const { promoteReplica } = await import("@/server/databases/addons");
+    await promoteReplica(
+      {
+        ...service,
+        database: { ...cfg, pooler: cfg.pooler ? { ...cfg.pooler, public: null } : cfg.pooler, replica: cfg.replica ? { ...cfg.replica, public: null } : cfg.replica },
+      },
+      replicaId,
+    );
+    await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "service.updated",
+      targetType: "service",
+      targetId: service.id,
+      message: `Promoted read replica ${replicaId} to be ${service.name}`,
+    });
+    return null;
+  });
+}

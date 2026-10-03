@@ -27,8 +27,11 @@ export async function syncAddonDomain(service: typeof schema.service.$inferSelec
       await syncTunnelIngress(next.tunnelId).catch((e) => warnings.push(`Tunnel route not saved: ${(e as Error).message}`));
     } else {
       const { serverPublicIp } = await import("@/server/servers/access");
-      const ips = (await Promise.all(servers.map((id) => serverPublicIp(id)))).filter((ip): ip is string => !!ip);
-      if (ips.length < servers.length) warnings.push("Set the public IP of each server so the DNS records can point at it.");
+      // Servers without a public IP are left out: the domain cannot reach them (the caller says so).
+      const reachable = (await Promise.all(servers.map(async (id) => ({ id, ip: await serverPublicIp(id).catch(() => null) })))).filter(
+        (x): x is { id: string; ip: string } => !!x.ip,
+      );
+      const ips = reachable.map((x) => x.ip);
       if (accountId && ips.length) {
         try {
           const cf = await Cloudflare.forAccount(accountId);
@@ -43,7 +46,7 @@ export async function syncAddonDomain(service: typeof schema.service.$inferSelec
         );
       }
       const { ensureDatabaseCertificate } = await import("@/server/databases/domain-tls");
-      for (const serverId of servers) {
+      for (const { id: serverId } of reachable) {
         const cert = await ensureDatabaseCertificate(host, serverId, orgId);
         if ("error" in cert) warnings.push(cert.error);
       }

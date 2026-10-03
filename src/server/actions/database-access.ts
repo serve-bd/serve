@@ -72,6 +72,8 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
     const servers = which === "pooler" ? [service.serverId] : [...new Set(replicas.map((r) => r.serverId))];
 
     let next: AddonAccess | null = null;
+    // Replica servers without a public IP: the domain leads to the others only.
+    let unreachable: string[] = [];
     if (data.open) {
       const hostname = data.domain?.replace(/\.$/, "") || null;
       // Domains take their own port: a Cloudflare Tunnel made every client run cloudflared.
@@ -84,6 +86,16 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
         await assertNotDashboardHost(ctx, hostname);
         const [web] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, hostname));
         if (web || (await domainTaken(hostname, { serviceId, which }))) throw new UserError("That domain is already in use.");
+        // A domain leads to servers' public IPs: one without any reaches nothing.
+        const { serverPublicIp } = await import("@/server/servers/access");
+        const ips = await Promise.all(servers.map(async (id) => ({ id, ip: await serverPublicIp(id).catch(() => null) })));
+        if (!ips.some((x) => x.ip))
+          throw new UserError(
+            which === "pooler"
+              ? "The database's server has no public IP, so a domain cannot reach the pooler."
+              : `${servers.length > 1 ? "None of the replica servers has" : "The replica's server has no"} public IP, so a domain cannot reach ${servers.length > 1 ? "them" : "it"}.`,
+          );
+        unreachable = ips.filter((x) => !x.ip).map((x) => x.id);
       }
       let allow: string[] | null = null;
       if (data.allow?.length) {
@@ -143,6 +155,10 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
       targetId: service.id,
       message: `${which === "pooler" ? "Pooler" : "Read replicas"} of ${service.name}: ${next ? `public${next.port ? ` on port ${next.port}` : ""}${next.domain ? ` at ${next.domain}` : ""}` : "private"}`,
     });
+    if (unreachable.length) {
+      const named = replicas.filter((r) => unreachable.includes(r.serverId)).map((r) => `replica ${r.id}`);
+      warnings.push(`${next?.domain} does not reach ${named.join(", ")}: ${named.length === 1 ? "its server has" : "their servers have"} no public IP.`);
+    }
     return { warnings, port: next?.port ?? null };
   });
 }

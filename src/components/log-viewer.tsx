@@ -152,14 +152,15 @@ export function LogViewer({
 
   return (
     <div className={cn("relative flex flex-col overflow-hidden rounded-2xl border border-line bg-log-bg shadow-sm", className)}>
-      <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-2">
-        <div className="relative min-w-0 flex-1">
+      {/* Phones: the filter gets its own row, the buttons the row under it. */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] px-3 py-2">
+        <div className="relative min-w-0 basis-full sm:flex-1 sm:basis-auto">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-white/30" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter logs"
-            className="h-7 w-full max-w-64 rounded-md bg-white/[0.06] pr-2 pl-7 text-xs text-log-fg outline-none placeholder:text-white/30 focus:bg-white/[0.09]"
+            className="h-7 w-full rounded-md sm:max-w-64 bg-white/[0.06] pr-2 pl-7 text-xs text-log-fg outline-none placeholder:text-white/30 focus:bg-white/[0.09]"
           />
         </div>
         {toolbar}

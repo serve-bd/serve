@@ -94,7 +94,7 @@ function DatabasePublicCard({ serviceId, view, canManage }: { serviceId: string;
   return (
     <Card>
       <CardHeader
-        title={`${view.engine.label} database`}
+        title="Public port"
         description="Publish the database on a port of its server, for example to connect with a desktop client."
         actions={<Switch checked={on} onCheckedChange={setOn} disabled={!canManage} aria-label="Public port" />}
       />

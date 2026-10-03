@@ -164,7 +164,7 @@ function OtherProviders({ isAdmin, dialogs }: { isAdmin: boolean; dialogs: Dialo
   const [keyName, setKeyName] = React.useState("");
   const [publicKey, setPublicKey] = React.useState<string | null>(null);
   const add = useAction(() => addGitToken({ provider, name, token, baseUrl }), {
-    result: (d) => (d.warning ? `Connected as ${d.login}. ${d.warning}` : `Connected as ${d.login}`),
+    result: (d) => (d.warning ? `Connected as ${d.login}. ${d.warning}` : ""),
     onSuccess: () => {
       setTokenOpen(false);
       setToken("");

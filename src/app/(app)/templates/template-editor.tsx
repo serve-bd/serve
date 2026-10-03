@@ -148,7 +148,7 @@ export function TemplateEditor({ initial, categories }: { initial: EditorInitial
 
   const fetchUrl = useAction(fetchComposeFromUrl, { refresh: false, onSuccess: (text) => loadCompose(text) });
   const save = useAction((input: Parameters<typeof saveCustomTemplate>[1]) => saveCustomTemplate(initial.id, input), {
-    result: initial.id ? "Template saved" : "Template created. It is now in the New service catalog.",
+    result: initial.id ? "" : "Template created. It is now in the New service catalog.",
     onSuccess: () => router.push("/templates"),
   });
 

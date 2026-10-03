@@ -567,7 +567,6 @@ function useAddonStatus(serviceId: string, active: boolean) {
 function PoolingSection(props: DatabaseSettingsProps) {
   const router = useRouter();
   const save = useAction((v: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number }) => setDatabasePooler(props.serviceId, v), {
-    result: (r) => (r.started ? "Connection pooler started" : "Saved"),
     onSuccess: () => router.refresh(),
   });
   const p = props.config.pooler;
@@ -639,13 +638,11 @@ function ReplicaSection(props: DatabaseSettingsProps) {
   const confirm = useConfirm();
   const router = useRouter();
   const save = useAction((instances: { id?: string; serverId: string }[]) => setDatabaseReplicas(props.serviceId, instances), {
-    result: (r) => (r.started ? "Replicas updated: new ones copy the database first" : "Saved"),
     // The saved replicas come back with their numbers: the list shows them with their status.
     onSuccess: () => router.refresh(),
   });
   const saved = props.config.replica?.enabled ? props.config.replica.instances : [];
   const promote = useAction((id: string) => promoteDatabaseReplica(props.serviceId, id), {
-    result: () => "Promoted: the database deploys on the replica's server",
     onSuccess: () => router.refresh(),
   });
   const status = useAddonStatus(props.serviceId, saved.length > 0);

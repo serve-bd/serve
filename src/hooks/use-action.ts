@@ -9,7 +9,7 @@ import { useLatest } from "./use-client";
 type Options<T> = {
   /**
    * A toast after success, only for news the page does not show itself (a test passed, an email
-   * sent, a step left). A change the page reflects needs none.
+   * sent, a step left). A change the page reflects needs none: return "" when there is no news.
    */
   result?: string | ((data: T) => string);
   onSuccess?: (data: T) => void;
@@ -95,7 +95,9 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
           return undefined;
         }
         const { result, onSuccess, refresh = true } = optsRef.current;
-        if (result) toast.success(typeof result === "function" ? result(res.data) : result);
+        // An empty message: nothing to say past what the page now shows.
+        const message = typeof result === "function" ? result(res.data) : result;
+        if (message) toast.success(message);
         // Without a refresh, onSuccess usually navigates (to the new service, away from a deleted
         // one): run it in the transition so `pending` lasts until the next page shows, and a
         // second click cannot create a second service.

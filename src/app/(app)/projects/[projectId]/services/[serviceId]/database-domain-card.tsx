@@ -58,7 +58,7 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
     return res;
   });
   const router = useRouter();
-  const retry = useAction(() => retryDatabaseCertificate(serviceId), { result: () => "Asking for the certificate again", onSuccess: () => router.refresh() });
+  const retry = useAction(() => retryDatabaseCertificate(serviceId), { onSuccess: () => router.refresh() });
   const changed = value.trim().toLowerCase() !== (info.hostname ?? "") || (!!info.hostname && !legacyTunnel && info.unreachable);
   const cert = info.certificate;
   // Without a public IP a new domain cannot work: the form is only there to remove one.

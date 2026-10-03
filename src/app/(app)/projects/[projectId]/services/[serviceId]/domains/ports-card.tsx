@@ -107,7 +107,7 @@ export function PortsCard({
         ? updateService(serviceId, { compose: { ports: valid.map((p) => ({ ...p, service: p.service ?? composeServices[0] })) } })
         : updateService(serviceId, { runtime: { ports: valid } }),
     {
-      result: canDeploy ? "Ports saved" : "Ports saved. They are published on the next deploy.",
+      result: canDeploy ? "" : "Ports saved. They are published on the next deploy.",
       onSuccess: () => {
         setPorts(valid);
         setSaved(JSON.stringify(valid));

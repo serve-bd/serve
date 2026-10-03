@@ -275,9 +275,9 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
       }
       return { ok: true as const, data: { warnings } };
     },
-    { result: (r) => (r.warnings.length ? r.warnings.join(" ") : "Saved. The database restarts with it."), onSuccess: () => router.refresh() },
+    { result: (r) => r.warnings.join(" "), onSuccess: () => router.refresh() },
   );
-  const retry = useAction(() => retryDatabaseCertificate(serviceId), { result: () => "Asking for the certificate again", onSuccess: () => router.refresh() });
+  const retry = useAction(() => retryDatabaseCertificate(serviceId), { onSuccess: () => router.refresh() });
 
   const cert = info?.certificate;
   const url = !changed ? (domainOk && info.hostname && info.url ? info.url : d.publicUrl) : null;
@@ -346,10 +346,10 @@ function AddonCard({ serviceId, which, addon, view, canManage }: { serviceId: st
   const dom = domain.trim() || null;
   const bind = dom ? "0.0.0.0" : who.bind;
   const save = useAction(() => setAddonAccess(serviceId, which, { open: on, port: port ? Number(port) : null, bind, allow: who.allow, domain: dom, via: "direct" }), {
-    result: (r) => (r.warnings.length ? r.warnings.join(" ") : on ? "Public access saved" : "Public access off"),
+    result: (r) => r.warnings.join(" "),
     onSuccess: () => router.refresh(),
   });
-  const retry = useAction(() => retryDatabaseCertificate(serviceId, which), { result: () => "Asking for the certificate again", onSuccess: () => router.refresh() });
+  const retry = useAction(() => retryDatabaseCertificate(serviceId, which), { onSuccess: () => router.refresh() });
   const changed =
     on !== addon.open || (on && ((port ? Number(port) : null) !== addon.port || bind !== addon.bind || who.normalized.join(",") !== addon.allow.join(",") || dom !== addon.domain));
   const pooler = which === "pooler";

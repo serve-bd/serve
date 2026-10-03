@@ -60,7 +60,7 @@ export function UpdatesView({
   // Set once "Update now" succeeds, until polling sees the run it started (an id other than `startedFrom`).
   const [starting, setStarting] = React.useState(false);
   const startedFrom = React.useRef<string | null>(null);
-  const checkNow = useAction(checkUpdatesNow, { result: (c) => (c.latest ? `Latest release: v${c.latest}` : "No releases published yet") });
+  const checkNow = useAction(checkUpdatesNow);
   const start = useAction(startSelfUpdate, {
     onSuccess: () => {
       startedFrom.current = run?.id ?? null;

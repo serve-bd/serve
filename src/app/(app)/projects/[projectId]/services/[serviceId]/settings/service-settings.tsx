@@ -168,9 +168,7 @@ export function ServiceSettings(props: Props) {
   const can = useCan();
   const confirm = useConfirm();
   const { service } = props;
-  const save = useAction((patch: Parameters<typeof updateService>[1]) => updateService(service.id, patch), {
-    result: "Settings saved. Deploy to apply runtime changes.",
-  });
+  const save = useAction((patch: Parameters<typeof updateService>[1]) => updateService(service.id, patch));
   // Kept outside the page so it survives moving between settings sub-pages.
   const pendingApply = usePendingApply(service.id);
   const needsRestart = React.useCallback((what: string) => addPendingApply(service.id, what), [service.id]);

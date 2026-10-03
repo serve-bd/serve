@@ -522,11 +522,13 @@ async function buildpacksBuild(ctx: BuildContext) {
   // Build variables are files in /platform/env, written inside the container from its environment:
   // nothing is left in the source the image is made from, and values stay off the command line.
   const passed = Object.fromEntries(Object.entries(vars).map(([k, v]) => [`SERVE_ENV_${k}`, v]));
+  ctx.log(`Building with Cloud Native Buildpacks (${builder})`);
+  const runImage = await pullRunImage(ctx, builder);
   const script = [
     "set -e",
     "mkdir -p /platform/env",
     'for n in $SERVE_ENV_NAMES; do printf %s "$(printenv "SERVE_ENV_$n")" > "/platform/env/$n"; done',
-    `exec /cnb/lifecycle/creator -app=/workspace -cache-dir=/cache -daemon ${ctx.build.noCache ? "-skip-restore " : ""}"$0"`,
+    `exec /cnb/lifecycle/creator -app=/workspace -cache-dir=/cache -daemon -run-image=${runImage} ${ctx.build.noCache ? "-skip-restore " : ""}"$0"`,
   ].join("\n");
   const args = [
     "run",
@@ -555,8 +557,6 @@ async function buildpacksBuild(ctx: BuildContext) {
     script,
     ctx.image,
   ];
-  ctx.log(`Building with Cloud Native Buildpacks (${builder})`);
-  await pullRunImage(ctx, builder);
   // An image already under this name (a build of the same deployment run again) makes the lifecycle
   // fail to save over it on Docker's containerd image store.
   await dockerOn(ctx, ["image", "rm", "-f", ctx.image]).catch(() => {});
@@ -584,7 +584,7 @@ async function dockerOn(ctx: BuildContext, args: string[]) {
  * The builder's run image (the base of the app image) must be in Docker before the lifecycle saves
  * the image there: the lifecycle reads it from Docker and does not pull it.
  */
-async function pullRunImage(ctx: BuildContext, builder: string) {
+async function pullRunImage(ctx: BuildContext, builder: string): Promise<string> {
   const has = (image: string) =>
     dockerOn(ctx, ["image", "inspect", "--format", "{{.Id}}", image]).then(
       () => true,
@@ -607,6 +607,18 @@ async function pullRunImage(ctx: BuildContext, builder: string) {
     ctx.log(`Pulling ${runImage}`);
     await dockerOn(ctx, ["pull", "-q", runImage]);
   }
+  // Docker's containerd image store cannot export one platform of a multi-platform image (Docker
+  // 29.8 on arm64 refuses it), which the lifecycle does to read the run image. A copy holding only
+  // this server's platform exports fine: the app image is built on that copy.
+  const local = `serve-cnb-run:${crypto.createHash("sha256").update(runImage).digest("hex").slice(0, 12)}`;
+  if (ctx.build.noCache || !(await has(local))) {
+    const cmd = `printf 'FROM %s\\n' ${sh(runImage)} | docker build -q -t ${sh(local)} -`;
+    if (ctx.remote) {
+      const res = await ctx.remote.server.exec(cmd, { signal: ctx.signal });
+      if (res.code !== 0) throw new Error(`Could not prepare the run image: ${(res.stderr || res.stdout).trim()}`);
+    } else await run("sh", ["-c", cmd], { signal: ctx.signal, env: { ...ctx.dockerEnv } });
+  }
+  return local;
 }
 
 /** Adds the image labels Serve finds its images by (and any extra lines) on top of a built image. */

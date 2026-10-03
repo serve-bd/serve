@@ -12,7 +12,7 @@ import { SwitchRow } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogBody } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { changeDatabasePassword, redeployServices, updateDatabaseSettings } from "@/server/actions/databases";
+import { changeDatabasePassword, databaseAddonStatus, redeployServices, setDatabasePooler, setDatabaseReplica, updateDatabaseSettings } from "@/server/actions/databases";
 import { updateService } from "@/server/actions/services";
 import type { RestartPolicy } from "@/server/services/types";
 import { Section, digits, num } from "./section";
@@ -39,6 +39,8 @@ export type DatabaseSettingsProps = {
     healthcheck: { interval?: number | null; timeout?: number | null; retries?: number | null; startPeriod?: number | null } | null;
     publicPort: number | null;
     publicBind: "0.0.0.0" | "127.0.0.1";
+    pooler: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number } | null;
+    replica: { enabled: boolean } | null;
   };
   password: string;
   /** The role cannot see secret values: the password arrives masked. */
@@ -56,6 +58,11 @@ export type DatabaseSettingsProps = {
     healthcheck: string;
   };
   internalUrl: string;
+  /** Connection URLs through the pooler and to the replica (PostgreSQL). */
+  poolerUrl: string;
+  replicaUrl: string;
+  /** The name other services use in references: ${{<refName>.DATABASE_URL}}. */
+  refName: string;
   restartPolicy: RestartPolicy;
   stopTimeout: number | null;
   /** Called after a save that needs the container recreated. */
@@ -569,6 +576,149 @@ function HealthSection(props: DatabaseSettingsProps) {
 }
 
 /** One database settings sub-page (storage is rendered by the shared storage section). */
+/** Polls how the pooler and the replica are doing, while the page is open. */
+function useAddonStatus(serviceId: string, active: boolean) {
+  const [status, setStatus] = React.useState<{ pooler: string | null; replica: { state: string; lagSeconds: number | null } | null } | null>(null);
+  React.useEffect(() => {
+    if (!active) return;
+    let stop = false;
+    const load = async () => {
+      const r = await databaseAddonStatus(serviceId).catch(() => null);
+      if (!stop && r?.ok) setStatus(r.data);
+    };
+    void load();
+    const t = setInterval(load, 5000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [serviceId, active]);
+  return status;
+}
+
+function PoolingSection(props: DatabaseSettingsProps) {
+  const save = useAction((v: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number }) => setDatabasePooler(props.serviceId, v), {
+    result: (r) => (r.started ? "Connection pooler started" : "Saved"),
+  });
+  const p = props.config.pooler;
+  const status = useAddonStatus(props.serviceId, !!p?.enabled);
+  return (
+    <Section
+      id="pooling"
+      title="Connection pooling"
+      description="PgBouncer in front of the database: many app connections share a few real ones. The database keeps running and its URL stays the same; apps opt in with the pooled URL."
+      initial={{ enabled: !!p?.enabled, mode: p?.mode ?? ("transaction" as const), poolSize: String(p?.poolSize ?? 20), maxClients: String(p?.maxClients ?? 1000) }}
+      onSave={(v) => save.run({ enabled: v.enabled, mode: v.mode, poolSize: Number(v.poolSize) || 20, maxClients: Number(v.maxClients) || 1000 })}
+      footerNote={p?.enabled ? (status?.pooler === "running" ? "Running" : status ? "Not running" : undefined) : undefined}
+    >
+      {(v, set) => (
+        <>
+          <SwitchRow
+            title="Enable connection pooling"
+            description="Starts a pooler next to the database. No restart, no data touched."
+            checked={v.enabled}
+            onCheckedChange={(c) => set({ enabled: c })}
+          />
+          {v.enabled && (
+            <>
+              <Field label="Pooled URL" description={`Use \${{${props.refName}.POOLED_DATABASE_URL}} in the app's variables. Run migrations over the direct URL.`}>
+                {props.hideSecrets ? <CopyField value={props.poolerUrl} /> : <SecretField value={props.poolerUrl} />}
+              </Field>
+              <Field
+                label="Mode"
+                description={
+                  v.mode === "transaction"
+                    ? "Most efficient. Session features (LISTEN/NOTIFY, session advisory locks, SET for the whole connection) do not work through it."
+                    : "Each app connection keeps one database connection while it is open: everything works, with less saving."
+                }
+              >
+                <Select
+                  value={v.mode}
+                  onValueChange={(m) => set({ mode: m as "transaction" | "session" })}
+                  options={[
+                    { value: "transaction", label: "Transaction", description: "A connection per transaction" },
+                    { value: "session", label: "Session", description: "A connection per app connection" },
+                  ]}
+                />
+              </Field>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="Database connections" description="Per database and login.">
+                  <Input value={v.poolSize} onChange={(e) => set({ poolSize: digits(e.target.value).slice(0, 3) })} inputMode="numeric" />
+                </Field>
+                <Field label="App connections" description="The most the pooler accepts.">
+                  <Input value={v.maxClients} onChange={(e) => set({ maxClients: digits(e.target.value).slice(0, 5) })} inputMode="numeric" />
+                </Field>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </Section>
+  );
+}
+
+function ReplicaSection(props: DatabaseSettingsProps) {
+  const confirm = useConfirm();
+  const save = useAction((enabled: boolean) => setDatabaseReplica(props.serviceId, enabled), {
+    result: (r) => (r.started ? "Read replica starting: it copies the database first" : "Saved"),
+  });
+  const r = props.config.replica;
+  const status = useAddonStatus(props.serviceId, !!r?.enabled);
+  const state = status?.replica;
+  const label = !state
+    ? null
+    : state.state === "following"
+      ? `Following the database${state.lagSeconds ? `, ${state.lagSeconds}s behind` : ""}`
+      : state.state === "copying"
+        ? "Copying the database"
+        : state.state === "failed"
+          ? "Not running: see the replica's logs"
+          : "Not running";
+  return (
+    <Section
+      id="replica"
+      title="Read replica"
+      description="A live read-only copy of the database, for heavy reads like reports and search. Writes still go to the database. It keeps running and its URL stays the same."
+      initial={{ enabled: !!r?.enabled }}
+      onSave={async (v) => {
+        if (!v.enabled && r?.enabled) {
+          const ok = await confirm({
+            title: "Remove the read replica?",
+            description: "Its copy is deleted. Apps that read from it lose that connection. The database itself is not touched.",
+            confirmLabel: "Remove",
+            danger: true,
+          });
+          if (!ok) return undefined;
+        }
+        return save.run(v.enabled);
+      }}
+      footerNote={label ?? undefined}
+    >
+      {(v, set) => (
+        <>
+          <SwitchRow
+            title="Enable read replica"
+            description="Copies the database once, then follows every change within about a second. No restart, no data touched."
+            checked={v.enabled}
+            onCheckedChange={(c) => set({ enabled: c })}
+          />
+          {v.enabled && (
+            <>
+              <Field label="Read URL" description={`Use \${{${props.refName}.READ_DATABASE_URL}} for reads. Writes to it are refused; send them to the database URL.`}>
+                {props.hideSecrets ? <CopyField value={props.replicaUrl} /> : <SecretField value={props.replicaUrl} />}
+              </Field>
+              <p className="flex items-start gap-1.5 rounded-xl bg-surface-2 px-3 py-2.5 text-xs leading-relaxed text-muted">
+                <TriangleAlert className="mt-px size-3.5 flex-none text-warn" />
+                It runs on the same server and uses as much disk as the database. If it stops, the database keeps at most 4 GB of changes for it, so the disk cannot fill up.
+              </p>
+            </>
+          )}
+        </>
+      )}
+    </Section>
+  );
+}
+
 export function DatabaseSections({ section, ...props }: DatabaseSettingsProps & { section: string }) {
   switch (section) {
     case "details":
@@ -585,6 +735,10 @@ export function DatabaseSections({ section, ...props }: DatabaseSettingsProps & 
       return <TlsSection {...props} />;
     case "health":
       return <HealthSection {...props} />;
+    case "pooling":
+      return <PoolingSection {...props} />;
+    case "replica":
+      return <ReplicaSection {...props} />;
     default:
       return null;
   }

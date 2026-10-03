@@ -1043,6 +1043,13 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
       await copyDatabaseInto(service, d, copyFrom, line);
     }
     await setServiceStatus(service.id, "running");
+    // PostgreSQL add-ons follow the database (a new version, new settings). A failing one does not fail the deploy.
+    if (cfg.engine === "postgres" && (cfg.pooler?.enabled || cfg.replica?.enabled)) {
+      const { ensurePooler, ensureReplica } = await import("@/server/databases/addons");
+      const fresh = (await db.query.service.findFirst({ where: eq(schema.service.id, service.id) })) ?? service;
+      await ensurePooler(fresh, line).catch((e) => line(`Warning: the connection pooler did not start: ${(e as Error).message}`));
+      await ensureReplica(fresh, line).catch((e) => line(`Warning: the read replica did not start: ${(e as Error).message}`));
+    }
     await meshAfterStart(server.id, line);
   }
 }

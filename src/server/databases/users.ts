@@ -11,7 +11,8 @@ export const USERNAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
 
 /** Logins of the engine itself, never managed from the Users page. */
 const SYSTEM_USERS: Record<string, RegExp> = {
-  postgres: /^(postgres|pg_.*)$/,
+  // serve_pooler and serve_replicator: the logins of the connection pooler and the read replica.
+  postgres: /^(postgres|pg_.*|serve_pooler|serve_replicator)$/,
   mysql: /^(root|mysql\..*|healthcheck)$/,
   mariadb: /^(root|mariadb\.sys|mysql\..*|healthcheck)$/,
   mongodb: /^(__system)$/,

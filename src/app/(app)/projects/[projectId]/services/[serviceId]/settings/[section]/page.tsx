@@ -1,3 +1,4 @@
+import { referenceName } from "@/lib/refs";
 import { NoAccess } from "@/components/no-access";
 import { and, eq, isNull } from "drizzle-orm";
 import { privateHost } from "@/lib/hostname";
@@ -50,6 +51,8 @@ function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean, 
       healthcheck: cfg.healthcheck ?? null,
       publicPort: cfg.publicPort ?? null,
       publicBind: cfg.publicBind ?? ("0.0.0.0" as const),
+      pooler: cfg.pooler ? { enabled: cfg.pooler.enabled, mode: cfg.pooler.mode, poolSize: cfg.pooler.poolSize, maxClients: cfg.pooler.maxClients } : null,
+      replica: cfg.replica ? { enabled: cfg.replica.enabled } : null,
     },
     password: hideSecrets ? "" : password,
     hideSecrets,
@@ -72,6 +75,9 @@ function dbProps(service: typeof schema.service.$inferSelect, isAdmin: boolean, 
     },
     // The connection URL carries the password: masked for roles that may not see secrets.
     internalUrl: databaseUrl(cfg, hideSecrets ? databaseCreds(cfg, "********") : creds, privateHost(service), engine.port),
+    refName: referenceName(service.name),
+    poolerUrl: databaseUrl(cfg, hideSecrets ? databaseCreds(cfg, "********") : creds, `${privateHost(service)}-pooler`, engine.port),
+    replicaUrl: databaseUrl(cfg, hideSecrets ? databaseCreds(cfg, "********") : creds, `${privateHost(service)}-replica`, engine.port),
     dataPath: cfg.dataMountPath || engine.dataPath,
     defaultDataPath: engine.dataPath,
   };

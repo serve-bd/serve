@@ -67,6 +67,15 @@ export function providedVars(service: Service, domains: Domain[] = []): Record<s
     if (cfg.engine === "postgres") vars.POSTGRES_URL = url;
     if (cfg.engine === "mysql" || cfg.engine === "mariadb") vars.MYSQL_URL = url;
     if (cfg.publicPort) vars.DATABASE_PUBLIC_PORT = String(cfg.publicPort);
+    // PostgreSQL add-ons: the same login and database, another host.
+    if (cfg.engine === "postgres" && cfg.pooler?.enabled) {
+      vars.POOLER_HOST = `${privateHost(service)}-pooler`;
+      vars.POOLED_DATABASE_URL = databaseUrl(cfg, creds, vars.POOLER_HOST, engine.port);
+    }
+    if (cfg.engine === "postgres" && cfg.replica?.enabled) {
+      vars.READ_HOST = `${privateHost(service)}-replica`;
+      vars.READ_DATABASE_URL = databaseUrl(cfg, creds, vars.READ_HOST, engine.port);
+    }
   }
   return vars;
 }

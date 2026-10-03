@@ -24,6 +24,12 @@ export function databaseNav(db: NonNullable<SettingsNavInput["db"]>): SettingsNa
     { id: "network", label: "Runtime and network" },
     ...(db.tls ? [{ id: "tls", label: "TLS" }] : []),
     { id: "health", label: "Health check" },
+    ...(db.engine === "postgres"
+      ? [
+          { id: "pooling", label: "Connection pooling" },
+          { id: "replica", label: "Read replica" },
+        ]
+      : []),
     { id: "storage", label: "Persistent storage" },
   ];
 }

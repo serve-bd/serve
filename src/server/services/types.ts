@@ -327,6 +327,10 @@ export type DatabaseConfig = {
   tls?: { enabled: boolean; mode?: "prefer" | "require" } | null;
   /** Container health check timing (seconds). */
   healthcheck?: { interval?: number | null; timeout?: number | null; retries?: number | null; startPeriod?: number | null } | null;
+  /** PostgreSQL: a PgBouncer in front, at <host>-pooler. `password` (encrypted) is its lookup login's. */
+  pooler?: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number; password?: string | null } | null;
+  /** PostgreSQL: a streaming read-only copy, at <host>-replica. `password` (encrypted) is its replication login's. */
+  replica?: { enabled: boolean; password?: string | null } | null;
 };
 
 /** Whether a runtime has host-level access: host paths, host ports, privileges or hardware. */

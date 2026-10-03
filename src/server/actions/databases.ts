@@ -288,3 +288,95 @@ export async function importBackupFromRemote(serviceId: string, input: z.input<t
     return { id };
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/*                     PostgreSQL: connection pooler and replica               */
+/* -------------------------------------------------------------------------- */
+
+async function postgresForAddon(serviceId: string) {
+  const ctx = await requirePermission("services.manage");
+  const { service } = await serviceInOrg(serviceId, ctx.org.id);
+  if (service.database?.engine !== "postgres") throw new UserError("Connection pooling and read replicas are for PostgreSQL databases.");
+  if (hasHostAccess(service.runtime) && !(ctx.isInstanceAdmin && ctx.isRoot))
+    throw new UserError("Changing a database that has host-level access is only available to admins of the Root organization, for its own services.");
+  return { ctx, service, cfg: service.database };
+}
+
+const poolerSchema = z.object({
+  enabled: z.boolean(),
+  mode: z.enum(["transaction", "session"]),
+  poolSize: z.number().int().min(1).max(500),
+  maxClients: z.number().int().min(10).max(10000),
+});
+
+/** Turns the PgBouncer of a PostgreSQL database on, off or to new settings. The database keeps running. */
+export async function setDatabasePooler(serviceId: string, input: z.input<typeof poolerSchema>) {
+  return act(async () => {
+    const { ctx, service, cfg } = await postgresForAddon(serviceId);
+    const data = poolerSchema.parse(input);
+    const pooler = { ...data, password: cfg.pooler?.password ?? null };
+    await db
+      .update(schema.service)
+      .set({ database: { ...cfg, pooler } })
+      .where(eq(schema.service.id, serviceId));
+    const { ensurePooler, removePooler } = await import("@/server/databases/addons");
+    const live = service.status === "running";
+    if (data.enabled && live) await ensurePooler({ ...service, database: { ...cfg, pooler } });
+    else await removePooler(service).catch(() => {});
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "service.updated",
+      targetType: "service",
+      targetId: service.id,
+      message: data.enabled ? `Connection pooling on for ${service.name} (${data.mode})` : `Connection pooling off for ${service.name}`,
+    });
+    return { started: data.enabled && live };
+  });
+}
+
+/** Adds or removes the read replica of a PostgreSQL database. The database keeps running. */
+export async function setDatabaseReplica(serviceId: string, enabled: boolean) {
+  return act(async () => {
+    const { ctx, service, cfg } = await postgresForAddon(serviceId);
+    const replica = { enabled, password: cfg.replica?.password ?? null };
+    await db
+      .update(schema.service)
+      .set({ database: { ...cfg, replica } })
+      .where(eq(schema.service.id, serviceId));
+    const { ensureReplica, removeReplica } = await import("@/server/databases/addons");
+    const live = service.status === "running";
+    if (enabled && live) await ensureReplica({ ...service, database: { ...cfg, replica } });
+    else if (!enabled) await removeReplica(service);
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "service.updated",
+      targetType: "service",
+      targetId: service.id,
+      message: enabled ? `Read replica added to ${service.name}` : `Read replica removed from ${service.name}`,
+    });
+    return { started: enabled && live };
+  });
+}
+
+/** Whether the pooler runs and how the replica is doing. */
+export async function databaseAddonStatus(serviceId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("projects.view");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    const cfg = service.database;
+    if (cfg?.engine !== "postgres") return { pooler: null, replica: null };
+    const { poolerName, replicaStatus } = await import("@/server/databases/addons");
+    const server = await serverOf(service);
+    const pooler = cfg.pooler?.enabled
+      ? await server.docker
+          .getContainer(poolerName(service))
+          .inspect()
+          .then((i) => (i.State.Running ? "running" : "stopped"))
+          .catch(() => "stopped")
+      : null;
+    const replica = cfg.replica?.enabled ? await replicaStatus(service).catch(() => ({ state: "stopped" as const, lagSeconds: null })) : null;
+    return { pooler, replica };
+  });
+}

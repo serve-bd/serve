@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { isEmailConfigured } from "@/server/email/send";
 import { sendInviteEmail } from "@/server/email/messages";
-import { publicBaseUrl } from "@/server/git/github-app";
+import { preferHttps, publicBaseUrl } from "@/server/git/github-app";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
@@ -172,7 +172,7 @@ export async function inviteMember(input: { email: string; roleId?: string; role
           organization: ctx.org.name,
           inviter: ctx.user.name || ctx.user.email,
           role: granted.name.toLowerCase(),
-          url: `${await publicBaseUrl()}/invite/${id}`,
+          url: `${await preferHttps(await publicBaseUrl())}/invite/${id}`,
         });
         emailed = true;
       } catch (e) {

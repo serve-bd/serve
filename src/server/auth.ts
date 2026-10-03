@@ -500,8 +500,9 @@ export async function getAuth(request?: Request) {
   const settings = await getSetting("signIn");
   const addresses = await dashboardAddresses();
   const sso = activeProviders(settings).length > 0;
-  const { publicBaseUrl } = await import("@/server/git/github-app");
-  const base = sso ? await publicBaseUrl() : "";
+  const { preferHttps, publicBaseUrl } = await import("@/server/git/github-app");
+  // The callback the provider redirects to: https when the domain answers there, as on the sign-in settings page.
+  const base = sso ? await preferHttps(await publicBaseUrl()) : "";
   const key = `${base}|${sso ? configHash(settings) : "-"}|${addresses.hosts.join(",")}`;
   const cached = current.get(secure);
   if (cached?.key === key) return cached.instance;

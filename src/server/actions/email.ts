@@ -11,7 +11,7 @@ import { newId } from "@/server/id";
 import { getSetting, updateSettings } from "@/server/settings";
 import { defaultSmtpPort, type EmailSettings, type EmailSettingsInput, emailSettingsInput, mailroomBase } from "@/server/email/config";
 import { sendTestEmailTo } from "@/server/email/messages";
-import { publicBaseUrl } from "@/server/git/github-app";
+import { preferHttps, publicBaseUrl } from "@/server/git/github-app";
 
 /** Save outgoing email settings. Empty password / API key fields keep the stored secret. */
 export async function saveEmailSettings(input: EmailSettingsInput) {
@@ -90,6 +90,6 @@ export async function createPasswordResetLink(userId: string) {
       expiresAt: new Date(Date.now() + 3600_000),
     });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "member.reset_link", message: `Created a password reset link for ${user.email}` });
-    return { url: `${await publicBaseUrl()}/reset-password?token=${token}` };
+    return { url: `${await preferHttps(await publicBaseUrl())}/reset-password?token=${token}` };
   });
 }

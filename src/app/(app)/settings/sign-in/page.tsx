@@ -1,7 +1,7 @@
 import { instanceAdminPage } from "@/server/auth";
 import { asc, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { publicBaseUrl } from "@/server/git/github-app";
+import { preferHttps, publicBaseUrl } from "@/server/git/github-app";
 import { getSetting } from "@/server/settings";
 import { callbackUrl, redact, SSO_PROVIDERS } from "@/server/sso/config";
 import { organizationRoles } from "@/server/permissions";
@@ -13,7 +13,8 @@ export default async function SignInSettingsPage() {
   await instanceAdminPage();
   const [settings, base, orgs, people] = await Promise.all([
     getSetting("signIn"),
-    publicBaseUrl(),
+    // Behind a proxy that does TLS the dashboard may be set to HTTP only: the callback is still https.
+    publicBaseUrl().then(preferHttps),
     db.select({ id: schema.organization.id, name: schema.organization.name }).from(schema.organization).orderBy(asc(schema.organization.name)),
     // People per sign-in method, for the choice to sign them out when it is turned off.
     db

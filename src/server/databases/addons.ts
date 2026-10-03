@@ -322,7 +322,9 @@ export async function replicaStatuses(service: Service): Promise<ReplicaState[]>
   const out = await runSql(
     service,
     home.docker,
-    "SELECT application_name || '|' || COALESCE(EXTRACT(EPOCH FROM replay_lag)::int, 0) FROM pg_stat_replication WHERE application_name LIKE 'serve_replica_%';",
+    // Caught up (replayed all the database wrote) is up to date, whatever the last measured lag was:
+    // Postgres keeps that number until the replica next reports, which can be a while after a burst.
+    "SELECT application_name || '|' || CASE WHEN replay_lsn >= pg_current_wal_lsn() THEN 0 ELSE COALESCE(EXTRACT(EPOCH FROM replay_lag)::int, 0) END FROM pg_stat_replication WHERE application_name LIKE 'serve_replica_%';",
     "Could not read the replicas' lag",
   ).catch(() => "");
   for (const line of out.split("\n").filter(Boolean)) {

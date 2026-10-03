@@ -118,13 +118,10 @@ export function UpdatesView({
                       ? "No releases published yet"
                       : "Not checked yet"}
             </p>
-            <p className="text-[13px] text-muted">
-              {check?.error
-                ? check.error
-                : check?.latest
-                  ? `You run v${version}. The newest release is v${check.latest}.`
-                  : `You run v${version}. Updates appear here once github.com/${repository} publishes a release.`}
-            </p>
+            {/* The versions show in the facts below; the line only explains what they cannot. */}
+            {(check?.error || !check?.latest) && (
+              <p className="text-[13px] text-muted">{check?.error ?? `Updates appear here once github.com/${repository} publishes a release.`}</p>
+            )}
           </div>
           {/* Top right on every screen; phones show just the icon. */}
           <Button size="sm" onClick={() => checkNow.run()} loading={checkNow.pending} className="flex-none" aria-label="Check now">

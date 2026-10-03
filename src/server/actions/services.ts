@@ -1353,7 +1353,7 @@ export async function saveReplicaVars(serviceId: string, replica: number, input:
     const vars = varsSchema.parse(input);
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "app") throw new UserError("Only apps have replicas.");
-    if (!Number.isInteger(replica) || replica < 1 || replica > 100) throw new UserError("Unknown replica.");
+    if (!Number.isInteger(replica) || replica < 1) throw new UserError("Unknown replica.");
     await db.transaction(async (tx) => {
       // Locked, so two replica cards saved at the same moment both keep their change.
       const [row] = await tx.select({ replicaVars: schema.service.replicaVars }).from(schema.service).where(eq(schema.service.id, serviceId)).for("update");

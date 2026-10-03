@@ -94,6 +94,8 @@ export async function preparePrimary(service: Service, docker: Docker, members: 
     }
     if (!members.length) return;
     if (cfg.engine === "mysql") {
+      const binlog = await primarySql(service, docker, "SELECT @@GLOBAL.log_bin", "Could not read the binary log setting");
+      if (binlog !== "1") throw new Error("The database runs without a binary log (skip-log-bin in its configuration?): replicas follow it through the binary log.");
       // GTIDs let a replica pick up exactly where its copy ends. They are turned on online, one step at a time.
       const mode = await primarySql(service, docker, "SELECT @@GLOBAL.gtid_mode", "Could not read the GTID mode");
       if (mode !== "ON") {

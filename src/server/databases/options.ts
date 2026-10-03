@@ -163,7 +163,9 @@ export function mongoReplicaKey(password: string) {
 function replicaPrimaryArgs(cfg: DatabaseConfig): string[] {
   if (!cfg.replica?.primed) return [];
   if (cfg.engine === "mariadb") return ["--log-bin=mysql-bin", "--server-id=1", "--binlog-format=ROW", "--binlog-expire-logs-seconds=604800"];
-  if (cfg.engine === "mongodb") return ["--replSet", MONGO_REPLICA_SET, "--keyFile", MONGO_KEY_FILE];
+  // Members check each other's certificate against the database's authority; its names are the
+  // database's, not each replica's, so the name itself is not checked between them.
+  if (cfg.engine === "mongodb") return ["--replSet", MONGO_REPLICA_SET, "--keyFile", MONGO_KEY_FILE, ...(cfg.tls?.enabled ? ["--tlsAllowInvalidHostnames"] : [])];
   return [];
 }
 

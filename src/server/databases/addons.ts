@@ -16,7 +16,7 @@ import { eq } from "drizzle-orm";
 import { databaseContainer } from "./container";
 import { databasePlan, TLS_SOURCE } from "./options";
 import { POOLER_ROLE, POOLER_SCRIPT, REPLICA_ROLE, REPLICA_SCRIPT } from "./addon-scripts";
-import { ensureDatabaseTls, tlsDir } from "./tls";
+import { ensureClientAuth, ensureDatabaseTls, tlsDir } from "./tls";
 import { activeCertMount } from "./domain-tls";
 
 /**
@@ -419,6 +419,16 @@ async function ensureOtherReplicas(service: Service, instances: ReplicaInstance[
   }
   if ((cfg.engine === "mariadb" || cfg.engine === "mongodb") && instances.length && !cfg.replica?.primed)
     throw new Error("The database must restart once to be ready for replicas: redeploy it.");
+  // MongoDB over TLS: members present the database's certificate to each other, as clients too.
+  if (cfg.engine === "mongodb" && cfg.tls?.enabled && instances.length && (await ensureClientAuth(home, service.id, log))) {
+    const container = await databaseContainer(home.docker, service);
+    await home.docker.getContainer(container.id).restart({ t: 30 });
+    for (let i = 0; i < 60; i++) {
+      const info = await home.docker.getContainer(container.id).inspect();
+      if (info.State.Health?.Status === "healthy") break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
   await preparePrimary(
     service,
     home.docker,

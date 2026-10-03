@@ -59,6 +59,18 @@ async function readFromLetsencrypt(ctx: ServerCtx, relative: string) {
   return docker(ctx, ["run", "--rm", "-v", `${ctx.paths.letsencrypt}:/etc/letsencrypt:ro`, "--entrypoint", "cat", CERTBOT_IMAGE, `/etc/letsencrypt/${relative}`]);
 }
 
+/** The PEM files of a certificate as the proxy uses them: the certificate with its chain, and the private key. */
+export async function readCertificateFiles(cert: Cert) {
+  if (!cert.certPath || !cert.keyPath) throw new Error("This certificate has no files yet.");
+  const ctx = await certificateServer(cert);
+  const read = (proxyPath: string) =>
+    proxyPath.startsWith(`${proxyPaths.letsencrypt}/`)
+      ? readFromLetsencrypt(ctx, proxyPath.slice(proxyPaths.letsencrypt.length + 1))
+      : ctx.fs.readFile(path.posix.join(ctx.paths.certs, path.posix.relative(proxyPaths.certs, proxyPath)));
+  const [certificate, privateKey] = await Promise.all([read(cert.certPath), read(cert.keyPath)]);
+  return { certificate: certificate.trim(), privateKey: privateKey.trim() };
+}
+
 /** The server a certificate is stored on and served from. */
 export function certificateServer(cert: Pick<Cert, "serverId">) {
   return getServer(cert.serverId || LOCAL_SERVER_ID);

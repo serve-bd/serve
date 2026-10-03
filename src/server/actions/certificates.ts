@@ -187,6 +187,20 @@ export async function deleteCertificate(id: string) {
   });
 }
 
+/** The certificate and private key files, to copy elsewhere. The key is a secret: admins only. */
+export async function certificateFiles(id: string) {
+  return act(async () => {
+    const ctx = await requirePermission("integrations.manage");
+    const cert = await certInOrg(id, ctx.org.id);
+    const { readCertificateFiles } = await import("@/server/ssl/certificates");
+    try {
+      return await readCertificateFiles(cert);
+    } catch (e) {
+      throw new UserError(`Could not read the certificate files: ${(e as Error).message}`);
+    }
+  });
+}
+
 export async function certificateLogs(id: string) {
   return act(async () => {
     const ctx = await requirePermission("integrations.manage");

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { AlertTriangle, ChevronRight, FileCode2, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldCheck, Server as ServerIcon, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, ChevronRight, Eye, FileCode2, MoreHorizontal, Plus, RefreshCw, ScrollText, ShieldCheck, Server as ServerIcon, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, Copyable, CopyField, EmptyState } from "@/components/ui/misc";
 import { StatusLabel } from "@/components/ui/status";
@@ -18,6 +18,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { explainCertError } from "@/lib/cert-errors";
 import { useAction } from "@/hooks/use-action";
 import {
+  certificateFiles,
   certificateLogs,
   deleteCertificate,
   renewCertificate,
@@ -322,6 +323,59 @@ function PathsDialog({ cert, open, onClose }: { cert: Cert; open: boolean; onClo
   );
 }
 
+/** The PEM files themselves, to copy into another server or tool. Read when opened; the key stays hidden until asked for. */
+function FilesDialog({ cert, open, onClose }: { cert: Cert; open: boolean; onClose: () => void }) {
+  const [files, setFiles] = React.useState<{ certificate: string; privateKey: string } | null>(null);
+  const [showKey, setShowKey] = React.useState(false);
+  const load = useAction(() => certificateFiles(cert.id), { onSuccess: (f) => setFiles(f) });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read once each time the dialog opens.
+  React.useEffect(() => {
+    if (!open) {
+      setFiles(null);
+      setShowKey(false);
+      return;
+    }
+    load.run();
+  }, [open, cert.id]);
+  const block = (value: string) => (
+    <Copyable value={value}>
+      <pre className="scrollbar-thin max-h-56 overflow-auto rounded-md border border-line bg-surface-2 py-2.5 pr-9 pl-3 font-mono text-[11.5px] leading-relaxed break-all whitespace-pre-wrap text-fg-2">
+        {value}
+      </pre>
+    </Copyable>
+  );
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader title={cert.name} description="The files the proxy serves, in PEM format." />
+        <DialogBody className="flex flex-col gap-4">
+          {!files ? (
+            <div className="h-40 animate-pulse rounded-md bg-sunken" />
+          ) : (
+            <>
+              <Field label="Certificate" description="With its chain (fullchain.pem).">
+                {block(files.certificate)}
+              </Field>
+              <Field label="Private key" description="Keep it secret: anyone with it can pose as these domains.">
+                {showKey ? (
+                  block(files.privateKey)
+                ) : (
+                  <Button size="sm" className="w-fit" onClick={() => setShowKey(true)}>
+                    <Eye /> Show private key
+                  </Button>
+                )}
+              </Field>
+            </>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <DialogClose render={<Button variant="ghost" size="sm" />}>Close</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CertificateRow({
   cert: c,
   isAdmin,
@@ -343,6 +397,7 @@ function CertificateRow({
 }) {
   const [details, setDetails] = React.useState(false);
   const [paths, setPaths] = React.useState(false);
+  const [viewing, setViewing] = React.useState(false);
   const days = daysLeft(c.expiresAt);
   const failed = c.status === "failed";
   const managed = c.provider !== "custom";
@@ -417,6 +472,11 @@ function CertificateRow({
                     <RefreshCw /> {c.autoRenew ? "Turn off auto-renew" : "Turn on auto-renew"}
                   </MenuItem>
                 )}
+                {c.certPath && c.keyPath && (c.status === "active" || c.status === "expired") && (
+                  <MenuItem onClick={() => setViewing(true)}>
+                    <Eye /> View certificate
+                  </MenuItem>
+                )}
                 {c.certPath && c.keyPath && c.status === "active" && (
                   <MenuItem onClick={() => setPaths(true)}>
                     <FileCode2 /> Use in a custom config
@@ -469,6 +529,7 @@ function CertificateRow({
         </div>
       )}
       {c.certPath && c.keyPath && <PathsDialog cert={c} open={paths} onClose={() => setPaths(false)} />}
+      {c.certPath && c.keyPath && <FilesDialog cert={c} open={viewing} onClose={() => setViewing(false)} />}
     </div>
   );
 }

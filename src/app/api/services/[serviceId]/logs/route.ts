@@ -41,9 +41,10 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
     return new Response(`The server of this service is unreachable: ${(e as Error).message}`, { status: 503 });
   }
   const current = service.type === "app" && service.currentDeploymentId ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : all;
-  // One compose service only, when the page asks for it.
+  // One compose service or one app replica (the number its container name ends with), when the page asks for it.
   const only = request.nextUrl.searchParams.get("container");
-  const containers = only ? current.filter((c) => c.Labels["com.docker.compose.service"] === only) : current;
+  const replicaOf = (c: (typeof current)[number]) => c.Names[0]?.replace(/^\//, "").split("-").pop();
+  const containers = only ? current.filter((c) => (c.Labels["com.docker.compose.service"] ?? (service.type === "app" ? replicaOf(c) : undefined)) === only) : current;
 
   const encoder = new TextEncoder();
   const streams: NodeJS.ReadableStream[] = [];
@@ -86,7 +87,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
         if (closed) break;
         const id = c.Id.slice(0, 12);
         const after = since.get(id);
-        const label = c.Labels["com.docker.compose.service"] ?? (multi ? c.Names[0].replace(/^\//, "").split("-").pop() : null);
+        const label = c.Labels["com.docker.compose.service"] ?? (multi ? replicaOf(c) : null);
         try {
           const raw = (await docker.getContainer(c.Id).logs({
             follow: true,

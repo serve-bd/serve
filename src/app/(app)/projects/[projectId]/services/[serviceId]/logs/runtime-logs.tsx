@@ -28,11 +28,14 @@ export function RuntimeLogs({
   serviceId,
   name,
   containers = [],
+  replicas = false,
   initialContainer = null,
 }: {
   serviceId: string;
   name: string;
+  /** Compose service names, or replica numbers when `replicas` is set. */
   containers?: string[];
+  replicas?: boolean;
   initialContainer?: string | null;
 }) {
   const [container, setContainer] = React.useState<string | null>(initialContainer && containers.includes(initialContainer) ? initialContainer : null);
@@ -99,7 +102,7 @@ export function RuntimeLogs({
     <LogViewer
       lines={lines}
       showTime
-      filename={`${container ? `${name}-${container}` : name}.log`}
+      filename={`${container ? `${name}-${replicas ? `replica-${container}` : container}` : name}.log`}
       emptyText={connected ? "No output yet." : "Connecting…"}
       height="calc(100vh - 290px)"
       toolbar={
@@ -126,7 +129,7 @@ export function RuntimeLogs({
   if (containers.length < 2) return viewer;
   return (
     <div className="flex flex-col gap-3">
-      <div role="tablist" aria-label="Containers" className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+      <div role="tablist" aria-label={replicas ? "Replicas" : "Containers"} className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         {[null, ...containers].map((c) => (
           <button
             key={c ?? "all"}
@@ -137,10 +140,10 @@ export function RuntimeLogs({
             className={cn(
               "h-8 flex-none rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
               container === c ? "bg-fg/[0.07] text-fg" : "text-muted hover:bg-fg/[0.04] hover:text-fg",
-              c && "font-mono text-[12.5px]",
+              c && !replicas && "font-mono text-[12.5px]",
             )}
           >
-            {c ?? "All containers"}
+            {c === null ? (replicas ? "All replicas" : "All containers") : replicas ? `Replica ${c}` : c}
           </button>
         ))}
       </div>

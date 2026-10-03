@@ -18,7 +18,13 @@ export default async function LogsPage(props: PageProps<"/projects/[projectId]/s
       <RuntimeLogs
         serviceId={service.id}
         name={service.slug}
-        containers={service.type === "compose" ? composeServiceNames(service.compose?.content ?? "") : []}
+        containers={
+          service.type === "compose"
+            ? composeServiceNames(service.compose?.content ?? "")
+            : // Replicas on this server, numbered like their containers (<slug>-<deployment>-<n>).
+              Array.from({ length: service.type === "app" ? Math.max(1, Math.min(service.runtime.replicas || 1, 20)) : 1 }, (_, i) => String(i + 1))
+        }
+        replicas={service.type === "app"}
         initialContainer={typeof container === "string" ? container : null}
       />
     </PageBody>

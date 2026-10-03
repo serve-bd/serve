@@ -4,6 +4,7 @@ import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import { imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { getServer, type ServerCtx } from "@/server/servers/context";
+import { serverAllowsOrg } from "@/server/servers/ownership";
 import { type DrainSpec, type ServiceRow, servicesCsv, vectorConfig } from "./config";
 
 export const VECTOR_IMAGE = "timberio/vector:0.58.0-alpine";
@@ -59,9 +60,10 @@ function drainDir(ctx: ServerCtx) {
 async function ensureVector(ctx: ServerCtx, config: string, csv: string) {
   const dir = drainDir(ctx);
   await ctx.fs.mkdir(dir);
-  // The table first: a config that names rows the table lacks would drop their lines.
-  await ctx.fs.writeIfChanged(path.posix.join(dir, "services.csv"), csv);
-  await ctx.fs.writeIfChanged(path.posix.join(dir, "vector.json"), config);
+  // The table first: a config that names rows the table lacks would drop their lines. The config
+  // holds the drains' tokens: readable by root only.
+  await writePrivate(ctx, path.posix.join(dir, "services.csv"), csv);
+  await writePrivate(ctx, path.posix.join(dir, "vector.json"), config);
   const container = ctx.docker.getContainer(CONTAINER);
   const existing = await container.inspect().catch(() => null);
   if (existing && existing.Config.Image !== VECTOR_IMAGE) await container.remove({ force: true }).catch(() => {});
@@ -93,6 +95,18 @@ async function ensureVector(ctx: ServerCtx, config: string, csv: string) {
   if (!existing.State.Running) await container.start().catch(() => {});
 }
 
+/** Files written since the worker started: written once anyway, so older copies get the private mode too. */
+const written = new Set<string>();
+
+/** Writes a file readable by its owner only, when its content changed. */
+async function writePrivate(ctx: ServerCtx, file: string, content: string) {
+  const key = `${ctx.id}:${file}`;
+  const current = written.has(key) ? await ctx.fs.readFile(file).catch(() => null) : null;
+  if (current === content) return;
+  await ctx.fs.writeFile(file, content, 0o600);
+  written.add(key);
+}
+
 async function removeVector(ctx: ServerCtx) {
   await ctx.docker
     .getContainer(CONTAINER)
@@ -111,8 +125,15 @@ export async function syncLogDrains(serverIds?: string[]) {
   // A drain with nothing picked sends nothing; with none left, Vector is not needed.
   const drains = (await enabledDrains()).filter((d) => d.projectIds?.length || d.serviceIds?.length);
   const services = await drainedServices([...new Set(drains.map((d) => d.organizationId))]);
-  const servers = await db.select({ id: schema.server.id, name: schema.server.name, status: schema.server.status }).from(schema.server);
-  const csv = servicesCsv(services);
+  const servers = await db
+    .select({
+      id: schema.server.id,
+      name: schema.server.name,
+      status: schema.server.status,
+      ownerOrganizationId: schema.server.ownerOrganizationId,
+      organizationIds: schema.server.organizationIds,
+    })
+    .from(schema.server);
   await Promise.all(
     servers
       .filter((s) => s.status === "ready" && (!serverIds || serverIds.includes(s.id)) && !syncing.has(s.id))
@@ -120,7 +141,11 @@ export async function syncLogDrains(serverIds?: string[]) {
         syncing.add(s.id);
         try {
           const ctx = await getServer(s.id);
-          if (drains.length) await ensureVector(ctx, vectorConfig(s.name, drains, csv), csv);
+          // A server holds the drains (and service names) of the organizations it serves only: its
+          // owner can read its files, and must not see other organizations' tokens.
+          const here = drains.filter((d) => serverAllowsOrg(s, d.organizationId));
+          const csv = servicesCsv(services.filter((r) => serverAllowsOrg(s, r.organizationId)));
+          if (here.length) await ensureVector(ctx, vectorConfig(s.name, here, csv), csv);
           else await removeVector(ctx);
         } catch {
           // Unreachable right now: the next run tries again.

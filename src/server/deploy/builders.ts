@@ -463,10 +463,12 @@ async function railpackBin(log: (line: string) => void) {
     await fs.writeFile(path.join(tmp, "railpack.tar.gz"), archive);
     await run("tar", ["-xzf", path.join(tmp, "railpack.tar.gz"), "-C", tmp, "railpack"]);
     await fs.chmod(path.join(tmp, "railpack"), 0o755);
-    // Moved in whole, so a build running at the same time never runs a half written file.
-    await fs.copyFile(path.join(tmp, "railpack"), `${bin}.tmp`);
-    await fs.chmod(`${bin}.tmp`, 0o755);
-    await fs.rename(`${bin}.tmp`, bin);
+    // Moved in whole, so a build running at the same time never runs a half written file; each
+    // download has its own temporary name, so two at once do not write into one.
+    const part = `${bin}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+    await fs.copyFile(path.join(tmp, "railpack"), part);
+    await fs.chmod(part, 0o755);
+    await fs.rename(part, bin);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }

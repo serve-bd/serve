@@ -103,7 +103,8 @@ export function DeployRulesSettings({ projectId, rules, envs, canManage }: { pro
   const timezone = freeze?.timezone || browserZone();
   // The other card's saved part goes along, so each card saves only its own changes.
   const savedFreeze = {
-    now: freeze?.now ? { until: freeze.now.until ?? null, reason: freeze.now.reason ?? null } : null,
+    // A timed freeze that has ended reads as off.
+    now: freeze?.now && (!freeze.now.until || new Date(freeze.now.until) > new Date()) ? { until: freeze.now.until ?? null, reason: freeze.now.reason ?? null } : null,
     windows: freeze?.windows ?? [],
     timezone,
     environmentIds: freeze?.environmentIds ?? [],

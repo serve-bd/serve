@@ -147,6 +147,7 @@ function AccessCard({
   setOn,
   disabled,
   offText,
+  footer,
   children,
 }: {
   title: string;
@@ -156,6 +157,8 @@ function AccessCard({
   setOn: (on: boolean) => void;
   disabled: boolean;
   offText: string;
+  /** The save button: also there with the switch off, to save turning it off. */
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -165,7 +168,7 @@ function AccessCard({
         description={description}
         actions={
           <div className="flex items-center gap-3">
-            {badge}
+            {on && badge}
             <Switch checked={on} onCheckedChange={setOn} disabled={disabled} aria-label={`${title} public access`} />
           </div>
         }
@@ -178,6 +181,7 @@ function AccessCard({
             <Lock className="size-3.5" /> {offText}
           </p>
         )}
+        {footer}
       </CardBody>
     </Card>
   );
@@ -269,6 +273,15 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
       setOn={setOn}
       disabled={!canManage}
       offText="Off. Only services in this project environment can connect."
+      footer={
+        changed && (
+          <div className="flex justify-end">
+            <Button variant="primary" size="sm" onClick={() => save.run()} loading={save.pending} disabled={!canManage || (on && !!who.error)}>
+              <Globe /> Save and restart
+            </Button>
+          </div>
+        )
+      }
     >
       <div className="flex flex-col gap-4 sm:flex-row">
         {domainOk && (
@@ -301,13 +314,6 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
         <Field label="Connection URL" description={domainOk && info.hostname && cert?.status !== "active" ? "Works once the certificate is active." : undefined}>
           <SecretField value={url} hidden={view.hideSecrets} shape={url} />
         </Field>
-      )}
-      {changed && (
-        <div className="flex justify-end">
-          <Button variant="primary" size="sm" onClick={() => save.run()} loading={save.pending} disabled={!canManage || !!who.error}>
-            <Globe /> Save and restart
-          </Button>
-        </div>
       )}
     </AccessCard>
   );
@@ -343,6 +349,15 @@ function AddonCard({ serviceId, which, addon, view, canManage }: { serviceId: st
       setOn={setOn}
       disabled={!canManage}
       offText={`Off. Only services in this project environment can connect, at ${pooler ? `${view.privateHost}-pooler` : `${view.privateHost}-replica`}.`}
+      footer={
+        changed && (
+          <div className="flex justify-end">
+            <Button variant="primary" size="sm" onClick={() => save.run()} loading={save.pending} disabled={!canManage || (on && !!who.error)}>
+              <Globe /> Save
+            </Button>
+          </div>
+        )
+      }
     >
       <div className="flex flex-col gap-4 sm:flex-row">
         <Field label="Domain" optional className="min-w-0 flex-1" description={pooler ? undefined : "Leads to every replica server."}>
@@ -377,13 +392,6 @@ function AddonCard({ serviceId, which, addon, view, canManage }: { serviceId: st
         <Field label="Connect through the tunnel" description="Run it on the computer you connect from, then connect to localhost:5432. It needs cloudflared.">
           <CopyField value={addon.tunnelCommand} />
         </Field>
-      )}
-      {changed && (
-        <div className="flex justify-end">
-          <Button variant="primary" size="sm" onClick={() => save.run()} loading={save.pending} disabled={!canManage || !!who.error}>
-            <Globe /> Save
-          </Button>
-        </div>
       )}
     </AccessCard>
   );

@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { paths } from "@/server/paths";
 import { commandExists, redactor, run } from "@/server/process";
 import { sh } from "@/server/servers/ssh";
 import type { ServerCtx } from "@/server/servers/context";
@@ -283,13 +285,22 @@ ${staticStage("source", build.publishDir || ".")}`,
   throw new Error("Could not detect the language of this repository. Add a Dockerfile, or pick a builder in the build settings.");
 }
 
-async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileContent?: string) {
+type DockerBuildOptions = {
+  /**
+   * A build file read by a BuildKit frontend (Railpack's plan), used as it is: no ARG lines, no
+   * build arguments. Build variables reach it as secrets, read from the environment of `docker`.
+   */
+  frontend?: { syntax: string; secrets: Record<string, string> };
+};
+
+async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileContent?: string, opts: DockerBuildOptions = {}) {
   const args = ["build", "--progress=plain", "-t", ctx.image, ...(ctx.platform ? ["--platform", ctx.platform] : [])];
   let tempDockerfile: string | null = null;
+  const frontend = opts.frontend;
   // The file is rewritten when build variables need declaring (ARG) or cache mounts need the
   // organization's prefix; otherwise the repository's own file is used as it is.
   const buildKeys = Object.keys(ctx.buildEnv);
-  const own = dockerfileContent ? null : await fs.readFile(path.join(ctx.contextDir, dockerfile), "utf8").catch(() => null);
+  const own = dockerfileContent || frontend ? null : await fs.readFile(path.join(ctx.contextDir, dockerfile), "utf8").catch(() => null);
   if (own && (own.includes("type=cache") || buildKeys.length)) {
     const ignore = path.join(ctx.contextDir, `${dockerfile}.dockerignore`);
     if (await exists(ignore)) await fs.copyFile(ignore, path.join(ctx.contextDir, ".serve.Dockerfile.dockerignore"));
@@ -307,8 +318,11 @@ async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileCont
   } else {
     args.push("-f", path.join(ctx.contextDir, dockerfile));
   }
-  for (const [k, v] of Object.entries(ctx.buildEnv)) args.push("--build-arg", `${k}=${v}`);
-  const extra = buildArgFlags(ctx.build.buildArgs);
+  if (frontend) {
+    args.push("--build-arg", `BUILDKIT_SYNTAX=${frontend.syntax}`);
+    for (const k of Object.keys(frontend.secrets)) args.push("--secret", `id=${k},env=${k}`);
+  } else for (const [k, v] of Object.entries(ctx.buildEnv)) args.push("--build-arg", `${k}=${v}`);
+  const extra = frontend ? [] : buildArgFlags(ctx.build.buildArgs);
   if (extra.length)
     ctx.log(
       `Build arguments: ${extra
@@ -318,17 +332,18 @@ async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileCont
     );
   args.push(...extra);
   for (const [k, v] of Object.entries(ctx.labels)) args.push("--label", `${k}=${v}`);
-  if (ctx.build.target) args.push("--target", ctx.build.target);
+  if (ctx.build.target && !frontend) args.push("--target", ctx.build.target);
   if (ctx.build.noCache) args.push("--no-cache", "--pull");
   const build = async (flags: string[]) => {
     const all = [...args, ...flags, ctx.contextDir];
-    if (ctx.remote) await buildOnServer(ctx, ctx.remote, all);
+    const secrets = frontend?.secrets ?? {};
+    if (ctx.remote) await buildOnServer(ctx, ctx.remote, all, secrets);
     else
       await run("docker", all, {
         onLine: ctx.log,
         signal: ctx.signal,
         redact: ctx.redact,
-        env: { DOCKER_BUILDKIT: "1", ...ctx.dockerEnv },
+        env: { DOCKER_BUILDKIT: "1", ...ctx.dockerEnv, ...secrets },
       });
   };
   try {
@@ -361,12 +376,24 @@ export function usesServices(buildEnv: Record<string, string>, hosts: Record<str
   return Object.values(buildEnv).some((value) => names.some((host) => new RegExp(`(^|${edge})${host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(${edge}|$)`).test(value)));
 }
 
-/** Copies the build context to the server as one archive, then runs `docker build` there. */
-async function buildOnServer(ctx: BuildContext, remote: NonNullable<BuildContext["remote"]>, args: string[]) {
+/**
+ * Copies the build context to the server as one archive, then runs `docker` there with these
+ * arguments (`build`, or `run` for a builder that runs in a container), and the environment given.
+ */
+async function buildOnServer(ctx: BuildContext, remote: NonNullable<BuildContext["remote"]>, args: string[], env: Record<string, string> = {}) {
   const dir = path.posix.join(remote.buildsDir, `context-${crypto.randomBytes(6).toString("hex")}`);
   const local = ctx.contextDir;
   // Paths in the arguments (context, Dockerfile) point into the copy on the server.
-  const mapped = args.map((a) => (a === local ? dir : a.startsWith(`${local}/`) ? path.posix.join(dir, path.relative(local, a).split(path.sep).join("/")) : a));
+  // A bind mount names it before a colon (`<context>:/workspace`).
+  const mapped = args.map((a) =>
+    a === local
+      ? dir
+      : a.startsWith(`${local}/`)
+        ? path.posix.join(dir, path.relative(local, a).split(path.sep).join("/"))
+        : a.startsWith(`${local}:`)
+          ? `${dir}${a.slice(local.length)}`
+          : a,
+  );
   const redact = redactor(ctx.redact);
   const started = Date.now();
   // Copies left by builds whose connection dropped are removed after an hour.
@@ -392,16 +419,211 @@ async function buildOnServer(ctx: BuildContext, remote: NonNullable<BuildContext
   }
   ctx.log(`Sent the build files to the server in ${((Date.now() - started) / 1000).toFixed(1)}s`);
   try {
-    const res = await remote.server.exec(`cd ${sh(dir)} && DOCKER_BUILDKIT=1 docker ${mapped.map(sh).join(" ")}`, {
+    const vars = Object.entries(env)
+      .filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k))
+      .map(([k, v]) => `${k}=${sh(v)} `)
+      .join("");
+    const res = await remote.server.exec(`cd ${sh(dir)} && ${vars}DOCKER_BUILDKIT=1 docker ${mapped.map(sh).join(" ")}`, {
       onLine: (line) => ctx.log(redact(line)),
       signal: ctx.signal,
     });
     if (ctx.signal?.aborted) throw new Error("Build cancelled");
-    if (res.code !== 0) throw new Error(`docker build exited with code ${res.code}`);
+    if (res.code !== 0) throw new Error(`docker ${mapped[0]} exited with code ${res.code}`);
   } finally {
     // A cancelled build keeps running on the server after its SSH channel closes: stop it by its directory.
     if (ctx.signal?.aborted) await remote.server.exec(`pkill -f ${sh(`docker build.*${dir}`)} || true`).catch(() => {});
     await remote.server.exec(`rm -rf ${sh(dir)}`).catch(() => {});
+  }
+}
+
+const RAILPACK_VERSION = "0.40.1";
+/** Checksums of the release archives, so a changed download is never run. */
+const RAILPACK_SHA256: Record<string, { file: string; sha256: string }> = {
+  x64: { file: "x86_64-unknown-linux-musl", sha256: "2842de93e68713af9037e0bc0a398d7da78f3b96aa4804303a638db2bc69bd30" },
+  arm64: { file: "arm64-unknown-linux-musl", sha256: "c24a064b586b8f4f8c2fab44dd5ef19253e4c6cc4e1df793b3ae19cd87f7a5d4" },
+};
+const RAILPACK_FRONTEND = `ghcr.io/railwayapp/railpack-frontend:v${RAILPACK_VERSION}`;
+export const DEFAULT_BUILDPACKS_BUILDER = "heroku/builder:24";
+
+/** The Railpack binary, downloaded once into the data directory on first use. */
+async function railpackBin(log: (line: string) => void) {
+  const bin = path.join(paths.tools, `railpack-${RAILPACK_VERSION}`);
+  if (await exists(bin)) return bin;
+  const asset = RAILPACK_SHA256[process.arch];
+  if (process.platform !== "linux" || !asset) throw new Error(`Railpack does not run on ${process.platform}/${process.arch}.`);
+  log(`Downloading Railpack ${RAILPACK_VERSION}`);
+  const url = `https://github.com/railwayapp/railpack/releases/download/v${RAILPACK_VERSION}/railpack-v${RAILPACK_VERSION}-${asset.file}.tar.gz`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+  if (!res.ok) throw new Error(`Could not download Railpack: HTTP ${res.status}`);
+  const archive = Buffer.from(await res.arrayBuffer());
+  if (crypto.createHash("sha256").update(archive).digest("hex") !== asset.sha256) throw new Error("The Railpack download did not match its checksum.");
+  await fs.mkdir(paths.tools, { recursive: true });
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "serve-railpack-"));
+  try {
+    await fs.writeFile(path.join(tmp, "railpack.tar.gz"), archive);
+    await run("tar", ["-xzf", path.join(tmp, "railpack.tar.gz"), "-C", tmp, "railpack"]);
+    await fs.chmod(path.join(tmp, "railpack"), 0o755);
+    // Moved in whole, so a build running at the same time never runs a half written file.
+    await fs.copyFile(path.join(tmp, "railpack"), `${bin}.tmp`);
+    await fs.chmod(`${bin}.tmp`, 0o755);
+    await fs.rename(`${bin}.tmp`, bin);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+  return bin;
+}
+
+/** Build variables and build arguments: both reach Railpack and Buildpacks as plain variables. */
+function buildVariables(ctx: BuildContext) {
+  const vars: Record<string, string> = { ...ctx.buildEnv };
+  for (const a of ctx.build.buildArgs ?? []) if (a.key.trim()) vars[a.key.trim()] = a.value;
+  return vars;
+}
+
+/** Railpack: it writes a build plan, which BuildKit builds with Railpack's frontend. */
+async function railpackBuild(ctx: BuildContext) {
+  const bin = await railpackBin(ctx.log);
+  const vars = buildVariables(ctx);
+  const planName = ".serve-railpack-plan.json";
+  const plan = path.join(ctx.contextDir, planName);
+  const args = ["prepare", ctx.contextDir, "--plan-out", plan, "--hide-pretty-plan"];
+  for (const [k, v] of Object.entries(vars)) args.push("--env", `${k}=${v}`);
+  if (ctx.build.installCommand) args.push("--env", `RAILPACK_INSTALL_CMD=${ctx.build.installCommand}`);
+  if (ctx.build.buildCommand) args.push("--build-cmd", ctx.build.buildCommand);
+  if (ctx.build.startCommand) args.push("--start-cmd", ctx.build.startCommand);
+  ctx.log(`Building with Railpack ${RAILPACK_VERSION}`);
+  await run(bin, args, { onLine: ctx.log, signal: ctx.signal, redact: ctx.redact, cwd: ctx.contextDir });
+  try {
+    // The plan names the variables it reads as secrets; each one is passed by name.
+    const planned = (JSON.parse(await fs.readFile(plan, "utf8")) as { secrets?: string[] }).secrets ?? [];
+    const secrets = Object.fromEntries(planned.filter((k) => k in vars).map((k) => [k, vars[k]]));
+    await dockerBuild(ctx, planName, undefined, { frontend: { syntax: RAILPACK_FRONTEND, secrets } });
+  } finally {
+    await fs.rm(plan, { force: true });
+  }
+  // BuildKit frontends leave out image labels: they are added on top.
+  await relabel(ctx);
+}
+
+/** Builder images whose publishers are known: others need the rights to run things on the host. */
+export function knownBuildpacksBuilder(image: string) {
+  return /^(docker\.io\/)?(heroku\/builder:|paketobuildpacks\/(builder-|ubuntu-noble-builder))/.test(image);
+}
+
+/**
+ * Cloud Native Buildpacks: the builder image's lifecycle (creator) runs next to Docker on the server
+ * that builds, and saves the image there. The pack CLI is not used: with build variables it rewrites
+ * the builder image, which fails on Docker's containerd image store.
+ */
+async function buildpacksBuild(ctx: BuildContext) {
+  const builder = ctx.build.buildpacksBuilder?.trim() || DEFAULT_BUILDPACKS_BUILDER;
+  const name = `serve-cnb-${crypto.randomBytes(6).toString("hex")}`;
+  const vars = Object.fromEntries(Object.entries(buildVariables(ctx)).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k)));
+  // Build variables are files in /platform/env, written inside the container from its environment:
+  // nothing is left in the source the image is made from, and values stay off the command line.
+  const passed = Object.fromEntries(Object.entries(vars).map(([k, v]) => [`SERVE_ENV_${k}`, v]));
+  const script = [
+    "set -e",
+    "mkdir -p /platform/env",
+    'for n in $SERVE_ENV_NAMES; do printf %s "$(printenv "SERVE_ENV_$n")" > "/platform/env/$n"; done',
+    `exec /cnb/lifecycle/creator -app=/workspace -cache-dir=/cache -daemon ${ctx.build.noCache ? "-skip-restore " : ""}"$0"`,
+  ].join("\n");
+  const args = [
+    "run",
+    "--rm",
+    "--name",
+    name,
+    // The lifecycle starts as root to reach Docker and runs the buildpacks as the builder's own user.
+    "--user",
+    "root",
+    "-e",
+    "CNB_PLATFORM_API=0.13",
+    "-e",
+    `SERVE_ENV_NAMES=${Object.keys(vars).join(" ")}`,
+    ...Object.keys(passed).flatMap((k) => ["-e", k]),
+    "-v",
+    "/var/run/docker.sock:/var/run/docker.sock",
+    "-v",
+    `${ctx.contextDir}:/workspace`,
+    // Layers cached per organization, across builds.
+    "-v",
+    `serve-cnb-cache-${ctx.cacheScope.replace(/[^a-zA-Z0-9_.-]/g, "-")}:/cache`,
+    "--entrypoint",
+    "sh",
+    builder,
+    "-c",
+    script,
+    ctx.image,
+  ];
+  ctx.log(`Building with Cloud Native Buildpacks (${builder})`);
+  await pullRunImage(ctx, builder);
+  // An image already under this name (a build of the same deployment run again) makes the lifecycle
+  // fail to save over it on Docker's containerd image store.
+  await dockerOn(ctx, ["image", "rm", "-f", ctx.image]).catch(() => {});
+  try {
+    if (ctx.remote) await buildOnServer(ctx, ctx.remote, args, passed);
+    else await run("docker", args, { onLine: ctx.log, signal: ctx.signal, redact: ctx.redact, env: { ...ctx.dockerEnv, ...passed } });
+  } finally {
+    // A cancelled build: its container keeps going after the CLI stops.
+    if (ctx.signal?.aborted)
+      await (ctx.remote ? ctx.remote.server.exec(`docker rm -f ${sh(name)}`) : run("docker", ["rm", "-f", name], { env: { ...ctx.dockerEnv } })).catch(() => {});
+  }
+  // The start command, when set, replaces the buildpacks' own web process.
+  await relabel(ctx, ctx.build.startCommand ? `ENTRYPOINT ["/cnb/lifecycle/launcher"]\nCMD ${JSON.stringify([ctx.build.startCommand])}\n` : "");
+}
+
+/** `docker` on the server that builds, returning its output. */
+async function dockerOn(ctx: BuildContext, args: string[]) {
+  if (!ctx.remote) return run("docker", args, { signal: ctx.signal, env: { ...ctx.dockerEnv } });
+  const res = await ctx.remote.server.exec(`docker ${args.map(sh).join(" ")}`, { signal: ctx.signal });
+  if (res.code !== 0) throw new Error((res.stderr || res.stdout).trim() || `docker ${args[0]} exited with code ${res.code}`);
+  return res.stdout;
+}
+
+/**
+ * The builder's run image (the base of the app image) must be in Docker before the lifecycle saves
+ * the image there: the lifecycle reads it from Docker and does not pull it.
+ */
+async function pullRunImage(ctx: BuildContext, builder: string) {
+  const has = (image: string) =>
+    dockerOn(ctx, ["image", "inspect", "--format", "{{.Id}}", image]).then(
+      () => true,
+      () => false,
+    );
+  if (ctx.build.noCache || !(await has(builder))) {
+    ctx.log(`Pulling ${builder}`);
+    await dockerOn(ctx, ["pull", "-q", builder]);
+  }
+  const label = await dockerOn(ctx, ["image", "inspect", "--format", '{{index .Config.Labels "io.buildpacks.builder.metadata"}}', builder]);
+  let meta: { images?: { image?: string }[]; stack?: { runImage?: { image?: string } } } = {};
+  try {
+    meta = JSON.parse(label.trim());
+  } catch {
+    throw new Error(`${builder} is not a Cloud Native Buildpacks builder image.`);
+  }
+  const runImage = meta.images?.[0]?.image ?? meta.stack?.runImage?.image;
+  if (!runImage) throw new Error(`${builder} names no run image.`);
+  if (ctx.build.noCache || !(await has(runImage))) {
+    ctx.log(`Pulling ${runImage}`);
+    await dockerOn(ctx, ["pull", "-q", runImage]);
+  }
+}
+
+/** Adds the image labels Serve finds its images by (and any extra lines) on top of a built image. */
+async function relabel(ctx: BuildContext, extra = "") {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "serve-relabel-"));
+  try {
+    const plain: BuildContext = {
+      ...ctx,
+      contextDir: dir,
+      buildEnv: {},
+      network: null,
+      build: { ...ctx.build, buildArgs: [], target: null, noCache: false },
+      log: () => {},
+    };
+    await dockerBuild(plain, "", `FROM ${ctx.image}\n${extra}`);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
   }
 }
 
@@ -421,6 +643,16 @@ export async function buildImage(ctx: BuildContext): Promise<BuildResult> {
     ctx.log(`Building with Dockerfile (${build.dockerfile})`);
     await dockerBuild(ctx, build.dockerfile);
     return { builder: "dockerfile" };
+  }
+
+  if (builder === "railpack") {
+    await railpackBuild(ctx);
+    return { builder: "railpack" };
+  }
+
+  if (builder === "buildpacks") {
+    await buildpacksBuild(ctx);
+    return { builder: "buildpacks" };
   }
 
   if (builder === "nixpacks") {

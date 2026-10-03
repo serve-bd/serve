@@ -47,8 +47,12 @@ export function BuildSection({
         title="Build"
         description="How the image is built from your repository."
         footerNote={REDEPLOY}
-        initial={{ builder: build.builder, rootDir: build.rootDir, dockerfile: build.dockerfile, target: build.target ?? "" }}
-        onSave={(v) => save({ build: { builder: v.builder, rootDir: v.rootDir, dockerfile: v.dockerfile, target: v.target || null } })}
+        initial={{ builder: build.builder, rootDir: build.rootDir, dockerfile: build.dockerfile, target: build.target ?? "", buildpacksBuilder: build.buildpacksBuilder ?? "" }}
+        onSave={(v) =>
+          save({
+            build: { builder: v.builder, rootDir: v.rootDir, dockerfile: v.dockerfile, target: v.target || null, buildpacksBuilder: v.buildpacksBuilder.trim() || null },
+          })
+        }
       >
         {(v, set) => (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -72,6 +76,8 @@ export function BuildSection({
                   { value: "auto", label: "Automatic", description: "Dockerfile if present, otherwise detect" },
                   { value: "dockerfile", label: "Dockerfile" },
                   { value: "nixpacks", label: "Nixpacks", description: nixpacks ? undefined : "Not installed yet" },
+                  { value: "railpack", label: "Railpack", description: "Detects the language and builds with BuildKit" },
+                  { value: "buildpacks", label: "Cloud Native Buildpacks", description: "Builds with a buildpacks builder image" },
                   { value: "static", label: "Static site" },
                   ...(composeHref ? [{ value: "compose", label: "Docker Compose", description: "Runs the repository's compose file as a new service" }] : []),
                 ]}
@@ -82,6 +88,17 @@ export function BuildSection({
                 <Input value={v.rootDir.replace(/^\//, "")} onChange={(e) => set({ rootDir: `/${e.target.value.replace(/^\//, "")}` })} />
               </InputGroup>
             </Field>
+            {v.builder === "buildpacks" && (
+              <Field label="Builder image" optional description="Leave empty for heroku/builder:24. Paketo builders work too.">
+                <Input
+                  value={v.buildpacksBuilder}
+                  onChange={(e) => set({ buildpacksBuilder: e.target.value })}
+                  placeholder="heroku/builder:24"
+                  className="font-mono text-[13px]"
+                  spellCheck={false}
+                />
+              </Field>
+            )}
             {(v.builder === "dockerfile" || v.builder === "auto") && (
               <>
                 <Field label="Dockerfile path">
@@ -100,7 +117,13 @@ export function BuildSection({
         <Section
           id="commands"
           title="Commands"
-          description={build.builder === "auto" ? "Used when the repository has no Dockerfile. Leave empty to detect them." : "Leave empty to detect them from the project."}
+          description={
+            build.builder === "auto"
+              ? "Used when the repository has no Dockerfile. Leave empty to detect them."
+              : build.builder === "buildpacks"
+                ? "The buildpacks install and build the project themselves. Leave empty to use their start command."
+                : "Leave empty to detect them from the project."
+          }
           footerNote={REDEPLOY}
           initial={{
             installCommand: build.installCommand ?? "",
@@ -116,18 +139,22 @@ export function BuildSection({
         >
           {(v, set) => (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Install command" optional>
-                <Input value={v.installCommand} onChange={(e) => set({ installCommand: e.target.value })} placeholder="npm ci" className="font-mono text-[13px]" />
-              </Field>
-              <Field label="Build command" optional>
-                <Input value={v.buildCommand} onChange={(e) => set({ buildCommand: e.target.value })} placeholder="npm run build" className="font-mono text-[13px]" />
-              </Field>
+              {build.builder !== "buildpacks" && (
+                <>
+                  <Field label="Install command" optional>
+                    <Input value={v.installCommand} onChange={(e) => set({ installCommand: e.target.value })} placeholder="npm ci" className="font-mono text-[13px]" />
+                  </Field>
+                  <Field label="Build command" optional>
+                    <Input value={v.buildCommand} onChange={(e) => set({ buildCommand: e.target.value })} placeholder="npm run build" className="font-mono text-[13px]" />
+                  </Field>
+                </>
+              )}
               {build.builder !== "static" && (
                 <Field label="Start command" optional>
                   <Input value={v.startCommand} onChange={(e) => set({ startCommand: e.target.value })} placeholder="npm start" className="font-mono text-[13px]" />
                 </Field>
               )}
-              {build.builder !== "nixpacks" && (
+              {(build.builder === "auto" || build.builder === "static") && (
                 <Field label="Output directory" optional description="For static sites.">
                   <Input value={v.publishDir} onChange={(e) => set({ publishDir: e.target.value })} placeholder="dist" className="font-mono text-[13px]" />
                 </Field>

@@ -74,7 +74,7 @@ export type DeploymentTarget = {
   error?: string | null;
 };
 
-export type Builder = "auto" | "dockerfile" | "nixpacks" | "static";
+export type Builder = "auto" | "dockerfile" | "nixpacks" | "railpack" | "buildpacks" | "static";
 
 export type BuildConfig = {
   builder: Builder;
@@ -89,6 +89,8 @@ export type BuildConfig = {
   publishDir?: string | null;
   /** Docker build target stage. */
   target?: string | null;
+  /** The builder image Cloud Native Buildpacks build with (default heroku/builder:24). */
+  buildpacksBuilder?: string | null;
   /** Extra --build-arg values (not secret: use build-time variables for secrets). */
   buildArgs?: KeyValue[];
   /** Always build without the layer cache and pull fresh base images. */

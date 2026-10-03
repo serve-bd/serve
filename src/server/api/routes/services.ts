@@ -33,7 +33,10 @@ const createBody = z.discriminatedUnion("type", [
     environmentId: id,
     name: z.string(),
     source,
-    build: z.looseObject({}).optional().describe("builder (auto, dockerfile, nixpacks, static), dockerfilePath, context, buildCommand, startCommand, ..."),
+    build: z
+      .looseObject({})
+      .optional()
+      .describe("builder (auto, dockerfile, nixpacks, railpack, buildpacks, static), buildpacksBuilder, dockerfilePath, context, buildCommand, startCommand, ..."),
     port: z.number().int().optional(),
     envVars: z.array(variable).optional(),
     serverId: z.string().nullable().optional(),

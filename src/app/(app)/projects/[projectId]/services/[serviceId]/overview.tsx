@@ -478,9 +478,13 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                       ? "Dockerfile"
                       : service.builder === "nixpacks"
                         ? "Nixpacks"
-                        : service.builder === "static"
-                          ? "Static site"
-                          : "—"}
+                        : service.builder === "railpack"
+                          ? "Railpack"
+                          : service.builder === "buildpacks"
+                            ? "Cloud Native Buildpacks"
+                            : service.builder === "static"
+                              ? "Static site"
+                              : "—"}
                   {service.rootDir && service.rootDir !== "." && service.rootDir !== "/" ? ` · ${service.rootDir}` : ""}
                 </Row>
                 <Row label="Deploy on push">{service.autoDeploy ? "On" : "Off"}</Row>

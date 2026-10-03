@@ -184,7 +184,7 @@ const appSchema = z.object({
   ]),
   build: z
     .object({
-      builder: z.enum(["auto", "dockerfile", "nixpacks", "static"]).default("auto"),
+      builder: z.enum(["auto", "dockerfile", "nixpacks", "railpack", "buildpacks", "static"]).default("auto"),
       rootDir: z.string().default("/"),
       dockerfile: z.string().default("Dockerfile"),
       installCommand: z.string().nullable().optional(),
@@ -548,7 +548,7 @@ const updateSchema = z.object({
     .optional(),
   build: z
     .object({
-      builder: z.enum(["auto", "dockerfile", "nixpacks", "static"]),
+      builder: z.enum(["auto", "dockerfile", "nixpacks", "railpack", "buildpacks", "static"]),
       rootDir: z.string(),
       dockerfile: z.string(),
       installCommand: z.string().nullable(),
@@ -556,6 +556,12 @@ const updateSchema = z.object({
       startCommand: z.string().nullable(),
       publishDir: z.string().nullable(),
       target: z.string().nullable(),
+      buildpacksBuilder: z
+        .string()
+        .trim()
+        .max(300)
+        .regex(/^[a-z0-9][a-z0-9._/:@-]*$/i, "Enter an image name like heroku/builder:24.")
+        .nullable(),
       buildArgs: z.array(z.object({ key: z.string().trim().max(200), value: z.string().max(4000) })).max(100),
       noCache: z.boolean(),
       buildTimeoutMinutes: z.number().int().min(1).max(240).nullable(),
@@ -779,6 +785,11 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       }
     }
     if (data.build) patch.build = { ...defaultBuild(), ...service.build, ...data.build } as BuildConfig;
+    // The builder image's lifecycle runs next to Docker's socket: only known publishers' images go without host rights.
+    if (data.build?.buildpacksBuilder && data.build.buildpacksBuilder !== service.build?.buildpacksBuilder) {
+      const { knownBuildpacksBuilder } = await import("@/server/deploy/builders");
+      if (!knownBuildpacksBuilder(data.build.buildpacksBuilder)) assertHostAccess(ctx, "A buildpacks builder image from another publisher");
+    }
     // A service that runs with host-level access: what it runs is an admin's decision too.
     if (hasHostAccess(service.runtime) && (data.source || data.build || data.runtime || data.compose)) assertHostAccess(ctx, "Changing a service that has host-level access");
     if (data.runtime) {

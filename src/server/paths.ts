@@ -17,6 +17,8 @@ export function pathsFor(dataDir: string) {
     certs: path.posix.join(dataDir, "certs"),
     backups: path.posix.join(dataDir, "backups"),
     ssh: path.posix.join(dataDir, "ssh"),
+    /** Build tools Serve downloads when first needed (Railpack). */
+    tools: path.posix.join(dataDir, "tools"),
   };
 }
 

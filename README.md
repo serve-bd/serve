@@ -25,7 +25,7 @@ Push to deploy, get a domain with HTTPS and manage it all from one dashboard.
 
 ## What it does
 
-- **Apps** from Git (GitHub, GitLab, Gitea/Forgejo, Bitbucket or any Git URL), a Docker image, a Dockerfile or a Docker Compose file. Builds with a Dockerfile, Nixpacks or built-in detection.
+- **Apps** from Git (GitHub, GitLab, Gitea/Forgejo, Bitbucket or any Git URL), a Docker image, a Dockerfile or a Docker Compose file. Builds with a Dockerfile, Nixpacks, Railpack, Cloud Native Buildpacks or built-in detection.
 - **Databases:** PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey and ClickHouse, with scheduled backups to disk or S3 and one-click restore.
 - **One-click services** from a catalog (n8n, Uptime Kuma, Plausible, Ghost, Nextcloud, Vaultwarden, Grafana, MinIO and more), plus your own templates.
 - **Deployments** with zero downtime, health checks, rollbacks, pull request previews, deploy hooks and an API.

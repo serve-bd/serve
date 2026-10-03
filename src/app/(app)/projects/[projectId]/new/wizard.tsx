@@ -500,6 +500,8 @@ function GitForm({ props, onBack, access }: { props: Props; onBack: () => void; 
               { value: "dockerfile", label: "Dockerfile" },
               { value: "compose", label: "Docker Compose", description: "Run the repository's compose file" },
               { value: "nixpacks", label: "Nixpacks", description: props.nixpacks ? "Installed" : "Not installed yet" },
+              { value: "railpack", label: "Railpack", description: "Detects the language and builds with BuildKit" },
+              { value: "buildpacks", label: "Cloud Native Buildpacks", description: "Builds with heroku/builder:24" },
               { value: "static", label: "Static site", description: "Served by nginx" },
             ]}
           />

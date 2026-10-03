@@ -1,3 +1,4 @@
+import { replicaInstances } from "@/server/services/types";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { eq } from "drizzle-orm";
@@ -41,7 +42,12 @@ async function restorePolicy(service: Service, target: ServerCtx, containerId: s
 /** Extra servers are best effort: one that is offline must not block the others. */
 async function onExtras(service: Service, fn: (server: ServerCtx) => Promise<void>) {
   const [, ...extras] = await serversOfService(service);
-  await Promise.allSettled(extras.map(fn));
+  // A database's read replicas on other servers stop, start and restart with it.
+  const replicaServers = replicaInstances(service)
+    .map((r) => r.serverId)
+    .filter((id) => id !== service.serverId && !extras.some((e) => e.id === id));
+  const more = await Promise.all([...new Set(replicaServers)].map((id) => getServer(id).catch(() => null)));
+  await Promise.allSettled([...extras, ...more.filter((m): m is ServerCtx => !!m)].map(fn));
 }
 
 /**

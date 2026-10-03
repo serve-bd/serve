@@ -308,7 +308,8 @@ export function BackupsManager(props: {
           destinations={props.destinations}
           timezone={props.timezone}
           canEdit={props.isAdmin}
-          databaseChoices={choices}
+          // The schedule offers the choice with one database too: Every database also takes the ones made later.
+          databaseChoices={props.databaseChoices ?? null}
         />
         {props.aside}
       </div>

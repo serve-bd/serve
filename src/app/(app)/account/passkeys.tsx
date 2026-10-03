@@ -22,7 +22,7 @@ function deviceName() {
   return `${browser}${os ? ` on ${os}` : ""}`;
 }
 
-export function PasskeysCard({ passkeys, hostname, allowed }: { passkeys: PasskeyRow[]; hostname: string; allowed: boolean }) {
+export function PasskeysCard({ passkeys, hostname, allowed, email }: { passkeys: PasskeyRow[]; hostname: string; allowed: boolean; email: string }) {
   const router = useRouter();
   const confirm = useConfirm();
   const [adding, setAdding] = React.useState(false);
@@ -33,13 +33,23 @@ export function PasskeysCard({ passkeys, hostname, allowed }: { passkeys: Passke
   const [supported, setSupported] = React.useState(true);
   React.useEffect(() => setSupported(window.isSecureContext && typeof window.PublicKeyCredential !== "undefined"), []);
 
-  async function add() {
+  const [naming, setNaming] = React.useState(false);
+  const [newName, setNewName] = React.useState("");
+
+  async function add(label: string) {
     setAdding(true);
-    const { error } = await authClient.passkey.addPasskey({ name: deviceName() });
+    // The browser saves the passkey under the name sent with it, and a website cannot rename it
+    // there later: that is the email, so the password manager shows which account it is for.
+    // The label typed here is Serve's own, set right after (and renamed any time).
+    const { data, error } = await authClient.passkey.addPasskey({ name: email });
+    if (data?.id) await authClient.passkey.updatePasskey({ id: data.id, name: label.trim() || deviceName() });
     setAdding(false);
     // Closing the browser's prompt is not an error worth showing.
     if (error && !/cancel|abort|not allowed/i.test(error.message ?? "")) return showError(error.message ?? "Could not add the passkey.");
-    if (!error) router.refresh();
+    if (!error) {
+      setNaming(false);
+      router.refresh();
+    }
   }
 
   return (
@@ -50,7 +60,13 @@ export function PasskeysCard({ passkeys, hostname, allowed }: { passkeys: Passke
         actions={
           allowed &&
           supported && (
-            <Button size="sm" onClick={() => void add()} loading={adding}>
+            <Button
+              size="sm"
+              onClick={() => {
+                setNewName(deviceName());
+                setNaming(true);
+              }}
+            >
               <Plus /> Add passkey
             </Button>
           )
@@ -117,6 +133,29 @@ export function PasskeysCard({ passkeys, hostname, allowed }: { passkeys: Passke
           ))}
         </div>
       )}
+      <Dialog open={naming} onOpenChange={(o) => !o && !adding && setNaming(false)}>
+        <DialogContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void add(newName);
+            }}
+          >
+            <DialogHeader title="Add passkey" />
+            <DialogBody className="flex flex-col gap-3">
+              <Field label="Name" description="To tell your passkeys apart here. Your browser or password manager saves it under your email.">
+                <Input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={100} autoFocus placeholder="Work laptop" />
+              </Field>
+            </DialogBody>
+            <DialogFooter>
+              <DialogClose render={<Button variant="ghost" size="sm" type="button" />}>Cancel</DialogClose>
+              <Button type="submit" variant="primary" size="sm" loading={adding}>
+                Continue
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!rename} onOpenChange={(o) => !o && setRename(null)}>
         <DialogContent>
           <form
@@ -131,7 +170,7 @@ export function PasskeysCard({ passkeys, hostname, allowed }: { passkeys: Passke
               router.refresh();
             }}
           >
-            <DialogHeader title="Rename passkey" />
+            <DialogHeader title="Rename passkey" description="Changes the name shown here. Your browser keeps the name it saved the passkey under." />
             <DialogBody>
               <Field label="Name">
                 <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoFocus />

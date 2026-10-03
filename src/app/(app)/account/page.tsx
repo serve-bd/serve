@@ -49,6 +49,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
               passkeys={passkeys.map((p) => ({ id: p.id, name: p.name, createdAt: p.createdAt?.toISOString() ?? null, backedUp: p.backedUp }))}
               hostname={hostname}
               allowed={allowed}
+              email={ctx.user.email}
             />
           }
         />

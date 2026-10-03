@@ -1094,7 +1094,11 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
     const [source] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, service.serverId));
     if (service.type === "database" && !opts.force) {
       throw new UserError(
-        `Moving a database starts it empty on ${target.name}. Its data stays in a volume on ${source?.name ?? "the old server"}. Back it up and restore it after the move.`,
+        `Moving a database starts it empty on ${target.name}. Its data stays in a volume on ${source?.name ?? "the old server"}. Back it up and restore it after the move.${
+          service.database?.replica?.enabled || service.database?.pooler?.public
+            ? " Its read replicas copy it again, and the public access of its pooler and replicas is turned off until you set it again."
+            : ""
+        }`,
       );
     }
     const [busy] = await db
@@ -1130,6 +1134,36 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
         }
       : null;
     await db.update(schema.service).set({ serverId: target.id, status: "deploying", distribution }).where(eq(schema.service.id, serviceId));
+
+    // A database starts empty there: its replicas copy it again (those on the old server move with
+    // it), and the public side of its pooler and replicas (ports and DNS of the old servers) is off
+    // until it is set again.
+    if (service.type === "database" && service.database && (service.database.pooler || service.database.replica)) {
+      const cfg = service.database;
+      const { replicaInstances } = await import("@/server/services/types");
+      const { removeReplicaInstance } = await import("@/server/databases/addons");
+      const { syncAddonDomain } = await import("@/server/databases/addon-domains");
+      const before = replicaInstances(service);
+      for (const r of before) await removeReplicaInstance(service, r).catch(() => {});
+      if (cfg.pooler?.public) await syncAddonDomain(service, cfg.pooler.public, null, [service.serverId], ctx.org.id).catch(() => []);
+      if (cfg.replica?.public) await syncAddonDomain(service, cfg.replica.public, null, [...new Set(before.map((r) => r.serverId))], ctx.org.id).catch(() => []);
+      // A replica on a server the new one shares no private network with could not reach it: it goes.
+      const { meshMemberIds, privatelyConnected } = await import("@/server/mesh/members");
+      const members = await meshMemberIds();
+      const instances = before
+        .map((r) => ({ id: r.id, serverId: r.serverId === service.serverId ? target.id : r.serverId }))
+        .filter((r) => privatelyConnected(members, target.id, r.serverId));
+      await db
+        .update(schema.service)
+        .set({
+          database: {
+            ...cfg,
+            pooler: cfg.pooler ? { ...cfg.pooler, public: null } : cfg.pooler,
+            replica: cfg.replica ? { ...cfg.replica, enabled: instances.length > 0, instances, public: null } : cfg.replica,
+          },
+        })
+        .where(eq(schema.service.id, serviceId));
+    }
 
     // Generated domains carry the server's address (sslip.io / wildcard); give them the new one.
     const domains = await db

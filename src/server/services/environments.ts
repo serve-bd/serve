@@ -83,7 +83,21 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
       passwordMap.set(decrypt(database.password), next);
       // Host ports, schedules and the domain belong to the original; the copy gets its own password.
       // Data kept outside Serve (a database moved in) stays with the original: the copy gets its own volume.
-      database = { ...database, password: encrypt(next), publicPort: null, backupSchedule: null, domain: null, domainTunnelId: null, domainOpened: null, dataVolume: null };
+      database = {
+        ...database,
+        password: encrypt(next),
+        publicPort: null,
+        backupSchedule: null,
+        domain: null,
+        domainTunnelId: null,
+        domainOpened: null,
+        dataVolume: null,
+        // The copy pools its own connections (its own lookup login), privately; replicas stay with the original.
+        pooler: database.pooler ? { ...database.pooler, password: null, public: null } : null,
+        replica: null,
+      };
+      if (s.database?.replica?.enabled) notes.add("Read replicas stay with the original environment: add them to the copy if it needs them.");
+      if (s.database?.pooler?.public) notes.add("The connection pooler of the copy is private: its public port and domain stay with the original.");
       if (s.database?.domain) notes.add("Database domains stay with the original environment.");
       if (s.database?.publicPort) notes.add("Public database ports are off in the copy, so they do not clash with the original.");
       if (s.database?.backupSchedule) notes.add("Backup schedules are off in the copy.");
@@ -392,6 +406,9 @@ export async function createPreviewDatabase(preview: Service, parent: Service, p
       domain: null,
       domainTunnelId: null,
       domainOpened: null,
+      // A preview's database is a plain copy: no pooler or replicas of its own.
+      pooler: null,
+      replica: null,
     },
     autoDeploy: false,
     webhookSecret: newWebhookSecret(),

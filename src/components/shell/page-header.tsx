@@ -35,6 +35,7 @@ export function PageHeader({
   breadcrumbs,
   crumb,
   crumbActions,
+  stackActions,
   className,
   children,
 }: {
@@ -47,6 +48,8 @@ export function PageHeader({
   crumb?: React.ReactNode;
   /** Controls at the right end of the breadcrumb bar (like an environment picker on phones). */
   crumbActions?: React.ReactNode;
+  /** Phones: the actions get their own full-width row under the title, so a long title is not cut. */
+  stackActions?: boolean;
   className?: string;
   children?: React.ReactNode;
 }) {
@@ -63,10 +66,14 @@ export function PageHeader({
       </header>
       {(title || description || actions || children) && (
         <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-1 px-4 pt-7 pb-2 sm:px-8">
-          {/* Actions sit beside the title on every screen; the description runs full width under both. */}
-          <div className="flex min-w-0 items-center justify-between gap-3">
+          {/* Actions sit beside the title (under it on phones with stackActions); the description runs full width under both. */}
+          <div className={cn("flex min-w-0 justify-between gap-3", stackActions ? "flex-col sm:flex-row sm:items-center" : "items-center")}>
             {title && <h1 className="min-w-0 truncate text-[22px] leading-tight font-semibold text-fg">{title}</h1>}
-            {actions && <div className="ml-auto flex flex-none flex-wrap items-center justify-end gap-2">{actions}</div>}
+            {actions && (
+              <div className={cn("flex flex-wrap items-center gap-2", stackActions ? "w-full sm:ml-auto sm:w-auto sm:flex-none sm:justify-end" : "ml-auto flex-none justify-end")}>
+                {actions}
+              </div>
+            )}
           </div>
           {description && <p className="max-w-2xl text-[13px] leading-relaxed text-muted">{description}</p>}
           {children}

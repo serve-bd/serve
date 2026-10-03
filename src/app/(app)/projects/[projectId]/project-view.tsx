@@ -250,12 +250,13 @@ export function ProjectView({ project, environments, environment, initialService
       <PageHeader
         breadcrumbs={[{ label: "Projects", href: "/projects" }, { label: project.name }]}
         title={
-          <span className="flex items-center gap-2.5">
-            <span className="size-3 rounded-[4px]" style={{ background: projectColor(project.color) }} />
-            {project.name}
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span className="size-3 flex-none rounded-[4px]" style={{ background: projectColor(project.color) }} />
+            <span className="truncate">{project.name}</span>
           </span>
         }
         description={project.description ?? undefined}
+        stackActions
         // Phones: the environment sits in the breadcrumb bar, leaving one row of actions.
         crumbActions={
           <div className="sm:hidden">

@@ -642,7 +642,8 @@ const updateSchema = z.object({
   database: z
     .object({
       version: z.string(),
-      publicPort: z.number().int().min(1024).max(65535).nullable(),
+      // "auto": a free port on its server, picked here.
+      publicPort: z.union([z.number().int().min(1024).max(65535), z.literal("auto")]).nullable(),
       publicBind: z.enum(["0.0.0.0", "127.0.0.1"]).optional(),
       publicAllow: z.array(z.string().max(100)).max(200).nullable(),
       backupSchedule: z.string().nullable(),
@@ -835,7 +836,12 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         if ("error" in r) throw new UserError(r.error);
         data.database.publicAllow = r.ranges.length ? r.ranges : null;
       }
-      const nextPort = data.database.publicPort;
+      if (data.database.publicPort === "auto") {
+        const { freePublicPort } = await import("@/server/databases/domain-tls");
+        data.database.publicPort = service.database.publicPort ?? (await freePublicPort(service, engines[service.database.engine].port));
+      }
+      // Resolved above: never "auto" from here on.
+      const nextPort = data.database.publicPort as number | null | undefined;
       // A public port once set stays: clients and firewalls point at it. Turning it off frees it.
       if (nextPort && service.database.publicPort && nextPort !== service.database.publicPort)
         throw new UserError(`The public port is ${service.database.publicPort} and stays: clients and firewalls use it. Turn public access off and on again for a new one.`);
@@ -846,7 +852,7 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         if ((await heldDatabasePorts(service.serverId, { serviceId, holder: "database" })).has(nextPort) || (await busyHostPorts(service)).includes(nextPort))
           throw new UserError(`Port ${nextPort} is already used on this server.`);
       }
-      patch.database = { ...service.database, ...data.database };
+      patch.database = { ...service.database, ...data.database, publicPort: nextPort === undefined ? service.database.publicPort : nextPort };
       // Public access changed by hand: it is the user's now, not something the domain opened.
       const before = service.database;
       const moved =

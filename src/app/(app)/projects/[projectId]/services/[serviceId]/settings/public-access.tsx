@@ -235,22 +235,23 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
   const noPublicIp = !!info && !info.publicIp;
   const savedDomain = domainOk ? (info.hostname ?? "") : "";
   const [on, setOn] = React.useState(!!d.publicPort);
-  const [port, setPort] = React.useState(String(d.publicPort ?? view.engine.port + 10000));
+  const [port, setPort] = React.useState(d.publicPort ? String(d.publicPort) : "");
   const [domain, setDomain] = React.useState(savedDomain);
   const who = useWho(d.publicBind, d.publicAllow);
   const router = useRouter();
 
   const dom = on && domainOk ? domain.trim().toLowerCase() || null : null;
   const bind = dom ? "0.0.0.0" : who.bind;
-  const portChanged =
-    (on ? Number(port) : null) !== d.publicPort || (on && bind !== d.publicBind) || (on && bind === "0.0.0.0" && who.normalized.join(",") !== d.publicAllow.join(","));
+  // Empty: Serve picks a free port on the server.
+  const nextPort = on ? (port ? Number(port) : ("auto" as const)) : null;
+  const portChanged = nextPort !== d.publicPort || (on && bind !== d.publicBind) || (on && bind === "0.0.0.0" && who.normalized.join(",") !== d.publicAllow.join(","));
   const domainChanged = domainOk && (dom !== (info.hostname ?? null) || (!!dom && info.unreachable));
   const changed = portChanged || domainChanged;
 
   const save = useAction(
     async () => {
       const warnings: string[] = [];
-      const ports = () => updateService(serviceId, { database: { publicPort: on ? Number(port) : null, publicBind: bind, publicAllow: who.allow } });
+      const ports = () => updateService(serviceId, { database: { publicPort: nextPort, publicBind: bind, publicAllow: who.allow } });
       // Taking the domain off first: it closes the port it opened, and the port as set here comes back after.
       // Putting one on last: it keeps the port set here instead of picking one.
       const removing = domainChanged && !dom;
@@ -293,7 +294,7 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
       footer={
         changed && (
           <div className="flex justify-end">
-            <Button variant="primary" size="sm" onClick={() => save.run()} loading={save.pending} disabled={!canManage || (on && (!!who.error || !port))}>
+            <Button variant="primary" size="sm" onClick={() => save.run()} loading={save.pending} disabled={!canManage || (on && !!who.error)}>
               <Globe /> Save and restart
             </Button>
           </div>
@@ -317,7 +318,7 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
             />
           </Field>
         )}
-        <PortInput value={port} onChange={setPort} locked={!!d.publicPort} disabled={!canManage} />
+        <PortInput value={port} onChange={setPort} locked={!!d.publicPort} placeholder="Auto detect" disabled={!canManage} />
       </div>
       <WhoField state={who} viewerIp={view.viewerIp} disabled={!canManage} localOk={!dom} />
       {!changed && domainOk && info.hostname && (

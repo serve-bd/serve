@@ -153,6 +153,16 @@ describe("templateVarValue", () => {
     expect(templateVarValue({ key: "K", generate: "hex32" }, false)).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("makes strong passwords with upper and lower case, a digit and a symbol", async () => {
+    const { templateVarValue } = await import("@/server/services/custom-templates");
+    const v = templateVarValue({ key: "K", generate: "strongPassword" }, false);
+    expect(v).toMatch(/[A-Z]/);
+    expect(v).toMatch(/[a-z]/);
+    expect(v).toMatch(/[0-9]/);
+    expect(v).toMatch(/-/);
+    expect(v.length).toBe(24);
+  });
+
   it("accepts hex16 in the catalog", () => {
     const t = { ...templates[0], vars: [{ key: "A", generate: "hex16" }] };
     expect(parseCatalog(JSON.stringify({ schema: CATALOG_SCHEMA, templates: [t] }), "0.1.9")?.templates).toHaveLength(1);

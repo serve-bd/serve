@@ -1167,7 +1167,7 @@ function varHint(v: CatalogTemplate["vars"][number]) {
   if (v.publicUrl) return "Follows the service's domain (https://…)";
   if (v.publicHost) return "Follows the service's domain";
   if (v.serviceUrl || v.serviceHost) return `Follows the domain of ${v.serviceUrl ?? v.serviceHost}`;
-  if (v.generate === "password") return "Strong password generated for you";
+  if (v.generate === "password" || v.generate === "strongPassword") return "Strong password generated for you";
   if (v.generate) return "Random secret generated for you";
   return null;
 }

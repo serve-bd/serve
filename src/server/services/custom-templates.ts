@@ -55,6 +55,8 @@ export function templateVarValue(v: TemplateVar, hasDomain: boolean): string {
   switch (v.generate) {
     case "password":
       return randomPassword(24);
+    case "strongPassword":
+      return strongPassword();
     case "secret":
       return randomSecret(32);
     case "hex32":
@@ -68,4 +70,13 @@ export function templateVarValue(v: TemplateVar, hasDomain: boolean): string {
     default:
       return v.value ?? "";
   }
+}
+
+/**
+ * For apps that refuse a password without upper and lower case, a digit and a symbol (OpenObserve).
+ * The symbol is a dash: safe in URLs, shells and connection strings.
+ */
+export function strongPassword() {
+  const pick = (chars: string) => chars[crypto.randomInt(chars.length)];
+  return `${randomPassword(20)}-${pick("ABCDEFGHJKLMNPQRSTUVWXYZ")}${pick("abcdefghijkmnopqrstuvwxyz")}${pick("23456789")}`;
 }

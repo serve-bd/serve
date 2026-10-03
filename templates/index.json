@@ -6097,6 +6097,7 @@
    "website": "https://openobserve.ai",
    "color": "#3F7994",
    "note": "Sign in with the admin email and password shown here.",
+   "minVersion": "0.2.7",
    "expose": {
     "service": "openobserve",
     "port": 5080
@@ -6109,7 +6110,7 @@
     },
     {
      "key": "ADMIN_PASSWORD",
-     "generate": "password",
+     "generate": "strongPassword",
      "label": "Admin password"
     }
    ],

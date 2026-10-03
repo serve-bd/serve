@@ -44,6 +44,9 @@ function composeProblems(
   if (needs019 && (!minVersion || minVersion.localeCompare("0.1.9", undefined, { numeric: true }) < 0)) {
     problems.push(`${id}: uses domains, serviceUrl/serviceHost or hex16: set "minVersion": "0.1.9"`);
   }
+  if (vars.some((v) => (v as { generate?: string }).generate === "strongPassword") && (!minVersion || minVersion.localeCompare("0.2.7", undefined, { numeric: true }) < 0)) {
+    problems.push(`${id}: uses strongPassword: set "minVersion": "0.2.7"`);
+  }
   const declared = new Set(vars.map((v) => v.key));
   for (const v of composeVariables(compose)) {
     if (!v.hasDefault && !declared.has(v.name)) problems.push(`${id}: compose.yml uses \${${v.name}} but template.json has no var for it`);

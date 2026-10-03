@@ -117,3 +117,32 @@ export async function rejectDeployment(deploymentId: string) {
     return null;
   });
 }
+
+/**
+ * A service's own approval: always wait, never wait, or follow the project (null). Only someone who
+ * can approve deploys may change it, or a developer could take their service out of the rule.
+ */
+export async function setServiceApproval(serviceId: string, mode: "always" | "never" | null) {
+  return act(async () => {
+    const ctx = await requirePermission("deploys.approve");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (service.type === "database") throw new UserError("Database deploys never wait for approval.");
+    const value = mode === "always" || mode === "never" ? mode : null;
+    await db.update(schema.service).set({ deployApproval: value }).where(eq(schema.service.id, serviceId));
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      projectId: service.projectId,
+      action: "deploy.approval",
+      targetType: "service",
+      targetId: service.id,
+      message:
+        value === "always"
+          ? `Made deploys of ${service.name} wait for approval`
+          : value === "never"
+            ? `Let deploys of ${service.name} skip approval`
+            : `Made deploys of ${service.name} follow the project's approval rule`,
+    });
+    return null;
+  });
+}

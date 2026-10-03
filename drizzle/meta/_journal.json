@@ -442,6 +442,13 @@
       "when": 1791052309029,
       "tag": "0062_log_drain_options",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1791058829253,
+      "tag": "0063_service_deploy_approval",
+      "breakpoints": true
     }
   ]
 }

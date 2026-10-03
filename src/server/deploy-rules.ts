@@ -19,6 +19,7 @@ export async function deployGate(serviceId: string, trigger: DeploymentTrigger, 
       type: schema.service.type,
       environmentId: schema.service.environmentId,
       parent: schema.service.parentServiceId,
+      approval: schema.service.deployApproval,
       rules: schema.project.deployRules,
       organizationId: schema.project.organizationId,
     })
@@ -26,14 +27,16 @@ export async function deployGate(serviceId: string, trigger: DeploymentTrigger, 
     .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
     .where(eq(schema.service.id, serviceId));
   // Preview deployments follow their pull request, wherever the rules apply.
-  if (!row?.rules || row.type === "database" || row.parent) return { kind: "run" };
-  const rules: DeployRules = row.rules;
+  if (!row || row.type === "database" || row.parent) return { kind: "run" };
+  const rules: DeployRules = row.rules ?? {};
   const freeze = freezeState(rules, row.environmentId);
   if (freeze.frozen) {
     const why = freeze.reason ? ` (${freeze.reason})` : "";
     return { kind: "frozen", message: `Deploys are frozen${why} ${freezeUntil(freeze, rules.freeze?.timezone || "UTC")}.` };
   }
-  if (!needsApproval(rules, row.environmentId)) return { kind: "run" };
+  // The service's own choice wins over the project's rule.
+  const wait = row.approval === "always" ? true : row.approval === "never" ? false : needsApproval(rules, row.environmentId);
+  if (!wait) return { kind: "run" };
   // Someone who can approve deploys starts their own right away.
   if (userId && (await canApprove(row.organizationId, userId))) return { kind: "run" };
   return { kind: "approve" };

@@ -464,6 +464,8 @@ export const service = pgTable(
     environmentId: text("environment_id")
       .notNull()
       .references(() => environment.id, { onDelete: "cascade" }),
+    /** Its own deploy approval: "always" waits, "never" does not; null follows the project's rules. */
+    deployApproval: text("deploy_approval").$type<"always" | "never">(),
     /** Server the service runs on. */
     serverId: text("server_id")
       .notNull()

@@ -33,6 +33,7 @@ import { StorageSection } from "./storage-section";
 import { ComposeStorageSection } from "./compose-storage-section";
 import { MonitoringSection } from "./monitoring-section";
 import { LogDrainsSection } from "./log-drains-section";
+import { ApprovalSection } from "./approval-section";
 import type { DrainItem, DrainProject } from "@/app/(app)/integrations/log-drains/log-drains";
 import { MaintenanceSection } from "./maintenance-section";
 import { PreviewDatabaseSection } from "./preview-database-section";
@@ -91,6 +92,8 @@ type Props = {
   section: string;
   /** Uptime check (only loaded for the Monitoring page). */
   monitoring?: { monitor: MonitorSummary["monitor"]; defaultUrl: string | null };
+  /** The service's own deploy approval (apps and stacks). */
+  approval?: { mode: "always" | "never" | null; projectWaits: boolean; canChange: boolean };
   /** The organization's log drains (only loaded for the Log drains page). */
   logDrains?: { drains: DrainItem[]; projects: DrainProject[]; canManage: boolean };
   /** Maintenance page (only loaded for the Maintenance page). */
@@ -536,10 +539,12 @@ export function ServiceSettings(props: Props) {
         </Section>
       )}
       {show("compose") && service.compose && <DeployedCompose serviceId={service.id} />}
+      {show("compose") && service.compose && props.approval && <ApprovalSection serviceId={service.id} projectId={props.projectId} {...props.approval} />}
 
       {service.type === "app" && (
         <>
           {show("deploy") && <DeploySection runtime={service.runtime} save={save.run} />}
+          {show("deploy") && props.approval && <ApprovalSection serviceId={service.id} projectId={props.projectId} {...props.approval} />}
           {show("health") && <HealthSection runtime={service.runtime} save={save.run} />}
           {show("runtime") && <RuntimeSection runtime={service.runtime} save={save.run} />}
         </>

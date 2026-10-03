@@ -12,9 +12,13 @@ export default async function MetricsPage(props: PageProps<"/projects/[projectId
   const { projectId, serviceId } = await props.params;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
-  const [server] = await db.select({ metricsEnabled: schema.server.metricsEnabled }).from(schema.server).where(eq(schema.server.id, service.serverId));
+  const [[server], domains] = await Promise.all([
+    db.select({ metricsEnabled: schema.server.metricsEnabled }).from(schema.server).where(eq(schema.server.id, service.serverId)),
+    db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.serviceId, service.id)).limit(1),
+  ]);
   const resources = server?.metricsEnabled ?? true;
-  const hasDomains = service.type !== "database";
+  // Request counts come from the proxy: without a domain there are none to show.
+  const hasDomains = service.type !== "database" && domains.length > 0;
   // Nothing to show: no metrics and no request counts (the tab is hidden too).
   if (!resources && !hasDomains) notFound();
   return (

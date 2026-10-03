@@ -277,16 +277,7 @@ export function PublicAccess({ serviceId, view, canManage, canManageDomain }: { 
   return (
     <div className="flex flex-col gap-6">
       <DatabasePublicCard serviceId={serviceId} view={view} canManage={canManage} />
-      {view.domain && (
-        <DatabaseDomainCard
-          serviceId={serviceId}
-          info={view.domain}
-          hideSecrets={view.hideSecrets}
-          canManage={canManageDomain}
-          canManageAllow={canManage}
-          viewerIp={view.viewerIp}
-        />
-      )}
+      {view.domain && <DatabaseDomainCard serviceId={serviceId} info={view.domain} hideSecrets={view.hideSecrets} canManage={canManageDomain} />}
       {view.pooler && <AddonAccessCard serviceId={serviceId} which="pooler" addon={view.pooler} view={view} canManage={canManage && canManageDomain} />}
       {view.replicas && <AddonAccessCard serviceId={serviceId} which="replicas" addon={view.replicas} view={view} canManage={canManage && canManageDomain} />}
     </div>

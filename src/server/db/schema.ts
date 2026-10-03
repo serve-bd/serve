@@ -44,6 +44,27 @@ export const user = pgTable("user", {
   updatedAt: updatedAt(),
 });
 
+/** WebAuthn passkeys a user signs in with (better-auth passkey plugin). */
+export const passkey = pgTable(
+  "passkey",
+  {
+    id: id(),
+    name: text("name"),
+    publicKey: text("public_key").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    credentialID: text("credential_id").notNull(),
+    counter: integer("counter").notNull(),
+    deviceType: text("device_type").notNull(),
+    backedUp: boolean("backed_up").notNull(),
+    transports: text("transports"),
+    aaguid: text("aaguid"),
+    createdAt: timestamp("created_at", { withTimezone: true }),
+  },
+  (t) => [index("passkey_user_idx").on(t.userId), uniqueIndex("passkey_credential_idx").on(t.credentialID)],
+);
+
 export const twoFactor = pgTable(
   "two_factor",
   {

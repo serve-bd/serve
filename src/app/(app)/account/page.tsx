@@ -1,17 +1,19 @@
 import { and, eq } from "drizzle-orm";
-import { requireOrg } from "@/server/auth";
+import { dashboardAddresses, passwordLoginAllowed, requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { isEmailConfigured } from "@/server/email/send";
 import { getSetting } from "@/server/settings";
 import { activeProviders, providerNames } from "@/server/sso/config";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { AccountView } from "./account-view";
+import { PasskeysCard } from "./passkeys";
+import { headers } from "next/headers";
 
 export const metadata = { title: "Account" };
 
 export default async function AccountPage(props: PageProps<"/account">) {
   const ctx = await requireOrg();
-  const [signIn, { error }, credential, emailEnabled] = await Promise.all([
+  const [signIn, { error }, credential, emailEnabled, passkeys, addresses, allowed, h] = await Promise.all([
     getSetting("signIn"),
     props.searchParams,
     // Accounts made through a sign-in provider have no password until one is set.
@@ -21,7 +23,17 @@ export default async function AccountPage(props: PageProps<"/account">) {
       .where(and(eq(schema.account.userId, ctx.user.id), eq(schema.account.providerId, "credential")))
       .limit(1),
     isEmailConfigured(),
+    db
+      .select({ id: schema.passkey.id, name: schema.passkey.name, createdAt: schema.passkey.createdAt, backedUp: schema.passkey.backedUp })
+      .from(schema.passkey)
+      .where(eq(schema.passkey.userId, ctx.user.id)),
+    dashboardAddresses(),
+    passwordLoginAllowed(),
+    headers(),
   ]);
+  // Passkeys belong to the address they are made on: the one this page was opened at.
+  const host = (h.get("x-forwarded-host") ?? h.get("host") ?? "").split(",")[0].trim();
+  const hostname = (addresses.hosts.includes(host) ? host : (addresses.hosts[0] ?? host)).replace(/:\d+$/, "");
   return (
     <>
       <PageHeader title="Account" description="Your profile, password and signed-in devices." />
@@ -32,6 +44,13 @@ export default async function AccountPage(props: PageProps<"/account">) {
           linkError={typeof error === "string" ? error : null}
           hasPassword={credential.length > 0}
           canEmailPasswordLink={emailEnabled && signIn.passwordEnabled !== false}
+          passkeys={
+            <PasskeysCard
+              passkeys={passkeys.map((p) => ({ id: p.id, name: p.name, createdAt: p.createdAt?.toISOString() ?? null, backedUp: p.backedUp }))}
+              hostname={hostname}
+              allowed={allowed}
+            />
+          }
         />
       </PageBody>
     </>

@@ -5,6 +5,7 @@ import { nextCookies } from "better-auth/next-js";
 import { requestIsHttps } from "@/lib/request-https";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { type GenericOAuthConfig, genericOAuth, organization, twoFactor } from "better-auth/plugins";
+import { passkey } from "@better-auth/passkey";
 import { and, asc, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -301,7 +302,7 @@ const appOnly: DashboardAddresses = (() => {
  * cookies set over plain HTTP, so without this switch nobody could sign in before the dashboard
  * has a domain with HTTPS.
  */
-function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, secure = false) {
+function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, secure = false, rpID = new URL(env.appUrl).hostname) {
   return betterAuth({
     secret: env.authSecret,
     // Never "*": that would make every website a trusted redirect target (a password reset link
@@ -319,6 +320,7 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, se
         member: schema.member,
         invitation: schema.invitation,
         twoFactor: schema.twoFactor,
+        passkey: schema.passkey,
       },
     }),
     emailAndPassword: {
@@ -380,6 +382,13 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, se
         if (ctx.path.startsWith("/two-factor/verify-")) {
           const pending = ctx.headers?.get("cookie")?.match(/two_factor=([^;]+)/)?.[1] ?? "none";
           if (tooManyAttempts(`2fa:${pending}`, 10, 15 * 60_000)) throw new APIError("TOO_MANY_REQUESTS", { message: "Too many codes tried. Sign in again in 15 minutes." });
+        }
+        // A passkey is a way in of its own: with only single sign-on allowed, it is refused like a password.
+        if (ctx.path === "/passkey/verify-authentication" && !(await passwordLoginAllowed())) {
+          throw new APIError("FORBIDDEN", { message: "Passkey sign-in is turned off with password sign-in. Use single sign-on instead." });
+        }
+        if (ctx.path === "/passkey/verify-authentication" && tooManyAttempts(`passkey:${await clientIp(ctx.headers)}`, 30, 15 * 60_000)) {
+          throw new APIError("TOO_MANY_REQUESTS", { message: "Too many sign-in attempts. Try again in 15 minutes." });
         }
         if (ctx.path === "/sign-in/email" && !(await passwordLoginAllowed())) {
           throw new APIError("FORBIDDEN", { message: "Password sign-in is turned off. Use single sign-on instead." });
@@ -462,6 +471,8 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, se
         sendInvitationEmail: async () => {},
       }),
       twoFactor({ issuer: "Serve" }),
+      // A passkey belongs to one name: the dashboard address it was made on (see getAuth).
+      passkey({ rpID, rpName: "Serve", origin: addresses.origins }),
       genericOAuth({ config: sso.oidc }),
       nextCookies(),
     ],
@@ -489,7 +500,18 @@ export function authFor(h: Headers | null | undefined) {
   return requestIsHttps(h) ? secureAuth : auth;
 }
 
-const current = new Map<boolean, { key: string; instance: ReturnType<typeof createAuth> }>();
+const current = new Map<string, { key: string; instance: ReturnType<typeof createAuth> }>();
+
+/**
+ * The dashboard address a request came to, without the port: passkeys are made for it and only
+ * work there. One of the dashboard's own addresses only, else the install address.
+ */
+function requestHostname(request: Request | undefined, addresses: DashboardAddresses) {
+  const fallback = new URL(env.appUrl).hostname;
+  if (!request) return fallback;
+  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").split(",")[0].trim();
+  return host && addresses.hosts.includes(host) ? host.replace(/:\d+$/, "").replace(/^\[|\]$/g, "") : fallback;
+}
 
 /**
  * Auth instance with the sign-in providers from settings. better-auth fixes providers when an
@@ -503,11 +525,13 @@ export async function getAuth(request?: Request) {
   const { preferHttps, publicBaseUrl } = await import("@/server/git/github-app");
   // The callback the provider redirects to: https when the domain answers there, as on the sign-in settings page.
   const base = sso ? await preferHttps(await publicBaseUrl()) : "";
+  const rpID = requestHostname(request, addresses);
   const key = `${base}|${sso ? configHash(settings) : "-"}|${addresses.hosts.join(",")}`;
-  const cached = current.get(secure);
+  const slot = `${secure}|${rpID}`;
+  const cached = current.get(slot);
   if (cached?.key === key) return cached.instance;
-  const instance = createAuth(sso ? ssoRuntime(settings, base) : noSso, addresses, secure);
-  current.set(secure, { key, instance });
+  const instance = createAuth(sso ? ssoRuntime(settings, base) : noSso, addresses, secure, rpID);
+  current.set(slot, { key, instance });
   return instance;
 }
 

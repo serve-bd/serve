@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "@better-auth/passkey": "1.7.6",
     "@bprogress/next": "^3.2.12",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-sql": "^6.10.0",

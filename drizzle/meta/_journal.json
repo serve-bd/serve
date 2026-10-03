@@ -421,6 +421,13 @@
       "when": 1791049740810,
       "tag": "0059_deploy_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1791050113277,
+      "tag": "0060_passkeys",
+      "breakpoints": true
     }
   ]
 }

@@ -31,6 +31,7 @@ export function AccountView({
   linkError = null,
   hasPassword = true,
   canEmailPasswordLink = false,
+  passkeys = null,
 }: {
   user: { name: string; email: string; twoFactorEnabled: boolean };
   /** Sign-in providers that are on, which the user may link. */
@@ -40,6 +41,8 @@ export function AccountView({
   hasPassword?: boolean;
   /** Email works and password sign-in is on, so a link to set a password can be sent. */
   canEmailPasswordLink?: boolean;
+  /** The passkeys card, placed after two-factor authentication. */
+  passkeys?: React.ReactNode;
 }) {
   const router = useRouter();
   const [name, setName] = React.useState(user.name);
@@ -125,6 +128,7 @@ export function AccountView({
       <SignInMethods providers={providers} error={linkError} />
 
       <TwoFactorCard enabled={user.twoFactorEnabled} hasPassword={hasPassword} />
+      {passkeys}
 
       <Card className="overflow-hidden">
         <CardHeader

@@ -5,7 +5,15 @@ import { type DeployRules, freezeState, needsApproval } from "@/lib/deploy-rules
 const at = (iso: string) => new Date(iso);
 
 describe("freezeState", () => {
-  const weekend: DeployRules = { freeze: { windows: [{ days: [5], start: "18:00", end: "09:00" }, { days: [6, 0], start: "00:00", end: "00:00" }], timezone: "UTC" } };
+  const weekend: DeployRules = {
+    freeze: {
+      windows: [
+        { days: [5], start: "18:00", end: "09:00" },
+        { days: [6, 0], start: "00:00", end: "00:00" },
+      ],
+      timezone: "UTC",
+    },
+  };
 
   it("is frozen inside a weekly window and says until when", () => {
     const s = freezeState(weekend, "env", at("2026-10-02T19:00:00Z"));

@@ -11,6 +11,7 @@ import { PasswordInput } from "../_components/password-input";
 import { authClient } from "@/lib/auth-client";
 import { ssoErrorMessage } from "@/lib/sso-errors";
 import { SsoMark } from "@/components/sso-mark";
+import { Fingerprint } from "lucide-react";
 
 type Provider = { id: string; label: string };
 
@@ -47,6 +48,41 @@ export function LoginForm({
     }
   }
   const [needsCode, setNeedsCode] = React.useState(codeAfterSso);
+  const [passkeyPending, setPasskeyPending] = React.useState(false);
+  const [passkeys, setPasskeys] = React.useState(false);
+
+  // Passkeys need a secure page in a browser that has them. Where the browser offers saved passkeys
+  // in the email field's suggestions, picking one there signs in right away.
+  React.useEffect(() => {
+    if (!password || !window.isSecureContext || typeof window.PublicKeyCredential === "undefined") return;
+    setPasskeys(true);
+    let gone = false;
+    void PublicKeyCredential.isConditionalMediationAvailable?.().then(async (ok) => {
+      if (!ok || gone) return;
+      const { data, error } = await authClient.signIn.passkey({ autoFill: true });
+      if (!gone && !error && data) {
+        router.replace(next);
+        router.refresh();
+      }
+    });
+    return () => {
+      gone = true;
+    };
+  }, [password, next, router]);
+
+  async function withPasskey() {
+    setPasskeyPending(true);
+    setError(null);
+    const { data, error } = await authClient.signIn.passkey();
+    if (error || !data) {
+      setPasskeyPending(false);
+      // Closing the browser's prompt is not an error worth showing.
+      if (error && !/cancel|abort|not allowed/i.test(error.message ?? "")) setError(error.message ?? "Could not sign in with a passkey.");
+      return;
+    }
+    router.replace(next);
+    router.refresh();
+  }
   const [useBackup, setUseBackup] = React.useState(false);
 
   /** Leaves the code step for the sign-in choices (and drops `?error=` from the address). */
@@ -171,7 +207,7 @@ export function LoginForm({
       {password && (
         <form method="post" onSubmit={onSubmit} className="flex flex-col gap-4">
           <Field label="Email">
-            <Input name="email" type="email" required autoFocus autoComplete="email" placeholder="you@company.com" className="h-10" />
+            <Input name="email" type="email" required autoFocus autoComplete="email webauthn" placeholder="you@company.com" className="h-10" />
           </Field>
           <Field label="Password">
             <PasswordInput name="password" required autoComplete="current-password" className="h-10" />
@@ -185,6 +221,11 @@ export function LoginForm({
           <Button type="submit" variant="primary" size="lg" loading={pending} className="mt-1 w-full">
             Sign in
           </Button>
+          {passkeys && (
+            <Button type="button" size="lg" className="w-full" loading={passkeyPending} disabled={pending} onClick={() => void withPasskey()}>
+              <Fingerprint /> Sign in with a passkey
+            </Button>
+          )}
         </form>
       )}
     </AuthCard>

@@ -27,12 +27,18 @@ const MOUNT = "/etc/serve-domain-cert";
  * wildcard counts), or a new Let's Encrypt one. HTTP validation needs Serve's nginx on port 80;
  * other servers need the domain in a connected Cloudflare account.
  */
+/**
+ * Certificates a database client can trust: a Cloudflare origin certificate is trusted by
+ * Cloudflare's proxy only, and database traffic does not go through it (its DNS is "DNS only").
+ */
+export const clientTrusted = (c: { provider: string }) => c.provider !== "cloudflare-origin";
+
 export async function ensureDatabaseCertificate(hostname: string, serverId: string, organizationId: string): Promise<CertRow | { error: string }> {
   const certs = await db
     .select()
     .from(schema.certificate)
     .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, serverId)));
-  const existing = certs.find((c) => certificateCovers(c.domains, hostname));
+  const existing = certs.find((c) => clientTrusted(c) && certificateCovers(c.domains, hostname));
   if (existing) {
     if (existing.status === "failed" && existing.provider !== "custom")
       await enqueue("certificate.issue", { certificateId: existing.id }, { concurrencyKey: `cert:${existing.id}` });
@@ -101,7 +107,7 @@ export async function databaseDomainCert(ctx: ServerCtx, service: Service): Prom
     .select()
     .from(schema.certificate)
     .where(and(eq(schema.certificate.organizationId, project.organizationId), eq(schema.certificate.serverId, ctx.id), eq(schema.certificate.status, "active")));
-  const cert = certs.find((c) => certificateCovers(c.domains, cfg.domain!));
+  const cert = certs.find((c) => clientTrusted(c) && certificateCovers(c.domains, cfg.domain!));
   return cert ? domainCertMount(ctx, cert) : null;
 }
 
@@ -166,7 +172,7 @@ export async function activeCertMount(ctx: ServerCtx, organizationId: string, ho
     .select()
     .from(schema.certificate)
     .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, ctx.id), eq(schema.certificate.status, "active")));
-  const cert = certs.find((c) => certificateCovers(c.domains, hostname));
+  const cert = certs.find((c) => clientTrusted(c) && certificateCovers(c.domains, hostname));
   return cert ? domainCertMount(ctx, cert) : null;
 }
 

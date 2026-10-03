@@ -27,11 +27,19 @@ export async function databaseAccessView(service: Service, org: { id: string; ca
   const hideSecrets = !org.can("variables.view-secrets");
   const creds = { username: cfg.username, password: hideSecrets ? "********" : (decryptOrNull(cfg.password) ?? ""), database: cfg.database };
   const certs = await db
-    .select({ status: schema.certificate.status, error: schema.certificate.lastError, domains: schema.certificate.domains, serverId: schema.certificate.serverId })
+    .select({
+      status: schema.certificate.status,
+      error: schema.certificate.lastError,
+      domains: schema.certificate.domains,
+      serverId: schema.certificate.serverId,
+      provider: schema.certificate.provider,
+    })
     .from(schema.certificate)
     .where(eq(schema.certificate.organizationId, org.id));
   const certFor = (hostname: string, serverId: string) =>
-    certs.filter((c) => c.serverId === serverId && certificateCovers(c.domains, hostname)).sort((a, b) => Number(b.status === "active") - Number(a.status === "active"))[0];
+    certs
+      .filter((c) => c.serverId === serverId && c.provider !== "cloudflare-origin" && certificateCovers(c.domains, hostname))
+      .sort((a, b) => Number(b.status === "active") - Number(a.status === "active"))[0];
   const hostname = cfg.domain ?? null;
   const domainCert = hostname ? certFor(hostname, service.serverId) : undefined;
   // Tunnels of this server: a domain can go through one instead of a public port (no public IP needed).

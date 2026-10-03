@@ -242,7 +242,10 @@ function AddonAccessCard({
               </Field>
             )}
             {!changed && addon.tunnelCommand && (
-              <Field label="Connect through the tunnel" description="Run this on the computer that connects, then use localhost:5432.">
+              <Field
+                label="Connect through the tunnel"
+                description="Run it on the computer you connect from (your laptop, not the server), then connect to localhost:5432. It needs cloudflared from Cloudflare."
+              >
                 <CopyField value={addon.tunnelCommand} />
               </Field>
             )}

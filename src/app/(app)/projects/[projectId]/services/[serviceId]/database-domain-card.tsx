@@ -227,7 +227,7 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                 {info.tunnelCommand && (
                   <Field
                     label="On each computer that connects"
-                    description="Needs cloudflared: brew install cloudflared, or see Cloudflare's downloads. Keep it running while you connect."
+                    description="Run it on the computer you connect from (your laptop, not the server), and keep it running while you connect. It needs cloudflared: winget install Cloudflare.cloudflared on Windows, brew install cloudflared on macOS, or Cloudflare's package on Linux."
                   >
                     <CopyField value={info.tunnelCommand} />
                   </Field>

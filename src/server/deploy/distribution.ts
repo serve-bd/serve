@@ -43,7 +43,6 @@ export function distributionProblem(dist: Distribution, sourceType: SourceType |
       : "Choose a registry: extra servers pull the built image from it.";
   }
   if (dist.registryId && buildsImage(sourceType) && !dist.repository) return "Enter the repository to push to, like team/app.";
-  if (dist.extraServerIds.length > 10) return "A service can run on up to 10 extra servers.";
   return null;
 }
 

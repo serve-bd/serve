@@ -145,7 +145,7 @@ const distributionSchema = z.object({
   repository: z.string().trim().max(255).nullable().default(null),
   tag: z.string().trim().max(128).nullable().default(null),
   tagLatest: z.boolean().default(false),
-  extraServerIds: z.array(z.string()).max(10).default([]),
+  extraServerIds: z.array(z.string()).default([]),
 });
 
 /**

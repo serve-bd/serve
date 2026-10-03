@@ -220,7 +220,7 @@ export function DeployRulesSettings({ projectId, rules, envs, canManage }: { pro
                   type="button"
                   size="sm"
                   className="flex-none"
-                  disabled={!canManage || v.windows.length >= 20}
+                  disabled={!canManage}
                   onClick={() => set({ windows: [...v.windows, { days: [5], start: "18:00", end: "09:00" }] })}
                 >
                   <Plus /> Add hours

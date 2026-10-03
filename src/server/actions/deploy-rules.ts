@@ -16,7 +16,7 @@ const rulesSchema = z.object({
   approval: z.object({ enabled: z.boolean(), environmentIds: z.array(z.string().max(64)).max(100) }),
   freeze: z.object({
     now: z.object({ until: z.string().datetime().nullable(), reason: z.string().trim().max(200).nullable() }).nullable(),
-    windows: z.array(z.object({ days: z.array(z.number().int().min(0).max(6)).min(1).max(7), start: time, end: time })).max(20),
+    windows: z.array(z.object({ days: z.array(z.number().int().min(0).max(6)).min(1).max(7), start: time, end: time })),
     timezone: z.string().max(64),
     environmentIds: z.array(z.string().max(64)).max(100),
   }),

@@ -573,7 +573,7 @@ const updateSchema = z.object({
   runtime: z
     .object({
       port: z.number().int().min(1).max(65535).nullable(),
-      replicas: z.number().int().min(1).max(20),
+      replicas: z.number().int().min(1),
       command: z.string().nullable(),
       // A URL path only: it is requested by the proxy and must not carry anything else.
       healthcheckPath: z

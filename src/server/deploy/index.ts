@@ -1450,6 +1450,17 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       .where(eq(schema.deployment.id, dep.id));
     const { commitSha, commitMessage } = commit ?? dep;
     const details = await deployDetails(dep.id, service.id);
+    // The containers that kept restarting are gone: the restart warning ends now, not at the next
+    // check. If the new version restarts too, the check opens it again.
+    const { openIncidentFor, resolveIncident } = await import("@/server/monitoring/incidents");
+    if (await openIncidentFor(`crashloop:${service.id}`).catch(() => null)) {
+      await resolveIncident(`crashloop:${service.id}`, {
+        event: "service.recovered",
+        title: `${service.name} stopped restarting`,
+        body: "A new deployment replaced the restarting containers.",
+        url: `/projects/${service.projectId}/services/${service.id}/logs`,
+      }).catch(() => null);
+    }
     void notify(await orgOfService(service.id), "deploy.success", {
       ok: true,
       title: `${service.name} deployed`,

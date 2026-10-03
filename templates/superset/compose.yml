@@ -1,0 +1,89 @@
+x-superset-env: &superset-env
+  SUPERSET_CONFIG_PATH: /app/superset_config.py
+  SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+services:
+  superset:
+    # The -dev image ships the Postgres driver the metadata database needs.
+    image: apache/superset:6.1.0-dev
+    restart: unless-stopped
+    environment: *superset-env
+    configs:
+      - source: superset-config
+        target: /app/superset_config.py
+    volumes:
+      - superset-home:/app/superset_home
+    depends_on:
+      init:
+        condition: service_completed_successfully
+  # Migrates the database, creates the admin user and sets up roles. Safe to run on every start.
+  init:
+    image: apache/superset:6.1.0-dev
+    restart: "no"
+    environment:
+      <<: *superset-env
+      ADMIN_USER: ${ADMIN_USER}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    command:
+      - sh
+      - -c
+      - superset db upgrade && superset fab create-admin --username "$$ADMIN_USER" --firstname Admin --lastname User --email admin@example.com --password "$$ADMIN_PASSWORD" && superset init
+    configs:
+      - source: superset-config
+        target: /app/superset_config.py
+    volumes:
+      - superset-home:/app/superset_home
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: superset
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+configs:
+  superset-config:
+    content: |
+      import os
+
+      SECRET_KEY = os.environ["SUPERSET_SECRET_KEY"]
+      SQLALCHEMY_DATABASE_URI = f"postgresql+psycopg2://superset:{os.environ['POSTGRES_PASSWORD']}@postgres:5432/superset"
+      # Trust the X-Forwarded-* headers from the proxy in front of the domain.
+      ENABLE_PROXY_FIX = True
+
+      def redis_cache(db, prefix):
+          return {
+              "CACHE_TYPE": "RedisCache",
+              "CACHE_DEFAULT_TIMEOUT": 86400,
+              "CACHE_KEY_PREFIX": prefix,
+              "CACHE_REDIS_URL": f"redis://redis:6379/{db}",
+          }
+
+      CACHE_CONFIG = redis_cache(0, "superset_")
+      DATA_CACHE_CONFIG = redis_cache(1, "superset_data_")
+      FILTER_STATE_CACHE_CONFIG = redis_cache(2, "superset_filter_")
+      EXPLORE_FORM_DATA_CACHE_CONFIG = redis_cache(3, "superset_explore_")
+      RATELIMIT_STORAGE_URI = "redis://redis:6379/4"
+volumes:
+  superset-home:
+  postgres-data:
+  redis-data:

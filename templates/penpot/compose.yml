@@ -1,0 +1,74 @@
+x-penpot-flags: &penpot-flags
+  PENPOT_FLAGS: enable-registration enable-login-with-password disable-email-verification
+  PENPOT_PUBLIC_URI: ${PENPOT_URL}
+  PENPOT_HTTP_SERVER_MAX_BODY_SIZE: "367001600"
+  PENPOT_HTTP_SERVER_MAX_MULTIPART_BODY_SIZE: "367001600"
+services:
+  # The service names penpot-backend and penpot-exporter are the addresses the frontend expects.
+  penpot-frontend:
+    image: penpotapp/frontend:latest
+    restart: unless-stopped
+    environment: *penpot-flags
+    volumes:
+      - penpot-assets:/opt/data/assets
+    depends_on:
+      - penpot-backend
+      - penpot-exporter
+  penpot-backend:
+    image: penpotapp/backend:latest
+    restart: unless-stopped
+    environment:
+      <<: *penpot-flags
+      PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY}
+      PENPOT_DATABASE_URI: postgresql://postgres/penpot
+      PENPOT_DATABASE_USERNAME: penpot
+      PENPOT_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      PENPOT_REDIS_URI: redis://valkey/0
+      PENPOT_OBJECTS_STORAGE_BACKEND: fs
+      PENPOT_OBJECTS_STORAGE_FS_DIRECTORY: /opt/data/assets
+      PENPOT_TELEMETRY_ENABLED: "false"
+    volumes:
+      - penpot-assets:/opt/data/assets
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+  penpot-exporter:
+    image: penpotapp/exporter:latest
+    restart: unless-stopped
+    environment:
+      <<: *penpot-flags
+      PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY}
+      PENPOT_INTERNAL_URI: http://penpot-frontend:8080
+      PENPOT_REDIS_URI: redis://valkey/0
+    depends_on:
+      valkey:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    stop_signal: SIGINT
+    environment:
+      POSTGRES_USER: penpot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: penpot
+      POSTGRES_INITDB_ARGS: --data-checksums
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U penpot -d penpot"]
+      interval: 5s
+      retries: 20
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    environment:
+      VALKEY_EXTRA_FLAGS: --maxmemory 128mb --maxmemory-policy volatile-lfu
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  penpot-assets:
+  postgres-data:

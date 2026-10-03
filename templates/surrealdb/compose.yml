@@ -1,0 +1,14 @@
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v3
+    restart: unless-stopped
+    # Root so the server can write to the named volume.
+    user: root
+    command: ["start", "--bind", "0.0.0.0:8000", "rocksdb:/data/database.db"]
+    environment:
+      SURREAL_USER: ${SURREAL_USER}
+      SURREAL_PASS: ${SURREAL_PASS}
+    volumes:
+      - surrealdb-data:/data
+volumes:
+  surrealdb-data:

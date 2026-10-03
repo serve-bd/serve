@@ -1,0 +1,30 @@
+{
+  "name": "Neo4j",
+  "description": "Graph database with the Neo4j Browser on the domain.",
+  "category": "Databases",
+  "website": "https://neo4j.com",
+  "color": "#4581C3",
+  "minVersion": "0.1.9",
+  "note": "Neo4j uses two domains: the main one is the Browser, the second one is the Bolt connection. In the Browser, connect to neo4j+s://<bolt domain>:443 as neo4j with the generated password.",
+  "expose": {
+    "service": "neo4j",
+    "port": 7474
+  },
+  "domains": [
+    {
+      "service": "bolt",
+      "port": 7687
+    }
+  ],
+  "vars": [
+    {
+      "key": "NEO4J_PASSWORD",
+      "generate": "password",
+      "label": "Password for the neo4j user"
+    },
+    {
+      "key": "BOLT_HOST",
+      "serviceHost": "bolt"
+    }
+  ]
+}

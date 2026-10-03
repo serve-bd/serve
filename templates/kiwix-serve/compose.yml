@@ -1,0 +1,16 @@
+services:
+  kiwix:
+    image: ghcr.io/kiwix/kiwix-serve:latest
+    restart: unless-stopped
+    # Serves every .zim file in /data. Add files and restart to pick them up.
+    entrypoint: ["/usr/bin/dumb-init", "--", "/bin/sh", "-c"]
+    command:
+      - |
+        lib=/tmp/library.xml
+        printf '<library version="20110515"></library>' > "$$lib"
+        for f in /data/*.zim; do [ -e "$$f" ] && kiwix-manage "$$lib" add "$$f"; done
+        exec kiwix-serve --port=8080 --library --monitorLibrary "$$lib"
+    volumes:
+      - kiwix-data:/data
+volumes:
+  kiwix-data:

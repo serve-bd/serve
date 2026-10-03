@@ -1,0 +1,24 @@
+{
+  "name": "Pinchflat",
+  "description": "Downloads YouTube channels and playlists automatically with yt-dlp.",
+  "category": "Media",
+  "website": "https://github.com/kieraneglin/pinchflat",
+  "color": "#EF4444",
+  "note": "Sign in with the username and password from the configure step.",
+  "expose": {
+    "service": "pinchflat",
+    "port": 8945
+  },
+  "vars": [
+    {
+      "key": "BASIC_AUTH_USERNAME",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "BASIC_AUTH_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

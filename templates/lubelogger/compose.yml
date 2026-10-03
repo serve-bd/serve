@@ -1,0 +1,13 @@
+services:
+  lubelogger:
+    image: ghcr.io/hargata/lubelogger:latest
+    restart: unless-stopped
+    environment:
+      LC_ALL: en_US.UTF-8
+      LANG: en_US.UTF-8
+    volumes:
+      - lubelogger-data:/App/data
+      - lubelogger-keys:/root/.aspnet/DataProtection-Keys
+volumes:
+  lubelogger-data:
+  lubelogger-keys:

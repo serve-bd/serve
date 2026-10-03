@@ -1,0 +1,18 @@
+{
+  "name": "OpenBao",
+  "description": "Open source secrets manager for keys, passwords and certificates.",
+  "category": "Security",
+  "website": "https://openbao.org",
+  "color": "#336D5C",
+  "note": "Open the web UI and initialize the vault. Save the unseal keys and root token in a safe place. After every restart, unseal the vault again with the unseal keys.",
+  "expose": {
+    "service": "openbao",
+    "port": 8200
+  },
+  "vars": [
+    {
+      "key": "BAO_URL",
+      "publicUrl": true
+    }
+  ]
+}

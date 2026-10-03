@@ -1,0 +1,26 @@
+{
+  "name": "Penpot",
+  "description": "Open source design and prototyping tool for teams.",
+  "category": "Productivity",
+  "website": "https://penpot.app",
+  "color": "#000000",
+  "note": "Sign up on the site to create your account. Anyone who can reach the site can sign up.",
+  "expose": {
+    "service": "penpot-frontend",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "PENPOT_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "PENPOT_SECRET_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

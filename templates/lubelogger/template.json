@@ -1,0 +1,13 @@
+{
+  "name": "LubeLogger",
+  "description": "Vehicle maintenance and fuel mileage tracker.",
+  "category": "Productivity",
+  "website": "https://lubelogger.com",
+  "color": "#1F2937",
+  "note": "The site opens without a login. Turn on authentication in Settings to protect it.",
+  "expose": {
+    "service": "lubelogger",
+    "port": 8080
+  },
+  "vars": []
+}

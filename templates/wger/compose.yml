@@ -1,0 +1,154 @@
+x-wger-env: &wger-env
+  SECRET_KEY: ${SECRET_KEY}
+  SITE_URL: ${SITE_URL}
+  CSRF_TRUSTED_ORIGINS: ${SITE_URL}
+  X_FORWARDED_PROTO_HEADER_SET: "True"
+  TIME_ZONE: UTC
+  TZ: UTC
+  DJANGO_DEBUG: "False"
+  DJANGO_DB_ENGINE: django.db.backends.postgresql
+  DJANGO_DB_DATABASE: wger
+  DJANGO_DB_USER: wger
+  DJANGO_DB_PASSWORD: ${POSTGRES_PASSWORD}
+  DJANGO_DB_HOST: postgres
+  DJANGO_DB_PORT: "5432"
+  DJANGO_PERFORM_MIGRATIONS: "True"
+  DJANGO_COLLECTSTATIC_ON_STARTUP: "True"
+  DJANGO_CACHE_BACKEND: django_redis.cache.RedisCache
+  DJANGO_CACHE_LOCATION: redis://redis:6379/1
+  DJANGO_CACHE_TIMEOUT: "1296000"
+  DJANGO_CACHE_CLIENT_CLASS: django_redis.client.DefaultClient
+  WGER_INSTANCE: https://wger.de
+  ALLOW_REGISTRATION: "True"
+  ALLOW_GUEST_USERS: "False"
+  USE_CELERY: "True"
+  CELERY_BROKER: redis://redis:6379/2
+  CELERY_BACKEND: redis://redis:6379/2
+  CELERY_WORKER_CONCURRENCY: "2"
+  SYNC_EXERCISES_CELERY: "True"
+  SYNC_EXERCISE_IMAGES_CELERY: "True"
+  SYNC_EXERCISE_VIDEOS_CELERY: "False"
+  SYNC_INGREDIENTS_CELERY: "True"
+  DOWNLOAD_INGREDIENTS_FROM: WGER
+  CACHE_API_EXERCISES_CELERY: "True"
+  WGER_USE_GUNICORN: "True"
+  GUNICORN_CMD_ARGS: --workers 3 --threads 2 --worker-class gthread --timeout 240
+  NUMBER_OF_PROXIES: "2"
+  AXES_IPWARE_PROXY_COUNT: "2"
+  AXES_IPWARE_META_PRECEDENCE_ORDER: HTTP_X_FORWARDED_FOR,REMOTE_ADDR
+services:
+  nginx:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    configs:
+      - source: nginx-conf
+        target: /etc/nginx/conf.d/default.conf
+    volumes:
+      - static:/wger/static:ro
+      - media:/wger/media:ro
+    depends_on:
+      web:
+        condition: service_healthy
+  web:
+    image: wger/server:2.7
+    restart: unless-stopped
+    environment: *wger-env
+    volumes:
+      - static:/home/wger/static
+      - media:/home/wger/media
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:8000/api/v2/version/"]
+      interval: 10s
+      timeout: 5s
+      start_period: 300s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  celery-worker:
+    image: wger/server:2.7
+    restart: unless-stopped
+    command: ["/start-worker"]
+    environment: *wger-env
+    volumes:
+      - media:/home/wger/media
+    healthcheck:
+      test: ["CMD", "celery", "-A", "wger", "inspect", "ping"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    depends_on:
+      web:
+        condition: service_healthy
+  celery-beat:
+    image: wger/server:2.7
+    restart: unless-stopped
+    command: ["/start-beat"]
+    environment: *wger-env
+    volumes:
+      - celery-beat:/home/wger/beat/
+    depends_on:
+      celery-worker:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wger
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: wger
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U wger -d wger"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+configs:
+  nginx-conf:
+    content: |
+      upstream wger {
+          server web:8000;
+      }
+
+      server {
+          listen 80;
+          client_max_body_size 100M;
+
+          location / {
+              proxy_pass http://wger;
+              proxy_set_header Host $$http_host;
+              proxy_set_header X-Real-IP $$remote_addr;
+              proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $$http_x_forwarded_proto;
+              proxy_set_header X-Forwarded-Host $$http_host;
+              proxy_redirect off;
+              proxy_read_timeout 240s;
+          }
+
+          location /static/ {
+              alias /wger/static/;
+              add_header Cache-Control "public, max-age=31536000, immutable" always;
+          }
+
+          location /media/ {
+              alias /wger/media/;
+          }
+      }
+volumes:
+  static:
+  media:
+  celery-beat:
+  postgres-data:
+  redis-data:

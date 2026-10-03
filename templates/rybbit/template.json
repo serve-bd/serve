@@ -1,0 +1,34 @@
+{
+  "name": "Rybbit",
+  "description": "Privacy-friendly web analytics with sessions, funnels and goals.",
+  "category": "Analytics",
+  "website": "https://rybbit.com",
+  "color": "#10B981",
+  "note": "Open the site and sign up: the first account is the admin.",
+  "expose": {
+    "service": "proxy",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "BETTER_AUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "CLICKHOUSE_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "REDIS_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

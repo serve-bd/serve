@@ -1,0 +1,65 @@
+services:
+  authelia:
+    image: authelia/authelia:4.39
+    restart: unless-stopped
+    configs:
+      - source: authelia-config
+        target: /config/configuration.yml
+    volumes:
+      - authelia-data:/data
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  # Writes the users file with a generated admin once; later changes are kept.
+  setup:
+    image: authelia/authelia:4.39
+    restart: "no"
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        [ -f /data/users.yml ] && exit 0
+        hash=$$(authelia crypto hash generate argon2 --password "$$ADMIN_PASSWORD" | sed -n 's/^Digest: //p')
+        [ -n "$$hash" ] || exit 1
+        printf 'users:\n  admin:\n    displayname: Admin\n    password: "%s"\n    email: %s\n    groups:\n      - admins\n' "$$hash" "$$ADMIN_EMAIL" > /data/users.yml
+    volumes:
+      - authelia-data:/data
+configs:
+  authelia-config:
+    content: |
+      server:
+        address: tcp://0.0.0.0:9091/
+      log:
+        level: info
+      totp:
+        issuer: ${AUTHELIA_HOST}
+      identity_validation:
+        reset_password:
+          jwt_secret: ${JWT_SECRET}
+      authentication_backend:
+        file:
+          path: /data/users.yml
+          watch: true
+      access_control:
+        default_policy: one_factor
+      session:
+        secret: ${SESSION_SECRET}
+        cookies:
+          - domain: ${AUTHELIA_HOST}
+            authelia_url: ${AUTHELIA_URL}
+      regulation:
+        max_retries: 5
+        find_time: 2m
+        ban_time: 10m
+      storage:
+        encryption_key: ${STORAGE_ENCRYPTION_KEY}
+        local:
+          path: /data/db.sqlite3
+      notifier:
+        filesystem:
+          filename: /data/notification.txt
+volumes:
+  authelia-data:

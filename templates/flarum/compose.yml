@@ -1,0 +1,48 @@
+x-flarum-env: &flarum-env
+  FLARUM_BASE_URL: ${FLARUM_URL}
+  FLARUM_FORUM_TITLE: Flarum
+  DB_HOST: mariadb
+  DB_NAME: flarum
+  DB_USER: flarum
+  DB_PASSWORD: ${DB_PASSWORD}
+  UPLOAD_MAX_SIZE: 32M
+services:
+  flarum:
+    image: crazymax/flarum:latest
+    restart: unless-stopped
+    environment: *flarum-env
+    volumes:
+      - flarum-data:/data
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  # Runs Flarum's scheduled tasks every minute.
+  cron:
+    image: crazymax/flarum:latest
+    restart: unless-stopped
+    environment:
+      <<: *flarum-env
+      SIDECAR_CRON: "1"
+      CRON_SCHEDULE: "* * * * *"
+    volumes:
+      - flarum-data:/data
+    depends_on:
+      - flarum
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: flarum
+      MARIADB_USER: flarum
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  flarum-data:
+  db-data:

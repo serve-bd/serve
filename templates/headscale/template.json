@@ -1,0 +1,33 @@
+{
+  "name": "Headscale",
+  "description": "Self-hosted Tailscale control server, with the Headplane web UI.",
+  "category": "Security",
+  "website": "https://headscale.net",
+  "color": "#3B82F6",
+  "minVersion": "0.1.9",
+  "note": "Headplane is the second address, at /admin. It logs in with a Headscale API key: run headscale apikeys create in the headscale container terminal. Point Tailscale clients at the main address with --login-server.",
+  "expose": {
+    "service": "headscale",
+    "port": 8080
+  },
+  "domains": [
+    {
+      "service": "headplane",
+      "port": 3000
+    }
+  ],
+  "vars": [
+    {
+      "key": "HEADSCALE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "HEADPLANE_URL",
+      "serviceUrl": "headplane"
+    },
+    {
+      "key": "COOKIE_SECRET",
+      "generate": "hex16"
+    }
+  ]
+}

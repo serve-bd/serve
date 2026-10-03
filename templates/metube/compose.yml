@@ -1,0 +1,11 @@
+services:
+  metube:
+    image: ghcr.io/alexta69/metube:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+    volumes:
+      - metube-downloads:/downloads
+volumes:
+  metube-downloads:

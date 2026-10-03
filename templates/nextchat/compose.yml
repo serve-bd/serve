@@ -1,0 +1,7 @@
+services:
+  nextchat:
+    image: yidadaa/chatgpt-next-web:latest
+    restart: unless-stopped
+    environment:
+      CODE: ${CODE}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}

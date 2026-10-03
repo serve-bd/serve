@@ -1,0 +1,26 @@
+{
+  "name": "LinkAce",
+  "description": "Self-hosted bookmark archive with tags, lists and link monitoring, with MariaDB.",
+  "category": "Productivity",
+  "website": "https://www.linkace.org",
+  "color": "#2E8BC0",
+  "note": "Open the site and follow the setup. The database fields are filled in already. The last step makes the admin account.",
+  "expose": {
+    "service": "linkace",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    }
+  ]
+}

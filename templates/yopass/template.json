@@ -1,0 +1,12 @@
+{
+  "name": "Yopass",
+  "description": "Share secrets safely with end to end encrypted, one time links.",
+  "category": "Security",
+  "website": "https://yopass.se",
+  "color": "#1976D2",
+  "expose": {
+    "service": "yopass",
+    "port": 1337
+  },
+  "vars": []
+}

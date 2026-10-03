@@ -1,0 +1,24 @@
+{
+  "name": "Suwayomi",
+  "description": "A manga reader server with extensions for many sources.",
+  "category": "Media",
+  "website": "https://github.com/Suwayomi/Suwayomi-Server",
+  "color": "#2196F3",
+  "note": "Sign in with the username and password from the configure step.",
+  "expose": {
+    "service": "suwayomi",
+    "port": 4567
+  },
+  "vars": [
+    {
+      "key": "AUTH_USERNAME",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "AUTH_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+services:
+  hortusfox:
+    image: ghcr.io/danielbrendel/hortusfox-web:latest
+    restart: unless-stopped
+    environment:
+      APP_ADMIN_EMAIL: ${ADMIN_EMAIL}
+      APP_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      APP_TIMEZONE: UTC
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_DATABASE: hortusfox
+      DB_USERNAME: hortusfox
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_CHARSET: utf8mb4
+    volumes:
+      - app-images:/var/www/html/public/img
+      - app-attachments:/var/www/html/public/attachments
+      - app-logs:/var/www/html/app/logs
+      - app-backup:/var/www/html/public/backup
+      - app-themes:/var/www/html/public/themes
+      - app-migrate:/var/www/html/app/migrations
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_DATABASE: hortusfox
+      MARIADB_USER: hortusfox
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  app-images:
+  app-attachments:
+  app-logs:
+  app-backup:
+  app-themes:
+  app-migrate:
+  db-data:

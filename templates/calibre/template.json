@@ -1,0 +1,24 @@
+{
+  "name": "Calibre",
+  "description": "The Calibre e-book manager as a full desktop app in your browser.",
+  "category": "Media",
+  "website": "https://calibre-ebook.com",
+  "color": "#8B5A2B",
+  "note": "Sign in with the username and password from the configure step. On first start choose /config/Calibre Library as the library folder.",
+  "expose": {
+    "service": "calibre",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "CALIBRE_USER",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "CALIBRE_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

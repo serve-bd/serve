@@ -1,0 +1,32 @@
+{
+  "name": "Apache Superset",
+  "description": "Data exploration and dashboards on top of your SQL databases, with Postgres and Redis.",
+  "category": "Analytics",
+  "website": "https://superset.apache.org",
+  "color": "#20A6C9",
+  "note": "Log in with the admin user and password below. The first start takes a minute while the database is set up.",
+  "expose": {
+    "service": "superset",
+    "port": 8088
+  },
+  "vars": [
+    {
+      "key": "SUPERSET_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_USER",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

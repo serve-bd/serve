@@ -1,0 +1,73 @@
+services:
+  # Redpanda Console has no login of its own in the free version; this puts a password in front of it.
+  web:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    entrypoint:
+      - sh
+      - -c
+      - export CONSOLE_HASH="$$(caddy hash-password --plaintext "$$CONSOLE_PASSWORD")" && exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    environment:
+      CONSOLE_USER: ${CONSOLE_USER}
+      CONSOLE_PASSWORD: ${CONSOLE_PASSWORD}
+    configs:
+      - source: web-proxy
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - console
+  console:
+    image: redpandadata/console:v3.12.0
+    restart: unless-stopped
+    environment:
+      CONFIG_FILEPATH: /etc/console/config.yml
+    configs:
+      - source: console-config
+        target: /etc/console/config.yml
+    depends_on:
+      redpanda:
+        condition: service_healthy
+  redpanda:
+    image: redpandadata/redpanda:v26.2.3
+    restart: unless-stopped
+    # Advertises the container's hostname, which resolves on every network the container joins. It goes
+    # in the config file because the --advertise-kafka-addr flag rejects hostnames that start with a digit.
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        rpk redpanda config set redpanda.advertised_kafka_api "[{address: $$HOSTNAME, port: 9092}]" &&
+        exec /entrypoint.sh redpanda start --mode dev-container --smp 1 --default-log-level=info
+        --kafka-addr 0.0.0.0:9092 --pandaproxy-addr 0.0.0.0:8082 --schema-registry-addr 0.0.0.0:8081
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
+      interval: 10s
+      retries: 30
+      start_period: 20s
+configs:
+  web-proxy:
+    content: |
+      {
+        admin off
+        auto_https off
+      }
+      :8080 {
+        basic_auth {
+          {$$CONSOLE_USER} {$$CONSOLE_HASH}
+        }
+        reverse_proxy console:8080
+      }
+  console-config:
+    content: |
+      kafka:
+        brokers: ["redpanda:9092"]
+      schemaRegistry:
+        enabled: true
+        urls: ["http://redpanda:8081"]
+      redpanda:
+        adminApi:
+          enabled: true
+          urls: ["http://redpanda:9644"]
+volumes:
+  redpanda-data:

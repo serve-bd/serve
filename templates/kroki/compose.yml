@@ -1,0 +1,21 @@
+services:
+  kroki:
+    image: yuzutech/kroki:0.32.1
+    restart: unless-stopped
+    environment:
+      KROKI_MERMAID_HOST: mermaid
+      KROKI_BPMN_HOST: bpmn
+      KROKI_EXCALIDRAW_HOST: excalidraw
+    depends_on:
+      - mermaid
+      - bpmn
+      - excalidraw
+  mermaid:
+    image: yuzutech/kroki-mermaid:0.32.1
+    restart: unless-stopped
+  bpmn:
+    image: yuzutech/kroki-bpmn:0.32.1
+    restart: unless-stopped
+  excalidraw:
+    image: yuzutech/kroki-excalidraw:0.32.1
+    restart: unless-stopped

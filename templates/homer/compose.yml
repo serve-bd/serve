@@ -1,0 +1,10 @@
+services:
+  homer:
+    image: b4bz/homer:latest
+    restart: unless-stopped
+    environment:
+      INIT_ASSETS: "1"
+    volumes:
+      - homer-assets:/www/assets
+volumes:
+  homer-assets:

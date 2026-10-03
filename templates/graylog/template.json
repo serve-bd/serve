@@ -1,0 +1,27 @@
+{
+  "name": "Graylog",
+  "description": "Central log management and search, with MongoDB and OpenSearch.",
+  "category": "Monitoring",
+  "website": "https://graylog.org",
+  "color": "#FF3633",
+  "note": "Log in as admin with the generated admin password. Log inputs (syslog, GELF) need their ports opened under Domains & ports. OpenSearch uses about 1 GB of memory.",
+  "expose": {
+    "service": "graylog",
+    "port": 9000
+  },
+  "vars": [
+    {
+      "key": "GRAYLOG_PASSWORD_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "GRAYLOG_URL",
+      "publicUrl": true
+    }
+  ]
+}

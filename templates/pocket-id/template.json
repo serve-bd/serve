@@ -1,0 +1,22 @@
+{
+  "name": "Pocket ID",
+  "description": "Simple OIDC provider that signs users in with passkeys.",
+  "category": "Security",
+  "website": "https://pocket-id.org",
+  "color": "#18181B",
+  "note": "Open /setup on your domain to create the first admin and register a passkey.",
+  "expose": {
+    "service": "pocket-id",
+    "port": 1411
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "generate": "secret"
+    }
+  ]
+}

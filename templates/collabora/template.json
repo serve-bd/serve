@@ -1,0 +1,28 @@
+{
+  "name": "Collabora Online",
+  "description": "Online office suite (CODE) to edit documents, spreadsheets and presentations from other apps.",
+  "category": "Productivity",
+  "website": "https://www.collaboraonline.com/code/",
+  "color": "#5C2983",
+  "note": "This is the editor server only. Set the allowed app URL to the address of the app that uses it, such as your Nextcloud, then connect it from that app with this domain. The admin console is at /browser/dist/admin/admin.html (user admin).",
+  "expose": {
+    "service": "collabora",
+    "port": 9980
+  },
+  "vars": [
+    {
+      "key": "COLLABORA_HOST",
+      "publicHost": true
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "ALLOWED_APP_URL",
+      "value": "https://cloud.example.com",
+      "label": "Allowed app URL"
+    }
+  ]
+}

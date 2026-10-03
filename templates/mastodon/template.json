@@ -1,0 +1,38 @@
+{
+  "name": "Mastodon",
+  "description": "Your own server on the decentralized social network.",
+  "category": "Communication",
+  "website": "https://joinmastodon.org",
+  "color": "#6364FF",
+  "note": "The domain is fixed at first start and cannot change later. Create the owner account in the Console of the web service with: tootctl accounts create admin --email <your email> --confirmed --role Owner. Without SMTP settings, sign-up emails are not sent: confirm new users in the admin panel.",
+  "expose": {
+    "service": "mastodon",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "LOCAL_DOMAIN",
+      "publicHost": true
+    },
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    },
+    {
+      "key": "AR_DETERMINISTIC_KEY",
+      "generate": "password"
+    },
+    {
+      "key": "AR_KEY_DERIVATION_SALT",
+      "generate": "password"
+    },
+    {
+      "key": "AR_PRIMARY_KEY",
+      "generate": "password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

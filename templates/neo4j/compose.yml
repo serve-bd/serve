@@ -1,0 +1,33 @@
+services:
+  neo4j:
+    image: neo4j:2026-community
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      # Clients reach Bolt through the second domain, over TLS on port 443.
+      NEO4J_server_bolt_advertised__address: ${BOLT_HOST}:443
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+  # Bolt listens on port 7687 of the same container; this forwards its own domain there.
+  bolt:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    configs:
+      - source: bolt-proxy
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - neo4j
+configs:
+  bolt-proxy:
+    content: |
+      {
+        admin off
+        auto_https off
+      }
+      :7687 {
+        reverse_proxy neo4j:7687
+      }
+volumes:
+  neo4j-data:
+  neo4j-logs:

@@ -1,0 +1,63 @@
+{
+  "name": "Documenso",
+  "description": "Open source platform to sign documents online, with PostgreSQL.",
+  "category": "Productivity",
+  "website": "https://documenso.com",
+  "color": "#A2E771",
+  "note": "Fill in the SMTP settings: Documenso emails a link to confirm each new account and sends signing requests by email. A self-signed signing certificate is made on the first start.",
+  "expose": {
+    "service": "documenso",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "NEXTAUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "ENCRYPTION_SECONDARY_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "SIGNING_PASSPHRASE",
+      "generate": "password"
+    },
+    {
+      "key": "WEBAPP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "SMTP_HOST",
+      "value": "",
+      "label": "SMTP host"
+    },
+    {
+      "key": "SMTP_PORT",
+      "value": "587",
+      "label": "SMTP port"
+    },
+    {
+      "key": "SMTP_USERNAME",
+      "value": "",
+      "label": "SMTP username"
+    },
+    {
+      "key": "SMTP_PASSWORD",
+      "value": "",
+      "label": "SMTP password"
+    },
+    {
+      "key": "SMTP_FROM_ADDRESS",
+      "value": "noreply@example.com",
+      "label": "Sender email"
+    }
+  ]
+}

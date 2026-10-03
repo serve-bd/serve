@@ -1,0 +1,26 @@
+{
+  "name": "wger",
+  "description": "Workout, nutrition and body weight tracker, with PostgreSQL, Redis and Celery.",
+  "category": "Productivity",
+  "website": "https://wger.de",
+  "color": "#2A4C7D",
+  "note": "The first start takes a few minutes. Log in as admin with password adminadmin, then change the password.",
+  "expose": {
+    "service": "nginx",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "SITE_URL",
+      "publicUrl": true
+    }
+  ]
+}

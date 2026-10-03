@@ -1,0 +1,18 @@
+{
+  "name": "Tdarr",
+  "description": "Automates transcoding and remuxing of your media library, with a built-in worker node.",
+  "category": "Media",
+  "website": "https://tdarr.io",
+  "color": "#3F51B5",
+  "note": "Set a username and password on first visit. Put media in the media volume and add /media as a library.",
+  "expose": {
+    "service": "tdarr",
+    "port": 8265
+  },
+  "vars": [
+    {
+      "key": "TDARR_API_KEY",
+      "generate": "hex32"
+    }
+  ]
+}

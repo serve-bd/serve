@@ -1,0 +1,12 @@
+services:
+  yopass:
+    image: jhaals/yopass:latest
+    restart: unless-stopped
+    environment:
+      MEMCACHED: memcached:11211
+      PORT: "1337"
+    depends_on:
+      - memcached
+  memcached:
+    image: memcached:1-alpine
+    restart: unless-stopped

@@ -1,0 +1,13 @@
+{
+  "name": "Kiwix",
+  "description": "Serves Wikipedia and other ZIM archives for offline reading.",
+  "category": "Media",
+  "website": "https://kiwix.org",
+  "color": "#000000",
+  "note": "Starts with an empty library. Download .zim files from https://library.kiwix.org, put them in the data volume, then restart the service.",
+  "expose": {
+    "service": "kiwix",
+    "port": 8080
+  },
+  "vars": []
+}

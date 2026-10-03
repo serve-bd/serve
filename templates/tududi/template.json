@@ -1,0 +1,32 @@
+{
+  "name": "Tududi",
+  "description": "Task and project manager with areas, notes and a daily overview.",
+  "category": "Productivity",
+  "website": "https://tududi.com",
+  "color": "#2563EB",
+  "note": "Log in with the admin email and password from the configure step.",
+  "expose": {
+    "service": "tududi",
+    "port": 3002
+  },
+  "vars": [
+    {
+      "key": "TUDUDI_USER_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "TUDUDI_USER_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "TUDUDI_SESSION_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

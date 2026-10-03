@@ -1,0 +1,62 @@
+x-typebot-env: &typebot-env
+  DATABASE_URL: postgresql://typebot:${POSTGRES_PASSWORD}@postgres:5432/typebot
+  REDIS_URL: redis://redis:6379
+  ENCRYPTION_SECRET: ${ENCRYPTION_SECRET}
+  NEXTAUTH_URL: ${BUILDER_URL}
+  NEXT_PUBLIC_VIEWER_URL: ${VIEWER_URL}
+  ADMIN_EMAIL: ${ADMIN_EMAIL}
+  NODE_OPTIONS: --no-node-snapshot
+  SMTP_HOST: ${SMTP_HOST}
+  SMTP_PORT: ${SMTP_PORT}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  NEXT_PUBLIC_SMTP_FROM: ${SMTP_FROM}
+services:
+  builder:
+    image: baptistearno/typebot-builder:3
+    restart: unless-stopped
+    # Typebot rejects empty SMTP credentials: drop them when the server needs no login.
+    entrypoint: ["/bin/sh", "-c", "[ -n \"$$SMTP_USERNAME\" ] || unset SMTP_USERNAME SMTP_PASSWORD; exec ./$${SCOPE}-entrypoint.sh"]
+    environment: *typebot-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  viewer:
+    image: baptistearno/typebot-viewer:3
+    restart: unless-stopped
+    # Typebot rejects empty SMTP credentials: drop them when the server needs no login.
+    entrypoint: ["/bin/sh", "-c", "[ -n \"$$SMTP_USERNAME\" ] || unset SMTP_USERNAME SMTP_PASSWORD; exec ./$${SCOPE}-entrypoint.sh"]
+    environment: *typebot-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: typebot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: typebot
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U typebot -d typebot"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: --save 60 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  postgres-data:
+  redis-data:

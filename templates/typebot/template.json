@@ -1,0 +1,67 @@
+{
+  "name": "Typebot",
+  "description": "Build chatbots with a visual editor and embed them anywhere.",
+  "category": "Communication",
+  "website": "https://typebot.com",
+  "color": "#0042DA",
+  "minVersion": "0.1.9",
+  "note": "Typebot uses two domains: the main one is the builder, the second one serves your bots. Sign in uses links sent by email, so fill in the SMTP values. Sign in with the admin email to get full access.",
+  "expose": {
+    "service": "builder",
+    "port": 3000
+  },
+  "domains": [
+    {
+      "service": "viewer",
+      "port": 3000
+    }
+  ],
+  "vars": [
+    {
+      "key": "BUILDER_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "VIEWER_URL",
+      "serviceUrl": "viewer"
+    },
+    {
+      "key": "ENCRYPTION_SECRET",
+      "generate": "hex16"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "SMTP_FROM",
+      "value": "Typebot <noreply@example.com>",
+      "label": "Sender email"
+    },
+    {
+      "key": "SMTP_HOST",
+      "value": "smtp.example.com",
+      "label": "SMTP server"
+    },
+    {
+      "key": "SMTP_PORT",
+      "value": "587",
+      "label": "SMTP port"
+    },
+    {
+      "key": "SMTP_USERNAME",
+      "value": "",
+      "label": "SMTP username"
+    },
+    {
+      "key": "SMTP_PASSWORD",
+      "value": "",
+      "label": "SMTP password"
+    }
+  ]
+}

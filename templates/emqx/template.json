@@ -1,0 +1,30 @@
+{
+  "name": "EMQX",
+  "description": "MQTT broker for IoT, with the EMQX dashboard on the domain.",
+  "category": "Developer tools",
+  "website": "https://www.emqx.com",
+  "color": "#5D4ED7",
+  "hostAccess": true,
+  "note": "Log in to the dashboard as admin with the generated password. MQTT clients log in with the MQTT user and password below. Publishes port 1883 (MQTT) on the server for devices; services in Serve connect to <stack>-emqx:1883 on the private network.",
+  "expose": {
+    "service": "emqx",
+    "port": 18083
+  },
+  "vars": [
+    {
+      "key": "EMQX_DASHBOARD_PASSWORD",
+      "generate": "password",
+      "label": "Dashboard password"
+    },
+    {
+      "key": "MQTT_USER",
+      "value": "mqtt",
+      "label": "MQTT user"
+    },
+    {
+      "key": "MQTT_PASSWORD",
+      "generate": "password",
+      "label": "MQTT password"
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+services:
+  documenso:
+    image: documenso/documenso:latest
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXT_PRIVATE_ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY: ${ENCRYPTION_SECONDARY_KEY}
+      NEXT_PUBLIC_WEBAPP_URL: ${WEBAPP_URL}
+      NEXT_PRIVATE_INTERNAL_WEBAPP_URL: http://localhost:3000
+      NEXT_PRIVATE_DATABASE_URL: postgresql://documenso:${POSTGRES_PASSWORD}@postgres:5432/documenso
+      NEXT_PRIVATE_DIRECT_DATABASE_URL: postgresql://documenso:${POSTGRES_PASSWORD}@postgres:5432/documenso
+      NEXT_PUBLIC_UPLOAD_TRANSPORT: database
+      NEXT_PRIVATE_SMTP_TRANSPORT: smtp-auth
+      NEXT_PRIVATE_SMTP_HOST: ${SMTP_HOST}
+      NEXT_PRIVATE_SMTP_PORT: ${SMTP_PORT}
+      NEXT_PRIVATE_SMTP_USERNAME: ${SMTP_USERNAME}
+      NEXT_PRIVATE_SMTP_PASSWORD: ${SMTP_PASSWORD}
+      NEXT_PRIVATE_SMTP_FROM_NAME: Documenso
+      NEXT_PRIVATE_SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS}
+      NEXT_PRIVATE_SIGNING_LOCAL_FILE_PATH: /opt/documenso/cert.p12
+      NEXT_PRIVATE_SIGNING_PASSPHRASE: ${SIGNING_PASSPHRASE}
+    volumes:
+      - signing-cert:/opt/documenso:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      cert:
+        condition: service_completed_successfully
+  # Makes a self-signed signing certificate once. Replace cert.p12 in the
+  # signing-cert volume with one from a trusted authority if you need that.
+  cert:
+    image: documenso/documenso:latest
+    restart: "no"
+    user: root
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        if [ ! -f /opt/documenso/cert.p12 ]; then
+        cd /tmp &&
+        openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 3650 -subj "/CN=Documenso" &&
+        openssl pkcs12 -export -inkey key.pem -in cert.pem -out /opt/documenso/cert.p12
+        -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 -passout env:SIGNING_PASSPHRASE &&
+        rm -f key.pem cert.pem;
+        fi &&
+        chown 1001 /opt/documenso/cert.p12 && chmod 400 /opt/documenso/cert.p12
+    environment:
+      SIGNING_PASSPHRASE: ${SIGNING_PASSPHRASE}
+    volumes:
+      - signing-cert:/opt/documenso
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: documenso
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: documenso
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U documenso -d documenso"]
+      interval: 5s
+      retries: 20
+volumes:
+  signing-cert:
+  postgres-data:

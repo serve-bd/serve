@@ -1,0 +1,22 @@
+{
+  "name": "Misskey",
+  "description": "Decentralized microblogging platform that federates with the Fediverse.",
+  "category": "Communication",
+  "website": "https://misskey-hub.net",
+  "color": "#86B300",
+  "note": "The domain is fixed at first start and cannot change later. Open the site to create the admin account.",
+  "expose": {
+    "service": "misskey",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "MISSKEY_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "NATS",
+  "description": "Messaging system with JetStream persistence, with the monitoring pages on the domain.",
+  "category": "Developer tools",
+  "website": "https://nats.io",
+  "color": "#27AAE1",
+  "note": "Services connect to nats://<stack>-nats:4222 on the private network with the token below. The monitoring pages ask for the monitor user and password.",
+  "expose": {
+    "service": "monitor",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "NATS_TOKEN",
+      "generate": "secret",
+      "label": "Client token"
+    },
+    {
+      "key": "MONITOR_USER",
+      "value": "admin",
+      "label": "Monitor user"
+    },
+    {
+      "key": "MONITOR_PASSWORD",
+      "generate": "password",
+      "label": "Monitor password"
+    }
+  ]
+}

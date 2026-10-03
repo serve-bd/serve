@@ -1,0 +1,19 @@
+{
+  "name": "ONLYOFFICE Docs",
+  "description": "Online editors for documents, spreadsheets and presentations, to connect to other apps.",
+  "category": "Productivity",
+  "website": "https://www.onlyoffice.com",
+  "color": "#FF6F3D",
+  "note": "This is the editor server only. Connect it from an app such as Nextcloud with the domain and the JWT secret shown here. The first start takes a few minutes.",
+  "expose": {
+    "service": "onlyoffice",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "JWT_SECRET",
+      "generate": "password",
+      "label": "JWT secret"
+    }
+  ]
+}

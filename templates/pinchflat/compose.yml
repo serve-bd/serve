@@ -1,0 +1,14 @@
+services:
+  pinchflat:
+    image: ghcr.io/kieraneglin/pinchflat:latest
+    restart: unless-stopped
+    environment:
+      TZ: Etc/UTC
+      BASIC_AUTH_USERNAME: ${BASIC_AUTH_USERNAME}
+      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD}
+    volumes:
+      - pinchflat-config:/config
+      - pinchflat-downloads:/downloads
+volumes:
+  pinchflat-config:
+  pinchflat-downloads:

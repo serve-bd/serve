@@ -1,0 +1,18 @@
+services:
+  jdownloader:
+    image: jlesage/jdownloader-2:latest
+    restart: unless-stopped
+    environment:
+      USER_ID: "1000"
+      GROUP_ID: "1000"
+      TZ: Etc/UTC
+      WEB_AUTHENTICATION: "1"
+      WEB_AUTHENTICATION_ALLOW_INSECURE: "1"
+      WEB_AUTHENTICATION_USERNAME: ${WEB_USER}
+      WEB_AUTHENTICATION_PASSWORD: ${WEB_PASSWORD}
+    volumes:
+      - jdownloader-config:/config
+      - jdownloader-output:/output
+volumes:
+  jdownloader-config:
+  jdownloader-output:

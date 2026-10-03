@@ -1,0 +1,10 @@
+services:
+  shaarli:
+    image: shaarli/shaarli:release
+    restart: unless-stopped
+    volumes:
+      - shaarli-data:/var/www/shaarli/data
+      - shaarli-cache:/var/www/shaarli/cache
+volumes:
+  shaarli-data:
+  shaarli-cache:

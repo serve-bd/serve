@@ -1,0 +1,37 @@
+services:
+  # LinkStack builds its links from the scheme it sees, so this talks to its HTTPS port.
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - linkstack
+  linkstack:
+    image: linkstackorg/linkstack:latest
+    restart: unless-stopped
+    environment:
+      HTTP_SERVER_NAME: ${LINKSTACK_HOST}
+      HTTPS_SERVER_NAME: ${LINKSTACK_HOST}
+      SERVER_ADMIN: ${ADMIN_EMAIL}
+      UPLOAD_MAX_FILESIZE: 16M
+    volumes:
+      - linkstack-data:/htdocs
+configs:
+  caddyfile:
+    content: |
+      {
+        admin off
+        auto_https off
+      }
+      :80 {
+        reverse_proxy https://linkstack:443 {
+          header_up Host {host}
+          transport http {
+            tls_insecure_skip_verify
+          }
+        }
+      }
+volumes:
+  linkstack-data:

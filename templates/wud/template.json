@@ -1,0 +1,20 @@
+{
+  "name": "What's up Docker",
+  "description": "Shows which of your running containers have a newer image.",
+  "category": "Developer tools",
+  "website": "https://getwud.github.io/wud/",
+  "color": "#2496ED",
+  "hostAccess": true,
+  "note": "Reads the Docker socket of the server. Log in as admin with the generated admin password.",
+  "expose": {
+    "service": "wud",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

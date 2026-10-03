@@ -1,0 +1,15 @@
+services:
+  calibre:
+    image: lscr.io/linuxserver/calibre:latest
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      CUSTOM_USER: ${CALIBRE_USER}
+      PASSWORD: ${CALIBRE_PASSWORD}
+    volumes:
+      - calibre-config:/config
+volumes:
+  calibre-config:

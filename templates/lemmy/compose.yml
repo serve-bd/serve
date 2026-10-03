@@ -1,0 +1,110 @@
+services:
+  # Sends API, federation and image requests to the backend and the rest to the web UI.
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - lemmy
+      - lemmy-ui
+  lemmy:
+    image: dessalines/lemmy:0.19.20
+    restart: unless-stopped
+    environment:
+      RUST_LOG: warn
+    configs:
+      - source: lemmy-config
+        target: /config/config.hjson
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pictrs:
+        condition: service_started
+  lemmy-ui:
+    image: dessalines/lemmy-ui:0.19.20
+    restart: unless-stopped
+    environment:
+      LEMMY_UI_LEMMY_INTERNAL_HOST: lemmy:8536
+      LEMMY_UI_LEMMY_EXTERNAL_HOST: ${LEMMY_HOST}
+      LEMMY_UI_HTTPS: "true"
+    depends_on:
+      - lemmy
+  pictrs:
+    image: asonix/pictrs:0.5
+    restart: unless-stopped
+    user: 991:991
+    environment:
+      PICTRS__SERVER__API_KEY: ${PICTRS_API_KEY}
+      PICTRS__MEDIA__VIDEO__ENABLE: "true"
+      PICTRS__MEDIA__VIDEO__MAX_FILE_SIZE: "20"
+      RUST_LOG: info
+    volumes:
+      - pictrs-data:/mnt
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: lemmy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: lemmy
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lemmy -d lemmy"]
+      interval: 5s
+      retries: 20
+configs:
+  lemmy-config:
+    content: |
+      {
+        hostname: "${LEMMY_HOST}"
+        database: {
+          uri: "postgresql://lemmy:${POSTGRES_PASSWORD}@postgres:5432/lemmy"
+        }
+        pictrs: {
+          url: "http://pictrs:8080/"
+          api_key: "${PICTRS_API_KEY}"
+        }
+      }
+  caddyfile:
+    content: |
+      {
+        admin off
+        auto_https off
+        servers {
+          trusted_proxies static private_ranges
+        }
+      }
+      :80 {
+        request_body {
+          max_size 20MB
+        }
+        @backend {
+          path /api/* /pictrs/* /feeds/* /nodeinfo/* /.well-known/* /version /sitemap.xml
+        }
+        @activitypub {
+          method GET HEAD
+          header_regexp Accept application/(activity|ld)\+json
+        }
+        @write {
+          not method GET HEAD
+        }
+        handle @backend {
+          reverse_proxy lemmy:8536
+        }
+        handle @activitypub {
+          reverse_proxy lemmy:8536
+        }
+        handle @write {
+          reverse_proxy lemmy:8536
+        }
+        handle {
+          reverse_proxy lemmy-ui:1234
+        }
+      }
+volumes:
+  pictrs-data:
+  postgres-data:

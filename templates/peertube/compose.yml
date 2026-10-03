@@ -1,0 +1,52 @@
+services:
+  peertube:
+    image: chocobozzz/peertube:production
+    restart: unless-stopped
+    environment:
+      PEERTUBE_DB_HOSTNAME: postgres
+      PEERTUBE_DB_NAME: peertube
+      PEERTUBE_DB_USERNAME: peertube
+      PEERTUBE_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      PEERTUBE_DB_SSL: "false"
+      PEERTUBE_REDIS_HOSTNAME: redis
+      PEERTUBE_WEBSERVER_HOSTNAME: ${PEERTUBE_HOST}
+      PEERTUBE_WEBSERVER_PORT: "443"
+      PEERTUBE_WEBSERVER_HTTPS: "true"
+      PEERTUBE_SECRET: ${PEERTUBE_SECRET}
+      PEERTUBE_ADMIN_EMAIL: ${PEERTUBE_ADMIN_EMAIL}
+      PT_INITIAL_ROOT_PASSWORD: ${ROOT_PASSWORD}
+    volumes:
+      - peertube-data:/data
+      - peertube-config:/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: peertube
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: peertube
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peertube -d peertube"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  peertube-data:
+  peertube-config:
+  postgres-data:
+  redis-data:

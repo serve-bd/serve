@@ -1,0 +1,38 @@
+services:
+  nats:
+    image: nats:2
+    restart: unless-stopped
+    command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222", "--auth", "${NATS_TOKEN}"]
+    volumes:
+      - nats-data:/data
+  # The monitoring pages have no login of their own; this puts a password in front of them.
+  monitor:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    entrypoint:
+      - sh
+      - -c
+      - export MONITOR_HASH="$$(caddy hash-password --plaintext "$$MONITOR_PASSWORD")" && exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    environment:
+      MONITOR_USER: ${MONITOR_USER}
+      MONITOR_PASSWORD: ${MONITOR_PASSWORD}
+    configs:
+      - source: monitor-proxy
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - nats
+configs:
+  monitor-proxy:
+    content: |
+      {
+        admin off
+        auto_https off
+      }
+      :8080 {
+        basic_auth {
+          {$$MONITOR_USER} {$$MONITOR_HASH}
+        }
+        reverse_proxy nats:8222
+      }
+volumes:
+  nats-data:

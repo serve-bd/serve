@@ -1,0 +1,29 @@
+{
+  "name": "CryptPad",
+  "description": "End-to-end encrypted office suite: documents, sheets, slides and forms.",
+  "category": "Productivity",
+  "website": "https://cryptpad.org",
+  "color": "#0087FF",
+  "minVersion": "0.1.9",
+  "note": "CryptPad uses two domains: the main one for the app and a second sandbox domain for security. Open the setup link from the logs to create the admin account.",
+  "expose": {
+    "service": "proxy",
+    "port": 80
+  },
+  "domains": [
+    {
+      "service": "cryptpad",
+      "port": 3000
+    }
+  ],
+  "vars": [
+    {
+      "key": "MAIN_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "SANDBOX_URL",
+      "serviceUrl": "cryptpad"
+    }
+  ]
+}

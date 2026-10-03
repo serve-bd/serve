@@ -1,0 +1,12 @@
+services:
+  redlib:
+    image: quay.io/redlib/redlib:latest
+    restart: unless-stopped
+    user: nobody
+    read_only: true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "--tries=1", "http://localhost:8080/settings"]
+      interval: 5m
+      timeout: 3s

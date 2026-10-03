@@ -1,0 +1,23 @@
+{
+  "name": "Tinyauth",
+  "description": "Simple login portal and forward auth for apps behind a reverse proxy.",
+  "category": "Security",
+  "website": "https://tinyauth.app",
+  "color": "#2563EB",
+  "note": "Log in as admin with the generated admin password.",
+  "expose": {
+    "service": "tinyauth",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

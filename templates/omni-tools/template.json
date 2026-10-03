@@ -1,0 +1,12 @@
+{
+  "name": "OmniTools",
+  "description": "Handy tools for images, PDFs, text, lists and dates that run in your browser.",
+  "category": "Productivity",
+  "website": "https://github.com/iib0011/omni-tools",
+  "color": "#1C64F2",
+  "expose": {
+    "service": "omni-tools",
+    "port": 80
+  },
+  "vars": []
+}

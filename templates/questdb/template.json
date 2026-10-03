@@ -1,0 +1,24 @@
+{
+  "name": "QuestDB",
+  "description": "Fast time-series database with SQL and a web console.",
+  "category": "Databases",
+  "website": "https://questdb.com",
+  "color": "#D14671",
+  "note": "Log in to the web console with the user and password below. Services connect over the Postgres protocol to <stack>-questdb:8812 with the same login.",
+  "expose": {
+    "service": "questdb",
+    "port": 9000
+  },
+  "vars": [
+    {
+      "key": "QUESTDB_USER",
+      "value": "admin",
+      "label": "User"
+    },
+    {
+      "key": "QUESTDB_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

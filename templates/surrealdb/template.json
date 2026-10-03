@@ -1,0 +1,24 @@
+{
+  "name": "SurrealDB",
+  "description": "Multi-model database for documents, graphs and real-time apps.",
+  "category": "Databases",
+  "website": "https://surrealdb.com",
+  "color": "#FF00A0",
+  "note": "The HTTP and WebSocket API is on the domain. Connect with Surrealist or an SDK as the root user with the generated password.",
+  "expose": {
+    "service": "surrealdb",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "SURREAL_USER",
+      "value": "root",
+      "label": "Root user"
+    },
+    {
+      "key": "SURREAL_PASS",
+      "generate": "password",
+      "label": "Root password"
+    }
+  ]
+}

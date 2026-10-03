@@ -1,0 +1,14 @@
+services:
+  checkmk:
+    image: checkmk/check-mk-raw:2.4.0-latest
+    restart: unless-stopped
+    environment:
+      CMK_SITE_ID: cmk
+      CMK_PASSWORD: ${CMK_PASSWORD}
+      TZ: UTC
+    tmpfs:
+      - /opt/omd/sites/cmk/tmp:uid=1000,gid=1000
+    volumes:
+      - checkmk-data:/omd/sites
+volumes:
+  checkmk-data:

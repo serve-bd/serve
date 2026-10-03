@@ -1,0 +1,14 @@
+services:
+  donetick:
+    image: donetick/donetick:latest
+    restart: unless-stopped
+    environment:
+      DT_ENV: selfhosted
+      DT_SQLITE_PATH: /donetick-data/donetick.db
+      DT_JWT_SECRET: ${DT_JWT_SECRET}
+      DT_SERVER_PUBLIC_HOST: ${PUBLIC_URL}
+      TZ: UTC
+    volumes:
+      - donetick-data:/donetick-data
+volumes:
+  donetick-data:

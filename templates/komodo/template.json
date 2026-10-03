@@ -1,0 +1,36 @@
+{
+  "name": "Komodo",
+  "description": "Build and deploy containers and compose stacks across your servers, with MongoDB.",
+  "category": "Developer tools",
+  "website": "https://komo.do",
+  "color": "#14B8A6",
+  "hostAccess": true,
+  "note": "Has full control of Docker on the server. Log in as admin with the generated admin password. Stacks and repos are kept in /etc/komodo on the server.",
+  "expose": {
+    "service": "core",
+    "port": 9120
+  },
+  "vars": [
+    {
+      "key": "KOMODO_HOST",
+      "publicUrl": true
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "WEBHOOK_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    }
+  ]
+}

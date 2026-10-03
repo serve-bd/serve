@@ -1,0 +1,25 @@
+{
+  "name": "SFTPGo",
+  "description": "SFTP, FTP and WebDAV server with a web admin and a web client for users.",
+  "category": "Storage",
+  "website": "https://sftpgo.com",
+  "color": "#2B6CB0",
+  "note": "Publishes port 2022 (SFTP) on the server. Sign in at /web/admin with the admin user and password from the configure step, then add users. Users sign in at /web/client.",
+  "hostAccess": true,
+  "expose": {
+    "service": "sftpgo",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "ADMIN_USER",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

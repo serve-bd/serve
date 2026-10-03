@@ -1,0 +1,22 @@
+{
+  "name": "Flarum",
+  "description": "Simple, fast forum software, with MariaDB.",
+  "category": "Communication",
+  "website": "https://flarum.org",
+  "color": "#E7672E",
+  "note": "Log in with user flarum and password flarum, then change the password right away.",
+  "expose": {
+    "service": "flarum",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "FLARUM_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

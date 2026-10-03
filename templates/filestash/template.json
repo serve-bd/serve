@@ -1,0 +1,18 @@
+{
+  "name": "Filestash",
+  "description": "A web file manager for S3, SFTP, FTP, WebDAV, Git and more.",
+  "category": "Storage",
+  "website": "https://www.filestash.app",
+  "color": "#466372",
+  "note": "Set the admin password on first visit, then choose the storage backends in the admin console.",
+  "expose": {
+    "service": "filestash",
+    "port": 8334
+  },
+  "vars": [
+    {
+      "key": "FILESTASH_HOST",
+      "publicHost": true
+    }
+  ]
+}

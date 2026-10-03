@@ -1,0 +1,46 @@
+x-monica-env: &monica-env
+  APP_ENV: production
+  APP_KEY: ${APP_KEY}
+  APP_URL: ${APP_URL}
+  APP_TRUSTED_PROXIES: "*"
+  DB_HOST: mariadb
+  DB_DATABASE: monica
+  DB_USERNAME: monica
+  DB_PASSWORD: ${DB_PASSWORD}
+  LOG_CHANNEL: stderr
+services:
+  monica:
+    image: monica:4-apache
+    restart: unless-stopped
+    environment: *monica-env
+    volumes:
+      - monica-storage:/var/www/html/storage
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  cron:
+    image: monica:4-apache
+    restart: unless-stopped
+    command: ["cron.sh"]
+    environment: *monica-env
+    volumes:
+      - monica-storage:/var/www/html/storage
+    depends_on:
+      - monica
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_DATABASE: monica
+      MARIADB_USER: monica
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  monica-storage:
+  db-data:

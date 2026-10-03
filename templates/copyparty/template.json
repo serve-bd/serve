@@ -1,0 +1,24 @@
+{
+  "name": "copyparty",
+  "description": "A file server with resumable uploads, media indexing, thumbnails and WebDAV.",
+  "category": "Storage",
+  "website": "https://github.com/9001/copyparty",
+  "color": "#E77B23",
+  "note": "Sign in with the username and password from the configure step. Files live in the files volume.",
+  "expose": {
+    "service": "copyparty",
+    "port": 3923
+  },
+  "vars": [
+    {
+      "key": "ADMIN_USER",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

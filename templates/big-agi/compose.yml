@@ -1,0 +1,4 @@
+services:
+  big-agi:
+    image: ghcr.io/enricoros/big-agi:latest
+    restart: unless-stopped

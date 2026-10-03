@@ -1,0 +1,19 @@
+{
+  "name": "Whisper ASR",
+  "description": "Speech to text API with OpenAI Whisper, on the CPU.",
+  "category": "AI",
+  "website": "https://ahmetoner.com/whisper-asr-webservice",
+  "color": "#10A37F",
+  "note": "The API has no login. The API docs are on the domain. Services call it at <stack>-whisper:9000 on the private network.",
+  "expose": {
+    "service": "whisper",
+    "port": 9000
+  },
+  "vars": [
+    {
+      "key": "ASR_MODEL",
+      "value": "base",
+      "label": "Model (tiny, base, small, medium, large-v3, turbo)"
+    }
+  ]
+}

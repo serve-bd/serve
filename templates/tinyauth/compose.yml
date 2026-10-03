@@ -1,0 +1,30 @@
+services:
+  tinyauth:
+    image: ghcr.io/tinyauthapp/tinyauth:v5
+    restart: unless-stopped
+    environment:
+      TINYAUTH_APPURL: ${APP_URL}
+      TINYAUTH_AUTH_USERSFILE: /users/users
+      TINYAUTH_AUTH_SECURECOOKIE: "true"
+      TINYAUTH_DATABASE_PATH: /data/tinyauth.db
+      TINYAUTH_RESOURCES_PATH: /data/resources
+      TINYAUTH_LABELPROVIDER: none
+      TINYAUTH_ANALYTICS_ENABLED: "false"
+    volumes:
+      - tinyauth-data:/data
+      - tinyauth-users:/users
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  # Writes the admin user with a bcrypt hash of ADMIN_PASSWORD.
+  setup:
+    image: httpd:2-alpine
+    restart: "no"
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    command: ["sh", "-c", "htpasswd -nbB admin \"$$ADMIN_PASSWORD\" | head -n 1 > /users/users"]
+    volumes:
+      - tinyauth-users:/users
+volumes:
+  tinyauth-data:
+  tinyauth-users:

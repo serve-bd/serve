@@ -1,0 +1,80 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - client
+      - server
+  client:
+    image: opensign/opensign:main
+    restart: unless-stopped
+    environment:
+      REACT_APP_SERVERURL: ${PUBLIC_URL}/api/app
+    depends_on:
+      - server
+  server:
+    image: opensign/opensignserver:main
+    restart: unless-stopped
+    # Makes a self-signed document signing certificate once and passes it to the app.
+    command:
+      - sh
+      - -c
+      - >
+        if [ ! -f /opensign-cert/cert.pfx ]; then
+        cd /tmp &&
+        openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 3650 -subj "/CN=OpenSign" &&
+        openssl pkcs12 -export -inkey key.pem -in cert.pem -out /opensign-cert/cert.pfx
+        -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 -passout env:PASS_PHRASE &&
+        rm -f key.pem cert.pem;
+        fi &&
+        export PFX_BASE64="$$(base64 -w0 /opensign-cert/cert.pfx)" &&
+        cd /usr/src/app && exec npm start
+    environment:
+      NODE_ENV: production
+      APP_ID: opensign
+      MASTER_KEY: ${MASTER_KEY}
+      MONGODB_URI: mongodb://mongo:27017/OpenSignDB
+      PARSE_MOUNT: /app
+      SERVER_URL: ${PUBLIC_URL}/api/app
+      PUBLIC_URL: ${PUBLIC_URL}
+      USE_LOCAL: "true"
+      PASS_PHRASE: ${PASS_PHRASE}
+    volumes:
+      - opensign-files:/usr/src/app/files
+      - opensign-cert:/opensign-cert
+    depends_on:
+      mongo:
+        condition: service_healthy
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      retries: 20
+configs:
+  caddyfile:
+    content: |
+      {
+          servers {
+              trusted_proxies static private_ranges
+          }
+      }
+
+      :80 {
+          handle_path /api/* {
+              reverse_proxy server:8080
+          }
+          handle {
+              reverse_proxy client:3000
+          }
+      }
+volumes:
+  opensign-files:
+  opensign-cert:
+  mongo-data:

@@ -1,0 +1,55 @@
+services:
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.5.3
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_PASSWORD}
+      SERVER_PUBLICBASEURL: ${KIBANA_URL}
+      XPACK_SECURITY_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY}
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY}
+      XPACK_REPORTING_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY}
+    volumes:
+      - kibana-data:/usr/share/kibana/data
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  # Sets the password of the built-in kibana_system user, which Kibana connects with.
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.3
+    restart: "no"
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      KIBANA_PASSWORD: ${KIBANA_PASSWORD}
+    command: >
+      sh -c 'until curl -fsS -u "elastic:$${ELASTIC_PASSWORD}" -X POST -H "Content-Type: application/json"
+      http://elasticsearch:9200/_security/user/kibana_system/_password -d "{\"password\":\"$${KIBANA_PASSWORD}\"}" >/dev/null;
+      do sleep 5; done'
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.3
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -u elastic:$${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      retries: 30
+      start_period: 30s
+volumes:
+  kibana-data:
+  elasticsearch-data:

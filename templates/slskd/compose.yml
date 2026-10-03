@@ -1,0 +1,15 @@
+services:
+  slskd:
+    image: slskd/slskd:latest
+    restart: unless-stopped
+    environment:
+      SLSKD_REMOTE_CONFIGURATION: "true"
+      SLSKD_USERNAME: ${WEB_USER}
+      SLSKD_PASSWORD: ${WEB_PASSWORD}
+      SLSKD_SHARED_DIR: /music
+    volumes:
+      - slskd-data:/app
+      - slskd-music:/music
+volumes:
+  slskd-data:
+  slskd-music:

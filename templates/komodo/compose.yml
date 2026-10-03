@@ -1,0 +1,64 @@
+services:
+  core:
+    image: ghcr.io/moghtech/komodo-core:2
+    init: true
+    restart: unless-stopped
+    environment:
+      KOMODO_HOST: ${KOMODO_HOST}
+      KOMODO_TITLE: Komodo
+      KOMODO_DATABASE_ADDRESS: mongo:27017
+      KOMODO_DATABASE_USERNAME: komodo
+      KOMODO_DATABASE_PASSWORD: ${DB_PASSWORD}
+      KOMODO_PERIPHERY_PUBLIC_KEY: file:/config/keys/periphery.pub
+      KOMODO_FIRST_SERVER_NAME: Local
+      KOMODO_LOCAL_AUTH: "true"
+      KOMODO_INIT_ADMIN_USERNAME: admin
+      KOMODO_INIT_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      KOMODO_DISABLE_USER_REGISTRATION: "true"
+      KOMODO_WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      KOMODO_JWT_SECRET: ${JWT_SECRET}
+      TZ: Etc/UTC
+    volumes:
+      - keys:/config/keys
+      - backups:/backups
+    depends_on:
+      mongo:
+        condition: service_healthy
+  periphery:
+    image: ghcr.io/moghtech/komodo-periphery:2
+    init: true
+    restart: unless-stopped
+    environment:
+      PERIPHERY_CORE_ADDRESS: ws://core:9120
+      PERIPHERY_CONNECT_AS: Local
+      PERIPHERY_CORE_PUBLIC_KEYS: file:/config/keys/core.pub
+      PERIPHERY_ROOT_DIRECTORY: /etc/komodo
+      PERIPHERY_INCLUDE_DISK_MOUNTS: /etc/hostname
+      TZ: Etc/UTC
+    volumes:
+      - keys:/config/keys
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/proc
+      # Must be the same path inside and outside the container.
+      - /etc/komodo:/etc/komodo
+    depends_on:
+      - core
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    command: --quiet --wiredTigerCacheSizeGB 0.25
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: komodo
+      MONGO_INITDB_ROOT_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      retries: 20
+volumes:
+  keys:
+  backups:
+  mongo-data:
+  mongo-config:

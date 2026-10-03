@@ -1,0 +1,18 @@
+{
+  "name": "BookLore",
+  "description": "A library for your e-books and comics with metadata, reading and OPDS, with MariaDB.",
+  "category": "Media",
+  "website": "https://github.com/booklore-app/booklore",
+  "color": "#6D5DFC",
+  "note": "Create the admin account on first visit. Put books in the books volume, or drop files in the bookdrop volume to import them.",
+  "expose": {
+    "service": "booklore",
+    "port": 6060
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

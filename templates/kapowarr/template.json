@@ -1,0 +1,13 @@
+{
+  "name": "Kapowarr",
+  "description": "Finds, downloads and organizes your comic book library.",
+  "category": "Media",
+  "website": "https://casvt.github.io/Kapowarr/",
+  "color": "#F59E0B",
+  "note": "There is no login by default: set a password in Settings, General. Add /comics as the root folder.",
+  "expose": {
+    "service": "kapowarr",
+    "port": 5656
+  },
+  "vars": []
+}

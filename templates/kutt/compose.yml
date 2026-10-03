@@ -1,0 +1,54 @@
+services:
+  kutt:
+    image: kutt/kutt:latest
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      SITE_NAME: Kutt
+      DEFAULT_DOMAIN: ${KUTT_HOST}
+      JWT_SECRET: ${JWT_SECRET}
+      TRUST_PROXY: "true"
+      DB_CLIENT: pg
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: kutt
+      DB_USER: kutt
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      DISALLOW_REGISTRATION: "true"
+      DISALLOW_ANONYMOUS_LINKS: "true"
+    volumes:
+      - kutt-custom:/kutt/custom
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kutt
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: kutt
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kutt -d kutt"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  kutt-custom:
+  postgres-data:
+  redis-data:

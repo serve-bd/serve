@@ -1,0 +1,19 @@
+{
+  "name": "Checkmk",
+  "description": "Infrastructure and app monitoring, Raw Edition.",
+  "category": "Monitoring",
+  "website": "https://checkmk.com",
+  "color": "#15D1A0",
+  "note": "Log in as cmkadmin with the generated admin password. Agents that register over TLS need port 8000 of checkmk opened under Domains & ports.",
+  "expose": {
+    "service": "checkmk",
+    "port": 5000
+  },
+  "vars": [
+    {
+      "key": "CMK_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

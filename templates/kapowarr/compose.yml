@@ -1,0 +1,16 @@
+services:
+  kapowarr:
+    image: mrcas/kapowarr:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - kapowarr-db:/app/db
+      - kapowarr-downloads:/app/temp_downloads
+      - kapowarr-comics:/comics
+volumes:
+  kapowarr-db:
+  kapowarr-downloads:
+  kapowarr-comics:

@@ -1,0 +1,36 @@
+{
+  "name": "PeerTube",
+  "description": "Decentralized video hosting that federates with the Fediverse.",
+  "category": "Media",
+  "website": "https://joinpeertube.org",
+  "color": "#F1680D",
+  "note": "The domain is fixed at first start and cannot change later. Log in as root with the root password shown here. Live streaming over RTMP is not set up.",
+  "expose": {
+    "service": "peertube",
+    "port": 9000
+  },
+  "vars": [
+    {
+      "key": "PEERTUBE_HOST",
+      "publicHost": true
+    },
+    {
+      "key": "PEERTUBE_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ROOT_PASSWORD",
+      "generate": "password",
+      "label": "Root password"
+    },
+    {
+      "key": "PEERTUBE_ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    }
+  ]
+}

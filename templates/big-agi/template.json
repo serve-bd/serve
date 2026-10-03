@@ -1,0 +1,13 @@
+{
+  "name": "big-AGI",
+  "description": "AI chat workspace with multi-model chats, personas, voice and diagrams.",
+  "category": "AI",
+  "website": "https://big-agi.com",
+  "color": "#0B6BCB",
+  "note": "big-AGI has no login. Add your AI provider keys under Models in the app; they stay in your browser.",
+  "expose": {
+    "service": "big-agi",
+    "port": 3000
+  },
+  "vars": []
+}

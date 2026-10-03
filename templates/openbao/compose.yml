@@ -1,0 +1,11 @@
+services:
+  openbao:
+    image: openbao/openbao:2
+    restart: unless-stopped
+    command: server
+    environment:
+      BAO_LOCAL_CONFIG: '{"ui": true, "disable_mlock": true, "api_addr": "${BAO_URL}", "cluster_addr": "http://127.0.0.1:8201", "storage": {"raft": {"path": "/openbao/file", "node_id": "openbao"}}, "listener": [{"tcp": {"address": "0.0.0.0:8200", "tls_disable": true}}]}'
+    volumes:
+      - openbao-data:/openbao/file
+volumes:
+  openbao-data:

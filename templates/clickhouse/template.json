@@ -1,0 +1,24 @@
+{
+  "name": "ClickHouse",
+  "description": "Fast column-oriented database for real-time analytics.",
+  "category": "Databases",
+  "website": "https://clickhouse.com",
+  "color": "#151515",
+  "note": "The HTTP interface is on the domain, with a SQL console at /play. Log in as the admin user with the generated password. Services connect to <stack>-clickhouse:9000 (native) or :8123 (HTTP) on the private network.",
+  "expose": {
+    "service": "clickhouse",
+    "port": 8123
+  },
+  "vars": [
+    {
+      "key": "CLICKHOUSE_USER",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "CLICKHOUSE_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

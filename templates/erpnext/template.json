@@ -1,0 +1,27 @@
+{
+  "name": "ERPNext",
+  "description": "Open source ERP for accounting, inventory, sales, HR and manufacturing, with MariaDB and Redis.",
+  "category": "Productivity",
+  "website": "https://erpnext.com",
+  "color": "#0089FF",
+  "note": "The first start takes several minutes while the site is created. Log in as Administrator with the admin password from the configure step.",
+  "expose": {
+    "service": "frontend",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "DB_ROOT_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Administrator password"
+    },
+    {
+      "key": "SITE_URL",
+      "publicUrl": true
+    }
+  ]
+}

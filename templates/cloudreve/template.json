@@ -1,0 +1,18 @@
+{
+  "name": "Cloudreve",
+  "description": "Cloud storage with sharing, WebDAV and many storage providers, with PostgreSQL and Redis.",
+  "category": "Storage",
+  "website": "https://cloudreve.org",
+  "color": "#2D7FF9",
+  "note": "The first account you register becomes the admin.",
+  "expose": {
+    "service": "cloudreve",
+    "port": 5212
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

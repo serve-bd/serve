@@ -1,0 +1,14 @@
+services:
+  questdb:
+    image: questdb/questdb:10.0.1
+    restart: unless-stopped
+    environment:
+      QDB_HTTP_USER: ${QUESTDB_USER}
+      QDB_HTTP_PASSWORD: ${QUESTDB_PASSWORD}
+      QDB_PG_USER: ${QUESTDB_USER}
+      QDB_PG_PASSWORD: ${QUESTDB_PASSWORD}
+      QDB_TELEMETRY_ENABLED: "false"
+    volumes:
+      - questdb-data:/var/lib/questdb
+volumes:
+  questdb-data:

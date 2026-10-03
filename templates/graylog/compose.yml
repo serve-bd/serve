@@ -1,0 +1,58 @@
+services:
+  graylog:
+    image: graylog/graylog:7.1
+    restart: unless-stopped
+    # Graylog wants the admin password as a SHA-256 hash: it is made from ADMIN_PASSWORD at start.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - export GRAYLOG_ROOT_PASSWORD_SHA2=$$(printf %s "$$ADMIN_PASSWORD" | sha256sum | cut -d " " -f 1) && exec /usr/bin/tini -- /docker-entrypoint.sh
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      GRAYLOG_NODE_ID_FILE: /usr/share/graylog/data/data/node-id
+      GRAYLOG_PASSWORD_SECRET: ${GRAYLOG_PASSWORD_SECRET}
+      GRAYLOG_HTTP_BIND_ADDRESS: 0.0.0.0:9000
+      GRAYLOG_HTTP_EXTERNAL_URI: ${GRAYLOG_URL}/
+      GRAYLOG_ELASTICSEARCH_HOSTS: http://opensearch:9200
+      GRAYLOG_MONGODB_URI: mongodb://mongodb:27017/graylog
+    volumes:
+      - graylog-data:/usr/share/graylog/data
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      retries: 20
+  opensearch:
+    image: opensearchproject/opensearch:2
+    restart: unless-stopped
+    environment:
+      OPENSEARCH_JAVA_OPTS: -Xms1g -Xmx1g
+      discovery.type: single-node
+      action.auto_create_index: "false"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      retries: 30
+volumes:
+  graylog-data:
+  mongodb-data:
+  mongodb-config:
+  opensearch-data:

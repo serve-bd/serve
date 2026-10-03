@@ -1,0 +1,13 @@
+{
+  "name": "SmokePing",
+  "description": "Network latency and packet loss graphs over time.",
+  "category": "Monitoring",
+  "website": "https://oss.oetiker.ch/smokeping/",
+  "color": "#2E7D32",
+  "note": "Edit the targets in /config/Targets in the smokeping container, then restart it.",
+  "expose": {
+    "service": "smokeping",
+    "port": 80
+  },
+  "vars": []
+}

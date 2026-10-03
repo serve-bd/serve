@@ -1,0 +1,48 @@
+{
+  "name": "Lowcoder",
+  "description": "Low-code platform to build internal apps, dashboards and forms.",
+  "category": "Developer tools",
+  "website": "https://lowcoder.cloud",
+  "color": "#222222",
+  "note": "Log in with the admin email and password shown here. The first start takes a few minutes.",
+  "expose": {
+    "service": "lowcoder",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "LOWCODER_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "DB_ENCRYPTION_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "DB_ENCRYPTION_SALT",
+      "generate": "password"
+    },
+    {
+      "key": "API_KEY_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "NODE_SERVICE_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "NODE_SERVICE_SECRET_SALT",
+      "generate": "password"
+    }
+  ]
+}

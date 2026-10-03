@@ -1,0 +1,71 @@
+x-librenms-env: &librenms-env
+  TZ: UTC
+  PUID: "1000"
+  PGID: "1000"
+  DB_HOST: mariadb
+  DB_NAME: librenms
+  DB_USER: librenms
+  DB_PASSWORD: ${DB_PASSWORD}
+  DB_TIMEOUT: "60"
+  CACHE_DRIVER: redis
+  SESSION_DRIVER: redis
+  REDIS_HOST: redis
+  REAL_IP_FROM: 0.0.0.0/0
+  REAL_IP_HEADER: X-Forwarded-For
+  LIBRENMS_SNMP_COMMUNITY: public
+services:
+  librenms:
+    image: librenms/librenms:latest
+    restart: unless-stopped
+    environment:
+      <<: *librenms-env
+    volumes:
+      - librenms-data:/data
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  dispatcher:
+    image: librenms/librenms:latest
+    restart: unless-stopped
+    environment:
+      <<: *librenms-env
+      DISPATCHER_NODE_ID: dispatcher1
+      SIDECAR_DISPATCHER: "1"
+    volumes:
+      - librenms-data:/data
+    depends_on:
+      - librenms
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    command:
+      - --innodb-file-per-table=1
+      - --lower-case-table-names=0
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_DATABASE: librenms
+      MARIADB_USER: librenms
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  librenms-data:
+  mariadb-data:
+  redis-data:

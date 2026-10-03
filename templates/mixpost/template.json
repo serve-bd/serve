@@ -1,0 +1,26 @@
+{
+  "name": "Mixpost",
+  "description": "Schedule and manage social media posts across many accounts, with MySQL.",
+  "category": "Communication",
+  "website": "https://mixpost.app",
+  "color": "#4F46E5",
+  "note": "Log in with admin@example.com and password changeme, then change the password right away.",
+  "expose": {
+    "service": "mixpost",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

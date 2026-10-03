@@ -1,0 +1,17 @@
+services:
+  cronicle:
+    image: bluet/cronicle-docker:0.9.99
+    restart: unless-stopped
+    # Cronicle knows its primary server by hostname, so it must not change.
+    hostname: cronicle
+    environment:
+      CRONICLE_base_app_url: ${CRONICLE_URL}
+      CRONICLE_web_direct_connect: "0"
+    volumes:
+      - cronicle-data:/opt/cronicle/data
+      - cronicle-logs:/opt/cronicle/logs
+      - cronicle-plugins:/opt/cronicle/plugins
+volumes:
+  cronicle-data:
+  cronicle-logs:
+  cronicle-plugins:

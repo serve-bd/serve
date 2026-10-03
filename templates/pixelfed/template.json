@@ -1,0 +1,30 @@
+{
+  "name": "Pixelfed",
+  "description": "Photo sharing for everyone, on the Fediverse.",
+  "category": "Communication",
+  "website": "https://pixelfed.org",
+  "color": "#6366F1",
+  "note": "The domain is fixed at first start and cannot change later. Sign up on the site, then make that user an admin in the Console of the pixelfed service with: php artisan user:admin <username>. Close sign-ups in the admin settings if you want.",
+  "expose": {
+    "service": "pixelfed",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "APP_DOMAIN",
+      "publicHost": true
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

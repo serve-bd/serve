@@ -1,0 +1,22 @@
+{
+  "name": "KitchenOwl",
+  "description": "Grocery list, recipe manager and meal planner for your household.",
+  "category": "Productivity",
+  "website": "https://kitchenowl.org",
+  "color": "#009688",
+  "note": "Open the site and make the first account. It becomes the admin.",
+  "expose": {
+    "service": "kitchenowl",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "JWT_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "FRONT_URL",
+      "publicUrl": true
+    }
+  ]
+}

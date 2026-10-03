@@ -1,0 +1,73 @@
+services:
+  invidious:
+    image: quay.io/invidious/invidious:latest
+    restart: unless-stopped
+    # The companion key must be exactly 16 characters: the first 16 of the generated key.
+    command: ["/bin/sh", "-c", "export INVIDIOUS_INVIDIOUS_COMPANION_KEY=$${COMPANION_KEY:0:16} && exec /invidious/invidious"]
+    environment:
+      COMPANION_KEY: ${COMPANION_KEY}
+      INVIDIOUS_CONFIG: |
+        db:
+          dbname: invidious
+          user: kemal
+          password: ${POSTGRES_PASSWORD}
+          host: postgres
+          port: 5432
+        check_tables: true
+        invidious_companion:
+          - private_url: "http://companion:8282/companion"
+        hmac_key: "${HMAC_KEY}"
+        domain: ${INVIDIOUS_HOST}
+        external_port: 443
+        https_only: true
+    healthcheck:
+      test: wget -nv --tries=1 --spider http://127.0.0.1:3000/api/v1/stats || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      companion:
+        condition: service_started
+  companion:
+    image: quay.io/invidious/invidious-companion:latest
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    environment:
+      CONFIG_FILE: /config/config.toml
+    volumes:
+      - companion-config:/config:ro
+      - companion-cache:/var/tmp/youtubei.js:rw
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  # Writes the companion's config with the same 16-character key Invidious uses.
+  setup:
+    image: quay.io/invidious/invidious:latest
+    restart: "no"
+    user: root
+    command: ["/bin/sh", "-c", "printf '[server]\\nsecret_key = \"%s\"\\n' \"$${COMPANION_KEY:0:16}\" > /config/config.toml && chmod 644 /config/config.toml"]
+    environment:
+      COMPANION_KEY: ${COMPANION_KEY}
+    volumes:
+      - companion-config:/config
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kemal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: invidious
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kemal -d invidious"]
+      interval: 5s
+      retries: 20
+volumes:
+  companion-config:
+  companion-cache:
+  postgres-data:

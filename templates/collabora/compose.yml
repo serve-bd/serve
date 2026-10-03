@@ -1,0 +1,11 @@
+services:
+  collabora:
+    image: collabora/code:latest
+    restart: unless-stopped
+    command: ["--o:ssl.enable=false", "--o:ssl.termination=true"]
+    environment:
+      # The app allowed to open documents here, such as https://cloud.example.com.
+      aliasgroup1: ${ALLOWED_APP_URL}
+      server_name: ${COLLABORA_HOST}
+      username: admin
+      password: ${ADMIN_PASSWORD}

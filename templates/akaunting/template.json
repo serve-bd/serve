@@ -1,0 +1,37 @@
+{
+  "name": "Akaunting",
+  "description": "Online accounting for small businesses: invoices, expenses and reports, with MariaDB.",
+  "category": "Productivity",
+  "website": "https://akaunting.com",
+  "color": "#6DA252",
+  "note": "Log in with the admin email and password from the configure step. The first start takes a minute while Akaunting installs.",
+  "expose": {
+    "service": "akaunting",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "COMPANY_NAME",
+      "value": "My Company",
+      "label": "Company name"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+services:
+  filestash:
+    image: machines/filestash:latest
+    restart: unless-stopped
+    environment:
+      APPLICATION_URL: ${FILESTASH_HOST}
+    volumes:
+      - filestash-state:/app/data/state
+volumes:
+  filestash-state:

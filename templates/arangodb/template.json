@@ -1,0 +1,19 @@
+{
+  "name": "ArangoDB",
+  "description": "Graph, document and key-value database with a web interface.",
+  "category": "Databases",
+  "website": "https://arangodb.com",
+  "color": "#577138",
+  "note": "Log in to the web interface as root with the generated password.",
+  "expose": {
+    "service": "arangodb",
+    "port": 8529
+  },
+  "vars": [
+    {
+      "key": "ARANGO_ROOT_PASSWORD",
+      "generate": "password",
+      "label": "Root password"
+    }
+  ]
+}

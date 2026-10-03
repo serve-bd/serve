@@ -1,0 +1,26 @@
+{
+  "name": "Lemmy",
+  "description": "Link aggregator and forum that federates with the Fediverse.",
+  "category": "Communication",
+  "website": "https://join-lemmy.org",
+  "color": "#00BC8C",
+  "note": "The domain is fixed at first start and cannot change later. Open the site right away to create the admin account and set up the instance.",
+  "expose": {
+    "service": "proxy",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "LEMMY_HOST",
+      "publicHost": true
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "PICTRS_API_KEY",
+      "generate": "password"
+    }
+  ]
+}

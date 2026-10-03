@@ -1,0 +1,24 @@
+{
+  "name": "slskd",
+  "description": "A modern client and web interface for the Soulseek file sharing network.",
+  "category": "Media",
+  "website": "https://slskd.org",
+  "color": "#1F8B4C",
+  "note": "Sign in with the username and password from the configure step. Add your Soulseek username and password in Options. For incoming peer connections publish port 50300 (TCP) in Domains & ports.",
+  "expose": {
+    "service": "slskd",
+    "port": 5030
+  },
+  "vars": [
+    {
+      "key": "WEB_USER",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "WEB_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

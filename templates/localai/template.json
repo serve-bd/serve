@@ -1,0 +1,19 @@
+{
+  "name": "LocalAI",
+  "description": "Run open AI models on the CPU behind an OpenAI-compatible API.",
+  "category": "AI",
+  "website": "https://localai.io",
+  "color": "#3B82F6",
+  "note": "Log in to the web UI with the API key. Install models from the gallery in the web UI. Services call the API at <stack>-localai:8080 on the private network.",
+  "expose": {
+    "service": "localai",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "LOCALAI_API_KEY",
+      "generate": "secret",
+      "label": "API key"
+    }
+  ]
+}

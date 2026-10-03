@@ -1,0 +1,24 @@
+{
+  "name": "NextChat",
+  "description": "Light and fast chat interface for OpenAI and other AI models.",
+  "category": "AI",
+  "website": "https://github.com/ChatGPTNextWeb/NextChat",
+  "color": "#1D93AB",
+  "note": "Chats are saved in your browser. To use the API key set here, enter the access code in the app settings; without it, each user enters their own key.",
+  "expose": {
+    "service": "nextchat",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "CODE",
+      "generate": "password",
+      "label": "Access code"
+    },
+    {
+      "key": "OPENAI_API_KEY",
+      "value": "",
+      "label": "OpenAI API key (optional)"
+    }
+  ]
+}

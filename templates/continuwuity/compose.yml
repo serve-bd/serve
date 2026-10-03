@@ -1,0 +1,20 @@
+services:
+  continuwuity:
+    image: ghcr.io/continuwuity/continuwuity:latest
+    restart: unless-stopped
+    command: /sbin/conduwuit
+    environment:
+      CONTINUWUITY_SERVER_NAME: ${SERVER_NAME}
+      CONTINUWUITY_DATABASE_PATH: /var/lib/continuwuity
+      CONTINUWUITY_ADDRESS: 0.0.0.0
+      CONTINUWUITY_PORT: "8008"
+      # Tells other servers and clients to reach this server on port 443.
+      CONTINUWUITY_WELL_KNOWN: |
+        {
+        client=https://${SERVER_NAME},
+        server=${SERVER_NAME}:443
+        }
+    volumes:
+      - continuwuity-data:/var/lib/continuwuity
+volumes:
+  continuwuity-data:

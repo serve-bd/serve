@@ -1,0 +1,46 @@
+services:
+  # All in one: frontend, API, node service, MongoDB and Redis in one container.
+  lowcoder:
+    image: lowcoderorg/lowcoder-ce:latest
+    restart: unless-stopped
+    environment:
+      LOWCODER_REDIS_ENABLED: "true"
+      LOWCODER_MONGODB_ENABLED: "true"
+      LOWCODER_API_SERVICE_ENABLED: "true"
+      LOWCODER_NODE_SERVICE_ENABLED: "true"
+      LOWCODER_FRONTEND_ENABLED: "true"
+      LOWCODER_MONGODB_EXPOSED: "false"
+      LOWCODER_PUBLIC_URL: ${LOWCODER_URL}/
+      LOWCODER_PUID: "1000"
+      LOWCODER_PGID: "1000"
+      LOWCODER_MONGODB_URL: mongodb://localhost:27017/lowcoder?authSource=admin
+      LOWCODER_REDIS_URL: redis://localhost:6379
+      LOWCODER_API_SERVICE_URL: http://localhost:8080
+      LOWCODER_NODE_SERVICE_URL: http://localhost:6060
+      LOWCODER_COOKIE_NAME: LOWCODER_CE_SELFHOST_TOKEN
+      LOWCODER_COOKIE_MAX_AGE: "24"
+      LOWCODER_EMAIL_SIGNUP_ENABLED: "true"
+      LOWCODER_EMAIL_AUTH_ENABLED: "true"
+      LOWCODER_CREATE_WORKSPACE_ON_SIGNUP: "true"
+      LOWCODER_WORKSPACE_MODE: SAAS
+      LOWCODER_DB_ENCRYPTION_PASSWORD: ${DB_ENCRYPTION_PASSWORD}
+      LOWCODER_DB_ENCRYPTION_SALT: ${DB_ENCRYPTION_SALT}
+      LOWCODER_API_KEY_SECRET: ${API_KEY_SECRET}
+      LOWCODER_NODE_SERVICE_SECRET: ${NODE_SERVICE_SECRET}
+      LOWCODER_NODE_SERVICE_SECRET_SALT: ${NODE_SERVICE_SECRET_SALT}
+      LOWCODER_CORS_DOMAINS: "*"
+      LOWCODER_PLUGINS_DIR: ../plugins
+      LOWCODER_MAX_REQUEST_SIZE: 20mb
+      LOWCODER_MAX_QUERY_TIMEOUT: "120"
+      LOWCODER_DEFAULT_QUERY_TIMEOUT: "10"
+      LOWCODER_API_RATE_LIMIT: "100"
+      LOWCODER_APP_SNAPSHOT_RETENTIONTIME: "30"
+      LOWCODER_MARKETPLACE_PRIVATE_MODE: "true"
+      LOWCODER_SUPERUSER_USERNAME: ${ADMIN_EMAIL}
+      LOWCODER_SUPERUSER_PASSWORD: ${ADMIN_PASSWORD}
+    volumes:
+      - lowcoder-stacks:/lowcoder-stacks
+      - lowcoder-assets:/lowcoder/assets
+volumes:
+  lowcoder-stacks:
+  lowcoder-assets:

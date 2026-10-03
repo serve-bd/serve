@@ -1,0 +1,12 @@
+services:
+  arangodb:
+    image: arangodb:3.12
+    restart: unless-stopped
+    environment:
+      ARANGO_ROOT_PASSWORD: ${ARANGO_ROOT_PASSWORD}
+    volumes:
+      - arangodb-data:/var/lib/arangodb3
+      - arangodb-apps:/var/lib/arangodb3-apps
+volumes:
+  arangodb-data:
+  arangodb-apps:

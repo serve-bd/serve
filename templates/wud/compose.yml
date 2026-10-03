@@ -1,0 +1,12 @@
+services:
+  wud:
+    image: getwud/wud:9
+    restart: unless-stopped
+    environment:
+      WUD_AUTH_ADMIN_USER: admin
+      WUD_AUTH_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - wud-store:/store
+volumes:
+  wud-store:

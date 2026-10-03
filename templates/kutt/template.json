@@ -1,0 +1,26 @@
+{
+  "name": "Kutt",
+  "description": "URL shortener with custom domains, link stats and an API, with PostgreSQL.",
+  "category": "Productivity",
+  "website": "https://kutt.it",
+  "color": "#2196F3",
+  "note": "Open the site right away to create the admin account.",
+  "expose": {
+    "service": "kutt",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "KUTT_HOST",
+      "publicHost": true
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "Redpanda",
+  "description": "Kafka-compatible streaming platform as a single node, with Redpanda Console on the domain.",
+  "category": "Developer tools",
+  "website": "https://www.redpanda.com",
+  "color": "#E2401B",
+  "note": "The console asks for the user and password below. Services connect with any Kafka client to <stack>-redpanda:9092 on the private network.",
+  "expose": {
+    "service": "web",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "CONSOLE_USER",
+      "value": "admin",
+      "label": "Console user"
+    },
+    {
+      "key": "CONSOLE_PASSWORD",
+      "generate": "password",
+      "label": "Console password"
+    }
+  ]
+}

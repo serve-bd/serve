@@ -1,0 +1,18 @@
+{
+  "name": "LibreNMS",
+  "description": "Network monitoring with auto-discovery over SNMP, with MariaDB and Redis.",
+  "category": "Monitoring",
+  "website": "https://www.librenms.org",
+  "color": "#E57E1C",
+  "note": "Create the first admin in the librenms container terminal: lnms user:add --role=admin admin",
+  "expose": {
+    "service": "librenms",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

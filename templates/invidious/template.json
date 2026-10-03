@@ -1,0 +1,30 @@
+{
+  "name": "Invidious",
+  "description": "A private YouTube front end without ads or tracking, with PostgreSQL and Invidious companion.",
+  "category": "Media",
+  "website": "https://invidious.io",
+  "color": "#00B6F0",
+  "note": "Anyone can register an account. Needs about 2 GB of memory.",
+  "expose": {
+    "service": "invidious",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "HMAC_KEY",
+      "generate": "password"
+    },
+    {
+      "key": "COMPANION_KEY",
+      "generate": "password"
+    },
+    {
+      "key": "INVIDIOUS_HOST",
+      "publicHost": true
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "Redlib",
+  "description": "A private front end for Reddit without ads or tracking.",
+  "category": "Media",
+  "website": "https://github.com/redlib-org/redlib",
+  "color": "#D54455",
+  "expose": {
+    "service": "redlib",
+    "port": 8080
+  },
+  "vars": []
+}

@@ -1,0 +1,11 @@
+services:
+  kitchenowl:
+    image: tombursch/kitchenowl:latest
+    restart: unless-stopped
+    environment:
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      FRONT_URL: ${FRONT_URL}
+    volumes:
+      - kitchenowl-data:/data
+volumes:
+  kitchenowl-data:

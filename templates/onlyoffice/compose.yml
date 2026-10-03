@@ -1,0 +1,22 @@
+services:
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_HEADER: Authorization
+    volumes:
+      - onlyoffice-data:/var/www/onlyoffice/Data
+      - onlyoffice-lib:/var/lib/onlyoffice
+      - onlyoffice-logs:/var/log/onlyoffice
+      - onlyoffice-db:/var/lib/postgresql
+      - onlyoffice-rabbitmq:/var/lib/rabbitmq
+      - onlyoffice-redis:/var/lib/redis
+volumes:
+  onlyoffice-data:
+  onlyoffice-lib:
+  onlyoffice-logs:
+  onlyoffice-db:
+  onlyoffice-rabbitmq:
+  onlyoffice-redis:

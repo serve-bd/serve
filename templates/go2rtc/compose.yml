@@ -1,0 +1,10 @@
+services:
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    restart: unless-stopped
+    # The web UI and API sit behind a login. Streams and other settings live in /config/go2rtc.yaml.
+    command: ["go2rtc", "-c", "/config/go2rtc.yaml", "-c", "api.username=${GO2RTC_USER}", "-c", "api.password=${GO2RTC_PASSWORD}"]
+    volumes:
+      - go2rtc-config:/config
+volumes:
+  go2rtc-config:

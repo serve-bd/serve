@@ -1,0 +1,26 @@
+{
+  "name": "Krayin CRM",
+  "description": "Laravel CRM for leads, contacts, quotes and email, with MySQL.",
+  "category": "Productivity",
+  "website": "https://krayincrm.com",
+  "color": "#0041FF",
+  "note": "Log in at /admin/login with admin@example.com and password admin123, then change the password.",
+  "expose": {
+    "service": "krayin",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    }
+  ]
+}

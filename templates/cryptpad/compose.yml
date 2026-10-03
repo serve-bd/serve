@@ -1,0 +1,54 @@
+services:
+  # Sends the websocket to its own port and the rest to the web server.
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - cryptpad
+  cryptpad:
+    image: cryptpad/cryptpad:latest
+    restart: unless-stopped
+    environment:
+      CPAD_MAIN_DOMAIN: ${MAIN_URL}
+      CPAD_SANDBOX_DOMAIN: ${SANDBOX_URL}
+      CPAD_CONF: /cryptpad/config/config.js
+    ulimits:
+      nofile:
+        soft: 1000000
+        hard: 1000000
+    volumes:
+      - cryptpad-blob:/cryptpad/blob
+      - cryptpad-block:/cryptpad/block
+      - cryptpad-customize:/cryptpad/customize
+      - cryptpad-data:/cryptpad/data
+      - cryptpad-datastore:/cryptpad/datastore
+configs:
+  caddyfile:
+    content: |
+      {
+        admin off
+        auto_https off
+        servers {
+          trusted_proxies static private_ranges
+        }
+      }
+      :80 {
+        request_body {
+          max_size 100MB
+        }
+        handle /cryptpad_websocket* {
+          reverse_proxy cryptpad:3003
+        }
+        handle {
+          reverse_proxy cryptpad:3000
+        }
+      }
+volumes:
+  cryptpad-blob:
+  cryptpad-block:
+  cryptpad-customize:
+  cryptpad-data:
+  cryptpad-datastore:

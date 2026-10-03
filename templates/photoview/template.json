@@ -1,0 +1,18 @@
+{
+  "name": "Photoview",
+  "description": "A photo gallery for your own server with face recognition and maps, with MariaDB.",
+  "category": "Media",
+  "website": "https://photoview.github.io",
+  "color": "#2E7DD7",
+  "note": "Create the admin account on first visit and set the photo path to /photos. Put photos in the photos volume.",
+  "expose": {
+    "service": "photoview",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

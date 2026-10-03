@@ -1,0 +1,44 @@
+{
+  "name": "Authelia",
+  "description": "Single sign-on and two-factor login portal for your apps.",
+  "category": "Security",
+  "website": "https://www.authelia.com",
+  "color": "#113155",
+  "note": "Log in as admin with the generated admin password. Emails such as two-factor setup codes are written to /data/notification.txt in the authelia container until you set up SMTP.",
+  "expose": {
+    "service": "authelia",
+    "port": 9091
+  },
+  "vars": [
+    {
+      "key": "AUTHELIA_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "AUTHELIA_HOST",
+      "publicHost": true
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "SESSION_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "STORAGE_ENCRYPTION_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    }
+  ]
+}

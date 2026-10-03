@@ -1,0 +1,31 @@
+services:
+  emqx:
+    image: emqx/emqx:6
+    restart: unless-stopped
+    environment:
+      # A fixed node name keeps the data directory valid when the container gets a new address.
+      EMQX_NODE__NAME: emqx@127.0.0.1
+      EMQX_DASHBOARD__DEFAULT_USERNAME: admin
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD}
+      # Clients must log in; the MQTT user below is added on the first start.
+      EMQX_AUTHENTICATION__1__MECHANISM: password_based
+      EMQX_AUTHENTICATION__1__BACKEND: built_in_database
+      EMQX_AUTHENTICATION__1__USER_ID_TYPE: username
+      EMQX_AUTHENTICATION__1__BOOTSTRAP_TYPE: plain
+      EMQX_AUTHENTICATION__1__BOOTSTRAP_FILE: /opt/emqx/etc/mqtt-users.csv
+    configs:
+      - source: mqtt-users
+        target: /opt/emqx/etc/mqtt-users.csv
+    ports:
+      - "1883:1883"
+    volumes:
+      - emqx-data:/opt/emqx/data
+      - emqx-log:/opt/emqx/log
+configs:
+  mqtt-users:
+    content: |
+      user_id,password,is_superuser
+      ${MQTT_USER},${MQTT_PASSWORD},false
+volumes:
+  emqx-data:
+  emqx-log:

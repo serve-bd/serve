@@ -1,0 +1,31 @@
+{
+  "name": "Kibana",
+  "description": "Explore and visualize data in Elasticsearch, with a single Elasticsearch node.",
+  "category": "Analytics",
+  "website": "https://www.elastic.co/kibana",
+  "color": "#005571",
+  "note": "Log in as the elastic user with the generated password. Needs about 3 GB of RAM.",
+  "expose": {
+    "service": "kibana",
+    "port": 5601
+  },
+  "vars": [
+    {
+      "key": "ELASTIC_PASSWORD",
+      "generate": "password",
+      "label": "Password for the elastic user"
+    },
+    {
+      "key": "KIBANA_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "KIBANA_ENCRYPTION_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "KIBANA_URL",
+      "publicUrl": true
+    }
+  ]
+}

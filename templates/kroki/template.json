@@ -1,0 +1,12 @@
+{
+  "name": "Kroki",
+  "description": "API that turns text diagrams (PlantUML, Mermaid, Graphviz and more) into images.",
+  "category": "Developer tools",
+  "website": "https://kroki.io",
+  "color": "#2F4858",
+  "expose": {
+    "service": "kroki",
+    "port": 8000
+  },
+  "vars": []
+}

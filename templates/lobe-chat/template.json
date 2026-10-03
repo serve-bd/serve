@@ -1,0 +1,24 @@
+{
+  "name": "LobeChat",
+  "description": "Chat interface for OpenAI, Anthropic, Google, Ollama and other AI models.",
+  "category": "AI",
+  "website": "https://lobehub.com",
+  "color": "#000000",
+  "note": "Chats are saved in your browser. To use the API key set here, enter the access code in the app settings; without it, each user enters their own key.",
+  "expose": {
+    "service": "lobe-chat",
+    "port": 3210
+  },
+  "vars": [
+    {
+      "key": "ACCESS_CODE",
+      "generate": "password",
+      "label": "Access code"
+    },
+    {
+      "key": "OPENAI_API_KEY",
+      "value": "",
+      "label": "OpenAI API key (optional)"
+    }
+  ]
+}

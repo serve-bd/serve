@@ -1,0 +1,22 @@
+{
+  "name": "Donetick",
+  "description": "Shared chores and task manager for households, with recurring tasks and reminders.",
+  "category": "Productivity",
+  "website": "https://donetick.com",
+  "color": "#06B6D4",
+  "note": "Open the site and sign up to make the first account.",
+  "expose": {
+    "service": "donetick",
+    "port": 2021
+  },
+  "vars": [
+    {
+      "key": "DT_JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

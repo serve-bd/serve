@@ -1,0 +1,7 @@
+services:
+  lobe-chat:
+    image: lobehub/lobe-chat:latest
+    restart: unless-stopped
+    environment:
+      ACCESS_CODE: ${ACCESS_CODE}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}

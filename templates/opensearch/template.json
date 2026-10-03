@@ -1,0 +1,19 @@
+{
+  "name": "OpenSearch",
+  "description": "Search and analytics engine with OpenSearch Dashboards, as a single node.",
+  "category": "Analytics",
+  "website": "https://opensearch.org",
+  "color": "#005EB8",
+  "note": "Log in to Dashboards as admin with the generated password. Services reach the API at https://<stack>-opensearch:9200 on the private network (self-signed certificate). Needs about 2 GB of RAM.",
+  "expose": {
+    "service": "dashboards",
+    "port": 5601
+  },
+  "vars": [
+    {
+      "key": "OPENSEARCH_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

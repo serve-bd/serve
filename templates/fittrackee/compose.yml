@@ -1,0 +1,48 @@
+x-fittrackee-env: &fittrackee-env
+  FLASK_APP: fittrackee
+  FLASK_SKIP_DOTENV: "1"
+  APP_SECRET_KEY: ${APP_SECRET_KEY}
+  UI_URL: ${UI_URL}
+  UPLOAD_FOLDER: /usr/src/app/uploads
+  STATICMAP_CACHE_DIR: /usr/src/app/.staticmap_cache
+  DATABASE_URL: postgresql://fittrackee:${POSTGRES_PASSWORD}@postgres:5432/fittrackee
+  GUNICORN_LOG: "-"
+services:
+  fittrackee:
+    image: fittrackee/fittrackee:v1.3.5
+    restart: unless-stopped
+    command: ["sh", "docker-entrypoint.sh"]
+    environment: *fittrackee-env
+    volumes:
+      - uploads:/usr/src/app/uploads
+      - staticmap-cache:/usr/src/app/.staticmap_cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+  init:
+    image: fittrackee/fittrackee:v1.3.5
+    restart: "no"
+    user: root
+    command: ["chown", "-R", "fittrackee:fittrackee", "/usr/src/app/uploads", "/usr/src/app/.staticmap_cache"]
+    volumes:
+      - uploads:/usr/src/app/uploads
+      - staticmap-cache:/usr/src/app/.staticmap_cache
+  postgres:
+    image: postgis/postgis:17-3.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fittrackee
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: fittrackee
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U fittrackee -d fittrackee"]
+      interval: 5s
+      retries: 20
+volumes:
+  uploads:
+  staticmap-cache:
+  postgres-data:

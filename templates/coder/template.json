@@ -1,0 +1,23 @@
+{
+  "name": "Coder",
+  "description": "Cloud development environments on your own server, with PostgreSQL.",
+  "category": "Developer tools",
+  "website": "https://coder.com",
+  "color": "#090B0B",
+  "hostAccess": true,
+  "note": "Has full control of Docker on the server, to run workspaces. Create the first admin account on the first visit.",
+  "expose": {
+    "service": "coder",
+    "port": 7080
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "CODER_ACCESS_URL",
+      "publicUrl": true
+    }
+  ]
+}

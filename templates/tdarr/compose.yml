@@ -1,0 +1,31 @@
+services:
+  tdarr:
+    image: ghcr.io/haveagitgat/tdarr:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      UMASK_SET: "002"
+      serverIP: 0.0.0.0
+      serverPort: "8266"
+      webUIPort: "8265"
+      internalNode: "true"
+      inContainer: "true"
+      ffmpegVersion: "7"
+      nodeName: InternalNode
+      auth: "true"
+      seededApiKey: tapi_${TDARR_API_KEY}
+      apiKey: tapi_${TDARR_API_KEY}
+    volumes:
+      - tdarr-server:/app/server
+      - tdarr-configs:/app/configs
+      - tdarr-logs:/app/logs
+      - tdarr-media:/media
+      - tdarr-cache:/temp
+volumes:
+  tdarr-server:
+  tdarr-configs:
+  tdarr-logs:
+  tdarr-media:
+  tdarr-cache:

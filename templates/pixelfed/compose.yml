@@ -1,0 +1,130 @@
+x-pixelfed-env: &pixelfed-env
+  APP_NAME: Pixelfed
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_KEY: ${APP_KEY}
+  APP_URL: ${APP_URL}
+  APP_DOMAIN: ${APP_DOMAIN}
+  ADMIN_DOMAIN: ${APP_DOMAIN}
+  SESSION_DOMAIN: ${APP_DOMAIN}
+  TRUST_PROXIES: "*"
+  OPEN_REGISTRATION: "true"
+  ENFORCE_EMAIL_VERIFICATION: "false"
+  OAUTH_ENABLED: "true"
+  ENABLE_CONFIG_CACHE: "true"
+  IMAGE_DRIVER: vips
+  ACTIVITY_PUB: "true"
+  AP_REMOTE_FOLLOW: "true"
+  AP_INBOX: "true"
+  AP_OUTBOX: "true"
+  AP_SHAREDINBOX: "true"
+  DB_CONNECTION: mysql
+  DB_HOST: mariadb
+  DB_PORT: "3306"
+  DB_DATABASE: pixelfed
+  DB_USERNAME: pixelfed
+  DB_PASSWORD: ${DB_PASSWORD}
+  REDIS_CLIENT: phpredis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  SESSION_DRIVER: database
+  CACHE_STORE: redis
+  QUEUE_DRIVER: redis
+  BROADCAST_DRIVER: log
+  LOG_CHANNEL: stderr
+  MAIL_DRIVER: log
+  PHP_POST_MAX_SIZE: 500M
+  PHP_UPLOAD_MAX_FILE_SIZE: 500M
+  PHP_OPCACHE_ENABLE: "1"
+  AUTORUN_ENABLED: "false"
+services:
+  pixelfed:
+    image: ghcr.io/pixelfed/pixelfed:stable
+    restart: unless-stopped
+    environment:
+      <<: *pixelfed-env
+      AUTORUN_ENABLED: "true"
+      AUTORUN_LARAVEL_MIGRATION: "false"
+      AUTORUN_LARAVEL_STORAGE_LINK: "true"
+      AUTORUN_LARAVEL_CONFIG_CACHE: "true"
+      AUTORUN_LARAVEL_ROUTE_CACHE: "true"
+      AUTORUN_LARAVEL_VIEW_CACHE: "true"
+      AUTORUN_LARAVEL_EVENT_CACHE: "true"
+    volumes:
+      - pixelfed-storage:/var/www/html/storage
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  # Runs once on every start: migrates the database and makes the OAuth and federation keys on the first start.
+  setup:
+    image: ghcr.io/pixelfed/pixelfed:stable
+    environment: *pixelfed-env
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        php artisan migrate --force
+        if [ ! -f storage/oauth-private.key ]; then php artisan passport:keys --no-interaction; fi
+        if [ ! -f storage/.serve-setup-done ]; then
+          php artisan passport:client --personal --no-interaction
+          php artisan instance:actor
+          php artisan import:cities || true
+          touch storage/.serve-setup-done
+        fi
+    volumes:
+      - pixelfed-storage:/var/www/html/storage
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  horizon:
+    image: ghcr.io/pixelfed/pixelfed:stable
+    restart: unless-stopped
+    environment: *pixelfed-env
+    command: ["php", "artisan", "horizon"]
+    volumes:
+      - pixelfed-storage:/var/www/html/storage
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  scheduler:
+    image: ghcr.io/pixelfed/pixelfed:stable
+    restart: unless-stopped
+    environment: *pixelfed-env
+    command: ["php", "artisan", "schedule:work"]
+    stop_signal: SIGTERM
+    volumes:
+      - pixelfed-storage:/var/www/html/storage
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: pixelfed
+      MARIADB_USER: pixelfed
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  pixelfed-storage:
+  db-data:
+  redis-data:

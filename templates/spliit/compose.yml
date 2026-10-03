@@ -1,0 +1,26 @@
+services:
+  spliit:
+    image: ghcr.io/spliit-app/spliit:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_PRISMA_URL: postgresql://spliit:${POSTGRES_PASSWORD}@postgres:5432/spliit
+      POSTGRES_URL_NON_POOLING: postgresql://spliit:${POSTGRES_PASSWORD}@postgres:5432/spliit
+      BASE_URL: ${BASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: spliit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: spliit
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spliit -d spliit"]
+      interval: 5s
+      retries: 20
+volumes:
+  postgres-data:

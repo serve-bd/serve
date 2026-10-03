@@ -1,0 +1,57 @@
+{
+  "name": "Langfuse",
+  "description": "LLM engineering platform for traces, evals, prompt management and metrics.",
+  "category": "AI",
+  "website": "https://langfuse.com",
+  "color": "#E11312",
+  "minVersion": "0.1.9",
+  "note": "Sign up on the login page to create the first account. The second domain is the file storage that browsers upload media to.",
+  "expose": {
+    "service": "langfuse-web",
+    "port": 3000
+  },
+  "domains": [
+    {
+      "service": "minio",
+      "port": 9000
+    }
+  ],
+  "vars": [
+    {
+      "key": "NEXTAUTH_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "S3_PUBLIC_URL",
+      "serviceUrl": "minio"
+    },
+    {
+      "key": "NEXTAUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "SALT",
+      "generate": "secret"
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "CLICKHOUSE_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "REDIS_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "MINIO_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

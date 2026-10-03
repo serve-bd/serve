@@ -1,0 +1,16 @@
+services:
+  sftpgo:
+    image: drakkan/sftpgo:v2
+    restart: unless-stopped
+    ports:
+      - "2022:2022"
+    environment:
+      SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN: "true"
+      SFTPGO_DEFAULT_ADMIN_USERNAME: ${ADMIN_USER}
+      SFTPGO_DEFAULT_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    volumes:
+      - sftpgo-data:/srv/sftpgo
+      - sftpgo-home:/var/lib/sftpgo
+volumes:
+  sftpgo-data:
+  sftpgo-home:

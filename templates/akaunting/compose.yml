@@ -1,0 +1,46 @@
+services:
+  akaunting:
+    image: akaunting/akaunting:3
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >
+        if grep -q '^APP_INSTALLED=true' /var/www/html/.env 2>/dev/null;
+        then exec /usr/local/bin/akaunting.sh --start;
+        else exec /usr/local/bin/akaunting.sh --setup;
+        fi
+    environment:
+      APP_URL: ${APP_URL}
+      LOCALE: en-US
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_NAME: akaunting
+      DB_USERNAME: akaunting
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PREFIX: ak_
+      COMPANY_NAME: ${COMPANY_NAME}
+      COMPANY_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    volumes:
+      - akaunting-data:/var/www/html
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_DATABASE: akaunting
+      MARIADB_USER: akaunting
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  akaunting-data:
+  db-data:

@@ -1,0 +1,13 @@
+services:
+  suwayomi:
+    image: ghcr.io/suwayomi/suwayomi-server:stable
+    restart: unless-stopped
+    environment:
+      TZ: Etc/UTC
+      AUTH_MODE: simple_login
+      AUTH_USERNAME: ${AUTH_USERNAME}
+      AUTH_PASSWORD: ${AUTH_PASSWORD}
+    volumes:
+      - suwayomi-data:/home/suwayomi/.local/share/Tachidesk
+volumes:
+  suwayomi-data:

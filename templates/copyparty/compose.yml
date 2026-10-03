@@ -1,0 +1,29 @@
+services:
+  copyparty:
+    image: copyparty/ac:latest
+    restart: unless-stopped
+    configs:
+      - source: copyparty-config
+        target: /cfg/copyparty.conf
+    volumes:
+      - copyparty-files:/w
+      - copyparty-state:/cfg/state
+configs:
+  copyparty-config:
+    content: |
+      [global]
+        e2dsa
+        e2ts
+        hist: /cfg/state
+        xff-src: lan
+
+      [accounts]
+        ${ADMIN_USER}: ${ADMIN_PASSWORD}
+
+      [/]
+        /w
+        accs:
+          A: ${ADMIN_USER}
+volumes:
+  copyparty-files:
+  copyparty-state:

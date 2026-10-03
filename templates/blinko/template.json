@@ -1,0 +1,26 @@
+{
+  "name": "Blinko",
+  "description": "AI powered card notes for quick ideas and thoughts, with PostgreSQL.",
+  "category": "Productivity",
+  "website": "https://blinko.space",
+  "color": "#2D2D2D",
+  "note": "Open the site and make the first account. It becomes the admin.",
+  "expose": {
+    "service": "blinko",
+    "port": 1111
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "NEXTAUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

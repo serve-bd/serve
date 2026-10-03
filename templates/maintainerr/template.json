@@ -1,0 +1,13 @@
+{
+  "name": "Maintainerr",
+  "description": "Cleans up unwatched media from Plex or Jellyfin with rules you set.",
+  "category": "Media",
+  "website": "https://maintainerr.info",
+  "color": "#EAB308",
+  "note": "There is no login: anyone with the address can use it. Connect your media server and Sonarr or Radarr in Settings.",
+  "expose": {
+    "service": "maintainerr",
+    "port": 6246
+  },
+  "vars": []
+}

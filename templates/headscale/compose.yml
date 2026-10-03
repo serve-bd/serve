@@ -1,0 +1,82 @@
+services:
+  headscale:
+    image: headscale/headscale:0.29-debug
+    restart: unless-stopped
+    command: serve
+    configs:
+      - source: headscale-config
+        target: /etc/headscale/config.yaml
+    volumes:
+      - headscale-data:/var/lib/headscale
+      - headscale-run:/var/run/headscale
+  headplane:
+    image: ghcr.io/tale/headplane:0.7.1
+    restart: unless-stopped
+    configs:
+      - source: headplane-config
+        target: /etc/headplane/config.yaml
+      - source: headscale-config
+        target: /etc/headscale/config.yaml
+    volumes:
+      - headplane-data:/var/lib/headplane
+    depends_on:
+      - headscale
+configs:
+  headscale-config:
+    content: |
+      server_url: ${HEADSCALE_URL}
+      listen_addr: 0.0.0.0:8080
+      metrics_listen_addr: 127.0.0.1:9090
+      grpc_listen_addr: 127.0.0.1:50443
+      grpc_allow_insecure: false
+      noise:
+        private_key_path: /var/lib/headscale/noise_private.key
+      prefixes:
+        v4: 100.64.0.0/10
+        v6: fd7a:115c:a1e0::/48
+        allocation: sequential
+      derp:
+        server:
+          enabled: false
+        urls:
+          - https://controlplane.tailscale.com/derpmap/default
+        paths: []
+        auto_update_enabled: true
+        update_frequency: 3h
+      disable_check_updates: true
+      database:
+        type: sqlite
+        sqlite:
+          path: /var/lib/headscale/db.sqlite
+          write_ahead_log: true
+      log:
+        level: info
+      policy:
+        mode: database
+      dns:
+        magic_dns: true
+        base_domain: tailnet.internal
+        override_local_dns: true
+        nameservers:
+          global:
+            - 1.1.1.1
+            - 1.0.0.1
+      unix_socket: /var/run/headscale/headscale.sock
+      unix_socket_permission: "0770"
+  headplane-config:
+    content: |
+      server:
+        host: 0.0.0.0
+        port: 3000
+        base_url: ${HEADPLANE_URL}
+        cookie_secret: ${COOKIE_SECRET}
+        cookie_secure: true
+        data_path: /var/lib/headplane
+      headscale:
+        url: http://headscale:8080
+        public_url: ${HEADSCALE_URL}
+        config_path: /etc/headscale/config.yaml
+volumes:
+  headscale-data:
+  headscale-run:
+  headplane-data:

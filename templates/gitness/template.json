@@ -1,0 +1,29 @@
+{
+  "name": "Harness Open Source",
+  "description": "Code hosting, pipelines and an artifact registry in one app (formerly Gitness).",
+  "category": "Developer tools",
+  "website": "https://www.harness.io/open-source",
+  "color": "#0278D5",
+  "hostAccess": true,
+  "note": "Log in as admin with the generated admin password. Has full control of Docker on the server, to run pipelines.",
+  "expose": {
+    "service": "harness",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "HARNESS_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

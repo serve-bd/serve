@@ -1,0 +1,22 @@
+{
+  "name": "InvoicePlane",
+  "description": "Manage invoices, quotes, clients and payments, with MariaDB.",
+  "category": "Productivity",
+  "website": "https://invoiceplane.com",
+  "color": "#429AE1",
+  "note": "Open the site and follow the setup wizard. The database settings are filled in already. The last step makes the admin account.",
+  "expose": {
+    "service": "invoiceplane",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "IP_URL",
+      "publicUrl": true
+    }
+  ]
+}

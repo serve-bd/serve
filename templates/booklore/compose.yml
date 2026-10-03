@@ -1,0 +1,37 @@
+services:
+  booklore:
+    image: ghcr.io/booklore-app/booklore:latest
+    restart: unless-stopped
+    environment:
+      USER_ID: "1000"
+      GROUP_ID: "1000"
+      TZ: Etc/UTC
+      DATABASE_URL: jdbc:mariadb://mariadb:3306/booklore
+      DATABASE_USERNAME: booklore
+      DATABASE_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - booklore-data:/app/data
+      - booklore-books:/books
+      - booklore-bookdrop:/bookdrop
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: booklore
+      MARIADB_USER: booklore
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  booklore-data:
+  booklore-books:
+  booklore-bookdrop:
+  db-data:

@@ -1,0 +1,13 @@
+{
+  "name": "MeTube",
+  "description": "A web interface for yt-dlp to download videos from YouTube and many other sites.",
+  "category": "Media",
+  "website": "https://github.com/alexta69/metube",
+  "color": "#E53935",
+  "note": "There is no login: anyone with the address can use it to download.",
+  "expose": {
+    "service": "metube",
+    "port": 8081
+  },
+  "vars": []
+}

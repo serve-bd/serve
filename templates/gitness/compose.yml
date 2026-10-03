@@ -1,0 +1,15 @@
+services:
+  harness:
+    image: harness/harness:3.3.0
+    restart: unless-stopped
+    environment:
+      GITNESS_URL_BASE: ${HARNESS_URL}
+      GITNESS_URL_CONTAINER: ${HARNESS_URL}
+      GITNESS_PRINCIPAL_ADMIN_EMAIL: ${ADMIN_EMAIL}
+      GITNESS_PRINCIPAL_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      GITNESS_USER_SIGNUP_ENABLED: "false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - harness-data:/data
+volumes:
+  harness-data:

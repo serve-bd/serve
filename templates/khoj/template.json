@@ -1,0 +1,51 @@
+{
+  "name": "Khoj",
+  "description": "Personal AI assistant that answers from your documents and the web, with Postgres and pgvector.",
+  "category": "AI",
+  "website": "https://khoj.dev",
+  "color": "#F07A36",
+  "note": "Runs in single-user mode: anyone with the URL can use it. Log in to the admin panel at /server/admin with the admin email and password to add chat models and API keys.",
+  "expose": {
+    "service": "khoj",
+    "port": 42110
+  },
+  "vars": [
+    {
+      "key": "KHOJ_DOMAIN",
+      "publicHost": true
+    },
+    {
+      "key": "KHOJ_DJANGO_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "KHOJ_ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "KHOJ_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "OPENAI_API_KEY",
+      "value": "",
+      "label": "OpenAI API key (optional)"
+    },
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "value": "",
+      "label": "Anthropic API key (optional)"
+    },
+    {
+      "key": "GEMINI_API_KEY",
+      "value": "",
+      "label": "Gemini API key (optional)"
+    }
+  ]
+}

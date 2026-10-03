@@ -1,0 +1,13 @@
+{
+  "name": "Homer",
+  "description": "Simple static home page for your services, set up with one YAML file.",
+  "category": "Productivity",
+  "website": "https://github.com/bastienwirtz/homer",
+  "color": "#3367D6",
+  "note": "Edit config.yml in the homer-assets volume to add your links.",
+  "expose": {
+    "service": "homer",
+    "port": 8080
+  },
+  "vars": []
+}

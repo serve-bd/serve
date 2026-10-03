@@ -1,0 +1,19 @@
+{
+  "name": "Elasticsearch",
+  "description": "Distributed search and analytics engine, as a single node with security on.",
+  "category": "Databases",
+  "website": "https://www.elastic.co/elasticsearch",
+  "color": "#005571",
+  "note": "The REST API is on the domain. Log in as the elastic user with the generated password. Needs about 2 GB of RAM.",
+  "expose": {
+    "service": "elasticsearch",
+    "port": 9200
+  },
+  "vars": [
+    {
+      "key": "ELASTIC_PASSWORD",
+      "generate": "password",
+      "label": "Password for the elastic user"
+    }
+  ]
+}

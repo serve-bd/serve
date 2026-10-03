@@ -1,0 +1,22 @@
+{
+  "name": "AFFiNE",
+  "description": "Docs, whiteboards and databases in one workspace.",
+  "category": "Productivity",
+  "website": "https://affine.pro",
+  "color": "#1E96EB",
+  "note": "Open the site right away to create the admin account.",
+  "expose": {
+    "service": "affine",
+    "port": 3010
+  },
+  "vars": [
+    {
+      "key": "AFFINE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

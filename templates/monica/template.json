@@ -1,0 +1,26 @@
+{
+  "name": "Monica",
+  "description": "Personal CRM to remember details about friends and family, with MariaDB.",
+  "category": "Productivity",
+  "website": "https://www.monicahq.com",
+  "color": "#2C2B29",
+  "note": "Open the site and register to make the first account.",
+  "expose": {
+    "service": "monica",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+services:
+  smokeping:
+    image: lscr.io/linuxserver/smokeping:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: UTC
+    volumes:
+      - smokeping-config:/config
+      - smokeping-data:/data
+volumes:
+  smokeping-config:
+  smokeping-data:

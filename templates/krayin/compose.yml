@@ -1,0 +1,45 @@
+services:
+  krayin:
+    image: webkul/krayin:2.2.0
+    restart: unless-stopped
+    # The image only fills its bundled database, so an empty outside database
+    # gets the tables and the default admin here before the server starts.
+    command:
+      - bash
+      - -c
+      - >
+        php artisan migrate --force &&
+        { php -r 'exit((new PDO("mysql:host=mysql;dbname=krayin", "krayin", getenv("DB_PASSWORD")))->query("SELECT COUNT(*) FROM users")->fetchColumn() > 0 ? 0 : 1);'
+        || php artisan db:seed --force; } &&
+        chown -R www-data:www-data storage bootstrap/cache &&
+        exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
+    environment:
+      APP_URL: ${APP_URL}
+      APP_KEY: ${APP_KEY}
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: krayin
+      DB_USERNAME: krayin
+      DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - krayin-storage:/var/www/laravel-crm/storage
+    depends_on:
+      mysql:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_DATABASE: krayin
+      MYSQL_USER: krayin
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -ukrayin -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      retries: 20
+volumes:
+  krayin-storage:
+  mysql-data:

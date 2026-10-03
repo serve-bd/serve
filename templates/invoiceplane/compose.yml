@@ -1,0 +1,52 @@
+services:
+  invoiceplane:
+    image: mhzawadi/invoiceplane:latest
+    restart: unless-stopped
+    # ipconfig.php holds the encryption key and setup state that the setup wizard writes,
+    # so it is kept on a volume and linked into place after the image's start script ran.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        if [ -f /var/lib/ipconf/ipconfig.php ]; then cp /var/lib/ipconf/ipconfig.php /var/www/html/ipconfig.php; fi;
+        exec /config/start.sh sh -c 'cp /var/www/html/ipconfig.php /var/lib/ipconf/ipconfig.php &&
+        chown nobody:nginx /var/lib/ipconf/ipconfig.php &&
+        ln -sf /var/lib/ipconf/ipconfig.php /var/www/html/ipconfig.php &&
+        exec nginx -g "daemon off;"'
+    environment:
+      TZ: UTC
+      IP_URL: ${IP_URL}
+      REMOVE_INDEXPHP: "true"
+      PROXY_IPS: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      MYSQL_HOST: mariadb
+      MYSQL_PORT: "3306"
+      MYSQL_USER: invoiceplane
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DB: invoiceplane
+    volumes:
+      - ipconf:/var/lib/ipconf
+      - uploads:/var/www/html/uploads
+      - css:/var/www/html/assets/core/css
+      - views:/var/www/html/application/views
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_DATABASE: invoiceplane
+      MARIADB_USER: invoiceplane
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  ipconf:
+  uploads:
+  css:
+  views:
+  db-data:

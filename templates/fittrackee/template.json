@@ -1,0 +1,26 @@
+{
+  "name": "FitTrackee",
+  "description": "Track outdoor activities from GPX files with maps and statistics, with PostgreSQL and PostGIS.",
+  "category": "Productivity",
+  "website": "https://docs.fittrackee.org",
+  "color": "#2A6F97",
+  "note": "Register on the site, then run `ftcli users update <username> --set-role owner` in the fittrackee container to activate the account and make it the owner.",
+  "expose": {
+    "service": "fittrackee",
+    "port": 5000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "UI_URL",
+      "publicUrl": true
+    }
+  ]
+}

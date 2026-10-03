@@ -1,0 +1,16 @@
+services:
+  localai:
+    image: localai/localai:latest
+    restart: unless-stopped
+    environment:
+      LOCALAI_API_KEY: ${LOCALAI_API_KEY}
+    volumes:
+      - localai-models:/models
+      - localai-backends:/backends
+      - localai-data:/data
+      - localai-config:/configuration
+volumes:
+  localai-models:
+  localai-backends:
+  localai-data:
+  localai-config:

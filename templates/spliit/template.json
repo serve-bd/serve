@@ -1,0 +1,22 @@
+{
+  "name": "Spliit",
+  "description": "Share expenses with friends and family and see who owes who, with PostgreSQL.",
+  "category": "Productivity",
+  "website": "https://spliit.app",
+  "color": "#14B8A6",
+  "note": "There are no accounts. Anyone with a group link can see and edit that group.",
+  "expose": {
+    "service": "spliit",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

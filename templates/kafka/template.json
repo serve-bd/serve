@@ -1,0 +1,24 @@
+{
+  "name": "Kafka",
+  "description": "Apache Kafka as a single KRaft node, with Kafka UI on the domain.",
+  "category": "Developer tools",
+  "website": "https://kafka.apache.org",
+  "color": "#231F20",
+  "note": "Log in to Kafka UI with the user and password below. Services connect to <stack>-kafka:9092 on the private network (no TLS or login inside the network).",
+  "expose": {
+    "service": "kafka-ui",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "UI_USER",
+      "value": "admin",
+      "label": "Kafka UI user"
+    },
+    {
+      "key": "UI_PASSWORD",
+      "generate": "password",
+      "label": "Kafka UI password"
+    }
+  ]
+}

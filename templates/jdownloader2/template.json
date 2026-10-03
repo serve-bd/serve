@@ -1,0 +1,24 @@
+{
+  "name": "JDownloader 2",
+  "description": "The JDownloader 2 download manager as a desktop app in your browser.",
+  "category": "Media",
+  "website": "https://jdownloader.org",
+  "color": "#F0A500",
+  "note": "Sign in with the username and password from the configure step. Downloads land in the output volume.",
+  "expose": {
+    "service": "jdownloader",
+    "port": 5800
+  },
+  "vars": [
+    {
+      "key": "WEB_USER",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "WEB_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

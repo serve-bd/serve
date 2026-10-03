@@ -1,0 +1,49 @@
+services:
+  guacamole:
+    image: guacamole/guacamole:1.6.0
+    restart: unless-stopped
+    environment:
+      GUACD_HOSTNAME: guacd
+      POSTGRESQL_HOSTNAME: postgres
+      POSTGRESQL_DATABASE: guacamole
+      POSTGRESQL_USERNAME: guacamole
+      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD}
+      WEBAPP_CONTEXT: ROOT
+      REMOTE_IP_VALVE_ENABLED: "true"
+    depends_on:
+      guacd:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+  guacd:
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+  # Writes the database schema once, for postgres to load on its first start.
+  initdb:
+    image: guacamole/guacamole:1.6.0
+    restart: "no"
+    user: root
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/opt/guacamole/bin/initdb.sh --postgresql > /initdb/initdb.sql"]
+    volumes:
+      - initdb:/initdb
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: guacamole
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: guacamole
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U guacamole -d guacamole"]
+      interval: 5s
+      retries: 20
+    depends_on:
+      initdb:
+        condition: service_completed_successfully
+volumes:
+  initdb:
+  postgres-data:

@@ -1,0 +1,28 @@
+{
+  "name": "HortusFox",
+  "description": "Collaborative plant manager for your home: care tasks, inventory and a calendar, with MariaDB.",
+  "category": "Productivity",
+  "website": "https://hortusfox.github.io",
+  "color": "#3B8F4F",
+  "note": "Log in with the admin email and password from the configure step.",
+  "expose": {
+    "service": "hortusfox",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

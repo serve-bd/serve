@@ -1,0 +1,13 @@
+{
+  "name": "Shaarli",
+  "description": "Minimal personal bookmark manager and link sharing, with no database.",
+  "category": "Productivity",
+  "website": "https://shaarli.readthedocs.io",
+  "color": "#1B926C",
+  "note": "Open the site to set the admin username and password.",
+  "expose": {
+    "service": "shaarli",
+    "port": 80
+  },
+  "vars": []
+}

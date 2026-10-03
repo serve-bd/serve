@@ -1,0 +1,18 @@
+{
+  "name": "Apache Guacamole",
+  "description": "Clientless remote desktop gateway for RDP, VNC and SSH in the browser, with PostgreSQL.",
+  "category": "Developer tools",
+  "website": "https://guacamole.apache.org",
+  "color": "#578B34",
+  "note": "Log in with guacadmin / guacadmin, then change the password right away.",
+  "expose": {
+    "service": "guacamole",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

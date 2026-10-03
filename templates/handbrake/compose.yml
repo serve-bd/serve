@@ -1,0 +1,22 @@
+services:
+  handbrake:
+    image: jlesage/handbrake:latest
+    restart: unless-stopped
+    environment:
+      USER_ID: "1000"
+      GROUP_ID: "1000"
+      TZ: Etc/UTC
+      WEB_AUTHENTICATION: "1"
+      WEB_AUTHENTICATION_ALLOW_INSECURE: "1"
+      WEB_AUTHENTICATION_USERNAME: ${WEB_USER}
+      WEB_AUTHENTICATION_PASSWORD: ${WEB_PASSWORD}
+    volumes:
+      - handbrake-config:/config
+      - handbrake-storage:/storage
+      - handbrake-watch:/watch
+      - handbrake-output:/output
+volumes:
+  handbrake-config:
+  handbrake-storage:
+  handbrake-watch:
+  handbrake-output:

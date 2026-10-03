@@ -1,0 +1,62 @@
+x-affine-env: &affine-env
+  REDIS_SERVER_HOST: redis
+  DATABASE_URL: postgresql://affine:${POSTGRES_PASSWORD}@postgres:5432/affine
+  AFFINE_SERVER_EXTERNAL_URL: ${AFFINE_URL}
+  AFFINE_INDEXER_ENABLED: "false"
+  DEPLOYMENT_TYPE: selfhosted
+services:
+  affine:
+    image: ghcr.io/toeverything/affine:stable
+    restart: unless-stopped
+    environment: *affine-env
+    volumes:
+      - affine-storage:/root/.affine/storage
+      - affine-config:/root/.affine/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+  # Runs once on every start: migrates the database.
+  migration:
+    image: ghcr.io/toeverything/affine:stable
+    command: ["sh", "-c", "node ./scripts/self-host-predeploy.js"]
+    environment: *affine-env
+    volumes:
+      - affine-storage:/root/.affine/storage
+      - affine-config:/root/.affine/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: affine
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: affine
+      POSTGRES_INITDB_ARGS: --data-checksums
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U affine -d affine"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  affine-storage:
+  affine-config:
+  postgres-data:
+  redis-data:

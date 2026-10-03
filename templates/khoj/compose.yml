@@ -1,0 +1,50 @@
+services:
+  khoj:
+    image: ghcr.io/khoj-ai/khoj:latest
+    restart: unless-stopped
+    working_dir: /app
+    command: --host="0.0.0.0" --port=42110 --anonymous-mode --non-interactive
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: khoj
+      POSTGRES_USER: khoj
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      KHOJ_DJANGO_SECRET_KEY: ${KHOJ_DJANGO_SECRET_KEY}
+      KHOJ_DEBUG: "False"
+      KHOJ_DOMAIN: ${KHOJ_DOMAIN}
+      KHOJ_ADMIN_EMAIL: ${KHOJ_ADMIN_EMAIL}
+      KHOJ_ADMIN_PASSWORD: ${KHOJ_ADMIN_PASSWORD}
+      KHOJ_TERRARIUM_URL: http://sandbox:8080
+      KHOJ_TELEMETRY_DISABLE: "True"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - khoj-config:/root/.khoj
+      - khoj-models:/root/.cache/torch/sentence_transformers
+      - khoj-models:/root/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+  # Python sandbox the assistant runs code in.
+  sandbox:
+    image: ghcr.io/khoj-ai/terrarium:latest
+    restart: unless-stopped
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: khoj
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: khoj
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U khoj -d khoj"]
+      interval: 5s
+      retries: 20
+volumes:
+  khoj-config:
+  khoj-models:
+  postgres-data:

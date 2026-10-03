@@ -1,0 +1,23 @@
+{
+  "name": "LinkStack",
+  "description": "Your own link-in-bio page with all your links in one place.",
+  "category": "Productivity",
+  "website": "https://linkstack.org",
+  "color": "#3D60F5",
+  "note": "Open the site right away to run the setup wizard and create the admin account. Pick SQLite as the database.",
+  "expose": {
+    "service": "proxy",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "LINKSTACK_HOST",
+      "publicHost": true
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    }
+  ]
+}

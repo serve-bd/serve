@@ -1,0 +1,45 @@
+{
+  "name": "Uptrace",
+  "description": "OpenTelemetry tracing, metrics and logs, with ClickHouse and PostgreSQL.",
+  "category": "Monitoring",
+  "website": "https://uptrace.dev",
+  "color": "#4F46E5",
+  "note": "Log in with the admin email and the generated admin password. Send OpenTelemetry data over OTLP/HTTP to your domain, with the project token as the DSN.",
+  "expose": {
+    "service": "uptrace",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "UPTRACE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "UPTRACE_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "PROJECT_TOKEN",
+      "generate": "password",
+      "label": "Project token"
+    },
+    {
+      "key": "CLICKHOUSE_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -204,45 +204,52 @@ export function DeployRulesSettings({ projectId, rules, envs, canManage }: { pro
               </div>
             )}
 
-            <Field label="Every week" description={v.windows.length ? undefined : "Add the hours deploys stop every week, like Friday evening to Monday morning."}>
-              <div className="flex flex-col gap-3">
-                {v.windows.map((w, i) => {
-                  const change = (patch: Partial<FreezeWindow>) => set({ windows: v.windows.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
-                  return (
-                    <div key={i} className="flex flex-wrap items-center gap-3 rounded-xl border border-line p-3">
-                      <DaysPicker value={w.days} onChange={(days) => change({ days })} disabled={!canManage} />
-                      <div className="flex items-center gap-2">
-                        <TimeInput value={w.start} onChange={(start) => change({ start })} disabled={!canManage} />
-                        <span className="text-xs text-muted">to</span>
-                        <TimeInput value={w.end} onChange={(end) => change({ end })} disabled={!canManage} />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="ml-auto"
-                        aria-label="Remove"
-                        disabled={!canManage}
-                        onClick={() => set({ windows: v.windows.filter((_, j) => j !== i) })}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  );
-                })}
+            {/* Laid out like the switch above: title and help on the left, the action on the right. */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-6 py-1">
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium text-fg">Every week</span>
+                  <span className="text-xs leading-relaxed text-muted">
+                    {v.windows.length
+                      ? "An end before the start runs past midnight: Friday 18:00 to 09:00 ends Saturday morning."
+                      : "Hours deploys stop every week, like Friday evening to Monday morning."}
+                  </span>
+                </span>
                 <Button
                   type="button"
                   size="sm"
-                  variant="ghost"
-                  className="self-start"
+                  className="flex-none"
                   disabled={!canManage || v.windows.length >= 20}
                   onClick={() => set({ windows: [...v.windows, { days: [5], start: "18:00", end: "09:00" }] })}
                 >
                   <Plus /> Add hours
                 </Button>
               </div>
-            </Field>
-            {v.windows.length > 0 && <p className="text-xs leading-relaxed text-muted">An end before the start runs past midnight: Friday 18:00 to 09:00 ends Saturday morning.</p>}
+              {v.windows.map((w, i) => {
+                const change = (patch: Partial<FreezeWindow>) => set({ windows: v.windows.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+                return (
+                  <div key={i} className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface-2/60 p-3">
+                    <DaysPicker value={w.days} onChange={(days) => change({ days })} disabled={!canManage} />
+                    <div className="flex items-center gap-2">
+                      <TimeInput value={w.start} onChange={(start) => change({ start })} disabled={!canManage} />
+                      <span className="text-xs text-muted">to</span>
+                      <TimeInput value={w.end} onChange={(end) => change({ end })} disabled={!canManage} />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="ml-auto"
+                      aria-label="Remove"
+                      disabled={!canManage}
+                      onClick={() => set({ windows: v.windows.filter((_, j) => j !== i) })}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
             {(v.windows.length > 0 || v.now) && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {v.windows.length > 0 && (

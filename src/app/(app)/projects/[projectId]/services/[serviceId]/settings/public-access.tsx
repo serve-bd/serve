@@ -247,6 +247,8 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
   const portChanged = nextPort !== d.publicPort || (on && bind !== d.publicBind) || (on && bind === "0.0.0.0" && who.normalized.join(",") !== d.publicAllow.join(","));
   const domainChanged = domainOk && (dom !== (info.hostname ?? null) || (!!dom && info.unreachable));
   const changed = portChanged || domainChanged;
+  // The URL and the notes stay while only the allowed IPs change: those do not change where to connect.
+  const moved = nextPort !== d.publicPort || domainChanged || (on && bind !== d.publicBind);
 
   const save = useAction(
     async () => {
@@ -281,7 +283,7 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
   const retry = useAction(() => retryDatabaseCertificate(serviceId), { onSuccess: () => router.refresh() });
 
   const cert = info?.certificate;
-  const url = !changed ? (domainOk && info.hostname && info.url ? info.url : d.publicUrl) : null;
+  const url = !moved ? (domainOk && info.hostname && info.url ? info.url : d.publicUrl) : null;
   return (
     <AccessCard
       title="Public port"
@@ -321,7 +323,7 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
         <PortInput value={port} onChange={setPort} locked={!!d.publicPort} placeholder="Auto detect" disabled={!canManage} />
       </div>
       <WhoField state={who} viewerIp={view.viewerIp} disabled={!canManage} localOk={!dom} />
-      {!changed && domainOk && info.hostname && (
+      {!moved && domainOk && info.hostname && (
         <>
           {noPublicIp && <Warning>This server has no public IP, so {info.hostname} cannot reach the database from outside.</Warning>}
           {cert?.status === "failed" && <CertFailed error={cert.error} onRetry={() => retry.run()} pending={retry.pending} disabled={!canManageDomain} />}
@@ -353,6 +355,8 @@ function AddonCard({ serviceId, which, addon, view, canManage }: { serviceId: st
   const retry = useAction(() => retryDatabaseCertificate(serviceId, which), { onSuccess: () => router.refresh() });
   const changed =
     on !== addon.open || (on && ((port ? Number(port) : null) !== addon.port || bind !== addon.bind || who.normalized.join(",") !== addon.allow.join(",") || dom !== addon.domain));
+  // The URL and the notes stay while only the allowed IPs change: those do not change where to connect.
+  const moved = on !== addon.open || (on && ((port ? Number(port) : null) !== addon.port || bind !== addon.bind || dom !== addon.domain));
   const pooler = which === "pooler";
   return (
     <AccessCard
@@ -390,7 +394,7 @@ function AddonCard({ serviceId, which, addon, view, canManage }: { serviceId: st
         <PortInput value={port} onChange={setPort} locked={!!addon.port} placeholder="Auto detect" disabled={!canManage} />
       </div>
       <WhoField state={who} viewerIp={view.viewerIp} disabled={!canManage} localOk={!dom} />
-      {!changed &&
+      {!moved &&
         addon.unreachable.map((r) => (
           <Warning key={`${r.id}-${r.server}`}>
             {addon.domain} does not reach {r.id ? `replica ${r.id} (${r.server})` : `the pooler (${r.server})`}:{" "}
@@ -400,13 +404,13 @@ function AddonCard({ serviceId, which, addon, view, canManage }: { serviceId: st
             {r.id ? " Apps in Serve still read from it over the private network." : ""}
           </Warning>
         ))}
-      {!changed && addon.certificates.some((c) => c.status === "failed") && <CertFailed onRetry={() => retry.run()} pending={retry.pending} disabled={!canManage} />}
-      {!changed && addon.url && (
+      {!moved && addon.certificates.some((c) => c.status === "failed") && <CertFailed onRetry={() => retry.run()} pending={retry.pending} disabled={!canManage} />}
+      {!moved && addon.url && (
         <Field label="Connection URL">
           <SecretField value={addon.url} hidden={view.hideSecrets} shape={addon.url} />
         </Field>
       )}
-      {!changed && addon.tunnelCommand && (
+      {!moved && addon.tunnelCommand && (
         <Field label="Connect through the tunnel" description="Run it on the computer you connect from, then connect to localhost:5432. It needs cloudflared.">
           <CopyField value={addon.tunnelCommand} />
         </Field>

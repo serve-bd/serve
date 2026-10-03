@@ -58,12 +58,14 @@ function WhoField({ state, viewerIp, disabled, localOk }: { state: ReturnType<ty
   const options = [
     { value: "anyone", label: "Anyone with the password" },
     { value: "some", label: "Only some IP addresses" },
-    ...(localOk || state.who === "local" ? [{ value: "local", label: "Only this server", description: "localhost, or an SSH tunnel" }] : []),
+    ...(localOk ? [{ value: "local", label: "Only this server", description: "localhost, or an SSH tunnel" }] : []),
   ];
+  // A domain needs the port open to the network: "Only this server" then reads as what is saved, anyone.
+  const value = !localOk && state.who === "local" ? "anyone" : state.who;
   return (
     <div className="flex flex-col gap-3">
       <Field label="Who can connect">
-        <Select value={state.who} onValueChange={(w) => state.setWho(w as Who)} disabled={disabled} options={options} />
+        <Select value={value} onValueChange={(w) => state.setWho(w as Who)} disabled={disabled} options={options} />
       </Field>
       {state.who === "some" && (
         <Field error={state.error} description="One per line. Ranges work too, like 10.0.0.0/8.">
@@ -248,17 +250,26 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
   const save = useAction(
     async () => {
       const warnings: string[] = [];
-      if (portChanged) {
-        const res = await updateService(serviceId, { database: { publicPort: on ? Number(port) : null, publicBind: bind, publicAllow: who.allow } });
+      const ports = () => updateService(serviceId, { database: { publicPort: on ? Number(port) : null, publicBind: bind, publicAllow: who.allow } });
+      // Taking the domain off first: it closes the port it opened, and the port as set here comes back after.
+      // Putting one on last: it keeps the port set here instead of picking one.
+      const removing = domainChanged && !dom;
+      if (removing) {
+        const res = await saveDatabaseDomain(serviceId, null, "direct");
+        if (!res.ok) return res;
+        warnings.push(...res.data.warnings);
+      }
+      if (portChanged || removing) {
+        const res = await ports();
         if (!res.ok) return res;
       }
-      if (domainChanged) {
+      if (domainChanged && !removing) {
         const res = await saveDatabaseDomain(serviceId, dom, "direct");
         if (!res.ok) return res;
         warnings.push(...res.data.warnings);
       }
-      // Taking the domain off restarts the database already; otherwise the new port needs one.
-      if (portChanged && !(domainChanged && !dom)) {
+      // A newer queued deploy replaces an older one, so the domain's own restart and this one run once.
+      if (portChanged || removing) {
         const res = await applyDatabaseChanges(serviceId);
         if (!res.ok) return res;
       }
@@ -282,7 +293,7 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
       footer={
         changed && (
           <div className="flex justify-end">
-            <Button variant="primary" size="sm" onClick={() => save.run()} loading={save.pending} disabled={!canManage || (on && !!who.error)}>
+            <Button variant="primary" size="sm" onClick={() => save.run()} loading={save.pending} disabled={!canManage || (on && (!!who.error || !port))}>
               <Globe /> Save and restart
             </Button>
           </div>

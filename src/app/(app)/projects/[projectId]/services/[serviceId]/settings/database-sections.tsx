@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Download, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
@@ -600,8 +601,10 @@ function useAddonStatus(serviceId: string, active: boolean) {
 }
 
 function PoolingSection(props: DatabaseSettingsProps) {
+  const router = useRouter();
   const save = useAction((v: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number }) => setDatabasePooler(props.serviceId, v), {
     result: (r) => (r.started ? "Connection pooler started" : "Saved"),
+    onSuccess: () => router.refresh(),
   });
   const p = props.config.pooler;
   const status = useAddonStatus(props.serviceId, !!p?.enabled);
@@ -670,8 +673,11 @@ function replicaLabel(state: { state: string; lagSeconds: number | null } | unde
 
 function ReplicaSection(props: DatabaseSettingsProps) {
   const confirm = useConfirm();
+  const router = useRouter();
   const save = useAction((instances: { id?: string; serverId: string }[]) => setDatabaseReplicas(props.serviceId, instances), {
     result: (r) => (r.started ? "Replicas updated: new ones copy the database first" : "Saved"),
+    // The saved replicas come back with their numbers: the list shows them with their status.
+    onSuccess: () => router.refresh(),
   });
   const saved = props.config.replica?.enabled ? props.config.replica.instances : [];
   const status = useAddonStatus(props.serviceId, saved.length > 0);
@@ -679,6 +685,7 @@ function ReplicaSection(props: DatabaseSettingsProps) {
   const homeName = props.replicaServers.find((s) => s.home)?.name ?? "the database's server";
   return (
     <Section
+      key={JSON.stringify(saved)}
       id="replica"
       title="Read replicas"
       description="Live read-only copies of the database, for heavy reads like reports and search. Writes still go to the database. It keeps running and its URL stays the same."

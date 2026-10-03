@@ -235,7 +235,8 @@ export function ScheduleCard(props: {
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {/* Two columns only when there are two fields: one alone takes the full width. */}
+            <div className={cn("grid grid-cols-1 gap-4", dest !== "local" && "sm:grid-cols-2")}>
               <Field label={dest === "local" ? "Keep the latest" : "Keep on this server"} description="Older copies are deleted automatically.">
                 <InputGroup suffix="backups" className="w-full">
                   <Input value={retention} onChange={(e) => setRetention(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" className="min-w-0 flex-1 font-mono" />

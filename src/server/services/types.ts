@@ -258,6 +258,20 @@ export type ComposeBackupConfig = {
 
 export type ReplicaInstance = { id: string; serverId: string };
 
+/**
+ * Public access to a database's pooler or read replicas: a host port (on the database's server for
+ * the pooler, on each replica's server for replicas), who may reach it, and a domain. Over the
+ * public port they speak TLS only. The pooler can take its domain through a Cloudflare Tunnel
+ * instead (no port); replicas' domain leads to every replica server (one A record each).
+ */
+export type AddonAccess = {
+  port: number | null;
+  bind?: BindAddress;
+  allow?: string[] | null;
+  domain?: string | null;
+  tunnelId?: string | null;
+};
+
 /** The read replicas of a database service: none unless it is PostgreSQL with replicas on. */
 export function replicaInstances(s: { serverId: string; database?: DatabaseConfig | null }): ReplicaInstance[] {
   const r = s.database?.replica;
@@ -339,13 +353,13 @@ export type DatabaseConfig = {
   /** Container health check timing (seconds). */
   healthcheck?: { interval?: number | null; timeout?: number | null; retries?: number | null; startPeriod?: number | null } | null;
   /** PostgreSQL: a PgBouncer in front, at <host>-pooler. `password` (encrypted) is its lookup login's. */
-  pooler?: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number; password?: string | null } | null;
+  pooler?: { enabled: boolean; mode: "transaction" | "session"; poolSize: number; maxClients: number; password?: string | null; public?: AddonAccess | null } | null;
   /**
    * PostgreSQL: streaming read-only copies, each at <host>-replica-<id> on its server (the
    * database's or one linked to it privately); <host>-replica spreads reads over them all.
    * `password` (encrypted) is the replication login's. No `instances`: one, on the database's server.
    */
-  replica?: { enabled: boolean; password?: string | null; instances?: ReplicaInstance[] } | null;
+  replica?: { enabled: boolean; password?: string | null; instances?: ReplicaInstance[]; public?: AddonAccess | null } | null;
 };
 
 /** Whether a runtime has host-level access: host paths, host ports, privileges or hardware. */

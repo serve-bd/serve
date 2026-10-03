@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import path from "node:path";
 import type Docker from "dockerode";
 import { decryptOrNull, encrypt } from "@/server/crypto";
 import { db, schema } from "@/server/db";
@@ -11,7 +12,10 @@ import { execCommand } from "@/server/services/exec";
 import { defaultRuntime, type DatabaseConfig, replicaInstances } from "@/server/services/types";
 import { eq } from "drizzle-orm";
 import { databaseContainer } from "./container";
-import { databasePlan } from "./options";
+import { databasePlan, TLS_SOURCE } from "./options";
+import { POOLER_ROLE, POOLER_SCRIPT, REPLICA_ROLE, REPLICA_SCRIPT } from "./addon-scripts";
+import { ensureDatabaseTls, tlsDir } from "./tls";
+import { activeCertMount } from "./domain-tls";
 
 /**
  * Add-ons next to a PostgreSQL database service, each in its own container with the service's
@@ -25,8 +29,6 @@ import { databasePlan } from "./options";
 type Service = typeof schema.service.$inferSelect;
 
 export const POOLER_IMAGE = "edoburu/pgbouncer:v1.25.2-p0";
-const POOLER_ROLE = "serve_pooler";
-const REPLICA_ROLE = "serve_replicator";
 /** One replication slot per replica: what it has not received yet is kept for it alone. */
 const replicaSlot = (id: string) => `serve_replica_${id.replace(/[^a-z0-9]/gi, "")}`;
 /** WAL the database keeps for a replica that is behind or stopped, so it cannot fill the disk. */
@@ -70,32 +72,38 @@ async function ensureImage(server: ServerCtx, image: string, log: (l: string) =>
   await pullImage(image, log, null, server.docker);
 }
 
+/**
+ * TLS files for a public pooler or replica on a server: the database's own certificate (from its
+ * authority, the one clients may pin), copied from the database's server when the container runs
+ * elsewhere, and the domain's certificate when one covers it there. Binds and environment for
+ * the container's start step, which copies them into place.
+ */
+async function publicTls(server: ServerCtx, service: Service, domain: string | null, names: string[], log: (l: string) => void) {
+  const home = await serverOf(service);
+  await ensureDatabaseTls(home, service.id, [service.slug, privateHost(service), ...names, domain ?? "", home.row.publicIp ?? ""], log);
+  if (server.id !== home.id) {
+    for (const [file, mode] of [
+      ["ca.crt", 0o644],
+      ["server.crt", 0o644],
+      ["server.key", 0o600],
+      ["server.pem", 0o600],
+    ] as const) {
+      const content = await home.fs.readFile(path.posix.join(tlsDir(home, service.id), file));
+      await server.fs.writeFile(path.posix.join(tlsDir(server, service.id), file), content, mode);
+    }
+  }
+  const [project] = await db.select({ organizationId: schema.project.organizationId }).from(schema.project).where(eq(schema.project.id, service.projectId));
+  const cert = domain && project ? await activeCertMount(server, project.organizationId, domain) : null;
+  if (domain && !cert) log(`No certificate for ${domain} on ${server.row.name} yet: Serve's own certificate is used until it is issued.`);
+  return {
+    binds: [`${tlsDir(server, service.id)}:${TLS_SOURCE}:ro`, ...(cert?.binds ?? [])],
+    env: cert ? { DOMAIN_CERT: cert.cert, DOMAIN_KEY: cert.key } : ({} as Record<string, string>),
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                   Pooler                                   */
 /* -------------------------------------------------------------------------- */
-
-/** PgBouncer's configuration, written by the container at start from its environment. */
-const POOLER_SCRIPT = `set -e
-cat > /etc/pgbouncer/pgbouncer.ini <<EOF
-[databases]
-* = host=$DB_HOST port=5432 auth_dbname=postgres
-
-[pgbouncer]
-listen_addr = 0.0.0.0
-listen_port = 5432
-auth_type = scram-sha-256
-auth_file = /etc/pgbouncer/userlist.txt
-auth_user = ${POOLER_ROLE}
-auth_query = SELECT usename, passwd FROM ${POOLER_ROLE}.lookup(\\$1)
-pool_mode = $POOL_MODE
-default_pool_size = $POOL_SIZE
-max_client_conn = $MAX_CLIENTS
-max_prepared_statements = 200
-ignore_startup_parameters = extra_float_digits,options,search_path
-server_tls_sslmode = prefer
-EOF
-printf '"${POOLER_ROLE}" "%s"\\n' "$AUTH_PASSWORD" > /etc/pgbouncer/userlist.txt
-exec /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini`;
 
 /** The login PgBouncer uses to look up other logins' password hashes (and nothing else). */
 function poolerSetupSql(password: string, owner: string) {
@@ -126,6 +134,9 @@ export async function ensurePooler(service: Service, log: (l: string) => void = 
   await runSql(service, server.docker, poolerSetupSql(password, cfg.username), "Could not set up the pooler's login");
   await ensureImage(server, POOLER_IMAGE, log);
   const network = await ensureEnvNetwork(service.environmentId, server);
+  // Public access: TLS with Serve's certificate for the database, or the domain's when there is one.
+  const pub = cfg.pooler.public?.port && !cfg.pooler.public.tunnelId ? cfg.pooler.public : null;
+  const tls = pub ? await publicTls(server, service, pub.domain ?? null, [poolerHost(service)], log) : null;
   await removeContainer(poolerName(service), 10, server.docker);
   await startContainer(
     {
@@ -140,15 +151,23 @@ export async function ensurePooler(service: Service, log: (l: string) => void = 
         POOL_SIZE: String(cfg.pooler.poolSize),
         MAX_CLIENTS: String(cfg.pooler.maxClients),
         AUTH_PASSWORD: password,
+        ...(tls ? { PUBLIC: "1", ...tls.env } : {}),
       },
       cmd: ["sh", "-c", POOLER_SCRIPT],
-      runtime: { ...defaultRuntime(5432), restartPolicy: "unless-stopped" },
+      extraBinds: tls?.binds,
+      runtime: {
+        ...defaultRuntime(5432),
+        restartPolicy: "unless-stopped",
+        user: "0",
+        ports: pub ? [{ host: pub.port!, container: 5432, protocol: "tcp", bindAddress: pub.bind }] : [],
+      },
       aliases: [poolerName(service), poolerHost(service)],
       network,
     },
     server,
   );
   log(`Connection pooler running at ${poolerHost(service)}:5432 (${cfg.pooler.mode} pooling, ${cfg.pooler.poolSize} connections per database and login)`);
+  if (pub) log(`Public port ${pub.port} (TLS)${pub.domain ? ` for ${pub.domain}` : ""}`);
 }
 
 export async function removePooler(service: Service) {
@@ -159,25 +178,6 @@ export async function removePooler(service: Service) {
 /* -------------------------------------------------------------------------- */
 /*                                   Replica                                  */
 /* -------------------------------------------------------------------------- */
-
-/**
- * A replica's start: copy the database once (pg_basebackup over its replication slot), then run
- * as a hot standby that follows it. Runs as root, like the image's own entrypoint.
- */
-const REPLICA_SCRIPT = `set -e
-D="\${PGDATA:-/var/lib/postgresql/data}"
-AS="$(command -v gosu || command -v su-exec)"
-if [ ! -s "$D/PG_VERSION" ]; then
-  mkdir -p "$D" && chown -R postgres:postgres "$D" && chmod 700 "$D"
-  echo "Waiting for $PRIMARY_HOST"
-  until "$AS" postgres pg_isready -q -h "$PRIMARY_HOST" -p 5432; do sleep 2; done
-  echo "Copying the database from $PRIMARY_HOST"
-  "$AS" postgres env PGPASSWORD="$REPLICA_PASSWORD" pg_basebackup -h "$PRIMARY_HOST" -p 5432 -U ${REPLICA_ROLE} -D "$D" -X stream -S "$REPLICA_SLOT" -R -P
-  echo "Copy finished"
-fi
-touch "$D/standby.signal" && chown postgres:postgres "$D/standby.signal"
-exec "$AS" postgres postgres -c hot_standby=on -c "primary_slot_name=$REPLICA_SLOT" \\
-  -c "primary_conninfo=host=$PRIMARY_HOST port=5432 user=${REPLICA_ROLE} password=$REPLICA_PASSWORD application_name=$REPLICA_SLOT"`;
 
 /** The database's side: a replication login, a slot per replica (with a cap on what they keep) and an access rule. Applied while it runs. */
 function primarySetupSql(password: string, slots: string[]) {
@@ -259,6 +259,9 @@ export async function ensureReplicas(service: Service, log: (l: string) => void 
     const network = await ensureEnvNetwork(service.environmentId, server);
     // On another server, the database's name answers there once the private network has it.
     if (server.id !== home.id) await meshBeforeStart(service, server.id, log);
+    // Public access: the shared port on this replica's server, with TLS.
+    const pub = cfg.replica?.public?.port ? cfg.replica.public : null;
+    const tls = pub ? await publicTls(server, service, pub.domain ?? null, [replicaHost(service), replicaHost(service, r.id)], log) : null;
     await removeContainer(name, 30, d);
     await startContainer(
       {
@@ -272,14 +275,18 @@ export async function ensureReplicas(service: Service, log: (l: string) => void 
           PRIMARY_HOST: service.slug,
           REPLICA_PASSWORD: password,
           REPLICA_SLOT: replicaSlot(r.id),
+          ...(tls ? { PUBLIC: "1", ...tls.env } : {}),
         },
+        extraBinds: tls?.binds,
         cmd: ["sh", "-c", REPLICA_SCRIPT],
-        healthcheck: ["CMD-SHELL", "pg_isready -q -h 127.0.0.1 -p 5432"],
+        // With the database's own login: a check as root fills the log with failed logins.
+        healthcheck: ["CMD-SHELL", `pg_isready -q -h 127.0.0.1 -p 5432 -U '${cfg.username.replace(/'/g, "")}' -d postgres`],
         healthTiming: { interval: 10, timeout: 5, retries: 6, startPeriod: 600 },
         runtime: {
           ...defaultRuntime(5432),
           restartPolicy: "unless-stopped",
           volumes: [{ kind: "volume", source: `replica-${r.id}-data`, mountPath: plan.dataMountPath }],
+          ports: pub ? [{ host: pub.port!, container: 5432, protocol: "tcp", bindAddress: pub.bind }] : [],
         },
         aliases: [name, replicaHost(service, r.id), replicaHost(service)],
         network,

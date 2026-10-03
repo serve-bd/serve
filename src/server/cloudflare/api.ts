@@ -180,6 +180,22 @@ export class Cloudflare {
   }
 
   /**
+   * Point a hostname at several servers (one DNS-only A record each), for names that lead to every
+   * server something runs on (a database's read replicas). Serve's own records follow the list;
+   * records someone else made are never changed, and block the name unless they match.
+   */
+  async setARecords(zoneId: string, hostname: string, ips: string[], comment: string) {
+    const existing = (await this.dnsRecords(zoneId, { name: hostname })).filter((r) => ["A", "AAAA", "CNAME"].includes(r.type));
+    const blocking = existing.filter((r) => r.comment !== comment && !(r.type === "A" && ips.includes(r.content)));
+    if (blocking.length) {
+      throw new CloudflareError(`${hostname} already has a ${blocking[0].type} record (${blocking[0].content}). Remove it in Cloudflare first.`, 409);
+    }
+    const covered = new Set(existing.filter((r) => r.type === "A").map((r) => r.content));
+    for (const r of existing) if (r.comment === comment && (r.type !== "A" || !ips.includes(r.content))) await this.deleteDnsRecord(zoneId, r.id);
+    for (const ip of ips) if (!covered.has(ip)) await this.createDnsRecord(zoneId, { type: "A", name: hostname, content: ip, proxied: false, comment });
+  }
+
+  /**
    * Point a hostname at a Cloudflare Tunnel (proxied CNAME to <id>.cfargotunnel.com).
    * Replaces records Serve created earlier (like an A record from before the tunnel); never foreign ones.
    */

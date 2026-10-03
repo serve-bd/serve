@@ -472,6 +472,19 @@ async function certificateInUse(cert: Cert) {
     .where(and(eq(schema.project.organizationId, cert.organizationId), eq(schema.service.serverId, cert.serverId), eq(schema.service.type, "database")));
   // A database on its domain through a tunnel needs no certificate: Cloudflare carries the TLS.
   if (databases.some((d) => d.domain && !d.tunnel && certificateCovers(cert.domains, d.domain))) return true;
+  // A pooler's domain (on the database's server) and replicas' domain (on each replica's server).
+  const { replicaInstances } = await import("@/server/services/types");
+  const addons = await db
+    .select({ serverId: schema.service.serverId, database: schema.service.database })
+    .from(schema.service)
+    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .where(and(eq(schema.project.organizationId, cert.organizationId), eq(schema.service.type, "database")));
+  for (const a of addons) {
+    const pooler = a.database?.pooler?.enabled ? a.database.pooler.public : null;
+    if (pooler?.domain && !pooler.tunnelId && a.serverId === cert.serverId && certificateCovers(cert.domains, pooler.domain)) return true;
+    const replicas = a.database?.replica?.public;
+    if (replicas?.domain && certificateCovers(cert.domains, replicas.domain) && replicaInstances(a).some((r) => r.serverId === cert.serverId)) return true;
+  }
   const settings = await getSettings();
   return cert.serverId === LOCAL_SERVER_ID && !!settings.dashboardDomain && certificateCovers(cert.domains, settings.dashboardDomain);
 }

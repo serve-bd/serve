@@ -2,22 +2,15 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ChevronRight, GitBranch, Globe, Lock, Plus } from "lucide-react";
+import { ChevronRight, GitBranch, Globe, Lock } from "lucide-react";
 import { cn, formatBytes } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
-import { Input, Textarea } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { StatusDot } from "@/components/ui/status";
-import { useAction } from "@/hooks/use-action";
-import { applyDatabaseChanges, updateService } from "@/server/actions/services";
-import { inRanges, normalizeTrustedRanges } from "@/lib/trusted-proxies";
 import { useServiceLive } from "./service-header";
 import { SecretField } from "@/components/ui/secret-field";
 import { ContainerDialog } from "./container-dialog";
-import { DatabaseDomainCard, type DatabaseDomainInfo } from "./database-domain-card";
+import type { DatabaseDomainInfo } from "./database-domain-card";
 
 export function DatabaseOverview(props: {
   serviceId: string;
@@ -50,38 +43,6 @@ export function DatabaseOverview(props: {
 }) {
   const { data } = useServiceLive(props.serviceId);
   const [openContainer, setOpenContainer] = React.useState<string | null>(null);
-  const [publicOn, setPublicOn] = React.useState(!!props.publicPort);
-  const [port, setPort] = React.useState(String(props.publicPort ?? props.engine.port + 10000));
-  const [bind, setBind] = React.useState(props.publicBind);
-  const [allow, setAllow] = React.useState(props.publicAllow.join("\n"));
-  // Saved settings changed elsewhere (a domain opens or closes the port): the form shows them.
-  const saved = `${props.publicPort}|${props.publicBind}|${props.publicAllow.join(",")}`;
-  const [lastSaved, setLastSaved] = React.useState(saved);
-  if (saved !== lastSaved) {
-    setLastSaved(saved);
-    setPublicOn(!!props.publicPort);
-    setPort(String(props.publicPort ?? props.engine.port + 10000));
-    setBind(props.publicBind);
-    setAllow(props.publicAllow.join("\n"));
-  }
-  const allowList = allow
-    .split(/[\s,]+/)
-    .map((a) => a.trim())
-    .filter(Boolean);
-  // The form the server stores (203.0.113.7 → 203.0.113.7/32), to compare with what is saved.
-  const parsedAllow = normalizeTrustedRanges(allowList, { anyWidth: true });
-  const allowNormalized = "ranges" in parsedAllow ? parsedAllow.ranges : allowList;
-  // No toast: the card and the status show the restart.
-  const apply = useAction(async () => {
-    const res = await updateService(props.serviceId, { database: { publicPort: publicOn ? Number(port) : null, publicBind: bind, publicAllow: allowList } });
-    if (!res.ok) return res;
-    return applyDatabaseChanges(props.serviceId);
-  });
-  const changed =
-    (publicOn ? Number(port) : null) !== props.publicPort ||
-    (publicOn && bind !== props.publicBind) ||
-    (publicOn && bind === "0.0.0.0" && allowNormalized.join(",") !== props.publicAllow.join(","));
-
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex flex-col gap-6">
@@ -118,98 +79,29 @@ export function DatabaseOverview(props: {
         <Card>
           <CardHeader
             title="Public access"
-            description="Publish the database on a port of its server, for example to connect with a desktop client."
-            actions={<Switch checked={publicOn} onCheckedChange={setPublicOn} disabled={props.canManage === false} />}
+            description={props.publicAddress || props.domain?.hostname ? "Reachable from outside Serve." : "Only reachable from services in this project environment."}
+            actions={
+              <Link href={`/projects/${props.projectId}/services/${props.serviceId}/settings/public-access`} className="text-[13px] text-accent hover:underline">
+                Manage
+              </Link>
+            }
           />
-          <CardBody className="flex flex-col gap-4">
-            {publicOn ? (
-              <>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
-                  <Field label="Port">
-                    <Input
-                      value={port}
-                      onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
-                      className="font-mono"
-                      inputMode="numeric"
-                      disabled={props.canManage === false}
-                    />
-                  </Field>
-                  <Field label="Reachable by">
-                    <Select
-                      value={bind}
-                      onValueChange={(b) => setBind(b as typeof bind)}
-                      disabled={props.canManage === false}
-                      options={[
-                        { value: "127.0.0.1", label: "This machine", description: "localhost on the server only, safest" },
-                        { value: "0.0.0.0", label: "Everyone", description: "Any network that reaches the server" },
-                      ]}
-                    />
-                  </Field>
-                </div>
-                {bind === "127.0.0.1" ? (
-                  <p className="text-[12.5px] leading-relaxed text-muted">Connect at localhost on the server, or through an SSH tunnel from your laptop.</p>
-                ) : (
-                  <Field
-                    label="Allowed IPs"
-                    error={"error" in parsedAllow ? parsedAllow.error : undefined}
-                    description={
-                      allowList.length
-                        ? "Only these addresses can connect. The server's firewall drops everyone else, even past ufw."
-                        : "Empty: anyone can connect, with the password. Add addresses or ranges (203.0.113.7, 10.0.0.0/8) to let only them in."
-                    }
-                  >
-                    <Textarea
-                      value={allow}
-                      onChange={(e) => setAllow(e.target.value)}
-                      rows={3}
-                      spellCheck={false}
-                      placeholder={"203.0.113.7\n198.51.100.0/24"}
-                      className="font-mono text-[12.5px]"
-                      disabled={props.canManage === false}
-                    />
-                    {props.viewerIp && !inRanges(props.viewerIp, allowNormalized) && props.canManage !== false && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="mt-1.5 self-start"
-                        onClick={() => setAllow((a) => (a.trim() ? `${a.trim()}\n` : "") + props.viewerIp)}
-                      >
-                        <Plus /> Add my IP ({props.viewerIp})
-                      </Button>
-                    )}
-                  </Field>
-                )}
-                {props.publicUrl && !changed && (
-                  <Field label={`Public connection URL · ${props.publicAddress}`}>
-                    <SecretField value={props.publicUrl} hidden={props.hideSecrets} shape={props.publicUrl} />
-                  </Field>
-                )}
-              </>
-            ) : (
-              <p className="flex items-center gap-2 text-[13px] text-muted">
-                <Lock className="size-3.5" /> Only reachable from services in this project environment.
-              </p>
-            )}
-            {changed && (
-              <div className="flex justify-end">
-                <Button variant="primary" size="sm" onClick={() => apply.run()} loading={apply.pending}>
-                  <Globe /> Apply and restart
-                </Button>
-              </div>
-            )}
-          </CardBody>
+          {(props.publicAddress || props.domain?.hostname) && (
+            <CardBody className="flex flex-col gap-1.5 text-[13px] text-fg-2">
+              {props.domain?.hostname && (
+                <span className="flex items-center gap-2">
+                  <Globe className="size-3.5 text-muted" /> {props.domain.hostname}
+                </span>
+              )}
+              {props.publicAddress && (
+                <span className="flex items-center gap-2">
+                  <Lock className="size-3.5 text-muted" /> Port {props.publicAddress}
+                  {props.publicAllow.length ? ` · ${props.publicAllow.length} allowed address${props.publicAllow.length === 1 ? "" : "es"}` : " · open to everyone"}
+                </span>
+              )}
+            </CardBody>
+          )}
         </Card>
-        {props.domain && (
-          <DatabaseDomainCard
-            serviceId={props.serviceId}
-            info={props.domain}
-            hideSecrets={props.hideSecrets}
-            canManage={props.canManageDomain}
-            canManageAllow={props.canManage}
-            viewerIp={props.viewerIp}
-          />
-        )}
         {!props.uptimeInSide && props.uptime}
       </div>
 

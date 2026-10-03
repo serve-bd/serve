@@ -839,11 +839,8 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       if (nextPort && nextPort !== (service.database.publicPort ?? null)) {
         // The firewall rules of an allowlist follow this port: it must be free, not another tenant's.
         const { busyHostPorts } = await import("@/server/services/ports");
-        const others = await db
-          .select({ database: schema.service.database })
-          .from(schema.service)
-          .where(and(eq(schema.service.type, "database"), ne(schema.service.id, serviceId), eq(schema.service.serverId, service.serverId)));
-        if (others.some((o) => o.database?.publicPort === nextPort) || (await busyHostPorts(service)).includes(nextPort))
+        const { heldDatabasePorts } = await import("@/server/databases/public-ports");
+        if ((await heldDatabasePorts(service.serverId, { serviceId, holder: "database" })).has(nextPort) || (await busyHostPorts(service)).includes(nextPort))
           throw new UserError(`Port ${nextPort} is already used on this server.`);
       }
       patch.database = { ...service.database, ...data.database };
@@ -1829,12 +1826,9 @@ export async function applyDatabaseChanges(serviceId: string) {
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type !== "database") throw new UserError("Not a database.");
     if (service.database?.publicPort) {
-      const clash = await db
-        .select({ id: schema.service.id, database: schema.service.database })
-        .from(schema.service)
-        .where(and(eq(schema.service.type, "database"), ne(schema.service.id, serviceId), eq(schema.service.serverId, service.serverId)));
-      if (clash.some((c) => c.database?.publicPort === service.database?.publicPort)) {
-        throw new UserError("Another database on this server already uses that public port.");
+      const { heldDatabasePorts } = await import("@/server/databases/public-ports");
+      if ((await heldDatabasePorts(service.serverId, { serviceId, holder: "database" })).has(service.database.publicPort)) {
+        throw new UserError("Another database (or a pooler or replica) on this server already uses that public port.");
       }
     }
     const id = await queueDeployment(serviceId, "redeploy", { userId: ctx.user.id });

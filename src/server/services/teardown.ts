@@ -80,7 +80,13 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
     const { retireCertificateFor } = await import("@/server/ssl/certificates");
     for (const r of retire) await retireCertificateFor(r.hostname, r.serverId, r.organizationId).catch(() => {});
   }
-  const tunnels = [...new Set([...domains.map((d) => d.tunnelId), ...all.map((s) => s.database?.domainTunnelId)].filter((id): id is string => !!id))];
+  const tunnels = [
+    ...new Set(
+      [...domains.map((d) => d.tunnelId), ...all.map((s) => s.database?.domainTunnelId), ...all.map((s) => s.database?.pooler?.public?.tunnelId)].filter(
+        (id): id is string => !!id,
+      ),
+    ),
+  ];
   if (tunnels.length) {
     const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
     for (const id of tunnels) await syncTunnelIngress(id).catch(() => {});
@@ -150,20 +156,31 @@ async function keepDatabases(services: (typeof schema.service.$inferSelect)[]) {
 
 /** The DNS records Serve made for databases' own domains (marked by their comment), never anyone else's. */
 async function removeDatabaseDomainRecords(services: (typeof schema.service.$inferSelect)[], retire: Retire[]) {
-  const withDomain = services.filter((s) => s.database?.domain && !s.parentServiceId);
-  if (!withDomain.length) return;
+  // Each database's own domain, its pooler's and its replicas' (on every server they run on).
+  const names = services
+    .filter((s) => !s.parentServiceId && s.database)
+    .flatMap((s) => {
+      const cfg = s.database!;
+      const out: { service: typeof s; hostname: string; servers: string[]; own: boolean }[] = [];
+      if (cfg.domain) out.push({ service: s, hostname: cfg.domain, servers: [s.serverId], own: true });
+      if (cfg.pooler?.public?.domain) out.push({ service: s, hostname: cfg.pooler.public.domain, servers: [s.serverId], own: false });
+      if (cfg.replica?.public?.domain) out.push({ service: s, hostname: cfg.replica.public.domain, servers: [...new Set(replicaInstances(s).map((r) => r.serverId))], own: false });
+      return out;
+    });
+  if (!names.length) return;
   const { cloudflareAccountFor } = await import("@/server/ssl/certificates");
   const { Cloudflare } = await import("@/server/cloudflare/api");
   const { DATABASE_DNS_COMMENT } = await import("@/lib/database-domains");
   const removed = new Set(services.map((s) => s.id));
-  for (const s of withDomain) {
-    const hostname = s.database!.domain!;
+  for (const { service: s, hostname, servers, own } of names) {
     try {
       // Another database still on this name (a copy made before copies dropped the domain) keeps the record.
-      const others = await db.select({ id: schema.service.id }).from(schema.service).where(dsql`lower(${schema.service.database}->>'domain') = ${hostname.toLowerCase()}`);
-      if (others.some((o) => !removed.has(o.id))) continue;
+      if (own) {
+        const others = await db.select({ id: schema.service.id }).from(schema.service).where(dsql`lower(${schema.service.database}->>'domain') = ${hostname.toLowerCase()}`);
+        if (others.some((o) => !removed.has(o.id))) continue;
+      }
       const [project] = await db.select({ organizationId: schema.project.organizationId }).from(schema.project).where(eq(schema.project.id, s.projectId));
-      if (project) retire.push({ hostname, serverId: s.serverId, organizationId: project.organizationId });
+      if (project) for (const serverId of servers) retire.push({ hostname, serverId, organizationId: project.organizationId });
       const accountId = project ? await cloudflareAccountFor([hostname], project.organizationId) : null;
       if (!accountId) continue;
       const cf = await Cloudflare.forAccount(accountId);

@@ -2,6 +2,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { demuxDockerBuffer, imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { getServer, type ServerCtx } from "@/server/servers/context";
+import { replicaInstances } from "@/server/services/types";
 
 /*
  * IP allowlists for database public ports, enforced by the server's own firewall.
@@ -78,20 +79,32 @@ export function allowlistScript(entries: AllowEntry[]) {
  */
 export async function allowEntries(serverId: string, starting?: string): Promise<AllowEntry[]> {
   const rows = await db
-    .select({ id: schema.service.id, database: schema.service.database })
+    .select({ id: schema.service.id, serverId: schema.service.serverId, database: schema.service.database })
     .from(schema.service)
-    .where(and(eq(schema.service.serverId, serverId), eq(schema.service.type, "database"), isNotNull(schema.service.database)));
-  const wanted = rows.filter((r) => !!r.database?.publicPort && r.database.publicBind !== "127.0.0.1" && !!r.database.publicAllow?.length);
+    .where(and(eq(schema.service.type, "database"), isNotNull(schema.service.database)));
+  // Each public port on this server with an allowlist: a database's own, its pooler's (on the
+  // database's server) and its replicas' (on each server a replica runs on).
+  const wanted: { serviceId: string; port: number; allow: string[] }[] = [];
+  const add = (serviceId: string, port: number | null | undefined, bind: string | null | undefined, allow: string[] | null | undefined) => {
+    if (port && bind !== "127.0.0.1" && allow?.length) wanted.push({ serviceId, port, allow });
+  };
+  for (const r of rows) {
+    const cfg = r.database!;
+    if (r.serverId === serverId) add(r.id, cfg.publicPort, cfg.publicBind, cfg.publicAllow);
+    if (r.serverId === serverId && cfg.pooler?.enabled) add(r.id, cfg.pooler.public?.port, cfg.pooler.public?.bind, cfg.pooler.public?.allow);
+    if (replicaInstances({ serverId: r.serverId, database: cfg }).some((i) => i.serverId === serverId))
+      add(r.id, cfg.replica?.public?.port, cfg.replica?.public?.bind, cfg.replica?.public?.allow);
+  }
   if (!wanted.length) return [];
   const ctx = await getServer(serverId);
   const running = await ctx.docker.listContainers({ all: false }).catch(() => []);
-  // `starting`: the database a deploy is about to start, whose port is published in a moment.
+  // `starting`: the database a deploy is about to start, whose ports are published in a moment.
   const publishes = (serviceId: string, port: number) =>
     serviceId === starting || running.some((c) => c.Labels?.[LABEL.service] === serviceId && c.Ports?.some((p) => p.PublicPort === port));
   const seen = new Set<number>();
   return wanted
-    .filter((r) => publishes(r.id, r.database!.publicPort!))
-    .map((r) => ({ port: r.database!.publicPort!, allow: r.database!.publicAllow! }))
+    .filter((w) => publishes(w.serviceId, w.port))
+    .map((w) => ({ port: w.port, allow: w.allow }))
     .filter((e) => !seen.has(e.port) && seen.add(e.port))
     .sort((a, b) => a.port - b.port);
 }

@@ -22,6 +22,7 @@ export function databaseNav(db: NonNullable<SettingsNavInput["db"]>): SettingsNa
     ...(db.initScripts || ["postgres", "mysql", "mariadb"].includes(db.engine) ? [{ id: "initialization", label: "Initialization" }] : []),
     { id: "configuration", label: "Configuration" },
     { id: "network", label: "Runtime and network" },
+    { id: "public-access", label: "Public access" },
     ...(db.tls ? [{ id: "tls", label: "TLS" }] : []),
     { id: "health", label: "Health check" },
     ...(db.engine === "postgres"

@@ -111,6 +111,7 @@ export async function databaseDomainCert(ctx: ServerCtx, service: Service): Prom
  * one without it is deployed again to mount it.
  */
 export async function refreshDatabaseCertificates(serverId: string, names: string[], organizationId: string) {
+  await refreshAddonCertificates(serverId, names, organizationId).catch(() => {});
   const rows = (
     await db
       .select({ service: schema.service })
@@ -132,7 +133,8 @@ export async function refreshDatabaseCertificates(serverId: string, names: strin
   const ctx = await getServer(serverId);
   const { queueDeployment } = await import("@/server/services/create");
   for (const service of affected) {
-    const [running] = await ctx.docker.listContainers({ all: false, filters: { label: [`${LABEL.service}=${service.id}`] } });
+    // The database's own container: not its pooler or a replica (they share the service label).
+    const [running] = await ctx.docker.listContainers({ all: false, filters: { label: [`${LABEL.service}=${service.id}`, `${LABEL.kind}=database`] } });
     const mounted = (running?.Mounts ?? []).map((m) => m.Destination).filter((d) => d.startsWith(MOUNT));
     // Another certificate may cover the domain now: a restart would keep serving the old one.
     const want = await databaseDomainCert(ctx, service);
@@ -154,19 +156,34 @@ export async function refreshDatabaseCertificates(serverId: string, names: strin
  * the machine itself (a system PostgreSQL, for example).
  */
 export async function freePublicPort(service: Service, enginePort: number) {
-  const { busyHostPorts } = await import("@/server/services/ports");
-  const busy = new Set(await busyHostPorts(service));
-  const others = await db
-    .select({ id: schema.service.id, database: schema.service.database })
+  const { freePortOn } = await import("./public-ports");
+  return freePortOn(service, [service.serverId], "database", enginePort + 10000);
+}
+
+/** The active certificate on a server covering a hostname, mounted for a container. Null without one. */
+export async function activeCertMount(ctx: ServerCtx, organizationId: string, hostname: string): Promise<DomainCert | null> {
+  const certs = await db
+    .select()
+    .from(schema.certificate)
+    .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, ctx.id), eq(schema.certificate.status, "active")));
+  const cert = certs.find((c) => certificateCovers(c.domains, hostname));
+  return cert ? domainCertMount(ctx, cert) : null;
+}
+
+/** A pooler or replicas serving a domain the certificate covers, on its server: started again, which loads it. */
+async function refreshAddonCertificates(serverId: string, names: string[], organizationId: string) {
+  const { replicaInstances } = await import("@/server/services/types");
+  const rows = await db
+    .select({ service: schema.service })
     .from(schema.service)
-    .where(and(eq(schema.service.serverId, service.serverId), eq(schema.service.type, "database")));
-  for (const o of others) if (o.id !== service.id && o.database?.publicPort) busy.add(o.database.publicPort);
-  const ctx = await getServer(service.serverId);
-  const res = await ctx.exec("ss -ltnH 2>/dev/null || netstat -ltn 2>/dev/null", { timeoutMs: 5000 }).catch(() => null);
-  for (const line of res?.code === 0 ? res.stdout.split("\n") : []) {
-    const local = line.trim().split(/\s+/)[3] ?? "";
-    busy.add(Number(local.slice(local.lastIndexOf(":") + 1)));
+    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .where(and(eq(schema.project.organizationId, organizationId), eq(schema.service.type, "database"), eq(schema.service.status, "running")));
+  const { ensurePooler, ensureReplicas } = await import("./addons");
+  for (const { service } of rows) {
+    const cfg = service.database;
+    const pooler = cfg?.pooler?.enabled ? cfg.pooler.public : null;
+    if (pooler?.domain && !pooler.tunnelId && service.serverId === serverId && certificateCovers(names, pooler.domain)) await ensurePooler(service);
+    const replicas = cfg?.replica?.public;
+    if (replicas?.domain && certificateCovers(names, replicas.domain) && replicaInstances(service).some((r) => r.serverId === serverId)) await ensureReplicas(service);
   }
-  for (let port = enginePort + 10000; port < 65536; port++) if (!busy.has(port)) return port;
-  throw new Error("No free port on this server.");
 }

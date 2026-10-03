@@ -399,67 +399,23 @@ function ConfigurationSection(props: DatabaseSettingsProps) {
 
 function NetworkSection(props: DatabaseSettingsProps) {
   const save = useAction((patch: Parameters<typeof updateService>[1]) => updateService(props.serviceId, patch));
-  const { config, engine } = props;
   return (
     <Section
       id="network"
       title="Runtime and network"
-      description="How the container restarts and who can reach it."
-      initial={{
-        access: config.publicPort ? "public" : "private",
-        port: String(config.publicPort ?? engine.port + 10000),
-        bind: config.publicBind,
-        restartPolicy: props.restartPolicy,
-        stopTimeout: props.stopTimeout?.toString() ?? "",
-      }}
+      description="How the container restarts, and how services in this environment reach it."
+      initial={{ restartPolicy: props.restartPolicy, stopTimeout: props.stopTimeout?.toString() ?? "" }}
       onSave={async (v) => {
-        const r = await save.run({
-          database: { publicPort: v.access === "public" ? Number(v.port) : null, publicBind: v.bind },
-          runtime: { restartPolicy: v.restartPolicy, stopTimeout: num(v.stopTimeout) },
-        });
+        const r = await save.run({ runtime: { restartPolicy: v.restartPolicy, stopTimeout: num(v.stopTimeout) } });
         if (r !== undefined) props.onNeedsRestart("Network");
         return r;
       }}
     >
       {(v, set) => (
         <>
-          <Field label="Internal connection URL" description="For services in this environment, over the private network.">
+          <Field label="Internal connection URL" description="For services in this environment, over the private network. Reaching it from outside Serve is under Public access.">
             <CopyField value={props.internalUrl} secret />
           </Field>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Field label="Access">
-              <Select
-                value={v.access}
-                onValueChange={(a) => set({ access: a as "public" | "private" })}
-                options={[
-                  { value: "private", label: "Private", description: "Only this environment" },
-                  { value: "public", label: "Public", description: "Published on a server port" },
-                ]}
-              />
-            </Field>
-            {v.access === "public" && (
-              <>
-                <Field label="Public port">
-                  <Input value={v.port} onChange={(e) => set({ port: digits(e.target.value) })} inputMode="numeric" className="font-mono" />
-                </Field>
-                <Field label="Listen on">
-                  <Select
-                    value={v.bind}
-                    onValueChange={(b) => set({ bind: b as "0.0.0.0" | "127.0.0.1" })}
-                    options={[
-                      { value: "0.0.0.0", label: "All interfaces" },
-                      { value: "127.0.0.1", label: "This server only", description: "localhost / SSH tunnel" },
-                    ]}
-                  />
-                </Field>
-              </>
-            )}
-          </div>
-          {v.access === "public" && v.bind === "0.0.0.0" && (
-            <p className="flex items-start gap-1.5 text-xs text-warn">
-              <TriangleAlert className="mt-px size-3.5 flex-none" /> Anyone who can reach the server can try to log in. Use a strong password, TLS, and a firewall.
-            </p>
-          )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Restart policy">
               <Select

@@ -241,15 +241,29 @@ export async function attachTunnelToDatabases(tunnel: Tunnel) {
   const rows = await db
     .select()
     .from(schema.service)
-    .where(and(eq(schema.service.type, "database"), sql`${schema.service.database}->>'domainTunnelId' = ${tunnel.id}`));
+    .where(
+      and(
+        eq(schema.service.type, "database"),
+        sql`(${schema.service.database}->>'domainTunnelId' = ${tunnel.id} OR ${schema.service.database}->'pooler'->'public'->>'tunnelId' = ${tunnel.id})`,
+      ),
+    );
   const ctx = await getServer(tunnel.serverId);
   const routes: { hostname: string; service: string }[] = [];
   for (const s of rows) {
     const cfg = s.database;
-    if (!cfg?.domain) continue;
-    await connectProxy(envNetworkName(s.environmentId), { docker: ctx.docker, proxyContainer: tunnelContainerName(tunnel), id: ctx.id }).catch(() => {});
-    const port = tunnelTargetPort(cfg.engine, engines[cfg.engine].port);
-    routes.push({ hostname: cfg.domain, service: `tcp://${privateHost(s)}:${port}` });
+    if (!cfg) continue;
+    const join = () => connectProxy(envNetworkName(s.environmentId), { docker: ctx.docker, proxyContainer: tunnelContainerName(tunnel), id: ctx.id }).catch(() => {});
+    if (cfg.domain && cfg.domainTunnelId === tunnel.id) {
+      await join();
+      const port = tunnelTargetPort(cfg.engine, engines[cfg.engine].port);
+      routes.push({ hostname: cfg.domain, service: `tcp://${privateHost(s)}:${port}` });
+    }
+    // A pooler with its domain on this tunnel: TCP to the pooler.
+    const pooler = cfg.pooler?.enabled ? cfg.pooler.public : null;
+    if (pooler?.domain && pooler.tunnelId === tunnel.id) {
+      await join();
+      routes.push({ hostname: pooler.domain, service: `tcp://${privateHost(s)}-pooler:5432` });
+    }
   }
   return routes;
 }

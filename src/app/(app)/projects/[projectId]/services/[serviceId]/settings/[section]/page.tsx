@@ -168,6 +168,13 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
     db: database ? { engine: database.config.engine, initScripts: !!database.engine.initScripts, tls: database.engine.tls } : null,
   });
   if (!nav.some((n) => n.id === section)) notFound();
+  // Public access: its own page, built for the viewer (masked URLs, their address for allowlists).
+  if (section === "public-access" && service.type === "database" && service.database) {
+    const { databaseAccessView } = await import("@/server/databases/access-view");
+    const { PublicAccess } = await import("../public-access");
+    const view = await databaseAccessView(service, { id: ctx.org.id, can: (p) => ctx.can(p as never) });
+    return <PublicAccess serviceId={service.id} view={view} canManage={ctx.can("services.manage") && ctx.can("services.deploy")} canManageDomain={ctx.can("domains.manage")} />;
+  }
   // Maintenance mode changes what visitors get, so saving it needs deploy rights.
   if (section === "maintenance" && !ctx.can("services.deploy")) return <NoAccess permission="services.deploy" />;
   return (

@@ -5,6 +5,7 @@ import { randomSecret } from "@/server/crypto";
 import { autoDomainFor } from "@/server/proxy/addressing";
 import { enqueue } from "@/server/queue";
 import { LOCAL_SERVER_ID, type DeploymentTrigger } from "@/server/db/schema";
+import { UserError } from "@/server/action";
 
 export async function uniqueServiceSlug(name: string) {
   const base = slugify(name, 28);
@@ -60,11 +61,31 @@ export async function queueDeployment(
   } = {},
 ) {
   const id = newId();
+  // The project's deploy rules: a freeze stops it, an approval holds it.
+  const { deployGate, supersedeWaiting } = await import("@/server/deploy-rules");
+  const gate = await deployGate(serviceId, trigger, opts.userId);
+  if (gate.kind === "frozen") {
+    // Someone deploying gets the answer; a push or hook leaves a record of what was skipped.
+    if (opts.userId) throw new UserError(gate.message);
+    await db.insert(schema.deployment).values({
+      id,
+      serviceId,
+      trigger,
+      status: "cancelled",
+      error: gate.message,
+      logs: `Skipped: ${gate.message}\n`,
+      commitSha: opts.commitSha ?? null,
+      commitMessage: opts.commitMessage ?? null,
+      branch: opts.branch ?? null,
+      finishedAt: new Date(),
+    });
+    return id;
+  }
   await db.insert(schema.deployment).values({
     id,
     serviceId,
     trigger,
-    status: "queued",
+    status: gate.kind === "approve" ? "waiting" : "queued",
     createdBy: opts.userId ?? null,
     rollbackOf: opts.rollbackOf ?? null,
     commitSha: opts.commitSha ?? null,
@@ -72,6 +93,31 @@ export async function queueDeployment(
     branch: opts.branch ?? null,
     adopt: opts.adopt ?? null,
   });
+  if (gate.kind === "approve") {
+    await supersedeWaiting(serviceId, id);
+    await notifyWaiting(serviceId, id);
+    return id;
+  }
   await enqueue("deploy", { deploymentId: id }, { concurrencyKey: `service:${serviceId}` });
   return id;
+}
+
+/** Tells the organization's channels that a deploy waits for someone to approve it. */
+async function notifyWaiting(serviceId: string, deploymentId: string) {
+  const { notify, orgOfService } = await import("@/server/notify");
+  const [row] = await db
+    .select({ name: schema.service.name, projectId: schema.service.projectId, commitMessage: schema.deployment.commitMessage, branch: schema.deployment.branch })
+    .from(schema.deployment)
+    .innerJoin(schema.service, eq(schema.deployment.serviceId, schema.service.id))
+    .where(eq(schema.deployment.id, deploymentId));
+  if (!row) return;
+  void notify(await orgOfService(serviceId), "deploy.waiting", {
+    ok: false,
+    title: `${row.name} is waiting for approval`,
+    body: row.commitMessage ? `${row.commitMessage.split("\n")[0].slice(0, 200)}${row.branch ? ` (${row.branch})` : ""}` : "A deployment waits for someone to approve it.",
+    url: `/projects/${row.projectId}/services/${serviceId}/deployments/${deploymentId}`,
+    status: "waiting",
+    serviceId,
+    deploymentId,
+  });
 }

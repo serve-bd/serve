@@ -6,6 +6,7 @@ export const PERMISSIONS = [
   "projects.view",
   "projects.manage",
   "services.deploy",
+  "deploys.approve",
   "services.manage",
   "domains.manage",
   "variables.edit",
@@ -20,7 +21,7 @@ export const PERMISSIONS = [
 export type Permission = (typeof PERMISSIONS)[number];
 
 export const PERMISSION_GROUPS: { title: string; permissions: Permission[] }[] = [
-  { title: "Projects and services", permissions: ["projects.view", "projects.manage", "services.deploy", "services.manage", "domains.manage"] },
+  { title: "Projects and services", permissions: ["projects.view", "projects.manage", "services.deploy", "deploys.approve", "services.manage", "domains.manage"] },
   { title: "Variables and data", permissions: ["variables.edit", "variables.view-secrets", "databases.backups"] },
   { title: "Operations", permissions: ["logs.view", "console.access"] },
   { title: "Organization", permissions: ["members.manage", "integrations.manage"] },
@@ -30,6 +31,11 @@ export const PERMISSION_INFO: Record<Permission, { label: string; description: s
   "projects.view": { label: "View projects", description: "See projects, services, deployments and their status.", verb: "view projects" },
   "projects.manage": { label: "Manage projects", description: "Create, rename and delete projects and environments.", verb: "manage projects" },
   "services.deploy": { label: "Deploy", description: "Deploy, redeploy, roll back, start, stop and restart services.", verb: "deploy services" },
+  "deploys.approve": {
+    label: "Approve deploys",
+    description: "Approve or reject deploys that wait for approval. Their own deploys start right away.",
+    verb: "approve deploys",
+  },
   "services.manage": { label: "Manage services", description: "Create and delete services and change their settings.", verb: "change services" },
   "domains.manage": { label: "Manage domains", description: "Add, edit and remove domains, ports and proxy options.", verb: "manage domains" },
   "variables.edit": { label: "Edit variables", description: "Add, change and delete environment and shared variables.", verb: "edit variables" },

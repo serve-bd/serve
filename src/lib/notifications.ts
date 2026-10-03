@@ -18,6 +18,7 @@ export type NotifyEventGroup = "Deployments" | "Uptime & incidents" | "Backups" 
 export const notifyEventCatalog = [
   { id: "deploy.success", label: "Deployment succeeded", group: "Deployments", severity: "info" },
   { id: "deploy.failed", label: "Deployment failed", group: "Deployments", severity: "warning" },
+  { id: "deploy.waiting", label: "Deployment waiting for approval", group: "Deployments", severity: "warning" },
   { id: "service.down", label: "Uptime check failing", group: "Uptime & incidents", severity: "critical" },
   { id: "service.recovered", label: "Uptime check recovered", group: "Uptime & incidents", severity: "info" },
   { id: "service.crashed", label: "Service crashed", group: "Uptime & incidents", severity: "critical" },

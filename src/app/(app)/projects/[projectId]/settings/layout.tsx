@@ -22,6 +22,7 @@ export default async function ProjectSettingsLayout({ children, params }: Layout
                 { href: base, label: "General", icon: "Settings2", exact: true },
                 { href: `${base}/variables`, label: "Shared variables", icon: "Variable" },
                 { href: `${base}/environments`, label: "Environments", icon: "Layers3" },
+                { href: `${base}/deploys`, label: "Deploys", icon: "ShieldCheck" },
               ],
             },
           ]}

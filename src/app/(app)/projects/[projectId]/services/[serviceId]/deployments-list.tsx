@@ -3,13 +3,15 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { Ban, GitCommitHorizontal, MoreHorizontal, RefreshCw, RotateCcw, Rocket, User } from "lucide-react";
+import { Ban, Check, GitCommitHorizontal, MoreHorizontal, RefreshCw, RotateCcw, Rocket, User } from "lucide-react";
 import { Card, CardHeader, EmptyState, TimeAgo, Badge } from "@/components/ui/misc";
 import { StatusDot, statusText } from "@/components/ui/status";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { cancelDeployment, redeployDeployment, rollbackTo } from "@/server/actions/services";
+import { approveDeployment, rejectDeployment } from "@/server/actions/deploy-rules";
+import { Button } from "@/components/ui/button";
 import { cn, formatDuration } from "@/lib/utils";
 import { useCan } from "@/components/permissions";
 import { useServiceLive } from "./service-header";
@@ -26,6 +28,8 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
   const rollback = useAction(rollbackTo, { onSuccess: (d) => go(d.id) });
   const redeploy = useAction(redeployDeployment, { onSuccess: (d) => go(d.id) });
   const cancel = useAction(cancelDeployment, { result: "Cancel requested. It stops in a moment.", onSuccess: () => void mutate() });
+  const approve = useAction(approveDeployment, { onSuccess: () => void mutate() });
+  const reject = useAction(rejectDeployment, { onSuccess: () => void mutate() });
 
   if (!data) return null;
   const { currentDeploymentId, containers } = data;
@@ -50,7 +54,7 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
             {deployments.map((d, i) => {
               const current = d.preview ? d.preview.current : d.id === currentDeploymentId;
               const href = d.preview ? `/projects/${projectId}/services/${d.preview.id}/deployments/${d.id}` : `${base}/deployments/${d.id}`;
-              const active = ["queued", "building", "deploying"].includes(d.status);
+              const active = ["waiting", "queued", "building", "deploying"].includes(d.status);
               const duration = d.startedAt && d.finishedAt ? formatDuration(new Date(d.finishedAt).getTime() - new Date(d.startedAt).getTime()) : null;
               return (
                 <li key={d.id} className={cn("group relative border-b border-line last:border-b-0", current && !d.preview && "bg-ok-soft/40")}>
@@ -69,7 +73,9 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                         {d.trigger === "rollback" && <Badge tone="info">Rollback</Badge>}
                       </span>
                       <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
-                        <span className={cn(d.status === "failed" && "text-bad", active && "text-info")}>{statusText(d.status, "deployment")}</span>
+                        <span className={cn(d.status === "failed" && "text-bad", active && "text-info", d.status === "waiting" && "text-warn")}>
+                          {statusText(d.status, "deployment")}
+                        </span>
                         {d.commitSha && (
                           <span className="inline-flex items-center gap-1 font-mono">
                             <GitCommitHorizontal className="size-3" />
@@ -84,11 +90,23 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                         {duration && <span className="tabular-nums">{duration}</span>}
                       </span>
                       {d.status === "failed" && d.error && <span className="line-clamp-1 text-xs text-bad/90">{d.error.split("\n")[0]}</span>}
+                      {d.status === "cancelled" && d.error && <span className="line-clamp-1 text-xs text-muted">{d.error.split("\n")[0]}</span>}
                     </span>
                     <span className="flex items-start gap-1 text-xs text-faint">
                       <TimeAgo date={d.createdAt} className="pt-0.5" />
                     </span>
                   </Link>
+                  {d.status === "waiting" && can("deploys.approve") && (
+                    // Out of the link, so the buttons act instead of opening the deployment.
+                    <div className="flex justify-end gap-2 px-5 pb-3.5 pl-[52px]">
+                      <Button size="sm" variant="ghost" onClick={() => reject.run(d.id)} loading={reject.pending} disabled={approve.pending}>
+                        <Ban /> Reject
+                      </Button>
+                      <Button size="sm" variant="primary" onClick={() => approve.run(d.id)} loading={approve.pending} disabled={reject.pending}>
+                        <Check /> Approve
+                      </Button>
+                    </div>
+                  )}
                   {can("services.deploy") && (
                     <div className="absolute top-3 right-3 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <Menu>

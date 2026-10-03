@@ -15,6 +15,7 @@ const serviceTones: Record<string, Tone> = {
 };
 
 const deploymentTones: Record<string, Tone> = {
+  waiting: { led: "var(--warn)", label: "Waiting for approval" },
   queued: { led: "var(--idle)", label: "Queued" },
   building: { led: "var(--info)", label: "Building", pulse: true },
   deploying: { led: "var(--info)", label: "Deploying", pulse: true },

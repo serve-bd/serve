@@ -4,7 +4,7 @@ import { toast } from "@/components/ui/toast";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { AlertTriangle, ArrowLeft, Ban, Clock, Container, GitBranch, GitCommitHorizontal, RefreshCw, RotateCcw, Server, User } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Ban, Check, Clock, Hourglass, Container, GitBranch, GitCommitHorizontal, RefreshCw, RotateCcw, Server, User } from "lucide-react";
 import type { DeploymentTarget } from "@/server/services/types";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, TimeAgo, Copyable } from "@/components/ui/misc";
@@ -13,6 +13,7 @@ import { LogViewer, type LogLine } from "@/components/log-viewer";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { cancelDeployment, redeployDeployment, rollbackTo } from "@/server/actions/services";
+import { approveDeployment, rejectDeployment } from "@/server/actions/deploy-rules";
 import { formatDuration } from "@/lib/utils";
 import { triggerText } from "@/lib/labels";
 import { useCan } from "@/components/permissions";
@@ -48,7 +49,7 @@ const targetTone: Record<DeploymentTarget["status"], "ok" | "bad" | "warn" | "ne
 };
 const targetLabel: Record<DeploymentTarget["status"], string> = { success: "Deployed", failed: "Failed", skipped: "Skipped", deploying: "Deploying", pending: "Waiting" };
 
-const ACTIVE = ["queued", "building", "deploying"];
+const ACTIVE = ["waiting", "queued", "building", "deploying"];
 
 export function DeploymentView({
   deployment,
@@ -145,6 +146,8 @@ export function DeploymentView({
     setCancelling(false);
     if (state.status !== "cancelled") toast.info(`The deployment ${state.status === "success" ? "finished" : state.status} before it could be cancelled`);
   }, [cancelling, active, state.status]);
+  const approve = useAction(() => approveDeployment(deployment.id), { refresh: false });
+  const reject = useAction(() => rejectDeployment(deployment.id), { refresh: false });
   const redeploy = useAction(() => redeployDeployment(deployment.id), {
     onSuccess: (d) => router.push(`${backHref}/${d.id}`),
   });
@@ -228,6 +231,25 @@ export function DeploymentView({
             </div>
           )}
         </div>
+        {state.status === "waiting" && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-warn-soft px-4 py-3">
+            <Hourglass className="size-4 flex-none text-warn" />
+            <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-fg-2">
+              {can("deploys.approve") ? "This deployment waits for approval. It starts once you approve it." : "This deployment waits for someone who can approve deploys."}
+            </p>
+            {can("deploys.approve") && (
+              <div className="flex gap-2">
+                <Button size="sm" variant="ghost" onClick={() => reject.run()} loading={reject.pending} disabled={approve.pending}>
+                  <Ban /> Reject
+                </Button>
+                <Button size="sm" variant="primary" onClick={() => approve.run()} loading={approve.pending} disabled={reject.pending}>
+                  <Check /> Approve
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {state.status === "cancelled" && state.error && <p className="mt-4 rounded-xl bg-hover px-4 py-3 text-[13px] leading-relaxed text-fg-2">{state.error}</p>}
         {state.status === "failed" && state.error && (
           <Copyable value={state.error} className="mt-4">
             <pre className="max-h-48 overflow-auto rounded-xl bg-bad-soft py-3 pr-10 pl-4 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-bad">{state.error}</pre>
@@ -267,7 +289,11 @@ export function DeploymentView({
         )}
       </Card>
 
-      <LogViewer lines={lines} filename={`deployment-${deployment.id}.log`} emptyText={state.status === "queued" ? "Waiting for the build to start…" : "Waiting for output…"} />
+      <LogViewer
+        lines={lines}
+        filename={`deployment-${deployment.id}.log`}
+        emptyText={state.status === "waiting" ? "Waiting for approval…" : state.status === "queued" ? "Waiting for the build to start…" : "Waiting for output…"}
+      />
     </div>
   );
 }

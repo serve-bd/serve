@@ -996,6 +996,14 @@ export async function cancelDeployment(deploymentId: string) {
     const [dep] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, deploymentId));
     if (!dep) throw new UserError("Deployment not found.");
     await serviceInOrg(dep.serviceId, ctx.org.id);
+    // Waiting for approval: nothing runs yet, so it simply ends.
+    if (dep.status === "waiting") {
+      await db
+        .update(schema.deployment)
+        .set({ status: "cancelled", finishedAt: new Date(), logs: "Cancelled while it waited for approval.\n" })
+        .where(and(eq(schema.deployment.id, deploymentId), eq(schema.deployment.status, "waiting")));
+      return null;
+    }
     if (dep.status === "queued") {
       const [cancelled] = await db
         .update(schema.deployment)

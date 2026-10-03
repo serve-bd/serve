@@ -409,6 +409,8 @@ export const project = pgTable("project", {
   color: text("color").notNull().default("blue"),
   /** Show the project's services in groups (applications, databases, stacks). */
   groupServices: boolean("group_services").notNull().default(true),
+  /** Environments whose deploys wait for approval, and times deploys are frozen. */
+  deployRules: jsonb("deploy_rules").$type<import("@/lib/deploy-rules").DeployRules>(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -563,7 +565,8 @@ export const customTemplate = pgTable(
   (t) => [index("custom_template_org_idx").on(t.organizationId)],
 );
 
-export type DeploymentStatus = "queued" | "building" | "deploying" | "success" | "failed" | "cancelled" | "superseded";
+/** "waiting": held for approval (deploy rules), not queued yet. */
+export type DeploymentStatus = "waiting" | "queued" | "building" | "deploying" | "success" | "failed" | "cancelled" | "superseded";
 
 export type DeploymentTrigger = "manual" | "webhook" | "rollback" | "redeploy" | "create" | "deploy-hook" | "api";
 
@@ -601,6 +604,9 @@ export const deployment = pgTable(
     }>(),
     /** Fingerprint of the settings this deployment ran with: a different one now means a redeploy would apply changes. */
     configHash: text("config_hash"),
+    /** Who let a deployment that waited for approval go ahead, and when. */
+    approvedBy: text("approved_by").references(() => user.id, { onDelete: "set null" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
     logs: text("logs").notNull().default(""),
     error: text("error"),
     createdBy: text("created_by").references(() => user.id, {

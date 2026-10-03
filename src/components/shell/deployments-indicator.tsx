@@ -20,7 +20,15 @@ type Live = {
 };
 
 const ACTIVE = new Set(["queued", "building", "deploying"]);
-const label: Record<string, string> = { queued: "Queued", building: "Building", deploying: "Deploying", success: "Deployed", failed: "Failed", cancelled: "Cancelled" };
+const label: Record<string, string> = {
+  waiting: "Waiting for approval",
+  queued: "Queued",
+  building: "Building",
+  deploying: "Deploying",
+  success: "Deployed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
 
 function elapsed(from: string, now: number) {
   const s = Math.max(0, Math.round((now - new Date(from).getTime()) / 1000));

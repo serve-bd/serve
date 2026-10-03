@@ -13,6 +13,7 @@ import { SecretField } from "@/components/ui/secret-field";
 import { useAction } from "@/hooks/use-action";
 import { applyDatabaseChanges, updateService } from "@/server/actions/services";
 import { setAddonAccess } from "@/server/actions/database-access";
+import { retryDatabaseCertificate } from "@/server/actions/database-domains";
 import { inRanges, normalizeTrustedRanges } from "@/lib/trusted-proxies";
 import type { DatabaseAccessView } from "@/server/databases/access-view";
 import { DatabaseDomainCard } from "../database-domain-card";
@@ -175,6 +176,7 @@ function AddonAccessCard({
       onSuccess: () => router.refresh(),
     },
   );
+  const retry = useAction(() => retryDatabaseCertificate(serviceId, which), { result: () => "Asking for the certificate again", onSuccess: () => router.refresh() });
   const changed =
     on !== addon.open ||
     (on &&
@@ -230,7 +232,18 @@ function AddonAccessCard({
                 <CopyField value={addon.tunnelCommand} />
               </Field>
             )}
-            {!changed && addon.certificates.some((c) => c.status !== "active") && (
+            {!changed && addon.certificates.some((c) => c.status === "failed") && (
+              <div className="flex items-start gap-2 text-xs leading-relaxed text-bad">
+                <span className="min-w-0 flex-1">
+                  The certificate for {addon.domain} failed{addon.certificates.length > 1 ? " on some servers" : ""}. Serve asks again by itself once the domain points at the
+                  server.
+                </span>
+                <Button type="button" size="sm" variant="ghost" className="-my-1 flex-none" disabled={!canManage} loading={retry.pending} onClick={() => retry.run()}>
+                  Retry
+                </Button>
+              </div>
+            )}
+            {!changed && addon.certificates.some((c) => c.status !== "active" && c.status !== "failed") && (
               <p className="text-xs text-muted">
                 The certificate for {addon.domain} is being issued
                 {addon.certificates.length > 1 ? ` on ${addon.certificates.filter((c) => c.status !== "active").length} of the servers` : ""}. Until then, Serve&apos;s own

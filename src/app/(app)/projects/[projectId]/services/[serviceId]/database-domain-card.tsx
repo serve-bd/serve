@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Check, Globe2, Lock, TriangleAlert } from "lucide-react";
+import { Check, Globe2, Lock, RefreshCw, TriangleAlert } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { HelpTip } from "@/components/ui/help-tip";
@@ -10,7 +11,7 @@ import { Card, CardBody, CardHeader, CopyField } from "@/components/ui/misc";
 import { SecretField } from "@/components/ui/secret-field";
 import { useAction } from "@/hooks/use-action";
 import { cn } from "@/lib/utils";
-import { saveDatabaseDomain } from "@/server/actions/database-domains";
+import { retryDatabaseCertificate, saveDatabaseDomain } from "@/server/actions/database-domains";
 import type { ActionResult } from "@/server/action";
 
 export type DatabaseDomainInfo = {
@@ -56,6 +57,8 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
     setNotice({ error: null, warnings: res.data.warnings });
     return res;
   });
+  const router = useRouter();
+  const retry = useAction(() => retryDatabaseCertificate(serviceId), { result: () => "Asking for the certificate again", onSuccess: () => router.refresh() });
   const changed = value.trim().toLowerCase() !== (info.hostname ?? "") || (!!info.hostname && !legacyTunnel && info.unreachable);
   const cert = info.certificate;
   // Without a public IP a new domain cannot work: the form is only there to remove one.
@@ -209,11 +212,16 @@ export function DatabaseDomainCard({ serviceId, info, hideSecrets, canManage }: 
                     <span>This server has no public IP, so {info.hostname} cannot reach the database from outside.</span>
                   </p>
                 )}
-                {cert?.status === "failed" && cert.error && (
-                  <p className="flex items-start gap-2 text-[12.5px] leading-relaxed text-bad">
+                {cert?.status === "failed" && (
+                  <div className="flex items-start gap-2 text-[12.5px] leading-relaxed text-bad">
                     <TriangleAlert className="mt-0.5 size-3.5 flex-none" />
-                    <span>Certificate failed: {cert.error.split("\n")[0].slice(0, 160)}</span>
-                  </p>
+                    <span className="min-w-0 flex-1">
+                      Certificate failed{cert.error ? `: ${cert.error.split("\n")[0].slice(0, 160)}` : "."} Serve asks again by itself once the domain points at this server.
+                    </span>
+                    <Button type="button" size="sm" variant="ghost" className="-my-1 flex-none" disabled={canManage === false} loading={retry.pending} onClick={() => retry.run()}>
+                      <RefreshCw /> Retry
+                    </Button>
+                  </div>
                 )}
                 {info.unreachable && (
                   <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-fg-2">

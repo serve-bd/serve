@@ -199,3 +199,25 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
     return { warnings, port: direct ? publicPort : null };
   });
 }
+
+/** Ask again for the certificate of a database's domain, or of its pooler's or replicas' (on each of their servers). */
+export async function retryDatabaseCertificate(serviceId: string, which: "database" | "pooler" | "replicas" = "database") {
+  return act(async () => {
+    const ctx = await requirePermission("domains.manage");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    const cfg = service.database;
+    if (!cfg) throw new UserError("Not a database.");
+    const { replicaInstances } = await import("@/server/services/types");
+    const hostname = which === "database" ? cfg.domain : which === "pooler" ? cfg.pooler?.public?.domain : cfg.replica?.public?.domain;
+    if (!hostname) throw new UserError("There is no domain to get a certificate for.");
+    const servers = which === "replicas" ? [...new Set(replicaInstances(service).map((r) => r.serverId))] : [service.serverId];
+    const errors: string[] = [];
+    // A failed certificate is asked for again; a missing one is requested.
+    for (const serverId of servers) {
+      const cert = await ensureDatabaseCertificate(hostname, serverId, ctx.org.id);
+      if ("error" in cert) errors.push(cert.error);
+    }
+    if (errors.length) throw new UserError(errors[0]);
+    return null;
+  });
+}

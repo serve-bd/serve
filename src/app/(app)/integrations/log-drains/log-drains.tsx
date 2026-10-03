@@ -74,7 +74,7 @@ export function LogDrains({ drains, projects }: { drains: DrainItem[]; projects:
   const serviceName = (id: string) => projects.flatMap((p) => p.services).find((s) => s.id === id)?.name ?? "Removed service";
   const scopeText = (d: DrainItem) =>
     !d.projectIds?.length && !d.serviceIds?.length
-      ? "Every service"
+      ? "Nothing picked yet: switch it on in an app's settings"
       : [
           ...(d.projectIds?.length ? [`Projects: ${d.projectIds.map(projectName).join(", ")}`] : []),
           ...(d.serviceIds?.length ? [`Services: ${d.serviceIds.map(serviceName).join(", ")}`] : []),
@@ -203,16 +203,12 @@ export function DrainDialog({ drain, projects, onClose, preset }: { drain: Drain
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
   const save = useAction(
     () => {
-      // "Every service" saves no picks at all: that is what the server reads as everything.
-      const data = everything ? { ...form, projectIds: [], serviceIds: [] } : form;
-      return drain ? updateLogDrain(drain.id, data) : addLogDrain(data);
+      return drain ? updateLogDrain(drain.id, form) : addLogDrain(form);
     },
     { onSuccess: onClose },
   );
   // A stored secret is kept when its field is left empty, as long as the address stays the same.
   const keeps = !!drain?.hasSecret && form.url === drain.url;
-  const [everything, setEverything] = React.useState(!form.projectIds.length && !form.serviceIds.length);
-  const nothing = !everything && !form.projectIds.length && !form.serviceIds.length;
   const toggle = (list: string[], id: string, on: boolean) => (on ? [...new Set([...list, id])] : list.filter((x) => x !== id));
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -307,13 +303,12 @@ export function DrainDialog({ drain, projects, onClose, preset }: { drain: Drain
             {preset ? (
               <p className="text-xs leading-relaxed text-muted">Sends this service&apos;s logs. To send others too, edit the drain in Integrations → Log drains.</p>
             ) : (
-              <Field label="What to send" error={nothing ? "Pick at least one project or service." : undefined}>
+              <Field
+                label="What to send"
+                description={projects.length ? "Pick a whole project to include its new services too. You can also switch a drain on in each app's settings." : "No projects yet."}
+              >
                 <div className="flex flex-col gap-2">
-                  <label className="flex items-center gap-2.5 text-[13px] text-fg-2">
-                    <Checkbox checked={everything} onCheckedChange={(c) => setEverything(!!c)} />
-                    Every service, new ones too
-                  </label>
-                  {!everything && (
+                  {projects.length > 0 && (
                     <div className="flex max-h-64 flex-col gap-3 overflow-y-auto rounded-xl border border-line p-3">
                       {projects.map((p) => {
                         const whole = form.projectIds.includes(p.id);
@@ -345,7 +340,7 @@ export function DrainDialog({ drain, projects, onClose, preset }: { drain: Drain
           </DialogBody>
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" size="sm" type="button" />}>Cancel</DialogClose>
-            <Button type="submit" variant="primary" size="sm" loading={save.pending} disabled={nothing}>
+            <Button type="submit" variant="primary" size="sm" loading={save.pending}>
               {drain ? "Save" : "Add log drain"}
             </Button>
           </DialogFooter>

@@ -107,7 +107,8 @@ const syncing = new Set<string>();
  * on, or none when there are none. Rewrites only what changed, so it is cheap to run often.
  */
 export async function syncLogDrains(serverIds?: string[]) {
-  const drains = await enabledDrains();
+  // A drain with nothing picked sends nothing; with none left, Vector is not needed.
+  const drains = (await enabledDrains()).filter((d) => d.projectIds?.length || d.serviceIds?.length);
   const services = await drainedServices([...new Set(drains.map((d) => d.organizationId))]);
   const servers = await db.select({ id: schema.server.id, name: schema.server.name, status: schema.server.status }).from(schema.server);
   const csv = servicesCsv(services);

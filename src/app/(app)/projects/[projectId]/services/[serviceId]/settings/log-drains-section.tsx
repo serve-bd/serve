@@ -48,25 +48,16 @@ export function LogDrainsSection({
       ) : (
         <div className="divide-y divide-line border-t border-line">
           {drains.map((d) => {
-            const everything = !d.projectIds?.length && !d.serviceIds?.length;
             const viaProject = !!d.projectIds?.includes(projectId);
-            const on = d.enabled && (everything || viaProject || !!d.serviceIds?.includes(serviceId));
+            const on = d.enabled && (viaProject || !!d.serviceIds?.includes(serviceId));
             // Covered by the drain's own scope: changed on the drain, not per service.
-            const fixed = everything || viaProject;
+            const fixed = viaProject;
             return (
               <div key={d.id} className="flex items-center gap-4 px-5 py-3.5">
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="truncate text-[13px] font-medium text-fg">{d.name}</span>
                   <span className="text-xs text-muted">
-                    {!d.enabled
-                      ? "Paused for every service"
-                      : everything
-                        ? "Sends every service"
-                        : viaProject
-                          ? "Sends this whole project"
-                          : on
-                            ? "Sends this service"
-                            : "Not sending this service"}
+                    {!d.enabled ? "Paused for every service" : viaProject ? "Sends this whole project" : on ? "Sends this service" : "Not sending this service"}
                     {fixed && d.enabled && canManage && (
                       <>
                         {" · "}

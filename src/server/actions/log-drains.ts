@@ -163,8 +163,8 @@ export async function setLogDrainEnabled(id: string, enabled: boolean) {
 }
 
 /**
- * From a service's settings: send its logs to a drain, or stop. A drain that covers everything or
- * the service's project already sends them: that is changed on the drain itself.
+ * From a service's settings: send its logs to a drain, or stop. A drain that covers the service's
+ * whole project already sends them: that is changed on the drain itself.
  */
 export async function setServiceLogDrain(drainId: string, serviceId: string, on: boolean) {
   return act(async () => {
@@ -174,11 +174,8 @@ export async function setServiceLogDrain(drainId: string, serviceId: string, on:
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const projects = row.projectIds ?? [];
     const services = row.serviceIds ?? [];
-    if (!projects.length && !services.length) throw new UserError(`${row.name} sends every service's logs. Pick its services in Integrations → Log drains.`);
     if (projects.includes(service.projectId)) throw new UserError(`${row.name} sends the logs of this whole project. Change it in Integrations → Log drains.`);
     const next = on ? [...new Set([...services, serviceId])] : services.filter((id) => id !== serviceId);
-    // The last service taken off a drain with no projects would make it send everything: refuse that.
-    if (!next.length && !projects.length) throw new UserError(`This is the last service ${row.name} sends. Pause or remove the drain in Integrations → Log drains instead.`);
     await db
       .update(schema.logDrain)
       .set({ serviceIds: next.length ? next : null, updatedAt: new Date() })

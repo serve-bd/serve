@@ -15,7 +15,7 @@ describe("vectorConfig", () => {
     vectorConfig(
       "web-1",
       [
-        { id: "d1", organizationId: "o1", kind: "http", url: "https://in.example.com", header: { name: "Authorization", value: "Bearer x" }, projectIds: null },
+        { id: "d1", organizationId: "o1", kind: "http", url: "https://in.example.com", header: { name: "Authorization", value: "Bearer x" }, projectIds: null, serviceIds: ["s1"] },
         { id: "d2", organizationId: "o2", kind: "loki", url: "https://loki.example.com/loki/api/v1/push", username: "u", password: "p", projectIds: ["p9"] },
       ],
       csv,
@@ -23,7 +23,7 @@ describe("vectorConfig", () => {
   );
 
   it("sends each drain only its own organization's lines, and its projects", () => {
-    expect(config.transforms.drain_d1.condition).toBe('.organization_id == "o1"');
+    expect(config.transforms.drain_d1.condition).toBe('.organization_id == "o1" && includes(["s1"], .service_id)');
     expect(config.transforms.drain_d2.condition).toBe('.organization_id == "o2" && includes(["p9"], .project_id)');
   });
 
@@ -32,6 +32,12 @@ describe("vectorConfig", () => {
     expect(one.transforms.drain_d3.condition).toBe('.organization_id == "o1" && (includes(["p1"], .project_id) || includes(["s9"], .service_id))');
     const only = JSON.parse(vectorConfig("web-1", [{ id: "d4", organizationId: "o1", kind: "http", url: "https://x.example.com", projectIds: null, serviceIds: ["s9"] }], csv));
     expect(only.transforms.drain_d4.condition).toBe('.organization_id == "o1" && includes(["s9"], .service_id)');
+  });
+
+  it("sends nothing for a drain with nothing picked", () => {
+    const none = JSON.parse(vectorConfig("web-1", [{ id: "d5", organizationId: "o1", kind: "http", url: "https://x.example.com", projectIds: null, serviceIds: null }], csv));
+    expect(none.transforms.drain_d5).toBeUndefined();
+    expect(none.sinks.drain_d5_out).toBeUndefined();
   });
 
   it("writes an HTTP sink with the header and a Loki sink with basic auth", () => {

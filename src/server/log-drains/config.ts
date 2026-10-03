@@ -85,13 +85,13 @@ export function vectorConfig(serverName: string, drains: DrainSpec[], csv: strin
   };
   const sinks: Record<string, unknown> = {};
   for (const d of drains) {
-    const conditions = [`.organization_id == ${vrl(d.organizationId)}`];
-    // Picked projects (with their new services) and picked services; neither picked: everything.
+    // Picked projects (with their new services) and picked services. Nothing picked: nothing sent.
     const picked = [
       ...(d.projectIds?.length ? [`includes(${JSON.stringify(d.projectIds)}, .project_id)`] : []),
       ...(d.serviceIds?.length ? [`includes(${JSON.stringify(d.serviceIds)}, .service_id)`] : []),
     ];
-    if (picked.length) conditions.push(picked.length > 1 ? `(${picked.join(" || ")})` : picked[0]);
+    if (!picked.length) continue;
+    const conditions = [`.organization_id == ${vrl(d.organizationId)}`, picked.length > 1 ? `(${picked.join(" || ")})` : picked[0]];
     transforms[`drain_${d.id}`] = { type: "filter", inputs: ["serve_enrich"], condition: conditions.join(" && ") };
     // A destination that is down must not make Vector hold everything in memory.
     const common = {

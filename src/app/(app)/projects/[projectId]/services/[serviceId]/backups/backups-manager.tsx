@@ -152,7 +152,7 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
               {b.status === "success" && available && (
                 <>
                   <MenuLinkItem render={<a href={`/api/backups/${b.id}/download`} download />}>
-                    <Download /> Download{!b.local ? " from S3" : ""}
+                    <Download /> Download{!b.local ? " from the bucket" : ""}
                   </MenuLinkItem>
                   {isAdmin && (
                     <MenuItem onClick={() => onRestore(b)}>
@@ -200,6 +200,7 @@ export function BackupsManager(props: {
   schedule: string | null;
   retention: number;
   retentionS3: number | null;
+  keepLocal?: boolean;
   s3DestinationId: string | null;
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
@@ -269,7 +270,7 @@ export function BackupsManager(props: {
                     if (
                       await confirm({
                         title: "Delete this backup?",
-                        description: `${x.filename ?? "The backup"} is removed from this server${x.destination !== "local" ? " and S3" : ""}.`,
+                        description: `${x.filename ?? "The backup"} is removed from this server${x.destination !== "local" ? " and its bucket" : ""}.`,
                         confirmLabel: "Delete",
                         danger: true,
                       })
@@ -304,6 +305,7 @@ export function BackupsManager(props: {
           schedule={props.schedule}
           retention={props.retention}
           retentionS3={props.retentionS3}
+          keepLocal={props.keepLocal}
           s3DestinationId={props.s3DestinationId}
           destinations={props.destinations}
           timezone={props.timezone}

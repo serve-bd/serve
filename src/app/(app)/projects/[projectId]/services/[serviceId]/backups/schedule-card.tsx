@@ -71,6 +71,8 @@ export function ScheduleCard(props: {
   retention: number;
   retentionS3: number | null;
   s3DestinationId: string | null;
+  /** With a bucket: copies stay on the server too (default). */
+  keepLocal?: boolean;
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
   canEdit: boolean;
@@ -85,15 +87,18 @@ export function ScheduleCard(props: {
       plan: fromCron(props.schedule),
       retention: String(props.retention),
       retentionS3: String(props.retentionS3 ?? props.retention),
-      dest: props.s3DestinationId ?? "local",
+      bucket: props.s3DestinationId,
+      // Without a bucket, the server is the only place.
+      local: !props.s3DestinationId || props.keepLocal !== false,
     }),
-    [props.schedule, props.retention, props.retentionS3, props.s3DestinationId],
+    [props.schedule, props.retention, props.retentionS3, props.s3DestinationId, props.keepLocal],
   );
   const [enabled, setEnabled] = React.useState(initial.enabled);
   const [plan, setPlan] = React.useState<Plan>(initial.plan);
   const [retention, setRetention] = React.useState(initial.retention);
   const [retentionS3, setRetentionS3] = React.useState(initial.retentionS3);
-  const [dest, setDest] = React.useState(initial.dest);
+  const [bucket, setBucket] = React.useState(initial.bucket);
+  const [local, setLocal] = React.useState(initial.local);
   // The plan only counts while the schedule is on: turned off, the saved schedule has none.
   const [saved, setSaved] = React.useState(() =>
     JSON.stringify({ ...initial, plan: initial.enabled ? initial.plan : null, dbs: props.databaseChoices?.selected?.length ? [...props.databaseChoices.selected].sort() : null }),
@@ -104,22 +109,30 @@ export function ScheduleCard(props: {
   const now = useNow();
   const runs = enabled && now ? nextRuns(cron, props.timezone, 3, now) : null;
   const invalid = enabled && (!cron || !nextRuns(cron, props.timezone, 1));
-  const snapshot = JSON.stringify({ enabled, plan: enabled ? plan : null, retention, retentionS3, dest, dbs: choices ? savedChoice(choices, dbs) : null });
+  const snapshot = JSON.stringify({ enabled, plan: enabled ? plan : null, retention, retentionS3, bucket, local, dbs: choices ? savedChoice(choices, dbs) : null });
   const dirty = snapshot !== saved;
   const set = (patch: Partial<Plan>) => setPlan((p) => ({ ...p, ...patch }));
 
   const save = useAction(
     () => {
       const keep = Math.max(1, Math.min(365, Number(retention) || 7));
-      const keepS3 = dest === "local" ? null : Math.max(1, Math.min(3650, Number(retentionS3) || Number(retention) || 7));
-      const s3 = dest === "local" ? null : dest;
-      if (props.target) return saveComposeBackup(props.serviceId, props.target, { schedule: enabled ? cron : null, retention: keep, retentionS3: keepS3, s3DestinationId: s3 });
+      const keepS3 = bucket ? Math.max(1, Math.min(3650, Number(retentionS3) || Number(retention) || 7)) : null;
+      const onServer = !bucket || local;
+      if (props.target)
+        return saveComposeBackup(props.serviceId, props.target, {
+          schedule: enabled ? cron : null,
+          retention: keep,
+          retentionS3: keepS3,
+          s3DestinationId: bucket,
+          local: onServer,
+        });
       return updateService(props.serviceId, {
         database: {
           backupSchedule: enabled ? cron : null,
           backupRetention: keep,
           backupRetentionS3: keepS3,
-          s3DestinationId: s3,
+          s3DestinationId: bucket,
+          backupLocal: onServer,
           ...(choices ? { backupDatabases: savedChoice(choices, dbs) } : {}),
         },
       });
@@ -236,14 +249,24 @@ export function ScheduleCard(props: {
             )}
 
             {/* Two columns only when there are two fields: one alone takes the full width. */}
-            <div className={cn("grid grid-cols-1 gap-4", dest !== "local" && "sm:grid-cols-2")}>
-              <Field label={dest === "local" ? "Keep the latest" : "Keep on this server"} description="Older copies are deleted automatically.">
-                <InputGroup suffix="backups" className="w-full">
-                  <Input value={retention} onChange={(e) => setRetention(e.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" className="min-w-0 flex-1 font-mono" />
-                </InputGroup>
-              </Field>
-              {dest !== "local" && (
-                <Field label="Keep in S3" description="Usually longer: off-site history.">
+            <div className={cn("grid grid-cols-1 gap-4", bucket && local && "sm:grid-cols-2")}>
+              {local && (
+                <Field label={bucket ? "Keep on this server" : "Keep the latest"} description="Older copies are deleted automatically.">
+                  <InputGroup suffix="backups" className="w-full">
+                    <Input
+                      value={retention}
+                      onChange={(e) => setRetention(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                      inputMode="numeric"
+                      className="min-w-0 flex-1 font-mono"
+                    />
+                  </InputGroup>
+                </Field>
+              )}
+              {bucket && (
+                <Field
+                  label={local ? "Keep in bucket" : "Keep the latest"}
+                  description={local ? "Usually longer: off-site history." : "Older copies are deleted from the bucket automatically."}
+                >
                   <InputGroup suffix="backups" className="w-full">
                     <Input
                       value={retentionS3}
@@ -267,13 +290,25 @@ export function ScheduleCard(props: {
         <Field label="Store backups in">
           <div className="flex flex-col gap-2">
             {[{ id: "local", name: "This server", bucket: null as string | null }, ...props.destinations].map((d) => {
-              const on = dest === d.id;
+              // The server and one bucket can both be on; at least one place is always kept.
+              const on = d.id === "local" ? local : bucket === d.id;
+              const toggle = () => {
+                if (d.id === "local") {
+                  if (local && !bucket) return;
+                  setLocal(!local);
+                } else if (bucket === d.id) {
+                  setBucket(null);
+                  setLocal(true);
+                } else setBucket(d.id);
+              };
+              const last = on && (d.id === "local" ? !bucket : !local);
               return (
                 <button
                   key={d.id}
                   type="button"
                   disabled={!props.canEdit}
-                  onClick={() => setDest(d.id)}
+                  onClick={toggle}
+                  title={last ? "Backups are kept somewhere: pick another place first." : undefined}
                   className={cn(
                     "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
                     on ? "border-accent bg-accent-soft/40" : "border-line hover:bg-hover",
@@ -291,6 +326,9 @@ export function ScheduleCard(props: {
                 </button>
               );
             })}
+            {bucket && !local && (
+              <p className="text-xs leading-relaxed text-muted">In the bucket only: each copy leaves the server once it is uploaded. Restores download it first.</p>
+            )}
             {props.destinations.length === 0 && (
               <p className="text-xs text-muted">
                 Add S3, R2 or B2 in{" "}
@@ -316,7 +354,8 @@ export function ScheduleCard(props: {
                   setPlan(initial.plan);
                   setRetention(initial.retention);
                   setRetentionS3(initial.retentionS3);
-                  setDest(initial.dest);
+                  setBucket(initial.bucket);
+                  setLocal(initial.local);
                 }}
               >
                 Discard

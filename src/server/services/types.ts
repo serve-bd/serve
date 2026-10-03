@@ -256,6 +256,8 @@ export type ComposeBackupConfig = {
   retention: number;
   retentionS3?: number | null;
   s3DestinationId?: string | null;
+  /** With a bucket: false keeps copies in the bucket only (not on the server). Default true. */
+  local?: boolean;
 };
 
 export type ReplicaInstance = { id: string; serverId: string };
@@ -327,6 +329,8 @@ export type DatabaseConfig = {
   /** Backups kept in S3; defaults to backupRetention. */
   backupRetentionS3?: number | null;
   s3DestinationId?: string | null;
+  /** With a bucket: false keeps backups in the bucket only (not on the server). Default true. */
+  backupLocal?: boolean;
 
   /* Everything below is optional so older configs keep working. */
   description?: string | null;

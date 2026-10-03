@@ -92,6 +92,7 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
         schedule={service.database.backupSchedule ?? null}
         retention={service.database.backupRetention}
         retentionS3={service.database.backupRetentionS3 ?? null}
+        keepLocal={service.database.backupLocal !== false}
         s3DestinationId={service.database.s3DestinationId ?? null}
         destinations={destinations}
         timezone={settings.timezone}

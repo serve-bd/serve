@@ -100,7 +100,7 @@ export function ImportCard(props: {
               <Link2 /> From URL
             </Tab>
             <Tab value="s3" disabled={!props.destinations.length}>
-              <Cloud /> From S3
+              <Cloud /> From bucket
             </Tab>
           </TabsList>
         </Tabs>

@@ -99,6 +99,8 @@ type Target = {
   s3DestinationId: string | null;
   retention: number;
   retentionS3: number;
+  /** A copy stays on the server too; without it (a bucket only), it is removed once uploaded. */
+  keepLocal: boolean;
   dump(file: string): Promise<number>;
   /** `onStopped`: the containers a storage restore stopped (empty once they run again). */
   restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>, opts?: RestoreOptions): Promise<{ out: string; format: string }>;
@@ -340,6 +342,7 @@ export async function targetOf(service: ServiceRow, key: string | null, database
       s3DestinationId: cfg.s3DestinationId ?? null,
       retention: cfg.backupRetention,
       retentionS3: cfg.backupRetentionS3 ?? cfg.backupRetention,
+      keepLocal: !cfg.s3DestinationId || cfg.backupLocal !== false,
       dump: async (file) => dumpWith(await databaseCommands(service, databases), file),
       restore: async (file, log, _onStopped, opts) => restoreWith(await databaseCommands(service), file, log, opts),
     };
@@ -352,6 +355,7 @@ export async function targetOf(service: ServiceRow, key: string | null, database
     s3DestinationId: cfg?.s3DestinationId ?? null,
     retention: cfg?.retention ?? 7,
     retentionS3: cfg?.retentionS3 ?? cfg?.retention ?? 7,
+    keepLocal: !cfg?.s3DestinationId || cfg.local !== false,
   };
   if (parsed.kind === "db") {
     const commands = await composeCommands(service, parsed.name);
@@ -488,7 +492,7 @@ export async function runBackup(backupId: string, protect?: string) {
       .set({ status: "success", filename, size, destination: s3Status === "uploaded" ? s3!.id : "local", s3Status, finishedAt: new Date() })
       .where(eq(schema.backup.id, backup.id));
     // The backup is done: a failing cleanup of older ones must not undo it.
-    await applyRetention(service.id, backup.target, t.retention, t.retentionS3, protect).catch((e) =>
+    await applyRetention(service.id, backup.target, t.keepLocal ? t.retention : 0, t.retentionS3, protect).catch((e) =>
       logLine(backup.id, `Removing old backups failed: ${(e as Error).message}`).catch(() => {}),
     );
     if (backup.trigger === "schedule") {
@@ -527,6 +531,7 @@ export async function runBackup(backupId: string, protect?: string) {
  * Keeps the newest `keepLocal` backups on this machine and `keepS3` in S3. A backup
  * whose copies are all gone is removed from the list. Imported files are kept.
  */
+/** keepLocal 0: copies live in the bucket only, so each one uploaded loses its file on the server (one that failed to upload keeps it). */
 async function applyRetention(serviceId: string, target: string | null, keepLocal: number, keepS3: number, protect?: string) {
   const rows = await db
     .select()
@@ -538,8 +543,8 @@ async function applyRetention(serviceId: string, target: string | null, keepLoca
   const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, serviceId));
   for (const [i, b] of own.entries()) {
     if (!b.filename) continue;
-    const dropLocal = i >= Math.max(1, keepLocal);
     const inS3 = b.destination !== "local";
+    const dropLocal = keepLocal === 0 ? inS3 : i >= Math.max(1, keepLocal);
     let dropS3 = inS3 && i >= Math.max(1, keepS3);
     if (dropLocal) await fs.promises.rm(backupFile(serviceId, b.filename), { force: true });
     if (dropS3 && svc) {

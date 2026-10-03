@@ -115,8 +115,8 @@ export function ComposeBackups(props: {
           title="Backups"
           description={
             props.stack
-              ? "Database dumps and copies of volumes and folders, on a schedule, kept here and in S3."
-              : "Copies of this app's volumes and folders, on a schedule, kept here and in S3."
+              ? "Database dumps and copies of volumes and folders, on a schedule, kept here and in a bucket."
+              : "Copies of this app's volumes and folders, on a schedule, kept here and in a bucket."
           }
           actions={props.isAdmin ? addMenu : null}
         />
@@ -157,8 +157,8 @@ export function ComposeBackups(props: {
           title="Backups"
           description={
             props.stack
-              ? "Database dumps and copies of volumes and folders, on a schedule, kept here and in S3."
-              : "Copies of this app's volumes and folders, on a schedule, kept here and in S3."
+              ? "Database dumps and copies of volumes and folders, on a schedule, kept here and in a bucket."
+              : "Copies of this app's volumes and folders, on a schedule, kept here and in a bucket."
           }
           actions={props.isAdmin ? addMenu : null}
         />
@@ -210,6 +210,7 @@ export function ComposeBackups(props: {
         schedule={props.configs[current]?.schedule ?? null}
         retention={props.configs[current]?.retention ?? 7}
         retentionS3={props.configs[current]?.retentionS3 ?? null}
+        keepLocal={props.configs[current]?.local !== false}
         s3DestinationId={props.configs[current]?.s3DestinationId ?? null}
         destinations={props.destinations}
         timezone={props.timezone}

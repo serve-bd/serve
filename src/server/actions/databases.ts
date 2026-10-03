@@ -370,7 +370,18 @@ export async function setDatabaseReplicas(serviceId: string, input: z.input<type
     // Kept replicas keep their id (and copy); new ones take the next free number.
     let next = Math.max(0, ...before.map((r) => Number(r.id) || 0)) + 1;
     const instances = wanted.map((r) => (r.id && before.some((b) => b.id === r.id) ? { id: r.id, serverId: r.serverId } : { id: String(next++), serverId: r.serverId }));
-    const replica = { enabled: instances.length > 0, password: cfg.replica?.password ?? null, instances };
+    // Public replicas open their port on every replica server: it must be free on new ones too.
+    const pub = instances.length ? (cfg.replica?.public ?? null) : null;
+    const beforeServers = [...new Set(before.map((r) => r.serverId))];
+    const afterServers = [...new Set(instances.map((r) => r.serverId))];
+    if (pub?.port) {
+      const { busyPortsFor } = await import("@/server/databases/public-ports");
+      for (const serverId of afterServers.filter((id) => !beforeServers.includes(id))) {
+        if ((await busyPortsFor(service, serverId, "replicas")).has(pub.port))
+          throw new UserError(`Port ${pub.port} (the replicas' public port) is already used on ${servers.find((s) => s.id === serverId)?.name ?? "that server"}.`);
+      }
+    }
+    const replica = { enabled: instances.length > 0, password: cfg.replica?.password ?? null, instances, public: pub };
     await db
       .update(schema.service)
       .set({ database: { ...cfg, replica } })
@@ -383,6 +394,19 @@ export async function setDatabaseReplicas(serviceId: string, input: z.input<type
     }
     const live = service.status === "running";
     if (instances.length && live) await ensureReplicas({ ...service, database: { ...cfg, replica } });
+    // The replicas' domain follows them: A records and certificates on the servers they run on now.
+    const domain = cfg.replica?.public?.domain ?? null;
+    if (domain) {
+      const { syncAddonDomain } = await import("@/server/databases/addon-domains");
+      const { retireCertificateFor } = await import("@/server/ssl/certificates");
+      await syncAddonDomain(service, cfg.replica!.public!, pub, afterServers, ctx.org.id).catch(() => []);
+      for (const serverId of beforeServers.filter((id) => !afterServers.includes(id))) await retireCertificateFor(domain, serverId, ctx.org.id).catch(() => {});
+    }
+    // Firewalls of every server a replica left or joined.
+    if (cfg.replica?.public?.allow?.length) {
+      const { applyDatabaseAllowlists } = await import("@/server/databases/allowlist");
+      for (const serverId of new Set([...beforeServers, ...afterServers])) await applyDatabaseAllowlists(serverId).catch(() => {});
+    }
     const added = instances.filter((r) => !before.some((b) => b.id === r.id)).length;
     const removed = before.filter((b) => !instances.some((r) => r.id === b.id)).length;
     await logActivity({

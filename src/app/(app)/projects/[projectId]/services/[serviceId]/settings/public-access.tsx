@@ -104,7 +104,15 @@ function DatabasePublicCard({ serviceId, view, canManage }: { serviceId: string;
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
               <Field label="Port">
-                <Input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} className="font-mono" inputMode="numeric" disabled={!canManage} />
+                <Input
+                  value={port}
+                  onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
+                  className="font-mono"
+                  inputMode="numeric"
+                  readOnly={!!d.publicPort}
+                  title={d.publicPort ? "The port stays once set. Turn public access off and on again for a new one." : undefined}
+                  disabled={!canManage}
+                />
               </Field>
               <Field label="Reachable by">
                 <Select value={bind} onValueChange={(b) => setBind(b as typeof bind)} disabled={!canManage} options={reachableOptions} />

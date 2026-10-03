@@ -836,6 +836,9 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         data.database.publicAllow = r.ranges.length ? r.ranges : null;
       }
       const nextPort = data.database.publicPort;
+      // A public port once set stays: clients and firewalls point at it. Turning it off frees it.
+      if (nextPort && service.database.publicPort && nextPort !== service.database.publicPort)
+        throw new UserError(`The public port is ${service.database.publicPort} and stays: clients and firewalls use it. Turn public access off and on again for a new one.`);
       if (nextPort && nextPort !== (service.database.publicPort ?? null)) {
         // The firewall rules of an allowlist follow this port: it must be free, not another tenant's.
         const { busyHostPorts } = await import("@/server/services/ports");

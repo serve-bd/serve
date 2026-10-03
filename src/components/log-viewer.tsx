@@ -3,7 +3,7 @@
 import { showError } from "@/hooks/use-action";
 import { hasAnsi, parseAnsi, stripAnsi } from "@/lib/ansi";
 import * as React from "react";
-import { ArrowDown, Check, Copy, Download, Search, WrapText } from "lucide-react";
+import { ArrowDown, Check, Clock, Copy, Download, Search, WrapText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 import { copyText } from "@/components/ui/clipboard";
@@ -15,6 +15,7 @@ const MAX_LINES = 5000;
 /** Choices for showing only the newest lines; 0 shows all that are kept. */
 const LAST_OPTIONS = [0, 100, 500, 1000, 2000];
 const LAST_KEY = "serve.logs.last";
+const TIMES_KEY = "serve.logs.times";
 
 const lineText = (l: LogLine) => (l.time ? `${l.time} ` : "") + stripAnsi(l.text);
 
@@ -83,13 +84,28 @@ export function LogViewer({
   const [query, setQuery] = React.useState("");
   const [last, setLast] = React.useState(0);
   const [copied, setCopied] = React.useState(false);
-  // The last choice is remembered in this browser, for every log.
+  // Timestamps take room a phone does not have: hidden there until asked for.
+  const [times, setTimes] = React.useState(true);
+  // The last choices are remembered in this browser, for every log.
   React.useEffect(() => {
     try {
       const saved = Number(localStorage.getItem(LAST_KEY));
       if (LAST_OPTIONS.includes(saved)) setLast(saved);
     } catch {}
+    let savedTimes: string | null = null;
+    try {
+      savedTimes = localStorage.getItem(TIMES_KEY);
+    } catch {}
+    setTimes(savedTimes ? savedTimes === "1" : window.matchMedia("(min-width: 640px)").matches);
   }, []);
+  const toggleTimes = () => {
+    setTimes((t) => {
+      try {
+        localStorage.setItem(TIMES_KEY, t ? "0" : "1");
+      } catch {}
+      return !t;
+    });
+  };
   const chooseLast = (n: number) => {
     setLast(n);
     try {
@@ -172,6 +188,19 @@ export function LogViewer({
             {copied ? <Check className="size-3.5 text-[#30d158]" /> : <Copy className="size-3.5" />}
           </button>
         </Tooltip>
+        {showTime && (
+          <Tooltip content={times ? "Hide timestamps" : "Show timestamps"}>
+            <button
+              type="button"
+              onClick={toggleTimes}
+              aria-pressed={times}
+              aria-label="Timestamps"
+              className={cn("rounded-md p-1.5 text-white/40 hover:bg-white/[0.08] hover:text-white/80", times && "text-white/80")}
+            >
+              <Clock className="size-3.5" />
+            </button>
+          </Tooltip>
+        )}
         <Tooltip content={wrap ? "Disable wrapping" : "Wrap lines"}>
           <button
             type="button"
@@ -199,7 +228,7 @@ export function LogViewer({
                 return (
                   <tr key={l.n} className={cn("group align-top hover:bg-white/[0.03]", tone.startsWith("step") && "bg-white/[0.035]")}>
                     <td className="w-px pr-3 pl-4 text-right whitespace-nowrap text-white/20 select-none tabular-nums">{l.n}</td>
-                    {showTime && (
+                    {showTime && times && (
                       <td className="w-px pr-3 whitespace-nowrap text-white/30 select-none tabular-nums">
                         {l.time ? new Date(l.time).toLocaleTimeString([], { hour12: false }) : ""}
                       </td>

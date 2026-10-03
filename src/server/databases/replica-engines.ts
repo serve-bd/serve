@@ -41,11 +41,13 @@ async function exec(docker: Docker, containerId: string, command: string, what: 
 }
 
 /** Runs SQL as root in the database's container (MySQL, MariaDB). */
-async function primarySql(service: Service, docker: Docker, sql: string, what: string) {
+async function primarySql(service: Service, docker: Docker, sql: string, what: string, opts: { names?: boolean } = {}) {
   const cfg = service.database!;
   const password = decryptOrNull(cfg.password) ?? "";
   const container = await databaseContainer(docker, service);
-  return exec(docker, container.id, `${mysqlClient(cfg.engine, password)} -e ${sh(sql)}`, what, password);
+  // Vertical output (\G) needs the column names to be read.
+  const client = opts.names ? mysqlClient(cfg.engine, password).replace(" -N", "") : mysqlClient(cfg.engine, password);
+  return exec(docker, container.id, `${client} -e ${sh(sql)}`, what, password);
 }
 
 /** mongosh in a container, as the database's root user, running a script; prints what it prints. */
@@ -79,8 +81,9 @@ export async function preparePrimary(service: Service, docker: Docker, members: 
     // A replica promoted to be the database: root gets back the rights the replica took (MariaDB),
     // and it forgets the database it followed. Each runs again until done, so a half finished one completes.
     if (cfg.engine === "mariadb") await restoreRootRights(service, docker);
-    const source = await primarySql(service, docker, "SHOW REPLICA STATUS", "Could not read the replication state").catch(() => "");
-    if (source) {
+    // Only a source Serve set up (its own login): replication someone set up from elsewhere stays.
+    const source = await primarySql(service, docker, "SHOW REPLICA STATUS\\G", "Could not read the replication state", { names: true }).catch(() => "");
+    if (new RegExp(`^\\s*(Source|Master)_User:\\s*${REPLICATION_USER}\\s*$`, "m").test(source)) {
       log("This database followed another one before: it stops following it");
       await primarySql(
         service,

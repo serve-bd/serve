@@ -36,12 +36,30 @@ const one = (kind: string, config: Record<string, string>, m = msg()) => {
 const body = (r: { body?: string }) => JSON.parse(r.body ?? "{}");
 
 describe("payload builders", () => {
+  it("shows the details of a deploy as fields, and the error in a code block", () => {
+    const m = msg({
+      error: "Build exited with code 1\nnpm ERR! missing script: build",
+      data: { commit: "abc1234def", commitMessage: "Fix login\nmore", branch: "main", trigger: "webhook", durationSeconds: 75, keptPreviousVersion: true },
+    });
+    const [r] = one("discord", { webhookUrl: "https://discord.com/api/webhooks/1/x" }, m);
+    const fields = body(r).embeds[0].fields as { name: string; value: string }[];
+    const get = (n: string) => fields.find((f) => f.name === n)?.value;
+    expect(get("Project")).toBe("Shop");
+    expect(get("Commit")).toBe("abc1234 Fix login");
+    expect(get("Trigger")).toBe("Git push");
+    expect(get("Ran for")).toBe("1m 15s");
+    expect(get("Running")).toBe("The previous version keeps running");
+    expect(get("Error")).toContain("missing script: build");
+    const [slack] = one("slack", { webhookUrl: "https://hooks.slack.com/services/x" }, m);
+    expect(JSON.stringify(body(slack).blocks)).toContain("*Branch*\\nmain");
+  });
+
   it("Discord sends an embed with color and no mentions", () => {
     const [r] = one("discord", { webhookUrl: "https://discord.com/api/webhooks/1/x" });
     const b = body(r);
     expect(r.trusted).toBe(false);
     expect(b.allowed_mentions).toEqual({ parse: [] });
-    expect(b.embeds[0]).toMatchObject({ title: "api failed to deploy", url: "https://serve.example.com/p/1", color: 0xf59e0b });
+    expect(b.embeds[0]).toMatchObject({ title: "⚠️ api failed to deploy", url: "https://serve.example.com/p/1", color: 0xf59e0b });
   });
 
   it("Slack escapes markup in mrkdwn", () => {

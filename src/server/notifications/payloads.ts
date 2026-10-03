@@ -57,8 +57,95 @@ export function where(m: OutgoingMessage) {
   return [m.project?.name, m.environment?.name, m.service?.name].filter(Boolean).join(" / ") || m.server?.name || m.organization.name;
 }
 
+export type Fact = { label: string; value: string };
+
+const triggers: Record<string, string> = {
+  manual: "Started by hand",
+  webhook: "Git push",
+  rollback: "Rollback",
+  redeploy: "Redeploy",
+  create: "New service",
+  "deploy-hook": "Deploy hook",
+  api: "API",
+};
+function duration(seconds: number) {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return m < 60 ? `${m}m ${s}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function bytes(n: number) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+}
+
+const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() && Number.isFinite(Number(v)) ? Number(v) : null);
+
+/**
+ * The details of a message as label and value pairs, in the order they read best: where it
+ * happened, then what the event carries (commit, duration, size, …). Every rich provider shows them.
+ */
+export function facts(m: OutgoingMessage): Fact[] {
+  const d = m.data ?? {};
+  const out: Fact[] = [];
+  const add = (label: string, value: string | null | undefined) => {
+    if (value) out.push({ label, value: value.length > 300 ? `${value.slice(0, 299)}…` : value });
+  };
+  add("Project", m.project?.name);
+  add("Environment", m.environment?.name);
+  add("Service", m.service?.name);
+  add("Server", m.server?.name);
+
+  const commit = str(d.commit);
+  add("Commit", commit ? [commit.slice(0, 7), str(d.commitMessage)?.split("\n")[0]].filter(Boolean).join(" ") : null);
+  add("Branch", str(d.branch));
+  add("Author", str(d.author));
+  add("Trigger", str(d.trigger) ? (triggers[str(d.trigger)!] ?? str(d.trigger)) : null);
+  add("Started by", str(d.startedBy));
+  if (!commit) add("Image", str(d.image)?.startsWith("serve/") ? null : str(d.image));
+  const seconds = num(d.durationSeconds);
+  if (seconds !== null) add(m.ok ? "Took" : "Ran for", duration(seconds));
+  if (d.keptPreviousVersion === true) add("Running", "The previous version keeps running");
+  else if (d.keptPreviousVersion === false) add("Running", "Nothing: the service is down");
+  add("Live at", str(d.liveUrl));
+
+  add("File", str(d.filename));
+  const size = num(d.size);
+  if (size !== null) add("Size", bytes(size));
+  if (d.s3 && typeof d.s3 === "string") add("Offsite copy", d.s3);
+  const down = num(d.downMinutes);
+  if (down !== null) add("Down for", duration(down * 60));
+  const exit = num(d.exitCode);
+  if (exit !== null) add("Exit code", String(exit));
+  if (Array.isArray(d.domains)) add("Domains", (d.domains as unknown[]).filter((x) => typeof x === "string").join(", "));
+  if (str(d.expiresAt)) add("Expires", new Date(str(d.expiresAt)!).toUTCString().replace(/ \d\d:\d\d:\d\d GMT$/, ""));
+  if (num(d.percent) !== null) add("Disk used", `${num(d.percent)}%${num(d.nowPercent) !== null ? `, ${num(d.nowPercent)}% after cleanup` : ""}`);
+  if (num(d.reclaimedBytes)) add("Freed", bytes(num(d.reclaimedBytes)!));
+  if (str(d.limit) && num(d.used) !== null && num(d.max) !== null) add("Usage", `${num(d.used)} of ${num(d.max)} ${str(d.limit)}`);
+  if (str(d.from) && str(d.to)) add("Version", `${str(d.from)} → ${str(d.to)}`);
+  else if (str(d.current) && str(d.latest)) add("Version", `${str(d.current)} → ${str(d.latest)}`);
+  return out;
+}
+
+/** The end of an error, where the cause usually is, for a code block. */
+export function errorExcerpt(m: OutgoingMessage, max = 900) {
+  const e = m.error?.trim();
+  if (!e || e === m.body.trim()) return null;
+  return e.length > max ? `…${e.slice(-(max - 1))}` : e;
+}
+
+const factLines = (m: OutgoingMessage) => facts(m).map((f) => `${f.label}: ${f.value}`);
+
 export function plainText(m: OutgoingMessage) {
-  return [`${icon(m)} ${m.title}`, m.body, m.url].filter(Boolean).join("\n");
+  return [`${icon(m)} ${m.title}`, m.body, factLines(m).join("\n"), m.url].filter(Boolean).join("\n");
 }
 
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -141,12 +228,19 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
               allowed_mentions: { parse: [] },
               embeds: [
                 {
-                  title: m.title.slice(0, 256),
-                  description: m.body.slice(0, 4000) || undefined,
+                  author: { name: `${brandOf(m)} · ${m.eventLabel}`.slice(0, 256) },
+                  title: `${icon(m)} ${m.title}`.slice(0, 256),
+                  description: [m.body.slice(0, 3000), m.url ? `[Open in ${brandOf(m)}](${m.url})` : ""].filter(Boolean).join("\n\n") || undefined,
                   url: m.url ?? undefined,
                   color: color(m),
+                  fields: [
+                    ...facts(m)
+                      .slice(0, 24)
+                      .map((f) => ({ name: f.label.slice(0, 256), value: f.value.slice(0, 1024), inline: f.value.length <= 40 })),
+                    ...(errorExcerpt(m) ? [{ name: "Error", value: `\`\`\`\n${errorExcerpt(m, 1000)!.replace(/```/g, "ˋˋˋ")}\n\`\`\``, inline: false }] : []),
+                  ],
                   timestamp: m.occurredAt,
-                  footer: { text: `${m.eventLabel} · ${where(m)}`.slice(0, 2048) },
+                  footer: { text: where(m).slice(0, 2048) },
                 },
               ],
             }),
@@ -168,6 +262,18 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
               text: `${icon(m)} ${m.title}`,
               blocks: [
                 { type: "section", text: { type: "mrkdwn", text: m.body ? `${text}\n${escapeSlack(m.body).slice(0, 2900)}` : text } },
+                ...(facts(m).length
+                  ? [
+                      {
+                        type: "section",
+                        fields: facts(m)
+                          .slice(0, 10)
+                          .map((f) => ({ type: "mrkdwn", text: `*${escapeSlack(f.label)}*\n${escapeSlack(f.value).slice(0, 1900)}` })),
+                      },
+                    ]
+                  : []),
+                ...(errorExcerpt(m) ? [{ type: "section", text: { type: "mrkdwn", text: `\`\`\`${escapeSlack(errorExcerpt(m, 2800)!)}\`\`\`` } }] : []),
+                ...(m.url ? [{ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: `Open in ${brandOf(m)}` }, url: m.url }] }] : []),
                 {
                   type: "context",
                   elements: [{ type: "mrkdwn", text: `${escapeSlack(m.eventLabel)} · ${escapeSlack(where(m))}${m.url ? ` · <${m.url}|Open in ${brandOf(m)}>` : ""}` }],
@@ -199,7 +305,8 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
                   color: hex(m),
                   title: m.eventLabel,
                   title_link: m.url ?? undefined,
-                  text: [m.body, where(m)].filter(Boolean).join("\n"),
+                  text: [m.body, errorExcerpt(m) ? `\`\`\`\n${errorExcerpt(m)}\n\`\`\`` : "", where(m)].filter(Boolean).join("\n"),
+                  fields: facts(m).map((f) => ({ title: f.label, value: f.value, short: f.value.length <= 40 })),
                 },
               ],
             }),
@@ -236,6 +343,8 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
                         color: m.ok ? "Good" : m.severity === "info" ? "Default" : "Attention",
                       },
                       ...(m.body ? [{ type: "TextBlock", wrap: true, text: m.body }] : []),
+                      ...(facts(m).length ? [{ type: "FactSet", facts: facts(m).map((f) => ({ title: f.label, value: f.value })) }] : []),
+                      ...(errorExcerpt(m) ? [{ type: "TextBlock", wrap: true, fontType: "Monospace", size: "Small", text: errorExcerpt(m) }] : []),
                       { type: "TextBlock", wrap: true, isSubtle: true, spacing: "Small", text: `${m.eventLabel} · ${where(m)}` },
                     ],
                     actions: m.url ? [{ type: "Action.OpenUrl", title: `Open in ${brandOf(m)}`, url: m.url }] : [],
@@ -257,7 +366,18 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
             headers: { "content-type": "application/json; charset=UTF-8" },
             trusted: false,
             body: JSON.stringify({
-              text: [`${icon(m)} *${m.title}*`, m.body, `_${m.eventLabel} · ${where(m)}_`, m.url ? `<${m.url}|Open in ${brandOf(m)}>` : ""].filter(Boolean).join("\n"),
+              text: [
+                `${icon(m)} *${m.title}*`,
+                m.body,
+                facts(m)
+                  .map((f) => `*${f.label}:* ${f.value}`)
+                  .join("\n"),
+                errorExcerpt(m) ? `\`\`\`${errorExcerpt(m)}\`\`\`` : "",
+                `_${m.eventLabel} · ${where(m)}_`,
+                m.url ? `<${m.url}|Open in ${brandOf(m)}>` : "",
+              ]
+                .filter(Boolean)
+                .join("\n"),
             }),
           },
         ],
@@ -267,6 +387,10 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
       const html = [
         `${icon(m)} <b>${escapeHtml(m.title)}</b>`,
         m.body && escapeHtml(m.body),
+        facts(m)
+          .map((f) => `<b>${escapeHtml(f.label)}:</b> ${escapeHtml(f.value)}`)
+          .join("\n"),
+        errorExcerpt(m, 1500) && `<pre>${escapeHtml(errorExcerpt(m, 1500)!)}</pre>`,
         `<i>${escapeHtml(`${m.eventLabel} · ${where(m)}`)}</i>`,
         m.url && `<a href="${escapeHtml(m.url)}">Open in ${escapeHtml(brandOf(m))}</a>`,
       ]
@@ -296,6 +420,10 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
       const html = [
         `${icon(m)} <b>${escapeHtml(m.title)}</b>`,
         m.body && escapeHtml(m.body).replace(/\n/g, "<br>"),
+        facts(m)
+          .map((f) => `<b>${escapeHtml(f.label)}:</b> ${escapeHtml(f.value)}`)
+          .join("<br>"),
+        errorExcerpt(m) && `<pre>${escapeHtml(errorExcerpt(m)!)}</pre>`,
         m.url && `<a href="${escapeHtml(m.url)}">Open in ${escapeHtml(brandOf(m))}</a>`,
       ]
         .filter(Boolean)

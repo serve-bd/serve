@@ -30,12 +30,17 @@ export async function sendInviteEmail(opts: { to: string; organization: string; 
   await sendEmail({ to: opts.to, subject: `${opts.inviter} invited you to ${opts.organization}`, text, html });
 }
 
-export async function sendNotificationEmail(to: string, msg: { title: string; body: string; url?: string; ok: boolean }) {
+export async function sendNotificationEmail(
+  to: string,
+  msg: { title: string; body: string; url?: string; ok: boolean; details?: { label: string; value: string }[]; code?: string | null },
+) {
   const b = await brand();
   const { html, text } = renderEmail({
     brand: b,
     heading: `${msg.ok ? "✅" : "❌"} ${msg.title}`,
     paragraphs: msg.body.split("\n").filter(Boolean),
+    details: msg.details,
+    code: msg.code,
     action: msg.url ? { label: `Open in ${b}`, url: msg.url } : undefined,
   });
   await sendEmail({ to, subject: msg.title, text, html });

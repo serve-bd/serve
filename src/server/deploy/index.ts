@@ -1311,6 +1311,35 @@ function failureHint(message: string) {
 /*                                   Runner                                   */
 /* -------------------------------------------------------------------------- */
 
+/** What a deploy notification tells about the deployment: where the code came from, who started it, where it runs. */
+async function deployDetails(deploymentId: string, serviceId: string) {
+  const [row] = await db
+    .select({
+      trigger: schema.deployment.trigger,
+      branch: schema.deployment.branch,
+      commit: schema.deployment.commitSha,
+      commitMessage: schema.deployment.commitMessage,
+      author: schema.deployment.commitAuthor,
+      image: schema.deployment.image,
+      startedBy: schema.user.name,
+    })
+    .from(schema.deployment)
+    .leftJoin(schema.user, eq(schema.deployment.createdBy, schema.user.id))
+    .where(eq(schema.deployment.id, deploymentId));
+  const domains = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
+  const live = domains.find((d) => d.primary && !d.redirectTo) ?? domains.find((d) => !d.redirectTo);
+  return {
+    trigger: row?.trigger ?? null,
+    branch: row?.branch ?? null,
+    commit: row?.commit ?? null,
+    commitMessage: row?.commitMessage ?? null,
+    author: row?.author ?? null,
+    startedBy: row?.startedBy ?? null,
+    image: row?.image ?? null,
+    liveUrl: live ? `${live.https || live.tunnelId ? "https" : "http"}://${live.hostname}` : null,
+  };
+}
+
 export async function runDeployment(deploymentId: string, signal?: AbortSignal) {
   const dep = await db.query.deployment.findFirst({ where: eq(schema.deployment.id, deploymentId) });
   if (dep?.status !== "queued") return;
@@ -1420,6 +1449,7 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       .from(schema.deployment)
       .where(eq(schema.deployment.id, dep.id));
     const { commitSha, commitMessage } = commit ?? dep;
+    const details = await deployDetails(dep.id, service.id);
     void notify(await orgOfService(service.id), "deploy.success", {
       ok: true,
       title: `${service.name} deployed`,
@@ -1429,7 +1459,7 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
       serviceId: service.id,
       deploymentId: dep.id,
       dedupKey: `deploy:${service.id}`,
-      data: { durationSeconds: seconds, commit: commitSha ?? null, commitMessage: commitMessage ?? null },
+      data: { ...details, durationSeconds: Number(seconds), commit: commitSha ?? null, commitMessage: commitMessage ?? null },
     });
   } catch (thrown) {
     // A deploy the worker stopped for running too long failed; it was not cancelled by anyone.
@@ -1481,7 +1511,11 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
         serviceId: service.id,
         deploymentId: dep.id,
         dedupKey: `deploy:${service.id}`,
-        data: { keptPreviousVersion: running },
+        data: {
+          ...(await deployDetails(dep.id, service.id)),
+          durationSeconds: Math.round((Date.now() - startedAt.getTime()) / 1000),
+          keptPreviousVersion: running,
+        },
       });
     }
   }

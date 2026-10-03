@@ -6,7 +6,7 @@ import { newId } from "@/server/id";
 import { publicRequest } from "@/server/net/public-fetch";
 import { enqueue } from "@/server/queue";
 import { eventInfo, fillTemplate, type NotifyEvent, providerInfo, type Severity, severityRank } from "@/lib/notifications";
-import { type OutgoingMessage, planDelivery } from "./payloads";
+import { errorExcerpt, facts, type OutgoingMessage, planDelivery } from "./payloads";
 import { channelWants, decide, inQuietHours, retryDelay, throttleSince } from "./rules";
 import { productName } from "@/server/branding";
 
@@ -139,7 +139,9 @@ export async function sendMessage(kind: string, config: Record<string, string>, 
     if (!plan.to.length) throw new Error("No email addresses to send to.");
     const { sendNotificationEmail } = await import("@/server/email/messages");
     const to = plan.to.filter((a) => !m.emailedTo?.includes(a));
-    const results = await Promise.allSettled(to.map((a) => sendNotificationEmail(a, { title: m.title, body: m.body, url: m.url ?? undefined, ok: m.ok })));
+    const results = await Promise.allSettled(
+      to.map((a) => sendNotificationEmail(a, { title: m.title, body: m.body, url: m.url ?? undefined, ok: m.ok, details: facts(m), code: errorExcerpt(m) })),
+    );
     const failed = results.find((r) => r.status === "rejected");
     if (failed) {
       const sent = to.filter((_, i) => results[i].status === "fulfilled");

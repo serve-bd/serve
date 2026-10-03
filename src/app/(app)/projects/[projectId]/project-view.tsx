@@ -265,7 +265,8 @@ export function ProjectView({ project, environments, environment, initialService
         }
         actions={
           <>
-            {services.length > 0 && <ViewToggle view={view} views={["grid", "list", "canvas"]} onChange={setView} />}
+            {/* Shown with no services too, so the row keeps its shape; an empty project shows its empty state in any view. */}
+            <ViewToggle view={view} views={["grid", "list", "canvas"]} onChange={setView} />
             <div className="hidden sm:block">
               <EnvironmentSwitcher project={project} environments={environments} environment={environment} view={view} />
             </div>

@@ -262,7 +262,7 @@ function DatabaseCard({ serviceId, view, canManage, canManageDomain }: { service
   const url = !changed ? (domainOk && info.hostname && info.url ? info.url : d.publicUrl) : null;
   return (
     <AccessCard
-      title="Database"
+      title="Public port"
       description="Connect from outside Serve, for example with a desktop client."
       badge={domainOk && info.hostname && d.publicPort ? <CertBadge certificates={[{ status: cert?.status ?? "missing" }]} /> : undefined}
       on={on}

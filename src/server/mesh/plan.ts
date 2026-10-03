@@ -124,7 +124,8 @@ export function neededAddresses(servers: PlanServer[], services: PlanService[]):
     for (const serverId of [...taking].sort()) needs.push({ serverId, key: environmentKey(environmentId), serviceId: null, environmentId });
     for (const s of list) {
       if (!taking.has(s.serverId)) continue;
-      for (const { key } of serviceKeys(s)) needs.push({ serverId: s.serverId, key, serviceId: s.id, environmentId: null });
+      // A database's pooler and replicas belong to the database (their key says which one they are).
+      for (const { key } of serviceKeys(s)) needs.push({ serverId: s.serverId, key, serviceId: s.container ?? s.id, environmentId: null });
     }
   }
   return needs;

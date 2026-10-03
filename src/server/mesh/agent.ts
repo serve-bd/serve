@@ -21,6 +21,7 @@ STATUS=$DIR/status.json
 IF=serve-mesh
 SOCK=/var/run/docker.sock
 TMP=/tmp/serve-mesh
+WGCONF=/etc/wireguard/serve-mesh.conf
 IMAGE=$(printenv SERVE_MESH_IMAGE || echo serve-mesh:latest)
 MODE=kernel
 ERR=""
@@ -78,13 +79,14 @@ apply() {
     jq --arg n "$n" --argjson s "$s" '. + {($n): $s}' $TMP/nets.json >$TMP/nets.next && mv $TMP/nets.next $TMP/nets.json
   done
 
-  jq -r -f /usr/local/share/serve-mesh/wg.jq $CONF >$TMP/wg.conf
+  # Under /etc/wireguard: hosts with an AppArmor profile for wg (Ubuntu 26.04) let it read nothing else.
+  mkdir -p /etc/wireguard && jq -r -f /usr/local/share/serve-mesh/wg.jq $CONF >$WGCONF
   jq -r --arg if $IF --slurpfile c $TMP/containers.json --slurpfile nets $TMP/nets.json -f /usr/local/share/serve-mesh/rules.jq $CONF >$TMP/rules
   jq -r '[.address] + .localAddresses | unique | .[]' $CONF >$TMP/addresses
-  sig=$(cat $TMP/wg.conf $TMP/rules $TMP/addresses | md5sum | cut -d' ' -f1)-$IPT
+  sig=$(cat $WGCONF $TMP/rules $TMP/addresses | md5sum | cut -d' ' -f1)-$IPT
 
   if [ "$sig" != "$LAST" ]; then
-    wg syncconf $IF $TMP/wg.conf 2>$TMP/wg.err || { ERR="WireGuard rejected the configuration: $(head -1 $TMP/wg.err)"; return 1; }
+    wg syncconf $IF $WGCONF 2>$TMP/wg.err || { ERR="WireGuard rejected the configuration: $(head -1 $TMP/wg.err)"; return 1; }
     ip -o -4 addr show dev $IF | awk '{print $4}' | cut -d/ -f1 | sort -u >$TMP/have
     for a in $(cat $TMP/addresses); do grep -qx "$a" $TMP/have || ip addr add "$a/32" dev $IF; done
     for a in $(cat $TMP/have); do grep -qx "$a" $TMP/addresses || ip addr del "$a/32" dev $IF; done
@@ -98,7 +100,7 @@ apply() {
     done
     $IPT-restore --noflush <$TMP/rules 2>$TMP/ipt.err || { ERR="The firewall rules were rejected: $(head -1 $TMP/ipt.err)"; return 1; }
     LAST=$sig
-    log "applied ($(grep -c DNAT $TMP/rules) forwarded addresses, $(grep -c '^\[Peer\]' $TMP/wg.conf) peers, $IPT)"
+    log "applied ($(grep -c DNAT $TMP/rules) forwarded addresses, $(grep -c '^\[Peer\]' $WGCONF) peers, $IPT)"
   fi
   jumps 2>$TMP/jumps.err || { ERR="Could not install the firewall rules: $(head -1 $TMP/jumps.err)"; LAST=""; return 1; }
   links || { ERR="Could not start the name forwarders: $(tail -1 $TMP/links.err 2>/dev/null)"; return 1; }

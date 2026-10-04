@@ -32,6 +32,7 @@ export const SCHEDULER_LABELS: Record<string, string> = {
   uptime: "Uptime checks",
   "os-updates": "Operating system update checks",
   "cli-logins": "CLI sign-in cleanup",
+  "cloudflare-oauth": "Cloudflare sign-in renewal",
 };
 
 export const JOB_LABELS: Record<string, string> = {

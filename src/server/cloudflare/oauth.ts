@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 
@@ -135,13 +135,14 @@ function fresh(row: AccountRow) {
  * is close to expiry, under a lock: Cloudflare replaces the refresh token on each use, so two
  * processes renewing at once would lose the account.
  */
-export async function accountToken(row: AccountRow): Promise<string> {
-  if (row.authType !== "oauth" || fresh(row)) return decrypt(row.apiToken);
+export async function accountToken(row: AccountRow, { force = false } = {}): Promise<string> {
+  if (row.authType !== "oauth" || (!force && fresh(row))) return decrypt(row.apiToken);
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`cf-oauth:${row.id}`}))`);
     const [current] = await tx.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, row.id));
     if (!current) throw new Error("Cloudflare account not found.");
-    if (fresh(current)) return decrypt(current.apiToken);
+    // Renewed by someone else while this waited for the lock.
+    if (fresh(current) && (!force || current.apiToken !== row.apiToken)) return decrypt(current.apiToken);
     const config = oauthConfig();
     if (!config || !current.refreshToken) throw new Error(`Cloudflare access for ${current.name} has expired. Reconnect it on the Cloudflare page.`);
     let answer: TokenAnswer;
@@ -154,6 +155,28 @@ export async function accountToken(row: AccountRow): Promise<string> {
     await tx.update(schema.cloudflareAccount).set(tokenColumns(answer)).where(eq(schema.cloudflareAccount.id, row.id));
     return answer.access_token;
   });
+}
+
+/** How long an account may go without a renewal. A refresh token nobody uses expires after a while. */
+const IDLE_RENEW_MS = 24 * 3600_000;
+
+/**
+ * Renew OAuth accounts that nothing used for a day, so an account no job touches for weeks keeps
+ * working. The worker runs it every hour: the access token's expiry tells when it was last renewed.
+ */
+export async function renewIdleOauth(log: (line: string) => void = () => {}) {
+  const rows = await db
+    .select()
+    .from(schema.cloudflareAccount)
+    .where(and(eq(schema.cloudflareAccount.authType, "oauth"), lt(schema.cloudflareAccount.tokenExpiresAt, new Date(Date.now() - IDLE_RENEW_MS))));
+  for (const row of rows) {
+    try {
+      await accountToken(row, { force: true });
+    } catch (e) {
+      // The account page shows the error and a Reconnect button.
+      log(`Cloudflare ${row.name}: ${(e as Error).message}`);
+    }
+  }
 }
 
 /** Revoke an OAuth grant on disconnect. Best effort: the account is removed either way. */

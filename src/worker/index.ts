@@ -880,6 +880,7 @@ async function main() {
   every(15_000, "uptime", runUptimeChecks, true);
   // CLI sign-ins: tokens nobody collected, and sign-ins a day past their time.
   every(60_000, "cli-logins", pruneCliLogins);
+  every(3600_000, "cloudflare-oauth", async () => (await import("@/server/cloudflare/oauth")).renewIdleOauth((l) => log(l)), true);
   every(60_000, "container-health", checkContainerHealth);
   every(60_000, "server-resources", checkServerResources);
   every(3600_000, "monitoring-prune", pruneMonitoring);

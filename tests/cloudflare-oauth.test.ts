@@ -135,6 +135,15 @@ describe("accountToken", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("renews a fresh token when forced, but not one renewed while it waited", async () => {
+    store.row = account({ tokenExpiresAt: new Date(Date.now() + 3600_000) });
+    vi.stubGlobal("fetch", async () => Response.json({ access_token: "forced", refresh_token: "r2", expires_in: 3600 }));
+    expect(await accountToken(store.row as never, { force: true })).toBe("forced");
+    const seen = account({ tokenExpiresAt: new Date(Date.now() + 3600_000) });
+    store.row = account({ apiToken: encrypt("renewed-elsewhere"), tokenExpiresAt: new Date(Date.now() + 3600_000) });
+    expect(await accountToken(seen, { force: true })).toBe("renewed-elsewhere");
+  });
+
   it("asks to reconnect when Cloudflare no longer accepts the grant", async () => {
     store.row = account();
     vi.stubGlobal("fetch", async () => Response.json({ error: "invalid_grant", error_description: "revoked" }, { status: 400 }));

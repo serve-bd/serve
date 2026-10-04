@@ -59,13 +59,6 @@ type Template struct {
 	HostAccess  bool          `json:"hostAccess"`
 }
 
-// GitCredential is a Git connection (a token, an app or a deploy key). Secrets are never sent.
-type GitCredential struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-}
-
 func (c *Client) Project(ctx context.Context, id string) (*ProjectDetails, error) {
 	var r struct{ Project ProjectDetails }
 	return &r.Project, c.Get(ctx, "/projects/"+P(id), nil, &r)

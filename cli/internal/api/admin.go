@@ -81,12 +81,6 @@ type Certificate struct {
 	CreatedAt string   `json:"createdAt"`
 }
 
-type CloudflareAccount struct {
-	ID    string  `json:"id"`
-	Name  string  `json:"name"`
-	Email *string `json:"email"`
-}
-
 // UpdateCheck is the last look for a new Serve release.
 type UpdateCheck struct {
 	CheckedAt   string  `json:"checkedAt"`

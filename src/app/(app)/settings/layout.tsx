@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { requireOrg } from "@/server/auth";
 import { getSettings } from "@/server/settings";
+import { isNotNull } from "drizzle-orm";
+import { db, schema } from "@/server/db";
 import { securityChecks } from "@/server/security-checks";
 import { PageHeader } from "@/components/shell/page-header";
 import { SectionNav } from "@/components/shell/section-nav";
@@ -10,6 +12,8 @@ export default async function SettingsLayout({ children }: LayoutProps<"/setting
   if (!ctx.isInstanceAdmin) redirect("/");
   const settings = await getSettings();
   const security = (await securityChecks(settings)).some((c) => c.status === "warn");
+  // A scheduler whose last run failed: the Jobs page says which.
+  const jobsFailing = (await db.select({ name: schema.schedulerRun.name }).from(schema.schedulerRun).where(isNotNull(schema.schedulerRun.lastError)).limit(1)).length > 0;
 
   return (
     <>
@@ -28,6 +32,7 @@ export default async function SettingsLayout({ children }: LayoutProps<"/setting
                 { href: "/settings/advanced", label: "Advanced", icon: "SlidersHorizontal" },
                 { href: "/settings/backups", label: "Backups", icon: "HardDriveDownload" },
                 { href: "/settings/updates", label: "Updates", icon: "Download" },
+                { href: "/settings/jobs", label: "Jobs", icon: "CalendarClock", warn: jobsFailing },
                 { href: "/settings/security", label: "Security", icon: "ShieldCheck", warn: security },
               ],
             },

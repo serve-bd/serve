@@ -51,6 +51,7 @@ import { syncMesh } from "@/server/mesh";
 import { startStoppedContainers } from "@/server/backups/storage";
 import { currentVersion } from "@/server/instance/version";
 import { attemptDelivery, flushHeldNotifications, pruneDeliveries, retryDueDeliveries } from "@/server/notifications/deliver";
+import { recordSchedulerRun, recordSchedulerSkip } from "@/server/schedulers";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -365,9 +366,15 @@ async function loop() {
 function every(ms: number, name: string, fn: () => Promise<unknown>, runNow = false) {
   let busy = false;
   const tick = async () => {
-    if (busy || stopping) return;
+    if (stopping) return;
+    if (busy) {
+      void recordSchedulerSkip(name, ms);
+      return;
+    }
     busy = true;
     let timer: NodeJS.Timeout | undefined;
+    const startedAt = new Date();
+    let failure: string | null = null;
     try {
       // A tick stuck on a server that never answers must not stop every later tick.
       await Promise.race([
@@ -377,11 +384,13 @@ function every(ms: number, name: string, fn: () => Promise<unknown>, runNow = fa
         }),
       ]);
     } catch (error) {
-      log(`${name} failed:`, (error as Error).message);
+      failure = (error as Error).message.slice(0, 2000);
+      log(`${name} failed:`, failure);
     } finally {
       // Ticks every few seconds would otherwise pile up an hour's worth of pending timers.
       clearTimeout(timer);
       busy = false;
+      void recordSchedulerRun(name, ms, startedAt, failure);
     }
   };
   if (runNow) void tick();

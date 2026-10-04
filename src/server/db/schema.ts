@@ -1161,6 +1161,23 @@ export const job = pgTable(
   (t) => [index("job_pending_idx").on(t.status, t.runAt)],
 );
 
+/** The worker's repeating schedulers (backups, cleanup, certificates…): how their last run went. */
+export const schedulerRun = pgTable("scheduler_run", {
+  name: text("name").primaryKey(),
+  intervalMs: integer("interval_ms").notNull(),
+  lastStartedAt: timestamp("last_started_at", { withTimezone: true }),
+  lastFinishedAt: timestamp("last_finished_at", { withTimezone: true }),
+  lastDurationMs: integer("last_duration_ms"),
+  /** The last run's error; null when it went well. */
+  lastError: text("last_error"),
+  lastFailedAt: timestamp("last_failed_at", { withTimezone: true }),
+  runs: integer("runs").notNull().default(0),
+  failures: integer("failures").notNull().default(0),
+  /** Ticks left out because the previous run was still going. */
+  skipped: integer("skipped").notNull().default(0),
+  lastSkippedAt: timestamp("last_skipped_at", { withTimezone: true }),
+});
+
 export const activity = pgTable(
   "activity",
   {

@@ -15,6 +15,8 @@ export type GitSource = {
   branch: string;
   credentialId?: string | null;
   webhook?: RepoWebhook | null;
+  /** Report each deployment's state on its commit (a check on the provider). Unset: on. */
+  commitStatuses?: boolean;
 };
 
 export type ImageSource = {

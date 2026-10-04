@@ -54,6 +54,9 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/git/oaut
   const [existing] = await db.select({ id: schema.gitCredential.id }).from(schema.gitCredential).where(eq(schema.gitCredential.oauthAppId, app.id));
   if (existing) {
     await db.update(schema.gitCredential).set({ secret, publicInfo: login, name: app.name, baseUrl: app.baseUrl }).where(eq(schema.gitCredential.id, existing.id));
+    // New tokens may have the access a commit status was refused for.
+    const { clearCommitStatusBlock } = await import("@/server/git/commit-status");
+    await clearCommitStatusBlock(existing.id);
   } else {
     await db.insert(schema.gitCredential).values({
       id: newId(),

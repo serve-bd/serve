@@ -35,6 +35,7 @@ const LIMITS: Record<string, number> = {
   "mesh.sync": 15,
   "tunnel.sync": 15,
   "notification.deliver": 15,
+  "commit.status": 5,
 };
 
 /** What a job set for itself, read before it starts. */

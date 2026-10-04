@@ -7,6 +7,7 @@ import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { logActivity } from "@/server/activity";
 import { enqueue } from "@/server/queue";
+import { queueCommitStatus } from "@/server/git/commit-status";
 import { projectInOrg, serviceInOrg } from "@/server/services/access";
 import { type DeployRules, freezeState, freezeUntil, validTime } from "@/lib/deploy-rules";
 
@@ -81,6 +82,7 @@ export async function approveDeployment(deploymentId: string) {
       .where(and(eq(schema.deployment.id, dep.id), eq(schema.deployment.status, "waiting")))
       .returning({ id: schema.deployment.id });
     if (!approved) throw new UserError("This deployment is not waiting for approval anymore.");
+    await queueCommitStatus(dep.id);
     await enqueue("deploy", { deploymentId: dep.id }, { concurrencyKey: `service:${service.id}` });
     await logActivity({
       userId: ctx.user.id,
@@ -105,6 +107,7 @@ export async function rejectDeployment(deploymentId: string) {
       .update(schema.deployment)
       .set({ status: "cancelled", finishedAt: new Date(), error: `Rejected by ${who}.`, logs: `Rejected by ${who}.\n` })
       .where(and(eq(schema.deployment.id, dep.id), eq(schema.deployment.status, "waiting")));
+    await queueCommitStatus(dep.id);
     await logActivity({
       userId: ctx.user.id,
       organizationId: ctx.org.id,

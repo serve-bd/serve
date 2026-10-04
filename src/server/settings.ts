@@ -1,5 +1,5 @@
 import { defaultSignIn, type SignInSettings } from "@/server/sso/config";
-import { eq, inArray, notLike, sql } from "drizzle-orm";
+import { and, eq, inArray, notLike, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { EmailSettings } from "@/server/email/config";
 import type { BrandingConfig } from "@/lib/branding";
@@ -234,7 +234,8 @@ export async function getSettings(): Promise<Settings> {
     db
       .select()
       .from(schema.setting)
-      .where(notLike(schema.setting.key, `${BRAND_ASSET_PREFIX}%`)),
+      // Commit status refusals (per git connection) are not settings either.
+      .where(and(notLike(schema.setting.key, `${BRAND_ASSET_PREFIX}%`), notLike(schema.setting.key, "commitStatusBlock:%"))),
     localAddressing(),
   ]);
   const values = Object.fromEntries(rows.map((r) => [r.key, r.value]));

@@ -44,7 +44,7 @@ import type { MonitorSummary } from "@/server/monitoring/queries";
 import { updateDatabaseSettings } from "@/server/actions/databases";
 
 type Source =
-  | { type: "git"; repository: string; branch: string; credentialId?: string | null; webhook?: RepoWebhook | null }
+  | { type: "git"; repository: string; branch: string; credentialId?: string | null; webhook?: RepoWebhook | null; commitStatuses?: boolean }
   | { type: "image"; image: string; registryId: string | null; registryUsername: string | null; hasPassword: boolean }
   | { type: "dockerfile"; content: string }
   | { type: "upload" };
@@ -106,6 +106,8 @@ type Props = {
   previewDatabase?: { config: PreviewDatabaseConfig | null; databases: { id: string; name: string; engine: string; label: string }[]; previewVars: string[] };
   /** Build server, registry and extra servers (only loaded for the Servers & registry page). */
   distribution?: Omit<React.ComponentProps<typeof DistributionSection>, "serviceId" | "projectId" | "slug" | "primary">;
+  /** Why the git provider refused this service's commit statuses lately (only loaded for the Source page). */
+  commitStatusProblem?: string | null;
 };
 
 function ServerCard({ service, server, servers }: { service: Props["service"]; server: Props["server"]; servers: Props["servers"] }) {
@@ -172,6 +174,31 @@ function ServerCard({ service, server, servers }: { service: Props["service"]; s
       </CardBody>
     </Card>
   );
+}
+
+const PROVIDER_NAMES: Record<string, string> = { github: "GitHub", "github-app": "GitHub", gitlab: "GitLab", gitea: "Gitea or Forgejo", bitbucket: "Bitbucket" };
+
+/** Report deployments on their commits: needs a git connection that can write commit statuses. */
+function CommitStatusRow({
+  credentialId,
+  credentials,
+  checked,
+  onChange,
+}: {
+  credentialId: string;
+  credentials: Props["credentials"];
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const provider = credentials.find((c) => c.id === credentialId)?.provider;
+  const name = provider ? PROVIDER_NAMES[provider] : undefined;
+  const description =
+    credentialId === "public"
+      ? "Needs a git connection under Access: a public repository gives no token to report with."
+      : !name
+        ? "A deploy key cannot report to the provider. Use a token, an OAuth connection or the GitHub App."
+        : `Each deployment shows as a check on its commit and pull request in ${name}: building, deployed or failed, with a link to the deployment.`;
+  return <SwitchRow title="Report deployments on commits" description={description} checked={checked && !!name} disabled={!name} onCheckedChange={onChange} />;
 }
 
 export function ServiceSettings(props: Props) {
@@ -281,10 +308,18 @@ export function ServiceSettings(props: Props) {
             branch: service.source.branch,
             credentialId: service.source.credentialId ?? "public",
             autoDeploy: service.autoDeploy,
+            commitStatuses: service.source.commitStatuses !== false,
           }}
           onSave={(v) =>
             save.run({
-              source: { type: "git", repository: v.repository, branch: v.branch, credentialId: v.credentialId === "public" ? null : v.credentialId },
+              source: {
+                type: "git",
+                repository: v.repository,
+                branch: v.branch,
+                credentialId: v.credentialId === "public" ? null : v.credentialId,
+                // A preview follows its app's choice.
+                ...(service.isPreview ? {} : { commitStatuses: v.commitStatuses }),
+              },
               autoDeploy: v.autoDeploy,
             })
           }
@@ -317,6 +352,15 @@ export function ServiceSettings(props: Props) {
                 checked={v.autoDeploy}
                 onCheckedChange={(c) => set({ autoDeploy: c })}
               />
+              {!service.isPreview && (
+                <CommitStatusRow credentialId={v.credentialId} credentials={props.credentials} checked={v.commitStatuses} onChange={(c) => set({ commitStatuses: c })} />
+              )}
+              {!service.isPreview && v.commitStatuses && props.commitStatusProblem && v.credentialId === (service.source?.type === "git" ? service.source.credentialId : null) && (
+                <p className="flex gap-2 rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
+                  <TriangleAlert className="mt-px size-3.5 flex-none text-warn" />
+                  <span>{props.commitStatusProblem} Serve tries again with a later deployment.</span>
+                </p>
+              )}
             </>
           )}
         </Section>

@@ -50,6 +50,7 @@ import { buildCacheScope, scopeDockerfiles } from "./build-cache";
 import { connectProxy, disconnectProxy, ensureEnvNetwork } from "@/server/docker/networks";
 import { getSetting } from "@/server/settings";
 import { meshAfterStart, meshBeforeStart } from "@/server/mesh";
+import { queueCommitStatus } from "@/server/git/commit-status";
 
 type Service = typeof schema.service.$inferSelect;
 type Deployment = typeof schema.deployment.$inferSelect;
@@ -60,6 +61,8 @@ const imageRepo = (slug: string) => `serve/${slug}`;
 
 async function setDeployment(id: string, patch: Partial<Deployment>) {
   await db.update(schema.deployment).set(patch).where(eq(schema.deployment.id, id));
+  // A new state, or the commit a clone found: the git provider hears of it (best effort, in the worker).
+  if (patch.status || patch.commitSha) await queueCommitStatus(id);
 }
 
 export async function setServiceStatus(id: string, status: ServiceStatus) {
@@ -1504,6 +1507,7 @@ export async function runDeployment(deploymentId: string, signal?: AbortSignal) 
     return;
   }
   if (!slot.value) return;
+  await queueCommitStatus(dep.id);
   await setServiceStatus(service.id, "building");
   log.line(`Deployment ${dep.id} started (${dep.trigger})`);
 

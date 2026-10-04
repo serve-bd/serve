@@ -41,6 +41,11 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/webhook
       forgetToken(cred.id);
     } else if (action === "created" && !secret.installationId) {
       await writeAppSecret(cred.id, { ...secret, installationId: installation.id, account: installation.account?.login ?? secret.account });
+    } else if (action === "new_permissions_accepted" && secret.installationId === installation.id) {
+      // Tokens made before carry the old permissions; a refused commit status is tried again.
+      forgetToken(cred.id);
+      const { clearCommitStatusBlock } = await import("@/server/git/commit-status");
+      await clearCommitStatusBlock(cred.id);
     }
     return NextResponse.json({ ok: true });
   }

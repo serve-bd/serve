@@ -49,6 +49,8 @@ export function RuntimeLogs({
   );
   const [lines, setLines] = React.useState<LogLine[]>([]);
   const [connected, setConnected] = React.useState(false);
+  // Why logs cannot stream right now (the server is unreachable, signed out, ...), shown instead of "Connecting".
+  const [problem, setProblem] = React.useState<string | null>(null);
   const [paused, setPaused] = React.useState(false);
   const pausedRef = useLatest(paused);
   const buffer = React.useRef<LogLine[]>([]);
@@ -59,6 +61,14 @@ export function RuntimeLogs({
     // Newest line of each container: a reconnect resumes each after it, keeping what is on screen.
     const last = new Map<string, string>();
     let resume = false;
+    let failures = 0;
+    let shown: string | null = null;
+    const report = (message: string | null) => {
+      setProblem(message);
+      // Also in the log itself when there are lines on screen, once per new reason.
+      if (message && message !== shown) buffer.current.push({ text: `— ${message}`, source: null, error: true });
+      shown = message;
+    };
     const connect = () => {
       const query = new URLSearchParams({ tail: "500" });
       if (container) query.set("container", container);
@@ -67,7 +77,16 @@ export function RuntimeLogs({
       resume = true;
       es = new EventSource(`/api/services/${serviceId}/logs?${query}`);
       es.onopen = () => setConnected(true);
+      es.addEventListener("problem", (ev) => {
+        const { message } = JSON.parse((ev as MessageEvent).data) as { message: string };
+        setConnected(false);
+        report(message);
+        es?.close();
+        retry = setTimeout(connect, 10_000);
+      });
       es.addEventListener("logs", (ev) => {
+        failures = 0;
+        if (shown) report(null);
         const batch = JSON.parse((ev as MessageEvent).data) as Incoming[];
         for (const l of batch) {
           const prev = last.get(l.c);
@@ -79,15 +98,21 @@ export function RuntimeLogs({
       });
       es.addEventListener("info", (ev) => {
         const { message } = JSON.parse((ev as MessageEvent).data) as { message: string };
+        if (shown) report(null);
         buffer.current.push({ text: `— ${message}`, source: null });
       });
       es.onerror = () => {
         setConnected(false);
         es?.close();
-        retry = setTimeout(connect, 3000);
+        failures++;
+        // A blip retries quietly. Past that, say what is known instead of "Connecting" forever.
+        if (!navigator.onLine) report("You are offline. The logs continue when the connection is back.");
+        else if (failures >= 3) report("Cannot reach the dashboard to stream logs. Trying again…");
+        retry = setTimeout(connect, failures >= 3 ? 10_000 : 3000);
       };
     };
     setLines([]);
+    setProblem(null);
     buffer.current = [];
     connect();
     // Batch UI updates for smooth scrolling under heavy output.
@@ -111,13 +136,13 @@ export function RuntimeLogs({
       lines={lines}
       showTime
       filename={`${container ? `${name}-${replicas ? `replica-${container}` : container}` : name}.log`}
-      emptyText={connected ? "No output yet." : "Connecting…"}
+      emptyText={problem ?? (connected ? "No output yet." : "Connecting…")}
       height="calc(100vh - 290px)"
       toolbar={
         <div className="flex items-center gap-1">
           <span className="mr-2 flex items-center gap-2 text-[11px] text-white/50">
-            <Led color={connected ? "#30d158" : "#636366"} pulse={connected && !paused} />
-            {paused ? "Paused" : connected ? "Live" : "Reconnecting"}
+            <Led color={connected ? "#30d158" : problem ? "#ff9f0a" : "#636366"} pulse={connected && !paused} />
+            {paused ? "Paused" : connected ? "Live" : problem ? "Unavailable" : "Connecting"}
           </span>
           <Tooltip content={paused ? "Resume" : "Pause"}>
             <button type="button" onClick={() => setPaused((p) => !p)} className="rounded-md p-1.5 text-white/40 hover:bg-white/[0.08] hover:text-white/80">

@@ -70,9 +70,11 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                       {d.trigger === "rollback" && <Badge tone="info">Rollback</Badge>}
                     </span>
                     <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
-                      <span className={cn(d.status === "failed" && "text-bad", active && "text-info", d.status === "waiting" && "text-warn")}>
-                        {statusText(d.status, "deployment")}
-                      </span>
+                      {d.status !== "success" && (
+                        <span className={cn(d.status === "failed" && "text-bad", active && "text-info", d.status === "waiting" && "text-warn")}>
+                          {statusText(d.status, "deployment")}
+                        </span>
+                      )}
                       {d.commitSha && (
                         <span className="inline-flex items-center gap-1 font-mono">
                           <GitCommitHorizontal className="size-3" />

@@ -1,7 +1,7 @@
 import { cannotMessage } from "@/lib/permissions";
 import { PassThrough } from "node:stream";
 import type { NextRequest } from "next/server";
-import { requireOrg } from "@/server/auth";
+import { getSession, requireOrg } from "@/server/auth";
 import { serviceInOrg } from "@/server/services/access";
 import { LABEL, listServiceContainers } from "@/server/docker/client";
 import { getServer, serverOf } from "@/server/servers/context";
@@ -12,16 +12,33 @@ export const dynamic = "force-dynamic";
 /** An RFC3339 timestamp with its fraction padded to nanoseconds, so two of them compare as strings. */
 const sortable = (t: string) => t.replace(/(?:\.(\d+))?(Z|[+-]\d\d:\d\d)$/, (_, f: string | undefined, zone: string) => `.${(f ?? "").padEnd(9, "0")}${zone}`);
 
+const SSE_HEADERS = {
+  "content-type": "text/event-stream; charset=utf-8",
+  "cache-control": "no-cache, no-transform",
+  connection: "keep-alive",
+  "x-accel-buffering": "no",
+};
+
+/**
+ * Why no logs can stream, as one event the page shows (a browser's EventSource cannot read the
+ * body of an error response, so the page would only see a failed connection and retry blindly).
+ */
+function problem(message: string, retryMs = 10_000) {
+  return new Response(`retry: ${retryMs}\nevent: problem\ndata: ${JSON.stringify({ message })}\n\n`, { headers: SSE_HEADERS });
+}
+
 /** Streams container logs as server-sent events. */
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/services/[serviceId]/logs">) {
   const { serviceId } = await ctx.params;
+  // Without a session requireOrg redirects to the sign-in page, which a log stream cannot follow.
+  if (!(await getSession())) return problem("You are signed out. Sign in again to see the logs.", 60_000);
   const org = await requireOrg();
-  if (!org.can("logs.view")) return new Response(cannotMessage("logs.view"), { status: 403 });
+  if (!org.can("logs.view")) return problem(cannotMessage("logs.view"), 60_000);
   let service;
   try {
     service = (await serviceInOrg(serviceId, org.org.id)).service;
   } catch {
-    return new Response("Not found", { status: 404 });
+    return problem("This service no longer exists.", 60_000);
   }
   const tail = Math.min(Math.max(Number(request.nextUrl.searchParams.get("tail") ?? 300), 10), 5000);
   // A reconnect resumes each container after the last line the page has of it (`id:timestamp,…`).
@@ -42,7 +59,7 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
     docker = (replica ? await getServer(replica.serverId) : await serverOf(service)).docker;
     all = await listServiceContainers(serviceId, true, docker);
   } catch (e) {
-    return new Response(`The server of this service is unreachable: ${(e as Error).message}`, { status: 503 });
+    return problem(`The server of this service cannot be reached: ${(e as Error).message}`);
   }
   const current = service.type === "app" && service.currentDeploymentId ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : all;
   // One compose service, one app replica (the number its container name ends with), or one of a
@@ -153,12 +170,5 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
     },
   });
 
-  return new Response(body, {
-    headers: {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-      "x-accel-buffering": "no",
-    },
-  });
+  return new Response(body, { headers: SSE_HEADERS });
 }

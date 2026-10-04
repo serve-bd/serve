@@ -416,12 +416,21 @@ export async function resetHostKey(id: string) {
 }
 
 /** `removeTailnetDevice`: also take the machine out of the tailnet it joined through Serve. */
-export async function deleteServer(id: string, opts: { removeTailnetDevice?: boolean } = {}) {
+/**
+ * Remove a server. With services on it, `services` says what happens to them: "stop" deletes them
+ * and their containers (with their data when `removeData`), "keep" leaves them running on the
+ * machine while Serve forgets them (the proxy stays too, so their domains keep working).
+ */
+export async function deleteServer(
+  id: string,
+  opts: { removeTailnetDevice?: boolean; services?: "stop" | "keep"; removeData?: boolean; removeProxy?: boolean; removeTunnels?: boolean } = {},
+) {
   return act(async () => {
     const { ctx, row } = await requireServerAdmin(id);
     if (row.isLocal) throw new UserError("The server the dashboard runs on cannot be removed.");
-    const [{ n }] = await db.select({ n: count() }).from(schema.service).where(eq(schema.service.serverId, id));
-    if (n > 0) throw new UserError(`${n} service${n === 1 ? " runs" : "s run"} on this server. Move or delete ${n === 1 ? "it" : "them"} first.`);
+    const onServer = await db.select().from(schema.service).where(eq(schema.service.serverId, id));
+    const n = onServer.length;
+    if (n > 0 && !opts.services) throw new UserError(`${n} service${n === 1 ? " runs" : "s run"} on this server. Choose whether to stop them or keep them running.`);
     const extraOf = await db
       .select({ name: schema.service.name })
       .from(schema.service)
@@ -455,19 +464,35 @@ export async function deleteServer(id: string, opts: { removeTailnetDevice?: boo
       // An auth key made for a join that never finished must not stay valid.
       if (client && row.tailscale.authKeyId) await client.deleteKey(row.tailscale.authKeyId).catch(() => {});
     }
-    // Serve's own containers there (the proxy and its helpers, the log collector): no service is left
-    // to use them. The server's files and other containers stay.
-    await Promise.race([getServer(id).then(removeServeContainers), new Promise((r) => setTimeout(r, 30_000))]).catch(() => {});
+    if (n > 0) {
+      const { teardownServices } = await import("@/server/services/teardown");
+      // Stopped now, while Serve can still reach the server; kept ones are only forgotten.
+      await teardownServices(onServer, !!opts.removeData, opts.services === "keep" ? { leaveRunning: true } : { inline: true });
+    }
+    // Serve's own containers there (the proxy and its helpers, the log collector), unless kept
+    // services still answer through the proxy. The server's files and other containers stay.
+    // With services kept running, the proxy and the tunnels go too unless asked to stay (the owner
+    // usually puts their own in place).
+    const keepProxy = opts.services === "keep" && opts.removeProxy === false;
+    const keepTunnels = opts.services === "keep" && opts.removeTunnels === false;
+    if (!keepProxy) await Promise.race([getServer(id).then(removeServeContainers), new Promise((r) => setTimeout(r, 30_000))]).catch(() => {});
     // Its tunnels go too: the connector stops there and the tunnel is deleted on Cloudflare.
     const tunnels = await db.select({ id: schema.cloudflareTunnel.id }).from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serverId, id));
-    if (tunnels.length) {
+    if (tunnels.length && !keepTunnels) {
       const { deleteTunnel } = await import("@/server/cloudflare/tunnels");
       await Promise.all(tunnels.map((t) => deleteTunnel(t.id).catch(() => {})));
     }
     await db.delete(schema.server).where(eq(schema.server.id, id));
     forgetServer(id);
     if (row.mesh?.enabled) await enqueue("mesh.sync", {}, { concurrencyKey: "mesh" });
-    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.delete", message: `Removed server ${row.name}` });
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      action: "server.delete",
+      message: n
+        ? `Removed server ${row.name} and ${opts.services === "keep" ? "forgot" : "deleted"} its ${n} service${n === 1 ? "" : "s"}${opts.services === "keep" ? " (still running there)" : ""}`
+        : `Removed server ${row.name}`,
+    });
     return null;
   });
 }

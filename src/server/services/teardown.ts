@@ -6,7 +6,12 @@ import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
 import { runServerIds } from "@/server/deploy/distribution";
 
 /** Cancel work, delete rows and queue container cleanup for services, their previews and preview databases. */
-export async function teardownServices(services: (typeof schema.service.$inferSelect)[], removeVolumes: boolean) {
+/**
+ * `leaveRunning`: Serve only forgets the services (a server removed with its services kept): their
+ * containers, the DNS records and certificates they use stay as they are on the machine.
+ * `inline`: their containers are removed now, not by a job (the server row goes right after).
+ */
+export async function teardownServices(services: (typeof schema.service.$inferSelect)[], removeVolumes: boolean, opts: { leaveRunning?: boolean; inline?: boolean } = {}) {
   const ids = services.map((s) => s.id);
   if (!ids.length) return;
   // Previews, and what belongs to them (their database copies), all the way down.
@@ -47,7 +52,7 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
         all.map((s) => s.id),
       ),
     );
-  if (domains.some((d) => d.cloudflareRecordId)) {
+  if (!opts.leaveRunning && domains.some((d) => d.cloudflareRecordId)) {
     const { Cloudflare } = await import("@/server/cloudflare/api");
     for (const d of domains) {
       if (!d.cloudflareAccountId || !d.cloudflareZoneId || !d.cloudflareRecordId) continue;
@@ -57,14 +62,14 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
     }
   }
   // Read replicas on other servers than the database's: the delete job there only covers its own server.
-  for (const s of all) {
+  for (const s of opts.leaveRunning ? [] : all) {
     for (const r of replicaInstances(s).filter((r) => r.serverId !== s.serverId)) {
       const { removeReplicaInstance } = await import("@/server/databases/addons");
       await removeReplicaInstance(s, r).catch(() => {});
     }
   }
   const retire: Retire[] = [];
-  await removeDatabaseDomainRecords(all, retire);
+  if (!opts.leaveRunning) await removeDatabaseDomainRecords(all, retire);
   // Databases deleted with their data kept: remembered, so a new database can start from it.
   // One never deployed has no data to keep.
   if (!removeVolumes) await keepDatabases(services.filter((s) => s.type === "database" && s.database && !s.parentServiceId && s.currentDeploymentId));
@@ -91,11 +96,12 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
     const { syncTunnelIngress } = await import("@/server/cloudflare/tunnels");
     for (const id of tunnels) await syncTunnelIngress(id).catch(() => {});
   }
+  if (opts.leaveRunning) return;
   // Same concurrency key as deployments, so cleanup runs after an in-flight deploy stops.
   for (const s of all) {
-    await enqueue(
-      "service.delete",
-      {
+    if (opts.inline) {
+      const { destroyService } = await import("@/server/services/lifecycle");
+      await destroyService({
         serviceId: s.id,
         slug: s.slug,
         type: s.type,
@@ -103,9 +109,21 @@ export async function teardownServices(services: (typeof schema.service.$inferSe
         environmentId: s.environmentId,
         serverId: s.serverId,
         volumes: s.database?.dataVolume && s.database.dataVolumeOwned && !s.database.dataVolume.startsWith("/") ? [s.database.dataVolume] : [],
-      },
-      { concurrencyKey: `service:${s.id}` },
-    );
+      }).catch(() => {});
+    } else
+      await enqueue(
+        "service.delete",
+        {
+          serviceId: s.id,
+          slug: s.slug,
+          type: s.type,
+          removeVolumes,
+          environmentId: s.environmentId,
+          serverId: s.serverId,
+          volumes: s.database?.dataVolume && s.database.dataVolumeOwned && !s.database.dataVolume.startsWith("/") ? [s.database.dataVolume] : [],
+        },
+        { concurrencyKey: `service:${s.id}` },
+      );
     // Extra servers (build once, run on many) have their own containers, sites and volumes.
     for (const serverId of runServerIds(s.serverId, s.distribution).slice(1)) {
       await enqueue(

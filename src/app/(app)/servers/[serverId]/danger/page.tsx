@@ -12,7 +12,10 @@ export default async function DangerPage(props: { params: Promise<{ serverId: st
   const { row, manage } = await loadServerView(serverId);
   // The machine Serve runs on is never removed; others only by those who manage the server.
   if (!manage || row.isLocal) notFound();
-  const [{ services }] = await db.select({ services: count() }).from(schema.service).where(eq(schema.service.serverId, serverId));
+  const [[{ services }], [{ tunnels }]] = await Promise.all([
+    db.select({ services: count() }).from(schema.service).where(eq(schema.service.serverId, serverId)),
+    db.select({ tunnels: count() }).from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serverId, serverId)),
+  ]);
   const details: ServerDetails = {
     id: row.id,
     name: row.name,
@@ -34,6 +37,7 @@ export default async function DangerPage(props: { params: Promise<{ serverId: st
     ownerOrganizationId: row.ownerOrganizationId,
     services,
     tailscaleOnly: !!row.tailscale?.only,
+    cloudflareTunnels: tunnels,
     tailnetDevice: row.tailscale?.deviceId ? (row.tailscale.dnsName ?? row.tailscale.hostname) : null,
   };
   return <DangerZone server={details} />;

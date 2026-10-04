@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import { Fingerprint, PlugZap, RotateCcw, Trash2 } from "lucide-react";
@@ -46,6 +47,8 @@ export type ServerDetails = {
   tailscaleOnly?: boolean;
   /** Its device in the tailnet (MagicDNS name), when it joined one through Serve. */
   tailnetDevice?: string | null;
+  /** Cloudflare tunnels from this server (removing it asks about them). */
+  cloudflareTunnels?: number;
 };
 
 export function ConnectionSettings({ server, keys }: { server: ServerDetails; keys: { id: string; name: string }[] }) {
@@ -428,7 +431,13 @@ export function AccessCard({
 export function DangerZone({ server }: { server: ServerDetails }) {
   const router = useRouter();
   const confirm = useConfirm();
-  const remove = useAction((removeTailnetDevice: boolean) => deleteServer(server.id, { removeTailnetDevice }), { refresh: false, onSuccess: () => router.push("/servers") });
+  const remove = useAction(
+    (opts: { removeTailnetDevice: boolean; services?: "stop" | "keep"; removeData?: boolean; removeProxy?: boolean; removeTunnels?: boolean }) => deleteServer(server.id, opts),
+    {
+      refresh: false,
+      onSuccess: () => router.push("/servers"),
+    },
+  );
   return (
     <Card className="border-bad/25">
       <CardHeader
@@ -440,20 +449,27 @@ export function DangerZone({ server }: { server: ServerDetails }) {
       <CardBody className="flex flex-wrap items-center justify-between gap-3 py-4">
         <p className="text-[13px] text-muted">
           {server.services > 0
-            ? `${server.services} service${server.services === 1 ? " runs" : "s run"} here. Move or delete ${server.services === 1 ? "it" : "them"} first.`
+            ? `${server.services} service${server.services === 1 ? " runs" : "s run"} here. You choose what happens to ${server.services === 1 ? "it" : "them"}.`
             : "No services run on this server."}
         </p>
         <Button
           variant="danger"
           size="sm"
-          disabled={server.services > 0}
           loading={remove.pending}
           onClick={async () => {
             let removeDevice = false;
+            const choice: ServicesChoiceValue = { services: "stop", removeData: false, removeProxy: true, removeTunnels: true };
             if (
               await confirm({
                 title: `Remove ${server.name}?`,
-                children: server.tailnetDevice ? <RemoveDeviceChoice device={server.tailnetDevice} onChange={(v) => (removeDevice = v)} /> : undefined,
+                // With services there, the name is typed: a wrong click would delete them.
+                typeToConfirm: server.services > 0 ? server.name : undefined,
+                children: (
+                  <>
+                    {server.services > 0 && <ServicesChoice count={server.services} tunnels={server.cloudflareTunnels ?? 0} onChange={(c) => Object.assign(choice, c)} />}
+                    {server.tailnetDevice && <RemoveDeviceChoice device={server.tailnetDevice} onChange={(v) => (removeDevice = v)} />}
+                  </>
+                ),
                 description: server.tunnel ? (
                   <span className="flex flex-col gap-2">
                     <span>This cannot be undone. The server&apos;s tunnel can no longer sign in; to remove it from the machine, run there:</span>
@@ -468,7 +484,7 @@ export function DangerZone({ server }: { server: ServerDetails }) {
                 danger: true,
               })
             )
-              void remove.run(removeDevice);
+              void remove.run({ removeTailnetDevice: removeDevice, ...(server.services > 0 ? choice : {}) });
           }}
         >
           <Trash2 /> Remove server
@@ -478,13 +494,73 @@ export function DangerZone({ server }: { server: ServerDetails }) {
   );
 }
 
+type ServicesChoiceValue = { services: "stop" | "keep"; removeData: boolean; removeProxy: boolean; removeTunnels: boolean };
+
+/** What happens to the services of a server being removed; read when the dialog closes. */
+function ServicesChoice({ count, tunnels, onChange }: { count: number; tunnels: number; onChange: (c: ServicesChoiceValue) => void }) {
+  const [value, setValue] = React.useState<ServicesChoiceValue>({ services: "stop", removeData: false, removeProxy: true, removeTunnels: true });
+  const set = (next: Partial<ServicesChoiceValue>) => {
+    const c = { ...value, ...next };
+    setValue(c);
+    onChange(c);
+  };
+  const them = count === 1 ? "it" : "them";
+  const check = (on: boolean, label: React.ReactNode, onToggle: (v: boolean) => void) => (
+    <label className="flex cursor-pointer items-center gap-2 text-xs text-fg-2">
+      <Checkbox checked={on} onCheckedChange={(v) => onToggle(!!v)} />
+      {label}
+    </label>
+  );
+  const row = (option: "stop" | "keep", title: string, body: string, extra: React.ReactNode) => {
+    const on = value.services === option;
+    return (
+      <div className={cn("transition-colors", on ? "bg-accent-soft/40" : "hover:bg-hover/40")}>
+        <button type="button" role="radio" aria-checked={on} onClick={() => set({ services: option })} className="flex w-full items-start gap-3 px-3.5 py-3 text-left">
+          <span className={cn("mt-0.5 flex size-4 flex-none items-center justify-center rounded-full border", on ? "border-accent" : "border-line-strong")}>
+            {on && <span className="size-2 rounded-full bg-accent" />}
+          </span>
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-[13px] font-medium text-fg">{title}</span>
+            <span className="text-xs leading-relaxed text-muted">{body}</span>
+          </span>
+        </button>
+        {on && <div className="flex flex-col gap-2 px-3.5 pb-3 pl-10.5">{extra}</div>}
+      </div>
+    );
+  };
+  return (
+    <div className="mt-4 flex flex-col gap-2">
+      <p className="text-xs font-medium text-muted">
+        {count} service{count === 1 ? " runs" : "s run"} here
+      </p>
+      <div role="radiogroup" aria-label="The services on this server" className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+        {row(
+          "stop",
+          `Stop and delete ${them}`,
+          `Removes the containers, domains and DNS records${tunnels ? ", with the proxy and the Cloudflare tunnel" : ", with the proxy"}.`,
+          check(value.removeData, "Also delete the data (volumes)", (v) => set({ removeData: v })),
+        )}
+        {row(
+          "keep",
+          `Keep ${them} running`,
+          "Serve forgets the services; their containers keep running on the machine.",
+          <>
+            {check(value.removeProxy, "Remove Serve's proxy (their domains stop answering until you set up your own)", (v) => set({ removeProxy: v }))}
+            {tunnels > 0 && check(value.removeTunnels, `Remove the Cloudflare tunnel${tunnels === 1 ? "" : "s"} (also deleted in Cloudflare)`, (v) => set({ removeTunnels: v }))}
+          </>,
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Whether removing the server also takes its device out of the tailnet; read when the dialog closes. */
 function RemoveDeviceChoice({ device, onChange }: { device: string; onChange: (v: boolean) => void }) {
   const [on, setOn] = React.useState(false);
   return (
-    <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-[13px] text-fg">
+    <label className="mt-4 flex cursor-pointer items-start gap-2 text-xs leading-relaxed text-fg-2">
       <Checkbox
-        className="mt-0.5"
+        className="mt-px"
         checked={on}
         onCheckedChange={(v) => {
           setOn(!!v);
@@ -492,7 +568,7 @@ function RemoveDeviceChoice({ device, onChange }: { device: string; onChange: (v
         }}
       />
       <span>
-        Also remove its device <span className="font-mono">{device}</span> from the tailnet
+        Also remove its device <span className="font-mono break-all text-fg">{device}</span> from the tailnet
       </span>
     </label>
   );

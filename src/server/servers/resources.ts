@@ -71,6 +71,23 @@ export async function listHostContainers(ctx: ServerCtx): Promise<ContainerRow[]
         .where(inArray(schema.service.id, serviceIds))
     : [];
   const byId = new Map(services.map((s) => [s.id, s]));
+  // Tunnel connectors of every organization run here: say whose each one is.
+  const tunnelIds = [...new Set(containers.map((c) => c.Labels["serve.tunnel"]).filter(Boolean))];
+  const tunnels = tunnelIds.length
+    ? await db
+        .select({ id: schema.cloudflareTunnel.id, organizationName: schema.organization.name })
+        .from(schema.cloudflareTunnel)
+        .innerJoin(schema.organization, eq(schema.cloudflareTunnel.organizationId, schema.organization.id))
+        .where(inArray(schema.cloudflareTunnel.id, tunnelIds))
+    : [];
+  const tunnelOwner = new Map(tunnels.map((t) => [t.id, t.organizationName]));
+  const roleOf = (labels: Record<string, string>, name: string) => {
+    const role = systemRole(labels, name);
+    const tunnelId = labels["serve.tunnel"];
+    if (!tunnelId) return role;
+    const owner = tunnelOwner.get(tunnelId);
+    return owner ? `${role} · ${owner}` : `${role} · deleted`;
+  };
 
   return containers
     .map((c): ContainerRow => {
@@ -90,7 +107,7 @@ export async function listHostContainers(ctx: ServerCtx): Promise<ContainerRow[]
         kind,
         role:
           kind === "system"
-            ? systemRole(c.Labels, name)
+            ? roleOf(c.Labels, name)
             : kind === "service" && !service
               ? (c.Labels[LABEL.slug] ?? "Serve service")
               : name.endsWith("-before-serve")

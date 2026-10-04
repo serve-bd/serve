@@ -435,6 +435,21 @@ export async function deleteServer(
       .select({ name: schema.service.name })
       .from(schema.service)
       .where(or(runsAsExtraOn(id), sql`${schema.service.distribution}->>'buildServerId' = ${id}`));
+    // A read replica here of a database that runs elsewhere would be left pointing at no server.
+    const replicaOf = await db
+      .select({ name: schema.service.name })
+      .from(schema.service)
+      .where(
+        and(
+          ne(schema.service.serverId, id),
+          sql`coalesce(${schema.service.database}->'replica'->'instances', '[]'::jsonb) @> jsonb_build_array(jsonb_build_object('serverId', ${id}::text))`,
+        ),
+      );
+    if (replicaOf.length) {
+      throw new UserError(
+        `${replicaOf.map((s) => s.name).join(", ")} ${replicaOf.length === 1 ? "has a read replica" : "have read replicas"} on this server. Remove ${replicaOf.length === 1 ? "it" : "them"} in the database settings first.`,
+      );
+    }
     if (extraOf.length) {
       throw new UserError(
         `${extraOf.map((s) => s.name).join(", ")} ${extraOf.length === 1 ? "uses" : "use"} this server to build or run. Remove it in their Servers & registry settings first.`,

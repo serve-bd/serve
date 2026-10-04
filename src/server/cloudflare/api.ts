@@ -75,9 +75,14 @@ export class Cloudflare {
 
   /** A client for a stored account, through its login (with an OAuth token renewed when needed). */
   static async forRow(row: typeof schema.cloudflareAccount.$inferSelect) {
-    const [credential] = await db.select().from(schema.cloudflareCredential).where(eq(schema.cloudflareCredential.id, row.credentialId));
+    const [[credential], siblings] = await Promise.all([
+      db.select().from(schema.cloudflareCredential).where(eq(schema.cloudflareCredential.id, row.credentialId)),
+      db.select({ id: schema.cloudflareAccount.id }).from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.credentialId, row.credentialId)),
+    ]);
     if (!credential) throw new Error("Cloudflare account not found");
-    return new Cloudflare(await credentialToken(credential), decryptOrNull(credential.originCaKey), row.cfAccountId);
+    // Only a login split into several cards sees one account per card. A single card keeps every
+    // zone its token reaches (tokens connected before cards were split by account).
+    return new Cloudflare(await credentialToken(credential), decryptOrNull(credential.originCaKey), siblings.length > 1 ? row.cfAccountId : null);
   }
 
   async request<T>(method: string, path: string, body?: unknown, useOriginKey = false): Promise<CfResponse<T>> {

@@ -75,7 +75,7 @@ describe("database plan", () => {
     // Required: plain connections only from the container's networks, never through its gateway.
     expect(plan.cmd?.[2]).toContain(`$4 = "samenet"`);
     expect(plan.cmd?.[2]).toContain("/proc/net/route");
-    expect(databaseUrl(pg({ tls: { enabled: true, mode: "require" } }), plan.creds, "db", 5432)).toMatch(/\?sslmode=require$/);
+    expect(databaseUrl(pg({ tls: { enabled: true, mode: "require" } }), plan.creds, "db", 5432)).not.toMatch(/sslmode/);
     const prefer = databasePlan(pg({ tls: { enabled: true, mode: "prefer" } }), "x", "/d/s");
     expect(prefer.cmd?.join(" ")).not.toContain("hba_file");
   });

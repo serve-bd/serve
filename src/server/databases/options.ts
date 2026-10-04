@@ -323,9 +323,9 @@ export function databaseUrl(cfg: DatabaseConfig, creds: EngineCreds, host: strin
   switch (cfg.engine) {
     case "postgres":
       // verify-full would need sslrootcert=system, which older libpq and most drivers read as a file name.
-      // Prefer on the private network adds nothing: libpq prefers TLS already, and node-postgres reads
-      // prefer as verify-full, which fails there (the certificate names the domain, not the private name).
-      return viaTls ? `${url}?sslmode=require` : url;
+      // The private network takes plain connections in either mode, so its URLs ask nothing: node-postgres
+      // reads any sslmode as verify-full, which fails there (the certificate names the domain, not the private name).
+      return opts.public ? `${url}?sslmode=require` : url;
     case "mongodb":
       return viaTls ? `${url}&tls=true${opts.verified ? "" : "&tlsAllowInvalidCertificates=true"}` : url;
     case "redis":

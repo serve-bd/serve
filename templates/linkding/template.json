@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://linkding.link",
   "color": "#5856E0",
+  "fullColorLogo": true,
   "note": "Sign in with the admin user and the generated password (Variables tab).",
   "expose": {
     "service": "linkding",

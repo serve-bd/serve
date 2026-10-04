@@ -4,6 +4,7 @@
   "category": "Analytics",
   "website": "https://openpanel.dev",
   "color": "#2563EB",
+  "fullColorLogo": true,
   "note": "Open the domain to create the first account. The tracking script and SDKs send events to the API at /api on the same domain.",
   "expose": {
     "service": "ingress",

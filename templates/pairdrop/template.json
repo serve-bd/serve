@@ -4,6 +4,7 @@
   "category": "Storage",
   "website": "https://pairdrop.net",
   "color": "#4285F4",
+  "fullColorLogo": true,
   "expose": {
     "service": "pairdrop",
     "port": 3000

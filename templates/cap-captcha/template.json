@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://capjs.js.org",
   "color": "#0F172A",
+  "fullColorLogo": true,
   "note": "Open the dashboard and sign in with the generated admin key (Variables tab) to create site keys.",
   "expose": {
     "service": "cap",

@@ -4,6 +4,7 @@
   "category": "Databases",
   "website": "https://www.trychroma.com",
   "color": "#E8590C",
+  "fullColorLogo": true,
   "note": "The Chroma server has no built-in authentication: keep the domain private.",
   "expose": {
     "service": "chroma",

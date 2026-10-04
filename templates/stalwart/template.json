@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://stalw.art",
   "color": "#DB2D54",
+  "fullColorLogo": true,
   "hostAccess": true,
   "note": "Publishes mail ports 25, 465, 587, 143, 993, 110, 995 and 4190 on the server; free them first. Open /admin on the domain and log in as admin with the admin password shown here. In the setup, keep an HTTP listener on port 8080: the domain points there. Many hosts block port 25.",
   "expose": {

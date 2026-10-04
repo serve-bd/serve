@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://radicale.org",
   "color": "#A40000",
+  "fullColorLogo": true,
   "note": "Sign in with the user and the generated password (Variables tab). Point your calendar and contacts apps at the domain.",
   "expose": {
     "service": "radicale",

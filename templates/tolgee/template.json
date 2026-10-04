@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://tolgee.io",
   "color": "#EC407A",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the generated admin password.",
   "expose": {
     "service": "tolgee",

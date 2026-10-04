@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://usememos.com",
   "color": "#16A34A",
+  "fullColorLogo": true,
   "expose": {
     "service": "memos",
     "port": 5230

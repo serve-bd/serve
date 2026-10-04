@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://www.navidrome.org",
   "color": "#0084FF",
+  "fullColorLogo": true,
   "expose": {
     "service": "navidrome",
     "port": 4533

@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://gotenberg.dev",
   "color": "#00A9A5",
+  "fullColorLogo": true,
   "note": "The API uses basic auth with the username and password shown here.",
   "expose": {
     "service": "gotenberg",

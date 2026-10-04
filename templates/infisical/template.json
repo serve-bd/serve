@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://infisical.com",
   "color": "#18181B",
+  "fullColorLogo": true,
   "minVersion": "0.1.9",
   "note": "Open the app and create the first account: it becomes the instance admin. Keep ENCRYPTION_KEY safe: secrets cannot be decrypted without it.",
   "expose": {

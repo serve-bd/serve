@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://tinyauth.app",
   "color": "#2563EB",
+  "fullColorLogo": true,
   "note": "Log in as admin with the generated admin password.",
   "expose": {
     "service": "tinyauth",

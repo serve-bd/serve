@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://bentopdf.com",
   "color": "#4F46E5",
+  "fullColorLogo": true,
   "expose": {
     "service": "bentopdf",
     "port": 8080

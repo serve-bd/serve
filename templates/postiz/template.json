@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://postiz.com",
   "color": "#612AD5",
+  "fullColorLogo": true,
   "note": "Create your account on the first visit. Each social network needs its own app keys: add them to the postiz service environment in the compose file (for example LINKEDIN_CLIENT_ID), as the Postiz docs describe.",
   "expose": {
     "service": "postiz",

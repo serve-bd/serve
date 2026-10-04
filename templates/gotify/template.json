@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://gotify.net",
   "color": "#1E88E5",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the generated admin password (Variables tab).",
   "expose": {
     "service": "gotify",

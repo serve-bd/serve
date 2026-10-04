@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://www.espocrm.com",
   "color": "#2C5F8A",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the generated admin password (Variables tab).",
   "expose": {
     "service": "espocrm",

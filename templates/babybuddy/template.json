@@ -4,7 +4,8 @@
   "category": "Productivity",
   "website": "https://docs.baby-buddy.net",
   "color": "#35B5E5",
-  "note": "Sign in as admin with the password admin, then change it right away under the user settings.",
+  "fullColorLogo": true,
+  "note": "Sign in as admin with the generated admin password (Variables tab). It replaces the default admin password on the first start.",
   "expose": {
     "service": "babybuddy",
     "port": 8000
@@ -13,6 +14,11 @@
     {
       "key": "BABYBUDDY_URL",
       "publicUrl": true
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
     }
   ]
 }

@@ -4,6 +4,7 @@
   "category": "Automation",
   "website": "https://kestra.io",
   "color": "#7C3AED",
+  "fullColorLogo": true,
   "note": "Mounts the Docker socket so script tasks can run in containers. Create the admin account on first visit.",
   "hostAccess": true,
   "expose": {

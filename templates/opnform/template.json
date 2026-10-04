@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://opnform.com",
   "color": "#2563EB",
+  "fullColorLogo": true,
   "note": "Open the domain to create the admin account.",
   "expose": {
     "service": "ingress",

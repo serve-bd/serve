@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://www.bazarr.media",
   "color": "#3E4E5E",
+  "fullColorLogo": true,
   "note": "Turn on authentication in Settings → General. Mount the same movies and TV directories as Sonarr and Radarr in Persistent storage.",
   "expose": {
     "service": "bazarr",

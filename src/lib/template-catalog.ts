@@ -68,6 +68,8 @@ export const templateSchema = z.object({
     .optional(),
   vars: z.array(varSchema),
   compose: z.string().min(1).max(100_000),
+  /** The logo in its own colours, shown on a plain tile: `logo` is then not a white glyph. Older versions show it on the coloured tile. */
+  fullColorLogo: z.boolean().optional(),
   /** White glyph on the tile (SVG source), or null for a lettered tile. */
   logo: z.string().max(50_000).refine(safeSvg, "not a plain SVG").nullable(),
 });

@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://grafana.com/oss/loki/",
   "color": "#F46800",
+  "fullColorLogo": true,
   "note": "API only, with no UI and no login: add the domain to Grafana as a Loki data source and push logs with Alloy or Promtail. Keep the domain private (IP allowlist).",
   "expose": {
     "service": "loki",

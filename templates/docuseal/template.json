@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://www.docuseal.com",
   "color": "#1F2937",
+  "fullColorLogo": true,
   "note": "The first visit asks you to create the admin account.",
   "expose": {
     "service": "app",

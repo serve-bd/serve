@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://dozzle.dev",
   "color": "#0F766E",
+  "fullColorLogo": true,
   "hostAccess": true,
   "note": "Reads the Docker socket and has no login by default. Keep the domain private (IP allowlist) or remove it.",
   "expose": {

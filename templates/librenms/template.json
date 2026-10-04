@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://www.librenms.org",
   "color": "#E57E1C",
+  "fullColorLogo": true,
   "note": "Create the first admin in the librenms container terminal: lnms user:add --role=admin admin",
   "expose": {
     "service": "librenms",

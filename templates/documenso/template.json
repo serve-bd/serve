@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://documenso.com",
   "color": "#A2E771",
+  "fullColorLogo": true,
   "note": "Fill in the SMTP settings: Documenso emails a link to confirm each new account and sends signing requests by email. A self-signed signing certificate is made on the first start.",
   "expose": {
     "service": "documenso",

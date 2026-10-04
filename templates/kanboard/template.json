@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://kanboard.org",
   "color": "#D52D2D",
+  "fullColorLogo": true,
   "note": "Sign in as admin with password admin, then change the password right away.",
   "expose": {
     "service": "kanboard",

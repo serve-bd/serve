@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://sabre.io/baikal",
   "color": "#3B82F6",
+  "fullColorLogo": true,
   "note": "Open the site right away to run the setup wizard and set the admin password. Pick SQLite as the database.",
   "expose": {
     "service": "baikal",

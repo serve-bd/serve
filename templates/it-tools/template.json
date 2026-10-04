@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://it-tools.tech",
   "color": "#18A058",
+  "fullColorLogo": true,
   "expose": {
     "service": "it-tools",
     "port": 80

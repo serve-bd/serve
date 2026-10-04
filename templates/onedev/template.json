@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://onedev.io",
   "color": "#2563EB",
+  "fullColorLogo": true,
   "note": "Log in with the admin account shown here. Builds need a remote agent (Administration > Agents); git over SSH needs port 6611 published in Domains & ports.",
   "expose": {
     "service": "onedev",

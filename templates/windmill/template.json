@@ -4,6 +4,7 @@
   "category": "Automation",
   "website": "https://www.windmill.dev",
   "color": "#3B82F6",
+  "fullColorLogo": true,
   "note": "Log in with admin@windmill.dev / changeme and change the password right away.",
   "expose": {
     "service": "windmill-server",

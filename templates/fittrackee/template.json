@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://docs.fittrackee.org",
   "color": "#2A6F97",
+  "fullColorLogo": true,
   "note": "Register on the site, then run `ftcli users update <username> --set-role owner` in the fittrackee container to activate the account and make it the owner.",
   "expose": {
     "service": "fittrackee",

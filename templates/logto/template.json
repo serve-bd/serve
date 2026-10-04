@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://logto.io",
   "color": "#5D34F2",
+  "fullColorLogo": true,
   "minVersion": "0.1.9",
   "note": "Logto uses two domains: the main one serves sign-in for your apps, the second one is the admin console. Open the admin console domain and create the first account: it becomes the admin.",
   "expose": {

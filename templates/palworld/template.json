@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://github.com/thijsvanloef/palworld-server-docker",
   "color": "#1E88E5",
+  "fullColorLogo": true,
   "hostAccess": true,
   "note": "Publishes UDP ports 8211 (game) and 27015 (query) on the server; players join with the server address and port 8211. The domain serves the server REST API, which uses the user admin and the admin password. Needs about 8 GB of RAM.",
   "expose": {

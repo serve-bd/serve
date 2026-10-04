@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://linkstack.org",
   "color": "#3D60F5",
+  "fullColorLogo": true,
   "note": "Open the site right away to run the setup wizard and create the admin account. Pick SQLite as the database.",
   "expose": {
     "service": "proxy",

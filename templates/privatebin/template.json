@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://privatebin.info",
   "color": "#1D4E89",
+  "fullColorLogo": true,
   "expose": {
     "service": "privatebin",
     "port": 8080

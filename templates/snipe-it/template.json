@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://snipeitapp.com",
   "color": "#1E6FB8",
+  "fullColorLogo": true,
   "note": "Open the site to run the pre-flight check and create the admin account.",
   "expose": {
     "service": "snipe-it",

@@ -4,7 +4,8 @@
   "category": "Productivity",
   "website": "https://appflowy.com",
   "color": "#8427E0",
-  "note": "Open the domain in a browser or set it as the self-hosted server in the AppFlowy apps. The admin console is at /console; sign in there with the admin email and generated password (Variables tab).",
+  "fullColorLogo": true,
+  "note": "Open the domain in a browser or set it as the self-hosted server in the AppFlowy apps. The admin console is at /console; sign in there with the admin email and generated password (Variables tab). Anyone who can reach the domain can sign up while DISABLE_SIGNUP is false. When your accounts exist, set DISABLE_SIGNUP to true in the Variables tab and redeploy.",
   "expose": {
     "service": "nginx",
     "port": 80
@@ -19,6 +20,11 @@
       "key": "ADMIN_PASSWORD",
       "generate": "password",
       "label": "Admin password"
+    },
+    {
+      "key": "DISABLE_SIGNUP",
+      "value": "false",
+      "label": "Turn off sign-up (true or false)"
     },
     {
       "key": "JWT_SECRET",

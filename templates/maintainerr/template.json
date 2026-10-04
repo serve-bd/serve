@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://maintainerr.info",
   "color": "#EAB308",
+  "fullColorLogo": true,
   "note": "There is no login: anyone with the address can use it. Connect your media server and Sonarr or Radarr in Settings.",
   "expose": {
     "service": "maintainerr",

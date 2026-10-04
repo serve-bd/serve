@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://headscale.net",
   "color": "#3B82F6",
+  "fullColorLogo": true,
   "minVersion": "0.1.9",
   "note": "Headplane is the second address, at /admin. It logs in with a Headscale API key: run headscale apikeys create in the headscale container terminal. Point Tailscale clients at the main address with --login-server.",
   "expose": {

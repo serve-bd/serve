@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://github.com/C4illin/ConvertX",
   "color": "#7C3AED",
+  "fullColorLogo": true,
   "note": "Open the site right away and register: the first account is the only one allowed.",
   "expose": {
     "service": "convertx",

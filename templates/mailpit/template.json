@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://mailpit.axllent.org",
   "color": "#2563EB",
+  "fullColorLogo": true,
   "note": "Other services send mail to <stack>-mailpit:1025 on the private network.",
   "expose": {
     "service": "mailpit",

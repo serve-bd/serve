@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://github.com/caronc/apprise-api",
   "color": "#3F51B5",
+  "fullColorLogo": true,
   "note": "The web page and API have no login. Anyone with the address can send notifications and read saved configs.",
   "expose": {
     "service": "apprise",

@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://tandoor.dev",
   "color": "#2F5D50",
+  "fullColorLogo": true,
   "note": "The first visit asks you to create the admin account.",
   "expose": {
     "service": "web",

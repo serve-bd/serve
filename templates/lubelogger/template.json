@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://lubelogger.com",
   "color": "#1F2937",
+  "fullColorLogo": true,
   "note": "The site opens without a login. Turn on authentication in Settings to protect it.",
   "expose": {
     "service": "lubelogger",

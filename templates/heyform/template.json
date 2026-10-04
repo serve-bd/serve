@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://heyform.net",
   "color": "#1F2937",
+  "fullColorLogo": true,
   "note": "Sign up on the domain to create the first account.",
   "expose": {
     "service": "heyform",

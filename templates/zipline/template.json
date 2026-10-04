@@ -4,6 +4,7 @@
   "category": "Storage",
   "website": "https://zipline.diced.sh",
   "color": "#1C7ED6",
+  "fullColorLogo": true,
   "note": "Create the super administrator in the setup page on first visit.",
   "expose": {
     "service": "zipline",

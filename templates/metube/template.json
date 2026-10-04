@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://github.com/alexta69/metube",
   "color": "#E53935",
+  "fullColorLogo": true,
   "note": "There is no login: anyone with the address can use it to download.",
   "expose": {
     "service": "metube",

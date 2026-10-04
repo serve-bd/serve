@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://kutt.it",
   "color": "#2196F3",
+  "fullColorLogo": true,
   "note": "Open the site right away to create the admin account.",
   "expose": {
     "service": "kutt",

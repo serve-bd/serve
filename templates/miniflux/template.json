@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://miniflux.app",
   "color": "#33373D",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the generated admin password (Variables tab).",
   "expose": {
     "service": "miniflux",

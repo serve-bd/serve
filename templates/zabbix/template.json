@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://www.zabbix.com",
   "color": "#D40000",
+  "fullColorLogo": true,
   "note": "Log in as Admin with the password zabbix, then change it. Agents that send active checks need port 10051 of zabbix-server opened under Domains & ports.",
   "expose": {
     "service": "zabbix-web",

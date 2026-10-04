@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://organizr.app",
   "color": "#2D9CDB",
+  "fullColorLogo": true,
   "note": "Open the domain to run the setup wizard and create the admin account.",
   "expose": {
     "service": "organizr",

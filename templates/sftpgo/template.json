@@ -4,6 +4,7 @@
   "category": "Storage",
   "website": "https://sftpgo.com",
   "color": "#2B6CB0",
+  "fullColorLogo": true,
   "note": "Publishes port 2022 (SFTP) on the server. Sign in at /web/admin with the admin user and password from the configure step, then add users. Users sign in at /web/client.",
   "hostAccess": true,
   "expose": {

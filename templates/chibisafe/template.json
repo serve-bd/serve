@@ -4,10 +4,17 @@
   "category": "Storage",
   "website": "https://chibisafe.app",
   "color": "#E11D48",
-  "note": "Sign in as admin with the password admin, then change it right away in the account settings.",
+  "fullColorLogo": true,
+  "note": "Sign in as admin with the generated admin password (Variables tab).",
   "expose": {
     "service": "caddy",
     "port": 80
   },
-  "vars": []
+  "vars": [
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
 }

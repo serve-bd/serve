@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://checkmate.so",
   "color": "#13715B",
+  "fullColorLogo": true,
   "note": "Create the admin account on the first visit.",
   "expose": {
     "service": "checkmate",

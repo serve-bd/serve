@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://freescout.net",
   "color": "#3B82F6",
+  "fullColorLogo": true,
   "note": "Sign in with the admin email and password. Connect your mailboxes in Manage > Mailboxes.",
   "expose": {
     "service": "freescout",

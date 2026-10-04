@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://ampache.org",
   "color": "#FF6600",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the admin password from the configure step. Put music in the ampache-media volume and add it as a catalog.",
   "expose": {
     "service": "ampache",

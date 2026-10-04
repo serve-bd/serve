@@ -4,6 +4,7 @@
   "category": "CMS",
   "website": "https://docmost.com",
   "color": "#111827",
+  "fullColorLogo": true,
   "expose": {
     "service": "docmost",
     "port": 3000

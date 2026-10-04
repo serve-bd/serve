@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://hortusfox.github.io",
   "color": "#3B8F4F",
+  "fullColorLogo": true,
   "note": "Log in with the admin email and password from the configure step.",
   "expose": {
     "service": "hortusfox",

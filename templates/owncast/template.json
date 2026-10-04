@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://owncast.online",
   "color": "#7871FF",
+  "fullColorLogo": true,
   "note": "Sign in at /admin with admin / abc123 and change the stream key right away. Streaming software connects over RTMP: publish port 1935 (TCP) in Domains & ports.",
   "expose": {
     "service": "owncast",

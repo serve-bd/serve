@@ -4,6 +4,7 @@
   "category": "Analytics",
   "website": "https://rybbit.com",
   "color": "#10B981",
+  "fullColorLogo": true,
   "note": "Open the site and sign up: the first account is the admin.",
   "expose": {
     "service": "proxy",

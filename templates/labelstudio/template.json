@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://labelstud.io",
   "color": "#FF7557",
+  "fullColorLogo": true,
   "note": "Log in with the admin email and password below. Sign up is closed: invite more people from the Organization page.",
   "expose": {
     "service": "labelstudio",

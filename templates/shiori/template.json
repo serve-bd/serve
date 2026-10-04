@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://github.com/go-shiori/shiori",
   "color": "#E04E39",
+  "fullColorLogo": true,
   "note": "Sign in as shiori with the password gopher. Make your own account in Settings, then delete the default one.",
   "expose": {
     "service": "shiori",

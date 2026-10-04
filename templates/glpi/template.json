@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://glpi-project.org",
   "color": "#1B2F62",
+  "fullColorLogo": true,
   "note": "GLPI installs itself on first start. Log in as glpi / glpi and change the default passwords of the glpi, tech, normal and post-only accounts.",
   "expose": {
     "service": "glpi",

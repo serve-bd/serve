@@ -4,6 +4,7 @@
   "category": "Storage",
   "website": "https://github.com/9001/copyparty",
   "color": "#E77B23",
+  "fullColorLogo": true,
   "note": "Sign in with the username and password from the configure step. Files live in the files volume.",
   "expose": {
     "service": "copyparty",

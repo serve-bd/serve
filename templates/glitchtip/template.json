@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://glitchtip.com",
   "color": "#E5383B",
+  "fullColorLogo": true,
   "note": "Sign up to create the first account. Emails are only logged until you set EMAIL_URL to an SMTP server.",
   "expose": {
     "service": "glitchtip",

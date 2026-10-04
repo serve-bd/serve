@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://typesense.org",
   "color": "#D52C5E",
+  "fullColorLogo": true,
   "expose": {
     "service": "typesense",
     "port": 8108

@@ -4,6 +4,7 @@
   "category": "Automation",
   "website": "https://www.activepieces.com",
   "color": "#6E41E2",
+  "fullColorLogo": true,
   "note": "Create the admin account on first visit.",
   "expose": {
     "service": "activepieces",

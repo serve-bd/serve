@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://pocket-id.org",
   "color": "#18181B",
+  "fullColorLogo": true,
   "note": "Open /setup on your domain to create the first admin and register a passkey.",
   "expose": {
     "service": "pocket-id",

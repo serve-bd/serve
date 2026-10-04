@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://www.kimai.org",
   "color": "#1F5C99",
+  "fullColorLogo": true,
   "note": "Sign in with the admin email and the generated admin password (Variables tab).",
   "expose": {
     "service": "kimai",

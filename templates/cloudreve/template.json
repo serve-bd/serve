@@ -4,6 +4,7 @@
   "category": "Storage",
   "website": "https://cloudreve.org",
   "color": "#2D7FF9",
+  "fullColorLogo": true,
   "note": "The first account you register becomes the admin.",
   "expose": {
     "service": "cloudreve",

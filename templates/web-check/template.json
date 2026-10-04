@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://web-check.xyz",
   "color": "#9FEF00",
+  "fullColorLogo": true,
   "expose": {
     "service": "web-check",
     "port": 3000

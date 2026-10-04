@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://tududi.com",
   "color": "#2563EB",
+  "fullColorLogo": true,
   "note": "Log in with the admin email and password from the configure step.",
   "expose": {
     "service": "tududi",

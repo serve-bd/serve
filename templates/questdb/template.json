@@ -4,6 +4,7 @@
   "category": "Databases",
   "website": "https://questdb.com",
   "color": "#D14671",
+  "fullColorLogo": true,
   "note": "Log in to the web console with the user and password below. Services connect over the Postgres protocol to <stack>-questdb:8812 with the same login.",
   "expose": {
     "service": "questdb",

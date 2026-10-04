@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://photoview.github.io",
   "color": "#2E7DD7",
+  "fullColorLogo": true,
   "note": "Create the admin account on first visit and set the photo path to /photos. Put photos in the photos volume.",
   "expose": {
     "service": "photoview",

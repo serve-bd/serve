@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://zitadel.com",
   "color": "#E0335A",
+  "fullColorLogo": true,
   "minVersion": "0.1.9",
   "note": "The sign-in pages run on a second domain. Open /ui/console on the main domain and sign in as zitadel-admin@zitadel.<main domain> with the admin password you set here; you choose a new password on the first sign-in. The admin password needs an uppercase letter, a lowercase letter, a number and a symbol.",
   "expose": {

@@ -4,6 +4,7 @@
   "category": "Storage",
   "website": "https://filebrowser.org",
   "color": "#40C4FF",
+  "fullColorLogo": true,
   "note": "The first admin password is printed in the logs on the first start.",
   "expose": {
     "service": "filebrowser",

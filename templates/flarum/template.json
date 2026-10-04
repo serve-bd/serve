@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://flarum.org",
   "color": "#E7672E",
+  "fullColorLogo": true,
   "note": "Log in with user flarum and password flarum, then change the password right away.",
   "expose": {
     "service": "flarum",

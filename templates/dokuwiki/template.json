@@ -4,6 +4,7 @@
   "category": "CMS",
   "website": "https://www.dokuwiki.org",
   "color": "#2E7D32",
+  "fullColorLogo": true,
   "note": "Open /install.php on the first visit to name the wiki and create the admin account.",
   "expose": {
     "service": "dokuwiki",

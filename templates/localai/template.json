@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://localai.io",
   "color": "#3B82F6",
+  "fullColorLogo": true,
   "note": "Log in to the web UI with the API key. Install models from the gallery in the web UI. Services call the API at <stack>-localai:8080 on the private network.",
   "expose": {
     "service": "localai",

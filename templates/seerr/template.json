@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://seerr.dev",
   "color": "#6D28D9",
+  "fullColorLogo": true,
   "note": "Connect your media server and Sonarr or Radarr in the setup wizard on first visit.",
   "expose": {
     "service": "seerr",

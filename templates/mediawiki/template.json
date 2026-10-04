@@ -4,6 +4,7 @@
   "category": "CMS",
   "website": "https://www.mediawiki.org",
   "color": "#3366CC",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the generated admin password (Variables tab).",
   "expose": {
     "service": "mediawiki",

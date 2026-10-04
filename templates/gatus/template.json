@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://gatus.io",
   "color": "#0E7490",
+  "fullColorLogo": true,
   "note": "The status page is public. Edit the endpoints in the gatus-config block of compose.yml to choose what to check.",
   "expose": {
     "service": "gatus",

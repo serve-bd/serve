@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://www.browserless.io",
   "color": "#E11D48",
+  "fullColorLogo": true,
   "expose": {
     "service": "browserless",
     "port": 3000

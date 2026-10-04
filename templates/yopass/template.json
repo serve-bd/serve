@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://yopass.se",
   "color": "#1976D2",
+  "fullColorLogo": true,
   "expose": {
     "service": "yopass",
     "port": 1337

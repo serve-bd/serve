@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://marimo.io",
   "color": "#1C7361",
+  "fullColorLogo": true,
   "note": "Log in with the password below.",
   "expose": {
     "service": "marimo",

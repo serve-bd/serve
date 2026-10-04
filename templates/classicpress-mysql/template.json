@@ -4,6 +4,7 @@
   "category": "CMS",
   "website": "https://www.classicpress.net",
   "color": "#057F99",
+  "fullColorLogo": true,
   "expose": {
     "service": "classicpress",
     "port": 80

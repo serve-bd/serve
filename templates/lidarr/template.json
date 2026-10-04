@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://lidarr.audio",
   "color": "#009252",
+  "fullColorLogo": true,
   "note": "Choose the login method on first visit. Imports need the download client's downloads folder: mount the same directory for both in Persistent storage.",
   "expose": {
     "service": "lidarr",

@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://tdarr.io",
   "color": "#3F51B5",
+  "fullColorLogo": true,
   "note": "Set a username and password on first visit. Put media in the media volume and add /media as a library.",
   "expose": {
     "service": "tdarr",

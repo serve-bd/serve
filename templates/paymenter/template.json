@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://paymenter.org",
   "color": "#4F46E5",
+  "fullColorLogo": true,
   "note": "Sign in with the admin email and password below. File uploads need the proxy trusted under Admin, Settings, Security.",
   "expose": {
     "service": "paymenter",

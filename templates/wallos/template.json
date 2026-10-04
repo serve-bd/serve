@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://wallosapp.com",
   "color": "#1D4ED8",
+  "fullColorLogo": true,
   "note": "Create your account on the first visit.",
   "expose": {
     "service": "wallos",

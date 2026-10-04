@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://github.com/lldap/lldap",
   "color": "#2C6CB4",
+  "fullColorLogo": true,
   "note": "Apps in the same project reach LDAP at lldap:3890. Sign in to the web UI as admin with the generated password (Variables tab).",
   "expose": {
     "service": "lldap",

@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://nocodb.com",
   "color": "#7C3AED",
+  "fullColorLogo": true,
   "expose": {
     "service": "nocodb",
     "port": 8080

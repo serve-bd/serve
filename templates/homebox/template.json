@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://homebox.software",
   "color": "#5B7F3A",
+  "fullColorLogo": true,
   "note": "Open the site and register the first account. To stop new sign ups later, set HBOX_OPTIONS_ALLOW_REGISTRATION to false.",
   "expose": {
     "service": "homebox",

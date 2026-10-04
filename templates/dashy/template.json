@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://dashy.to",
   "color": "#5B21B6",
+  "fullColorLogo": true,
   "note": "Has no login by default. Keep the domain private (IP allowlist) or remove it, or turn on auth in the config editor.",
   "expose": {
     "service": "dashy",

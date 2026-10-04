@@ -4,6 +4,7 @@
   "category": "CMS",
   "website": "https://writefreely.org",
   "color": "#2D2D2D",
+  "fullColorLogo": true,
   "note": "Sign in with the admin username and the generated admin password (Variables tab).",
   "expose": {
     "service": "writefreely",

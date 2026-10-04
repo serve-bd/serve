@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://github.com/iib0011/omni-tools",
   "color": "#1C64F2",
+  "fullColorLogo": true,
   "expose": {
     "service": "omni-tools",
     "port": 80

@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://linkwarden.app",
   "color": "#0EA5E9",
+  "fullColorLogo": true,
   "expose": {
     "service": "linkwarden",
     "port": 3000

@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://ezbookkeeping.mayswind.net",
   "color": "#C67E48",
+  "fullColorLogo": true,
   "note": "Open the site and sign up to make your account. To stop new sign ups later, set EBK_USER_ENABLE_REGISTER to false.",
   "expose": {
     "service": "ezbookkeeping",

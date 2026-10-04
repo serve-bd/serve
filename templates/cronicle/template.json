@@ -4,6 +4,7 @@
   "category": "Automation",
   "website": "https://github.com/jhuckaby/Cronicle",
   "color": "#3F7ED5",
+  "fullColorLogo": true,
   "note": "Log in as admin with the password admin, then change it.",
   "expose": {
     "service": "cronicle",

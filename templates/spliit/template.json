@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://spliit.app",
   "color": "#14B8A6",
+  "fullColorLogo": true,
   "note": "There are no accounts. Anyone with a group link can see and edit that group.",
   "expose": {
     "service": "spliit",

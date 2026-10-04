@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://www.kavitareader.com",
   "color": "#4AC694",
+  "fullColorLogo": true,
   "note": "Create the admin account on first visit. Put your library in the kavita-library volume, or replace it with a directory mount in Persistent storage.",
   "expose": {
     "service": "kavita",

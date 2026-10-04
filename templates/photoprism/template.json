@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://www.photoprism.app",
   "color": "#5E35B1",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the generated admin password (Variables tab). Upload photos in the app or put them in the photoprism-originals volume, then index the library.",
   "expose": {
     "service": "photoprism",

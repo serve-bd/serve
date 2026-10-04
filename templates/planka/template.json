@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://planka.app",
   "color": "#2C5282",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the generated admin password (Variables tab).",
   "expose": {
     "service": "planka",

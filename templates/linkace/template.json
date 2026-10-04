@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://www.linkace.org",
   "color": "#2E8BC0",
+  "fullColorLogo": true,
   "note": "Open the site and follow the setup. The database fields are filled in already. The last step makes the admin account.",
   "expose": {
     "service": "linkace",

@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://github.com/booklore-app/booklore",
   "color": "#6D5DFC",
+  "fullColorLogo": true,
   "note": "Create the admin account on first visit. Put books in the books volume, or drop files in the bookdrop volume to import them.",
   "expose": {
     "service": "booklore",

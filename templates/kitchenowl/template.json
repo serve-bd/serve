@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://kitchenowl.org",
   "color": "#009688",
+  "fullColorLogo": true,
   "note": "Open the site and make the first account. It becomes the admin.",
   "expose": {
     "service": "kitchenowl",

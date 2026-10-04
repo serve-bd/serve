@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://github.com/Jackett/Jackett",
   "color": "#2C3E50",
+  "fullColorLogo": true,
   "note": "Jackett has no password at first. Set an admin password at the bottom of the dashboard right away.",
   "expose": {
     "service": "jackett",

@@ -4,6 +4,7 @@
   "category": "CMS",
   "website": "https://www.classicpress.net",
   "color": "#057F99",
+  "fullColorLogo": true,
   "note": "This needs an outside MySQL or MariaDB database, for example a Serve database service in the same project. Fill in its host, user, password and database name.",
   "expose": {
     "service": "classicpress",

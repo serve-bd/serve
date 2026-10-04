@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://bpatrik.github.io/pigallery2",
   "color": "#F57C00",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the password admin and change it in Settings. Put photos in the pigallery2-images volume.",
   "expose": {
     "service": "pigallery2",

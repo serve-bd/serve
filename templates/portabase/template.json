@@ -4,6 +4,7 @@
   "category": "Databases",
   "website": "https://portabase.io",
   "color": "#1E293B",
+  "fullColorLogo": true,
   "note": "Create the admin account on the first visit, then add an agent next to each database you want to back up.",
   "expose": {
     "service": "portabase",

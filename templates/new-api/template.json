@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://github.com/QuantumNous/new-api",
   "color": "#1E293B",
+  "fullColorLogo": true,
   "note": "Open the domain to finish the setup and create the admin account.",
   "expose": {
     "service": "new-api",

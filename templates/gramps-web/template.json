@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://www.grampsweb.org",
   "color": "#6D4C41",
+  "fullColorLogo": true,
   "note": "Open the domain to create the owner account on first visit.",
   "expose": {
     "service": "grampsweb",

@@ -192,10 +192,12 @@ export async function templateLogo(id: string): Promise<string | null> {
   return (await catalog()).logos.get(id) ?? bundled().logos.get(id) ?? null;
 }
 
-export type TemplateBrands = Record<string, { color: string; logo: string | null }>;
+export type TemplateBrands = Record<string, { color: string; logo: string | null; fullColor?: boolean }>;
 
 /** Tile colour and logo URL of every template (dropped ones too, for services made from them). */
 export async function templateBrands(): Promise<TemplateBrands> {
   const list = [...bundled().templates, ...(await getTemplates())];
-  return Object.fromEntries(list.map((t) => [t.id, { color: t.color, logo: t.logo ? `/api/templates/${t.id}/logo?v=${t.logo}` : null }]));
+  return Object.fromEntries(
+    list.map((t) => [t.id, { color: t.color, logo: t.logo ? `/api/templates/${t.id}/logo?v=${t.logo}` : null, ...(t.logo && t.fullColorLogo ? { fullColor: true } : {}) }]),
+  );
 }

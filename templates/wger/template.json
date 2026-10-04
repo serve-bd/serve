@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://wger.de",
   "color": "#2A4C7D",
+  "fullColorLogo": true,
   "note": "The first start takes a few minutes. Log in as admin with password adminadmin, then change the password.",
   "expose": {
     "service": "nginx",

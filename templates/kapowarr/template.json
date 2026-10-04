@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://casvt.github.io/Kapowarr/",
   "color": "#F59E0B",
+  "fullColorLogo": true,
   "note": "There is no login by default: set a password in Settings, General. Add /comics as the root folder.",
   "expose": {
     "service": "kapowarr",

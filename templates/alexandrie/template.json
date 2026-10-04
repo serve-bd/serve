@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://alexandrie-hub.fr",
   "color": "#6366F1",
+  "fullColorLogo": true,
   "note": "Create your account on the first visit.",
   "expose": {
     "service": "caddy",

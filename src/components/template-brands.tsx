@@ -7,7 +7,12 @@ import * as React from "react";
  * the server; templates it does not know and organization templates get a lettered tile in a
  * colour picked from their name.
  */
-export type TemplateBrand = { color: string; logo: string | null };
+export type TemplateBrand = {
+  color: string;
+  logo: string | null;
+  /** The logo keeps its own colours, on a plain tile. */
+  fullColor?: boolean;
+};
 
 const BrandsContext = React.createContext<Record<string, TemplateBrand>>({});
 

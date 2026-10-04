@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://handbrake.fr",
   "color": "#D9532C",
+  "fullColorLogo": true,
   "note": "Sign in with the username and password from the configure step. Files to convert go in the storage or watch volume. Results land in the output volume.",
   "expose": {
     "service": "handbrake",

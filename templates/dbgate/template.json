@@ -4,6 +4,7 @@
   "category": "Databases",
   "website": "https://dbgate.org",
   "color": "#1B6EC2",
+  "fullColorLogo": true,
   "note": "Sign in with the username and password shown here, then add a connection to your database.",
   "expose": {
     "service": "dbgate",

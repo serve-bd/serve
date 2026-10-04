@@ -4,6 +4,7 @@
   "category": "Analytics",
   "website": "https://wakapi.dev",
   "color": "#2F855A",
+  "fullColorLogo": true,
   "note": "Sign up on the first visit. Point the WakaTime plugins at <domain>/api with your Wakapi API key.",
   "expose": {
     "service": "wakapi",

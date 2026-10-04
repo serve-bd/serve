@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://microbin.eu",
   "color": "#4E7BB8",
+  "fullColorLogo": true,
   "note": "Anyone with the address can upload. The admin page is at /admin: sign in with the admin user and the generated password (Variables tab).",
   "expose": {
     "service": "microbin",

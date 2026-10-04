@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://github.com/bastienwirtz/homer",
   "color": "#3367D6",
+  "fullColorLogo": true,
   "note": "Edit config.yml in the homer-assets volume to add your links.",
   "expose": {
     "service": "homer",

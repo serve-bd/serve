@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://komo.do",
   "color": "#14B8A6",
+  "fullColorLogo": true,
   "hostAccess": true,
   "note": "Has full control of Docker on the server. Log in as admin with the generated admin password. Stacks and repos are kept in /etc/komodo on the server.",
   "expose": {

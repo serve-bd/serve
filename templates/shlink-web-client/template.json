@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://shlink.io",
   "color": "#4696E5",
+  "fullColorLogo": true,
   "note": "Add your Shlink server's URL and API key in the app. They are saved in your browser only.",
   "expose": {
     "service": "shlink-web-client",

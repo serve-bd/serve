@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://rallly.co",
   "color": "#4F46E5",
+  "fullColorLogo": true,
   "note": "Sign in uses a code sent by email, so fill in the SMTP values. The admin email becomes the instance admin.",
   "expose": {
     "service": "rallly",

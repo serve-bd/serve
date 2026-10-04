@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://beszel.dev",
   "color": "#18181B",
+  "fullColorLogo": true,
   "note": "Sign in with the admin email and the generated admin password (Variables tab). Then add each server with Add System, which gives the agent command to run there.",
   "expose": {
     "service": "beszel",

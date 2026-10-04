@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://github.com/we-promise/sure",
   "color": "#141414",
+  "fullColorLogo": true,
   "note": "Create your account on the first visit. A worker container runs the background jobs.",
   "expose": {
     "service": "web",

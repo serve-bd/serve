@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://github.com/yourselfhosted/slash",
   "color": "#0F172A",
+  "fullColorLogo": true,
   "note": "The first account you sign up with becomes the admin.",
   "expose": {
     "service": "slash",

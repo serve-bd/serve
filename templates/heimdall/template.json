@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://heimdall.site",
   "color": "#2B6CB0",
+  "fullColorLogo": true,
   "note": "Has no login by default. Keep the domain private (IP allowlist) or remove it, or set a password for the admin user in Users.",
   "expose": {
     "service": "heimdall",

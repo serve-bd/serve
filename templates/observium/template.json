@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://www.observium.org",
   "color": "#1F5F99",
+  "fullColorLogo": true,
   "note": "Runs on x86-64 servers only. Sign in with the admin user and password below, then add devices from the web UI.",
   "expose": {
     "service": "observium",

@@ -4,6 +4,7 @@
   "category": "Storage",
   "website": "https://pydio.com",
   "color": "#134E6F",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the generated admin password (Variables tab). The first start takes a minute while Cells sets up the database.",
   "expose": {
     "service": "cells",

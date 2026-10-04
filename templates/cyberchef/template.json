@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://gchq.github.io/CyberChef/",
   "color": "#4D8EC3",
+  "fullColorLogo": true,
   "expose": {
     "service": "cyberchef",
     "port": 8080

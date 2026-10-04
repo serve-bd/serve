@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://donetick.com",
   "color": "#06B6D4",
+  "fullColorLogo": true,
   "note": "Open the site and sign up to make the first account.",
   "expose": {
     "service": "donetick",

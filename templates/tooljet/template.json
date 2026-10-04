@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://www.tooljet.com",
   "color": "#3E63DD",
+  "fullColorLogo": true,
   "note": "Create the admin account on first visit.",
   "expose": {
     "service": "tooljet",

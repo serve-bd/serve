@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://nicolargo.github.io/glances/",
   "color": "#6CC24A",
+  "fullColorLogo": true,
   "hostAccess": true,
   "note": "Reads the host's processes and the Docker socket, and the web UI has no login. Keep the domain private (IP allowlist) or remove it.",
   "expose": {

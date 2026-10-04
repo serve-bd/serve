@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://9router.com",
   "color": "#111827",
+  "fullColorLogo": true,
   "note": "Sign in to the dashboard with the generated password (Variables tab). Point your coding tools at the domain with /v1 as the OpenAI-compatible base URL.",
   "expose": {
     "service": "9router",

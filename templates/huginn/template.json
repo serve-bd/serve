@@ -4,6 +4,7 @@
   "category": "Automation",
   "website": "https://github.com/huginn/huginn",
   "color": "#2F4858",
+  "fullColorLogo": true,
   "note": "Log in as admin with the generated admin password.",
   "expose": {
     "service": "huginn",

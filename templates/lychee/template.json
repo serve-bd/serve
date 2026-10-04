@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://lycheeorg.dev",
   "color": "#E8384F",
+  "fullColorLogo": true,
   "note": "Create the admin account on your first visit.",
   "expose": {
     "service": "lychee",

@@ -33,6 +33,14 @@ export function ServiceIcon({
   const iconBrand = useTemplateBrand(icon ?? "");
   const brand = !engine && icon && !icon.startsWith("custom:") ? iconBrand : null;
   const color = engine ? engineColors[engine] : brand?.color;
+  // A logo in its own colours: on a plain tile.
+  if (!engine && brand?.logo && brand.fullColor) {
+    return (
+      <span className={cn("flex shrink-0 items-center justify-center overflow-hidden border border-black/10 bg-white shadow-sm", dims, className)}>
+        <img src={brand.logo} alt="" className="size-[70%] object-contain" draggable={false} />
+      </span>
+    );
+  }
   if (color) {
     return (
       <span

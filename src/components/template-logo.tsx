@@ -21,10 +21,20 @@ export function TemplateLogo({
 }) {
   const brand = useTemplateBrand(custom ? name.toLowerCase() : id);
   const dims = { sm: "size-7 rounded-lg text-[12px]", md: "size-10 rounded-xl text-[15px]", lg: "size-12 rounded-[14px] text-[17px]" }[size];
-  if (iconUrl) {
+  // A custom image, or a logo in its own colours: on a plain tile.
+  const plain = iconUrl ?? (brand.fullColor && !custom ? brand.logo : null);
+  if (plain) {
     return (
-      <span className={cn("flex shrink-0 items-center justify-center overflow-hidden border border-line bg-surface-2 shadow-sm", dims, className)}>
-        <img src={iconUrl} alt="" className="size-[70%] object-contain" draggable={false} />
+      <span
+        className={cn(
+          "flex shrink-0 items-center justify-center overflow-hidden border shadow-sm",
+          // Logos in their own colours are drawn for light backgrounds: white in both themes.
+          !iconUrl ? "border-black/10 bg-white" : "border-line bg-surface-2",
+          dims,
+          className,
+        )}
+      >
+        <img src={plain} alt="" className="size-[70%] object-contain" draggable={false} />
       </span>
     );
   }

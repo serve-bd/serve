@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://docs.2fauth.app",
   "color": "#1F6FB2",
+  "fullColorLogo": true,
   "note": "Register right after it starts: the first account becomes the administrator.",
   "expose": {
     "service": "2fauth",

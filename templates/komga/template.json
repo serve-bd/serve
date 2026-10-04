@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://komga.org",
   "color": "#005ED3",
+  "fullColorLogo": true,
   "note": "Create the admin account on first visit. Put your books in the komga-data volume, or replace it with a directory mount in Persistent storage.",
   "expose": {
     "service": "komga",

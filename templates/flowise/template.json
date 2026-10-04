@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://flowiseai.com",
   "color": "#4F46E5",
+  "fullColorLogo": true,
   "expose": {
     "service": "flowise",
     "port": 3000

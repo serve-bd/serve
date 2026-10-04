@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://github.com/AlexxIT/go2rtc",
   "color": "#0EA5E9",
+  "fullColorLogo": true,
   "note": "Sign in with the username and password from the configure step. Add streams in the config editor. For WebRTC publish port 8555 (TCP and UDP) in Domains & ports.",
   "expose": {
     "service": "go2rtc",

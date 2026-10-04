@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://github.com/FlareSolverr/FlareSolverr",
   "color": "#6D28D9",
+  "fullColorLogo": true,
   "note": "FlareSolverr has no login. Anyone with its address can use it, so keep the address to yourself.",
   "expose": {
     "service": "flaresolverr",

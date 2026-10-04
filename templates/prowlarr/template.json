@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://prowlarr.com",
   "color": "#E66000",
+  "fullColorLogo": true,
   "note": "Choose the login method on first visit, then add your indexers and the apps to sync them to.",
   "expose": {
     "service": "prowlarr",

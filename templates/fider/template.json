@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://fider.io",
   "color": "#2B2D42",
+  "fullColorLogo": true,
   "note": "Sign up and sign in use links sent by email, so fill in the SMTP values. The first sign up makes the admin account.",
   "expose": {
     "service": "fider",

@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://github.com/kieraneglin/pinchflat",
   "color": "#EF4444",
+  "fullColorLogo": true,
   "note": "Sign in with the username and password from the configure step.",
   "expose": {
     "service": "pinchflat",

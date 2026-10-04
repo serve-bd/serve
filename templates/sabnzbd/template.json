@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://sabnzbd.org",
   "color": "#F5C400",
+  "fullColorLogo": true,
   "note": "A setup wizard opens on first visit. Add your Usenet server there, then set a username and password in Config > General.",
   "expose": {
     "service": "sabnzbd",

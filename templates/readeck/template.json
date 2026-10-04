@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://readeck.org",
   "color": "#0D8A9E",
+  "fullColorLogo": true,
   "note": "Open the site right away to create the first account.",
   "expose": {
     "service": "readeck",

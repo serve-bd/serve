@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://silverbullet.md",
   "color": "#2D4B7A",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the generated password (Variables tab).",
   "expose": {
     "service": "silverbullet",

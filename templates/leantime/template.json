@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://leantime.io",
   "color": "#006D9F",
+  "fullColorLogo": true,
   "note": "The first visit opens the installer, where you create the admin account.",
   "expose": {
     "service": "leantime",

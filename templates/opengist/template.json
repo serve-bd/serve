@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://opengist.io",
   "color": "#E9762B",
+  "fullColorLogo": true,
   "note": "Open the site right away and register: the first account becomes the admin.",
   "expose": {
     "service": "opengist",

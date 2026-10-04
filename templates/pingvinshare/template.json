@@ -4,6 +4,7 @@
   "category": "Storage",
   "website": "https://github.com/stonith404/pingvin-share",
   "color": "#46509E",
+  "fullColorLogo": true,
   "note": "The first account you create becomes the admin. Set the app URL to this domain in the admin settings so share links are correct.",
   "expose": {
     "service": "pingvin-share",

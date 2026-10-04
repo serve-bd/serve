@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://wekan.fi",
   "color": "#00796B",
+  "fullColorLogo": true,
   "note": "The first account you register becomes the admin.",
   "expose": {
     "service": "wekan",

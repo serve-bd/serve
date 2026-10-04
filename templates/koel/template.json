@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://koel.dev",
   "color": "#F97316",
+  "fullColorLogo": true,
   "note": "Sign in as admin@koel.dev with the password KoelIsCool and change both in your profile. Put music in the koel-music volume.",
   "expose": {
     "service": "koel",

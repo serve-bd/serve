@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://www.xwiki.org",
   "color": "#F57C00",
+  "fullColorLogo": true,
   "note": "The first start takes a few minutes. Open the site to run the setup wizard, which creates the admin account.",
   "expose": {
     "service": "xwiki",

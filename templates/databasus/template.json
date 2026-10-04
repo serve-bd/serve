@@ -4,6 +4,7 @@
   "category": "Databases",
   "website": "https://databasus.com",
   "color": "#155DFC",
+  "fullColorLogo": true,
   "note": "Open the domain right away: the first account you create becomes the admin.",
   "expose": {
     "service": "databasus",

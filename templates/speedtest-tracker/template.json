@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://speedtest-tracker.dev",
   "color": "#F59E0B",
+  "fullColorLogo": true,
   "note": "Sign in with the admin email and the generated password (Variables tab). Tests run every 6 hours.",
   "expose": {
     "service": "speedtest-tracker",

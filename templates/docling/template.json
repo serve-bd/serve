@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://github.com/docling-project/docling-serve",
   "color": "#1F2937",
+  "fullColorLogo": true,
   "note": "The web UI is at /ui. Every request needs the X-Api-Key header with the API key (Variables tab). The image is large and runs on CPU.",
   "expose": {
     "service": "docling",

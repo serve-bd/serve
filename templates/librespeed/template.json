@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://librespeed.org",
   "color": "#2E7D32",
+  "fullColorLogo": true,
   "expose": {
     "service": "librespeed",
     "port": 8080

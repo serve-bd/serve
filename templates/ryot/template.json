@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://ryot.io",
   "color": "#5C7CFA",
+  "fullColorLogo": true,
   "note": "The first account you register becomes the admin.",
   "expose": {
     "service": "ryot",

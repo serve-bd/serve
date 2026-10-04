@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://www.stirlingpdf.com",
   "color": "#B91C1C",
+  "fullColorLogo": true,
   "expose": {
     "service": "stirling-pdf",
     "port": 8080

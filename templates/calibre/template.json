@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://calibre-ebook.com",
   "color": "#8B5A2B",
+  "fullColorLogo": true,
   "note": "Sign in with the username and password from the configure step. On first start choose /config/Calibre Library as the library folder.",
   "expose": {
     "service": "calibre",

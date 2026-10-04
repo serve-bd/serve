@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://dockge.kuma.pet",
   "color": "#74C2FF",
+  "fullColorLogo": true,
   "hostAccess": true,
   "note": "Uses the Docker socket and keeps stacks in /opt/stacks on the host. Open it right away and create the admin account.",
   "expose": {

@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://castopod.org",
   "color": "#009486",
+  "fullColorLogo": true,
   "note": "Open /cp-install on the domain to create the first admin account.",
   "expose": {
     "service": "castopod",

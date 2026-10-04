@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://shlink.io",
   "color": "#4696E5",
+  "fullColorLogo": true,
   "note": "Has no UI of its own. Manage links with the Shlink web client, using this domain and the generated API key (Variables tab).",
   "expose": {
     "service": "shlink",

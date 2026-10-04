@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://slskd.org",
   "color": "#1F8B4C",
+  "fullColorLogo": true,
   "note": "Sign in with the username and password from the configure step. Add your Soulseek username and password in Options. For incoming peer connections publish port 50300 (TCP) in Domains & ports.",
   "expose": {
     "service": "slskd",

@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://invoiceplane.com",
   "color": "#429AE1",
+  "fullColorLogo": true,
   "note": "Open the site and follow the setup wizard. The database settings are filled in already. The last step makes the admin account.",
   "expose": {
     "service": "invoiceplane",

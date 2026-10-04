@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://github.com/redlib-org/redlib",
   "color": "#D54455",
+  "fullColorLogo": true,
   "expose": {
     "service": "redlib",
     "port": 8080

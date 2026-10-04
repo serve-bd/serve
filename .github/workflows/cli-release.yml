@@ -1,0 +1,66 @@
+name: CLI release
+
+# The serve CLI is released with Serve: each tag like v0.4.0 gets serve_<version>_<os>_<arch>
+# archives and checksums.txt on its GitHub release, which install-cli.sh and `serve version` use.
+# It runs after the Image workflow of the tag has published the release, so instances never see
+# a release before its image exists. Run it by hand to attach the archives to a release again.
+on:
+  workflow_run:
+    workflows: [Image]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach, like v0.4.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Test
+        working-directory: cli
+        run: |
+          go vet ./...
+          go test ./...
+      - name: Build
+        working-directory: cli
+        run: |
+          commit="$(git rev-parse --short HEAD)"
+          date="$(date -u +%Y-%m-%d)"
+          mkdir -p build dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}" arch="${target#*/}"
+            name="serve_${TAG#v}_${os}_${arch}"
+            exe=serve
+            [ "$os" = windows ] && exe=serve.exe
+            mkdir -p "build/$name"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X main.version=$TAG -X main.commit=$commit -X main.date=$date" \
+              -o "build/$name/$exe" ./cmd/serve
+            cp README.md ../LICENSE "build/$name/"
+            if [ "$os" = windows ]; then
+              (cd build && zip -qr "../dist/$name.zip" "$name")
+            else
+              tar -C build -czf "dist/$name.tar.gz" "$name"
+            fi
+          done
+          (cd dist && sha256sum -- * > checksums.txt)
+          cat dist/checksums.txt
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" cli/dist/* --clobber --repo "$GITHUB_REPOSITORY"

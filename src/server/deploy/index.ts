@@ -664,7 +664,7 @@ async function runOnServer(opts: {
       service,
       dep,
       image,
-      env: replicaEnv({ ...env.runtime, ...env.replicas[1] }, 0, replicaTotal),
+      env: replicaEnv({ ...env.runtime, ...env.replicas[1] }, 0, replicaTotal, env.literal),
       runtime,
       network,
       d,
@@ -720,7 +720,7 @@ async function runOnServer(opts: {
           serviceId: service.id,
           deploymentId: dep.id,
           kind: "app",
-          env: replicaEnv({ ...env.runtime, ...env.replicas[replicaOffset + i + 1] }, replicaOffset + i, replicaTotal),
+          env: replicaEnv({ ...env.runtime, ...env.replicas[replicaOffset + i + 1] }, replicaOffset + i, replicaTotal, env.literal),
           runtime,
           aliases: networkAliases(service),
           network,
@@ -1140,8 +1140,8 @@ export async function deployDatabase(service: Service, log: DeployLogger | null,
 /* -------------------------------------------------------------------------- */
 
 /** A compose stack is one copy: replica references mean the first and only one. */
-function composeVars(env: Record<string, string>) {
-  const { SERVE_REPLICA_INDEX: _i, SERVE_REPLICA_COUNT: _c, ...vars } = replicaEnv(env, 0, 1);
+function composeVars(env: Record<string, string>, literal: readonly string[] = []) {
+  const { SERVE_REPLICA_INDEX: _i, SERVE_REPLICA_COUNT: _c, ...vars } = replicaEnv(env, 0, 1, literal);
   return vars;
 }
 
@@ -1314,7 +1314,7 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
     projectName: service.slug,
     dir,
     file: ".serve-compose.yml",
-    vars: composeVars(env.runtime),
+    vars: composeVars(env.runtime, env.literal),
     log: log.line,
     signal,
     redact: env.secrets,

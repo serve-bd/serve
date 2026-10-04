@@ -1,4 +1,4 @@
-import { withoutHostAccess, withoutOutsideResources } from "@/server/services/types";
+import { hostAccessLoss, withoutHostAccess, withoutOutsideResources } from "@/server/services/types";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -103,7 +103,10 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
       if (s.database?.backupSchedule) notes.add("Backup schedules are off in the copy.");
     }
     if (s.runtime.ports.length || s.compose?.ports?.length) notes.add("Published host ports are left out, so they do not clash with the original.");
-    if (s.runtime.volumes.some((v) => v.kind === "bind")) notes.add("Bind mounts still point at the same folders on the server as the original.");
+    if (!opts.hostAccess) {
+      const lost = hostAccessLoss(s.runtime, s.compose);
+      if (lost) notes.add(lost);
+    } else if (s.runtime.volumes.some((v) => v.kind === "bind")) notes.add("Bind mounts still point at the same folders on the server as the original.");
     if (s.source?.type === "git" && s.autoDeploy) notes.add("Deploy on push is off in the copy. Turn it on in Settings → Source.");
     rows.push({
       id,
@@ -423,7 +426,7 @@ export async function createPreviewDatabase(preview: Service, parent: Service, p
   await db
     .insert(schema.envVar)
     .values({ id: newId(), serviceId: preview.id, key: cfg.variable, value, buildTime: false, runtime: true })
-    .onConflictDoUpdate({ target: [schema.envVar.serviceId, schema.envVar.key], set: { value } });
+    .onConflictDoUpdate({ target: [schema.envVar.serviceId, schema.envVar.key], set: { value, literal: false } });
   return id;
 }
 

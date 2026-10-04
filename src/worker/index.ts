@@ -153,6 +153,15 @@ async function timeoutOf(job: Job) {
       .where(eq(schema.taskRun.id, p.runId));
     return jobTimeoutMinutes(job.type, { taskTimeoutSeconds: row?.timeoutSeconds });
   }
+  if (job.type === "backup.run") {
+    const [row] = await db
+      .select({ target: schema.backup.target, database: schema.service.database, composeBackups: schema.service.composeBackups })
+      .from(schema.backup)
+      .innerJoin(schema.service, eq(schema.service.id, schema.backup.serviceId))
+      .where(eq(schema.backup.id, p.backupId));
+    const minutes = row?.target ? row.composeBackups?.[row.target]?.timeoutMinutes : row?.database?.backupTimeoutMinutes;
+    return jobTimeoutMinutes(job.type, { backupTimeoutMinutes: minutes });
+  }
   return jobTimeoutMinutes(job.type);
 }
 
@@ -256,15 +265,8 @@ async function settleTimedOut(job: Job, error: string) {
     case "proxy.switch":
       return failProxySwitch(p.serverId, `${error} Switch again to finish it.`);
     case "server.os-updates": {
-      // An install that never finished says so, instead of running for ever on the page.
-      const [row] = await db.select({ osUpdates: schema.server.osUpdates }).from(schema.server).where(eq(schema.server.id, p.serverId));
-      const run = row?.osUpdates?.run;
-      if (row?.osUpdates && run?.state === "running")
-        await db
-          .update(schema.server)
-          .set({ osUpdates: { ...row.osUpdates, run: { ...run, state: "failed", finishedAt: new Date().toISOString(), error } } })
-          .where(eq(schema.server.id, p.serverId));
-      return;
+      const { failOsUpdateRun } = await import("@/server/servers/os-updates");
+      return failOsUpdateRun(p.serverId, error);
     }
     case "database.branch":
       return failBranch(job.payload as JobPayloads["database.branch"], error);
@@ -664,6 +666,12 @@ async function recover() {
   // which deploys wait for and the health probe skips: it runs again.
   for (const j of stale as unknown as { type: string; payload: JobPayloads["server.setup"] }[]) {
     if (j.type === "server.setup" && j.payload?.serverId) await enqueue("server.setup", j.payload, { concurrencyKey: `server:${j.payload.serverId}` });
+  }
+  // An install cut off by the restart would show as running, and refuse every later install.
+  for (const j of stale as unknown as { type: string; payload: JobPayloads["server.os-updates"] }[]) {
+    if (j.type !== "server.os-updates" || !j.payload?.serverId) continue;
+    const { failOsUpdateRun } = await import("@/server/servers/os-updates");
+    await failOsUpdateRun(j.payload.serverId, "The worker restarted during the install. Check the server, then install again.").catch(() => {});
   }
   // A start cut off by the restart left "deploying", which the monitor does not look at: the containers say what runs.
   for (const j of stale as unknown as { type: string; payload: { serviceId?: string } }[]) {

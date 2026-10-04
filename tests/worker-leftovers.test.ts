@@ -43,6 +43,9 @@ describe("job time limits", () => {
     expect(jobTimeoutMinutes("deploy")).toBe(120);
     // A server's own deployment limit wins, shorter or longer than the build's.
     expect(jobTimeoutMinutes("deploy", { serverDeployMinutes: 15, buildTimeoutMinutes: 240 })).toBe(15);
+    // A backup's own longer limit: the job waits for it, plus an hour for the upload.
+    expect(jobTimeoutMinutes("backup.run", { backupTimeoutMinutes: 720 })).toBe(780);
+    expect(jobTimeoutMinutes("backup.run", { backupTimeoutMinutes: 30 })).toBe(360);
     expect(jobTimeoutMinutes("deploy", { serverDeployMinutes: 600 })).toBe(600);
     expect(jobTimeoutMinutes("backup.restore")).toBeGreaterThanOrEqual(120);
     expect(jobTimeoutMinutes("server.setup")).toBe(120);

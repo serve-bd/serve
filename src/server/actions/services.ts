@@ -831,6 +831,10 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       if (grantsHost) assertHostAccess(ctx, "Privileged mode and extra capabilities");
       if (data.runtime.securityOpt?.some((o) => !(service.runtime.securityOpt ?? []).includes(o))) assertHostAccess(ctx, "Security options");
       if (runtime.swapLimit != null && !runtime.memoryLimit) throw new UserError("Set a memory limit first: swap is added on top of it.");
+      // Both reach past the organization's limits on a shared server: swap on top of its memory (0, none, is fine), a CPU share over the default.
+      if (data.runtime.swapLimit && data.runtime.swapLimit !== service.runtime.swapLimit) assertHostAccess(ctx, "Swap");
+      if (data.runtime.cpuWeight != null && data.runtime.cpuWeight > 1024 && data.runtime.cpuWeight !== service.runtime.cpuWeight)
+        assertHostAccess(ctx, "A CPU weight above the default (1024)");
       const grantsHardware =
         (!!data.runtime.gpus && data.runtime.gpus !== service.runtime.gpus) ||
         (!!data.runtime.devices?.length && JSON.stringify(data.runtime.devices) !== JSON.stringify(service.runtime.devices ?? []));

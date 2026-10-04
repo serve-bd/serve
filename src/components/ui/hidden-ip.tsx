@@ -3,7 +3,8 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+// IPv4, and IPv6 (two colons or more, so host:port stays readable).
+const IP = /\b(?:\d{1,3}\.){3}\d{1,3}\b|(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}/gi;
 
 /**
  * Text with its IP addresses blurred until clicked, so a shared screen does not show where the
@@ -12,7 +13,7 @@ const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
 export function HiddenIp({ text, className }: { text: string; className?: string }) {
   const parts: React.ReactNode[] = [];
   let last = 0;
-  for (const m of text.matchAll(IPV4)) {
+  for (const m of text.matchAll(IP)) {
     parts.push(text.slice(last, m.index));
     parts.push(<BlurredIp key={m.index} ip={m[0]} />);
     last = m.index + m[0].length;

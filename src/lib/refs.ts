@@ -101,13 +101,16 @@ export function replicaCount(replicas: number | null | undefined, extraServers =
  * The environment of one replica: fills the replica references and sets SERVE_REPLICA_INDEX
  * (from 0) and SERVE_REPLICA_COUNT, e.g. SHARD_ID=${{replica.index}} for a sharded bot.
  */
-export function replicaEnv(env: Record<string, string>, index: number, count: number): Record<string, string> {
+export function replicaEnv(env: Record<string, string>, index: number, count: number, literal: readonly string[] = []): Record<string, string> {
   const values = { index: String(index), number: String(index + 1), count: String(count) } as const;
   const out: Record<string, string> = { SERVE_REPLICA_INDEX: values.index, SERVE_REPLICA_COUNT: values.count };
+  // Literal values stay as written.
   for (const [k, v] of Object.entries(env))
-    out[k] = v.replace(REPLICA_REF, (_m, part: string | undefined, list: string | undefined) =>
-      part ? values[part.toLowerCase() as keyof typeof values] : (pickList(list ?? "")[index] ?? ""),
-    );
+    out[k] = literal.includes(k)
+      ? v
+      : v.replace(REPLICA_REF, (_m, part: string | undefined, list: string | undefined) =>
+          part ? values[part.toLowerCase() as keyof typeof values] : (pickList(list ?? "")[index] ?? ""),
+        );
   return out;
 }
 

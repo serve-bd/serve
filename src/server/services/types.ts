@@ -442,7 +442,26 @@ export function withoutHostAccess(r: RuntimeConfig): RuntimeConfig {
     securityOpt: [],
     gpus: null,
     devices: [],
+    // Past the organization's own limits on a shared server: swap (0, none, stays) and a CPU share over the default.
+    swapLimit: r.swapLimit ? null : r.swapLimit,
+    cpuWeight: r.cpuWeight && r.cpuWeight > 1024 ? null : r.cpuWeight,
   };
+}
+
+/** What a copy without host access loses (withoutHostAccess), said in the copy's notes. Null when nothing. */
+export function hostAccessLoss(r: RuntimeConfig, compose?: { hostAccess?: boolean } | null): string | null {
+  const lost = [
+    r.volumes.some((v) => v.kind === "bind") && "bind mounts",
+    r.privileged && "privileged mode",
+    r.capAdd?.length && "added capabilities",
+    r.securityOpt?.length && "security options",
+    r.gpus && "GPUs",
+    r.devices?.length && "devices",
+    r.swapLimit && "swap",
+    r.cpuWeight && r.cpuWeight > 1024 && "the CPU weight",
+    compose?.hostAccess && "the compose file's host access",
+  ].filter((x): x is string => !!x);
+  return lost.length ? `Left out of the copy, because only Root admins set them: ${lost.join(", ")}.` : null;
 }
 
 /** Whether a service keeps data or names outside Serve (it was moved in): such a service stays on its server. */

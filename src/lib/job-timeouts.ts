@@ -45,6 +45,8 @@ export type JobTimeoutHints = {
   taskTimeoutSeconds?: number | null;
   /** The deployment time limit of the service's server (deploys). */
   serverDeployMinutes?: number | null;
+  /** The backup's own time limit, which stops the dump itself (backups). */
+  backupTimeoutMinutes?: number | null;
 };
 
 /** Minutes a job of this type may run before the worker gives up on it. */
@@ -54,6 +56,8 @@ export function jobTimeoutMinutes(type: string, hints: JobTimeoutHints = {}): nu
   if (type === "deploy" && hints.serverDeployMinutes) return hints.serverDeployMinutes;
   // A service may allow its build up to 4 hours, and a task up to a day: the job outlives both.
   if (type === "deploy" && hints.buildTimeoutMinutes) return Math.max(base, hints.buildTimeoutMinutes + HOUR);
+  // A backup's own limit stops the dump and its processes: the job waits a little longer, for that and the upload.
+  if (type === "backup.run" && hints.backupTimeoutMinutes) return Math.max(base, hints.backupTimeoutMinutes + HOUR);
   if (type === "task.run" && hints.taskTimeoutSeconds) return Math.max(base, Math.ceil(hints.taskTimeoutSeconds / 60) + 15);
   return base;
 }

@@ -97,6 +97,8 @@ export type ResolvedEnv = {
   failedSecrets: string[];
   /** Runtime variables of single replicas, by replica number (from 1); they win over `runtime`. */
   replicas: Record<number, Record<string, string>>;
+  /** Keys whose values stay as written: replica references in them are not filled either. */
+  literal?: string[];
 };
 
 /** Resolve service variables, shared variables and ${{ref}} references. */
@@ -273,14 +275,16 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   const build: Record<string, string> = {};
   // Shared variables only reach a service through references like KEY=${{environment.KEY}}.
   if (service.type === "app" && service.runtime.port) runtime.PORT = String(service.runtime.port);
+  const literal: string[] = [];
   for (const [k, v] of Object.entries(ownRaw)) {
+    if (v.literal) literal.push(k);
     const value = v.literal ? v.value : expand(v.value);
     if (v.runtime) runtime[k] = value;
     if (v.build) build[k] = value;
   }
 
   // Builds happen once: they see the first replica.
-  Object.assign(build, replicaEnv(build, 0, service.type === "app" ? replicaCount(service.runtime.replicas, service.distribution?.extraServerIds?.length ?? 0) : 1));
+  Object.assign(build, replicaEnv(build, 0, service.type === "app" ? replicaCount(service.runtime.replicas, service.distribution?.extraServerIds?.length ?? 0) : 1, literal));
   delete build.SERVE_REPLICA_INDEX;
   delete build.SERVE_REPLICA_COUNT;
 
@@ -312,6 +316,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     missing: [...missing].filter((m) => !failedRefs.has(m)),
     failedSecrets: secretRefs.errors.map((e) => `\${{${e.ref}}}: ${e.message}`),
     replicas,
+    literal,
   };
 }
 

@@ -190,6 +190,25 @@ export async function checkOsUpdates(serverId: string) {
  * out of "all"; on the local server they are refused, since updating them stops Serve itself.
  */
 export async function installOsUpdates(serverId: string, what: "all" | string[]) {
+  try {
+    await install(serverId, what);
+  } catch (error) {
+    // A refusal before the install began (nothing left to update, not checked) leaves the run the action marked as running.
+    await failOsUpdateRun(serverId, (error as Error).message);
+    throw error;
+  }
+  // The list changes with what was installed.
+  await checkOsUpdates(serverId).catch(() => {});
+}
+
+/** Marks a run that is still "running" as failed: refused, cut off or past its time limit. A finished run stays as it is. */
+export async function failOsUpdateRun(serverId: string, error: string) {
+  await save(serverId, (now) =>
+    now.run?.state === "running" ? { ...now, run: { ...now.run, state: "failed", finishedAt: new Date().toISOString(), error: error.slice(0, 1000) } } : now,
+  );
+}
+
+async function install(serverId: string, what: "all" | string[]) {
   const server = await getServer(serverId);
   const [row] = await db.select({ osUpdates: schema.server.osUpdates }).from(schema.server).where(eq(schema.server.id, serverId));
   const state = row?.osUpdates;
@@ -224,6 +243,9 @@ export async function installOsUpdates(serverId: string, what: "all" | string[])
       },
     });
     await pending;
+    // 124: the time limit cut it off. Over SSH the package manager may go on without Serve.
+    if (res.code === 124)
+      throw new Error("No result after 60 minutes: Serve stopped waiting. The package manager may still be running on the server; check it there before installing again.");
     if (res.code !== 0) throw new Error(`The package manager exited with code ${res.code}.${res.stderr ? ` ${res.stderr.trim().slice(-400)}` : ""}`);
     await save(serverId, (now) => ({ ...now, run: { state: "success", startedAt, finishedAt: new Date().toISOString(), what, error: null, log: log.slice(-60_000) } }));
   } catch (error) {
@@ -234,8 +256,6 @@ export async function installOsUpdates(serverId: string, what: "all" | string[])
     }));
     throw error;
   }
-  // The list changes with what was installed.
-  await checkOsUpdates(serverId).catch(() => {});
 }
 
 /** Weekly: servers not checked for a week are checked, and their organization hears of updates. Installs nothing. */

@@ -5,7 +5,7 @@ import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { HOSTNAME_RE } from "@/lib/hostname";
-import { withoutHostAccess, withoutOutsideResources, type DatabaseConfig } from "./types";
+import { hostAccessLoss, withoutHostAccess, withoutOutsideResources, type DatabaseConfig } from "./types";
 import { generatedHostname, newWebhookSecret, uniqueServiceName, uniqueServiceSlug } from "./create";
 
 type Service = typeof schema.service.$inferSelect;
@@ -67,7 +67,10 @@ export async function cloneService(source: Service, opts: CloneServiceOptions): 
     if (source.database?.backupSchedule) notes.add("The backup schedule is off in the copy.");
   }
   if (source.runtime.ports.length || source.compose?.ports?.length) notes.add("Published host ports are left out, so they do not clash with the original.");
-  if (source.runtime.volumes.some((v) => v.kind === "bind")) notes.add("Bind mounts still point at the same folders on the server.");
+  if (!opts.hostAccess) {
+    const lost = hostAccessLoss(source.runtime, source.compose);
+    if (lost) notes.add(lost);
+  } else if (source.runtime.volumes.some((v) => v.kind === "bind")) notes.add("Bind mounts still point at the same folders on the server.");
   if (source.source?.type === "git" && source.autoDeploy) notes.add("Deploy on push is off in the copy. Turn it on in Settings → Source.");
   const extra = source.type === "app" ? (source.distribution?.extraServerIds ?? []) : [];
   if (!sameServer && extra.length) notes.add("Extra servers stay with the original: the copy runs on its own server only.");

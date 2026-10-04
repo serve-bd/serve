@@ -627,7 +627,7 @@ export async function createPreviewBranch(preview: Service, source: Service, prN
   await db
     .insert(schema.envVar)
     .values({ id: newId(), serviceId: preview.id, key: variable, value, buildTime: false, runtime: true })
-    .onConflictDoUpdate({ target: [schema.envVar.serviceId, schema.envVar.key], set: { value } });
+    .onConflictDoUpdate({ target: [schema.envVar.serviceId, schema.envVar.key], set: { value, literal: false } });
   return branch;
 }
 

@@ -1,4 +1,6 @@
 import { and, asc, count, desc, eq, gt, inArray } from "drizzle-orm";
+import { redirect } from "next/navigation";
+import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { JobsView } from "./jobs-view";
@@ -45,6 +47,8 @@ async function subjects(jobs: (typeof schema.job.$inferSelect)[]) {
 }
 
 export default async function JobsPage() {
+  // Jobs of every organization: checked here too, not only by the layout (a page can render without it).
+  if (!(await requireOrg()).isInstanceAdmin) redirect("/");
   const since = new Date(Date.now() - 7 * DAY);
   const [schedulers, active, failed, doneByType, settings] = await Promise.all([
     db.select().from(schema.schedulerRun).orderBy(asc(schema.schedulerRun.name)),

@@ -14,6 +14,11 @@ describe("replicaEnv", () => {
     });
   });
 
+  it("leaves literal values as written", () => {
+    const env = { NAME: "worker-${{replica.index}}", ID: "${{replica.index}}" };
+    expect(replicaEnv(env, 1, 2, ["NAME"])).toMatchObject({ NAME: "worker-${{replica.index}}", ID: "1" });
+  });
+
   it("gives each replica its own values without changing the input", () => {
     const env = { SHARD_ID: "${{replica.index}}" };
     expect([0, 1, 2, 3].map((i) => replicaEnv(env, i, 4).SHARD_ID)).toEqual(["0", "1", "2", "3"]);

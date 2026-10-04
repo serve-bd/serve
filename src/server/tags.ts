@@ -90,7 +90,11 @@ export async function deployTag(tagId: string, opts: { trigger: DeploymentTrigge
       continue;
     }
     try {
-      queued.push({ serviceId: s.id, deploymentId: await queueDeployment(s.id, opts.trigger, { userId: opts.userId ?? null }) });
+      const deploymentId = await queueDeployment(s.id, opts.trigger, { userId: opts.userId ?? null });
+      // A hook call (no user) gets a cancelled record when a freeze or a full queue skips it.
+      const [d] = await db.select({ status: schema.deployment.status, error: schema.deployment.error }).from(schema.deployment).where(eq(schema.deployment.id, deploymentId));
+      if (d?.status === "cancelled") skipped.push({ service: s.name, reason: d.error ?? "skipped" });
+      else queued.push({ serviceId: s.id, deploymentId });
     } catch (e) {
       skipped.push({ service: s.name, reason: (e as Error).message });
     }

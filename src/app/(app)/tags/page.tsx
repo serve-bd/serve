@@ -34,7 +34,8 @@ export default async function TagsPage() {
         )
         .orderBy(asc(schema.project.name), asc(schema.service.name))
     : [];
-  const canManage = ctx.can("services.manage");
+  // Tags span every project, and a hook deploys all of a tag's services: members limited to some projects only use them.
+  const canManage = ctx.can("services.manage") && !ctx.projectIds;
   const base = await publicBaseUrl();
   return (
     <>
@@ -51,7 +52,7 @@ export default async function TagsPage() {
             id: t.id,
             name: t.name,
             color: t.color,
-            // The hook carries its secret: only roles that manage services see it.
+            // The hook carries its secret: only members who manage tags see it.
             hook: canManage ? `${base}/api/deploy-hooks/tags/${t.id}?token=${t.deploySecret}` : null,
             services: links.filter((l) => l.tagId === t.id && ctx.canAccessProject(l.projectId)),
           }))}

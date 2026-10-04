@@ -49,6 +49,9 @@ async function removeUnusedNetworks(ctx: ServerCtx) {
   const joined = new Set<string>();
   const services = await db.select({ runtime: schema.service.runtime }).from(schema.service).where(eq(schema.service.serverId, ctx.id));
   for (const s of services) for (const n of s.runtime?.networks ?? []) joined.add(n.name);
+  // A stopped container keeps its networks (inspect lists only running ones): without them it cannot
+  // start again. The same rule as docker network prune.
+  for (const c of await ctx.docker.listContainers({ all: true })) for (const name of Object.keys(c.NetworkSettings?.Networks ?? {})) joined.add(name);
   let removed = 0;
   for (const n of await ctx.docker.listNetworks()) {
     if (["bridge", "host", "none"].includes(n.Name) || n.Labels?.[LABEL.managed] === "true" || joined.has(n.Name)) continue;

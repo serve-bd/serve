@@ -12,7 +12,8 @@ async function handle(request: NextRequest, tagId: string) {
     return NextResponse.json({ error: "Invalid deploy hook" }, { status: 401 });
   }
   const { queued, skipped } = await deployTag(tag.id, { trigger: "deploy-hook" });
-  return NextResponse.json({ ok: true, deployments: queued, skipped });
+  // ok is false when any service was skipped (a freeze, a full queue), so CI does not report success for it.
+  return NextResponse.json({ ok: skipped.length === 0, deployments: queued, skipped });
 }
 
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/deploy-hooks/tags/[tagId]">) {

@@ -21,6 +21,16 @@ async function tagInOrg(tagId: string, organizationId: string) {
   return row;
 }
 
+/**
+ * Tags and their deploy hooks span every project of the organization: only members who manage
+ * services and reach every project change them or see a hook (which deploys all of a tag's services).
+ */
+async function requireTagManager() {
+  const ctx = await requirePermission("services.manage");
+  if (ctx.projectIds) throw new UserError("Tags span every project: only members with access to all projects manage them.");
+  return ctx;
+}
+
 /** A clash with another tag of the organization, said plainly. */
 async function uniqueName(organizationId: string, name: string, except?: string) {
   const all = await db.select({ id: schema.tag.id, name: schema.tag.name }).from(schema.tag).where(eq(schema.tag.organizationId, organizationId));
@@ -29,7 +39,7 @@ async function uniqueName(organizationId: string, name: string, except?: string)
 
 export async function createTag(input: { name: string; color?: string }) {
   return act(async () => {
-    const ctx = await requirePermission("services.manage");
+    const ctx = await requireTagManager();
     const data = z.object({ name: z.string(), color: color.optional() }).parse(input);
     const name = tagName(data.name);
     await uniqueName(ctx.org.id, name);
@@ -41,7 +51,7 @@ export async function createTag(input: { name: string; color?: string }) {
 
 export async function updateTag(tagId: string, input: { name?: string; color?: string }) {
   return act(async () => {
-    const ctx = await requirePermission("services.manage");
+    const ctx = await requireTagManager();
     const data = z.object({ name: z.string().optional(), color: color.optional() }).parse(input);
     await tagInOrg(tagId, ctx.org.id);
     const patch: { name?: string; color?: string } = {};
@@ -58,7 +68,7 @@ export async function updateTag(tagId: string, input: { name?: string; color?: s
 /** The tag goes from every service; the services stay. */
 export async function deleteTag(tagId: string) {
   return act(async () => {
-    const ctx = await requirePermission("services.manage");
+    const ctx = await requireTagManager();
     await tagInOrg(tagId, ctx.org.id);
     await db.delete(schema.tag).where(eq(schema.tag.id, tagId));
     return null;
@@ -68,7 +78,7 @@ export async function deleteTag(tagId: string) {
 /** A new secret for the tag's deploy hook: the old URL stops working. */
 export async function rotateTagHook(tagId: string) {
   return act(async () => {
-    const ctx = await requirePermission("services.manage");
+    const ctx = await requireTagManager();
     await tagInOrg(tagId, ctx.org.id);
     await db.update(schema.tag).set({ deploySecret: newTagSecret() }).where(eq(schema.tag.id, tagId));
     return null;

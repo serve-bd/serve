@@ -190,7 +190,8 @@ async function deployPreviewLocked(parent: Service, pr: PullRequest) {
     // Preview variables replace the service's: a preview must not reach production data.
     for (const [key, value] of Object.entries(parent.previewVars ?? {})) {
       const same = rows.find((r) => r.key === key);
-      if (same) same.value = value;
+      // Preview values hold references (a database copy's URL): never literal.
+      if (same) Object.assign(same, { value, literal: false });
       else rows.push({ id: newId(), serviceId: id, key, value, buildTime: true, runtime: true });
     }
     if (rows.length) await db.insert(schema.envVar).values(rows);
@@ -255,7 +256,7 @@ export async function syncPreviewVars(parent: Service, before: Record<string, st
       await db
         .insert(schema.envVar)
         .values({ id: newId(), serviceId: p.id, key, value, buildTime: true, runtime: true })
-        .onConflictDoUpdate({ target: [schema.envVar.serviceId, schema.envVar.key], set: { value, updatedAt: new Date() } });
+        .onConflictDoUpdate({ target: [schema.envVar.serviceId, schema.envVar.key], set: { value, literal: false, updatedAt: new Date() } });
     }
     for (const key of Object.keys(before)) {
       if (key === skip || Object.hasOwn(after, key)) continue;
@@ -263,7 +264,7 @@ export async function syncPreviewVars(parent: Service, before: Record<string, st
       if (original)
         await db
           .update(schema.envVar)
-          .set({ value: original.value, buildTime: original.buildTime, runtime: original.runtime, updatedAt: new Date() })
+          .set({ value: original.value, buildTime: original.buildTime, runtime: original.runtime, literal: original.literal, multiline: original.multiline, updatedAt: new Date() })
           .where(and(eq(schema.envVar.serviceId, p.id), eq(schema.envVar.key, key)));
       else await db.delete(schema.envVar).where(and(eq(schema.envVar.serviceId, p.id), eq(schema.envVar.key, key)));
     }

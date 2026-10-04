@@ -49,6 +49,10 @@ export function addErrorSink(sink: ErrorSink) {
     if (i >= 0) sinks.splice(i, 1);
   };
 }
+/** Clears the error shown in the newest open dialog (a step that starts over). */
+export function clearError() {
+  sinks.at(-1)?.clear();
+}
 export function showError(message: string, description?: string) {
   const sink = sinks.at(-1);
   if (sink) sink.show(description ? `${message} ${description}` : message);

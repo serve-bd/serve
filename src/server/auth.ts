@@ -15,6 +15,8 @@ import { db, schema } from "@/server/db";
 import { env } from "@/server/env";
 import type { MemberRole } from "@/server/db/schema";
 import { newId } from "@/server/id";
+import { tooManyAttempts } from "@/server/attempts";
+import { providerSessionPath, replacedSession } from "@/server/replaced-session";
 import { getSetting, getSettings } from "@/server/settings";
 import { dashboardVisitorIp } from "@/server/proxy/trusted-proxies";
 import { guardProfileEmail, matchedGithubOrgs, signInRefused } from "@/server/sso/domain-guard";
@@ -209,11 +211,6 @@ const checkProviderSignIn: ValidateUserInfo = async ({ user, source }, ctx) => {
 };
 
 type EndpointContext = Parameters<ValidateUserInfo>[1];
-
-/** Paths where a provider sign-in creates a session (the OAuth callback, an ID token sign-in). */
-function providerSessionPath(path: string | undefined) {
-  return !!path && (path.startsWith("/callback/") || path === "/sign-in/social");
-}
 
 /**
  * Users with two-factor authentication still need their code after a provider sign-in, unless
@@ -449,9 +446,16 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, se
             const provider = await callbackProvider(ctx);
             if (provider?.allowedOrgs?.length && !signInRefused()) await joinProviderOrganizations(provider, session.userId);
             else if (ctx?.path?.startsWith("/two-factor/verify-")) await joinAfterTwoFactor(ctx, session.userId);
+            // Signing in again in the same browser keeps the organization that was open.
+            const previous = await replacedSession(ctx, session.userId);
             return {
-              data: { ...session, activeOrganizationId: await firstOrganizationFor(session.userId) },
+              data: { ...session, activeOrganizationId: previous?.activeOrganizationId ?? (await firstOrganizationFor(session.userId)) },
             };
+          },
+          // The old session's cookie is overwritten, so it would only linger in the device list.
+          after: async (session, ctx) => {
+            const previous = await replacedSession(ctx, session.userId);
+            if (previous && previous.id !== session.id) await db.delete(schema.session).where(eq(schema.session.id, previous.id));
           },
         },
       },
@@ -477,18 +481,6 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, se
       nextCookies(),
     ],
   });
-}
-
-const attempts = new Map<string, number[]>();
-
-/** Counts an attempt for `key`; true once more than `max` fall within the window. In memory: the dashboard is one process. */
-function tooManyAttempts(key: string, max: number, windowMs: number) {
-  const now = Date.now();
-  if (attempts.size > 10_000) for (const [k, v] of attempts) if (v.at(-1)! < now - windowMs) attempts.delete(k);
-  const recent = (attempts.get(key) ?? []).filter((t) => t > now - windowMs);
-  recent.push(now);
-  attempts.set(key, recent);
-  return recent.length > max;
 }
 
 /** The auth instance without sign-in providers, for plain HTTP requests: sessions, password sign-in and organizations. */

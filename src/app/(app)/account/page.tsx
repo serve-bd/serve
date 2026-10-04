@@ -13,7 +13,7 @@ export const metadata = { title: "Account" };
 
 export default async function AccountPage(props: PageProps<"/account">) {
   const ctx = await requireOrg();
-  const [signIn, { error }, credential, emailEnabled, passkeys, addresses, allowed, h] = await Promise.all([
+  const [signIn, { error, reauth }, credential, emailEnabled, passkeys, addresses, allowed, h] = await Promise.all([
     getSetting("signIn"),
     props.searchParams,
     // Accounts made through a sign-in provider have no password until one is set.
@@ -41,7 +41,9 @@ export default async function AccountPage(props: PageProps<"/account">) {
         <AccountView
           user={{ name: ctx.user.name, email: ctx.user.email, twoFactorEnabled: !!(ctx.user as { twoFactorEnabled?: boolean }).twoFactorEnabled }}
           providers={activeProviders(signIn).map((id) => ({ id, label: id === "oidc" ? signIn.providers.oidc?.label || providerNames.oidc : providerNames[id] }))}
-          linkError={typeof error === "string" ? error : null}
+          // A failed "Confirm it's you" sign-in comes back with ?reauth=failed; other errors are from linking.
+          linkError={typeof error === "string" && reauth !== "failed" ? error : null}
+          reauthError={reauth === "failed" ? (typeof error === "string" ? error : "") : null}
           hasPassword={credential.length > 0}
           canEmailPasswordLink={emailEnabled && signIn.passwordEnabled !== false}
           passkeys={

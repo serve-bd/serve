@@ -10,6 +10,8 @@ import { useConfirm } from "@/components/ui/confirm";
 import { Badge, Card, CardHeader, TimeAgo } from "@/components/ui/misc";
 import { authClient } from "@/lib/auth-client";
 import { ssoErrorMessage } from "@/lib/sso-errors";
+import { authErrorMessage } from "@/lib/reauth";
+import { useFreshSession, useResumeAfterConfirm } from "./confirm-identity";
 
 type Linked = { id: string; providerId: string; accountId: string; createdAt: string | Date };
 
@@ -21,6 +23,7 @@ export function SignInMethods({ providers, error }: { providers: { id: string; l
   const [busy, setBusy] = React.useState<string | null>(null);
   const { data, mutate } = useSWR("account-links", async () => ((await authClient.listAccounts()).data ?? []) as Linked[]);
   const linked = data ?? [];
+  const { fresh, dialog } = useFreshSession();
 
   React.useEffect(() => {
     if (error) showError("Could not link the account", ssoErrorMessage(error));
@@ -36,8 +39,18 @@ export function SignInMethods({ providers, error }: { providers: { id: string; l
     const { error } = await authClient.linkSocial({ provider: id as "github", callbackURL: "/account", errorCallbackURL: "/account" });
     if (error) {
       setBusy(null);
-      showError("Could not link the account", error.message);
+      showError("Could not link the account", authErrorMessage(error, "Please try again."));
     }
+  };
+
+  // Unlinking needs a recent sign-in; confirming it is you comes first when it is older.
+  const remove = async (id: string, accountId: string) => {
+    setBusy(id);
+    const res = await fresh(() => authClient.unlinkAccount({ accountId }), { key: `unlink:${id}`, data: accountId }, `Unlinking ${names[id] ?? id} needs a recent sign-in.`);
+    setBusy(null);
+    if (!res) return;
+    if (res.error) return showError("Could not unlink", authErrorMessage(res.error, "Please try again."));
+    void mutate();
   };
 
   const unlink = async (id: string, accountId: string) => {
@@ -50,17 +63,20 @@ export function SignInMethods({ providers, error }: { providers: { id: string; l
       }))
     )
       return;
-    setBusy(id);
-    const { error } = await authClient.unlinkAccount({ accountId });
-    setBusy(null);
-    if (error) return showError("Could not unlink", error.message);
-    void mutate();
+    await remove(id, accountId);
   };
+
+  // Back from confirming with a provider: the unlink asked for goes ahead.
+  useResumeAfterConfirm("unlink", (accountId) => {
+    const id = linked.find((a) => a.id === accountId)?.providerId;
+    if (accountId) void remove(id ?? "account", accountId);
+  });
 
   if (rows.length <= 1 && !providers.length) return null;
 
   return (
     <Card className="overflow-hidden">
+      {dialog}
       <CardHeader title="Sign-in methods" description="Ways you can sign in to your account. Keep at least one." />
       <div className="divide-y divide-line">
         {rows.map((r) => (

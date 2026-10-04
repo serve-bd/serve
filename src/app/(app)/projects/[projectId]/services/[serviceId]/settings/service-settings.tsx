@@ -1,5 +1,6 @@
 "use client";
 
+import { TagsSection } from "./tags-section";
 import { ImagePicker, type PickerRegistry } from "@/components/image-picker";
 import { typedServiceName } from "@/lib/service-name";
 import { BranchField } from "@/components/branch-field";
@@ -94,6 +95,8 @@ type Props = {
   monitoring?: { monitor: MonitorSummary["monitor"]; defaultUrl: string | null };
   /** The service's own deploy approval (apps and stacks). */
   approval?: { mode: "always" | "never" | null; projectWaits: boolean; canChange: boolean };
+  /** The service's tags and the organization's (only loaded for the General page). */
+  tags?: { names: string[]; all: { name: string; color: string }[]; canEdit: boolean };
   /** The organization's log drains (only loaded for the Log drains page). */
   logDrains?: { drains: DrainItem[]; projects: DrainProject[]; canManage: boolean };
   /** Maintenance page (only loaded for the Maintenance page). */
@@ -250,6 +253,8 @@ export function ServiceSettings(props: Props) {
           )}
         </Section>
       )}
+
+      {show("general") && props.tags && <TagsSection serviceId={service.id} tags={props.tags.names} all={props.tags.all} canEdit={props.tags.canEdit} />}
 
       {show("server") && <ServerCard service={service} server={props.server} servers={props.servers} />}
 

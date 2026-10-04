@@ -34,8 +34,8 @@ async function freeHostname(environmentId: string, wanted: string | null) {
 }
 
 /**
- * A copy of one service in any environment and on any server: settings, variables, scheduled tasks
- * (turned off) and a generated domain when it had one. Nothing is deployed. Custom domains, host
+ * A copy of one service in any environment and on any server: settings, variables, tags, scheduled
+ * tasks (turned off) and a generated domain when it had one. Nothing is deployed. Custom domains, host
  * ports, backup schedules and database domains stay with the original; volumes start empty unless
  * a database's data is copied.
  */
@@ -140,21 +140,21 @@ export async function cloneService(source: Service, opts: CloneServiceOptions): 
           vars.map((v) => ({ id: newId(), serviceId: id, key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime, literal: v.literal, multiline: v.multiline })),
         );
     if (tasks.length)
-      await tx
-        .insert(schema.scheduledTask)
-        .values(
-          tasks.map((t) => ({
-            id: newId(),
-            serviceId: id,
-            name: t.name,
-            schedule: t.schedule,
-            command: t.command,
-            composeService: t.composeService,
-            enabled: false,
-            timeoutSeconds: t.timeoutSeconds,
-          })),
-        );
+      await tx.insert(schema.scheduledTask).values(
+        tasks.map((t) => ({
+          id: newId(),
+          serviceId: id,
+          name: t.name,
+          schedule: t.schedule,
+          command: t.command,
+          composeService: t.composeService,
+          enabled: false,
+          timeoutSeconds: t.timeoutSeconds,
+        })),
+      );
     if (domain) await tx.insert(schema.domain).values(domain).onConflictDoNothing();
+    const tags = await tx.select({ tagId: schema.serviceTag.tagId }).from(schema.serviceTag).where(eq(schema.serviceTag.serviceId, source.id));
+    if (tags.length) await tx.insert(schema.serviceTag).values(tags.map((t) => ({ serviceId: id, tagId: t.tagId })));
   });
 
   const copyingData = !!opts.copyData && source.type === "database";

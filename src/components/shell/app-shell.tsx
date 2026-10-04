@@ -37,6 +37,7 @@ import {
   Vault,
   Waypoints,
   ScrollText,
+  Tag,
 } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
@@ -95,6 +96,7 @@ const orgNav: NavItem[] = [
   { href: "/organization/usage", label: "Usage", icon: Gauge },
   { href: "/organization/roles", label: "Roles", icon: ShieldCheck },
   { href: "/shared-variables", label: "Shared variables", icon: Variable },
+  { href: "/tags", label: "Tags", icon: Tag },
   { href: "/templates", label: "Templates", icon: LayoutTemplate },
   { href: "/keys", label: "Keys & tokens", icon: KeyRound },
 ];

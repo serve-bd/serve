@@ -1,8 +1,9 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import * as actions from "@/server/actions/services";
+import * as tagActions from "@/server/actions/tags";
 import { deploymentView, domainView, loadDomain, loadService, page, projectFilter, serviceView } from "../data";
 import { ApiError, type ApiRoute, assertCan, route, unwrap } from "../router";
 
@@ -280,6 +281,83 @@ export const serviceRoutes: ApiRoute[] = [
       await loadService(auth, params.previewId);
       await unwrap(actions.removePreviewService(params.previewId));
       return { ok: true };
+    },
+  }),
+  // Tags
+  route({
+    method: "GET",
+    path: "/tags",
+    tag: "Services",
+    summary: "List tags",
+    description: "The organization's tags, with the ids of the services that carry each one.",
+    needs: ["projects.view"],
+    handler: async ({ auth }) => {
+      const tags = await db.select().from(schema.tag).where(eq(schema.tag.organizationId, auth.organizationId)).orderBy(asc(schema.tag.name));
+      const links = tags.length
+        ? (
+            await db
+              .select({ tagId: schema.serviceTag.tagId, serviceId: schema.serviceTag.serviceId, projectId: schema.service.projectId })
+              .from(schema.serviceTag)
+              .innerJoin(schema.service, eq(schema.service.id, schema.serviceTag.serviceId))
+              .where(
+                inArray(
+                  schema.serviceTag.tagId,
+                  tags.map((t) => t.id),
+                ),
+              )
+          ).filter((l) => auth.canAccessProject(l.projectId))
+        : [];
+      return { tags: tags.map((t) => ({ id: t.id, name: t.name, color: t.color, serviceIds: links.filter((l) => l.tagId === t.id).map((l) => l.serviceId) })) };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/tags",
+    tag: "Services",
+    summary: "Create a tag",
+    needs: ["services.manage"],
+    body: z.object({ name: z.string(), color: z.string().optional() }),
+    status: 201,
+    handler: async ({ body }) => unwrap(tagActions.createTag(body)),
+  }),
+  route({
+    method: "PATCH",
+    path: "/tags/{tagId}",
+    tag: "Services",
+    summary: "Rename or recolor a tag",
+    needs: ["services.manage"],
+    body: z.object({ name: z.string().optional(), color: z.string().optional() }),
+    handler: async ({ params, body }) => unwrap(tagActions.updateTag(params.tagId, body)),
+  }),
+  route({
+    method: "DELETE",
+    path: "/tags/{tagId}",
+    tag: "Services",
+    summary: "Delete a tag",
+    description: "The tag goes from every service; the services stay.",
+    needs: ["services.manage"],
+    handler: async ({ params }) => unwrap(tagActions.deleteTag(params.tagId)),
+  }),
+  route({
+    method: "POST",
+    path: "/tags/{tagId}/deploy",
+    tag: "Deployments",
+    summary: "Deploy every service of a tag",
+    description: "Each deploy follows its project's rules: a freeze skips it, an approval holds it.",
+    needs: ["services.deploy"],
+    handler: async ({ params }) => unwrap(tagActions.deployTagAction(params.tagId)),
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/tags",
+    tag: "Services",
+    summary: "Set the tags of a service",
+    description: "By name; names without a tag yet become new tags.",
+    needs: ["services.manage"],
+    body: z.object({ tags: z.array(z.string()).max(50) }),
+    handler: async ({ auth, params, body }) => {
+      await loadService(auth, params.serviceId);
+      return unwrap(tagActions.saveServiceTags(params.serviceId, body.tags));
     },
   }),
   route({

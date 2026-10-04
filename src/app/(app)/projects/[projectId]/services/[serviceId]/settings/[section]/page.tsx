@@ -1,6 +1,6 @@
 import { referenceName } from "@/lib/refs";
 import { NoAccess } from "@/components/no-access";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { privateHost } from "@/lib/hostname";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -265,6 +265,19 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
           : undefined
       }
       logDrains={section === "log-drains" ? await logDrainsProps(ctx.org.id, ctx.can("integrations.manage")) : undefined}
+      tags={
+        section === "general" && !service.parentServiceId
+          ? {
+              names: ((await (await import("@/server/tags")).tagsOf([service.id])).get(service.id) ?? []).map((t) => t.name),
+              all: await db
+                .select({ name: schema.tag.name, color: schema.tag.color })
+                .from(schema.tag)
+                .where(eq(schema.tag.organizationId, ctx.org.id))
+                .orderBy(asc(schema.tag.name)),
+              canEdit: ctx.can("services.manage"),
+            }
+          : undefined
+      }
       distribution={section === "servers" ? await distributionProps(service, servers, ctx.org.id, ctx.isAdmin) : undefined}
     />
   );

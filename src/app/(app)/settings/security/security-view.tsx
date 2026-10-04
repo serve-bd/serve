@@ -136,7 +136,7 @@ export function SecurityView({
               onCheckedChange={set("apiEnabled")}
             />
             <Field label="Rate limit" description="Requests per minute for each token. Above it, calls answer 429 with a Retry-After header. 0: no limit.">
-              <InputGroup suffix="per minute">
+              <InputGroup suffix="/ min">
                 <Input value={v.apiRateLimit} onChange={(e) => set("apiRateLimit")(e.target.value.replace(/\D/g, ""))} inputMode="numeric" disabled={!v.apiEnabled} />
               </InputGroup>
             </Field>

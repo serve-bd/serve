@@ -587,6 +587,36 @@ export const sharedVar = pgTable(
   ],
 );
 
+/** Labels an organization puts on services, to find them and to redeploy them together. */
+export const tag = pgTable(
+  "tag",
+  {
+    id: id(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color").notNull().default("gray"),
+    /** Secret of the tag's deploy hook (/api/deploy-hooks/tags/<id>), like a service's webhook secret. */
+    deploySecret: text("deploy_secret").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("tag_org_name_idx").on(t.organizationId, sql`lower(${t.name})`)],
+);
+
+export const serviceTag = pgTable(
+  "service_tag",
+  {
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    tagId: text("tag_id")
+      .notNull()
+      .references(() => tag.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.serviceId, t.tagId] }), index("service_tag_tag_idx").on(t.tagId)],
+);
+
 /** Compose templates an organization saved for its own one-click catalog. */
 export type CustomTemplateVar = {
   key: string;

@@ -1,5 +1,6 @@
 "use client";
 
+import { tagColorClass } from "@/lib/tags";
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -46,6 +47,7 @@ type Props = {
     parent: { id: string; name: string; pr: number } | null;
     /** Its server records metrics (CPU, memory). Off: the Metrics tab shows request counts only (with a domain), or is hidden. */
     metrics: boolean;
+    tags?: { name: string; color: string }[];
   };
   initialLive: ServiceLive;
   server: { id: string; name: string } | null;
@@ -195,6 +197,15 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                 <h1 className="truncate text-[22px] leading-tight font-semibold">{service.parent?.name ?? service.name}</h1>
                 {preview && <span className="shrink-0 rounded-full bg-info-soft px-2.5 py-0.5 text-xs font-semibold text-info">Preview · PR #{preview}</span>}
                 <StatusLabel status={live.status} className="shrink-0 rounded-full bg-surface-2 px-2.5 py-0.5 text-xs ring-1 ring-line" />
+                {service.tags?.map((t) => (
+                  <Link
+                    key={t.name}
+                    href="/tags"
+                    className={cn("hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1 sm:inline-flex", tagColorClass(t.color))}
+                  >
+                    {t.name}
+                  </Link>
+                ))}
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
                 {service.sourceLabel && <span className="max-w-full truncate font-mono text-[12px]">{service.sourceLabel}</span>}

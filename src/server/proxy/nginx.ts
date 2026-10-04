@@ -272,8 +272,9 @@ async function traefikDnsToken(serverId: string, config: ServerProxyConfig) {
   const owner = row?.owner ?? (await getSettings()).rootOrganizationId;
   if (!owner) return null;
   const [account] = await db
-    .select({ token: schema.cloudflareAccount.apiToken, authType: schema.cloudflareAccount.authType })
+    .select({ token: schema.cloudflareCredential.secret, authType: schema.cloudflareCredential.authType })
     .from(schema.cloudflareAccount)
+    .innerJoin(schema.cloudflareCredential, eq(schema.cloudflareAccount.credentialId, schema.cloudflareCredential.id))
     .where(and(eq(schema.cloudflareAccount.id, id), eq(schema.cloudflareAccount.organizationId, owner)));
   // Traefik keeps the token for months, so only a pasted API token works: an OAuth token expires within hours.
   return account && account.authType === "token" ? decrypt(account.token) : null;

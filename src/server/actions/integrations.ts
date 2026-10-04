@@ -10,7 +10,8 @@ import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { hostIsPrivate } from "@/server/net/public-host";
-import { oauthConfig, revokeOauth, startOauth } from "@/server/cloudflare/oauth";
+import { oauthConfig, startOauth } from "@/server/cloudflare/oauth";
+import { dropUnusedCredentials, linkAccounts, reachableAccounts } from "@/server/cloudflare/credentials";
 import { Cloudflare, type CfDnsRecord, type CfSslMode } from "@/server/cloudflare/api";
 import { generateSshKey, listRepositories, tokenScopeWarning, verifyGitToken, type RemoteRepo } from "@/server/git/providers";
 import { listRemoteBranches, normalizeRepoUrl } from "@/server/deploy/git";
@@ -44,20 +45,25 @@ export async function connectCloudflare(input: { name: string; apiToken: string;
     } catch (e) {
       throw new UserError(`Cloudflare rejected the token: ${(e as Error).message}`);
     }
-    const zones = await cf.zones().catch(() => []);
-    if (!zones.length) throw new UserError("The token works but can't see any zones. Give it Zone:Read and DNS:Edit permissions.");
-    const accounts = await cf.accounts().catch(() => []);
-    const id = newId();
-    await db.insert(schema.cloudflareAccount).values({
-      id,
+    const accounts = await reachableAccounts(cf).catch(() => []);
+    if (!accounts.some((a) => a.zones > 0)) throw new UserError("The token works but can't see any zones. Give it Zone:Read and DNS:Edit permissions.");
+    const credentialId = newId();
+    await db.insert(schema.cloudflareCredential).values({
+      id: credentialId,
       organizationId: ctx.org.id,
-      name: input.name.trim() || accounts[0]?.name || "Cloudflare",
-      apiToken: encrypt(token),
+      authType: "token",
+      secret: encrypt(token),
       originCaKey: input.originCaKey?.trim() ? encrypt(input.originCaKey.trim()) : null,
-      cfAccountId: accounts[0]?.id ?? zones[0]?.account?.id ?? null,
     });
-    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "cloudflare.connected", message: `Connected Cloudflare (${zones.length} zones)` });
-    return { id, zones: zones.length };
+    // One card per Cloudflare account the token reaches.
+    const linked = await linkAccounts({ organizationId: ctx.org.id, credentialId, authType: "token", accounts, name: input.name });
+    await logActivity({
+      userId: ctx.user.id,
+      organizationId: ctx.org.id,
+      action: "cloudflare.connected",
+      message: `Connected Cloudflare ${linked.map((a) => a.name).join(", ")} with an API token`,
+    });
+    return { accounts: linked.length };
   });
 }
 
@@ -71,8 +77,9 @@ export async function startCloudflareOauth(accountId?: string) {
     if (!oauthConfig()) throw new UserError("Connect with Cloudflare is not set up on this instance. Paste an API token instead.");
     if (accountId) {
       const [row] = await db
-        .select({ authType: schema.cloudflareAccount.authType })
+        .select({ authType: schema.cloudflareCredential.authType })
         .from(schema.cloudflareAccount)
+        .innerJoin(schema.cloudflareCredential, eq(schema.cloudflareAccount.credentialId, schema.cloudflareCredential.id))
         .where(and(eq(schema.cloudflareAccount.id, accountId), eq(schema.cloudflareAccount.organizationId, ctx.org.id)));
       if (!row) throw new UserError("Cloudflare account not found.");
       // A pasted token may feed Traefik, which cannot use a token that expires.
@@ -144,7 +151,8 @@ export async function disconnectCloudflare(accountId: string) {
       await enqueue("proxy.sync", {});
     }
     await db.delete(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, accountId));
-    await revokeOauth(account);
+    // The login goes (and its Cloudflare access ends) once no other account uses it.
+    await dropUnusedCredentials(ctx.org.id);
     for (const serviceId of new Set(routed.map((d) => d.serviceId))) await syncServiceProxy(serviceId).catch(() => {});
     await logActivity({
       userId: ctx.user.id,

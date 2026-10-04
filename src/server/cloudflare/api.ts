@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
-import { accountToken } from "@/server/cloudflare/oauth";
+import { credentialToken } from "@/server/cloudflare/oauth";
 
 const API = "https://api.cloudflare.com/client/v4";
 
@@ -63,6 +63,8 @@ export class Cloudflare {
   constructor(
     private token: string,
     private originCaKey?: string | null,
+    /** Only this Cloudflare account's zones: a login can reach several accounts, each its own card. */
+    private accountScope?: string | null,
   ) {}
 
   static async forAccount(accountId: string) {
@@ -71,9 +73,11 @@ export class Cloudflare {
     return Cloudflare.forRow(row);
   }
 
-  /** A client for a stored account, with its OAuth token renewed when needed. */
+  /** A client for a stored account, through its login (with an OAuth token renewed when needed). */
   static async forRow(row: typeof schema.cloudflareAccount.$inferSelect) {
-    return new Cloudflare(await accountToken(row), decryptOrNull(row.originCaKey));
+    const [credential] = await db.select().from(schema.cloudflareCredential).where(eq(schema.cloudflareCredential.id, row.credentialId));
+    if (!credential) throw new Error("Cloudflare account not found");
+    return new Cloudflare(await credentialToken(credential), decryptOrNull(credential.originCaKey), row.cfAccountId);
   }
 
   async request<T>(method: string, path: string, body?: unknown, useOriginKey = false): Promise<CfResponse<T>> {
@@ -118,7 +122,8 @@ export class Cloudflare {
   async zones(): Promise<CfZone[]> {
     const zones: CfZone[] = [];
     for (let page = 1; page < 50; page++) {
-      const res = await this.request<CfZone[]>("GET", `/zones?per_page=50&page=${page}`);
+      const scope = this.accountScope ? `&account.id=${encodeURIComponent(this.accountScope)}` : "";
+      const res = await this.request<CfZone[]>("GET", `/zones?per_page=50&page=${page}${scope}`);
       zones.push(...res.result);
       if (!res.result_info || page >= res.result_info.total_pages) break;
     }

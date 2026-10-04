@@ -115,72 +115,81 @@ export async function exchangeCode(code: string, verifier: string) {
   return tokenRequest({ grant_type: "authorization_code", code, redirect_uri: config.redirectUri, client_id: config.clientId, code_verifier: verifier });
 }
 
-/** The columns to store for a token answer. */
+/** The credential columns to store for a token answer. */
 export function tokenColumns(t: TokenAnswer) {
   return {
-    apiToken: encrypt(t.access_token),
+    secret: encrypt(t.access_token),
     ...(t.refresh_token ? { refreshToken: encrypt(t.refresh_token) } : {}),
     tokenExpiresAt: t.expires_in ? new Date(Date.now() + t.expires_in * 1000) : null,
   };
 }
 
-type AccountRow = typeof schema.cloudflareAccount.$inferSelect;
+type CredentialRow = typeof schema.cloudflareCredential.$inferSelect;
 
-function fresh(row: AccountRow) {
+function fresh(row: CredentialRow) {
   return !row.tokenExpiresAt || row.tokenExpiresAt.getTime() - Date.now() > RENEW_BEFORE_MS;
 }
 
+const EXPIRED = "Cloudflare access was removed or has expired. Reconnect on the Cloudflare page.";
+
 /**
- * A working token for an account. A pasted token is used as it is. An OAuth token is renewed when it
+ * A working token for a login. A pasted token is used as it is. An OAuth token is renewed when it
  * is close to expiry, under a lock: Cloudflare replaces the refresh token on each use, so two
- * processes renewing at once would lose the account.
+ * processes renewing at once would lose the login (and every account that uses it).
  */
-export async function accountToken(row: AccountRow, { force = false } = {}): Promise<string> {
-  if (row.authType !== "oauth" || (!force && fresh(row))) return decrypt(row.apiToken);
+export async function credentialToken(row: CredentialRow, { force = false } = {}): Promise<string> {
+  if (row.authType !== "oauth" || (!force && fresh(row))) return decrypt(row.secret);
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`cf-oauth:${row.id}`}))`);
-    const [current] = await tx.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, row.id));
+    const [current] = await tx.select().from(schema.cloudflareCredential).where(eq(schema.cloudflareCredential.id, row.id));
     if (!current) throw new Error("Cloudflare account not found.");
     // Renewed by someone else while this waited for the lock.
-    if (fresh(current) && (!force || current.apiToken !== row.apiToken)) return decrypt(current.apiToken);
+    if (fresh(current) && (!force || current.secret !== row.secret)) return decrypt(current.secret);
     const config = oauthConfig();
-    if (!config || !current.refreshToken) throw new Error(`Cloudflare access for ${current.name} has expired. Reconnect it on the Cloudflare page.`);
+    if (!config || !current.refreshToken) throw new Error(EXPIRED);
     let answer: TokenAnswer;
     try {
       answer = await tokenRequest({ grant_type: "refresh_token", refresh_token: decrypt(current.refreshToken), client_id: config.clientId });
     } catch (e) {
-      if (e instanceof OauthGrantError) throw new Error(`Cloudflare access for ${current.name} was removed or has expired. Reconnect it on the Cloudflare page.`);
+      if (e instanceof OauthGrantError) throw new Error(EXPIRED);
       throw e;
     }
-    await tx.update(schema.cloudflareAccount).set(tokenColumns(answer)).where(eq(schema.cloudflareAccount.id, row.id));
+    await tx.update(schema.cloudflareCredential).set(tokenColumns(answer)).where(eq(schema.cloudflareCredential.id, row.id));
     return answer.access_token;
   });
 }
 
-/** How long an account may go without a renewal. A refresh token nobody uses expires after a while. */
+/** The token of the login an account uses. */
+export async function accountToken(account: { credentialId: string }): Promise<string> {
+  const [credential] = await db.select().from(schema.cloudflareCredential).where(eq(schema.cloudflareCredential.id, account.credentialId));
+  if (!credential) throw new Error("Cloudflare account not found.");
+  return credentialToken(credential);
+}
+
+/** How long a login may go without a renewal. A refresh token nobody uses expires after a while. */
 const IDLE_RENEW_MS = 24 * 3600_000;
 
 /**
- * Renew OAuth accounts that nothing used for a day, so an account no job touches for weeks keeps
- * working. The worker runs it every hour: the access token's expiry tells when it was last renewed.
+ * Renew sign-ins that nothing used for a day, so a login no job touches for weeks keeps working.
+ * The worker runs it every hour: the access token's expiry tells when it was last renewed.
  */
 export async function renewIdleOauth(log: (line: string) => void = () => {}) {
   const rows = await db
     .select()
-    .from(schema.cloudflareAccount)
-    .where(and(eq(schema.cloudflareAccount.authType, "oauth"), lt(schema.cloudflareAccount.tokenExpiresAt, new Date(Date.now() - IDLE_RENEW_MS))));
+    .from(schema.cloudflareCredential)
+    .where(and(eq(schema.cloudflareCredential.authType, "oauth"), lt(schema.cloudflareCredential.tokenExpiresAt, new Date(Date.now() - IDLE_RENEW_MS))));
   for (const row of rows) {
     try {
-      await accountToken(row, { force: true });
+      await credentialToken(row, { force: true });
     } catch (e) {
-      // The account page shows the error and a Reconnect button.
-      log(`Cloudflare ${row.name}: ${(e as Error).message}`);
+      // The Cloudflare page shows the error and a Reconnect button.
+      log(`Cloudflare sign-in ${row.id}: ${(e as Error).message}`);
     }
   }
 }
 
-/** Revoke an OAuth grant on disconnect. Best effort: the account is removed either way. */
-export async function revokeOauth(row: AccountRow) {
+/** Revoke an OAuth grant once no account uses it. Best effort: the login is removed either way. */
+export async function revokeOauth(row: CredentialRow) {
   const config = oauthConfig();
   if (row.authType !== "oauth" || !config || !row.refreshToken) return;
   await fetch(REVOKE_URL, {

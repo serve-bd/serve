@@ -39,8 +39,9 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
     ? await db
         .select({ id: schema.cloudflareAccount.id, name: schema.cloudflareAccount.name })
         .from(schema.cloudflareAccount)
+        .innerJoin(schema.cloudflareCredential, eq(schema.cloudflareAccount.credentialId, schema.cloudflareCredential.id))
         // Traefik keeps the token, so only pasted API tokens (they do not expire).
-        .where(and(eq(schema.cloudflareAccount.organizationId, accountOrg), eq(schema.cloudflareAccount.authType, "token")))
+        .where(and(eq(schema.cloudflareAccount.organizationId, accountOrg), eq(schema.cloudflareCredential.authType, "token")))
     : [];
   const ids = data.files.flatMap((f) => (f.serviceId ? [f.serviceId] : []));
   const services = ids.length

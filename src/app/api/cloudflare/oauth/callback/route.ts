@@ -8,6 +8,7 @@ import { accessFrom, organizationRoles } from "@/server/permissions";
 import { publicBaseUrl } from "@/server/git/github-app";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { exchangeCode, readOauthState, tokenColumns } from "@/server/cloudflare/oauth";
+import { linkAccounts, reachableAccounts } from "@/server/cloudflare/credentials";
 
 function back(base: string, params: Record<string, string>) {
   const url = new URL("/integrations/cloudflare", base);
@@ -41,48 +42,37 @@ export async function GET(request: NextRequest) {
   if (!code) return back(base, { error: "Cloudflare did not return a sign-in code." });
 
   let tokens;
-  let zones;
-  let accounts;
+  let found;
   try {
     tokens = await exchangeCode(code, state.verifier);
-    const cf = new Cloudflare(tokens.access_token);
-    [zones, accounts] = await Promise.all([cf.zones(), cf.accounts().catch(() => [])]);
+    found = await reachableAccounts(new Cloudflare(tokens.access_token));
   } catch (e) {
     return back(base, { error: `Could not connect Cloudflare: ${(e as Error).message}` });
   }
-  if (!zones.length) return back(base, { error: "The Cloudflare account you picked has no domains. Pick an account with your domains." });
-  const granted = [...new Set([...accounts.map((a) => a.id), ...zones.flatMap((z) => (z.account?.id ? [z.account.id] : []))])];
-  const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name ?? zones.find((z) => z.account?.id === id)?.account?.name;
+  if (!found.some((a) => a.zones > 0)) return back(base, { error: "The Cloudflare account you picked has no domains. Pick an account with your domains." });
 
-  const existing = await db
-    .select()
-    .from(schema.cloudflareAccount)
-    .where(and(eq(schema.cloudflareAccount.organizationId, state.organizationId), eq(schema.cloudflareAccount.authType, "oauth")));
-  let row = state.accountId ? existing.find((a) => a.id === state.accountId) : undefined;
   if (state.accountId) {
+    // Reconnect: the login of that card gets the new access, so every card on it works again.
+    const [row] = await db
+      .select({ name: schema.cloudflareAccount.name, cfAccountId: schema.cloudflareAccount.cfAccountId, credentialId: schema.cloudflareAccount.credentialId })
+      .from(schema.cloudflareAccount)
+      .where(and(eq(schema.cloudflareAccount.id, state.accountId), eq(schema.cloudflareAccount.organizationId, state.organizationId)));
     if (!row) return back(base, { error: "That Cloudflare account was disconnected. Connect it again." });
     // Its tunnels live in one Cloudflare account: a sign-in to another account would break them.
-    if (row.cfAccountId && !granted.includes(row.cfAccountId))
+    if (row.cfAccountId && !found.some((a) => a.id === row.cfAccountId))
       return back(base, { error: `You allowed a different Cloudflare account. Sign in again and pick the account of ${row.name}.` });
-  } else {
-    // Signing in again to an account that is already here renews it instead of adding a copy.
-    row = existing.find((a) => a.cfAccountId && granted.includes(a.cfAccountId));
-  }
-
-  const columns = { ...tokenColumns(tokens), authType: "oauth" as const };
-  if (row) {
-    await db.update(schema.cloudflareAccount).set(columns).where(eq(schema.cloudflareAccount.id, row.id));
+    await db.update(schema.cloudflareCredential).set(tokenColumns(tokens)).where(eq(schema.cloudflareCredential.id, row.credentialId));
+    // Accounts newly allowed in this sign-in get their own card on the same login.
+    await linkAccounts({ organizationId: state.organizationId, credentialId: row.credentialId, authType: "oauth", accounts: found });
     await logActivity({ userId: state.userId, organizationId: state.organizationId, action: "cloudflare.connected", message: `Renewed Cloudflare access for ${row.name}` });
     return back(base, { connected: row.name });
   }
-  const cfAccountId = granted[0] ?? null;
-  const name = (cfAccountId && nameOf(cfAccountId)) || "Cloudflare";
-  await db.insert(schema.cloudflareAccount).values({ id: newId(), organizationId: state.organizationId, name, cfAccountId, ...columns });
-  await logActivity({
-    userId: state.userId,
-    organizationId: state.organizationId,
-    action: "cloudflare.connected",
-    message: `Connected Cloudflare ${name} (${zones.length} zones)`,
-  });
-  return back(base, { connected: name });
+
+  const credentialId = newId();
+  await db.insert(schema.cloudflareCredential).values({ id: credentialId, organizationId: state.organizationId, authType: "oauth", ...tokenColumns(tokens) });
+  // One card per Cloudflare account allowed. Accounts already here move to this sign-in.
+  const linked = await linkAccounts({ organizationId: state.organizationId, credentialId, authType: "oauth", accounts: found });
+  const names = linked.map((a) => a.name).join(", ");
+  await logActivity({ userId: state.userId, organizationId: state.organizationId, action: "cloudflare.connected", message: `Connected Cloudflare ${names} by signing in` });
+  return back(base, { connected: names });
 }

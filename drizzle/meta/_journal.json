@@ -498,6 +498,20 @@
       "when": 1791117669186,
       "tag": "0070_cloudflare_oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1791129295483,
+      "tag": "0071_cloudflare_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1791129306754,
+      "tag": "0072_cloudflare_credentials_move",
+      "breakpoints": true
     }
   ]
 }

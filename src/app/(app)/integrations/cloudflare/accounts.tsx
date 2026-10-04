@@ -22,6 +22,8 @@ type Account = {
   name: string;
   cfAccountId: string | null;
   oauth: boolean;
+  /** The other accounts on the same login. */
+  sharedWith: string[];
   zones: { id: string; name: string; status: string; plan: string | null }[];
   error: string | null;
 };
@@ -301,7 +303,19 @@ export function CloudflareAccounts({
                       <Cloud className="size-4 text-[#f38020]" /> {a.name}
                     </span>
                   }
-                  description={a.error ? `Could not load zones: ${a.error}` : `${a.zones.length} zone${a.zones.length === 1 ? "" : "s"}`}
+                  description={
+                    <span className="flex flex-col gap-0.5">
+                      <span>
+                        {a.error ? `Could not load domains: ${a.error}` : `${a.zones.length} domain${a.zones.length === 1 ? "" : "s"}`}
+                        <span className="text-faint"> · {a.oauth ? "Signed in with Cloudflare" : "API token"}</span>
+                      </span>
+                      {a.sharedWith.length > 0 && (
+                        <span className="text-xs text-faint">
+                          {a.oauth ? "Same sign-in as" : "Same token as"} {listNames(a.sharedWith)}
+                        </span>
+                      )}
+                    </span>
+                  }
                   actions={
                     isAdmin && (
                       <div className="flex items-center gap-1">
@@ -319,9 +333,11 @@ export function CloudflareAccounts({
                             const offline = tunnels.flatMap((t) => t.domains);
                             const ok = await confirm({
                               title: `Disconnect ${a.name}?`,
-                              description: tunnels.length
-                                ? `This stops and deletes ${tunnels.length === 1 ? "the Cloudflare Tunnel" : `${tunnels.length} Cloudflare Tunnels`} of this account. Other DNS records stay in Cloudflare, and certificates using this account stop renewing.`
-                                : "Existing DNS records stay in Cloudflare. Certificates using this account stop renewing.",
+                              description:
+                                (tunnels.length
+                                  ? `This stops and deletes ${tunnels.length === 1 ? "the Cloudflare Tunnel" : `${tunnels.length} Cloudflare Tunnels`} of this account. Other DNS records stay in Cloudflare, and certificates using this account stop renewing.`
+                                  : "Existing DNS records stay in Cloudflare. Certificates using this account stop renewing.") +
+                                (a.sharedWith.length ? ` ${listNames(a.sharedWith)} ${a.sharedWith.length === 1 ? "stays" : "stay"} connected.` : ""),
                               confirmLabel: tunnels.length ? "Disconnect and stop tunnels" : "Disconnect",
                               danger: true,
                               typeToConfirm: offline.length ? a.name : undefined,
@@ -378,6 +394,11 @@ export function CloudflareAccounts({
       </PageBody>
     </>
   );
+}
+
+/** "A", "A and B", "A, B and C". */
+function listNames(names: string[]) {
+  return names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
 /** The token permissions, in the same three columns as Cloudflare's token form. */

@@ -13,21 +13,28 @@ export const metadata = { title: "Cloudflare" };
 export default async function CloudflarePage() {
   const ctx = await requireOrg();
   if (!ctx.can("integrations.manage")) return <NoAccess permission="integrations.manage" />;
-  const accounts = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, ctx.org.id));
+  const [accounts, credentials] = await Promise.all([
+    db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, ctx.org.id)),
+    db
+      .select({ id: schema.cloudflareCredential.id, authType: schema.cloudflareCredential.authType })
+      .from(schema.cloudflareCredential)
+      .where(eq(schema.cloudflareCredential.organizationId, ctx.org.id)),
+  ]);
   const withZones = await Promise.all(
     accounts.map(async (a) => {
+      const login = {
+        id: a.id,
+        name: a.name,
+        cfAccountId: a.cfAccountId,
+        oauth: credentials.find((c) => c.id === a.credentialId)?.authType === "oauth",
+        // The other accounts on the same login: they renew, break and reconnect together.
+        sharedWith: accounts.filter((o) => o.credentialId === a.credentialId && o.id !== a.id).map((o) => o.name),
+      };
       try {
         const zones: CfZone[] = await (await Cloudflare.forRow(a)).zones();
-        return {
-          id: a.id,
-          name: a.name,
-          cfAccountId: a.cfAccountId,
-          oauth: a.authType === "oauth",
-          zones: zones.map((z) => ({ id: z.id, name: z.name, status: z.status, plan: z.plan?.name ?? null })),
-          error: null as string | null,
-        };
+        return { ...login, zones: zones.map((z) => ({ id: z.id, name: z.name, status: z.status, plan: z.plan?.name ?? null })), error: null as string | null };
       } catch (e) {
-        return { id: a.id, name: a.name, cfAccountId: a.cfAccountId, oauth: a.authType === "oauth", zones: [], error: (e as Error).message };
+        return { ...login, zones: [], error: (e as Error).message };
       }
     }),
   );

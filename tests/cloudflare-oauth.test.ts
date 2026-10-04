@@ -18,18 +18,18 @@ vi.mock("@/server/db", () => {
       }),
     }),
   };
-  return { db: { transaction: async (fn: (t: typeof tx) => unknown) => fn(tx) }, schema: { cloudflareAccount: { id: "id" } } };
+  return { db: { transaction: async (fn: (t: typeof tx) => unknown) => fn(tx) }, schema: { cloudflareAccount: { id: "id" }, cloudflareCredential: { id: "id" } } };
 });
 
 import { decrypt, encrypt } from "@/server/crypto";
-import { accountToken, readOauthState, startOauth } from "@/server/cloudflare/oauth";
+import { credentialToken as accountToken, readOauthState, startOauth } from "@/server/cloudflare/oauth";
 
 const account = (over: Record<string, unknown> = {}) =>
   ({
     id: "a1",
-    name: "Company",
+    organizationId: "o1",
     authType: "oauth",
-    apiToken: encrypt("old-access"),
+    secret: encrypt("old-access"),
     refreshToken: encrypt("old-refresh"),
     tokenExpiresAt: new Date(Date.now() + 60_000),
     originCaKey: null,
@@ -128,7 +128,7 @@ describe("accountToken", () => {
 
   it("takes the token another process renewed while it waited for the lock", async () => {
     const stale = account();
-    store.row = account({ apiToken: encrypt("renewed-elsewhere"), tokenExpiresAt: new Date(Date.now() + 3600_000) });
+    store.row = account({ secret: encrypt("renewed-elsewhere"), tokenExpiresAt: new Date(Date.now() + 3600_000) });
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     expect(await accountToken(stale)).toBe("renewed-elsewhere");
@@ -140,14 +140,14 @@ describe("accountToken", () => {
     vi.stubGlobal("fetch", async () => Response.json({ access_token: "forced", refresh_token: "r2", expires_in: 3600 }));
     expect(await accountToken(store.row as never, { force: true })).toBe("forced");
     const seen = account({ tokenExpiresAt: new Date(Date.now() + 3600_000) });
-    store.row = account({ apiToken: encrypt("renewed-elsewhere"), tokenExpiresAt: new Date(Date.now() + 3600_000) });
+    store.row = account({ secret: encrypt("renewed-elsewhere"), tokenExpiresAt: new Date(Date.now() + 3600_000) });
     expect(await accountToken(seen, { force: true })).toBe("renewed-elsewhere");
   });
 
   it("asks to reconnect when Cloudflare no longer accepts the grant", async () => {
     store.row = account();
     vi.stubGlobal("fetch", async () => Response.json({ error: "invalid_grant", error_description: "revoked" }, { status: 400 }));
-    await expect(accountToken(store.row as never)).rejects.toThrow(/Company was removed or has expired. Reconnect/);
+    await expect(accountToken(store.row as never)).rejects.toThrow(/removed or has expired. Reconnect/);
     expect(store.updates).toHaveLength(0);
   });
 

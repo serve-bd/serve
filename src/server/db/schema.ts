@@ -860,20 +860,36 @@ export const certificate = pgTable("certificate", {
 /*                                Integrations                                */
 /* -------------------------------------------------------------------------- */
 
-export const cloudflareAccount = pgTable("cloudflare_account", {
+/**
+ * How Serve signs in to Cloudflare: a pasted API token, or a "Sign in with Cloudflare" grant. One
+ * login can reach several Cloudflare accounts; each is a cloudflare_account row that points here,
+ * so renewing the login once keeps all of them working.
+ */
+export const cloudflareCredential = pgTable("cloudflare_credential", {
   id: id(),
   organizationId: orgRef(),
-  name: text("name").notNull(),
-  /** Encrypted API token, or the OAuth access token of an account connected with "Connect with Cloudflare". */
-  apiToken: text("api_token").notNull(),
   /** "token" (pasted API token, never expires) or "oauth" (renewed with the refresh token). */
   authType: text("auth_type").$type<"token" | "oauth">().notNull().default("token"),
+  /** Encrypted API token, or the OAuth access token. */
+  secret: text("secret").notNull(),
   /** Encrypted OAuth refresh token. */
   refreshToken: text("refresh_token"),
   /** When the OAuth access token stops working. */
   tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
   /** Optional encrypted Origin CA key (for origin certificates with legacy keys). */
   originCaKey: text("origin_ca_key"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const cloudflareAccount = pgTable("cloudflare_account", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  /** The login this account is reached with (shared with the other accounts of the same login). */
+  credentialId: text("credential_id")
+    .notNull()
+    .references(() => cloudflareCredential.id, { onDelete: "cascade" }),
   cfAccountId: text("cf_account_id"),
   email: text("email"),
   createdAt: createdAt(),

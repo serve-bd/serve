@@ -15,7 +15,7 @@ import { generateKeyPair } from "@/server/servers/keys";
 import { forgetServer } from "@/server/servers/context";
 import { requireServerAdmin } from "@/server/servers/access";
 import { newJoinToken } from "@/server/tunnel";
-import { type TailscaleDevice, dnsSuffixOf, oauthToken, tailscaleClient } from "@/server/tailscale/api";
+import { TailscaleError, type TailscaleDevice, dnsSuffixOf, oauthToken, tailscaleClient } from "@/server/tailscale/api";
 import { clientFor, getTailnet, pendingTailscale, recordTailnetCheck } from "@/server/tailscale";
 import { JoinRefused, joinThroughShell } from "@/server/tailscale/join";
 
@@ -71,6 +71,11 @@ async function verify(data: { tailnet: string; authType: "oauth" | "apikey"; cli
     });
     const devices = await client.devices();
     const key = await client.createAuthKey({ tags: [data.tag], description: "Serve check", expirySeconds: 300 }).catch((error: Error) => {
+      // Tailscale answers "not found" to a client without the Auth Keys scope, though it may list devices.
+      if (error instanceof TailscaleError && error.status === 404 && data.authType === "oauth")
+        throw new UserError(
+          `The OAuth client can list devices but cannot create auth keys. Give it the scope Keys, Auth Keys (write) with the tag ${data.tag}, or create a new client with it.`,
+        );
       throw new UserError(
         `Tailscale lists the devices, but does not let Serve add any with ${data.tag}: ${error.message} Set the tag's owner in the tailnet policy${data.authType === "oauth" ? ", and give the OAuth client the auth_keys scope with this tag" : ""}.`,
       );

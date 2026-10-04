@@ -44,7 +44,11 @@ export async function prepareKey(
   const inAny = loggedIn(probe);
   const mine = inAny ? findByNodeKey(devices, probe.nodeKey) : null;
   if (mine) return { already: true, hostname: mine.hostname };
-  if (inAny && !force)
+  // Still logged in to this very tailnet, but its device is gone (removed in the admin console, or its
+  // key expired): it simply joins again. Only a different tailnet needs the person to agree.
+  const norm = (d: string | null | undefined) => d?.replace(/\.$/, "").toLowerCase() ?? null;
+  const sameTailnet = !!probe.suffix && !!tailnet.dnsSuffix && norm(probe.suffix) === norm(tailnet.dnsSuffix);
+  if (inAny && !force && !sameTailnet)
     throw new JoinRefused(
       `This machine is already in another tailnet${probe.suffix ? ` (${probe.suffix})` : ""}. Joining ${tailnet.name} takes it out of that one. To move it, run the command again with SERVE_TAILSCALE_FORCE=1 (curl ... | sudo SERVE_TAILSCALE_FORCE=1 bash), or sign it out first with: sudo tailscale logout`,
     );

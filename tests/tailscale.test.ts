@@ -238,6 +238,15 @@ describe("joining", () => {
     expect(moved).toMatchObject({ already: false, reauth: true });
   });
 
+  it("lets a machine whose device was removed join its own tailnet again without asking", async () => {
+    const { f } = fakeFetch((c) => (c.url.endsWith("/keys") ? json({ id: "k", key: "tskey-auth-k" }) : json({ devices: [] })));
+    vi.stubGlobal("fetch", f);
+    // Still logged in locally to the same tailnet (its MagicDNS suffix, maybe with a trailing dot), but the device is gone.
+    const probe = { state: "Running", nodeKey: "nodekey:dddddddddddddddddddddddd", suffix: "Tail1234.ts.net." };
+    const plan = await prepareKey(row, tailnetRow({ dnsSuffix: "tail1234.ts.net" }), probe, false);
+    expect(plan).toMatchObject({ already: false, reauth: true });
+  });
+
   it("revokes the key of an earlier run that never joined", async () => {
     const { f, calls } = fakeFetch((c) => (c.url.endsWith("/keys") ? json({ id: "k2", key: "tskey-auth-2" }) : c.init.method === "DELETE" ? json({}) : json({ devices: [] })));
     vi.stubGlobal("fetch", f);

@@ -559,7 +559,7 @@ async function ensureProxyContainer(ctx: ServerCtx, log?: Log): Promise<Awaited<
   // A proxy from before the tunnel network joins it (cloudflared reaches the proxy there).
   if (info && tunnelNet) await connectProxy(tunnelNetworkName(ctx.network), ctx).catch(() => {});
   const spec = await containerSpec(ctx, kind, config);
-  const specHash = crypto.createHash("sha256").update(JSON.stringify(spec)).digest("hex").slice(0, 16);
+  const specHash = specHashOf(spec);
   const mismatch = !!info && (info.Config.Labels?.[KIND_LABEL] ?? "nginx") !== kind;
 
   if (stopped) {
@@ -668,6 +668,11 @@ export async function ensureProxy(log?: Log) {
 }
 
 export class ProxyConfigError extends Error {}
+
+/** The proxy container's definition as a short hash, kept on it as a label: a different one means it is recreated. */
+function specHashOf(spec: unknown) {
+  return crypto.createHash("sha256").update(JSON.stringify(spec)).digest("hex").slice(0, 16);
+}
 
 async function exec(ctx: ServerCtx, cmd: string[]) {
   if (ctx.local) return execInContainer(ctx.proxyContainer, cmd, {}, ctx.docker);
@@ -1326,9 +1331,13 @@ export async function applyServerProxyConfig(ctx: ServerCtx, next: ServerProxyCo
   let running = false;
   try {
     await serialized(ctx.id, async () => {
-      running = !!(await getProxyContainer(ctx))?.State.Running;
+      const current = await getProxyContainer(ctx);
+      running = !!current?.State.Running;
       const changed = await writeStaticFiles(ctx, kind, next);
       if (!running || !changed) return;
+      // New static options (Traefik's command) come with the recreated container below, which loads
+      // the files fresh: checking them on the old one fails for routes that need those options.
+      if (kind === "traefik" && current?.Config.Labels?.[SPEC_LABEL] !== specHashOf(await containerSpec(ctx, kind, next))) return;
       const files =
         kind === "traefik"
           ? [TRAEFIK_BASE, ...(await ctx.fs.readdir(ctx.paths.proxySites)).filter((f) => f.startsWith(USER_PREFIX) && /\.ya?ml$/.test(f))].map((f) =>

@@ -1,4 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
+import { HiddenIp } from "@/components/ui/hidden-ip";
 import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { serverHealth } from "@/server/system";
@@ -34,15 +35,21 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
           </span>
         }
         description={
-          !manage
-            ? row.ownerOrganizationId === viewer.org.id || (viewer.isRoot && !row.ownerOrganizationId)
-              ? "View only. Admins of this organization manage the server."
-              : "Shared with your organization. You deploy services here; its owner manages the server."
-            : row.isLocal
-              ? "The machine this dashboard runs on. Reached through the local Docker socket."
-              : row.tunnel
-                ? `${row.username}@${row.host} · no public IP, connects out through a tunnel`
-                : `${row.username}@${row.host}${row.port === 22 ? "" : `:${row.port}`}`
+          !manage ? (
+            row.ownerOrganizationId === viewer.org.id || (viewer.isRoot && !row.ownerOrganizationId) ? (
+              "View only. Admins of this organization manage the server."
+            ) : (
+              "Shared with your organization. You deploy services here; its owner manages the server."
+            )
+          ) : row.isLocal ? (
+            "The machine this dashboard runs on. Reached through the local Docker socket."
+          ) : (
+            <HiddenIp
+              text={
+                row.tunnel ? `${row.username}@${row.host} · no public IP, connects out through a tunnel` : `${row.username}@${row.host}${row.port === 22 ? "" : `:${row.port}`}`
+              }
+            />
+          )
         }
         actions={
           <Tooltip content={ready ? "Docker, the proxy and the worker are running." : issues.join(" · ")}>

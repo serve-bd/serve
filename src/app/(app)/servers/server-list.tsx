@@ -1,5 +1,6 @@
 "use client";
 
+import { HiddenIp } from "@/components/ui/hidden-ip";
 import Link from "next/link";
 import { ArrowRight, Plus, Server } from "lucide-react";
 import { Badge, Card, EmptyState } from "@/components/ui/misc";
@@ -136,7 +137,9 @@ function ServerCard({ server: s }: { server: Row }) {
             {s.owner && <Badge tone="info">{s.owner}</Badge>}
           </div>
           <span className="truncate font-mono text-[12px] text-muted">
-            {s.isLocal ? (s.publicIp ?? "Local Docker") : s.tunnel ? `${s.username}@${s.host} · via tunnel` : `${s.username}@${s.host}${s.port === 22 ? "" : `:${s.port}`}`}
+            <HiddenIp
+              text={s.isLocal ? (s.publicIp ?? "Local Docker") : s.tunnel ? `${s.username}@${s.host} · via tunnel` : `${s.username}@${s.host}${s.port === 22 ? "" : `:${s.port}`}`}
+            />
           </span>
         </div>
         <ArrowRight className="size-4 flex-none text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-fg-2" />

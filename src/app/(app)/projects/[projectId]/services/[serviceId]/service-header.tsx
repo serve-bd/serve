@@ -231,12 +231,12 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
                       className="inline-flex min-w-0 max-w-full items-center gap-1 font-mono text-[12px] text-fg-2 hover:text-accent"
                     >
                       <Plug className="size-3 shrink-0 text-faint" />
-                      <span className="truncate">{p.label}</span>
+                      <span className="truncate">{portOnly(p.label)}</span>
                     </a>
                   ) : (
                     <span key={p.label} title="Published UDP port" className="inline-flex min-w-0 items-center gap-1 font-mono text-[12px] text-fg-2">
                       <Plug className="size-3 shrink-0 text-faint" />
-                      <span className="truncate">{p.label}/udp</span>
+                      <span className="truncate">{portOnly(p.label)}/udp</span>
                     </span>
                   ),
                 )}
@@ -438,4 +438,10 @@ export function ServiceHeader({ project, environment, service, initialLive, serv
       </div>
     </>
   );
+}
+
+/** "2.29.58.146:15432" as ":15432": the server's address stays off a shared screen; the link keeps it. */
+function portOnly(label: string) {
+  const m = label.match(/(:\d+)$/);
+  return m ? m[1] : label;
 }

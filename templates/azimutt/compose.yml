@@ -1,0 +1,37 @@
+services:
+  azimutt:
+    image: ghcr.io/azimuttapp/azimutt:main
+    restart: unless-stopped
+    environment:
+      PHX_SERVER: "true"
+      PHX_PROTOCOL: ipv4
+      PHX_HOST: ${AZIMUTT_HOST}
+      PORT: "4000"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      DATABASE_URL: postgresql://azimutt:${DB_PASSWORD}@postgres:5432/azimutt
+      FILE_STORAGE_ADAPTER: local
+      AUTH_PASSWORD: "true"
+      SKIP_ONBOARDING_FUNNEL: "true"
+      SKIP_EMAIL_CONFIRMATION: "true"
+      PUBLIC_SITE: "false"
+    volumes:
+      - azimutt-uploads:/app/bin/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: azimutt
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: azimutt
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U azimutt -d azimutt"]
+      interval: 5s
+      retries: 20
+volumes:
+  azimutt-uploads:
+  postgres-data:

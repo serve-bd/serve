@@ -1,0 +1,10 @@
+services:
+  flipt:
+    image: flipt/flipt:v1.61.1
+    restart: unless-stopped
+    environment:
+      FLIPT_META_TELEMETRY_ENABLED: "false"
+    volumes:
+      - flipt-data:/var/opt/flipt
+volumes:
+  flipt-data:

@@ -1,0 +1,13 @@
+{
+  "name": "Flipt",
+  "description": "Feature flag server with a web UI and APIs for gradual rollouts and experiments.",
+  "category": "Developer tools",
+  "website": "https://www.flipt.io",
+  "color": "#7E22CE",
+  "note": "The UI and API have no login by default: anyone with the domain can change flags. Turn on authentication in the Flipt settings before real use.",
+  "expose": {
+    "service": "flipt",
+    "port": 8080
+  },
+  "vars": []
+}

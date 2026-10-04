@@ -1,0 +1,13 @@
+{
+  "name": "Slash",
+  "description": "Bookmark and short link manager: save links and open them with short names like s/docs.",
+  "category": "Productivity",
+  "website": "https://github.com/yourselfhosted/slash",
+  "color": "#0F172A",
+  "note": "The first account you sign up with becomes the admin.",
+  "expose": {
+    "service": "slash",
+    "port": 5231
+  },
+  "vars": []
+}

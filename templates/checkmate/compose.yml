@@ -1,0 +1,23 @@
+services:
+  checkmate:
+    image: ghcr.io/bluewave-labs/checkmate:latest
+    restart: unless-stopped
+    environment:
+      DB_CONNECTION_STRING: mongodb://mongodb:27017/uptime_db
+      CLIENT_HOST: ${CLIENT_HOST}
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+  mongodb:
+    image: mongo:8.0
+    restart: unless-stopped
+    command: ["mongod", "--quiet", "--bind_ip_all"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/27017"]
+      interval: 5s
+      retries: 30
+volumes:
+  mongo-data:

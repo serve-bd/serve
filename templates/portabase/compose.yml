@@ -1,0 +1,32 @@
+services:
+  portabase:
+    image: portabase/portabase:1.31
+    restart: unless-stopped
+    environment:
+      PROJECT_NAME: Portabase
+      PROJECT_URL: ${PROJECT_URL}
+      PROJECT_SECRET: ${PROJECT_SECRET}
+      DATABASE_URL: postgresql://portabase:${POSTGRES_PASSWORD}@postgres:5432/portabase?schema=public
+      TZ: UTC
+      TELEMETRY: "false"
+    volumes:
+      - portabase-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: portabase
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: portabase
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portabase -d portabase"]
+      interval: 5s
+      retries: 20
+volumes:
+  portabase-data:
+  postgres-data:

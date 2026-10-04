@@ -1,0 +1,22 @@
+{
+  "name": "Redmine",
+  "description": "Project management and issue tracking with wikis, time tracking and Gantt charts.",
+  "category": "Productivity",
+  "website": "https://www.redmine.org",
+  "color": "#B32024",
+  "note": "Sign in with admin / admin. Redmine asks you to set a new password on the first login.",
+  "expose": {
+    "service": "redmine",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    }
+  ]
+}

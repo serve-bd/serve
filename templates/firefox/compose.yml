@@ -1,0 +1,16 @@
+services:
+  firefox:
+    image: jlesage/firefox:v26.09.1
+    restart: unless-stopped
+    shm_size: 2gb
+    environment:
+      TZ: UTC
+      # TLS ends at the proxy in front, so the login page runs over plain HTTP inside.
+      WEB_AUTHENTICATION: "1"
+      WEB_AUTHENTICATION_ALLOW_INSECURE: "1"
+      WEB_AUTHENTICATION_USERNAME: ${WEB_USERNAME}
+      WEB_AUTHENTICATION_PASSWORD: ${WEB_PASSWORD}
+    volumes:
+      - firefox-config:/config
+volumes:
+  firefox-config:

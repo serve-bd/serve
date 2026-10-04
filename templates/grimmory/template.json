@@ -1,0 +1,22 @@
+{
+  "name": "Grimmory",
+  "description": "Library for your ebooks and comics: organize, read and annotate in the browser, and sync with e-readers.",
+  "category": "Media",
+  "website": "https://github.com/grimmory-tools/grimmory",
+  "color": "#7C3AED",
+  "note": "Open the domain to create the admin account on first visit.",
+  "expose": {
+    "service": "grimmory",
+    "port": 6060
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "DB_ROOT_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

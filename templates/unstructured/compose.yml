@@ -1,0 +1,6 @@
+services:
+  unstructured:
+    image: downloads.unstructured.io/unstructured-io/unstructured-api:latest
+    restart: unless-stopped
+    environment:
+      UNSTRUCTURED_API_KEY: ${API_KEY}

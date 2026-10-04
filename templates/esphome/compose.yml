@@ -1,0 +1,13 @@
+services:
+  esphome:
+    image: esphome/esphome:2026.9
+    restart: unless-stopped
+    environment:
+      USERNAME: ${ESPHOME_USERNAME}
+      PASSWORD: ${ESPHOME_PASSWORD}
+      # mDNS does not cross the container network, so device status uses ping.
+      ESPHOME_DASHBOARD_USE_PING: "true"
+    volumes:
+      - esphome-config:/config
+volumes:
+  esphome-config:

@@ -1,0 +1,29 @@
+{
+  "name": "Neon WebSocket Proxy",
+  "description": "Postgres behind a WebSocket proxy, so the Neon serverless driver can reach it from edge and serverless code.",
+  "category": "Databases",
+  "website": "https://github.com/neondatabase/wsproxy",
+  "color": "#34D59A",
+  "note": "In the Neon serverless driver, set neonConfig.wsProxy to a function that returns your domain followed by /v1 (for example () => 'db.example.com/v1'), and connect with the Postgres user, password and database below.",
+  "expose": {
+    "service": "wsproxy",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_USER",
+      "value": "postgres",
+      "label": "Postgres user"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password",
+      "label": "Postgres password"
+    },
+    {
+      "key": "POSTGRES_DB",
+      "value": "postgres",
+      "label": "Database"
+    }
+  ]
+}

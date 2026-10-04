@@ -1,0 +1,12 @@
+services:
+  executor:
+    image: ghcr.io/rhyssullivan/executor-selfhost:1.6.10
+    restart: unless-stopped
+    environment:
+      EXECUTOR_WEB_BASE_URL: ${PUBLIC_URL}
+      EXECUTOR_BOOTSTRAP_ADMIN_EMAIL: ${ADMIN_EMAIL}
+      EXECUTOR_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    volumes:
+      - executor-data:/data
+volumes:
+  executor-data:

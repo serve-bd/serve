@@ -1,0 +1,26 @@
+services:
+  ryot:
+    image: ignisda/ryot:v10
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://ryot:${POSTGRES_PASSWORD}@postgres:5432/ryot
+      SERVER_ADMIN_ACCESS_TOKEN: ${SERVER_ADMIN_ACCESS_TOKEN}
+      TZ: UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ryot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ryot
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ryot -d ryot"]
+      interval: 5s
+      retries: 20
+volumes:
+  postgres-data:

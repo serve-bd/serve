@@ -1,0 +1,34 @@
+{
+  "name": "ClassicPress (no database)",
+  "description": "Lightweight CMS based on WordPress with the classic editor, connected to a MySQL or MariaDB database you already run.",
+  "category": "CMS",
+  "website": "https://www.classicpress.net",
+  "color": "#057F99",
+  "note": "This needs an outside MySQL or MariaDB database, for example a Serve database service in the same project. Fill in its host, user, password and database name.",
+  "expose": {
+    "service": "classicpress",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "CLASSICPRESS_DB_HOST",
+      "value": "",
+      "label": "Database host"
+    },
+    {
+      "key": "CLASSICPRESS_DB_USER",
+      "value": "",
+      "label": "Database user"
+    },
+    {
+      "key": "CLASSICPRESS_DB_PASSWORD",
+      "value": "",
+      "label": "Database password"
+    },
+    {
+      "key": "CLASSICPRESS_DB_NAME",
+      "value": "classicpress",
+      "label": "Database name"
+    }
+  ]
+}

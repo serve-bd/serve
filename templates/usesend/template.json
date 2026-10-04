@@ -1,0 +1,51 @@
+{
+  "name": "useSend",
+  "description": "Open-source email platform on top of Amazon SES for transactional and marketing email, with an API, SMTP and analytics.",
+  "category": "Communication",
+  "website": "https://usesend.com",
+  "color": "#000000",
+  "note": "Needs Amazon SES credentials and a GitHub OAuth app for sign-in (callback URL <domain>/api/auth/callback/github). Fill them in before creating.",
+  "expose": {
+    "service": "usesend",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "AWS_ACCESS_KEY_ID",
+      "value": "",
+      "label": "AWS access key ID"
+    },
+    {
+      "key": "AWS_SECRET_ACCESS_KEY",
+      "value": "",
+      "label": "AWS secret access key"
+    },
+    {
+      "key": "AWS_DEFAULT_REGION",
+      "value": "us-east-1",
+      "label": "AWS SES region"
+    },
+    {
+      "key": "GITHUB_ID",
+      "value": "",
+      "label": "GitHub OAuth client ID"
+    },
+    {
+      "key": "GITHUB_SECRET",
+      "value": "",
+      "label": "GitHub OAuth client secret"
+    },
+    {
+      "key": "NEXTAUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

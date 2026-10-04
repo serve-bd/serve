@@ -1,0 +1,12 @@
+{
+  "name": "BentoPDF",
+  "description": "PDF toolkit that merges, splits, converts and edits PDFs right in the browser, so files never leave the device.",
+  "category": "Productivity",
+  "website": "https://bentopdf.com",
+  "color": "#4F46E5",
+  "expose": {
+    "service": "bentopdf",
+    "port": 8080
+  },
+  "vars": []
+}

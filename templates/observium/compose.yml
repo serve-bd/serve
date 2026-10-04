@@ -1,0 +1,38 @@
+services:
+  observium:
+    image: mbixtech/observium:24.12
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      OBSERVIUM_ADMIN_USER: ${OBSERVIUM_ADMIN_USER}
+      OBSERVIUM_ADMIN_PASS: ${OBSERVIUM_ADMIN_PASS}
+      OBSERVIUM_DB_HOST: mariadb
+      OBSERVIUM_DB_NAME: observium
+      OBSERVIUM_DB_USER: observium
+      OBSERVIUM_DB_PASS: ${DB_PASSWORD}
+      OBSERVIUM_BASE_URL: ${OBSERVIUM_BASE_URL}
+      TZ: Etc/UTC
+    volumes:
+      - observium-logs:/opt/observium/logs
+      - observium-rrd:/opt/observium/rrd
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: observium
+      MARIADB_USER: observium
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  observium-logs:
+  observium-rrd:
+  mariadb-data:

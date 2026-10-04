@@ -1,0 +1,91 @@
+services:
+  argilla:
+    image: argilla/argilla-server:v2.8.0
+    restart: unless-stopped
+    environment:
+      ARGILLA_HOME_PATH: /var/lib/argilla
+      ARGILLA_ELASTICSEARCH: http://elasticsearch:9200
+      ARGILLA_DATABASE_URL: postgresql+asyncpg://argilla:${DB_PASSWORD}@postgres:5432/argilla
+      ARGILLA_REDIS_URL: redis://redis:6379/0
+      ARGILLA_AUTH_SECRET_KEY: ${AUTH_SECRET_KEY}
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      USERNAME: ${ARGILLA_USERNAME}
+      PASSWORD: ${ARGILLA_PASSWORD}
+      API_KEY: ${ARGILLA_API_KEY}
+      WORKSPACE: default
+    volumes:
+      - argilla-data:/var/lib/argilla
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+  worker:
+    image: argilla/argilla-server:v2.8.0
+    restart: unless-stopped
+    command: python -m argilla_server worker --num-workers 1
+    environment:
+      ARGILLA_HOME_PATH: /var/lib/argilla
+      ARGILLA_ELASTICSEARCH: http://elasticsearch:9200
+      ARGILLA_DATABASE_URL: postgresql+asyncpg://argilla:${DB_PASSWORD}@postgres:5432/argilla
+      ARGILLA_REDIS_URL: redis://redis:6379/0
+      ARGILLA_AUTH_SECRET_KEY: ${AUTH_SECRET_KEY}
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    volumes:
+      - argilla-data:/var/lib/argilla
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: argilla
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: argilla
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U argilla -d argilla"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    restart: unless-stopped
+    environment:
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      node.name: elasticsearch
+      cluster.name: argilla
+      discovery.type: single-node
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+      xpack.security.enabled: "false"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      retries: 30
+volumes:
+  argilla-data:
+  postgres-data:
+  redis-data:
+  elasticsearch-data:

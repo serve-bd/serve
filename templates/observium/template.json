@@ -1,0 +1,32 @@
+{
+  "name": "Observium",
+  "description": "Network monitoring that discovers switches, routers and servers over SNMP and graphs their health.",
+  "category": "Monitoring",
+  "website": "https://www.observium.org",
+  "color": "#1F5F99",
+  "note": "Runs on x86-64 servers only. Sign in with the admin user and password below, then add devices from the web UI.",
+  "expose": {
+    "service": "observium",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "OBSERVIUM_ADMIN_USER",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "OBSERVIUM_ADMIN_PASS",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "OBSERVIUM_BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "OpenPanel",
+  "description": "Web and product analytics with events, funnels, retention and real-time dashboards.",
+  "category": "Analytics",
+  "website": "https://openpanel.dev",
+  "color": "#2563EB",
+  "note": "Open the domain to create the first account. The tracking script and SDKs send events to the API at /api on the same domain.",
+  "expose": {
+    "service": "ingress",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "COOKIE_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "DASHBOARD_URL",
+      "publicUrl": true
+    }
+  ]
+}

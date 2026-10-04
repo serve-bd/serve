@@ -1,0 +1,13 @@
+{
+  "name": "Organizr",
+  "description": "Homepage that puts your self-hosted services in tabs behind one login.",
+  "category": "Productivity",
+  "website": "https://organizr.app",
+  "color": "#2D9CDB",
+  "note": "Open the domain to run the setup wizard and create the admin account.",
+  "expose": {
+    "service": "organizr",
+    "port": 80
+  },
+  "vars": []
+}

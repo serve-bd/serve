@@ -1,0 +1,17 @@
+services:
+  mage:
+    image: mageai/mageai:0.9.79
+    restart: unless-stopped
+    command: mage start default_project
+    environment:
+      PROJECT_NAME: default_project
+      USER_CODE_PATH: /home/src/default_project
+      ENV: production
+      REQUIRE_USER_AUTHENTICATION: "1"
+      DEFAULT_OWNER_EMAIL: ${DEFAULT_OWNER_EMAIL}
+      DEFAULT_OWNER_USERNAME: admin
+      DEFAULT_OWNER_PASSWORD: ${DEFAULT_OWNER_PASSWORD}
+    volumes:
+      - mage-data:/home/src
+volumes:
+  mage-data:

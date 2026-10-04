@@ -1,0 +1,22 @@
+{
+  "name": "Yamtrack",
+  "description": "Tracker for the movies, shows, anime, games and books you watch, play and read, with SQLite.",
+  "category": "Media",
+  "website": "https://github.com/FuzzyGrim/Yamtrack",
+  "color": "#4F46E5",
+  "note": "Create an account on the first visit.",
+  "expose": {
+    "service": "yamtrack",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

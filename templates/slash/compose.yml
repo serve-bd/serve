@@ -1,0 +1,8 @@
+services:
+  slash:
+    image: yourselfhosted/slash:latest
+    restart: unless-stopped
+    volumes:
+      - slash-data:/var/opt/slash
+volumes:
+  slash-data:

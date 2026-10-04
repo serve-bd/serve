@@ -1,0 +1,30 @@
+{
+  "name": "Reactive Resume",
+  "description": "Resume builder with many templates, live preview, PDF export and public share links.",
+  "category": "Productivity",
+  "website": "https://rxresu.me",
+  "color": "#18181B",
+  "note": "Anyone can sign up. After you create your account, set FLAG_DISABLE_SIGNUPS to true in the compose file if the instance is only for you.",
+  "expose": {
+    "service": "reactive-resume",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "AUTH_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "ENCRYPTION_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    }
+  ]
+}

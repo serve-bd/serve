@@ -1,0 +1,45 @@
+{
+  "name": "Cap",
+  "description": "Open source screen recorder and Loom alternative: record, upload and share videos with a link.",
+  "category": "Media",
+  "website": "https://cap.so",
+  "color": "#1C64F2",
+  "minVersion": "0.1.9",
+  "note": "Recordings are stored in MinIO, which gets its own domain. Without an email provider, the sign-in code is printed in the cap-web logs.",
+  "expose": {
+    "service": "cap-web",
+    "port": 3000
+  },
+  "domains": [
+    {
+      "service": "minio",
+      "port": 9000
+    }
+  ],
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "MINIO_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "DATABASE_ENCRYPTION_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "NEXTAUTH_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "CAP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "S3_PUBLIC_URL",
+      "serviceUrl": "minio"
+    }
+  ]
+}

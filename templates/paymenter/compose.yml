@@ -1,0 +1,74 @@
+services:
+  paymenter:
+    image: ghcr.io/paymenter/paymenter:v1.4.5
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_KEY: ${APP_KEY}
+      APP_URL: ${APP_URL}
+      DB_CONNECTION: mariadb
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_DATABASE: paymenter
+      DB_USERNAME: paymenter
+      DB_PASSWORD: ${DB_PASSWORD}
+      CACHE_STORE: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    # Runs after the image's entrypoint has migrated the database. The first start sets the
+    # site URL and creates the admin account (role 1 is the admin role).
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /app/var/.initialized ]; then
+          php artisan app:init Paymenter "$$APP_URL" &&
+          php artisan app:user:create Admin User "$$ADMIN_EMAIL" "$$ADMIN_PASSWORD" 1 &&
+          touch /app/var/.initialized
+        fi
+        exec supervisord -n -c /etc/supervisord.conf
+    volumes:
+      - paymenter-var:/app/var
+      - paymenter-storage:/app/storage/app
+      - paymenter-logs:/app/storage/logs
+      - paymenter-themes:/app/themes
+      - paymenter-extensions:/app/extensions
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: paymenter
+      MARIADB_USER: paymenter
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+volumes:
+  paymenter-var:
+  paymenter-storage:
+  paymenter-logs:
+  paymenter-themes:
+  paymenter-extensions:
+  mariadb-data:
+  redis-data:

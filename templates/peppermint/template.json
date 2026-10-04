@@ -1,0 +1,22 @@
+{
+  "name": "Peppermint",
+  "description": "Help desk and issue tracker for support teams, with tickets, clients and a knowledge base.",
+  "category": "Productivity",
+  "website": "https://peppermint.sh",
+  "color": "#10B981",
+  "note": "Sign in with admin@admin.com and password 1234, then change both right away.",
+  "expose": {
+    "service": "peppermint",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SECRET",
+      "generate": "secret"
+    }
+  ]
+}

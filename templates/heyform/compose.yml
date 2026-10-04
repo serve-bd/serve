@@ -1,0 +1,44 @@
+services:
+  heyform:
+    image: heyform/community-edition:v3.0.3
+    restart: unless-stopped
+    environment:
+      APP_HOMEPAGE_URL: ${APP_HOMEPAGE_URL}
+      SESSION_KEY: ${SESSION_KEY}
+      FORM_ENCRYPTION_KEY: ${FORM_ENCRYPTION_KEY}
+      MONGO_URI: mongodb://mongo:27017/heyform
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - heyform-uploads:/app/static/upload
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep PONG"]
+      interval: 5s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+volumes:
+  heyform-uploads:
+  mongo-data:
+  redis-data:

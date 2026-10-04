@@ -1,0 +1,26 @@
+{
+  "name": "Portabase",
+  "description": "Dashboard to back up and restore databases through lightweight agents on your servers.",
+  "category": "Databases",
+  "website": "https://portabase.io",
+  "color": "#1E293B",
+  "note": "Create the admin account on the first visit, then add an agent next to each database you want to back up.",
+  "expose": {
+    "service": "portabase",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "PROJECT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "PROJECT_URL",
+      "publicUrl": true
+    }
+  ]
+}

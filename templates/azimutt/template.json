@@ -1,0 +1,26 @@
+{
+  "name": "Azimutt",
+  "description": "Database explorer and ERD tool to design, explore, document and analyze large schemas.",
+  "category": "Developer tools",
+  "website": "https://azimutt.app",
+  "color": "#4F46E5",
+  "note": "Create your account on the first visit.",
+  "expose": {
+    "service": "azimutt",
+    "port": 4000
+  },
+  "vars": [
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "AZIMUTT_HOST",
+      "publicHost": true
+    }
+  ]
+}

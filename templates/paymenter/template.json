@@ -1,0 +1,36 @@
+{
+  "name": "Paymenter",
+  "description": "Billing and client portal for hosting companies, with invoices, products and automatic server provisioning.",
+  "category": "Productivity",
+  "website": "https://paymenter.org",
+  "color": "#4F46E5",
+  "note": "Sign in with the admin email and password below. File uploads need the proxy trusted under Admin, Settings, Security.",
+  "expose": {
+    "service": "paymenter",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    }
+  ]
+}

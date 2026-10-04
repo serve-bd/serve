@@ -1,0 +1,27 @@
+{
+  "name": "OpenWA (PostgreSQL)",
+  "description": "Self-hosted WhatsApp HTTP API with a dashboard, with PostgreSQL and Redis for queues and many sessions.",
+  "category": "Communication",
+  "website": "https://github.com/rmyndharis/OpenWA",
+  "color": "#25D366",
+  "note": "Sign in to the dashboard with the API master key below, then scan the QR code with WhatsApp to link a session.",
+  "expose": {
+    "service": "openwa",
+    "port": 2785
+  },
+  "vars": [
+    {
+      "key": "API_MASTER_KEY",
+      "generate": "secret",
+      "label": "API master key"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

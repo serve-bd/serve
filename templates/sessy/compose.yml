@@ -1,0 +1,12 @@
+services:
+  sessy:
+    image: ghcr.io/marckohlbrugge/sessy:main
+    restart: unless-stopped
+    environment:
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      HTTP_AUTH_USERNAME: admin
+      HTTP_AUTH_PASSWORD: ${HTTP_AUTH_PASSWORD}
+    volumes:
+      - sessy-data:/rails/storage
+volumes:
+  sessy-data:

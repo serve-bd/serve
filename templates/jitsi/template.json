@@ -1,0 +1,32 @@
+{
+  "name": "Jitsi Meet",
+  "description": "Video meetings in the browser, with screen sharing and chat. No account needed to join.",
+  "category": "Communication",
+  "website": "https://jitsi.org/jitsi-meet/",
+  "color": "#1D76BA",
+  "hostAccess": true,
+  "note": "Publishes UDP port 10000 on the server for the call media. Anyone with the link can start a meeting. If calls connect but show no video, set the server's public IP below.",
+  "expose": {
+    "service": "web",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "JICOFO_AUTH_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "JVB_AUTH_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "JVB_ADVERTISE_IPS",
+      "value": "",
+      "label": "Server public IP (optional)"
+    }
+  ]
+}

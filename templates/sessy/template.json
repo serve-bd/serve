@@ -1,0 +1,23 @@
+{
+  "name": "Sessy",
+  "description": "Email observability for AWS SES: see deliveries, bounces, complaints, opens and clicks.",
+  "category": "Monitoring",
+  "website": "https://github.com/marckohlbrugge/sessy",
+  "color": "#4F46E5",
+  "note": "Sign in as admin with the generated password (Variables tab). Then point an SES configuration set at the webhook URL Sessy shows.",
+  "expose": {
+    "service": "sessy",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    },
+    {
+      "key": "HTTP_AUTH_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

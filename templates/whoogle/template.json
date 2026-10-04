@@ -1,0 +1,12 @@
+{
+  "name": "Whoogle",
+  "description": "Private Google search proxy without ads, tracking, JavaScript or AMP links.",
+  "category": "Productivity",
+  "website": "https://github.com/benbusby/whoogle-search",
+  "color": "#4285F4",
+  "expose": {
+    "service": "whoogle",
+    "port": 5000
+  },
+  "vars": []
+}

@@ -1,0 +1,22 @@
+services:
+  cap:
+    image: tiago2/cap:3
+    restart: unless-stopped
+    environment:
+      ADMIN_KEY: ${ADMIN_KEY}
+      REDIS_URL: redis://valkey:6379
+    depends_on:
+      valkey:
+        condition: service_healthy
+  valkey:
+    image: valkey/valkey:9-alpine
+    restart: unless-stopped
+    command: valkey-server --save 60 1 --loglevel warning --maxmemory-policy noeviction
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  valkey-data:

@@ -1,0 +1,13 @@
+{
+  "name": "Cockpit CMS",
+  "description": "Lightweight headless CMS with an API for any frontend.",
+  "category": "CMS",
+  "website": "https://getcockpit.com",
+  "color": "#2D2D2D",
+  "note": "Open /install on the new domain right away. It creates the admin user (admin / admin): sign in and change the password.",
+  "expose": {
+    "service": "cockpit",
+    "port": 80
+  },
+  "vars": []
+}

@@ -1,0 +1,50 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - chibisafe-uploads:/app/uploads:ro
+    depends_on:
+      - chibisafe
+      - chibisafe-server
+  chibisafe:
+    image: chibisafe/chibisafe:v6.5.5
+    restart: unless-stopped
+    environment:
+      BASE_API_URL: http://chibisafe-server:8000
+  chibisafe-server:
+    image: chibisafe/chibisafe-server:v6.5.5
+    restart: unless-stopped
+    volumes:
+      - chibisafe-database:/app/database
+      - chibisafe-uploads:/app/uploads
+      - chibisafe-logs:/app/logs
+configs:
+  caddyfile:
+    content: |
+      :80 {
+        route {
+          file_server * {
+            root /app/uploads
+            pass_thru
+          }
+          @api path /api/*
+          reverse_proxy @api http://chibisafe-server:8000 {
+            header_up Host {http.reverse_proxy.upstream.hostport}
+          }
+          @docs path /docs*
+          reverse_proxy @docs http://chibisafe-server:8000 {
+            header_up Host {http.reverse_proxy.upstream.hostport}
+          }
+          reverse_proxy http://chibisafe:8001 {
+            header_up Host {http.reverse_proxy.upstream.hostport}
+          }
+        }
+      }
+volumes:
+  chibisafe-database:
+  chibisafe-uploads:
+  chibisafe-logs:

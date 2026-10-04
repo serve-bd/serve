@@ -1,0 +1,13 @@
+{
+  "name": "Chibisafe",
+  "description": "File uploader and vault with albums, share links and ShareX support.",
+  "category": "Storage",
+  "website": "https://chibisafe.app",
+  "color": "#E11D48",
+  "note": "Sign in as admin with the password admin, then change it right away in the account settings.",
+  "expose": {
+    "service": "caddy",
+    "port": 80
+  },
+  "vars": []
+}

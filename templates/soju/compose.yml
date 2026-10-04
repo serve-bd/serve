@@ -1,0 +1,50 @@
+services:
+  # Web IRC client; it reaches the bouncer through the gamja-backend service below.
+  gamja:
+    image: codeberg.org/emersion/gamja:latest
+    restart: unless-stopped
+    depends_on:
+      - gamja-backend
+  # The soju IRC bouncer.
+  gamja-backend:
+    image: codeberg.org/emersion/soju:latest
+    restart: unless-stopped
+    entrypoint: ["/soju", "-config", "/soju-config"]
+    configs:
+      - source: soju-config
+        target: /soju-config
+    volumes:
+      - soju-db:/db
+      - soju-uploads:/uploads
+      - soju-run:/run/soju
+    healthcheck:
+      test: ["CMD", "/sojuctl", "-config", "/soju-config", "help"]
+      interval: 5s
+      retries: 20
+  # Adds the admin user on the first start; later runs find it and stop.
+  create-admin:
+    image: codeberg.org/emersion/soju:latest
+    restart: "no"
+    entrypoint: ["/sojuctl", "-config", "/soju-config", "user", "create", "-username", "admin", "-password", "${ADMIN_PASSWORD}", "-admin"]
+    configs:
+      - source: soju-config
+        target: /soju-config
+    volumes:
+      - soju-db:/db
+      - soju-run:/run/soju
+    depends_on:
+      gamja-backend:
+        condition: service_healthy
+configs:
+  soju-config:
+    content: |
+      db sqlite3 /db/main.db
+      message-store db
+      file-upload fs /uploads/
+      listen irc+insecure://0.0.0.0:6667
+      listen ws+insecure://0.0.0.0:80
+      listen unix+admin:///run/soju/admin
+volumes:
+  soju-db:
+  soju-uploads:
+  soju-run:

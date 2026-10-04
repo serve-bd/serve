@@ -1,0 +1,36 @@
+{
+  "name": "Bugsink",
+  "description": "Error tracking that works with the Sentry SDKs, light enough to run on one small server.",
+  "category": "Monitoring",
+  "website": "https://www.bugsink.com",
+  "color": "#1E293B",
+  "note": "Sign in with the admin email and the generated admin password (Variables tab).",
+  "expose": {
+    "service": "bugsink",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "SECRET_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

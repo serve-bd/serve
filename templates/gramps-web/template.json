@@ -1,0 +1,22 @@
+{
+  "name": "Gramps Web",
+  "description": "Genealogy web app to build and share your family tree together, compatible with Gramps desktop.",
+  "category": "Productivity",
+  "website": "https://www.grampsweb.org",
+  "color": "#6D4C41",
+  "note": "Open the domain to create the owner account on first visit.",
+  "expose": {
+    "service": "grampsweb",
+    "port": 5000
+  },
+  "vars": [
+    {
+      "key": "GRAMPSWEB_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "GRAMPSWEB_BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

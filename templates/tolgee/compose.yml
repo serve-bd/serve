@@ -1,0 +1,35 @@
+services:
+  tolgee:
+    image: tolgee/tolgee:latest
+    restart: unless-stopped
+    environment:
+      TOLGEE_AUTHENTICATION_ENABLED: "true"
+      TOLGEE_AUTHENTICATION_INITIAL_USERNAME: admin
+      TOLGEE_AUTHENTICATION_INITIAL_PASSWORD: ${ADMIN_PASSWORD}
+      TOLGEE_AUTHENTICATION_JWT_SECRET: ${JWT_SECRET}
+      TOLGEE_FRONT_END_URL: ${PUBLIC_URL}
+      TOLGEE_POSTGRES_AUTOSTART_ENABLED: "false"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/tolgee
+      SPRING_DATASOURCE_USERNAME: tolgee
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - tolgee-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tolgee
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: tolgee
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tolgee -d tolgee"]
+      interval: 5s
+      retries: 20
+volumes:
+  tolgee-data:
+  postgres-data:

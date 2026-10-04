@@ -1,0 +1,13 @@
+services:
+  vault:
+    image: hashicorp/vault:2.1
+    restart: unless-stopped
+    command: server
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_API_ADDR: ${PUBLIC_URL}
+      VAULT_LOCAL_CONFIG: '{"ui":true,"disable_mlock":true,"storage":{"file":{"path":"/vault/file"}},"listener":{"tcp":{"address":"0.0.0.0:8200","tls_disable":true}}}'
+    volumes:
+      - vault-data:/vault/file
+volumes:
+  vault-data:

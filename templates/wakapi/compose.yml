@@ -1,0 +1,35 @@
+services:
+  wakapi:
+    image: ghcr.io/muety/wakapi:latest
+    restart: unless-stopped
+    environment:
+      WAKAPI_PUBLIC_URL: ${PUBLIC_URL}
+      WAKAPI_PASSWORD_SALT: ${PASSWORD_SALT}
+      WAKAPI_LISTEN_IPV6: "-"
+      WAKAPI_DB_TYPE: postgres
+      WAKAPI_DB_HOST: postgres
+      WAKAPI_DB_PORT: "5432"
+      WAKAPI_DB_NAME: wakapi
+      WAKAPI_DB_USER: wakapi
+      WAKAPI_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - wakapi-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wakapi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: wakapi
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wakapi -d wakapi"]
+      interval: 5s
+      retries: 20
+volumes:
+  wakapi-data:
+  postgres-data:

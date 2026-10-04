@@ -1,0 +1,31 @@
+{
+  "name": "Tolgee",
+  "description": "Localization platform where developers and translators manage app translations together, with in-context editing.",
+  "category": "Developer tools",
+  "website": "https://tolgee.io",
+  "color": "#EC407A",
+  "note": "Sign in as admin with the generated admin password.",
+  "expose": {
+    "service": "tolgee",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

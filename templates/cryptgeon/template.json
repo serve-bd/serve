@@ -1,0 +1,12 @@
+{
+  "name": "Cryptgeon",
+  "description": "Share notes and files that are encrypted in the browser and deleted after a set number of views or time.",
+  "category": "Security",
+  "website": "https://github.com/cupcakearmy/cryptgeon",
+  "color": "#1F2937",
+  "expose": {
+    "service": "cryptgeon",
+    "port": 8000
+  },
+  "vars": []
+}

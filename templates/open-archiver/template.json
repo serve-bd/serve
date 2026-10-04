@@ -1,0 +1,38 @@
+{
+  "name": "Open Archiver",
+  "description": "Archive and search email from Google Workspace, Microsoft 365 and IMAP accounts.",
+  "category": "Productivity",
+  "website": "https://openarchiver.com",
+  "color": "#2563EB",
+  "note": "Open the domain to create the admin account.",
+  "expose": {
+    "service": "open-archiver",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "REDIS_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "MEILI_MASTER_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    }
+  ]
+}

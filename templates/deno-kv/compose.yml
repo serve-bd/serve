@@ -1,0 +1,9 @@
+services:
+  denokv:
+    image: ghcr.io/denoland/denokv:0.14.0
+    restart: unless-stopped
+    command: --sqlite-path /data/denokv.sqlite serve --access-token ${ACCESS_TOKEN}
+    volumes:
+      - denokv-data:/data
+volumes:
+  denokv-data:

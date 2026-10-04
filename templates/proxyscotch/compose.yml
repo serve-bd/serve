@@ -1,0 +1,7 @@
+services:
+  proxyscotch:
+    image: hoppscotch/proxyscotch:v0.1.4
+    restart: unless-stopped
+    environment:
+      PROXYSCOTCH_TOKEN: ${PROXYSCOTCH_TOKEN}
+      PROXYSCOTCH_ALLOWED_ORIGINS: "*"

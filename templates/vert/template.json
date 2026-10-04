@@ -1,0 +1,12 @@
+{
+  "name": "VERT",
+  "description": "File converter for images, audio and documents that runs in the browser, so files never leave the device.",
+  "category": "Productivity",
+  "website": "https://vert.sh",
+  "color": "#F2ABEE",
+  "expose": {
+    "service": "vert",
+    "port": 80
+  },
+  "vars": []
+}

@@ -1,0 +1,9 @@
+services:
+  marimo:
+    image: ghcr.io/marimo-team/marimo:0.24.0-sql
+    restart: unless-stopped
+    command: ["marimo", "edit", "--token-password", "${MARIMO_PASSWORD}", "--port", "8080", "--host", "0.0.0.0"]
+    volumes:
+      - marimo-data:/app
+volumes:
+  marimo-data:

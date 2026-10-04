@@ -1,0 +1,19 @@
+{
+  "name": "Drizzle Gateway",
+  "description": "Self-hosted Drizzle Studio to browse and edit your PostgreSQL, MySQL and SQLite databases.",
+  "category": "Databases",
+  "website": "https://gateway.drizzle.team",
+  "color": "#121212",
+  "note": "Sign in with the master password (Variables tab).",
+  "expose": {
+    "service": "gateway",
+    "port": 4983
+  },
+  "vars": [
+    {
+      "key": "MASTERPASS",
+      "generate": "password",
+      "label": "Master password"
+    }
+  ]
+}

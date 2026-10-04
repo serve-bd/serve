@@ -1,0 +1,8 @@
+services:
+  docling:
+    image: ghcr.io/docling-project/docling-serve-cpu:v1.36.0
+    restart: unless-stopped
+    environment:
+      DOCLING_SERVE_ENABLE_UI: "true"
+      DOCLING_SERVE_API_KEY: ${API_KEY}
+      DOCLING_NUM_THREADS: "4"

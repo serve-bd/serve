@@ -1,0 +1,27 @@
+{
+  "name": "Evolution API",
+  "description": "REST API for WhatsApp that connects bots, CRMs and automation tools to your numbers.",
+  "category": "Communication",
+  "website": "https://doc.evolution-api.com",
+  "color": "#25D366",
+  "note": "Open /manager and sign in with the API key (Variables tab). API requests send it in the apikey header.",
+  "expose": {
+    "service": "api",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "API_KEY",
+      "generate": "secret",
+      "label": "API key"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

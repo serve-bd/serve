@@ -1,0 +1,30 @@
+{
+  "name": "HeyForm",
+  "description": "Conversational form builder for surveys, quizzes and polls, with no code needed.",
+  "category": "Productivity",
+  "website": "https://heyform.net",
+  "color": "#1F2937",
+  "note": "Sign up on the domain to create the first account.",
+  "expose": {
+    "service": "heyform",
+    "port": 9157
+  },
+  "vars": [
+    {
+      "key": "APP_HOMEPAGE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "SESSION_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "FORM_ENCRYPTION_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "REDIS_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

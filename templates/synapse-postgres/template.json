@@ -1,0 +1,22 @@
+{
+  "name": "Synapse (PostgreSQL)",
+  "description": "Matrix homeserver for secure, decentralized chat, with PostgreSQL for larger servers.",
+  "category": "Communication",
+  "website": "https://element-hq.github.io/synapse",
+  "color": "#000000",
+  "note": "Registration is closed. Create users in the Console with: register_new_matrix_user -c /data/homeserver.yaml http://localhost:8008. The server name is the domain at first start and cannot change later. Use any Matrix client, such as the Element Web template.",
+  "expose": {
+    "service": "synapse",
+    "port": 8008
+  },
+  "vars": [
+    {
+      "key": "SYNAPSE_SERVER_NAME",
+      "publicHost": true
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

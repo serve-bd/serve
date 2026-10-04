@@ -1,0 +1,19 @@
+{
+  "name": "Martin",
+  "description": "Vector tile server that serves map tiles straight from PostGIS tables and functions.",
+  "category": "Developer tools",
+  "website": "https://maplibre.org/martin/",
+  "color": "#396CB2",
+  "note": "Martin publishes every PostGIS table with a geometry column it finds at startup, so restart it after adding tables. The catalog is at /catalog. Other services reach the database at <stack>-postgres:5432 (user and database martin).",
+  "expose": {
+    "service": "martin",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password",
+      "label": "Database password"
+    }
+  ]
+}

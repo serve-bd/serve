@@ -1,0 +1,32 @@
+{
+  "name": "NocoBase",
+  "description": "No-code platform to build internal tools, CRMs and business apps on your own data model.",
+  "category": "Productivity",
+  "website": "https://www.nocobase.com",
+  "color": "#1677FF",
+  "note": "The first start takes a few minutes. Sign in with the admin email and password below.",
+  "expose": {
+    "service": "nocobase",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "APP_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

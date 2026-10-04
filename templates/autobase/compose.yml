@@ -1,0 +1,51 @@
+services:
+  autobase-console-ui:
+    image: autobase/console_ui:2.11.0
+    restart: unless-stopped
+    environment:
+      PG_CONSOLE_AUTHORIZATION_TOKEN: ${AUTH_TOKEN}
+      PG_CONSOLE_API_HOST: autobase-console-api
+      PG_CONSOLE_DBDESK_STUDIO_HOST: dbdesk-studio
+    depends_on:
+      autobase-console-api:
+        condition: service_healthy
+  autobase-console-api:
+    image: autobase/console_api:2.11.0
+    restart: unless-stopped
+    environment:
+      PG_CONSOLE_AUTHORIZATION_TOKEN: ${AUTH_TOKEN}
+      PG_CONSOLE_LOGGER_LEVEL: INFO
+      PG_CONSOLE_DB_HOST: autobase-console-db
+    # Starts the deployment (Ansible) containers on the host; they share /tmp/ansible with it.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/ansible:/tmp/ansible
+    depends_on:
+      autobase-console-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -H 'Authorization: Bearer ${AUTH_TOKEN}' http://localhost:8080/api/v1/version"]
+      interval: 10s
+      retries: 10
+  autobase-console-db:
+    image: autobase/console_db:2.11.0
+    restart: unless-stopped
+    volumes:
+      - console-postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h 127.0.0.1"]
+      interval: 5s
+      retries: 20
+  dbdesk-studio:
+    image: bhavikagarwal2001/dbdesk-studio:0.1.5
+    restart: unless-stopped
+    environment:
+      PORT: "6789"
+      NODE_ENV: production
+      DEFAULT_SSL_MODE: require
+      STORAGE_PATH: /opt/dbdesk-studio/data
+    volumes:
+      - dbdesk-studio-data:/opt/dbdesk-studio
+volumes:
+  console-postgres:
+  dbdesk-studio-data:

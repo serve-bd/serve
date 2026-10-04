@@ -1,0 +1,17 @@
+{
+  "name": "ClassicPress (MySQL)",
+  "description": "Lightweight CMS based on WordPress with the classic editor and no block editor, with MySQL.",
+  "category": "CMS",
+  "website": "https://www.classicpress.net",
+  "color": "#057F99",
+  "expose": {
+    "service": "classicpress",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

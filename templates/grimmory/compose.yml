@@ -1,0 +1,37 @@
+services:
+  grimmory:
+    image: ghcr.io/grimmory-tools/grimmory:v3.5
+    restart: unless-stopped
+    environment:
+      USER_ID: "1000"
+      GROUP_ID: "1000"
+      TZ: Etc/UTC
+      DATABASE_URL: jdbc:mariadb://mariadb:3306/grimmory
+      DATABASE_USERNAME: grimmory
+      DATABASE_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - grimmory-data:/app/data
+      - grimmory-books:/books
+      - grimmory-bookdrop:/bookdrop
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: grimmory
+      MARIADB_USER: grimmory
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  grimmory-data:
+  grimmory-books:
+  grimmory-bookdrop:
+  mariadb-data:

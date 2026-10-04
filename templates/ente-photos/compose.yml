@@ -1,0 +1,95 @@
+services:
+  web:
+    image: ghcr.io/ente/web:latest
+    restart: unless-stopped
+    environment:
+      ENTE_API_ORIGIN: ${API_URL}
+    depends_on:
+      museum:
+        condition: service_healthy
+  museum:
+    image: ghcr.io/ente/server:latest
+    restart: unless-stopped
+    # The encryption, hash and JWT keys are made on the first start and kept in the keys volume.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ ! -s /keys/museum.env ]; then
+          {
+            echo "ENTE_KEY_ENCRYPTION=$$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+            echo "ENTE_KEY_HASH=$$(head -c 64 /dev/urandom | base64 | tr -d '\n')"
+            echo "ENTE_JWT_SECRET=$$(head -c 32 /dev/urandom | base64 | tr -d '\n' | tr '+/' '-_')"
+          } > /keys/museum.env
+        fi
+        set -a
+        . /keys/museum.env
+        set +a
+        exec ./museum
+    environment:
+      ENTE_DB_HOST: postgres
+      ENTE_DB_PORT: "5432"
+      ENTE_DB_NAME: ente
+      ENTE_DB_USER: ente
+      ENTE_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # Browsers upload and download photos straight from MinIO on its own domain.
+      ENTE_S3_ARE_LOCAL_BUCKETS: "false"
+      ENTE_S3_USE_PATH_STYLE_URLS: "true"
+      ENTE_S3_B2_EU_CEN_KEY: ${MINIO_USER}
+      ENTE_S3_B2_EU_CEN_SECRET: ${MINIO_PASSWORD}
+      ENTE_S3_B2_EU_CEN_ENDPOINT: ${MINIO_HOST}
+      ENTE_S3_B2_EU_CEN_REGION: eu-central-2
+      ENTE_S3_B2_EU_CEN_BUCKET: b2-eu-cen
+    volumes:
+      - museum-keys:/keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/ping"]
+      interval: 10s
+      retries: 30
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ente
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ente
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ente -d ente"]
+      interval: 5s
+      retries: 20
+  minio:
+    image: pgsty/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+    volumes:
+      - minio-data:/data
+  # Makes the bucket once, then exits.
+  minio-setup:
+    image: pgsty/minio:latest
+    restart: "no"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until mc alias set store http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do sleep 2; done
+        mc mb --ignore-existing store/b2-eu-cen
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+    depends_on:
+      minio:
+        condition: service_started
+volumes:
+  museum-keys:
+  postgres-data:
+  minio-data:

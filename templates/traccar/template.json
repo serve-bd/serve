@@ -1,0 +1,19 @@
+{
+  "name": "Traccar",
+  "description": "GPS tracking server for phones and hundreds of tracker models, with live maps, history and alerts.",
+  "category": "Monitoring",
+  "website": "https://www.traccar.org",
+  "color": "#000000",
+  "hostAccess": true,
+  "note": "Register on the first visit; the first account becomes the admin. Publishes port 5055 on the server for the Traccar Client apps (OsmAnd protocol); other tracker protocols are not published.",
+  "expose": {
+    "service": "traccar",
+    "port": 8082
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+services:
+  cryptgeon:
+    image: cupcakearmy/cryptgeon:2.9
+    restart: unless-stopped
+    environment:
+      REDIS: redis://redis/
+      SIZE_LIMIT: 4 MiB
+    depends_on:
+      redis:
+        condition: service_healthy
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Notes live only in memory, so they are gone after a restart.
+    command: redis-server --maxmemory 200mb --maxmemory-policy allkeys-lru --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10

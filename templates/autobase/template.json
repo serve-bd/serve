@@ -1,0 +1,20 @@
+{
+  "name": "Autobase",
+  "description": "Console to deploy and manage highly available PostgreSQL clusters on your own servers or cloud providers.",
+  "category": "Databases",
+  "website": "https://autobase.tech",
+  "color": "#2F6BF5",
+  "hostAccess": true,
+  "note": "Sign in with the generated auth token (Variables tab). The console mounts the Docker socket to run its deployment jobs on the server.",
+  "expose": {
+    "service": "autobase-console-ui",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "AUTH_TOKEN",
+      "generate": "secret",
+      "label": "Auth token"
+    }
+  ]
+}

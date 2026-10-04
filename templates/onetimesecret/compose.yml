@@ -1,0 +1,29 @@
+services:
+  onetimesecret:
+    image: onetimesecret/onetimesecret:latest
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SECRET: ${SECRET}
+      HOST: ${HOST}
+      SSL: "true"
+      RACK_ENV: production
+      # No mail server is set up, so new accounts are verified right away.
+      AUTH_AUTOVERIFY: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD --no-auth-warning ping"]
+      interval: 5s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+volumes:
+  redis-data:

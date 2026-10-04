@@ -1,0 +1,19 @@
+{
+  "name": "Proxyscotch",
+  "description": "Small proxy server that lets Hoppscotch send API requests past browser CORS limits.",
+  "category": "Developer tools",
+  "website": "https://github.com/hoppscotch/proxyscotch",
+  "color": "#09090B",
+  "note": "In Hoppscotch, open Settings, turn on the proxy and set its URL to this domain. Set the access token there too.",
+  "expose": {
+    "service": "proxyscotch",
+    "port": 9159
+  },
+  "vars": [
+    {
+      "key": "PROXYSCOTCH_TOKEN",
+      "generate": "password",
+      "label": "Access token"
+    }
+  ]
+}

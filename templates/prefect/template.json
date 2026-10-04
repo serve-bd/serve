@@ -1,0 +1,27 @@
+{
+  "name": "Prefect",
+  "description": "Workflow orchestration for Python data pipelines, with a server, a web UI and a process worker.",
+  "category": "Automation",
+  "website": "https://www.prefect.io",
+  "color": "#070E10",
+  "note": "Sign in with admin and the generated admin password. Clients use PREFECT_API_URL set to this domain plus /api and PREFECT_API_AUTH_STRING set to admin:<password>.",
+  "expose": {
+    "service": "prefect",
+    "port": 4200
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

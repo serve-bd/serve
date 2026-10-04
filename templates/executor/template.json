@@ -1,0 +1,28 @@
+{
+  "name": "Executor",
+  "description": "Server that gives AI agents your integrations and a sandbox to run code, over MCP and a web console.",
+  "category": "AI",
+  "website": "https://executor.sh",
+  "color": "#18181B",
+  "note": "Sign in with the admin email and password. Agents connect to the MCP endpoint at /mcp.",
+  "expose": {
+    "service": "executor",
+    "port": 4788
+  },
+  "vars": [
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+services:
+  supertokens:
+    image: registry.supertokens.io/supertokens/supertokens-postgresql:latest
+    restart: unless-stopped
+    environment:
+      API_KEYS: ${API_KEY}
+      POSTGRESQL_CONNECTION_URI: postgresql://supertokens:${POSTGRES_PASSWORD}@postgres:5432/supertokens
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: supertokens
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: supertokens
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supertokens -d supertokens"]
+      interval: 5s
+      retries: 20
+volumes:
+  postgres-data:

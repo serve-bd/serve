@@ -1,0 +1,33 @@
+{
+  "name": "MindsDB",
+  "description": "Query engine that connects your databases and apps to AI models and agents with SQL.",
+  "category": "AI",
+  "website": "https://mindsdb.com",
+  "color": "#00B06D",
+  "note": "Log in to the editor with the user and password below. The MySQL and Postgres wire ports stay on the private network.",
+  "expose": {
+    "service": "mindsdb",
+    "port": 47334
+  },
+  "vars": [
+    {
+      "key": "MINDSDB_USERNAME",
+      "value": "admin",
+      "label": "User"
+    },
+    {
+      "key": "MINDSDB_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "OPENAI_API_KEY",
+      "value": "",
+      "label": "OpenAI API key (optional)"
+    }
+  ]
+}

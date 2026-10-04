@@ -1,0 +1,32 @@
+{
+  "name": "Label Studio",
+  "description": "Data labeling tool for text, images, audio and video, to prepare training data for machine learning.",
+  "category": "AI",
+  "website": "https://labelstud.io",
+  "color": "#FF7557",
+  "note": "Log in with the admin email and password below. Sign up is closed: invite more people from the Organization page.",
+  "expose": {
+    "service": "labelstudio",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "LABEL_STUDIO_USERNAME",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "LABEL_STUDIO_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "LABEL_STUDIO_HOST",
+      "publicUrl": true
+    }
+  ]
+}

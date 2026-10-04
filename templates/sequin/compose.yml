@@ -1,0 +1,65 @@
+services:
+  sequin:
+    image: sequin/sequin:v0.14.6
+    restart: unless-stopped
+    # VAULT_KEY must be 32 bytes in base64: derived from the generated seed.
+    entrypoint: ["sh", "-c", "export VAULT_KEY=$$(printf %s \"$$VAULT_SEED\" | head -c 32 | base64) && exec /scripts/start_commands.sh"]
+    environment:
+      SERVER_HOST: ${SERVER_HOST}
+      SERVER_CHECK_ORIGIN: "true"
+      PG_HOSTNAME: postgres
+      PG_DATABASE: sequin
+      PG_PORT: "5432"
+      PG_USERNAME: sequin
+      PG_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_POOL_SIZE: "20"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      VAULT_SEED: ${VAULT_SEED}
+      REDIS_URL: redis://redis:6379
+      CONFIG_FILE_PATH: /config/sequin.yml
+      FEATURE_ACCOUNT_SELF_SIGNUP: disabled
+      SEQUIN_TELEMETRY_DISABLED: "true"
+      CRASH_REPORTING_DISABLED: "true"
+    configs:
+      - source: sequin-config
+        target: /config/sequin.yml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_USER: sequin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: sequin
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sequin -d sequin"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+# Creates the account and the admin user on start.
+configs:
+  sequin-config:
+    content: |
+      account:
+        name: default
+      users:
+        - email: "${ADMIN_EMAIL}"
+          password: "${ADMIN_PASSWORD}"
+volumes:
+  postgres-data:
+  redis-data:

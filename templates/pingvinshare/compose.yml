@@ -1,0 +1,12 @@
+services:
+  pingvin-share:
+    image: stonith404/pingvin-share:v1.13
+    restart: unless-stopped
+    environment:
+      TRUST_PROXY: "true"
+    volumes:
+      - pingvin-data:/opt/app/backend/data
+      - pingvin-images:/opt/app/frontend/public/img
+volumes:
+  pingvin-data:
+  pingvin-images:

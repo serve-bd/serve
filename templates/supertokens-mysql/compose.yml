@@ -1,0 +1,26 @@
+services:
+  supertokens:
+    image: registry.supertokens.io/supertokens/supertokens-mysql:latest
+    restart: unless-stopped
+    environment:
+      API_KEYS: ${API_KEY}
+      MYSQL_CONNECTION_URI: mysql://supertokens:${DB_PASSWORD}@mysql:3306/supertokens
+    depends_on:
+      mysql:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: supertokens
+      MYSQL_USER: supertokens
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      retries: 20
+volumes:
+  mysql-data:

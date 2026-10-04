@@ -1,0 +1,40 @@
+services:
+  garage:
+    image: dxflrs/garage:v2.4.1
+    restart: unless-stopped
+    # One node, with an access key and a bucket made on the first start.
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
+    environment:
+      GARAGE_RPC_SECRET: ${RPC_SECRET}
+      GARAGE_ADMIN_TOKEN: ${ADMIN_TOKEN}
+      GARAGE_METRICS_TOKEN: ${METRICS_TOKEN}
+      GARAGE_DEFAULT_ACCESS_KEY: GK${ACCESS_KEY_ID}
+      GARAGE_DEFAULT_SECRET_KEY: ${SECRET_KEY}
+      GARAGE_DEFAULT_BUCKET: ${BUCKET}
+    configs:
+      - source: garage-toml
+        target: /etc/garage.toml
+    volumes:
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+configs:
+  garage-toml:
+    content: |
+      metadata_dir = "/var/lib/garage/meta"
+      data_dir = "/var/lib/garage/data"
+      db_engine = "lmdb"
+      replication_factor = 1
+      rpc_bind_addr = "[::]:3901"
+      rpc_secret_file = "env:GARAGE_RPC_SECRET"
+
+      [s3_api]
+      s3_region = "garage"
+      api_bind_addr = "[::]:3900"
+
+      [admin]
+      api_bind_addr = "[::]:3903"
+      admin_token_file = "env:GARAGE_ADMIN_TOKEN"
+      metrics_token_file = "env:GARAGE_METRICS_TOKEN"
+volumes:
+  garage-meta:
+  garage-data:

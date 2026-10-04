@@ -1,0 +1,31 @@
+{
+  "name": "Pydio Cells",
+  "description": "File sharing and collaboration platform for teams, with workspaces, versioning and fine-grained access rules.",
+  "category": "Storage",
+  "website": "https://pydio.com",
+  "color": "#134E6F",
+  "note": "Sign in as admin with the generated admin password (Variables tab). The first start takes a minute while Cells sets up the database.",
+  "expose": {
+    "service": "cells",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "DB_ROOT_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

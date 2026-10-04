@@ -1,0 +1,29 @@
+services:
+  nitropage:
+    image: nitropage/nitropage:0.70
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://nitropage:${POSTGRES_PASSWORD}@postgres:5432/nitropage
+      NP_AUTH_SALT: ${NP_AUTH_SALT}
+      NP_AUTH_PASSWORD: ${NP_AUTH_PASSWORD}
+    volumes:
+      - nitropage-data:/app/.data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nitropage
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: nitropage
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nitropage -d nitropage"]
+      interval: 5s
+      retries: 20
+volumes:
+  nitropage-data:
+  postgres-data:

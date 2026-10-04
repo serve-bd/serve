@@ -1,0 +1,36 @@
+services:
+  backend:
+    image: ghcr.io/get-convex/convex-backend:latest
+    restart: unless-stopped
+    environment:
+      INSTANCE_NAME: self-hosted-convex
+      INSTANCE_SECRET: ${INSTANCE_SECRET}
+      CONVEX_CLOUD_ORIGIN: ${CLOUD_ORIGIN}
+      CONVEX_SITE_ORIGIN: ${SITE_ORIGIN}
+      DISABLE_BEACON: "true"
+      DO_NOT_REQUIRE_SSL: "true"
+    volumes:
+      - convex-data:/convex/data
+    healthcheck:
+      test: curl -f http://127.0.0.1:3210/version
+      interval: 5s
+      retries: 20
+      start_period: 10s
+  # HTTP actions are served on a second port of the backend; this gives them a domain of their own.
+  site:
+    image: alpine/socat:1.8.0.3
+    restart: unless-stopped
+    command: tcp-listen:3211,fork,reuseaddr tcp-connect:backend:3211
+    depends_on:
+      backend:
+        condition: service_healthy
+  dashboard:
+    image: ghcr.io/get-convex/convex-dashboard:latest
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_DEPLOYMENT_URL: ${CLOUD_ORIGIN}
+    depends_on:
+      backend:
+        condition: service_healthy
+volumes:
+  convex-data:

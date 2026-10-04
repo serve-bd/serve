@@ -1,0 +1,8 @@
+services:
+  databasus:
+    image: databasus/databasus:v3.60.0
+    restart: unless-stopped
+    volumes:
+      - databasus-data:/databasus-data
+volumes:
+  databasus-data:

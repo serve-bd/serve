@@ -1,0 +1,34 @@
+{
+  "name": "OpnForm",
+  "description": "Form builder for surveys, contact forms and sign-ups, with unlimited forms and submissions.",
+  "category": "Productivity",
+  "website": "https://opnform.com",
+  "color": "#2563EB",
+  "note": "Open the domain to create the admin account.",
+  "expose": {
+    "service": "ingress",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "FRONT_API_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    }
+  ]
+}

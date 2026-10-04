@@ -1,0 +1,8 @@
+services:
+  trailbase:
+    image: trailbase/trailbase:latest
+    restart: unless-stopped
+    volumes:
+      - trailbase-data:/app/traildepot
+volumes:
+  trailbase-data:

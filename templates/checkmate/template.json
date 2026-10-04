@@ -1,0 +1,22 @@
+{
+  "name": "Checkmate",
+  "description": "Uptime and server monitoring with status pages, incidents and alerts.",
+  "category": "Monitoring",
+  "website": "https://checkmate.so",
+  "color": "#13715B",
+  "note": "Create the admin account on the first visit.",
+  "expose": {
+    "service": "checkmate",
+    "port": 52345
+  },
+  "vars": [
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "CLIENT_HOST",
+      "publicUrl": true
+    }
+  ]
+}

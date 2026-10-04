@@ -1,0 +1,18 @@
+services:
+  satisfactory:
+    image: wolveix/satisfactory-server:v1
+    restart: unless-stopped
+    environment:
+      MAXPLAYERS: ${MAX_PLAYERS}
+      PUID: "1000"
+      PGID: "1000"
+      STEAMBETA: "false"
+    # Game traffic (TCP and UDP) and the server messaging port.
+    ports:
+      - "7777:7777/tcp"
+      - "7777:7777/udp"
+      - "8888:8888/tcp"
+    volumes:
+      - satisfactory-data:/config
+volumes:
+  satisfactory-data:

@@ -1,0 +1,50 @@
+services:
+  synapse:
+    image: ghcr.io/element-hq/synapse:latest
+    restart: unless-stopped
+    environment:
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME}
+      SYNAPSE_REPORT_STATS: "no"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Writes homeserver.yaml and the signing key on the first start, switches it to PostgreSQL,
+    # then runs Synapse. serve_server_wellknown lets other servers federate over HTTPS on port 443.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ ! -f /data/homeserver.yaml ]; then
+          /start.py generate || exit 1
+          python3 -c '
+        import os, yaml
+        p = "/data/homeserver.yaml"
+        c = yaml.safe_load(open(p))
+        c["public_baseurl"] = "https://%s/" % os.environ["SYNAPSE_SERVER_NAME"]
+        c["serve_server_wellknown"] = True
+        c["database"] = {"name": "psycopg2", "args": {"user": "synapse", "password": os.environ["POSTGRES_PASSWORD"], "database": "synapse", "host": "postgres", "port": 5432, "cp_min": 5, "cp_max": 10}}
+        yaml.safe_dump(c, open(p, "w"), sort_keys=False)
+        ' || exit 1
+        fi
+        exec /start.py
+    volumes:
+      - synapse-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: synapse
+      # Synapse needs the C collation.
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]
+      interval: 5s
+      retries: 20
+volumes:
+  synapse-data:
+  postgres-data:

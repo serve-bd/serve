@@ -1,0 +1,27 @@
+{
+  "name": "Faraday",
+  "description": "Vulnerability management platform that gathers results from security tools into one place for a team.",
+  "category": "Security",
+  "website": "https://faradaysec.com",
+  "color": "#1E3A8A",
+  "note": "Sign in as faraday with the admin password (Variables tab).",
+  "expose": {
+    "service": "faraday",
+    "port": 5985
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "PUBLIC_HOST",
+      "publicHost": true
+    }
+  ]
+}

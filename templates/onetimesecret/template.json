@@ -1,0 +1,26 @@
+{
+  "name": "Onetime Secret",
+  "description": "Share passwords and other secrets through links that work only once.",
+  "category": "Security",
+  "website": "https://onetimesecret.com",
+  "color": "#DC4A22",
+  "note": "Secrets are stored in Redis, so keep the Redis volume. For an admin account, run bin/ots customers create you@example.com --role colonel in the onetimesecret container; it prints the password.",
+  "expose": {
+    "service": "onetimesecret",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "REDIS_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "HOST",
+      "publicHost": true
+    }
+  ]
+}

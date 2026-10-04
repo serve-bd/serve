@@ -1,0 +1,4 @@
+services:
+  bentopdf:
+    image: ghcr.io/alam00000/bentopdf:latest
+    restart: unless-stopped

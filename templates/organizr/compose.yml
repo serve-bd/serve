@@ -1,0 +1,13 @@
+services:
+  organizr:
+    image: organizr/organizr:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      branch: v2-master
+    volumes:
+      - organizr-config:/config
+volumes:
+  organizr-config:

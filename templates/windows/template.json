@@ -1,0 +1,30 @@
+{
+  "name": "Windows",
+  "description": "Windows in a virtual machine, installed automatically and used from the browser.",
+  "category": "Productivity",
+  "website": "https://github.com/dockur/windows",
+  "color": "#0078D4",
+  "hostAccess": true,
+  "note": "Needs a server with KVM (/dev/kvm) and NET_ADMIN. The first start downloads and installs Windows, which takes a while; watch it on the domain.",
+  "expose": {
+    "service": "windows",
+    "port": 8006
+  },
+  "vars": [
+    {
+      "key": "WINDOWS_VERSION",
+      "value": "11",
+      "label": "Windows version (11, 10, 2025, ...)"
+    },
+    {
+      "key": "WINDOWS_USERNAME",
+      "value": "admin",
+      "label": "Windows user"
+    },
+    {
+      "key": "WINDOWS_PASSWORD",
+      "generate": "password",
+      "label": "Windows password"
+    }
+  ]
+}

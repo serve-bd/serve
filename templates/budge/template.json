@@ -1,0 +1,13 @@
+{
+  "name": "Budge",
+  "description": "Envelope budgeting app for personal finance, with accounts, categories and monthly budgets.",
+  "category": "Productivity",
+  "website": "https://github.com/linuxserver/budge",
+  "color": "#2E7D32",
+  "note": "Create your account on the first visit.",
+  "expose": {
+    "service": "budge",
+    "port": 80
+  },
+  "vars": []
+}

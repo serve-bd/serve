@@ -1,0 +1,36 @@
+{
+  "name": "SeaweedFS",
+  "description": "Distributed storage for billions of files, with an S3 API and an admin web UI.",
+  "category": "Storage",
+  "website": "https://github.com/seaweedfs/seaweedfs",
+  "color": "#2B6CB0",
+  "minVersion": "0.1.9",
+  "note": "The admin UI is on the main domain; sign in as admin with the generated password. The S3 API has a domain of its own and uses the S3 access key and secret key.",
+  "expose": {
+    "service": "admin",
+    "port": 23646
+  },
+  "domains": [
+    {
+      "service": "seaweedfs",
+      "port": 8333
+    }
+  ],
+  "vars": [
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "S3_ACCESS_KEY",
+      "value": "admin",
+      "label": "S3 access key"
+    },
+    {
+      "key": "S3_SECRET_KEY",
+      "generate": "password",
+      "label": "S3 secret key"
+    }
+  ]
+}

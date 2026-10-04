@@ -1,0 +1,42 @@
+{
+  "name": "Garage",
+  "description": "Lightweight S3-compatible object storage, run here as a single node.",
+  "category": "Storage",
+  "website": "https://garagehq.deuxfleurs.fr",
+  "color": "#FF9329",
+  "minVersion": "0.1.9",
+  "note": "The domain is the S3 endpoint (region garage, path-style). The access key ID is GK followed by the key ID in the Variables tab.",
+  "expose": {
+    "service": "garage",
+    "port": 3900
+  },
+  "vars": [
+    {
+      "key": "RPC_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "ADMIN_TOKEN",
+      "generate": "secret"
+    },
+    {
+      "key": "METRICS_TOKEN",
+      "generate": "secret"
+    },
+    {
+      "key": "ACCESS_KEY_ID",
+      "generate": "hex16",
+      "label": "Access key ID (after GK)"
+    },
+    {
+      "key": "SECRET_KEY",
+      "generate": "hex32",
+      "label": "Secret key"
+    },
+    {
+      "key": "BUCKET",
+      "value": "default",
+      "label": "Bucket name"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+services:
+  nocobase:
+    image: nocobase/nocobase:2.2-full
+    restart: unless-stopped
+    environment:
+      APP_KEY: ${APP_KEY}
+      DB_DIALECT: postgres
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: nocobase
+      DB_USER: nocobase
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      INIT_ROOT_EMAIL: ${ADMIN_EMAIL}
+      INIT_ROOT_PASSWORD: ${ADMIN_PASSWORD}
+      TZ: Etc/UTC
+    volumes:
+      - nocobase-storage:/app/nocobase/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    command: postgres -c wal_level=logical
+    environment:
+      POSTGRES_USER: nocobase
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: nocobase
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nocobase -d nocobase"]
+      interval: 5s
+      retries: 20
+volumes:
+  nocobase-storage:
+  postgres-data:

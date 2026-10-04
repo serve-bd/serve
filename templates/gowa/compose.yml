@@ -1,0 +1,15 @@
+services:
+  gowa:
+    image: aldinokemal2104/go-whatsapp-web-multidevice:v9.6.0
+    restart: unless-stopped
+    command: rest
+    environment:
+      APP_PORT: "3000"
+      APP_BASIC_AUTH: ${GOWA_USER}:${GOWA_PASSWORD}
+      APP_DEBUG: "false"
+      WHATSAPP_WEBHOOK: ${WHATSAPP_WEBHOOK:-}
+      WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET}
+    volumes:
+      - gowa-data:/app/storages
+volumes:
+  gowa-data:

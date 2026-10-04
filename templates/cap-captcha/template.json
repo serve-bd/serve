@@ -1,0 +1,19 @@
+{
+  "name": "Cap CAPTCHA",
+  "description": "Self-hosted proof-of-work CAPTCHA that protects forms from bots without tracking visitors.",
+  "category": "Security",
+  "website": "https://capjs.js.org",
+  "color": "#0F172A",
+  "note": "Open the dashboard and sign in with the generated admin key (Variables tab) to create site keys.",
+  "expose": {
+    "service": "cap",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "ADMIN_KEY",
+      "generate": "secret",
+      "label": "Admin key"
+    }
+  ]
+}

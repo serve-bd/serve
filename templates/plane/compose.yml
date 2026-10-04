@@ -1,0 +1,193 @@
+x-db-env: &db-env
+  PGHOST: plane-db
+  PGDATABASE: plane
+  POSTGRES_USER: plane
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  POSTGRES_DB: plane
+  POSTGRES_PORT: "5432"
+  PGDATA: /var/lib/postgresql/data
+x-redis-env: &redis-env
+  REDIS_HOST: plane-redis
+  REDIS_PORT: "6379"
+  REDIS_URL: redis://plane-redis:6379/
+x-minio-env: &minio-env
+  MINIO_ROOT_USER: plane
+  MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+x-aws-s3-env: &aws-s3-env
+  AWS_REGION: ""
+  AWS_ACCESS_KEY_ID: plane
+  AWS_SECRET_ACCESS_KEY: ${MINIO_PASSWORD}
+  AWS_S3_ENDPOINT_URL: http://plane-minio:9000
+  AWS_S3_BUCKET_NAME: uploads
+x-proxy-env: &proxy-env
+  APP_DOMAIN: ${APP_DOMAIN}
+  SITE_ADDRESS: ":80"
+  FILE_SIZE_LIMIT: "5242880"
+  BUCKET_NAME: uploads
+x-mq-env: &mq-env
+  RABBITMQ_HOST: plane-mq
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_DEFAULT_USER: plane
+  RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+  RABBITMQ_DEFAULT_VHOST: plane
+  RABBITMQ_VHOST: plane
+x-live-env: &live-env
+  API_BASE_URL: http://api:8000
+  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY}
+x-app-env: &app-env
+  WEB_URL: ${WEB_URL}
+  CORS_ALLOWED_ORIGINS: ${WEB_URL}
+  DEBUG: "0"
+  GUNICORN_WORKERS: "1"
+  USE_MINIO: "1"
+  MINIO_ENDPOINT_SSL: "0"
+  DATABASE_URL: postgresql://plane:${POSTGRES_PASSWORD}@plane-db/plane
+  SECRET_KEY: ${SECRET_KEY}
+  AMQP_URL: amqp://plane:${RABBITMQ_PASSWORD}@plane-mq:5672/plane
+  API_KEY_RATE_LIMIT: 60/minute
+  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY}
+services:
+  # Routes the web app, API, uploads and the other front ends on one domain.
+  proxy:
+    image: makeplane/plane-proxy:v1.4.2
+    restart: unless-stopped
+    environment:
+      <<: *proxy-env
+    volumes:
+      - proxy-config:/config
+      - proxy-data:/data
+    depends_on:
+      - web
+      - api
+      - space
+      - admin
+      - live
+  web:
+    image: makeplane/plane-frontend:v1.4.2
+    restart: unless-stopped
+    depends_on:
+      - api
+      - worker
+  space:
+    image: makeplane/plane-space:v1.4.2
+    restart: unless-stopped
+    depends_on:
+      - api
+      - worker
+      - web
+  admin:
+    image: makeplane/plane-admin:v1.4.2
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+  live:
+    image: makeplane/plane-live:v1.4.2
+    restart: unless-stopped
+    environment:
+      <<: [*live-env, *redis-env]
+    depends_on:
+      - api
+      - web
+  api:
+    image: makeplane/plane-backend:v1.4.2
+    restart: unless-stopped
+    command: ./bin/docker-entrypoint-api.sh
+    environment:
+      <<: [*app-env, *db-env, *redis-env, *minio-env, *aws-s3-env, *proxy-env]
+    volumes:
+      - logs-api:/code/plane/logs
+    depends_on:
+      plane-db:
+        condition: service_healthy
+      plane-redis:
+        condition: service_healthy
+      plane-mq:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+  worker:
+    image: makeplane/plane-backend:v1.4.2
+    restart: unless-stopped
+    command: ./bin/docker-entrypoint-worker.sh
+    environment:
+      <<: [*app-env, *db-env, *redis-env, *minio-env, *aws-s3-env, *proxy-env]
+    volumes:
+      - logs-worker:/code/plane/logs
+    depends_on:
+      - api
+  beat-worker:
+    image: makeplane/plane-backend:v1.4.2
+    restart: unless-stopped
+    command: ./bin/docker-entrypoint-beat.sh
+    environment:
+      <<: [*app-env, *db-env, *redis-env, *minio-env, *aws-s3-env, *proxy-env]
+    volumes:
+      - logs-beat-worker:/code/plane/logs
+    depends_on:
+      - api
+  # Runs the database migrations on every start, then exits.
+  migrator:
+    image: makeplane/plane-backend:v1.4.2
+    restart: "no"
+    command: ./bin/docker-entrypoint-migrator.sh
+    environment:
+      <<: [*app-env, *db-env, *redis-env, *minio-env, *aws-s3-env, *proxy-env]
+    volumes:
+      - logs-migrator:/code/plane/logs
+    depends_on:
+      plane-db:
+        condition: service_healthy
+      plane-redis:
+        condition: service_healthy
+  plane-db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    command: postgres -c 'max_connections=1000'
+    environment:
+      <<: *db-env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plane -d plane"]
+      interval: 5s
+      retries: 20
+  plane-redis:
+    image: valkey/valkey:7.2-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      retries: 10
+  plane-mq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      <<: *mq-env
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 20
+  plane-minio:
+    image: pgsty/minio:latest
+    restart: unless-stopped
+    command: server /export --console-address ":9090"
+    environment:
+      <<: *minio-env
+    volumes:
+      - uploads:/export
+volumes:
+  proxy-config:
+  proxy-data:
+  logs-api:
+  logs-worker:
+  logs-beat-worker:
+  logs-migrator:
+  pgdata:
+  redisdata:
+  rabbitmq-data:
+  uploads:

@@ -1,0 +1,19 @@
+{
+  "name": "soju",
+  "description": "IRC bouncer that stays connected to your networks and keeps history, with the gamja web client.",
+  "category": "Communication",
+  "website": "https://soju.im",
+  "color": "#2E3440",
+  "note": "Sign in to the web client as admin with the generated admin password (Variables tab), then add IRC networks.",
+  "expose": {
+    "service": "gamja",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

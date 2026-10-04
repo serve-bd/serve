@@ -1,0 +1,20 @@
+{
+  "name": "Satisfactory",
+  "description": "Dedicated server for the factory building game Satisfactory.",
+  "category": "Media",
+  "website": "https://github.com/wolveix/satisfactory-server",
+  "color": "#E59345",
+  "hostAccess": true,
+  "note": "Publishes ports 7777 (TCP and UDP) and 8888 on the server. Players connect to the server address on port 7777, and the first player to join claims the server and sets the admin password. Needs at least 8 GB of RAM; the first start downloads the game.",
+  "expose": {
+    "service": "satisfactory",
+    "port": 7777
+  },
+  "vars": [
+    {
+      "key": "MAX_PLAYERS",
+      "value": "4",
+      "label": "Max players"
+    }
+  ]
+}

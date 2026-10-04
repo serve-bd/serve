@@ -1,0 +1,23 @@
+{
+  "name": "Bulwark",
+  "description": "JMAP webmail with mail, calendar, contacts and files, built for Stalwart and other JMAP servers.",
+  "category": "Communication",
+  "website": "https://bulwarkmail.org",
+  "color": "#1D4ED8",
+  "note": "Set the URL of your JMAP mail server, for example a Stalwart service. Users sign in with their mail account.",
+  "expose": {
+    "service": "bulwark",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "JMAP_SERVER_URL",
+      "value": "https://mail.example.com",
+      "label": "JMAP server URL"
+    },
+    {
+      "key": "SESSION_SECRET",
+      "generate": "hex32"
+    }
+  ]
+}

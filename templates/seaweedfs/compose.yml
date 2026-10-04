@@ -1,0 +1,39 @@
+services:
+  # Master, volume, filer and S3 gateway in one process.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    command: ["server", "-dir=/data", "-master.port=9333", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json"]
+    configs:
+      - source: s3-config
+        target: /etc/seaweedfs/s3.json
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status"]
+      interval: 10s
+      retries: 30
+  admin:
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    command: ["admin", "-master=seaweedfs:9333", "-port=23646", "-dataDir=/data", "-adminUser=admin", "-adminPassword=${ADMIN_PASSWORD}"]
+    volumes:
+      - seaweedfs-admin-data:/data
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+configs:
+  s3-config:
+    content: |
+      {
+        "identities": [
+          {
+            "name": "admin",
+            "credentials": [{ "accessKey": "${S3_ACCESS_KEY}", "secretKey": "${S3_SECRET_KEY}" }],
+            "actions": ["Admin", "Read", "ReadAcp", "List", "Tagging", "Write", "WriteAcp"]
+          }
+        ]
+      }
+volumes:
+  seaweedfs-data:
+  seaweedfs-admin-data:

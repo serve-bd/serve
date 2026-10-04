@@ -1,0 +1,39 @@
+{
+  "name": "SparkyFitness",
+  "description": "Fitness and nutrition tracker for food, exercise, water and body measurements.",
+  "category": "Productivity",
+  "website": "https://github.com/CodeWithCJ/SparkyFitness",
+  "color": "#16A34A",
+  "note": "Sign up on the first visit. The account with the admin email below can open the admin panel.",
+  "expose": {
+    "service": "frontend",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "API_ENCRYPTION_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "BETTER_AUTH_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    }
+  ]
+}

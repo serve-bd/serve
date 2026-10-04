@@ -1,0 +1,13 @@
+{
+  "name": "Kuzzle",
+  "description": "Backend for web, mobile and IoT apps: realtime database, pub/sub, users and permissions over HTTP and WebSocket.",
+  "category": "Developer tools",
+  "website": "https://kuzzle.io",
+  "color": "#002835",
+  "note": "Until an admin account exists, anyone can use the API. Right after the first start, connect the Kuzzle Admin Console (console.kuzzle.io) to the domain on port 443 and create the admin account.",
+  "expose": {
+    "service": "kuzzle",
+    "port": 7512
+  },
+  "vars": []
+}

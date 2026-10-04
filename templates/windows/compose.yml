@@ -1,0 +1,21 @@
+services:
+  windows:
+    image: dockurr/windows:latest
+    restart: unless-stopped
+    environment:
+      VERSION: ${WINDOWS_VERSION}
+      USERNAME: ${WINDOWS_USERNAME}
+      PASSWORD: ${WINDOWS_PASSWORD}
+      RAM_SIZE: 4G
+      CPU_CORES: "2"
+      DISK_SIZE: 64G
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    stop_grace_period: 2m
+    volumes:
+      - windows-storage:/storage
+volumes:
+  windows-storage:

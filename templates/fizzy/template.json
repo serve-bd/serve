@@ -1,0 +1,22 @@
+{
+  "name": "Fizzy",
+  "description": "Simple kanban boards for tracking issues and ideas, made by 37signals.",
+  "category": "Productivity",
+  "website": "https://www.fizzy.do",
+  "color": "#2563EB",
+  "note": "Without SMTP settings, the sign-in code is printed in the fizzy service logs. The first account you create is the only one; invite people from there.",
+  "expose": {
+    "service": "fizzy",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

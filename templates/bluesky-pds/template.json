@@ -1,0 +1,31 @@
+{
+  "name": "Bluesky PDS",
+  "description": "Personal Data Server that hosts your own Bluesky accounts and data on the AT Protocol network.",
+  "category": "Communication",
+  "website": "https://github.com/bluesky-social/pds",
+  "color": "#1185FE",
+  "note": "Sign-up needs an invite code. Create one with: curl -u admin:<admin password> -H 'content-type: application/json' -d '{\"useCount\":1}' https://<domain>/xrpc/com.atproto.server.createInviteCode, then sign up in the Bluesky app with the domain as hosting provider. Handles under the domain need a wildcard DNS record.",
+  "expose": {
+    "service": "pds",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "PDS_HOSTNAME",
+      "publicHost": true
+    },
+    {
+      "key": "PDS_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "PDS_JWT_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "PDS_ROTATION_KEY",
+      "generate": "hex32"
+    }
+  ]
+}

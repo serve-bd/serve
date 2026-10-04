@@ -1,0 +1,40 @@
+{
+  "name": "Sequin",
+  "description": "Streams changes from PostgreSQL to Kafka, SQS, Redis, webhooks and other sinks in real time.",
+  "category": "Databases",
+  "website": "https://sequinstream.com",
+  "color": "#2E2E2E",
+  "note": "Sign in with the admin email and password below (Variables tab). Sign-up is turned off.",
+  "expose": {
+    "service": "sequin",
+    "port": 7376
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    },
+    {
+      "key": "VAULT_SEED",
+      "generate": "secret"
+    },
+    {
+      "key": "SERVER_HOST",
+      "publicHost": true
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

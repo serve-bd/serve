@@ -1,0 +1,42 @@
+services:
+  hatchet:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.110.2
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://hatchet:${POSTGRES_PASSWORD}@postgres:5432/hatchet?sslmode=disable
+      SERVER_MSGQUEUE_KIND: postgres
+      SERVER_URL: ${SERVER_URL}
+      SERVER_AUTH_COOKIE_DOMAIN: ${SERVER_HOST}
+      SERVER_AUTH_COOKIE_INSECURE: "f"
+      SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
+      SERVER_GRPC_BIND_ADDRESS: 0.0.0.0
+      SERVER_GRPC_INSECURE: "t"
+      SERVER_GRPC_BROADCAST_ADDRESS: ${SERVER_HOST}:7077
+      SERVER_DEFAULT_ENGINE_VERSION: V1
+      SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS: localhost:7077
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    # gRPC for workers outside the server; workers in Serve use <stack>-hatchet:7077.
+    ports:
+      - "7077:7077"
+    volumes:
+      - hatchet-config:/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hatchet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: hatchet
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hatchet -d hatchet"]
+      interval: 5s
+      retries: 20
+volumes:
+  hatchet-config:
+  postgres-data:

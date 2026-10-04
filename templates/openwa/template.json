@@ -1,0 +1,23 @@
+{
+  "name": "OpenWA",
+  "description": "Self-hosted WhatsApp HTTP API with a dashboard, for sending and receiving messages from your own apps.",
+  "category": "Communication",
+  "website": "https://github.com/rmyndharis/OpenWA",
+  "color": "#25D366",
+  "note": "Sign in to the dashboard with the API master key below, then scan the QR code with WhatsApp to link a session.",
+  "expose": {
+    "service": "openwa",
+    "port": 2785
+  },
+  "vars": [
+    {
+      "key": "API_MASTER_KEY",
+      "generate": "secret",
+      "label": "API master key"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

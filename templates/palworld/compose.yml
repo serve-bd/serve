@@ -1,0 +1,30 @@
+services:
+  palworld:
+    image: thijsvanloef/palworld-server-docker:v2
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      PORT: "8211"
+      PLAYERS: "16"
+      SERVER_NAME: ${SERVER_NAME}
+      SERVER_PASSWORD: ${SERVER_PASSWORD}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      COMMUNITY: "false"
+      MULTITHREADING: "true"
+      UPDATE_ON_BOOT: "true"
+      BACKUP_ENABLED: "true"
+      RCON_ENABLED: "true"
+      REST_API_ENABLED: "true"
+      REST_API_PORT: "8212"
+      CROSSPLAY_PLATFORMS: (Steam,Xbox,PS5,Mac)
+    # Game traffic and the server list query port; the REST API is served on the domain.
+    ports:
+      - "8211:8211/udp"
+      - "27015:27015/udp"
+    volumes:
+      - palworld-data:/palworld
+volumes:
+  palworld-data:

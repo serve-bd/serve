@@ -1,0 +1,65 @@
+services:
+  openwa:
+    image: ghcr.io/rmyndharis/openwa:0.23.1
+    restart: unless-stopped
+    stop_grace_period: 45s
+    environment:
+      NODE_ENV: production
+      PORT: "2785"
+      BASE_URL: ${BASE_URL}
+      DASHBOARD_URL: ${BASE_URL}
+      API_MASTER_KEY: ${API_MASTER_KEY}
+      DATABASE_TYPE: postgres
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USERNAME: openwa
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_NAME: openwa
+      DATABASE_SYNCHRONIZE: "false"
+      POSTGRES_SCHEMA: public
+      ENGINE_TYPE: whatsapp-web.js
+      SESSION_DATA_PATH: ./data/sessions
+      PUPPETEER_HEADLESS: "true"
+      PUPPETEER_ARGS: --no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
+      PUPPETEER_EXECUTABLE_PATH: /usr/local/bin/puppeteer-chrome
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: ./data/media
+      REDIS_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      QUEUE_ENABLED: "true"
+      CACHE_ENABLED: "true"
+    volumes:
+      - openwa-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openwa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: openwa
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openwa -d openwa"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+volumes:
+  openwa-data:
+  postgres-data:
+  redis-data:

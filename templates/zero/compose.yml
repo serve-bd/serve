@@ -1,0 +1,37 @@
+services:
+  zero:
+    image: rocicorp/zero:latest
+    restart: unless-stopped
+    environment:
+      ZERO_UPSTREAM_DB: postgres://zero:${POSTGRES_PASSWORD}@postgres:5432/zero
+      ZERO_CVR_DB: postgres://zero:${POSTGRES_PASSWORD}@postgres:5432/zero
+      ZERO_CHANGE_DB: postgres://zero:${POSTGRES_PASSWORD}@postgres:5432/zero
+      ZERO_REPLICA_FILE: /data/replica.db
+      ZERO_ADMIN_PASSWORD: ${ZERO_ADMIN_PASSWORD}
+      ZERO_QUERY_URL: ${ZERO_QUERY_URL}
+      ZERO_MUTATE_URL: ${ZERO_MUTATE_URL}
+      ZERO_APP_ID: zero
+      ZERO_NUM_SYNC_WORKERS: "1"
+    volumes:
+      - zero-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    # Zero replicates changes through logical replication.
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_USER: zero
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: zero
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zero -d zero"]
+      interval: 5s
+      retries: 20
+volumes:
+  zero-data:
+  postgres-data:

@@ -1,0 +1,10 @@
+services:
+  vvveb:
+    image: vvveb/vvvebcms:latest
+    restart: unless-stopped
+    environment:
+      DB_ENGINE: sqlite
+    volumes:
+      - vvveb-data:/var/www/html
+volumes:
+  vvveb-data:

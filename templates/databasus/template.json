@@ -1,0 +1,13 @@
+{
+  "name": "Databasus",
+  "description": "Scheduled backups for PostgreSQL, MySQL and MongoDB to local disk or cloud storage, with a web UI.",
+  "category": "Databases",
+  "website": "https://databasus.com",
+  "color": "#155DFC",
+  "note": "Open the domain right away: the first account you create becomes the admin.",
+  "expose": {
+    "service": "databasus",
+    "port": 4005
+  },
+  "vars": []
+}

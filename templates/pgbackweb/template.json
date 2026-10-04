@@ -1,0 +1,22 @@
+{
+  "name": "PG Back Web",
+  "description": "Web UI to schedule PostgreSQL backups to local storage or S3 and restore them.",
+  "category": "Databases",
+  "website": "https://github.com/eduardolat/pgbackweb",
+  "color": "#336791",
+  "note": "Create the first user on the first visit. Backups made to local storage are kept in a volume of this service.",
+  "expose": {
+    "service": "pgbackweb",
+    "port": 8085
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "PBW_ENCRYPTION_KEY",
+      "generate": "secret"
+    }
+  ]
+}

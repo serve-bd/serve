@@ -1,0 +1,37 @@
+{
+  "name": "Convex",
+  "description": "Reactive backend with a database, server functions and file storage, plus its dashboard.",
+  "category": "Databases",
+  "website": "https://www.convex.dev",
+  "color": "#EE342F",
+  "minVersion": "0.1.9",
+  "note": "The main domain is the dashboard. Get an admin key by running ./generate_admin_key.sh in the backend container terminal. Point your app at the backend domain (CONVEX_SELF_HOSTED_URL) with that key.",
+  "expose": {
+    "service": "dashboard",
+    "port": 6791
+  },
+  "domains": [
+    {
+      "service": "backend",
+      "port": 3210
+    },
+    {
+      "service": "site",
+      "port": 3211
+    }
+  ],
+  "vars": [
+    {
+      "key": "INSTANCE_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "CLOUD_ORIGIN",
+      "serviceUrl": "backend"
+    },
+    {
+      "key": "SITE_ORIGIN",
+      "serviceUrl": "site"
+    }
+  ]
+}

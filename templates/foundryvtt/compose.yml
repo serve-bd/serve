@@ -1,0 +1,17 @@
+services:
+  foundryvtt:
+    image: felddy/foundryvtt:14
+    restart: unless-stopped
+    environment:
+      FOUNDRY_USERNAME: ${FOUNDRY_USERNAME}
+      FOUNDRY_PASSWORD: ${FOUNDRY_PASSWORD}
+      FOUNDRY_ADMIN_KEY: ${FOUNDRY_ADMIN_KEY}
+      FOUNDRY_HOSTNAME: ${PUBLIC_HOST}
+      FOUNDRY_PROXY_SSL: "true"
+      FOUNDRY_PROXY_PORT: "443"
+      FOUNDRY_TELEMETRY: "false"
+      CONTAINER_CACHE: /data/container_cache
+    volumes:
+      - foundry-data:/data
+volumes:
+  foundry-data:

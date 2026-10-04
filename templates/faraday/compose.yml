@@ -1,0 +1,61 @@
+services:
+  faraday:
+    image: faradaysec/faraday:5.24.2
+    restart: unless-stopped
+    entrypoint: /entrypoint.sh
+    environment: &faraday-env
+      PGSQL_USER: faraday
+      PGSQL_PASSWD: ${POSTGRES_PASSWORD}
+      PGSQL_HOST: postgres
+      PGSQL_DBNAME: faraday
+      REDIS_SERVER: redis
+      FARADAY_PASSWORD: ${ADMIN_PASSWORD}
+      FQDN: ${PUBLIC_HOST}
+    volumes:
+      - faraday-data:/home/faraday/.faraday
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5985/_api/config"]
+      interval: 20s
+      timeout: 5s
+      retries: 15
+  worker:
+    image: faradaysec/faraday:5.24.2
+    restart: unless-stopped
+    command: ["faraday-worker"]
+    environment: *faraday-env
+    volumes:
+      - faraday-data:/home/faraday/.faraday
+    depends_on:
+      faraday:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: faraday
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: faraday
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U faraday -d faraday"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  faraday-data:
+  postgres-data:
+  redis-data:

@@ -1,0 +1,23 @@
+{
+  "name": "OrangeHRM",
+  "description": "HR management for employee records, leave, time tracking, recruitment and performance reviews.",
+  "category": "Productivity",
+  "website": "https://www.orangehrm.com",
+  "color": "#F28C38",
+  "note": "Open the domain to run the installer. Choose an existing empty database: host mariadb, port 3306, database orangehrm, user orangehrm and the database password below.",
+  "expose": {
+    "service": "orangehrm",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password",
+      "label": "Database password"
+    },
+    {
+      "key": "DB_ROOT_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

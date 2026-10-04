@@ -1,0 +1,18 @@
+{
+  "name": "Campfire",
+  "description": "Simple group chat with rooms, direct messages, file sharing and bots, from Basecamp.",
+  "category": "Communication",
+  "website": "https://github.com/basecamp/once-campfire",
+  "color": "#1D2D35",
+  "note": "Open the domain to create the admin account; the first person to sign up becomes the admin.",
+  "expose": {
+    "service": "campfire",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "secret"
+    }
+  ]
+}

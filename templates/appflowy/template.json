@@ -1,0 +1,44 @@
+{
+  "name": "AppFlowy",
+  "description": "Open source workspace for notes, wikis, tasks and databases, a self-hosted alternative to Notion.",
+  "category": "Productivity",
+  "website": "https://appflowy.com",
+  "color": "#8427E0",
+  "note": "Open the domain in a browser or set it as the self-hosted server in the AppFlowy apps. The admin console is at /console; sign in there with the admin email and generated password (Variables tab).",
+  "expose": {
+    "service": "nginx",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "MINIO_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APPFLOWY_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "APPFLOWY_HOST",
+      "publicHost": true
+    }
+  ]
+}

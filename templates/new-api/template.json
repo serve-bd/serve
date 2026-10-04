@@ -1,0 +1,22 @@
+{
+  "name": "New API",
+  "description": "Gateway that puts many AI model providers behind one OpenAI-compatible API, with keys, quotas and usage logs.",
+  "category": "AI",
+  "website": "https://github.com/QuantumNous/new-api",
+  "color": "#1E293B",
+  "note": "Open the domain to finish the setup and create the admin account.",
+  "expose": {
+    "service": "new-api",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SESSION_SECRET",
+      "generate": "secret"
+    }
+  ]
+}

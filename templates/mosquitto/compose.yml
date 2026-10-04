@@ -1,0 +1,36 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    environment:
+      MQTT_USER: ${MQTT_USER}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+    # The password file is written from the variables on every start.
+    command:
+      - sh
+      - -c
+      - |
+        mosquitto_passwd -b -c /mosquitto/passwd "$$MQTT_USER" "$$MQTT_PASSWORD"
+        chown mosquitto:mosquitto /mosquitto/passwd
+        chmod 0700 /mosquitto/passwd
+        exec mosquitto -c /mosquitto/mosquitto.conf
+    configs:
+      - source: mosquitto-conf
+        target: /mosquitto/mosquitto.conf
+    # MQTT for devices; MQTT over WebSockets is served on the domain.
+    ports:
+      - "1883:1883"
+    volumes:
+      - mosquitto-data:/mosquitto/data
+configs:
+  mosquitto-conf:
+    content: |
+      persistence true
+      persistence_location /mosquitto/data/
+      allow_anonymous false
+      password_file /mosquitto/passwd
+      listener 1883
+      listener 9001
+      protocol websockets
+volumes:
+  mosquitto-data:

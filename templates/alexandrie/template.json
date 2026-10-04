@@ -1,0 +1,34 @@
+{
+  "name": "Alexandrie",
+  "description": "Markdown note-taking workspace for knowledge bases, personal wikis and documents.",
+  "category": "Productivity",
+  "website": "https://alexandrie-hub.fr",
+  "color": "#6366F1",
+  "note": "Create your account on the first visit.",
+  "expose": {
+    "service": "caddy",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "JWT_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "S3_SECRET_KEY",
+      "generate": "password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "PUBLIC_HOST",
+      "publicHost": true
+    }
+  ]
+}

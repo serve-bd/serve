@@ -1,0 +1,13 @@
+services:
+  classicpress:
+    image: classicpress/classicpress:latest
+    restart: unless-stopped
+    environment:
+      CLASSICPRESS_DB_HOST: ${CLASSICPRESS_DB_HOST}
+      CLASSICPRESS_DB_USER: ${CLASSICPRESS_DB_USER}
+      CLASSICPRESS_DB_PASSWORD: ${CLASSICPRESS_DB_PASSWORD}
+      CLASSICPRESS_DB_NAME: ${CLASSICPRESS_DB_NAME}
+    volumes:
+      - classicpress-files:/var/www/html
+volumes:
+  classicpress-files:

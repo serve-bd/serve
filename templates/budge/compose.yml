@@ -1,0 +1,12 @@
+services:
+  budge:
+    image: lscr.io/linuxserver/budge:latest
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: UTC
+    volumes:
+      - budge-config:/config
+volumes:
+  budge-config:

@@ -1,0 +1,19 @@
+services:
+  bulwark:
+    image: ghcr.io/bulwarkmail/webmail:1.12
+    restart: unless-stopped
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      JMAP_SERVER_URL: ${JMAP_SERVER_URL}
+      SESSION_SECRET: ${SESSION_SECRET}
+    volumes:
+      - bulwark-settings:/app/data/settings
+      - bulwark-admin:/app/data/admin
+      - bulwark-admin-state:/app/data/admin-state
+      - bulwark-telemetry:/app/data/telemetry
+volumes:
+  bulwark-settings:
+  bulwark-admin:
+  bulwark-admin-state:
+  bulwark-telemetry:

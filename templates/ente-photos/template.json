@@ -1,0 +1,45 @@
+{
+  "name": "Ente Photos",
+  "description": "End-to-end encrypted photo and video backup with apps for phones and desktops, with MinIO for storage.",
+  "category": "Media",
+  "website": "https://ente.io",
+  "color": "#00BC45",
+  "minVersion": "0.1.9",
+  "note": "The main domain is the web app; the apps sign in with the museum domain as the custom server. Without SMTP, the sign-up code is printed in the museum service logs. New accounts get the small free plan until you raise their storage with the Ente CLI.",
+  "expose": {
+    "service": "web",
+    "port": 3000
+  },
+  "domains": [
+    {
+      "service": "museum",
+      "port": 8080
+    },
+    {
+      "service": "minio",
+      "port": 9000
+    }
+  ],
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "MINIO_USER",
+      "value": "ente"
+    },
+    {
+      "key": "MINIO_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "API_URL",
+      "serviceUrl": "museum"
+    },
+    {
+      "key": "MINIO_HOST",
+      "serviceHost": "minio"
+    }
+  ]
+}

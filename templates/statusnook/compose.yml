@@ -1,0 +1,8 @@
+services:
+  statusnook:
+    image: goksan/statusnook:latest
+    restart: unless-stopped
+    volumes:
+      - statusnook-data:/app/statusnook-data
+volumes:
+  statusnook-data:

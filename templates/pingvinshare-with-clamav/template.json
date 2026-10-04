@@ -1,0 +1,13 @@
+{
+  "name": "Pingvin Share (ClamAV)",
+  "description": "File sharing platform with ClamAV, which scans every upload and removes infected files.",
+  "category": "Storage",
+  "website": "https://github.com/stonith404/pingvin-share",
+  "color": "#46509E",
+  "note": "ClamAV needs about 2 GB of RAM and a few minutes to start the first time. The first account you create becomes the admin.",
+  "expose": {
+    "service": "pingvin-share",
+    "port": 3000
+  },
+  "vars": []
+}

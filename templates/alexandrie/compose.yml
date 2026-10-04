@@ -1,0 +1,90 @@
+services:
+  # Serves the app, the API (/api) and stored files (bucket paths) on one domain.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    depends_on:
+      - frontend
+      - backend
+  frontend:
+    image: ghcr.io/smaug6739/alexandrie-frontend:v8.14.2
+    restart: unless-stopped
+    environment:
+      PORT: "8200"
+      NUXT_PUBLIC_BASE_API: ${PUBLIC_URL}
+      NUXT_PUBLIC_BASE_CDN: ${PUBLIC_URL}
+      NUXT_PUBLIC_CDN_ENDPOINT: /alexandrie/
+      NUXT_PUBLIC_BASE_URL: ${PUBLIC_URL}
+    depends_on:
+      - backend
+  backend:
+    image: ghcr.io/smaug6739/alexandrie-backend:v8.14.2
+    restart: unless-stopped
+    environment:
+      BACKEND_PORT: "8201"
+      GIN_MODE: release
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_DOMAIN: ${PUBLIC_HOST}
+      FRONTEND_URL: ${PUBLIC_URL}
+      ALLOW_UNSECURE: "false"
+      DATABASE_HOST: mysql
+      DATABASE_PORT: "3306"
+      DATABASE_NAME: alexandrie
+      DATABASE_USER: alexandrie
+      DATABASE_PASSWORD: ${DB_PASSWORD}
+      MINIO_ENDPOINT: rustfs:9000
+      MINIO_PUBLIC_URL: ${PUBLIC_URL}
+      MINIO_SECURE: "false"
+      MINIO_ACCESSKEY: alexandrie
+      MINIO_SECRETKEY: ${S3_SECRET_KEY}
+      MINIO_BUCKET: alexandrie
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: alexandrie
+      MYSQL_USER: alexandrie
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      retries: 20
+  rustfs:
+    image: rustfs/rustfs:1.0.1
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: alexandrie
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY}
+      RUSTFS_CONSOLE_ENABLE: "false"
+    volumes:
+      - rustfs-data:/data
+      - rustfs-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9000 || exit 1"]
+      interval: 5s
+      retries: 20
+configs:
+  caddyfile:
+    content: |
+      :80 {
+        @api path /api /api/*
+        reverse_proxy @api backend:8201
+        @files path /alexandrie/* /alexandrie-backups/*
+        reverse_proxy @files rustfs:9000
+        reverse_proxy frontend:8200
+      }
+volumes:
+  mysql-data:
+  rustfs-data:
+  rustfs-logs:

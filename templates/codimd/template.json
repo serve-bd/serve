@@ -1,0 +1,26 @@
+{
+  "name": "CodiMD",
+  "description": "Collaborative Markdown notes that several people can edit in real time.",
+  "category": "Productivity",
+  "website": "https://github.com/hackmdio/codimd",
+  "color": "#453AFF",
+  "note": "Anyone who can open the domain can sign up with an email and password. Set CMD_ALLOW_EMAIL_REGISTER to false once your accounts exist.",
+  "expose": {
+    "service": "codimd",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SESSION_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "PUBLIC_HOST",
+      "publicHost": true
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "FileFlows",
+  "description": "Processes media files with visual flows: convert video and audio, rename and sort files automatically.",
+  "category": "Media",
+  "website": "https://fileflows.com",
+  "color": "#1E88E5",
+  "note": "Files to process go in the media volume, mounted at /media. Set up the first library and flow in the web UI.",
+  "expose": {
+    "service": "fileflows",
+    "port": 5000
+  },
+  "vars": []
+}

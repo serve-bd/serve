@@ -1,0 +1,26 @@
+{
+  "name": "Sure",
+  "description": "Personal finance app for accounts, budgets, net worth and investments, a community fork of Maybe Finance.",
+  "category": "Productivity",
+  "website": "https://github.com/we-promise/sure",
+  "color": "#141414",
+  "note": "Create your account on the first visit. A worker container runs the background jobs.",
+  "expose": {
+    "service": "web",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "hex32"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SURE_HOST",
+      "publicHost": true
+    }
+  ]
+}

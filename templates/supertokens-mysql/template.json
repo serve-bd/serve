@@ -1,0 +1,23 @@
+{
+  "name": "SuperTokens (MySQL)",
+  "description": "Open-source authentication core for sign-in, sessions, social login and passwordless flows, with MySQL.",
+  "category": "Security",
+  "website": "https://supertokens.com",
+  "color": "#FF9933",
+  "note": "This is the SuperTokens core API used by your app's backend SDK; it has no web UI. Use the domain as the connection URI and the API key below.",
+  "expose": {
+    "service": "supertokens",
+    "port": 3567
+  },
+  "vars": [
+    {
+      "key": "API_KEY",
+      "generate": "password",
+      "label": "API key"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

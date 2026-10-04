@@ -1,0 +1,26 @@
+{
+  "name": "Wakapi",
+  "description": "Coding time tracker compatible with the WakaTime editor plugins, with stats and reports per project and language.",
+  "category": "Analytics",
+  "website": "https://wakapi.dev",
+  "color": "#2F855A",
+  "note": "Sign up on the first visit. Point the WakaTime plugins at <domain>/api with your Wakapi API key.",
+  "expose": {
+    "service": "wakapi",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "PASSWORD_SALT",
+      "generate": "secret"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

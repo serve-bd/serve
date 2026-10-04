@@ -1,0 +1,40 @@
+services:
+  moodle:
+    image: erseco/alpine-moodle:latest
+    restart: unless-stopped
+    environment:
+      SITE_URL: ${SITE_URL}
+      SSLPROXY: "true"
+      DB_TYPE: pgsql
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: moodle
+      DB_USER: moodle
+      DB_PASS: ${POSTGRES_PASSWORD}
+      MOODLE_USERNAME: ${MOODLE_USERNAME}
+      MOODLE_PASSWORD: ${MOODLE_PASSWORD}
+      MOODLE_EMAIL: ${MOODLE_EMAIL}
+      MOODLE_SITENAME: Moodle
+    volumes:
+      - moodle-data:/var/www/moodledata
+      - moodle-html:/var/www/html
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: moodle
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: moodle
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moodle -d moodle"]
+      interval: 5s
+      retries: 20
+volumes:
+  moodle-data:
+  moodle-html:
+  postgres-data:

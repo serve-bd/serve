@@ -1,0 +1,19 @@
+{
+  "name": "Deno KV",
+  "description": "Self-hosted Deno KV database that Deno apps reach over the KV Connect protocol.",
+  "category": "Databases",
+  "website": "https://github.com/denoland/denokv",
+  "color": "#000000",
+  "note": "In Deno, open it with Deno.openKv(\"https://<domain>\") and set DENO_KV_ACCESS_TOKEN to the access token (Variables tab).",
+  "expose": {
+    "service": "denokv",
+    "port": 4512
+  },
+  "vars": [
+    {
+      "key": "ACCESS_TOKEN",
+      "generate": "secret",
+      "label": "Access token"
+    }
+  ]
+}

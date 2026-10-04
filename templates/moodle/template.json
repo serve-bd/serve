@@ -1,0 +1,37 @@
+{
+  "name": "Moodle",
+  "description": "Learning platform for online courses, quizzes and grading.",
+  "category": "Productivity",
+  "website": "https://moodle.org",
+  "color": "#F98012",
+  "note": "The first start installs the database and takes a few minutes. Sign in with the admin user and password below.",
+  "expose": {
+    "service": "moodle",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "MOODLE_USERNAME",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "MOODLE_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "MOODLE_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SITE_URL",
+      "publicUrl": true
+    }
+  ]
+}

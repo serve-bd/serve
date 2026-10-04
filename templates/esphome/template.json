@@ -1,0 +1,24 @@
+{
+  "name": "ESPHome",
+  "description": "Dashboard to build and flash firmware for ESP32 and ESP8266 devices from simple YAML files.",
+  "category": "Automation",
+  "website": "https://esphome.io",
+  "color": "#18BCF2",
+  "note": "Sign in with the username and password (Variables tab). Flash new boards from the browser over USB, then update them over Wi-Fi. Devices must be reachable from the server by IP.",
+  "expose": {
+    "service": "esphome",
+    "port": 6052
+  },
+  "vars": [
+    {
+      "key": "ESPHOME_USERNAME",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "ESPHOME_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

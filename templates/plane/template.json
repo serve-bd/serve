@@ -1,0 +1,42 @@
+{
+  "name": "Plane",
+  "description": "Project management for software teams: issues, cycles, modules, pages and roadmaps.",
+  "category": "Productivity",
+  "website": "https://plane.so",
+  "color": "#3F76FF",
+  "note": "Open /god-mode on the domain to create the instance admin, then sign in to the app. Needs about 4 GB of RAM.",
+  "expose": {
+    "service": "proxy",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "RABBITMQ_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "MINIO_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "LIVE_SERVER_SECRET_KEY",
+      "generate": "secret"
+    },
+    {
+      "key": "WEB_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "APP_DOMAIN",
+      "publicHost": true
+    }
+  ]
+}

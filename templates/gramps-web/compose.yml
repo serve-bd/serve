@@ -1,0 +1,59 @@
+services:
+  grampsweb:
+    image: ghcr.io/gramps-project/grampsweb:26.9.1
+    restart: unless-stopped
+    environment: &env
+      GRAMPSWEB_TREE: Gramps Web
+      GRAMPSWEB_SECRET_KEY: ${GRAMPSWEB_SECRET_KEY}
+      GRAMPSWEB_BASE_URL: ${GRAMPSWEB_BASE_URL}
+      GRAMPSWEB_CELERY_CONFIG__broker_url: redis://redis:6379/0
+      GRAMPSWEB_CELERY_CONFIG__result_backend: redis://redis:6379/0
+      GRAMPSWEB_RATELIMIT_STORAGE_URI: redis://redis:6379/1
+      GUNICORN_NUM_WORKERS: "2"
+    volumes: &volumes
+      - gramps-users:/app/users
+      - gramps-index:/app/indexdir
+      - gramps-thumbnails:/app/thumbnail_cache
+      - gramps-cache:/app/cache
+      - gramps-secret:/app/secret
+      - gramps-db:/root/.gramps/grampsdb
+      - gramps-media:/app/media
+      - gramps-tmp:/tmp
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:5000 || exit 1"]
+      interval: 10s
+      retries: 30
+    depends_on:
+      redis:
+        condition: service_healthy
+  celery:
+    image: ghcr.io/gramps-project/grampsweb:26.9.1
+    restart: unless-stopped
+    command: celery -A gramps_webapi.celery worker --loglevel=INFO --concurrency=2
+    environment: *env
+    volumes: *volumes
+    # Starts after the web app has run the database migrations.
+    depends_on:
+      grampsweb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  gramps-users:
+  gramps-index:
+  gramps-thumbnails:
+  gramps-cache:
+  gramps-secret:
+  gramps-db:
+  gramps-media:
+  gramps-tmp:
+  redis-data:

@@ -1,0 +1,56 @@
+services:
+  weblate:
+    image: weblate/weblate:latest
+    restart: unless-stopped
+    environment:
+      WEBLATE_SITE_DOMAIN: ${WEBLATE_HOST}
+      WEBLATE_ENABLE_HTTPS: "1"
+      WEBLATE_SECURE_PROXY_SSL_HEADER: HTTP_X_FORWARDED_PROTO,https
+      WEBLATE_ADMIN_NAME: Admin
+      WEBLATE_ADMIN_EMAIL: ${ADMIN_EMAIL}
+      WEBLATE_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      WEBLATE_SERVER_EMAIL: ${ADMIN_EMAIL}
+      WEBLATE_DEFAULT_FROM_EMAIL: ${ADMIN_EMAIL}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: weblate
+      POSTGRES_USER: weblate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    volumes:
+      - weblate-data:/app/data
+      - weblate-cache:/app/cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: weblate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: weblate
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weblate -d weblate"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  weblate-data:
+  weblate-cache:
+  postgres-data:
+  redis-data:

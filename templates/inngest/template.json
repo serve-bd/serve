@@ -1,0 +1,28 @@
+{
+  "name": "Inngest",
+  "description": "Durable workflow engine for background jobs, queues and scheduled functions, with a dashboard.",
+  "category": "Automation",
+  "website": "https://www.inngest.com",
+  "color": "#000000",
+  "note": "Point your app's Inngest SDK at the domain with the event key and signing key below. The dashboard on the domain has no login of its own.",
+  "expose": {
+    "service": "inngest",
+    "port": 8288
+  },
+  "vars": [
+    {
+      "key": "INNGEST_EVENT_KEY",
+      "generate": "hex32",
+      "label": "Event key"
+    },
+    {
+      "key": "INNGEST_SIGNING_KEY",
+      "generate": "hex32",
+      "label": "Signing key"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

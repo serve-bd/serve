@@ -1,0 +1,15 @@
+services:
+  9router:
+    image: decolua/9router:latest
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /app/data
+      INITIAL_PASSWORD: ${INITIAL_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      API_KEY_SECRET: ${API_KEY_SECRET}
+      MACHINE_ID_SALT: ${MACHINE_ID_SALT}
+      NEXT_PUBLIC_BASE_URL: ${BASE_URL}
+    volumes:
+      - 9router-data:/app/data
+volumes:
+  9router-data:

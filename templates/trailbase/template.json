@@ -1,0 +1,13 @@
+{
+  "name": "TrailBase",
+  "description": "Single-binary app backend on SQLite with type-safe REST APIs, realtime, auth and an admin UI.",
+  "category": "Developer tools",
+  "website": "https://trailbase.io",
+  "color": "#0073AA",
+  "note": "The admin UI is at /_/admin. The first start creates an admin user and prints its email and password in the service logs.",
+  "expose": {
+    "service": "trailbase",
+    "port": 4000
+  },
+  "vars": []
+}

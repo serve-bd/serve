@@ -1,0 +1,44 @@
+{
+  "name": "Pterodactyl Panel",
+  "description": "Game server management panel. Game servers run on separate Wings nodes that you connect to it.",
+  "category": "Developer tools",
+  "website": "https://pterodactyl.io",
+  "color": "#10539F",
+  "note": "Sign in as admin with the generated admin password (Variables tab). This is the panel only: install Wings on each machine that should run game servers and add it as a node.",
+  "expose": {
+    "service": "panel",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "APP_KEY",
+      "generate": "base64key"
+    },
+    {
+      "key": "HASHIDS_SALT",
+      "generate": "password"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "DB_ROOT_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

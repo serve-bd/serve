@@ -1,0 +1,47 @@
+services:
+  cells:
+    image: pydio/cells:5
+    restart: unless-stopped
+    environment:
+      CELLS_INSTALL_YAML: /pydio/config/install.yml
+      CELLS_SITE_BIND: 0.0.0.0:8080
+      CELLS_SITE_EXTERNAL: ${PUBLIC_URL}
+      CELLS_SITE_NO_TLS: "1"
+    configs:
+      - source: install
+        target: /pydio/config/install.yml
+    volumes:
+      - cells-data:/var/cells
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: cells
+      MARIADB_USER: cells
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+# Unattended install: the admin user and the database connection.
+configs:
+  install:
+    content: |
+      frontendlogin: admin
+      frontendpassword: "${ADMIN_PASSWORD}"
+      dbconnectiontype: tcp
+      dbtcphostname: mariadb
+      dbtcpport: 3306
+      dbtcpname: cells
+      dbtcpuser: cells
+      dbtcppassword: "${DB_PASSWORD}"
+volumes:
+  cells-data:
+  mariadb-data:

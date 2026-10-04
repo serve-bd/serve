@@ -1,0 +1,18 @@
+{
+  "name": "Vvveb CMS (MySQL)",
+  "description": "Website builder and CMS for sites, blogs and online shops, with a drag and drop page editor, with MySQL.",
+  "category": "CMS",
+  "website": "https://www.vvveb.com",
+  "color": "#1F8EF1",
+  "note": "Open the domain to run the installer: the MySQL connection is filled in, so only create the admin account. The admin panel is at /admin.",
+  "expose": {
+    "service": "vvveb",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

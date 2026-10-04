@@ -1,0 +1,24 @@
+{
+  "name": "LibreOffice",
+  "description": "The LibreOffice desktop suite in your browser: documents, spreadsheets and presentations.",
+  "category": "Productivity",
+  "website": "https://www.libreoffice.org",
+  "color": "#18A303",
+  "note": "Sign in with the user and password below. Files saved in the home folder are kept.",
+  "expose": {
+    "service": "libreoffice",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "LIBREOFFICE_USER",
+      "value": "admin",
+      "label": "User"
+    },
+    {
+      "key": "LIBREOFFICE_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

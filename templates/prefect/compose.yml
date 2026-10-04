@@ -1,0 +1,44 @@
+services:
+  prefect:
+    image: prefecthq/prefect:3-latest
+    restart: unless-stopped
+    command: ["prefect", "server", "start", "--host", "0.0.0.0", "--port", "4200"]
+    environment:
+      PREFECT_API_URL: ${PUBLIC_URL}/api
+      PREFECT_UI_API_URL: ${PUBLIC_URL}/api
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://prefect:${POSTGRES_PASSWORD}@postgres:5432/prefect
+      # Basic auth for the UI and the API (user:password).
+      PREFECT_SERVER_API_AUTH_STRING: admin:${ADMIN_PASSWORD}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4200/api/health')"]
+      interval: 10s
+      retries: 30
+    depends_on:
+      postgres:
+        condition: service_healthy
+  # Runs flows from the "default" work pool.
+  worker:
+    image: prefecthq/prefect:3-latest
+    restart: unless-stopped
+    command: ["prefect", "worker", "start", "--pool", "default", "--type", "process"]
+    environment:
+      PREFECT_API_URL: http://prefect:4200/api
+      PREFECT_API_AUTH_STRING: admin:${ADMIN_PASSWORD}
+    depends_on:
+      prefect:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: prefect
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: prefect
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prefect -d prefect"]
+      interval: 5s
+      retries: 20
+volumes:
+  postgres-data:

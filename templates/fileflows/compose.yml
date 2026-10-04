@@ -1,0 +1,20 @@
+services:
+  fileflows:
+    image: revenz/fileflows:26.09
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+      PUID: "1000"
+      PGID: "1000"
+    volumes:
+      - fileflows-data:/app/Data
+      - fileflows-logs:/app/Logs
+      - fileflows-common:/app/common
+      - fileflows-temp:/temp
+      - fileflows-media:/media
+volumes:
+  fileflows-data:
+  fileflows-logs:
+  fileflows-common:
+  fileflows-temp:
+  fileflows-media:

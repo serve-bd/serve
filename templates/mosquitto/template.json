@@ -1,0 +1,25 @@
+{
+  "name": "Mosquitto",
+  "description": "Lightweight MQTT broker from the Eclipse Foundation.",
+  "category": "Developer tools",
+  "website": "https://mosquitto.org",
+  "color": "#3C5280",
+  "hostAccess": true,
+  "note": "Publishes port 1883 (MQTT) on the server for devices; the domain serves MQTT over WebSockets. Clients log in with the MQTT user and password below.",
+  "expose": {
+    "service": "mosquitto",
+    "port": 9001
+  },
+  "vars": [
+    {
+      "key": "MQTT_USER",
+      "value": "mqtt",
+      "label": "MQTT user"
+    },
+    {
+      "key": "MQTT_PASSWORD",
+      "generate": "password",
+      "label": "MQTT password"
+    }
+  ]
+}

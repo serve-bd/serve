@@ -1,0 +1,33 @@
+{
+  "name": "GOWA",
+  "description": "WhatsApp REST API and web panel that links to your account like WhatsApp Web, with webhooks for incoming messages.",
+  "category": "Communication",
+  "website": "https://github.com/aldinokemal/go-whatsapp-web-multidevice",
+  "color": "#25D366",
+  "note": "Sign in with the user and password below, then scan the QR code with WhatsApp on your phone to link the account.",
+  "expose": {
+    "service": "gowa",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "GOWA_USER",
+      "value": "admin",
+      "label": "User"
+    },
+    {
+      "key": "GOWA_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    },
+    {
+      "key": "WHATSAPP_WEBHOOK",
+      "value": "",
+      "label": "Webhook URL (optional)"
+    },
+    {
+      "key": "WHATSAPP_WEBHOOK_SECRET",
+      "generate": "secret"
+    }
+  ]
+}

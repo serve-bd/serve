@@ -1,0 +1,13 @@
+{
+  "name": "Statusnook",
+  "description": "Status page and uptime monitoring for your endpoints, with email and Slack alerts.",
+  "category": "Monitoring",
+  "website": "https://statusnook.com",
+  "color": "#2563EB",
+  "note": "Open the domain to create the admin account on the first visit.",
+  "expose": {
+    "service": "statusnook",
+    "port": 8000
+  },
+  "vars": []
+}

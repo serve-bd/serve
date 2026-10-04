@@ -1,0 +1,86 @@
+services:
+  web:
+    image: jitsi/web:stable-11031
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL}
+      DISABLE_HTTPS: "1"
+      ENABLE_HTTP_REDIRECT: "0"
+      ENABLE_LETSENCRYPT: "0"
+      ENABLE_AUTH: "0"
+      ENABLE_GUESTS: "1"
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_GUEST_DOMAIN: guest.meet.jitsi
+      XMPP_MUC_DOMAIN: muc.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      XMPP_BOSH_URL_BASE: http://prosody:5280
+      XMPP_SERVER: prosody
+      TZ: UTC
+    volumes:
+      - web-config:/config
+    depends_on:
+      - jvb
+  prosody:
+    image: jitsi/prosody:stable-11031
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL}
+      AUTH_TYPE: internal
+      ENABLE_AUTH: "0"
+      ENABLE_GUESTS: "1"
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_GUEST_DOMAIN: guest.meet.jitsi
+      XMPP_MUC_DOMAIN: muc.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      JICOFO_AUTH_PASSWORD: ${JICOFO_AUTH_PASSWORD}
+      JVB_AUTH_PASSWORD: ${JVB_AUTH_PASSWORD}
+      TZ: UTC
+    volumes:
+      - prosody-config:/config
+      - prosody-data:/var/lib/prosody
+  jicofo:
+    image: jitsi/jicofo:stable-11031
+    restart: unless-stopped
+    environment:
+      AUTH_TYPE: internal
+      ENABLE_AUTH: "0"
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_MUC_DOMAIN: muc.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      XMPP_SERVER: prosody
+      JICOFO_AUTH_PASSWORD: ${JICOFO_AUTH_PASSWORD}
+      TZ: UTC
+    volumes:
+      - jicofo-config:/config
+    depends_on:
+      - prosody
+  jvb:
+    image: jitsi/jvb:stable-11031
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL}
+      XMPP_SERVER: prosody
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      JVB_AUTH_PASSWORD: ${JVB_AUTH_PASSWORD}
+      JVB_PORT: "10000"
+      JVB_STUN_SERVERS: meet-jit-si-turnrelay.jitsi.net:443
+      JVB_ADVERTISE_IPS: ${JVB_ADVERTISE_IPS:-}
+      TZ: UTC
+    # Video and audio between participants; the web app is served on the domain.
+    ports:
+      - "10000:10000/udp"
+    volumes:
+      - jvb-config:/config
+    depends_on:
+      - prosody
+volumes:
+  web-config:
+  prosody-config:
+  prosody-data:
+  jicofo-config:
+  jvb-config:

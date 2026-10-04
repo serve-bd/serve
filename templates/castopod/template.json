@@ -1,0 +1,30 @@
+{
+  "name": "Castopod",
+  "description": "Podcast hosting platform with its own RSS feeds, analytics and fediverse integration.",
+  "category": "Media",
+  "website": "https://castopod.org",
+  "color": "#009486",
+  "note": "Open /cp-install on the domain to create the first admin account.",
+  "expose": {
+    "service": "castopod",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "REDIS_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "CP_ANALYTICS_SALT",
+      "generate": "secret"
+    },
+    {
+      "key": "CP_BASEURL",
+      "publicUrl": true
+    }
+  ]
+}

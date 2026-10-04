@@ -1,0 +1,44 @@
+services:
+  yamtrack:
+    image: ghcr.io/fuzzygrim/yamtrack:latest
+    restart: unless-stopped
+    environment:
+      SECRET: ${SECRET}
+      URLS: ${PUBLIC_URL}
+      REDIS_URL: redis://redis:6379
+      TZ: UTC
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: yamtrack
+      DB_USER: yamtrack
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: yamtrack
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: yamtrack
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yamtrack -d yamtrack"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  postgres-data:
+  redis-data:

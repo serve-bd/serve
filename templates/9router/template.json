@@ -1,0 +1,35 @@
+{
+  "name": "9Router",
+  "description": "AI coding gateway that routes Claude Code, Codex, Cursor and other tools to many LLM providers with fallback.",
+  "category": "AI",
+  "website": "https://9router.com",
+  "color": "#111827",
+  "note": "Sign in to the dashboard with the generated password (Variables tab). Point your coding tools at the domain with /v1 as the OpenAI-compatible base URL.",
+  "expose": {
+    "service": "9router",
+    "port": 20128
+  },
+  "vars": [
+    {
+      "key": "INITIAL_PASSWORD",
+      "generate": "password",
+      "label": "Dashboard password"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "API_KEY_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "MACHINE_ID_SALT",
+      "generate": "hex32"
+    },
+    {
+      "key": "BASE_URL",
+      "publicUrl": true
+    }
+  ]
+}

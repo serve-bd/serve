@@ -1,0 +1,11 @@
+services:
+  rivet-engine:
+    image: rivetdev/engine:2.3.23
+    restart: unless-stopped
+    environment:
+      RIVET__FILE_SYSTEM__PATH: /data
+      RIVET__AUTH__ADMIN_TOKEN: ${ADMIN_TOKEN}
+    volumes:
+      - rivet-data:/data
+volumes:
+  rivet-data:

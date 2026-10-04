@@ -1,0 +1,24 @@
+{
+  "name": "Firefox",
+  "description": "Firefox running on the server, used from any web browser.",
+  "category": "Productivity",
+  "website": "https://github.com/jlesage/docker-firefox",
+  "color": "#FF7139",
+  "note": "Sign in with the username and password from the Variables tab.",
+  "expose": {
+    "service": "firefox",
+    "port": 5800
+  },
+  "vars": [
+    {
+      "key": "WEB_USERNAME",
+      "value": "admin",
+      "label": "Username"
+    },
+    {
+      "key": "WEB_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

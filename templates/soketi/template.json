@@ -1,0 +1,29 @@
+{
+  "name": "Soketi",
+  "description": "Fast WebSocket server that speaks the Pusher protocol, for Laravel Echo and other Pusher clients.",
+  "category": "Developer tools",
+  "website": "https://soketi.app",
+  "color": "#FF7A59",
+  "note": "Point your Pusher client at this domain on port 443 with the app ID, key and secret below.",
+  "expose": {
+    "service": "soketi",
+    "port": 6001
+  },
+  "vars": [
+    {
+      "key": "SOKETI_APP_ID",
+      "value": "app",
+      "label": "App ID"
+    },
+    {
+      "key": "SOKETI_APP_KEY",
+      "generate": "password",
+      "label": "App key"
+    },
+    {
+      "key": "SOKETI_APP_SECRET",
+      "generate": "password",
+      "label": "App secret"
+    }
+  ]
+}

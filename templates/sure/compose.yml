@@ -1,0 +1,62 @@
+x-sure-env: &sure-env
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+  SELF_HOSTED: "true"
+  RAILS_FORCE_SSL: "false"
+  RAILS_ASSUME_SSL: "false"
+  APP_DOMAIN: ${SURE_HOST}
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  POSTGRES_USER: sure
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  POSTGRES_DB: sure
+  REDIS_URL: redis://redis:6379/1
+services:
+  web:
+    image: ghcr.io/we-promise/sure:stable
+    restart: unless-stopped
+    environment: *sure-env
+    volumes:
+      - app-storage:/rails/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  worker:
+    image: ghcr.io/we-promise/sure:stable
+    restart: unless-stopped
+    command: bundle exec sidekiq
+    environment: *sure-env
+    volumes:
+      - app-storage:/rails/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sure
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: sure
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sure -d sure"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+volumes:
+  app-storage:
+  postgres-data:
+  redis-data:

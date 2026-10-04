@@ -1,0 +1,48 @@
+{
+  "name": "Hermes Agent",
+  "description": "Autonomous AI agent with long-term memory, skills and scheduled tasks, managed from a web dashboard.",
+  "category": "AI",
+  "website": "https://github.com/NousResearch/hermes-agent",
+  "color": "#1E1B4B",
+  "note": "Sign in to the dashboard with the user and password below. Fill in at least one model provider API key.",
+  "expose": {
+    "service": "hermes-agent",
+    "port": 9119
+  },
+  "vars": [
+    {
+      "key": "DASHBOARD_USER",
+      "value": "admin",
+      "label": "Dashboard user"
+    },
+    {
+      "key": "DASHBOARD_PASSWORD",
+      "generate": "password",
+      "label": "Dashboard password"
+    },
+    {
+      "key": "DASHBOARD_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "OPENROUTER_API_KEY",
+      "value": "",
+      "label": "OpenRouter API key"
+    },
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "value": "",
+      "label": "Anthropic API key"
+    },
+    {
+      "key": "OPENAI_API_KEY",
+      "value": "",
+      "label": "OpenAI API key"
+    },
+    {
+      "key": "GOOGLE_API_KEY",
+      "value": "",
+      "label": "Google API key"
+    }
+  ]
+}

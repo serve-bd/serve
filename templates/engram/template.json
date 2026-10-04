@@ -1,0 +1,36 @@
+{
+  "name": "Engram Cloud",
+  "description": "Sync server that shares the memory of AI coding agents across machines, with a dashboard.",
+  "category": "AI",
+  "website": "https://github.com/Gentleman-Programming/engram",
+  "color": "#7C3AED",
+  "note": "Clients sync with the cloud token: engram cloud config --server https://<domain>. Sign in to the dashboard at /dashboard/login with the admin token (Variables tab).",
+  "expose": {
+    "service": "engram",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "TOKEN_PEPPER",
+      "generate": "secret"
+    },
+    {
+      "key": "CLOUD_TOKEN",
+      "generate": "secret",
+      "label": "Cloud token"
+    },
+    {
+      "key": "ADMIN_TOKEN",
+      "generate": "secret",
+      "label": "Dashboard admin token"
+    }
+  ]
+}

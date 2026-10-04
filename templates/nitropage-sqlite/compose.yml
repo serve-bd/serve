@@ -1,0 +1,12 @@
+services:
+  nitropage:
+    image: nitropage/nitropage:0.70-sqlite
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: file:../.data/nitropage.db
+      NP_AUTH_SALT: ${NP_AUTH_SALT}
+      NP_AUTH_PASSWORD: ${NP_AUTH_PASSWORD}
+    volumes:
+      - nitropage-data:/app/.data
+volumes:
+  nitropage-data:

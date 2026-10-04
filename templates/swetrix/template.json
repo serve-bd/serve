@@ -1,0 +1,26 @@
+{
+  "name": "Swetrix",
+  "description": "Privacy-friendly, cookieless web analytics with traffic, performance, sessions and error tracking.",
+  "category": "Analytics",
+  "website": "https://swetrix.com",
+  "color": "#4F46E5",
+  "note": "Sign up on the first visit to create your account. Turn off sign-ups afterwards by setting DISABLE_REGISTRATION to true in the compose file.",
+  "expose": {
+    "service": "nginx",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "SECRET_KEY_BASE",
+      "generate": "secret"
+    },
+    {
+      "key": "CLICKHOUSE_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

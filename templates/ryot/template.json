@@ -1,0 +1,22 @@
+{
+  "name": "Ryot",
+  "description": "Tracker for movies, shows, books, games, workouts and other parts of your life.",
+  "category": "Media",
+  "website": "https://ryot.io",
+  "color": "#5C7CFA",
+  "note": "The first account you register becomes the admin.",
+  "expose": {
+    "service": "ryot",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SERVER_ADMIN_ACCESS_TOKEN",
+      "generate": "secret"
+    }
+  ]
+}

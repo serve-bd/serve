@@ -1,0 +1,32 @@
+{
+  "name": "FreeScout",
+  "description": "Help desk and shared inbox for answering customer email as a team.",
+  "category": "Communication",
+  "website": "https://freescout.net",
+  "color": "#3B82F6",
+  "note": "Sign in with the admin email and password. Connect your mailboxes in Manage > Mailboxes.",
+  "expose": {
+    "service": "freescout",
+    "port": 80
+  },
+  "vars": [
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

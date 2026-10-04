@@ -1,0 +1,24 @@
+{
+  "name": "RustFS",
+  "description": "S3-compatible object storage written in Rust, with a web console.",
+  "category": "Storage",
+  "website": "https://rustfs.com",
+  "color": "#0196D0",
+  "note": "The console is at /rustfs/console/ on the domain; sign in with the access key and secret key (Variables tab). The S3 API listens on port 9000: add a second domain for it in Domains & ports.",
+  "expose": {
+    "service": "rustfs",
+    "port": 9001
+  },
+  "vars": [
+    {
+      "key": "RUSTFS_ACCESS_KEY",
+      "value": "rustfsadmin",
+      "label": "Access key"
+    },
+    {
+      "key": "RUSTFS_SECRET_KEY",
+      "generate": "password",
+      "label": "Secret key"
+    }
+  ]
+}

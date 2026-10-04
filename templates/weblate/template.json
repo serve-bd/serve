@@ -1,0 +1,32 @@
+{
+  "name": "Weblate",
+  "description": "Web-based translation platform with Git integration, translation memory and quality checks.",
+  "category": "Developer tools",
+  "website": "https://weblate.org",
+  "color": "#2ECCAA",
+  "note": "Sign in as admin with the generated admin password. The first start runs database migrations and takes a few minutes.",
+  "expose": {
+    "service": "weblate",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "WEBLATE_HOST",
+      "publicHost": true
+    }
+  ]
+}

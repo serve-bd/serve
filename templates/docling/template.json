@@ -1,0 +1,19 @@
+{
+  "name": "Docling",
+  "description": "API and web UI that turn PDF, Office, HTML and image files into Markdown or JSON for AI pipelines.",
+  "category": "AI",
+  "website": "https://github.com/docling-project/docling-serve",
+  "color": "#1F2937",
+  "note": "The web UI is at /ui. Every request needs the X-Api-Key header with the API key (Variables tab). The image is large and runs on CPU.",
+  "expose": {
+    "service": "docling",
+    "port": 5001
+  },
+  "vars": [
+    {
+      "key": "API_KEY",
+      "generate": "secret",
+      "label": "API key"
+    }
+  ]
+}

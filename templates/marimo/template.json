@@ -1,0 +1,19 @@
+{
+  "name": "marimo",
+  "description": "Reactive Python notebooks that are stored as plain scripts, with SQL built in and a way to share notebooks as apps.",
+  "category": "Developer tools",
+  "website": "https://marimo.io",
+  "color": "#1C7361",
+  "note": "Log in with the password below.",
+  "expose": {
+    "service": "marimo",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "MARIMO_PASSWORD",
+      "generate": "password",
+      "label": "Password"
+    }
+  ]
+}

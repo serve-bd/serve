@@ -1,0 +1,47 @@
+{
+  "name": "Buzz",
+  "description": "Workspace where people and AI agents share chat rooms, built on a Nostr relay you own.",
+  "category": "Communication",
+  "website": "https://github.com/block/buzz",
+  "color": "#F5B700",
+  "note": "Set the owner pubkey to your Nostr public key in hex (64 characters). Only the owner and members added by the owner can use the relay. Connect with the Buzz desktop or mobile app using the domain.",
+  "expose": {
+    "service": "relay",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "RELAY_OWNER_PUBKEY",
+      "value": "",
+      "label": "Owner Nostr pubkey (hex)"
+    },
+    {
+      "key": "BUZZ_RELAY_PRIVATE_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "BUZZ_GIT_HOOK_HMAC_SECRET",
+      "generate": "hex32"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "REDIS_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "MINIO_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "BUZZ_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "BUZZ_HOST",
+      "publicHost": true
+    }
+  ]
+}

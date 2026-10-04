@@ -1,0 +1,26 @@
+{
+  "name": "MetaMCP",
+  "description": "Gateway that groups many MCP servers behind one endpoint, with namespaces, tool filtering and API keys.",
+  "category": "AI",
+  "website": "https://github.com/metatool-ai/metamcp",
+  "color": "#111827",
+  "note": "Sign up on the domain to create the first account.",
+  "expose": {
+    "service": "metamcp",
+    "port": 12008
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "BETTER_AUTH_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "APP_URL",
+      "publicUrl": true
+    }
+  ]
+}

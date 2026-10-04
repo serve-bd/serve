@@ -1,0 +1,37 @@
+{
+  "name": "Argilla",
+  "description": "Collaboration tool for AI engineers and domain experts to label and curate high-quality datasets.",
+  "category": "AI",
+  "website": "https://argilla.io",
+  "color": "#FF675F",
+  "note": "Sign in with the user name and the generated password (Variables tab). The API key is for the Python SDK. Elasticsearch needs about 1 GB of RAM.",
+  "expose": {
+    "service": "argilla",
+    "port": 6900
+  },
+  "vars": [
+    {
+      "key": "ARGILLA_USERNAME",
+      "value": "argilla",
+      "label": "Admin user"
+    },
+    {
+      "key": "ARGILLA_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "ARGILLA_API_KEY",
+      "generate": "secret",
+      "label": "API key"
+    },
+    {
+      "key": "AUTH_SECRET_KEY",
+      "generate": "hex32"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

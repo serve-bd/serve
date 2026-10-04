@@ -1,0 +1,11 @@
+services:
+  fizzy:
+    image: ghcr.io/basecamp/fizzy:main
+    restart: unless-stopped
+    environment:
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      BASE_URL: ${PUBLIC_URL}
+    volumes:
+      - fizzy-storage:/rails/storage
+volumes:
+  fizzy-storage:

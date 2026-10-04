@@ -1,0 +1,24 @@
+{
+  "name": "Mage",
+  "description": "Build, run and schedule data pipelines in Python, SQL and R, with a notebook-style editor.",
+  "category": "Automation",
+  "website": "https://www.mage.ai",
+  "color": "#6B50D7",
+  "note": "Log in with the admin email and password below.",
+  "expose": {
+    "service": "mage",
+    "port": 6789
+  },
+  "vars": [
+    {
+      "key": "DEFAULT_OWNER_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "DEFAULT_OWNER_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    }
+  ]
+}

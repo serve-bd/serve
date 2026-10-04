@@ -1,0 +1,46 @@
+{
+  "name": "Plunk",
+  "description": "Email platform for transactional mail, newsletters and automations, sending through AWS SES.",
+  "category": "Communication",
+  "website": "https://www.useplunk.com",
+  "color": "#18181B",
+  "note": "Needs an AWS SES account: fill in the region, access keys and configuration set, or the API does not start. Create your account on the first visit.",
+  "expose": {
+    "service": "plunk",
+    "port": 3000
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "APP_URI",
+      "publicUrl": true
+    },
+    {
+      "key": "AWS_REGION",
+      "value": "us-east-1",
+      "label": "AWS SES region"
+    },
+    {
+      "key": "AWS_ACCESS_KEY_ID",
+      "value": "",
+      "label": "AWS access key ID"
+    },
+    {
+      "key": "AWS_SECRET_ACCESS_KEY",
+      "value": "",
+      "label": "AWS secret access key"
+    },
+    {
+      "key": "AWS_SES_CONFIGURATION_SET",
+      "value": "",
+      "label": "AWS SES configuration set"
+    }
+  ]
+}

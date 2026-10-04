@@ -1,0 +1,150 @@
+x-api-env: &api-env
+  APP_NAME: OpnForm
+  APP_ENV: production
+  APP_KEY: ${APP_KEY}
+  APP_DEBUG: "false"
+  APP_URL: ${APP_URL}
+  FRONT_URL: ${APP_URL}
+  FRONT_API_SECRET: ${FRONT_API_SECRET}
+  LOG_CHANNEL: errorlog
+  LOG_LEVEL: warning
+  FILESYSTEM_DRIVER: local
+  LOCAL_FILESYSTEM_VISIBILITY: public
+  CACHE_DRIVER: redis
+  QUEUE_CONNECTION: redis
+  SESSION_DRIVER: redis
+  MAIL_MAILER: log
+  REDIS_HOST: redis
+  DB_CONNECTION: pgsql
+  DB_HOST: postgres
+  DB_DATABASE: opnform
+  DB_USERNAME: opnform
+  DB_PASSWORD: ${POSTGRES_PASSWORD}
+  JWT_SECRET: ${JWT_SECRET}
+  JWT_TTL: "1440"
+  TRUSTED_PROXIES: "*"
+  PHP_MEMORY_LIMIT: 1G
+  PHP_MAX_EXECUTION_TIME: "600"
+  PHP_UPLOAD_MAX_FILESIZE: 64M
+  PHP_POST_MAX_SIZE: 64M
+services:
+  ingress:
+    image: nginx:1
+    restart: unless-stopped
+    configs:
+      - source: nginx-conf
+        target: /etc/nginx/conf.d/default.conf
+    depends_on:
+      - api
+      - ui
+  api:
+    image: jhumanj/opnform-api:2.5.0
+    restart: unless-stopped
+    environment: *api-env
+    volumes:
+      - opnform-storage:/usr/share/nginx/html/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  api-worker:
+    image: jhumanj/opnform-api:2.5.0
+    restart: unless-stopped
+    command: ["php", "artisan", "queue:work"]
+    environment: *api-env
+    volumes:
+      - opnform-storage:/usr/share/nginx/html/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  api-scheduler:
+    image: jhumanj/opnform-api:2.5.0
+    restart: unless-stopped
+    command: ["php", "artisan", "schedule:work"]
+    environment: *api-env
+    volumes:
+      - opnform-storage:/usr/share/nginx/html/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  ui:
+    image: jhumanj/opnform-client:2.5.0
+    restart: unless-stopped
+    environment:
+      NUXT_PUBLIC_APP_URL: /
+      NUXT_PUBLIC_API_BASE: /api
+      NUXT_PRIVATE_API_BASE: http://ingress/api
+      NUXT_PUBLIC_ENV: production
+      NUXT_API_SECRET: ${FRONT_API_SECRET}
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: opnform
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: opnform
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opnform -d opnform"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+configs:
+  nginx-conf:
+    content: |
+      map $$request_uri $$api_uri {
+          ~^/api(/.*$$) $$1;
+          default $$request_uri;
+      }
+      server {
+          listen 80;
+          root /usr/share/nginx/html/public;
+          client_max_body_size 64m;
+          index index.html index.htm index.php;
+          location / {
+              proxy_http_version 1.1;
+              proxy_pass http://ui:3000;
+              proxy_set_header X-Real-IP $$remote_addr;
+              proxy_set_header X-Forwarded-Host $$host;
+              proxy_set_header X-Forwarded-Port $$server_port;
+              proxy_set_header Upgrade $$http_upgrade;
+              proxy_set_header Connection "Upgrade";
+          }
+          location ~/(api|open|local\/temp|forms\/assets)/ {
+              set $$original_uri $$uri;
+              try_files $$uri $$uri/ /index.php$$is_args$$args;
+          }
+          location ~ \.php$$ {
+              fastcgi_split_path_info ^(.+\.php)(/.+)$$;
+              fastcgi_pass api:9000;
+              fastcgi_index index.php;
+              include fastcgi_params;
+              fastcgi_param SCRIPT_FILENAME $$document_root/index.php;
+              fastcgi_param REQUEST_URI $$api_uri;
+              fastcgi_param HTTP_X_FORWARDED_FOR $$proxy_add_x_forwarded_for;
+              fastcgi_param HTTP_X_FORWARDED_HOST $$http_x_forwarded_host;
+              fastcgi_param HTTP_X_FORWARDED_PORT $$http_x_forwarded_port;
+              fastcgi_param HTTP_X_FORWARDED_PROTO $$http_x_forwarded_proto;
+          }
+          location ~ /\. {
+              deny all;
+          }
+      }
+volumes:
+  opnform-storage:
+  postgres-data:
+  redis-data:

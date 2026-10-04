@@ -1,0 +1,18 @@
+{
+  "name": "Baby Buddy",
+  "description": "Track a baby's sleep, feedings, diaper changes and growth to learn their needs.",
+  "category": "Productivity",
+  "website": "https://docs.baby-buddy.net",
+  "color": "#35B5E5",
+  "note": "Sign in as admin with the password admin, then change it right away under the user settings.",
+  "expose": {
+    "service": "babybuddy",
+    "port": 8000
+  },
+  "vars": [
+    {
+      "key": "BABYBUDDY_URL",
+      "publicUrl": true
+    }
+  ]
+}

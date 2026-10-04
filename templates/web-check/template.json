@@ -1,0 +1,12 @@
+{
+  "name": "Web Check",
+  "description": "All-in-one OSINT tool that shows a website's DNS, SSL, headers, tech stack, security setup and more.",
+  "category": "Security",
+  "website": "https://web-check.xyz",
+  "color": "#9FEF00",
+  "expose": {
+    "service": "web-check",
+    "port": 3000
+  },
+  "vars": []
+}

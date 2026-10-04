@@ -1,0 +1,38 @@
+{
+  "name": "Hatchet",
+  "description": "Task queue and workflow engine for background jobs, with retries, scheduling and a dashboard.",
+  "category": "Automation",
+  "website": "https://hatchet.run",
+  "color": "#0A1029",
+  "hostAccess": true,
+  "minVersion": "0.2.7",
+  "note": "Log in with the admin email and password below, then create an API token for your workers. Publishes port 7077 (gRPC, no TLS) on the server for workers; set HATCHET_CLIENT_TLS_STRATEGY=none in them.",
+  "expose": {
+    "service": "hatchet",
+    "port": 8888
+  },
+  "vars": [
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "label": "Admin email"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "generate": "strongPassword",
+      "label": "Admin password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "SERVER_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "SERVER_HOST",
+      "publicHost": true
+    }
+  ]
+}

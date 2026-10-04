@@ -1,0 +1,11 @@
+services:
+  gateway:
+    image: ghcr.io/drizzle-team/gateway:1.6.2
+    restart: unless-stopped
+    environment:
+      STORE_PATH: /app
+      MASTERPASS: ${MASTERPASS}
+    volumes:
+      - gateway-data:/app
+volumes:
+  gateway-data:

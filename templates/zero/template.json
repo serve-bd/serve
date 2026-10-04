@@ -1,0 +1,33 @@
+{
+  "name": "Zero",
+  "description": "Sync engine that keeps a client-side cache of your Postgres data in sync for instant, realtime web apps.",
+  "category": "Developer tools",
+  "website": "https://zero.rocicorp.dev",
+  "color": "#0D0D0D",
+  "note": "This is the zero-cache server for your app, with its own PostgreSQL as the app database. Set the query and mutate URLs of your app's API; point your Zero client at the domain.",
+  "expose": {
+    "service": "zero",
+    "port": 4848
+  },
+  "vars": [
+    {
+      "key": "ZERO_QUERY_URL",
+      "value": "",
+      "label": "Your API's /query endpoint URL"
+    },
+    {
+      "key": "ZERO_MUTATE_URL",
+      "value": "",
+      "label": "Your API's /mutate endpoint URL"
+    },
+    {
+      "key": "ZERO_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    }
+  ]
+}

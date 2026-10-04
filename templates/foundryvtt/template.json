@@ -1,0 +1,33 @@
+{
+  "name": "Foundry Virtual Tabletop",
+  "description": "Virtual tabletop for playing role-playing games online with friends.",
+  "category": "Media",
+  "website": "https://foundryvtt.com",
+  "color": "#FE6A1F",
+  "note": "Needs a Foundry license: enter your foundryvtt.com username and password so the server can download the release on first start. The admin key unlocks setup.",
+  "expose": {
+    "service": "foundryvtt",
+    "port": 30000
+  },
+  "vars": [
+    {
+      "key": "FOUNDRY_USERNAME",
+      "value": "",
+      "label": "foundryvtt.com username"
+    },
+    {
+      "key": "FOUNDRY_PASSWORD",
+      "value": "",
+      "label": "foundryvtt.com password"
+    },
+    {
+      "key": "FOUNDRY_ADMIN_KEY",
+      "generate": "password",
+      "label": "Admin key"
+    },
+    {
+      "key": "PUBLIC_HOST",
+      "publicHost": true
+    }
+  ]
+}

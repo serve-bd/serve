@@ -1,0 +1,13 @@
+{
+  "name": "ImgCompress",
+  "description": "Compress and convert images in the browser, with offline AI background removal. Files stay on your server.",
+  "category": "Media",
+  "website": "https://imgcompress.karimzouine.com",
+  "color": "#2563EB",
+  "note": "There is no login: anyone with the link can use it.",
+  "expose": {
+    "service": "imgcompress",
+    "port": 5000
+  },
+  "vars": []
+}

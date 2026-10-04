@@ -1,0 +1,18 @@
+{
+  "name": "Vault",
+  "description": "Secrets manager that stores, issues and controls access to tokens, passwords, certificates and keys.",
+  "category": "Security",
+  "website": "https://www.hashicorp.com/products/vault",
+  "color": "#FFEC6E",
+  "note": "Open the domain to initialize Vault: save the unseal keys and root token it shows. Vault starts sealed after every restart and must be unsealed with those keys.",
+  "expose": {
+    "service": "vault",
+    "port": 8200
+  },
+  "vars": [
+    {
+      "key": "PUBLIC_URL",
+      "publicUrl": true
+    }
+  ]
+}

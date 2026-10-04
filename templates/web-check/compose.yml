@@ -1,0 +1,4 @@
+services:
+  web-check:
+    image: lissy93/web-check:2.3
+    restart: unless-stopped

@@ -1,0 +1,13 @@
+services:
+  campfire:
+    image: ghcr.io/basecamp/once-campfire:main
+    restart: unless-stopped
+    environment:
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      # TLS ends at the proxy in front of it.
+      DISABLE_SSL: "true"
+      SKIP_TELEMETRY: "true"
+    volumes:
+      - campfire-storage:/rails/storage
+volumes:
+  campfire-storage:

@@ -1,0 +1,32 @@
+services:
+  vvveb:
+    image: vvveb/vvvebcms:latest
+    restart: unless-stopped
+    environment:
+      DB_ENGINE: mysqli
+      DB_HOST: mariadb
+      DB_DATABASE: vvveb
+      DB_USER: vvveb
+      DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - vvveb-data:/var/www/html
+    depends_on:
+      mariadb:
+        condition: service_healthy
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: vvveb
+      MYSQL_USER: vvveb
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+volumes:
+  vvveb-data:
+  mariadb-data:

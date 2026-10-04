@@ -1,0 +1,36 @@
+{
+  "name": "ownCloud",
+  "description": "File sync and sharing server with desktop and mobile clients (ownCloud Server 10).",
+  "category": "Storage",
+  "website": "https://owncloud.com",
+  "color": "#041E42",
+  "note": "Sign in with the admin user and password below.",
+  "expose": {
+    "service": "owncloud",
+    "port": 8080
+  },
+  "vars": [
+    {
+      "key": "OWNCLOUD_ADMIN_USER",
+      "value": "admin",
+      "label": "Admin user"
+    },
+    {
+      "key": "OWNCLOUD_ADMIN_PASSWORD",
+      "generate": "password",
+      "label": "Admin password"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "OWNCLOUD_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "OWNCLOUD_HOST",
+      "publicHost": true
+    }
+  ]
+}

@@ -47,3 +47,47 @@ func TestGuardGroupsSuggestsSubcommands(t *testing.T) {
 		t.Fatalf("a name that is found runs as before: %v", err)
 	}
 }
+
+func TestGuardJSONRefusesIgnoredFlag(t *testing.T) {
+	ran := ""
+	runAs := func(name string) func(*cobra.Command, []string) error {
+		return func(*cobra.Command, []string) error { ran = name; return nil }
+	}
+	// A new tree each time: cobra keeps a flag's state between runs.
+	tree := func() *cobra.Command {
+		root := &cobra.Command{Use: "serve", SilenceErrors: true, SilenceUsage: true}
+		list := &cobra.Command{Use: "domains", RunE: runAs("list")}
+		list.PersistentFlags().Bool("json", false, "")
+		list.AddCommand(
+			&cobra.Command{Use: "ls", RunE: runAs("ls")},
+			&cobra.Command{Use: "add", RunE: runAs("add")},
+			&cobra.Command{Use: "show", Annotations: printsJSON, RunE: runAs("show")},
+		)
+		root.AddCommand(list)
+		guardJSON(root)
+		return root
+	}
+
+	for _, c := range []struct {
+		args []string
+		ran  string
+		fail bool
+	}{
+		{[]string{"domains", "--json"}, "list", false},
+		{[]string{"domains", "ls", "--json"}, "ls", false},
+		{[]string{"domains", "show", "--json"}, "show", false},
+		{[]string{"domains", "add"}, "add", false},
+		{[]string{"domains", "add", "--json"}, "", true},
+	} {
+		ran = ""
+		root := tree()
+		root.SetArgs(c.args)
+		err := root.Execute()
+		if (err != nil) != c.fail || ran != c.ran {
+			t.Fatalf("%v: ran %q, err %v", c.args, ran, err)
+		}
+		if c.fail && !strings.Contains(err.Error(), "serve domains add does not print JSON") {
+			t.Fatalf("%v: %v", c.args, err)
+		}
+	}
+}

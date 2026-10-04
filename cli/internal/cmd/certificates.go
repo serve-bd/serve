@@ -160,8 +160,9 @@ permission.`
 	var provider, account, name, server string
 	var wait bool
 	request := &cobra.Command{
-		Use:   "request <domain>...",
-		Short: "Request a certificate for one or more domains",
+		Use:         "request <domain>...",
+		Annotations: printsJSON,
+		Short:       "Request a certificate for one or more domains",
 		Long: `Request a certificate. --provider picks how it is made:
 
   letsencrypt-http         Let's Encrypt over HTTP (the default). The domains must point at the server.
@@ -243,8 +244,9 @@ proxy unless --server names another. --wait follows the issue until it ends.`,
 
 	var certFile, keyFile, upName, upServer string
 	upload := &cobra.Command{
-		Use:   "upload --cert <file> --key <file>",
-		Short: "Upload your own certificate and private key",
+		Use:         "upload --cert <file> --key <file>",
+		Annotations: printsJSON,
+		Short:       "Upload your own certificate and private key",
 		Long: `Upload a certificate you got elsewhere: the PEM certificate (with its chain) and its
 private key. Its names and expiry are read from the file. Uploaded certificates do not renew
 by themselves: upload a new one before it expires.`,
@@ -324,11 +326,12 @@ by themselves: upload a new one before it expires.`,
 	renew.Flags().BoolVarP(&renewWait, "wait", "w", false, "wait until it is renewed")
 
 	logs := &cobra.Command{
-		Use:     "logs <certificate>",
-		Short:   "Show the log of a certificate's last issue or renewal",
-		Long:    "Show the log of the last issue or renewal of a certificate (by id, name or domain), with its error if it failed.",
-		Example: "  serve certificates logs example.com",
-		Args:    exactArgs(1),
+		Use:         "logs <certificate>",
+		Annotations: printsJSON,
+		Short:       "Show the log of a certificate's last issue or renewal",
+		Long:        "Show the log of the last issue or renewal of a certificate (by id, name or domain), with its error if it failed.",
+		Example:     "  serve certificates logs example.com",
+		Args:        exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			cert, err := a.findCertificate(ctx, args[0])

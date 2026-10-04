@@ -116,6 +116,7 @@ Commands that work on a service use the one this folder is linked to (serve link
 	add("admin", a.sshCmd(), a.tailscaleCmd(), a.networksCmd(), a.logDrainsCmd())
 	root.AddCommand(a.versionCmd(), a.upgradeCmd())
 	guardGroups(root)
+	guardJSON(root)
 	for _, p := range noticeCommands {
 		if c, _, err := root.Find(p); err == nil && c.Name() == p[len(p)-1] {
 			withNotice(c)
@@ -301,4 +302,26 @@ func suggestSub(cmd *cobra.Command, word string) string {
 		return s[0]
 	}
 	return ""
+}
+
+// printsJSON marks a command that reads the --json it gets from the command above it.
+var printsJSON = map[string]string{"json": "yes"}
+
+// guardJSON refuses --json on a command that only has it because the command above it lists
+// things (serve domains --json, then serve domains add --json): a script that asked for JSON
+// would otherwise get text it cannot read.
+func guardJSON(c *cobra.Command) {
+	for _, sub := range c.Commands() {
+		guardJSON(sub)
+	}
+	if c.RunE == nil || c.Name() == "ls" || c.Annotations["json"] != "" || c.LocalFlags().Lookup("json") != nil || c.InheritedFlags().Lookup("json") == nil {
+		return
+	}
+	run := c.RunE
+	c.RunE = func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Changed("json") {
+			return usagef("%s does not print JSON: --json works on lists and on show commands", cmd.CommandPath())
+		}
+		return run(cmd, args)
+	}
 }

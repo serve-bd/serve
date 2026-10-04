@@ -128,8 +128,9 @@ login first. Asks for the user's name unless --yes.`,
 
 	var pwYes bool
 	password := &cobra.Command{
-		Use:   "password <user>",
-		Short: "Give a database user a new password and print it",
+		Use:         "password <user>",
+		Annotations: printsJSON,
+		Short:       "Give a database user a new password and print it",
 		Long: `Change the password of a login to a new random one, and print it with the connection
 strings. Whatever uses the old password stops working. Asks first unless --yes.`,
 		Example: "  serve db users password reporting\n  serve db users password reporting --yes --json",

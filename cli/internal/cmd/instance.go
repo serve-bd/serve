@@ -60,11 +60,12 @@ func newer(st *api.UpdateStatus) string {
 
 func (a *App) instanceVersionCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "version",
-		Short:   "Show the version of Serve and whether a newer one is out",
-		Long:    "Show the version this Serve instance runs, the newest release from its last check, and the last update.",
-		Example: "  serve instance version\n  serve instance version --json",
-		Args:    noArgs,
+		Use:         "version",
+		Annotations: printsJSON,
+		Short:       "Show the version of Serve and whether a newer one is out",
+		Long:        "Show the version this Serve instance runs, the newest release from its last check, and the last update.",
+		Example:     "  serve instance version\n  serve instance version --json",
+		Args:        noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st, err := a.updateStatus(cmd.Context())
 			if err != nil {
@@ -100,8 +101,9 @@ func (a *App) instanceVersionCmd() *cobra.Command {
 func (a *App) instanceUpdateCmd() *cobra.Command {
 	var check, yes, wait bool
 	cmd := &cobra.Command{
-		Use:   "update",
-		Short: "Update Serve to the newest release",
+		Use:         "update",
+		Annotations: printsJSON,
+		Short:       "Update Serve to the newest release",
 		Long: `Look for a new release of Serve and install it. Serve backs itself up first, and goes
 back to the version it ran by itself if the new one does not start. Asks first unless --yes.
 
@@ -233,11 +235,12 @@ func (a *App) instanceBackups(ctx context.Context) ([]api.InstanceBackup, json.R
 
 func (a *App) instanceBackupsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "backups",
-		Aliases: []string{"backup"},
-		Short:   "List and make backups of this Serve instance",
-		Long:    "List and make backups of the Serve instance: its database and settings. Restoring one is done on the server, as the docs say.",
-		Example: "  serve instance backups\n  serve instance backups create --wait",
+		Use:         "backups",
+		Annotations: printsJSON,
+		Aliases:     []string{"backup"},
+		Short:       "List and make backups of this Serve instance",
+		Long:        "List and make backups of the Serve instance: its database and settings. Restoring one is done on the server, as the docs say.",
+		Example:     "  serve instance backups\n  serve instance backups create --wait",
 	}
 	list := func(cmd *cobra.Command, args []string) error {
 		list, raw, err := a.instanceBackups(cmd.Context())
@@ -272,11 +275,12 @@ func (a *App) instanceBackupsCmd() *cobra.Command {
 
 	var wait bool
 	create := &cobra.Command{
-		Use:     "create",
-		Short:   "Back up this Serve instance now",
-		Long:    "Start a backup of the Serve instance. It runs in the background; --wait follows it until it ends.",
-		Example: "  serve instance backups create\n  serve instance backups create --wait",
-		Args:    noArgs,
+		Use:         "create",
+		Annotations: printsJSON,
+		Short:       "Back up this Serve instance now",
+		Long:        "Start a backup of the Serve instance. It runs in the background; --wait follows it until it ends.",
+		Example:     "  serve instance backups create\n  serve instance backups create --wait",
+		Args:        noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			c, err := a.Client()

@@ -184,8 +184,9 @@ Adding and removing keys needs an organization admin.`
 
 	var file, description string
 	add := &cobra.Command{
-		Use:   "add <name>",
-		Short: "Add an SSH key (a new one, or your own with --file)",
+		Use:         "add <name>",
+		Annotations: printsJSON,
+		Short:       "Add an SSH key (a new one, or your own with --file)",
 		Long: `Add an SSH key. Without --file, Serve makes a new ed25519 key pair and keeps the
 private key. With --file, it stores the private key you give (OpenSSH or PEM format).
 

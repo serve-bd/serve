@@ -104,11 +104,12 @@ func varSource(v api.TemplateVar) string {
 func (a *App) templateShowCmd(asJSON *bool) *cobra.Command {
 	var compose bool
 	cmd := &cobra.Command{
-		Use:     "show <id>",
-		Aliases: []string{"info"},
-		Short:   "Show a template: its values and, with --compose, its compose file",
-		Example: "  serve templates show plausible\n  serve templates show plausible --compose",
-		Args:    exactArgs(1),
+		Use:         "show <id>",
+		Annotations: printsJSON,
+		Aliases:     []string{"info"},
+		Short:       "Show a template: its values and, with --compose, its compose file",
+		Example:     "  serve templates show plausible\n  serve templates show plausible --compose",
+		Args:        exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			c, err := a.Client()

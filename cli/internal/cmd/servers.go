@@ -76,12 +76,13 @@ func (a *App) serverSubcommands() []*cobra.Command {
 
 func (a *App) serverShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "show <server>",
-		Aliases: []string{"info"},
-		Short:   "Show a server: its connection, status, proxy and services",
-		Long:    "Show a server by name or id: how Serve reaches it, its status, its proxy, its resource alerts and the services that run on it.",
-		Example: "  serve servers show eu-1\n  serve servers show eu-1 --json",
-		Args:    exactArgs(1),
+		Use:         "show <server>",
+		Annotations: printsJSON,
+		Aliases:     []string{"info"},
+		Short:       "Show a server: its connection, status, proxy and services",
+		Long:        "Show a server by name or id: how Serve reaches it, its status, its proxy, its resource alerts and the services that run on it.",
+		Example:     "  serve servers show eu-1\n  serve servers show eu-1 --json",
+		Args:        exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, raw, err := a.serverRef(cmd.Context(), args[0])
 			if err != nil {
@@ -248,8 +249,9 @@ func (a *App) serverAddCmd() *cobra.Command {
 	var port int
 	var wait, installDocker bool
 	cmd := &cobra.Command{
-		Use:   "add --host <address>",
-		Short: "Add a server over SSH and set it up",
+		Use:         "add --host <address>",
+		Annotations: printsJSON,
+		Short:       "Add a server over SSH and set it up",
 		Long: `Add a server Serve reaches over SSH, then set it up: Serve connects, checks Docker and
 starts its proxy there. Put the SSH key's public key in ~/.ssh/authorized_keys of --user on
 the server first (` + "`serve ssh-keys add <name>`" + ` prints it).
@@ -521,8 +523,9 @@ func (a *App) serverAlertsCmd() *cobra.Command {
 	var cpu, cpuMinutes, memory, disk, diskCritical int
 	var on, off bool
 	cmd := &cobra.Command{
-		Use:   "alerts <server>",
-		Short: "Show or set when a server's CPU, memory or disk use sends an alert",
+		Use:         "alerts <server>",
+		Annotations: printsJSON,
+		Short:       "Show or set when a server's CPU, memory or disk use sends an alert",
 		Long: `Show or set a server's resource alerts. The values are percentages (50 to 100): an alert
 goes out when CPU stays above --cpu for --cpu-minutes, memory is above --memory, or the disk is
 above --disk (a warning) or --disk-critical. Values you leave out keep what they are.
@@ -645,8 +648,9 @@ func printAlerts(al api.ServerAlerts) {
 func (a *App) serverProxyCmd() *cobra.Command {
 	var yes, wait bool
 	cmd := &cobra.Command{
-		Use:   "proxy <server> [nginx|caddy|traefik]",
-		Short: "Show a server's proxy, or switch it to another one",
+		Use:         "proxy <server> [nginx|caddy|traefik]",
+		Annotations: printsJSON,
+		Short:       "Show a server's proxy, or switch it to another one",
 		Long: `Without a kind, show which proxy a server runs. With one, switch to it: Serve moves the
 domains and certificates over, and the sites on the server may answer with errors for a
 moment. Asks first unless --yes. --wait follows the switch until it ends.`,
@@ -751,11 +755,12 @@ func (a *App) waitProxySwitch(ctx context.Context, id, name, kind string) error 
 
 func (a *App) serverProxyLogsCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "proxy-logs <server>",
-		Short:   "Show the recent logs of a server's proxy",
-		Long:    "Show the last 300 lines of a server's proxy logs.",
-		Example: "  serve servers proxy-logs eu-1\n  serve servers proxy-logs eu-1 | grep 502",
-		Args:    exactArgs(1),
+		Use:         "proxy-logs <server>",
+		Annotations: printsJSON,
+		Short:       "Show the recent logs of a server's proxy",
+		Long:        "Show the last 300 lines of a server's proxy logs.",
+		Example:     "  serve servers proxy-logs eu-1\n  serve servers proxy-logs eu-1 | grep 502",
+		Args:        exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			s, err := a.findServer(ctx, args[0])

@@ -1,6 +1,7 @@
 import type Docker from "dockerode";
 import { HOSTNAME_RE } from "@/lib/hostname";
 import { engines } from "@/server/databases/engines";
+import { DROP_CAPABILITIES, SECURITY_OPT_RE } from "@/server/deploy/options";
 import type { DbEngine, KeyValue, OutsideNetwork, PortMapping, RestartPolicy, VolumeMount } from "@/server/services/types";
 
 /**
@@ -33,6 +34,12 @@ export type AdoptPlan = {
   shmSize: number | null;
   privileged: boolean;
   capAdd: string[];
+  capDrop: string[];
+  noNewPrivileges: boolean;
+  securityOpt: string[];
+  cpuset: string | null;
+  cpuWeight: number | null;
+  swapLimit: number | null;
   extraHosts: string[];
   /** Settings Serve does not carry over, for the person to check. */
   notes: string[];
@@ -163,7 +170,21 @@ export function planAdoption(info: Docker.ContainerInspectInfo, image: Docker.Im
     notes.push("Its own health check is left out; the image's health check, if any, still runs.");
   if (host.Devices?.length) notes.push("Host devices are left out.");
   if (host.Sysctls && Object.keys(host.Sysctls).length) notes.push("Kernel settings (sysctls) are left out.");
-  if (host.SecurityOpt?.length) notes.push("Security options are left out.");
+  // Hardening carries over: a container that ran with fewer rights keeps running with fewer.
+  const securityOpt: string[] = [];
+  let noNewPrivileges = false;
+  for (const o of (host.SecurityOpt ?? []) as string[]) {
+    if (/^no-new-privileges([:=]true)?$/.test(o)) noNewPrivileges = true;
+    else if (SECURITY_OPT_RE.test(o)) securityOpt.push(o);
+    else notes.push(`Security option ${o} is left out.`);
+  }
+  const capDrop: string[] = [];
+  for (const c of (host.CapDrop ?? []) as string[]) {
+    const name = c.replace(/^CAP_/, "").toUpperCase();
+    if ((DROP_CAPABILITIES as readonly string[]).includes(name)) capDrop.push(name);
+    else notes.push(`Dropped capability ${c} is left out.`);
+  }
+  const swapLimit = host.Memory && host.MemorySwap && host.MemorySwap >= host.Memory ? Math.round((host.MemorySwap - host.Memory) / 1024 / 1024) : null;
   const labels = Object.keys(cfg.Labels ?? {}).filter((l) => /traefik|caddy/i.test(l));
   if (labels.length) notes.push("Proxy labels are left out: add its domains in Serve after the move.");
 
@@ -188,6 +209,12 @@ export function planAdoption(info: Docker.ContainerInspectInfo, image: Docker.Im
     shmSize: host.ShmSize && host.ShmSize !== 64 * 1024 * 1024 ? Math.round(host.ShmSize / 1024 / 1024) : null,
     privileged: !!host.Privileged,
     capAdd: host.CapAdd ?? [],
+    capDrop,
+    noNewPrivileges,
+    securityOpt,
+    cpuset: host.CpusetCpus || null,
+    cpuWeight: host.CpuShares && host.CpuShares !== 1024 ? host.CpuShares : null,
+    swapLimit,
     extraHosts: ((host.ExtraHosts ?? []) as string[]).filter((h) => !h.startsWith("host.docker.internal:")),
     notes,
     blockers,

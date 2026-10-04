@@ -142,6 +142,12 @@ export async function adoptContainer(input: AdoptInput, reserved: { cpuLimit: nu
     shmSize: plan.shmSize,
     privileged: plan.privileged,
     capAdd: plan.capAdd,
+    capDrop: plan.capDrop,
+    noNewPrivileges: plan.noNewPrivileges,
+    securityOpt: plan.securityOpt,
+    cpuset: plan.cpuset,
+    cpuWeight: plan.cpuWeight,
+    swapLimit: plan.swapLimit,
     extraHosts: plan.extraHosts,
   };
 

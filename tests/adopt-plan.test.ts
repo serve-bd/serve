@@ -85,6 +85,27 @@ describe("planAdoption", () => {
     expect(p.database).toBeNull();
   });
 
+  it("keeps the container's hardening and CPU and swap settings", () => {
+    const c = container({ image: "node:22", mounts: [] });
+    Object.assign(c.HostConfig, {
+      CapDrop: ["ALL", "CAP_SYS_BOOT"],
+      SecurityOpt: ["no-new-privileges:true", "seccomp=unconfined", "bogus"],
+      CpusetCpus: "0-1",
+      CpuShares: 512,
+      Memory: 256 * 1024 * 1024,
+      MemorySwap: 384 * 1024 * 1024,
+    });
+    const p = planAdoption(c, image());
+    expect(p.capDrop).toEqual(["ALL"]);
+    expect(p.noNewPrivileges).toBe(true);
+    expect(p.securityOpt).toEqual(["seccomp=unconfined"]);
+    expect(p.cpuset).toBe("0-1");
+    expect(p.cpuWeight).toBe(512);
+    expect(p.swapLimit).toBe(128);
+    expect(p.notes).toContain("Security option bogus is left out.");
+    expect(p.notes).toContain("Dropped capability CAP_SYS_BOOT is left out.");
+  });
+
   it("refuses containers on the server's own network", () => {
     const c = container();
     c.HostConfig.NetworkMode = "host";

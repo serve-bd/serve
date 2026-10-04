@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { newId, shortId, slugify } from "@/server/id";
 import { randomSecret } from "@/server/crypto";
@@ -6,6 +6,8 @@ import { autoDomainFor } from "@/server/proxy/addressing";
 import { enqueue } from "@/server/queue";
 import { LOCAL_SERVER_ID, type DeploymentTrigger } from "@/server/db/schema";
 import { UserError } from "@/server/action";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export async function uniqueServiceSlug(name: string) {
   const base = slugify(name, 28);
@@ -61,13 +63,6 @@ export async function queueDeployment(
   } = {},
 ) {
   const id = newId();
-  // The server's queue limit: a full queue refuses someone deploying and records a skipped push or hook.
-  // A rollback (urgent) and a new service's first deploy always get in.
-  const full = trigger === "rollback" || trigger === "create" ? null : await queueFull(serviceId);
-  if (full) {
-    if (opts.userId) throw new UserError(full);
-    return recordSkipped(serviceId, trigger, full, opts);
-  }
   // The project's deploy rules: a freeze stops it, an approval holds it.
   const { deployGate, supersedeWaiting } = await import("@/server/deploy-rules");
   const gate = await deployGate(serviceId, trigger, opts.userId);
@@ -76,18 +71,29 @@ export async function queueDeployment(
     if (opts.userId) throw new UserError(gate.message);
     return recordSkipped(serviceId, trigger, gate.message, opts);
   }
-  await db.insert(schema.deployment).values({
-    id,
-    serviceId,
-    trigger,
-    status: gate.kind === "approve" ? "waiting" : "queued",
-    createdBy: opts.userId ?? null,
-    rollbackOf: opts.rollbackOf ?? null,
-    commitSha: opts.commitSha ?? null,
-    commitMessage: opts.commitMessage ?? null,
-    branch: opts.branch ?? null,
-    adopt: opts.adopt ?? null,
+  // The server's queue limit: a full queue refuses someone deploying and records a skipped push or hook.
+  // A rollback (urgent) and a new service's first deploy always get in.
+  const full = await db.transaction(async (tx) => {
+    const reason = trigger === "rollback" || trigger === "create" ? null : await queueFull(tx, serviceId);
+    if (reason) return reason;
+    await tx.insert(schema.deployment).values({
+      id,
+      serviceId,
+      trigger,
+      status: gate.kind === "approve" ? "waiting" : "queued",
+      createdBy: opts.userId ?? null,
+      rollbackOf: opts.rollbackOf ?? null,
+      commitSha: opts.commitSha ?? null,
+      commitMessage: opts.commitMessage ?? null,
+      branch: opts.branch ?? null,
+      adopt: opts.adopt ?? null,
+    });
+    return null;
   });
+  if (full) {
+    if (opts.userId) throw new UserError(full);
+    return recordSkipped(serviceId, trigger, full, opts);
+  }
   if (gate.kind === "approve") {
     await supersedeWaiting(serviceId, id);
     await notifyWaiting(serviceId, id);
@@ -97,15 +103,20 @@ export async function queueDeployment(
   return id;
 }
 
-/** Why a new deployment cannot wait in its server's queue (the server's limit is reached), or null. */
-async function queueFull(serviceId: string) {
-  const [row] = await db
+/**
+ * Why a new deployment cannot wait in its server's queue (the server's limit is reached), or null.
+ * Holds the server's queue lock until the transaction ends: deploys queued at the same moment
+ * (a burst of pushes, a tag hook) count one after another, so none gets past the limit.
+ */
+async function queueFull(tx: Tx, serviceId: string) {
+  const [row] = await tx
     .select({ serverId: schema.service.serverId, limit: schema.server.deployQueueLimit, name: schema.server.name })
     .from(schema.service)
     .innerJoin(schema.server, eq(schema.server.id, schema.service.serverId))
     .where(eq(schema.service.id, serviceId));
   if (!row?.limit) return null;
-  const [{ n }] = await db
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`deploy-queue:${row.serverId}`}))`);
+  const [{ n }] = await tx
     .select({ n: count() })
     .from(schema.deployment)
     .innerJoin(schema.service, eq(schema.service.id, schema.deployment.serviceId))

@@ -238,6 +238,7 @@ func (a *App) domainsCmd() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(add, rm)
+	cmd.AddCommand(a.domainGenerateCmd(), a.domainCheckCmd(), a.domainRetryCertCmd(), a.domainSetCmd())
 	return cmd
 }
 

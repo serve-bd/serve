@@ -21,7 +21,7 @@ func (a *App) envCmd() *cobra.Command {
 	var reveal, asJSON, redeploy, force bool
 	cmd := &cobra.Command{
 		Use:     "env",
-		Aliases: []string{"vars", "variables"},
+		Aliases: []string{"variables"},
 		Short:   "Read and change the service's environment variables",
 		Long:    "Read and change the service's environment variables. Changes apply on the next deploy, or right away with --redeploy.",
 	}

@@ -50,7 +50,14 @@ func FindLink(dir string) *Link {
 	if err != nil {
 		return nil
 	}
+	start := dir
+	home, _ := os.UserHomeDir()
 	for {
+		// A link in the home folder counts there only: one made there by accident must not link
+		// every folder inside it.
+		if dir != start && home != "" && dir == filepath.Clean(home) {
+			return nil
+		}
 		if l, err := ReadLink(dir); err == nil {
 			return l
 		}

@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -56,6 +58,8 @@ func (a *App) servicesCmd() *cobra.Command {
 			return err
 		}
 		projectID := ""
+		// Which project the list is of, and why, said above it: a link from a parent folder is easy to miss.
+		scope := ""
 		if a.project != "" {
 			p, err := a.findProject(ctx, a.project)
 			if err != nil {
@@ -64,6 +68,7 @@ func (a *App) servicesCmd() *cobra.Command {
 			projectID = p.ID
 		} else if l := a.linkFor("."); l != nil && !all {
 			projectID = l.ProjectID
+			scope = fmt.Sprintf("Project %s (this folder is linked in %s). Use --all for every project.", l.ProjectName, displayPath(l.Dir))
 		}
 		list, err := c.Services(ctx, projectID, "")
 		if err != nil {
@@ -77,6 +82,9 @@ func (a *App) servicesCmd() *cobra.Command {
 		}
 		if asJSON {
 			return printJSON(kept)
+		}
+		if scope != "" {
+			ui.Line(ui.Dim(scope))
 		}
 		if len(kept) == 0 {
 			ui.Info("No services.")
@@ -232,4 +240,17 @@ func hostOnly(s string) string {
 		return u.Host
 	}
 	return strings.TrimRight(s, "/")
+}
+
+// displayPath shows a folder with the home folder as ~.
+func displayPath(dir string) string {
+	if home, err := os.UserHomeDir(); err == nil {
+		if dir == home {
+			return "~"
+		}
+		if rel, err := filepath.Rel(home, dir); err == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.Join("~", rel)
+		}
+	}
+	return dir
 }

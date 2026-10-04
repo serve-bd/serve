@@ -16,7 +16,7 @@ import { forgetServer } from "@/server/servers/context";
 import { requireServerAdmin } from "@/server/servers/access";
 import { newJoinToken } from "@/server/tunnel";
 import { TailscaleError, type TailscaleDevice, dnsSuffixOf, oauthToken, tailscaleClient } from "@/server/tailscale/api";
-import { clientFor, getTailnet, pendingTailscale, recordTailnetCheck } from "@/server/tailscale";
+import { clientFor, getTailnet, pendingTailscale, recordTailnetCheck, syncTailscale } from "@/server/tailscale";
 import { JoinRefused, joinThroughShell } from "@/server/tailscale/join";
 
 /* -------------------------------------------------------------------------- */
@@ -176,6 +176,8 @@ export async function testTailnet(id: string) {
     try {
       const devices = await clientFor(row).devices();
       await recordTailnetCheck(id, null, devices);
+      // The servers' state follows at once (a device removed in the admin console), not at the worker's next check.
+      await syncTailscale(id);
       return `Tailscale answered: ${devices.length} device${devices.length === 1 ? "" : "s"} in the tailnet.`;
     } catch (error) {
       await recordTailnetCheck(id, (error as Error).message);

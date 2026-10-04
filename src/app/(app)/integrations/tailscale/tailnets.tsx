@@ -30,7 +30,7 @@ export type TailnetItem = {
   servers: { id: string; name: string; address: string | null; online: boolean | null; fallback: boolean }[];
 };
 
-type Local = { id: string; name: string; tailnetId: string | null; address: string | null; dnsName: string | null };
+type Local = { id: string; name: string; tailnetId: string | null; address: string | null; dnsName: string | null; error: string | null };
 
 function Mark() {
   return (
@@ -244,7 +244,9 @@ function LocalRow({ tailnet: t, local }: { tailnet: TailnetItem; local: Local | 
               {local.name} is in the tailnet at <span className="font-mono">{local.address}</span>
             </span>
           ) : (
-            <span className="min-w-0 truncate">{local.name} (the dashboard&apos;s machine) is not in this tailnet</span>
+            <span className="min-w-0 truncate">
+              {local.name} (the dashboard&apos;s machine) {local.tailnetId === t.id && local.error ? "left this tailnet" : "is not in this tailnet"}
+            </span>
           )}
         </span>
         {!here && !elsewhere && (

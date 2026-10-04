@@ -159,8 +159,8 @@ export async function serversByTailnet() {
  * Every few minutes: each server's device as the API shows it (address, online, last seen). A
  * device that got a new address is reached there from now on; one removed from the tailnet says so.
  */
-export async function syncTailscale() {
-  const tailnets = await db.select().from(schema.tailscaleTailnet);
+export async function syncTailscale(onlyTailnetId?: string) {
+  const tailnets = (await db.select().from(schema.tailscaleTailnet)).filter((t) => !onlyTailnetId || t.id === onlyTailnetId);
   if (!tailnets.length) return;
   const byTailnet = await serversByTailnet();
   const { forgetServer } = await import("@/server/servers/context");

@@ -16,6 +16,8 @@ vi.mock("@/server/api-auth", () => ({
     r.headers.get("authorization") === "Bearer srv_ok" ? { auth } : { error: Response.json({ error: "Invalid or missing API token" }, { status: 401 }) },
 }));
 vi.mock("@/server/auth", () => ({ ForbiddenError: class extends Error {}, isInstanceAdmin: async () => false }));
+const apiSettings = { apiEnabled: true, apiRateLimit: 0 };
+vi.mock("@/server/settings", () => ({ getSettings: async () => apiSettings }));
 
 const { createRouter, route, unwrap } = await import("@/server/api/router");
 const { apiPrincipal } = await import("@/server/api/principal");
@@ -81,5 +83,23 @@ describe("API router", () => {
     const res = await req("POST", "/fail", {});
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "Service not found." });
+  });
+
+  it("answers 503 while the API is off, and 429 above the rate limit", async () => {
+    const { resetRateLimits } = await import("@/server/api/rate-limit");
+    resetRateLimits();
+    const call = () => handle(new Request("http://x/api/v1/things/a", { headers: { authorization: "Bearer srv_ok" } }), "things/a");
+    apiSettings.apiEnabled = false;
+    expect((await call()).status).toBe(503);
+    apiSettings.apiEnabled = true;
+    apiSettings.apiRateLimit = 2;
+    const first = await call();
+    expect(first.status).toBe(200);
+    expect(first.headers.get("x-ratelimit-remaining")).toBe("1");
+    expect((await call()).status).toBe(200);
+    const over = await call();
+    expect(over.status).toBe(429);
+    expect(over.headers.get("retry-after")).toBeTruthy();
+    apiSettings.apiRateLimit = 0;
   });
 });

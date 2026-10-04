@@ -251,7 +251,8 @@ export const serviceRoutes: ApiRoute[] = [
         const { isInstanceAdmin } = await import("@/server/auth");
         const { getSetting } = await import("@/server/settings");
         const root = auth.admin && auth.organizationId === (await getSetting("rootOrganizationId")) && (await isInstanceAdmin(auth.userId));
-        if (!root) throw new ApiError(403, "This app has host access (privileged mode, host paths or devices), so only admins of the Root organization can deploy uploaded files to it.");
+        if (!root)
+          throw new ApiError(403, "This app has host access (privileged mode, host paths or devices), so only admins of the Root organization can deploy uploaded files to it.");
       }
       const type = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
       if (type && !UPLOAD_TYPES.includes(type)) throw new ApiError(400, `Send the project folder as a .tar.gz with Content-Type: application/gzip (got ${type}).`);

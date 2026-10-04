@@ -210,7 +210,15 @@ describe("unpacking an uploaded archive", () => {
     const dir = tmp();
     const huge = Array.from({ length: 20_000 }, () => "a").join("/");
     const started = Date.now();
-    await expect(extract([{ name: "PaxHeader", type: "x", body: pax({ path: huge }) }, { name: "x", body: "1" }], dir)).rejects.toThrow(/longer than 4096/);
+    await expect(
+      extract(
+        [
+          { name: "PaxHeader", type: "x", body: pax({ path: huge }) },
+          { name: "x", body: "1" },
+        ],
+        dir,
+      ),
+    ).rejects.toThrow(/longer than 4096/);
     expect(Date.now() - started).toBeLessThan(1000);
   });
 

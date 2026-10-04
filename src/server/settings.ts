@@ -64,6 +64,10 @@ export type Settings = {
   cleanupBuildCacheDays: number;
   /** Also remove images no container uses, not only dangling ones. */
   cleanupUnusedImages: boolean;
+  /** Also remove anonymous volumes no container uses (named volumes, which hold kept data, never). */
+  cleanupUnusedVolumes: boolean;
+  /** Also remove networks no container uses, except Serve's own and the ones services join. */
+  cleanupUnusedNetworks: boolean;
   lastCleanup: CleanupRun | null;
   /** Most recent cleanup runs, newest first (max 10). */
   cleanupHistory: CleanupRun[];
@@ -186,6 +190,8 @@ export const defaultSettings: Settings = {
   cleanupDiskThreshold: 80,
   cleanupBuildCacheDays: 7,
   cleanupUnusedImages: false,
+  cleanupUnusedVolumes: false,
+  cleanupUnusedNetworks: false,
   lastCleanup: null,
   cleanupHistory: [],
   email: null,

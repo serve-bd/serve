@@ -14,6 +14,8 @@ type AutoSettings = {
   cleanupDiskThreshold: number;
   cleanupBuildCacheDays: number;
   cleanupUnusedImages: boolean;
+  cleanupUnusedVolumes: boolean;
+  cleanupUnusedNetworks: boolean;
 };
 
 const intervals = [6, 12, 24, 48, 168];
@@ -78,6 +80,18 @@ export function CleanupPolicy({ settings, latest }: { settings: AutoSettings; la
             description={<>Also delete images no container uses and older than a day, including other projects' images on this host. Images kept for rollbacks stay.</>}
             checked={v.cleanupUnusedImages}
             onCheckedChange={set("cleanupUnusedImages")}
+          />
+          <SwitchRow
+            title="Remove unused anonymous volumes"
+            description="Every volume without a name that no container uses, on the whole server, also ones of projects outside Serve. Their data cannot be brought back. Named volumes are never removed. Needs Docker 23 or newer."
+            checked={v.cleanupUnusedVolumes}
+            onCheckedChange={set("cleanupUnusedVolumes")}
+          />
+          <SwitchRow
+            title="Remove unused networks"
+            description="Every Docker network no container uses, on the whole server, also ones of projects outside Serve (compose creates its own again on up). Serve's networks and networks your services join stay."
+            checked={v.cleanupUnusedNetworks}
+            onCheckedChange={set("cleanupUnusedNetworks")}
           />
         </>
       )}

@@ -25,6 +25,8 @@ type AutoSettings = {
   cleanupDiskThreshold: number;
   cleanupBuildCacheDays: number;
   cleanupUnusedImages: boolean;
+  cleanupUnusedVolumes: boolean;
+  cleanupUnusedNetworks: boolean;
 };
 
 const triggerLabel: Record<CleanupRun["trigger"], { label: string; tone: "neutral" | "accent" | "warn" }> = {
@@ -112,6 +114,8 @@ export function CleanupView({
                         </span>
                         <span>• Dangling images on the whole host</span>
                         {settings.cleanupUnusedImages && <span>• Images no container uses (except rollback images)</span>}
+                        {settings.cleanupUnusedVolumes && <span>• Anonymous volumes no container uses</span>}
+                        {settings.cleanupUnusedNetworks && <span>• Networks no container uses (except Serve&apos;s and joined ones)</span>}
                         <span>• Old jobs, metrics and activity records</span>
                       </span>
                       <span>Volumes and running containers are never touched.</span>

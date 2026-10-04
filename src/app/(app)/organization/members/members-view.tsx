@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { FolderLock, KeyRound, Link2, LogOut, Mail, MoreHorizontal, Trash2, UserPlus } from "lucide-react";
+import { FolderLock, KeyRound, Link2, LogOut, Mail, MoreHorizontal, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, Badge, Card, CardHeader, CopyField, TimeAgo } from "@/components/ui/misc";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -31,6 +31,8 @@ type Member = {
   name: string;
   email: string;
   image: string | null;
+  /** Extra sign-in protection; null for viewers who do not manage members. */
+  signIn: { twoFactor: boolean; passkey: boolean } | null;
 };
 type Invite = { id: string; email: string; roleId: string; expiresAt: string };
 type Role = { id: string; name: string; description: string | null; builtin: string | null; permissions: Permission[] };
@@ -152,6 +154,16 @@ export function MembersView({
                     {m.email} · joined <TimeAgo date={m.createdAt} />
                   </span>
                 </div>
+                {m.signIn &&
+                  (m.signIn.twoFactor || m.signIn.passkey ? (
+                    <Badge tone="ok" className="flex-none" title="Signs in with more than a password">
+                      <ShieldCheck className="size-3" /> {[m.signIn.twoFactor && "2FA", m.signIn.passkey && "Passkey"].filter(Boolean).join(" · ")}
+                    </Badge>
+                  ) : (
+                    <Badge className="flex-none" title="No two-factor login and no passkey">
+                      Password only
+                    </Badge>
+                  ))}
                 {limited && (
                   <Badge className="flex-none" title={m.projectIds!.map((id) => projects.find((p) => p.id === id)?.name ?? id).join(", ")}>
                     <FolderLock className="size-3" /> {m.projectIds!.length} project{m.projectIds!.length === 1 ? "" : "s"}

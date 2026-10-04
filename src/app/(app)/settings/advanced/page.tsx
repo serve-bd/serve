@@ -36,6 +36,8 @@ export default async function AdvancedSettingsPage() {
           cleanupDiskThreshold: s.cleanupDiskThreshold,
           cleanupBuildCacheDays: s.cleanupBuildCacheDays,
           cleanupUnusedImages: s.cleanupUnusedImages,
+          cleanupUnusedVolumes: s.cleanupUnusedVolumes,
+          cleanupUnusedNetworks: s.cleanupUnusedNetworks,
         }}
       />
     </>

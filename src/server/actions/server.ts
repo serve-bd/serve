@@ -59,6 +59,8 @@ const settingsSchema = z
     cleanupDiskThreshold: z.number().int().min(50).max(99),
     cleanupBuildCacheDays: z.number().int().min(0).max(90),
     cleanupUnusedImages: z.boolean(),
+    cleanupUnusedVolumes: z.boolean(),
+    cleanupUnusedNetworks: z.boolean(),
   })
   .partial();
 

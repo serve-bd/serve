@@ -30,6 +30,44 @@ async function docker_(ctx: ServerCtx, args: string[]) {
 }
 
 /**
+ * Anonymous volumes no container uses (left by images that declare VOLUME). Named volumes stay:
+ * they hold data kept on purpose. Docker before API 1.42 (Engine 23) prunes named ones too, so
+ * nothing is pruned there.
+ */
+async function removeAnonymousVolumes(ctx: ServerCtx) {
+  const version = await ctx.docker.version().catch(() => null);
+  const [major, minor] = (version?.ApiVersion ?? "0.0").split(".").map(Number);
+  if (major < 1 || (major === 1 && minor < 42)) return 0;
+  return docker_(ctx, ["volume", "prune", "-f"]);
+}
+
+/**
+ * Networks no container uses. Serve's own (environments, the proxy) and the outside networks
+ * services join stay, even while those services are stopped.
+ */
+async function removeUnusedNetworks(ctx: ServerCtx) {
+  const joined = new Set<string>();
+  const services = await db.select({ runtime: schema.service.runtime }).from(schema.service).where(eq(schema.service.serverId, ctx.id));
+  for (const s of services) for (const n of s.runtime?.networks ?? []) joined.add(n.name);
+  let removed = 0;
+  for (const n of await ctx.docker.listNetworks()) {
+    if (["bridge", "host", "none"].includes(n.Name) || n.Labels?.[LABEL.managed] === "true" || joined.has(n.Name)) continue;
+    if (n.Driver === "overlay" || n.Scope === "swarm") continue;
+    const info = await ctx.docker
+      .getNetwork(n.Id)
+      .inspect()
+      .catch(() => null);
+    if (!info || Object.keys(info.Containers ?? {}).length) continue;
+    await ctx.docker
+      .getNetwork(n.Id)
+      .remove()
+      .then(() => removed++)
+      .catch(() => {});
+  }
+  return removed;
+}
+
+/**
  * Stopped Serve containers left behind by older deployments (for example a
  * failed zero-downtime switch). Only touches services this instance knows,
  * never the current deployment, stopped services or services mid-deploy.
@@ -130,6 +168,8 @@ async function doCleanup(trigger: Trigger, serverId: string): Promise<CleanupRun
 
     // Unused images, except Serve's own tags: the deploy pipeline keeps those for rollbacks.
     if (settings.cleanupUnusedImages || trigger === "disk") reclaimed += await removeUnusedImages(ctx).catch(() => 0);
+    if (settings.cleanupUnusedVolumes) reclaimed += await removeAnonymousVolumes(ctx);
+    if (settings.cleanupUnusedNetworks) await removeUnusedNetworks(ctx).catch(() => 0);
   } catch (e) {
     error = (e as Error).message;
   }

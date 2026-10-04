@@ -34,6 +34,8 @@ export default async function CleanupPage(props: PageProps<"/servers/[serverId]/
         cleanupDiskThreshold: settings.cleanupDiskThreshold,
         cleanupBuildCacheDays: settings.cleanupBuildCacheDays,
         cleanupUnusedImages: settings.cleanupUnusedImages,
+        cleanupUnusedVolumes: settings.cleanupUnusedVolumes,
+        cleanupUnusedNetworks: settings.cleanupUnusedNetworks,
       }}
     />
   );

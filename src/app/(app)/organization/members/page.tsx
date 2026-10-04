@@ -1,4 +1,4 @@
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { isEmailConfigured } from "@/server/email/send";
@@ -24,6 +24,7 @@ export default async function MembersPage() {
         name: schema.user.name,
         email: schema.user.email,
         image: schema.user.image,
+        twoFactor: schema.user.twoFactorEnabled,
       })
       .from(schema.member)
       .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
@@ -40,6 +41,24 @@ export default async function MembersPage() {
     organizationRoles(ctx.org.id),
     db.select({ id: schema.project.id, name: schema.project.name }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id)).orderBy(asc(schema.project.name)),
   ]);
+  // How each member signs in beyond a password: shown to those who manage members.
+  const passkeyUsers = ctx.can("members.manage")
+    ? new Set(
+        members.length
+          ? (
+              await db
+                .selectDistinct({ userId: schema.passkey.userId })
+                .from(schema.passkey)
+                .where(
+                  inArray(
+                    schema.passkey.userId,
+                    members.map((m) => m.userId),
+                  ),
+                )
+            ).map((p) => p.userId)
+          : [],
+      )
+    : null;
   return (
     <>
       <PageHeader title="Members" description={`People with access to ${ctx.org.name}.`} />
@@ -56,8 +75,9 @@ export default async function MembersPage() {
           roles={roles}
           // A member limited to some projects only hands out those.
           projects={projects.filter((p) => ctx.canAccessProject(p.id))}
-          members={members.map((m) => ({
+          members={members.map(({ twoFactor, ...m }) => ({
             ...m,
+            signIn: passkeyUsers ? { twoFactor, passkey: passkeyUsers.has(m.userId) } : null,
             roleId: effectiveRoleId(m.role, m.roleId),
             projectIds: m.role === "member" && m.projectIds?.length ? m.projectIds : null,
             createdAt: m.createdAt.toISOString(),

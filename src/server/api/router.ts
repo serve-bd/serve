@@ -150,51 +150,67 @@ export function createRouter(routes: ApiRoute[], publicRoutes: Record<string, (r
       return error(400, `Invalid path ${normalized}.`);
     }
 
+    const { getSettings } = await import("@/server/settings");
+    const { apiEnabled, apiRateLimit } = await getSettings();
+    if (!apiEnabled) return error(503, "The API is turned off. An admin of this Serve instance can turn it on in Settings → Security.");
     const { auth, error: authError } = await authenticateToken(request);
     if (authError) return authError;
-    const missing: Need[] = [];
-    for (const need of r.needs) if (!(await hasNeed(auth, need))) missing.push(need);
-    if (missing.length)
-      return error(403, `This token cannot do this. It needs: ${missing.map(needLabel).join(", ")}. A token never has more than its owner's role allows.`, { missing });
+    const { takeRequest } = await import("./rate-limit");
+    const rate = takeRequest(auth.tokenId, apiRateLimit);
+    if (!rate.allowed) {
+      const res = error(429, `Too many requests: this token may make ${apiRateLimit} per minute. Try again after the Retry-After seconds.`);
+      for (const [k, v] of Object.entries(rate.headers)) res.headers.set(k, v);
+      return res;
+    }
+    const response = await dispatch(auth);
+    for (const [k, v] of Object.entries(rate.headers)) response.headers.set(k, v);
+    return response;
 
-    let body: unknown;
-    if (r.body) {
-      let raw: unknown = {};
-      const text = await readBodyLimited(request, MAX_BODY);
-      if (text === null) return error(413, "The request body is too large (10 MB at most).");
-      if (text.trim()) {
-        try {
-          raw = JSON.parse(text);
-        } catch {
-          return error(400, "The request body is not valid JSON.");
+    async function dispatch(auth: ApiAuth): Promise<Response> {
+      const missing: Need[] = [];
+      for (const need of r.needs) if (!(await hasNeed(auth, need))) missing.push(need);
+      if (missing.length)
+        return error(403, `This token cannot do this. It needs: ${missing.map(needLabel).join(", ")}. A token never has more than its owner's role allows.`, { missing });
+
+      let body: unknown;
+      if (r.body) {
+        let raw: unknown = {};
+        const text = await readBodyLimited(request, MAX_BODY);
+        if (text === null) return error(413, "The request body is too large (10 MB at most).");
+        if (text.trim()) {
+          try {
+            raw = JSON.parse(text);
+          } catch {
+            return error(400, "The request body is not valid JSON.");
+          }
         }
+        const parsed = r.body.safeParse(raw);
+        if (!parsed.success) return error(400, zodMessage(parsed.error, "body"));
+        body = parsed.data;
       }
-      const parsed = r.body.safeParse(raw);
-      if (!parsed.success) return error(400, zodMessage(parsed.error, "body"));
-      body = parsed.data;
-    }
-    let query: unknown;
-    if (r.query) {
-      const parsed = r.query.safeParse(queryObject(new URL(request.url)));
-      if (!parsed.success) return error(400, zodMessage(parsed.error, "query"));
-      query = parsed.data;
-    }
+      let query: unknown;
+      if (r.query) {
+        const parsed = r.query.safeParse(queryObject(new URL(request.url)));
+        if (!parsed.success) return error(400, zodMessage(parsed.error, "query"));
+        query = parsed.data;
+      }
 
-    try {
-      const result = await runAsToken(auth, () => r.handler({ params, body, query, auth, request }));
-      if (result instanceof Response) return result;
-      return Response.json(result ?? { ok: true }, { status: r.status ?? 200 });
-    } catch (e) {
-      if (e instanceof ApiError) return error(e.status, e.message);
-      if (e instanceof UserError) return error(statusFor(e.message), e.message);
-      if (e instanceof z.ZodError) return error(400, zodMessage(e, "body"));
-      const digest = e && typeof e === "object" && "digest" in e ? String((e as { digest: unknown }).digest) : "";
-      if (digest.startsWith("NEXT_HTTP_ERROR_FALLBACK;404") || digest === "NEXT_NOT_FOUND") return error(404, "Not found");
-      if (digest.startsWith("NEXT_REDIRECT")) return error(403, "This token cannot do this.");
-      const { ForbiddenError } = await import("@/server/auth");
-      if (e instanceof ForbiddenError) return error(403, (e as Error).message);
-      console.error(`[api] ${method} ${normalized}`, e);
-      return error(500, "Something went wrong. Check the server logs for details.");
+      try {
+        const result = await runAsToken(auth, () => r.handler({ params, body, query, auth, request }));
+        if (result instanceof Response) return result;
+        return Response.json(result ?? { ok: true }, { status: r.status ?? 200 });
+      } catch (e) {
+        if (e instanceof ApiError) return error(e.status, e.message);
+        if (e instanceof UserError) return error(statusFor(e.message), e.message);
+        if (e instanceof z.ZodError) return error(400, zodMessage(e, "body"));
+        const digest = e && typeof e === "object" && "digest" in e ? String((e as { digest: unknown }).digest) : "";
+        if (digest.startsWith("NEXT_HTTP_ERROR_FALLBACK;404") || digest === "NEXT_NOT_FOUND") return error(404, "Not found");
+        if (digest.startsWith("NEXT_REDIRECT")) return error(403, "This token cannot do this.");
+        const { ForbiddenError } = await import("@/server/auth");
+        if (e instanceof ForbiddenError) return error(403, (e as Error).message);
+        console.error(`[api] ${method} ${normalized}`, e);
+        return error(500, "Something went wrong. Check the server logs for details.");
+      }
     }
   };
 }

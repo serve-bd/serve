@@ -5,7 +5,8 @@ import { ArrowRight, CircleCheck, Info, Plus, TriangleAlert } from "lucide-react
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
-import { Textarea } from "@/components/ui/input";
+import { Input, InputGroup, Textarea } from "@/components/ui/input";
+import { SwitchRow } from "@/components/ui/switch";
 import type { SecurityCheck } from "@/server/security-checks";
 import { cn } from "@/lib/utils";
 import { SettingsCard } from "../_components/settings-card";
@@ -23,11 +24,13 @@ export function SecurityView({
   allowlist,
   dashboardDomain,
   viewerIp,
+  api,
 }: {
   checks: SecurityCheck[];
   allowlist: string[];
   dashboardDomain: string | null;
   viewerIp: string | null;
+  api: { enabled: boolean; rateLimit: number };
 }) {
   const warnings = checks.filter((c) => c.status === "warn").length;
   const sorted = [...checks].sort((a, b) => ORDER[a.status] - ORDER[b.status]);
@@ -115,6 +118,30 @@ export function SecurityView({
             </>
           );
         }}
+      </SettingsCard>
+
+      <SettingsCard
+        title="API"
+        description="The REST API at /api/v1, used with tokens from Keys & tokens."
+        initial={{ apiEnabled: api.enabled, apiRateLimit: String(api.rateLimit) }}
+        transform={(v) => ({ apiEnabled: v.apiEnabled, apiRateLimit: v.apiRateLimit.trim() === "" ? 0 : Number(v.apiRateLimit) })}
+        footerNote={api.enabled ? (api.rateLimit ? `${api.rateLimit} requests per minute per token` : "No rate limit") : "Turned off"}
+      >
+        {(v, set) => (
+          <>
+            <SwitchRow
+              title="Allow API requests"
+              description="Off: every API call answers 503, whatever the token. Tokens are kept and work again when it is back on."
+              checked={v.apiEnabled}
+              onCheckedChange={set("apiEnabled")}
+            />
+            <Field label="Rate limit" description="Requests per minute for each token. Above it, calls answer 429 with a Retry-After header. 0: no limit.">
+              <InputGroup suffix="per minute">
+                <Input value={v.apiRateLimit} onChange={(e) => set("apiRateLimit")(e.target.value.replace(/\D/g, ""))} inputMode="numeric" disabled={!v.apiEnabled} />
+              </InputGroup>
+            </Field>
+          </>
+        )}
       </SettingsCard>
     </>
   );

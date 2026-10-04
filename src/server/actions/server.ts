@@ -48,6 +48,8 @@ const settingsSchema = z
           .regex(/^[0-9a-f:.]+(\/\d{1,3})?$/i, "Use an IP or CIDR range like 203.0.113.0/24"),
       )
       .max(100),
+    apiEnabled: z.boolean(),
+    apiRateLimit: z.number().int().min(0).max(100_000),
     cleanupEnabled: z.boolean(),
     cleanupIntervalHours: z
       .number()

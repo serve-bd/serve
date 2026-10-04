@@ -52,6 +52,10 @@ export type Settings = {
   proxyCustomConfig: string | null;
   /** IPs or CIDR ranges allowed to open the dashboard through its domain. Empty allows everyone. */
   dashboardAllowlist: string[];
+  /** The REST API (/api/v1) answers. Off: every call gets 503. */
+  apiEnabled: boolean;
+  /** Requests per minute per API token; 0 for no limit. */
+  apiRateLimit: number;
   /** Automatic Docker cleanup. */
   cleanupEnabled: boolean;
   cleanupIntervalHours: number;
@@ -175,6 +179,8 @@ export const defaultSettings: Settings = {
   timezone: "UTC",
   proxyCustomConfig: null,
   dashboardAllowlist: [],
+  apiEnabled: true,
+  apiRateLimit: 200,
   cleanupEnabled: true,
   cleanupIntervalHours: 24,
   cleanupDiskThreshold: 80,

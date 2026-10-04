@@ -177,6 +177,9 @@ type ReadOptions = {
 };
 
 /** Checks a .tar.gz stream entry by entry and, with `into`, writes it out. */
+/** Entries an upload may hold: far more than any project folder, few enough to keep memory and inodes in check. */
+const MAX_ENTRIES = 1_000_000;
+
 export async function readArchive(input: NodeJS.ReadableStream, opts: ReadOptions = {}): Promise<ArchiveSummary> {
   const gunzip = zlib.createGunzip();
   input.on("error", (e) => gunzip.destroy(e));
@@ -187,6 +190,7 @@ export async function readArchive(input: NodeJS.ReadableStream, opts: ReadOption
   const symlinks = new Map<string, string>();
   const files = new Set<string>();
   let count = 0;
+  let entries = 0;
   let bytes = 0;
   let reported = 0;
   let pax: Record<string, string> = {};
@@ -232,6 +236,9 @@ export async function readArchive(input: NodeJS.ReadableStream, opts: ReadOption
       longLink = null;
       if (!Number.isSafeInteger(size) || size < 0) throw new ArchiveError("The upload is not a valid tar archive.");
 
+      // Linux paths stop at 4096 bytes; longer names (a PAX path can be 1 MB) would only cost time to check.
+      if (name.length > 4096 || linkname.length > 4096) throw new ArchiveError("The upload has a path name longer than 4096 characters.");
+      if (++entries > MAX_ENTRIES) throw new ArchiveError(`The upload has more than ${MAX_ENTRIES.toLocaleString("en")} entries. Leave generated folders out with .serveignore.`);
       const type = entryType(header.flag, name);
       const rel = safeEntryPath(name);
       if (rel && throughSymlink(rel)) throw new ArchiveError(`The upload writes through a symlink: ${name}.`);
@@ -276,7 +283,8 @@ export async function readArchive(input: NodeJS.ReadableStream, opts: ReadOption
         continue;
       }
       if (type === "hardlink") {
-        await fs.promises.copyFile(path.join(root, ...hardTarget.split("/")), target);
+        // A real link, not a copy: thousands of links to one big file must not fill the disk.
+        await fs.promises.link(path.join(root, ...hardTarget.split("/")), target);
         continue;
       }
       const handle = await fs.promises.open(target, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, (header.mode & 0o777) | 0o600);

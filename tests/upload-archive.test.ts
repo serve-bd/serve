@@ -202,6 +202,16 @@ describe("unpacking an uploaded archive", () => {
     expect(fs.readFileSync(path.join(dir, "public/index.html"), "utf8")).toBe("<h1>hi</h1>");
     expect(fs.readFileSync(path.join(dir, "copy.sh"), "utf8")).toBe("#!/bin/sh\necho hi\n");
     expect(fs.readlinkSync(path.join(dir, "link"))).toBe("public/index.html");
+    // A hard link shares the file: many links to one big file take no more disk.
+    expect(fs.statSync(path.join(dir, "copy.sh")).ino).toBe(fs.statSync(path.join(dir, "bin/run.sh")).ino);
+  });
+
+  it("refuses path names past 4096 characters before checking them", async () => {
+    const dir = tmp();
+    const huge = Array.from({ length: 20_000 }, () => "a").join("/");
+    const started = Date.now();
+    await expect(extract([{ name: "PaxHeader", type: "x", body: pax({ path: huge }) }, { name: "x", body: "1" }], dir)).rejects.toThrow(/longer than 4096/);
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 
   it("writes nothing outside the folder", async () => {

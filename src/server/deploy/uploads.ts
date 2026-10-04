@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { formatBytes } from "@/lib/utils";
 import { paths } from "@/server/paths";
 import { ArchiveError, checkArchive } from "./upload-archive";
@@ -120,16 +120,22 @@ export async function pruneUploads(serviceId: string, keep = KEEP_UPLOADS) {
     .where(and(eq(schema.deployment.serviceId, serviceId), isNotNull(schema.deployment.upload)))
     .orderBy(desc(schema.deployment.createdAt))
     .limit(keep);
-  const kept = new Set(recent.map((r) => path.basename(r.upload!.archive)));
+  // Deployments that have not built yet keep their files, however many newer uploads came since.
+  const waiting = await db
+    .select({ upload: schema.deployment.upload })
+    .from(schema.deployment)
+    .where(and(eq(schema.deployment.serviceId, serviceId), isNotNull(schema.deployment.upload), inArray(schema.deployment.status, ["queued", "waiting", "building", "deploying"])));
+  const kept = new Set([...recent, ...waiting].map((r) => path.basename(r.upload!.archive)));
   const dir = path.join(paths.uploads, serviceId);
   const names = await fs.promises.readdir(dir).catch(() => [] as string[]);
   const removed: string[] = [];
   for (const name of uploadsToRemove(names, kept)) {
     const file = path.join(dir, name);
-    if (name.endsWith(".part")) {
-      const stat = await fs.promises.stat(file).catch(() => null);
-      if (!stat || Date.now() - stat.mtimeMs < 86_400_000) continue;
-    }
+    const stat = await fs.promises.stat(file).catch(() => null);
+    if (!stat) continue;
+    // A fresh archive may belong to an upload whose deployment is being queued right now.
+    if (Date.now() - stat.mtimeMs < 10 * 60_000) continue;
+    if (name.endsWith(".part") && Date.now() - stat.mtimeMs < 86_400_000) continue;
     await fs.promises.rm(file, { force: true }).catch(() => {});
     removed.push(name);
   }

@@ -245,6 +245,14 @@ export const serviceRoutes: ApiRoute[] = [
       if (service.type !== "app") throw new ApiError(400, `Only apps can be deployed from uploaded files. This is a ${service.type === "compose" ? "compose stack" : "database"}.`);
       if (!service.source || service.source.type === "image")
         throw new ApiError(400, 'This app runs an image, so there is nothing to build from files. Set its source to {"type": "upload"} to deploy it from the CLI.');
+      // Files from an upload become the code of a service that reaches the host: like changing its source, only for Root admins.
+      const { serviceHasHostAccess } = await import("@/server/security");
+      if (serviceHasHostAccess(service)) {
+        const { isInstanceAdmin } = await import("@/server/auth");
+        const { getSetting } = await import("@/server/settings");
+        const root = auth.admin && auth.organizationId === (await getSetting("rootOrganizationId")) && (await isInstanceAdmin(auth.userId));
+        if (!root) throw new ApiError(403, "This app has host access (privileged mode, host paths or devices), so only admins of the Root organization can deploy uploaded files to it.");
+      }
       const type = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
       if (type && !UPLOAD_TYPES.includes(type)) throw new ApiError(400, `Send the project folder as a .tar.gz with Content-Type: application/gzip (got ${type}).`);
       const { receiveUpload, discardUpload, pruneUploads, UploadError } = await import("@/server/deploy/uploads");

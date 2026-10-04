@@ -5,13 +5,13 @@ import path from "node:path";
 import { and, asc, eq, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
-import { decrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { proxyPaths } from "@/server/paths";
 import { run } from "@/server/process";
 import { getSettings } from "@/server/settings";
 import { getServer, type ServerCtx } from "@/server/servers/context";
 import { ensureServerProxy, reloadProxy, servicesUsingCertificate, syncDashboardProxy, syncServiceProxy } from "@/server/proxy/nginx";
+import { accountToken } from "@/server/cloudflare/oauth";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { notify } from "@/server/notify";
 import { enqueue } from "@/server/queue";
@@ -200,7 +200,7 @@ async function certbotOn(ctx: ServerCtx, cert: Cert, log: (l: string) => void) {
       path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${cert.id}.ini`),
       path.posix.join(ctx.paths.letsencrypt, "serve-cloudflare", `${account.id}.ini`),
     );
-    await ctx.fs.writeFile(credsFile, `dns_cloudflare_api_token = ${decrypt(account.apiToken)}\n`, 0o600);
+    await ctx.fs.writeFile(credsFile, `dns_cloudflare_api_token = ${await accountToken(account)}\n`, 0o600);
     // A docker option: before the image, or certbot gets it as its own argument.
     args.splice(args.indexOf(CERTBOT_CF_IMAGE), 0, "-v", `${credsDir}:/etc/serve-creds:ro`);
     args.push("--dns-cloudflare", "--dns-cloudflare-credentials", `/etc/serve-creds/${cert.id}.ini`, "--dns-cloudflare-propagation-seconds", "30");
@@ -293,7 +293,7 @@ export async function cloudflareAccountFor(domains: string[], organizationId: st
   const accounts = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, organizationId));
   for (const account of accounts) {
     try {
-      const cf = new Cloudflare(decrypt(account.apiToken));
+      const cf = await Cloudflare.forRow(account);
       const zones = await Promise.all(domains.map((d) => cf.zoneFor(d.replace(/^\*\./, ""))));
       if (zones.every(Boolean)) return account.id;
     } catch {

@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { requireOrg } from "@/server/auth";
 import { NoAccess } from "@/components/no-access";
 import { db, schema } from "@/server/db";
-import { decrypt } from "@/server/crypto";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { getSettings } from "@/server/settings";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
@@ -18,7 +17,7 @@ export default async function ZonePage(props: PageProps<"/integrations/cloudflar
     .from(schema.cloudflareAccount)
     .where(and(eq(schema.cloudflareAccount.id, accountId), eq(schema.cloudflareAccount.organizationId, ctx.org.id)));
   if (!account) notFound();
-  const cf = new Cloudflare(decrypt(account.apiToken));
+  const cf = await Cloudflare.forRow(account);
   const zone = await cf.zone(zoneId).catch(() => null);
   if (!zone) notFound();
   const [records, sslMode, alwaysHttps, settings] = await Promise.all([

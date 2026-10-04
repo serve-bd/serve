@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { getSettings } from "@/server/settings";
 import { listSiteFiles, proxyDefinition, proxyStatus, testProxyConfig } from "@/server/proxy/nginx";
@@ -39,7 +39,8 @@ export default async function ProxyPage(props: PageProps<"/servers/[serverId]/pr
     ? await db
         .select({ id: schema.cloudflareAccount.id, name: schema.cloudflareAccount.name })
         .from(schema.cloudflareAccount)
-        .where(eq(schema.cloudflareAccount.organizationId, accountOrg))
+        // Traefik keeps the token, so only pasted API tokens (they do not expire).
+        .where(and(eq(schema.cloudflareAccount.organizationId, accountOrg), eq(schema.cloudflareAccount.authType, "token")))
     : [];
   const ids = data.files.flatMap((f) => (f.serviceId ? [f.serviceId] : []));
   const services = ids.length

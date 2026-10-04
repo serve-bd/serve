@@ -43,7 +43,7 @@ export async function cfAccountIdOf(accountId: string) {
   const [row] = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, accountId));
   if (!row) throw new Error("Cloudflare account not found.");
   if (row.cfAccountId) return row.cfAccountId;
-  const cf = new Cloudflare(decrypt(row.apiToken));
+  const cf = await Cloudflare.forRow(row);
   const id = (await cf.accounts())[0]?.id ?? (await cf.zones())[0]?.account?.id;
   if (!id) throw new Error("This Cloudflare token cannot see any account. Give it Account · Cloudflare Tunnel · Edit.");
   await db.update(schema.cloudflareAccount).set({ cfAccountId: id }).where(eq(schema.cloudflareAccount.id, accountId));

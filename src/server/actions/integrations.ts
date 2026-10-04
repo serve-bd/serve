@@ -1,13 +1,16 @@
 "use server";
 
 import { and, eq, inArray } from "drizzle-orm";
+import { headers } from "next/headers";
 import { z } from "zod";
+import { requestIsHttps } from "@/lib/request-https";
 import { act, UserError } from "@/server/action";
 import { type OrgContext, requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { hostIsPrivate } from "@/server/net/public-host";
+import { oauthConfig, revokeOauth, startOauth } from "@/server/cloudflare/oauth";
 import { Cloudflare, type CfDnsRecord, type CfSslMode } from "@/server/cloudflare/api";
 import { generateSshKey, listRepositories, tokenScopeWarning, verifyGitToken, type RemoteRepo } from "@/server/git/providers";
 import { listRemoteBranches, normalizeRepoUrl } from "@/server/deploy/git";
@@ -28,7 +31,7 @@ async function cfAccount(orgId: string, accountId: string) {
     .from(schema.cloudflareAccount)
     .where(and(eq(schema.cloudflareAccount.id, accountId), eq(schema.cloudflareAccount.organizationId, orgId)));
   if (!row) throw new UserError("Cloudflare account not found.");
-  return new Cloudflare(decrypt(row.apiToken), row.originCaKey ? decrypt(row.originCaKey) : null);
+  return Cloudflare.forRow(row);
 }
 
 export async function connectCloudflare(input: { name: string; apiToken: string; originCaKey?: string }) {
@@ -55,6 +58,34 @@ export async function connectCloudflare(input: { name: string; apiToken: string;
     });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "cloudflare.connected", message: `Connected Cloudflare (${zones.length} zones)` });
     return { id, zones: zones.length };
+  });
+}
+
+/**
+ * Start "Connect with Cloudflare". Returns the address to open. With `accountId`, the sign-in renews
+ * that account's access (after it was revoked or expired) and keeps its tunnels.
+ */
+export async function startCloudflareOauth(accountId?: string) {
+  return act(async () => {
+    const ctx = await requirePermission("integrations.manage");
+    if (!oauthConfig()) throw new UserError("Connect with Cloudflare is not set up on this instance. Paste an API token instead.");
+    if (accountId) {
+      const [row] = await db
+        .select({ authType: schema.cloudflareAccount.authType })
+        .from(schema.cloudflareAccount)
+        .where(and(eq(schema.cloudflareAccount.id, accountId), eq(schema.cloudflareAccount.organizationId, ctx.org.id)));
+      if (!row) throw new UserError("Cloudflare account not found.");
+      // A pasted token may feed Traefik, which cannot use a token that expires.
+      if (row.authType !== "oauth") throw new UserError("This account uses an API token. Disconnect it and connect again to sign in with Cloudflare.");
+    }
+    // The browser carries the answer back, so a private dashboard address works too. It returns to
+    // the address it started from: there it is signed in, which a set dashboard domain may not be.
+    const h = await headers();
+    const host = (h.get("x-forwarded-host") ?? h.get("host"))?.split(",")[0]?.trim();
+    const { publicBaseUrl } = await import("@/server/git/github-app");
+    const base = host && /^[a-z0-9.\-]+(:\d+)?$|^\[[0-9a-f:.]+\](:\d+)?$/i.test(host) ? `${requestIsHttps(h) ? "https" : "http"}://${host}` : await publicBaseUrl();
+    const callback = `${base}/api/cloudflare/oauth/callback`;
+    return startOauth({ userId: ctx.user.id, organizationId: ctx.org.id, accountId: accountId ?? null, callback });
   });
 }
 
@@ -89,9 +120,10 @@ export async function disconnectCloudflare(accountId: string) {
     const tunnelIds = tunnels.map((t) => t.id);
     const routed = tunnelIds.length ? await db.select().from(schema.domain).where(inArray(schema.domain.tunnelId, tunnelIds)) : [];
     // DNS records Serve created that point at these tunnels would only show Cloudflare errors.
-    const cf = new Cloudflare(decrypt(account.apiToken));
+    // An account whose access was revoked in Cloudflare can still be disconnected here.
+    const cf = await Cloudflare.forRow(account).catch(() => null);
     for (const d of routed) {
-      if (d.cloudflareZoneId && d.cloudflareRecordId) await cf.deleteDnsRecord(d.cloudflareZoneId, d.cloudflareRecordId).catch(() => {});
+      if (cf && d.cloudflareZoneId && d.cloudflareRecordId) await cf.deleteDnsRecord(d.cloudflareZoneId, d.cloudflareRecordId).catch(() => {});
     }
     for (const t of tunnels) await deleteTunnel(t.id);
     if (routed.length) {
@@ -112,6 +144,7 @@ export async function disconnectCloudflare(accountId: string) {
       await enqueue("proxy.sync", {});
     }
     await db.delete(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, accountId));
+    await revokeOauth(account);
     for (const serviceId of new Set(routed.map((d) => d.serviceId))) await syncServiceProxy(serviceId).catch(() => {});
     await logActivity({
       userId: ctx.user.id,
@@ -529,7 +562,7 @@ export async function findCloudflareZone(hostname: string) {
     const accounts = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, ctx.org.id));
     for (const account of accounts) {
       try {
-        const cf = new Cloudflare(decrypt(account.apiToken));
+        const cf = await Cloudflare.forRow(account);
         const zone = await cf.zoneFor(hostname);
         if (zone) return { accountId: account.id, accountName: account.name, zoneId: zone.id, zoneName: zone.name };
       } catch {

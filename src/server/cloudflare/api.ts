@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { decrypt, decryptOrNull } from "@/server/crypto";
+import { decryptOrNull } from "@/server/crypto";
+import { accountToken } from "@/server/cloudflare/oauth";
 
 const API = "https://api.cloudflare.com/client/v4";
 
@@ -67,7 +68,12 @@ export class Cloudflare {
   static async forAccount(accountId: string) {
     const [row] = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, accountId));
     if (!row) throw new Error("Cloudflare account not found");
-    return new Cloudflare(decrypt(row.apiToken), decryptOrNull(row.originCaKey));
+    return Cloudflare.forRow(row);
+  }
+
+  /** A client for a stored account, with its OAuth token renewed when needed. */
+  static async forRow(row: typeof schema.cloudflareAccount.$inferSelect) {
+    return new Cloudflare(await accountToken(row), decryptOrNull(row.originCaKey));
   }
 
   async request<T>(method: string, path: string, body?: unknown, useOriginKey = false): Promise<CfResponse<T>> {

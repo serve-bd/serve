@@ -2,20 +2,28 @@
 
 import * as React from "react";
 import { toast } from "@/components/ui/toast";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight, Cloud, Plus, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
+import { ChevronRight, Cloud, Plus, RefreshCw, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, EmptyState } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm";
-import { useAction } from "@/hooks/use-action";
-import { cloudflareDisconnectImpact, connectCloudflare, disconnectCloudflare, enableTunnel, refreshTunnels } from "@/server/actions/integrations";
+import { showError, useAction } from "@/hooks/use-action";
+import { cloudflareDisconnectImpact, connectCloudflare, disconnectCloudflare, enableTunnel, refreshTunnels, startCloudflareOauth } from "@/server/actions/integrations";
 import { TunnelRow, type TunnelInfo } from "./tunnel-row";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 
-type Account = { id: string; name: string; cfAccountId: string | null; zones: { id: string; name: string; status: string; plan: string | null }[]; error: string | null };
+type Account = {
+  id: string;
+  name: string;
+  cfAccountId: string | null;
+  oauth: boolean;
+  zones: { id: string; name: string; status: string; plan: string | null }[];
+  error: string | null;
+};
 type ServerOption = { id: string; name: string; isLocal: boolean; status: string };
 type Tunnel = TunnelInfo;
 
@@ -122,7 +130,18 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
   );
 }
 
-export function ConnectCloudflareDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+/** Opens Cloudflare's sign-in. With an account, it renews that account's access. */
+function useCloudflareSignIn() {
+  return useAction(startCloudflareOauth, {
+    refresh: false,
+    onSuccess: (url) => {
+      window.location.href = url;
+    },
+  });
+}
+
+export function ConnectCloudflareDialog({ open, onOpenChange, oauth }: { open: boolean; onOpenChange: (o: boolean) => void; oauth: boolean }) {
+  const signIn = useCloudflareSignIn();
   const [name, setName] = React.useState("");
   const [token, setToken] = React.useState("");
   const [originKey, setOriginKey] = React.useState("");
@@ -144,6 +163,19 @@ export function ConnectCloudflareDialog({ open, onOpenChange }: { open: boolean;
         >
           <DialogHeader title="Connect Cloudflare" description="Tokens are encrypted and only used for your zones." />
           <DialogBody>
+            {oauth && (
+              <>
+                <Button type="button" variant="primary" className="w-full" loading={signIn.pending} onClick={() => signIn.run()}>
+                  <Cloud /> Sign in with Cloudflare
+                </Button>
+                <p className="-mt-2 text-xs text-muted">
+                  Cloudflare asks which account to allow. Serve renews the access by itself. For Traefik certificates, paste an API token instead.
+                </p>
+                <div className="flex items-center gap-3 text-xs text-faint">
+                  <span className="h-px flex-1 bg-line" /> or paste an API token <span className="h-px flex-1 bg-line" />
+                </div>
+              </>
+            )}
             <Field label="Name" optional>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Company account" />
             </Field>
@@ -164,8 +196,8 @@ export function ConnectCloudflareDialog({ open, onOpenChange }: { open: boolean;
           </DialogBody>
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
-            <Button type="submit" variant="primary" size="sm" loading={pending}>
-              Connect
+            <Button type="submit" variant={oauth ? "secondary" : "primary"} size="sm" loading={pending}>
+              Connect with token
             </Button>
           </DialogFooter>
         </form>
@@ -182,6 +214,7 @@ export function CloudflareAccounts({
   description,
   servers,
   tunnels,
+  oauth,
 }: {
   accounts: Account[];
   isAdmin: boolean;
@@ -189,8 +222,21 @@ export function CloudflareAccounts({
   description: React.ReactNode;
   servers: ServerOption[];
   tunnels: Tunnel[];
+  oauth: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
+  const signIn = useCloudflareSignIn();
+  const router = useRouter();
+  const params = useSearchParams();
+  const announced = React.useRef(false);
+  // Back from Cloudflare's sign-in: the account in the list shows a success, so only errors get a message.
+  React.useEffect(() => {
+    const error = params.get("error");
+    if ((!error && !params.get("connected")) || announced.current) return;
+    announced.current = true;
+    if (error) showError("Cloudflare did not connect", error);
+    router.replace("/integrations/cloudflare");
+  }, [params, router]);
   const confirm = useConfirm();
   const remove = useAction(disconnectCloudflare);
   return (
@@ -235,43 +281,50 @@ export function CloudflareAccounts({
                 description={a.error ? `Could not load zones: ${a.error}` : `${a.zones.length} zone${a.zones.length === 1 ? "" : "s"}`}
                 actions={
                   isAdmin && (
-                    <Button
-                      variant="danger-ghost"
-                      size="sm"
-                      onClick={async () => {
-                        const impact = await cloudflareDisconnectImpact(a.id);
-                        const tunnels = impact.ok ? impact.data : [];
-                        const offline = tunnels.flatMap((t) => t.domains);
-                        const ok = await confirm({
-                          title: `Disconnect ${a.name}?`,
-                          description: tunnels.length
-                            ? `This stops and deletes ${tunnels.length === 1 ? "the Cloudflare Tunnel" : `${tunnels.length} Cloudflare Tunnels`} of this account. Other DNS records stay in Cloudflare, and certificates using this account stop renewing.`
-                            : "Existing DNS records stay in Cloudflare. Certificates using this account stop renewing.",
-                          confirmLabel: tunnels.length ? "Disconnect and stop tunnels" : "Disconnect",
-                          danger: true,
-                          typeToConfirm: offline.length ? a.name : undefined,
-                          children:
-                            tunnels.length > 0 ? (
-                              <div className="flex flex-col gap-2 rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-3 text-[13px]">
-                                <p className="font-medium text-fg">
-                                  {offline.length ? `${offline.length} site${offline.length === 1 ? "" : "s"} will stop working:` : "No domains use these tunnels."}
-                                </p>
-                                {offline.length > 0 && (
-                                  <ul className="flex flex-col gap-0.5 font-mono text-[12.5px] text-fg-2">
-                                    {offline.map((h) => (
-                                      <li key={h}>{h}</li>
-                                    ))}
-                                  </ul>
-                                )}
-                                <p className="text-xs text-muted">{tunnels.map((t) => `${t.name} on ${t.serverName}`).join(", ")}</p>
-                              </div>
-                            ) : undefined,
-                        });
-                        if (ok) remove.run(a.id);
-                      }}
-                    >
-                      <Trash2 /> Disconnect
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      {a.oauth && a.error && oauth && (
+                        <Button variant="secondary" size="sm" loading={signIn.pending} onClick={() => signIn.run(a.id)}>
+                          <RefreshCw /> Reconnect
+                        </Button>
+                      )}
+                      <Button
+                        variant="danger-ghost"
+                        size="sm"
+                        onClick={async () => {
+                          const impact = await cloudflareDisconnectImpact(a.id);
+                          const tunnels = impact.ok ? impact.data : [];
+                          const offline = tunnels.flatMap((t) => t.domains);
+                          const ok = await confirm({
+                            title: `Disconnect ${a.name}?`,
+                            description: tunnels.length
+                              ? `This stops and deletes ${tunnels.length === 1 ? "the Cloudflare Tunnel" : `${tunnels.length} Cloudflare Tunnels`} of this account. Other DNS records stay in Cloudflare, and certificates using this account stop renewing.`
+                              : "Existing DNS records stay in Cloudflare. Certificates using this account stop renewing.",
+                            confirmLabel: tunnels.length ? "Disconnect and stop tunnels" : "Disconnect",
+                            danger: true,
+                            typeToConfirm: offline.length ? a.name : undefined,
+                            children:
+                              tunnels.length > 0 ? (
+                                <div className="flex flex-col gap-2 rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-3 text-[13px]">
+                                  <p className="font-medium text-fg">
+                                    {offline.length ? `${offline.length} site${offline.length === 1 ? "" : "s"} will stop working:` : "No domains use these tunnels."}
+                                  </p>
+                                  {offline.length > 0 && (
+                                    <ul className="flex flex-col gap-0.5 font-mono text-[12.5px] text-fg-2">
+                                      {offline.map((h) => (
+                                        <li key={h}>{h}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                  <p className="text-xs text-muted">{tunnels.map((t) => `${t.name} on ${t.serverName}`).join(", ")}</p>
+                                </div>
+                              ) : undefined,
+                          });
+                          if (ok) remove.run(a.id);
+                        }}
+                      >
+                        <Trash2 /> Disconnect
+                      </Button>
+                    </div>
                   )
                 }
               />
@@ -297,7 +350,7 @@ export function CloudflareAccounts({
             </Card>
           ))
         )}
-        <ConnectCloudflareDialog open={open} onOpenChange={setOpen} />
+        <ConnectCloudflareDialog open={open} onOpenChange={setOpen} oauth={oauth} />
       </PageBody>
     </>
   );

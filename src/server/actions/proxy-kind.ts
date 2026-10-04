@@ -138,10 +138,12 @@ export async function saveProxySettings(serverId: string, kind: ProxyKind, input
         if (next.traefik.acmeChallenge === "dns-cloudflare" && next.traefik.cloudflareAccountId) {
           const owner = row.ownerOrganizationId ?? (await getSettings()).rootOrganizationId;
           const [account] = await db
-            .select({ id: schema.cloudflareAccount.id })
+            .select({ id: schema.cloudflareAccount.id, authType: schema.cloudflareAccount.authType })
             .from(schema.cloudflareAccount)
             .where(and(eq(schema.cloudflareAccount.id, next.traefik.cloudflareAccountId), eq(schema.cloudflareAccount.organizationId, owner ?? "")));
           if (!account) throw new UserError("Cloudflare account not found.");
+          if (account.authType !== "token")
+            throw new UserError("Traefik needs a Cloudflare account connected with an API token. An account connected with Cloudflare sign-in has a token that expires.");
         }
       }
       await apply(serverId, kind, next, "these settings");

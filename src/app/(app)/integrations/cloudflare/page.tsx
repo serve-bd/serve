@@ -3,9 +3,9 @@ import { serversForOrg } from "@/server/servers/access";
 import { requireOrg } from "@/server/auth";
 import { NoAccess } from "@/components/no-access";
 import { db, schema } from "@/server/db";
-import { decrypt } from "@/server/crypto";
 import { Cloudflare, type CfZone } from "@/server/cloudflare/api";
 import { getSettings } from "@/server/settings";
+import { oauthConfig } from "@/server/cloudflare/oauth";
 import { CloudflareAccounts } from "./accounts";
 
 export const metadata = { title: "Cloudflare" };
@@ -17,16 +17,17 @@ export default async function CloudflarePage() {
   const withZones = await Promise.all(
     accounts.map(async (a) => {
       try {
-        const zones: CfZone[] = await new Cloudflare(decrypt(a.apiToken)).zones();
+        const zones: CfZone[] = await (await Cloudflare.forRow(a)).zones();
         return {
           id: a.id,
           name: a.name,
           cfAccountId: a.cfAccountId,
+          oauth: a.authType === "oauth",
           zones: zones.map((z) => ({ id: z.id, name: z.name, status: z.status, plan: z.plan?.name ?? null })),
           error: null as string | null,
         };
       } catch (e) {
-        return { id: a.id, name: a.name, cfAccountId: a.cfAccountId, zones: [], error: (e as Error).message };
+        return { id: a.id, name: a.name, cfAccountId: a.cfAccountId, oauth: a.authType === "oauth", zones: [], error: (e as Error).message };
       }
     }),
   );
@@ -87,6 +88,7 @@ export default async function CloudflarePage() {
       description={<>Manage DNS records, SSL modes and certificates for your Cloudflare zones without leaving the dashboard.</>}
       accounts={withZones}
       isAdmin={ctx.can("integrations.manage")}
+      oauth={!!oauthConfig()}
     />
   );
 }

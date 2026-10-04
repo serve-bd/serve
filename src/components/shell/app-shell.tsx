@@ -13,6 +13,7 @@ import {
   Bell,
   Blocks,
   BookOpen,
+  ChartLine,
   Cloud,
   Container,
   FolderGit2,
@@ -89,6 +90,7 @@ const integrationNav: NavItem[] = [
   { href: "/integrations/secrets", label: "Secret managers", icon: Vault },
   { href: "/integrations/notifications", label: "Notifications", icon: Bell },
   { href: "/integrations/log-drains", label: "Log drains", icon: ScrollText },
+  { href: "/integrations/metrics", label: "Metrics", icon: ChartLine },
 ];
 
 const orgNav: NavItem[] = [

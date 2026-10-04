@@ -5,6 +5,13 @@
 const windows = new Map<string, { start: number; count: number }>();
 const WINDOW_MS = 60_000;
 
+/**
+ * Scrapes of GET /api/v1/metrics per minute per token, on top of the general limit: enough for
+ * several Prometheus servers scraping every 15 seconds with one token, while a loop that asks
+ * nonstop is held back (the answer is cached for a few seconds anyway).
+ */
+export const METRICS_RATE_LIMIT = 60;
+
 export type RateResult = { allowed: boolean; headers: Record<string, string> };
 
 /** Keys kept at most: a forged flood then only costs memory up to this. */

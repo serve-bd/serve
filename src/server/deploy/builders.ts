@@ -645,6 +645,23 @@ async function relabel(ctx: BuildContext, extra = "") {
   }
 }
 
+/** The Node major Nixpacks falls back to without a version (18) is gone from its packages. */
+const NIXPACKS_NODE_DEFAULT = 22;
+
+/**
+ * The Node version to hand Nixpacks for a Node project that names none: its own fallback (Node 18)
+ * reached end of life and no longer installs. Null when the project or its variables choose one.
+ */
+export async function nixpacksNodeDefault(ctx: Pick<BuildContext, "contextDir" | "buildEnv" | "build">): Promise<number | null> {
+  if ("NIXPACKS_NODE_VERSION" in ctx.buildEnv || (ctx.build.buildArgs ?? []).some((a) => a.key.trim() === "NIXPACKS_NODE_VERSION")) return null;
+  const pkg = await readJson<PackageJson>(path.join(ctx.contextDir, "package.json"));
+  if (!pkg || pkg.engines?.node) return null;
+  for (const file of [".nvmrc", ".node-version"]) if (await exists(path.join(ctx.contextDir, file))) return null;
+  const tools = await fs.readFile(path.join(ctx.contextDir, ".tool-versions"), "utf8").catch(() => "");
+  if (/^\s*nodejs\s/m.test(tools)) return null;
+  return NIXPACKS_NODE_DEFAULT;
+}
+
 export async function buildImage(ctx: BuildContext): Promise<BuildResult> {
   const { build } = ctx;
   const dockerfilePath = path.join(ctx.contextDir, build.dockerfile || "Dockerfile");
@@ -684,6 +701,11 @@ export async function buildImage(ctx: BuildContext): Promise<BuildResult> {
     for (const a of ctx.build.buildArgs ?? []) if (a.key.trim()) args.push("--env", `${a.key.trim()}=${a.value}`);
     for (const [k, v] of Object.entries(ctx.labels)) args.push("--label", `${k}=${v}`);
     if (ctx.build.noCache) args.push("--no-cache");
+    const node = await nixpacksNodeDefault(ctx);
+    if (node) {
+      args.push("--env", `NIXPACKS_NODE_VERSION=${node}`);
+      ctx.log(`The project names no Node version: using Node ${node}. Set engines.node in package.json, a .nvmrc file or NIXPACKS_NODE_VERSION to choose one.`);
+    }
     await run("nixpacks", args, { onLine: ctx.log, signal: ctx.signal, redact: ctx.redact, env: ctx.dockerEnv });
     return { builder: "nixpacks" };
   }

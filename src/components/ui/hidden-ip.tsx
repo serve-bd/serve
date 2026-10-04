@@ -30,6 +30,8 @@ function BlurredIp({ ip }: { ip: string }) {
       tabIndex={0}
       title={shown ? "Click to hide" : "Click to show the IP address"}
       aria-label={shown ? ip : "Hidden IP address, click to show"}
+      // The page progress bar listens on the link itself, before this click is cancelled: it skips marked targets.
+      data-prevent-progress="true"
       onClick={(e) => {
         // Inside a link (a server card), showing or hiding the address never opens the link.
         e.preventDefault();

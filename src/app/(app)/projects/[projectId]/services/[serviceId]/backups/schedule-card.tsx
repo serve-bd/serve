@@ -10,7 +10,7 @@ import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { Switch, SwitchRow } from "@/components/ui/switch";
 import { useAction } from "@/hooks/use-action";
 import { useNow } from "@/hooks/use-client";
 import { updateService } from "@/server/actions/services";
@@ -364,9 +364,9 @@ export function ScheduleCard(props: {
           </div>
         </Field>
         {dumps && (
-          <div className="grid grid-cols-1 gap-4 border-t border-line pt-5 sm:grid-cols-2">
-            <Field label="Time limit" optional description="A backup running longer is stopped and marked failed. Also for Back up now.">
-              <InputGroup suffix="minutes">
+          <div className="flex flex-col gap-4 border-t border-line pt-5">
+            <Field label="Time limit" optional description="Longer backups are stopped and marked failed.">
+              <InputGroup suffix="min">
                 <Input
                   value={timeout}
                   onChange={(e) => setTimeoutValue(e.target.value.replace(/\D/g, "").slice(0, 5))}
@@ -376,9 +376,13 @@ export function ScheduleCard(props: {
                 />
               </InputGroup>
             </Field>
-            <Field label="Low CPU priority" description="The dump and its compression get the CPU only when the database and apps leave it free. Slower backups, steadier apps.">
-              <Switch checked={lowPriority} onCheckedChange={setLowPriority} disabled={!props.canEdit} aria-label="Low CPU priority" />
-            </Field>
+            <SwitchRow
+              title="Low CPU priority"
+              description="Apps get the CPU first. Backups take longer."
+              checked={lowPriority}
+              onCheckedChange={setLowPriority}
+              disabled={!props.canEdit}
+            />
           </div>
         )}
       </CardBody>

@@ -82,7 +82,7 @@ export async function savePreviewDatabase(serviceId: string, input: z.input<type
     const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.parentServiceId) throw new UserError("Preview deployments follow their parent service.");
-    if (service.type !== "app" || service.source?.type !== "git") throw new UserError("Only apps deployed from Git have pull request previews.");
+    if (service.type !== "app" || (service.source?.type !== "git" && service.source?.type !== "image")) throw new UserError("Only apps deployed from Git or an image have previews.");
     const data = previewDbSchema.parse(input);
     if (data) {
       const [source] = await db

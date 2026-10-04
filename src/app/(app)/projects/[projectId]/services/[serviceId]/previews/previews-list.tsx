@@ -13,6 +13,7 @@ import { useRouter } from "@/hooks/use-router";
 import { deployService, removePreviewService } from "@/server/actions/services";
 import { cn } from "@/lib/utils";
 import type { PreviewRow } from "./data";
+import { NewImagePreviewDialog, OpenPullRequestsDialog } from "./preview-dialogs";
 
 type Preview = PreviewRow;
 
@@ -20,6 +21,8 @@ export function PreviewsList(props: {
   projectId: string;
   serviceId: string;
   enabled: boolean;
+  /** Apps deployed from an image: previews are started by hand, each with its own tag. */
+  image: string | null;
   previewDomain: string | null;
   canManage: boolean;
   canDeploy: boolean;
@@ -39,15 +42,30 @@ export function PreviewsList(props: {
       <CardHeader
         title="Pull request previews"
         description={
-          props.enabled
-            ? `Every open pull request runs here with its own address${props.previewDomain ? `, like ${props.previewDomain.replace("{pr}", "12")} for pull request #12` : ""}. A preview is removed when its pull request closes.`
-            : "Preview deployments are off. Turn them on to deploy every pull request to its own address."
+          props.image
+            ? props.enabled
+              ? `Each preview runs another tag of the image with its own address${props.previewDomain ? `, like ${props.previewDomain.replace("{pr}", "12")} for #12` : ""}.`
+              : "Preview deployments are off. Turn them on to run other tags of the image, each at its own address."
+            : props.enabled
+              ? `Every open pull request runs here with its own address${props.previewDomain ? `, like ${props.previewDomain.replace("{pr}", "12")} for pull request #12` : ""}. A preview is removed when its pull request closes.`
+              : "Preview deployments are off. Turn them on to deploy every pull request to its own address."
         }
         actions={
-          props.canManage && (
-            <Link href={settings} className={buttonVariants({ size: "sm" })}>
-              <Settings /> Settings
-            </Link>
+          (props.canManage || (props.canDeploy && props.enabled)) && (
+            <div className="flex items-center gap-2">
+              {props.canDeploy &&
+                props.enabled &&
+                (props.image ? (
+                  <NewImagePreviewDialog serviceId={props.serviceId} image={props.image} base={base} />
+                ) : (
+                  <OpenPullRequestsDialog serviceId={props.serviceId} base={base} />
+                ))}
+              {props.canManage && (
+                <Link href={settings} className={buttonVariants({ size: "sm", variant: props.canDeploy && props.enabled ? "ghost" : "secondary" })}>
+                  <Settings /> Settings
+                </Link>
+              )}
+            </div>
           )
         }
       />
@@ -55,7 +73,13 @@ export function PreviewsList(props: {
         <EmptyState
           icon={<GitPullRequest />}
           title="No open previews"
-          description={props.enabled ? "Open a pull request on the repository to create one." : "Turn on preview deployments in Settings → Previews."}
+          description={
+            !props.enabled
+              ? "Turn on preview deployments in Settings → Previews."
+              : props.image
+                ? "Start one with New preview, from a tag your CI pushed."
+                : "Open a pull request on the repository to create one, or deploy one that is already open."
+          }
         />
       ) : (
         <ul className="divide-y divide-line">
@@ -133,7 +157,7 @@ export function PreviewsList(props: {
                           if (
                             await confirm({
                               title: `Remove the preview of PR #${p.pr}?`,
-                              description: `Its container${p.database ? ", its database copy" : ""} and its address are removed. A new push to the pull request creates it again.`,
+                              description: `Its container${p.database ? ", its database copy" : ""} and its address are removed.${props.image ? "" : " A new push to the pull request creates it again."}`,
                               confirmLabel: "Remove preview",
                               danger: true,
                             })

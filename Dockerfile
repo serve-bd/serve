@@ -38,7 +38,7 @@ COPY --from=ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca
 # Shown in Settings → Updates; set by the image workflow.
 ARG SERVE_COMMIT=""
 ARG SERVE_VERSION=""
-RUN apk add --no-cache docker-cli docker-cli-compose docker-cli-buildx git openssh-client openssl ca-certificates tini curl bash \
+RUN apk add --no-cache docker-cli docker-cli-compose docker-cli-buildx git git-lfs openssh-client openssl ca-certificates tini curl bash \
   && (curl -sSL https://nixpacks.com/install.sh | bash || echo "nixpacks not installed")
 WORKDIR /app
 ENV NODE_ENV=production \

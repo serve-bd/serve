@@ -119,7 +119,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
           ]),
         )}
         previewVars={
-          service.type === "app" && service.source?.type === "git" && !service.parentServiceId && (service.previewsEnabled || service.previewVars)
+          service.type === "app" && (service.source?.type === "git" || service.source?.type === "image") && !service.parentServiceId && (service.previewsEnabled || service.previewVars)
             ? Object.entries(service.previewVars ?? {}).map(([key, enc]) => {
                 const value = decryptOrNull(enc) ?? "";
                 return canSeeSecrets || (/^(\$\{\{[^}]+\}\})+$/.test(value.trim()) && !/replica\.pick\(/i.test(value)) ? { key, value } : { key, value: "", hidden: true };

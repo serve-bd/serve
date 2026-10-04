@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { UserError } from "@/server/action";
 import { db, schema } from "@/server/db";
-import { queueDeployment } from "@/server/services/create";
+import { queueDeployment, recordSkipped } from "@/server/services/create";
 import { commentOnGithub, deployPreview, removePreview, type PullRequest } from "@/server/services/previews";
 import { matchesWatchPaths } from "@/server/deploy/options";
 
@@ -14,7 +14,17 @@ export type PushInfo = {
   author: string | null;
   /** Files changed by the pushed commits; null when the provider does not send them. */
   files?: string[] | null;
+  /** The skip marker the head commit's message holds, like [skip ci]. */
+  skip?: string | null;
 };
+
+/** Markers in a commit message or pull request title that skip its deploy, as CI services read them. */
+const SKIP_MARKER = /\[(?:skip ci|ci skip|no ci|skip cd|cd skip|skip deploy|deploy skip)\]/i;
+
+/** The skip marker a commit message or pull request title holds (like [skip ci]), or null. */
+export function skipMarker(text: string | null | undefined) {
+  return text?.match(SKIP_MARKER)?.[0] ?? null;
+}
 
 /** Changed files from GitHub, Gitea and GitLab push payloads (commits[].added/modified/removed). */
 function changedFiles(body: Record<string, unknown>): string[] | null {
@@ -136,6 +146,7 @@ export function parsePush(headers: Headers, body: Record<string, unknown>): Push
       sha: change.new?.target?.hash ?? null,
       message: change.new?.target?.message?.trim() ?? null,
       author: change.new?.target?.author?.raw ?? null,
+      skip: skipMarker(change.new?.target?.message),
     };
   }
   const ref = typeof body.ref === "string" ? body.ref : "";
@@ -149,10 +160,19 @@ export function parsePush(headers: Headers, body: Record<string, unknown>): Push
       message: last?.message?.trim() ?? null,
       author: last?.author?.name ?? (body.user_name as string) ?? null,
       files: changedFiles(body),
+      skip: skipMarker(last?.message),
     };
   }
   const head = body.head_commit as { id?: string; message?: string; author?: { name?: string } } | undefined;
-  return { branch, sha: head?.id ?? (body.after as string) ?? null, message: head?.message?.split("\n")[0] ?? null, author: head?.author?.name ?? null, files: changedFiles(body) };
+  return {
+    branch,
+    sha: head?.id ?? (body.after as string) ?? null,
+    message: head?.message?.split("\n")[0] ?? null,
+    author: head?.author?.name ?? null,
+    files: changedFiles(body),
+    // The whole message: the marker may sit in the commit's body.
+    skip: skipMarker(head?.message),
+  };
 }
 
 export type EventResult = Record<string, unknown>;
@@ -163,6 +183,8 @@ export async function applyPullRequest(service: Service, event: PrEvent): Promis
   if (event.action === "close" && service.type === "app" && !service.parentServiceId) return { removed: await removePreview(service, event.pr.number) };
   if (!service.previewsEnabled || service.type !== "app" || service.parentServiceId) return { skipped: "Preview deployments are off" };
   if (event.action === "fork") return { skipped: "Pull requests from forks are not deployed" };
+  const marker = skipMarker(event.pr.title);
+  if (marker) return { skipped: `The pull request title has ${marker}` };
   let result: Awaited<ReturnType<typeof deployPreview>>;
   try {
     result = await deployPreview(service, event.pr);
@@ -190,6 +212,11 @@ export async function applyPush(service: Service, push: PushInfo): Promise<Event
   }
   if (!matchesWatchPaths(push.files ?? null, service.build?.watchPaths)) {
     return { skipped: "No changed file matches the watch paths" };
+  }
+  if (push.skip) {
+    // Left in the deployments list, so a push that did not deploy is not a mystery.
+    const id = await recordSkipped(service.id, "webhook", `The commit message has ${push.skip}`, { commitSha: push.sha, commitMessage: push.message, branch: push.branch });
+    return { skipped: `The commit message has ${push.skip}`, deploymentId: id };
   }
   const id = await queueDeployment(service.id, "webhook", { commitSha: push.sha, commitMessage: push.message, branch: push.branch });
   if (push.author) await db.update(schema.deployment).set({ commitAuthor: push.author }).where(eq(schema.deployment.id, id));

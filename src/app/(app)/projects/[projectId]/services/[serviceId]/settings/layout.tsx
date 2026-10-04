@@ -19,7 +19,7 @@ export default async function SettingsLayout(props: LayoutProps<"/projects/[proj
     gitSource: service.source?.type === "git",
     hasBuild: !!service.build,
     hasCompose: !!service.compose,
-    previews: service.type === "app" && service.source?.type === "git" && !service.parentServiceId,
+    previews: service.type === "app" && (service.source?.type === "git" || service.source?.type === "image") && !service.parentServiceId,
     db: service.database && engine ? { engine: service.database.engine, initScripts: !!engine.initScripts, tls: !!engine.tlsArgs } : null,
   });
   return (

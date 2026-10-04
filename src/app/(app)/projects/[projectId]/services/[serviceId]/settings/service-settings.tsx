@@ -316,11 +316,17 @@ export function ServiceSettings(props: Props) {
         </Section>
       )}
 
-      {show("previews") && service.type === "app" && service.source?.type === "git" && !service.isPreview && (
+      {show("previews") && service.type === "app" && (service.source?.type === "git" || service.source?.type === "image") && !service.isPreview && (
         <Section
           id="previews"
           title="Preview deployments"
-          description={<>Every pull request runs as its own preview with its own address. It is removed when the pull request closes.</>}
+          description={
+            service.source?.type === "image" ? (
+              <>Run other tags of this image as previews, each with its own address. Start them on the Previews tab.</>
+            ) : (
+              <>Every pull request runs as its own preview with its own address. It is removed when the pull request closes.</>
+            )
+          }
           initial={{ previewsEnabled: service.previewsEnabled, previewDomain: service.previewDomain ?? "" }}
           onSave={(v) => save.run({ previewsEnabled: v.previewsEnabled, previewDomain: v.previewDomain.trim() || null })}
         >
@@ -329,8 +335,12 @@ export function ServiceSettings(props: Props) {
             return (
               <>
                 <SwitchRow
-                  title="Deploy pull requests"
-                  description="Pull request events arrive through the same webhook as pushes. Pull requests from forks are never deployed."
+                  title={service.source?.type === "image" ? "Allow previews" : "Deploy pull requests"}
+                  description={
+                    service.source?.type === "image"
+                      ? "Previews of an image app are started by hand, or through the API, with the tag to run."
+                      : "Pull request events arrive through the same webhook as pushes. Pull requests from forks are never deployed."
+                  }
                   checked={v.previewsEnabled}
                   onCheckedChange={(c) => set({ previewsEnabled: c })}
                 />
@@ -388,7 +398,7 @@ export function ServiceSettings(props: Props) {
         </Section>
       )}
 
-      {show("previews") && service.type === "app" && service.source?.type === "git" && !service.isPreview && props.previewDatabase && (
+      {show("previews") && service.type === "app" && (service.source?.type === "git" || service.source?.type === "image") && !service.isPreview && props.previewDatabase && (
         <PreviewDatabaseSection
           serviceId={service.id}
           config={props.previewDatabase.config}

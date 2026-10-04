@@ -602,6 +602,7 @@ const updateSchema = z.object({
         }),
       ),
       preDeployCommand: z.string().max(4000).nullable(),
+      postDeployCommand: z.string().max(4000).nullable(),
       deployStrategy: z.enum(["rolling", "recreate"]),
       drainSeconds: z.number().int().min(0).max(600).nullable(),
       restartSchedule: z.string().max(100).nullable(),
@@ -931,6 +932,79 @@ export async function removePreviewService(previewId: string) {
     const { removePreview } = await import("@/server/services/previews");
     await removePreview(parent, preview.previewPr);
     return null;
+  });
+}
+
+/** The app's parent checks for starting a preview by hand: an app (not a preview) with previews on. */
+async function previewParent(serviceId: string, orgId: string, source: "git" | "image") {
+  const { service } = await serviceInOrg(serviceId, orgId);
+  if (service.type !== "app" || service.parentServiceId) throw new UserError("Previews are for apps.");
+  if (service.source?.type !== source) throw new UserError(source === "git" ? "This app is not built from a repository." : "This app does not run an image.");
+  if (!service.previewsEnabled) throw new UserError("Preview deployments are off. Turn them on in Settings → Previews.");
+  return service;
+}
+
+/** The repository's open pull requests, with the preview each one has, to deploy ones opened before previews were on. */
+export async function listOpenPullRequests(serviceId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.deploy");
+    const service = await previewParent(serviceId, ctx.org.id, "git");
+    const { openPullRequests } = await import("@/server/git/pull-requests");
+    let prs: Awaited<ReturnType<typeof openPullRequests>>;
+    try {
+      prs = await openPullRequests(service);
+    } catch (e) {
+      throw new UserError((e as Error).message);
+    }
+    const previews = await db.select({ id: schema.service.id, pr: schema.service.previewPr }).from(schema.service).where(eq(schema.service.parentServiceId, service.id));
+    return prs.map((pr) => ({
+      number: pr.number,
+      title: pr.title,
+      branch: pr.branch,
+      author: pr.author,
+      fork: pr.fork,
+      url: pr.url,
+      updatedAt: pr.updatedAt,
+      previewId: previews.find((p) => p.pr === pr.number)?.id ?? null,
+    }));
+  });
+}
+
+/** Deploys the preview of one open pull request, read again from the provider. */
+export async function deployPullRequestPreview(serviceId: string, number: number) {
+  return act(async () => {
+    const ctx = await requirePermission("services.deploy");
+    const n = z.number().int().min(1).max(1e9).parse(number);
+    const service = await previewParent(serviceId, ctx.org.id, "git");
+    const { openPullRequests } = await import("@/server/git/pull-requests");
+    const prs = await openPullRequests(service).catch((e: Error) => {
+      throw new UserError(e.message);
+    });
+    const pr = prs.find((p) => p.number === n);
+    if (!pr) throw new UserError(`Pull request #${n} is not open.`);
+    if (pr.fork) throw new UserError("Pull requests from forks are not deployed: they would run outside code with this app's variables.");
+    const { deployPreview } = await import("@/server/services/previews");
+    const result = await deployPreview(service, pr);
+    if (!result) throw new UserError("The preview could not be created.");
+    return { previewId: result.preview.id, deploymentId: result.deploymentId };
+  });
+}
+
+/** Creates or updates the preview of an image app: a pull request number and the image tag it runs. */
+export async function deployImagePreview(serviceId: string, input: { pr: number; tag: string }) {
+  return act(async () => {
+    const ctx = await requirePermission("services.deploy");
+    const data = z.object({ pr: z.number().int().min(1).max(1e9), tag: z.string().trim().min(1).max(200) }).parse(input);
+    const service = await previewParent(serviceId, ctx.org.id, "image");
+    const { deployPreview, imageWithTag } = await import("@/server/services/previews");
+    const image = service.source?.type === "image" ? imageWithTag(service.source.image, data.tag) : null;
+    if (!image) throw new UserError("Use an image tag like pr-12, or a digest like sha256:….");
+    const result = await deployPreview(service, { number: data.pr, branch: "", repository: "", title: `Image ${image}`, sha: null, author: null, image }).catch((e) => {
+      if (e instanceof UserError) throw e;
+      throw new UserError((e as Error).message);
+    });
+    if (!result) throw new UserError("The preview could not be created.");
+    return { previewId: result.preview.id, deploymentId: result.deploymentId };
   });
 }
 

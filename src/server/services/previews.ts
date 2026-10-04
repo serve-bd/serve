@@ -22,7 +22,11 @@ export type PullRequest = {
   author: string | null;
   /** owner/repo, used for PR comments on GitHub. */
   fullName?: string | null;
+  /** Apps deployed from an image: the image the preview runs (see imageWithTag). */
+  image?: string | null;
 };
+
+export { imageWithTag } from "@/lib/preview-image";
 
 async function previewFor(parentId: string, pr: number) {
   const [row] = await db
@@ -126,10 +130,14 @@ export async function deployPreview(parent: Service, pr: PullRequest) {
 const previewLocks = new Map<string, Promise<unknown>>();
 
 async function deployPreviewLocked(parent: Service, pr: PullRequest) {
-  if (parent.type !== "app" || parent.source?.type !== "git") return null;
+  if (parent.type !== "app" || (parent.source?.type !== "git" && parent.source?.type !== "image")) return null;
+  if (parent.source.type === "image" && !pr.image) return null;
   let preview = await previewFor(parent.id, pr.number);
-  // Previews never own the parent's repository webhook.
-  const source = { ...parent.source, branch: pr.branch, repository: pr.repository || parent.source.repository, webhook: null };
+  const source: Service["source"] =
+    parent.source.type === "image"
+      ? { ...parent.source, image: pr.image! }
+      : // Previews never own the parent's repository webhook.
+        { ...parent.source, branch: pr.branch, repository: pr.repository || parent.source.repository, webhook: null };
 
   let databaseId: string | null = null;
   let branch: { id: string; serviceId: string; reset: boolean } | null = null;
@@ -208,7 +216,7 @@ async function deployPreviewLocked(parent: Service, pr: PullRequest) {
     }
   }
 
-  const deployment = { commitSha: pr.sha, commitMessage: pr.title, branch: pr.branch };
+  const deployment = { commitSha: pr.sha, commitMessage: pr.title, branch: parent.source.type === "git" ? pr.branch : null };
   // A new preview with its own branch: fill it first; that job deploys the preview.
   if (branch) {
     await enqueueBranchJob({ branchId: branch.id, op: branch.reset ? "reset" : "create", preview: { previewId: preview.id, deployment } }, branch.serviceId);

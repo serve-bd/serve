@@ -272,6 +272,43 @@ export const serviceRoutes: ApiRoute[] = [
       return { ok: true };
     },
   }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/pull-requests",
+    tag: "Services",
+    summary: "List the repository's open pull requests",
+    description: "Read from the git provider, with the preview each one has (previewId). Needs preview deployments on.",
+    needs: ["services.deploy"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      return { pullRequests: await unwrap(actions.listOpenPullRequests(params.serviceId)) };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/pull-requests/{number}/preview",
+    tag: "Services",
+    summary: "Deploy the preview of an open pull request",
+    description: "For pull requests opened before previews were on, or to deploy one again. Pull requests from forks are refused.",
+    needs: ["services.deploy"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      return unwrap(actions.deployPullRequestPreview(params.serviceId, Number(params.number)));
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/previews",
+    tag: "Services",
+    summary: "Deploy a preview of an image app",
+    description: "Runs another tag (or a sha256 digest) of the app's image as the preview numbered pr. The same number again deploys the new tag to that preview.",
+    needs: ["services.deploy"],
+    body: z.object({ pr: z.number().int().min(1), tag: z.string().min(1).max(200) }),
+    handler: async ({ auth, params, body }) => {
+      await loadService(auth, params.serviceId);
+      return unwrap(actions.deployImagePreview(params.serviceId, body));
+    },
+  }),
 
   // Deployments
   route({

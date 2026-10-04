@@ -241,6 +241,7 @@ export function DeploySection({ runtime, save }: { runtime: RuntimeConfig; save:
       footerNote={REDEPLOY}
       initial={{
         preDeployCommand: runtime.preDeployCommand ?? "",
+        postDeployCommand: runtime.postDeployCommand ?? "",
         deployStrategy: runtime.deployStrategy ?? "rolling",
         drainSeconds: String(runtime.drainSeconds ?? 3),
         restartSchedule: runtime.restartSchedule ?? "",
@@ -249,6 +250,7 @@ export function DeploySection({ runtime, save }: { runtime: RuntimeConfig; save:
         save({
           runtime: {
             preDeployCommand: v.preDeployCommand.trim() || null,
+            postDeployCommand: v.postDeployCommand.trim() || null,
             deployStrategy: v.deployStrategy,
             drainSeconds: num(v.drainSeconds),
             restartSchedule: v.restartSchedule.trim() || null,
@@ -260,6 +262,18 @@ export function DeploySection({ runtime, save }: { runtime: RuntimeConfig; save:
         <>
           <Field label="Pre-deploy command" optional description="Runs once in a container from the new image, with its variables, before traffic switches. For migrations.">
             <Input value={v.preDeployCommand} onChange={(e) => set({ preDeployCommand: e.target.value })} placeholder="npm run migrate" className="font-mono text-[13px]" />
+          </Field>
+          <Field
+            label="Post-deploy command"
+            optional
+            description="Runs once in the new version's first container, after it is live. A failure is shown in the deploy log and the new version keeps running."
+          >
+            <Input
+              value={v.postDeployCommand}
+              onChange={(e) => set({ postDeployCommand: e.target.value })}
+              placeholder="php artisan cache:clear"
+              className="font-mono text-[13px]"
+            />
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Strategy">

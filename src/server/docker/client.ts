@@ -15,6 +15,8 @@ export const LABEL = {
   kind: "serve.kind",
   /** Images built from git: the branch (the standard labels hold the repository and commit). */
   branch: "serve.branch",
+  /** Images built from git: a fingerprint of the commit and everything else the build used (see buildKey). */
+  buildKey: "serve.build-key",
 } as const;
 
 export type LogFn = (line: string) => void;

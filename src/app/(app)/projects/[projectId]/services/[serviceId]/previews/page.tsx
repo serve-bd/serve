@@ -11,13 +11,15 @@ export default async function PreviewsPage(props: PageProps<"/projects/[projectI
   const { projectId, serviceId } = await props.params;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
-  if (service.type !== "app" || service.source?.type !== "git" || service.parentServiceId) redirect(`/projects/${projectId}/services/${serviceId}`);
+  const source = service.source;
+  if (service.type !== "app" || (source?.type !== "git" && source?.type !== "image") || service.parentServiceId) redirect(`/projects/${projectId}/services/${serviceId}`);
   return (
     <PageBody>
       <PreviewsList
         projectId={projectId}
         serviceId={service.id}
         enabled={service.previewsEnabled}
+        image={source.type === "image" ? source.image : null}
         previewDomain={service.previewDomain}
         canManage={ctx.can("services.manage")}
         canDeploy={ctx.can("services.deploy")}

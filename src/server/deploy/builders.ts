@@ -37,6 +37,8 @@ export type BuildContext = {
    * for an answer, which is very slow over a long SSH path (a machine behind a tunnel).
    */
   remote?: { server: Pick<ServerCtx, "local" | "exec">; buildsDir: string } | null;
+  /** The commit being built: Dockerfiles read it with `ARG SOURCE_COMMIT`. */
+  commit?: string | null;
 };
 
 export type BuildResult = {
@@ -322,6 +324,8 @@ async function dockerBuild(ctx: BuildContext, dockerfile: string, dockerfileCont
     args.push("--build-arg", `BUILDKIT_SYNTAX=${frontend.syntax}`);
     for (const k of Object.keys(frontend.secrets)) args.push("--secret", `id=${k},env=${k}`);
   } else for (const [k, v] of Object.entries(ctx.buildEnv)) args.push("--build-arg", `${k}=${v}`);
+  // Only a Dockerfile that declares ARG SOURCE_COMMIT reads it, so other builds keep their cache.
+  if (!frontend && ctx.commit && !("SOURCE_COMMIT" in ctx.buildEnv)) args.push("--build-arg", `SOURCE_COMMIT=${ctx.commit}`);
   const extra = frontend ? [] : buildArgFlags(ctx.build.buildArgs);
   if (extra.length)
     ctx.log(

@@ -10,6 +10,11 @@ function key(): Buffer {
   return cachedKey;
 }
 
+/** Keyed SHA-256 (hex): a fingerprint of values that may hold secrets, useless without this instance's key. */
+export function hmac(value: string): string {
+  return crypto.createHmac("sha256", key()).update(value).digest("hex");
+}
+
 /** AES-256-GCM encrypt. Output: v1:<iv>:<tag>:<ciphertext> (base64url). */
 export function encrypt(plain: string): string {
   const iv = crypto.randomBytes(12);

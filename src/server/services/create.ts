@@ -67,19 +67,7 @@ export async function queueDeployment(
   if (gate.kind === "frozen") {
     // Someone deploying gets the answer; a push or hook leaves a record of what was skipped.
     if (opts.userId) throw new UserError(gate.message);
-    await db.insert(schema.deployment).values({
-      id,
-      serviceId,
-      trigger,
-      status: "cancelled",
-      error: gate.message,
-      logs: `Skipped: ${gate.message}\n`,
-      commitSha: opts.commitSha ?? null,
-      commitMessage: opts.commitMessage ?? null,
-      branch: opts.branch ?? null,
-      finishedAt: new Date(),
-    });
-    return id;
+    return recordSkipped(serviceId, trigger, gate.message, opts);
   }
   await db.insert(schema.deployment).values({
     id,
@@ -99,6 +87,29 @@ export async function queueDeployment(
     return id;
   }
   await enqueue("deploy", { deploymentId: id }, { concurrencyKey: `service:${serviceId}` });
+  return id;
+}
+
+/** A deployment that never ran, kept in the deployments list with the reason it was skipped. */
+export async function recordSkipped(
+  serviceId: string,
+  trigger: DeploymentTrigger,
+  reason: string,
+  commit: { commitSha?: string | null; commitMessage?: string | null; branch?: string | null } = {},
+) {
+  const id = newId();
+  await db.insert(schema.deployment).values({
+    id,
+    serviceId,
+    trigger,
+    status: "cancelled",
+    error: reason,
+    logs: `Skipped: ${reason}\n`,
+    commitSha: commit.commitSha ?? null,
+    commitMessage: commit.commitMessage ?? null,
+    branch: commit.branch ?? null,
+    finishedAt: new Date(),
+  });
   return id;
 }
 

@@ -65,7 +65,13 @@ export default async function ServiceLayout(props: LayoutProps<"/projects/[proje
           type: service.type,
           environmentId: service.environmentId,
           isPreview: !!service.parentServiceId,
-          previews: service.type === "app" && service.source?.type === "git" && !service.parentServiceId && (service.previewsEnabled || previews.length) ? previews.length : null,
+          previews:
+            service.type === "app" &&
+            (service.source?.type === "git" || service.source?.type === "image") &&
+            !service.parentServiceId &&
+            (service.previewsEnabled || previews.length)
+              ? previews.length
+              : null,
           metrics: server?.metricsEnabled ?? true,
           parent: parent && service.previewPr !== null ? { id: parent.id, name: parent.name, pr: service.previewPr } : null,
           icon: service.icon,

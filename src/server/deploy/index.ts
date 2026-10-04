@@ -4,7 +4,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq, gt, isNotNull, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { decryptOrNull } from "@/server/crypto";
+import { decryptOrNull, hmac } from "@/server/crypto";
+import { currentVersion } from "@/server/instance/version";
 import type Docker from "dockerode";
 import { type BuildConfig, buildsImage, defaultBuild, type ImageSource, type PortMapping, type VolumeMount } from "@/server/services/types";
 import { ensureNetwork, imageExists, imageExistsFor, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
@@ -202,6 +203,7 @@ async function prepareAppImage(
   const buildSignal = buildController.signal;
   // Standard image labels: the repository and commit an image was built from, readable by any tool.
   const origin: Record<string, string> = {};
+  let commit: string | null = null;
   try {
     if (source.type === "git") {
       log.step("Cloning repository");
@@ -217,6 +219,18 @@ async function prepareAppImage(
       if (repo) origin["org.opencontainers.image.source"] = repo;
       if (clone.commitSha) origin["org.opencontainers.image.revision"] = clone.commitSha;
       origin[LABEL.branch] = source.branch;
+      commit = clone.commitSha || null;
+      if (commit) {
+        const key = buildKey(service, build, env.build, commit, platform);
+        origin[LABEL.buildKey] = key;
+        // The same commit built the same way before: its image is used again instead of building.
+        const reused = build.noCache ? null : await reusableImage(service, key, d);
+        if (reused) {
+          log.line(`Using the image deployment ${reused.deployment?.slice(0, 8) ?? "before"} built from this commit with the same settings. Deploy without cache to build again.`);
+          await d.getImage(reused.tag).tag({ repo: imageRepo(service.slug), tag: dep.id });
+          return { image: target, detectedPort: await imagePort(target, d), registryImage: null, rollback: false };
+        }
+      }
     } else {
       log.step("Preparing the Dockerfile");
       if (build.noCache) log.line("Building without cache");
@@ -253,6 +267,7 @@ async function prepareAppImage(
       platform,
       network: buildNetwork,
       remote: server.local ? null : { server, buildsDir: server.paths.builds },
+      commit,
     });
     log.line(`Build finished in ${((Date.now() - started) / 1000).toFixed(1)}s`);
     return { image: target, detectedPort: result.detectedPort ?? (await imagePort(target, d)), registryImage: null, rollback: false };
@@ -264,6 +279,28 @@ async function prepareAppImage(
     signal?.removeEventListener("abort", onAbort);
     await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/**
+ * What a build of `commit` depends on besides the commit: the build settings, the build
+ * variables, the platform and the Serve version (its generated Dockerfiles change with it). Keyed,
+ * since it sits on the image as a label and the variables may hold secrets.
+ */
+function buildKey(service: Service, build: BuildConfig, buildEnv: Record<string, string>, commit: string, platform: string | null) {
+  const source = service.source?.type === "git" ? { repository: service.source.repository, branch: service.source.branch } : null;
+  // Settings that do not change the image itself stay out.
+  const { noCache: _noCache, noCacheOnce: _once, buildTimeoutMinutes: _timeout, watchPaths: _watch, ...settings } = build;
+  const sorted = Object.fromEntries(Object.entries(buildEnv).sort(([a], [b]) => a.localeCompare(b)));
+  return hmac(JSON.stringify({ v: 1, serve: currentVersion(), commit, source, settings, env: sorted, platform }));
+}
+
+/** The newest image of this service built with the same build key, if one is still on the server. */
+async function reusableImage(service: Service, key: string, d: Docker) {
+  const images = await d.listImages({ filters: { label: [`${LABEL.service}=${service.id}`, `${LABEL.buildKey}=${key}`] } }).catch(() => []);
+  const repo = imageRepo(service.slug);
+  const newest = images.sort((a, b) => b.Created - a.Created).find((i) => (i.RepoTags ?? []).some((t) => t.startsWith(`${repo}:`)));
+  if (!newest) return null;
+  return { tag: newest.RepoTags!.find((t) => t.startsWith(`${repo}:`))!, deployment: newest.Labels?.[LABEL.deployment] ?? null };
 }
 
 async function orgIdOf(service: Service) {
@@ -495,6 +532,14 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   const env = await resolveEnv({ ...service, runtime });
   log.redact(env.secrets);
   stopOnFailedSecrets(env);
+  // The commit running, for error trackers and version pages. The service's own variables win.
+  const [built] = await db.select({ sha: schema.deployment.commitSha, branch: schema.deployment.branch }).from(schema.deployment).where(eq(schema.deployment.id, dep.id));
+  for (const [k, v] of [
+    ["SOURCE_COMMIT", built?.sha],
+    ["SERVE_GIT_COMMIT", built?.sha],
+    ["SERVE_GIT_BRANCH", built?.branch],
+  ] as const)
+    if (v && !(k in env.runtime)) env.runtime[k] = v;
   const replicaTotal = replicaCount(runtime.replicas, dist.extraServerIds.length);
   const short = shortReplicaPicks(env.runtime, replicaTotal);
   if (short.length) log.line(`Warning: replica.pick in ${short.join(", ")} has fewer values than the ${replicaTotal} replicas. The others get an empty value.`);
@@ -740,6 +785,36 @@ async function runOnServer(opts: {
     await Promise.all(old.map((c) => removeContainer(c.Id, 0, d)));
   }
   await pruneImages(service, server, image).catch(() => {});
+  // Once, on the service's own server, in the new version's first container. It is live already,
+  // so a failure is only reported.
+  if (runtime.postDeployCommand && primary && !dep.rollbackOf && started[0]) {
+    log.step("Running the post-deploy command");
+    await runPostDeploy(started[0], runtime, d, log, signal);
+  }
+}
+
+/** Runs the post-deploy command in a running container of the new version. Never fails the deployment. */
+async function runPostDeploy(containerId: string, runtime: Service["runtime"], d: Docker, log: StepLog, signal?: AbortSignal) {
+  const { execCommand } = await import("@/server/services/exec");
+  let partial = "";
+  try {
+    const result = await execCommand(containerId, runtime.postDeployCommand!, {
+      docker: d,
+      signal,
+      timeoutSeconds: Math.max(60, runtime.healthcheckTimeout ?? 900),
+      onData: (text) => {
+        const lines = (partial + text).split(/\r?\n/);
+        partial = lines.pop() ?? "";
+        for (const line of lines) log.line(line);
+      },
+    });
+    if (partial) log.line(partial);
+    if (result.timedOut) log.line("Warning: the post-deploy command timed out. The new version keeps running.");
+    else if (result.exitCode !== 0) log.line(`Warning: the post-deploy command exited with code ${result.exitCode}. The new version keeps running.`);
+    else log.line("Post-deploy command finished");
+  } catch (error) {
+    log.line(`Warning: the post-deploy command could not run: ${(error as Error).message}. The new version keeps running.`);
+  }
 }
 
 /**

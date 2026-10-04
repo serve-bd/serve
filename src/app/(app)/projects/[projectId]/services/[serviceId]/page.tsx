@@ -120,7 +120,7 @@ export default async function ServicePage(props: PageProps<"/projects/[projectId
       <ServiceOverview
         {...(await loadOverview(service, projectId, ctx.org.id))}
         previewsCard={
-          service.type === "app" && service.source?.type === "git" && !service.parentServiceId && service.previewsEnabled ? (
+          service.type === "app" && (service.source?.type === "git" || service.source?.type === "image") && !service.parentServiceId && service.previewsEnabled ? (
             <PreviewsCard key="previews" projectId={projectId} serviceId={service.id} previews={await loadPreviews(service.id)} />
           ) : null
         }

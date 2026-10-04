@@ -238,6 +238,50 @@ async function publicSubmodules(git: Git, dir: string, access: GitAccess, option
   }
 }
 
+/**
+ * Git LFS files of a checkout that uses them: without this the build gets small pointer files
+ * instead. Only for Root: the LFS server names the download addresses, which may be anywhere, so
+ * other organizations (public git servers only) keep the pointer files.
+ */
+async function lfsPull(git: Git, dir: string, access: GitAccess, options: Parameters<typeof run>[2], log: (line: string) => void) {
+  const attributes = (await git(["ls-files", "-z", "--", ":(glob)**/.gitattributes"]).catch(() => "")).split("\0").filter(Boolean);
+  let uses = false;
+  for (const file of attributes) {
+    const text = await fs.readFile(path.join(dir, file), "utf8").catch(() => "");
+    if (/filter=lfs\b/.test(text)) {
+      uses = true;
+      break;
+    }
+  }
+  if (!uses) return;
+  if (access.publicOnly) {
+    log("This repository keeps files in Git LFS. Only services of the Root organization fetch them: the build gets the small pointer files.");
+    return;
+  }
+  if (
+    !(await run("git", ["lfs", "version"]).then(
+      () => true,
+      () => false,
+    ))
+  ) {
+    log("Warning: this repository keeps files in Git LFS, and Git LFS is not installed on this server. The build gets the small pointer files.");
+    return;
+  }
+  log("Fetching Git LFS files");
+  // The filter git lfs install would set, for this command only: git's own config stays untouched.
+  const filter = [
+    "-c",
+    "filter.lfs.process=git-lfs filter-process",
+    "-c",
+    "filter.lfs.smudge=git-lfs smudge -- %f",
+    "-c",
+    "filter.lfs.clean=git-lfs clean -- %f",
+    "-c",
+    "filter.lfs.required=true",
+  ];
+  await git([...filter, "lfs", "pull"], options);
+}
+
 export async function cloneRepository(
   source: GitSource,
   dir: string,
@@ -275,6 +319,7 @@ export async function cloneRepository(
           options,
         );
         if (submodules && access.publicOnly) await publicSubmodules((args, o) => run("git", ["-C", dir, ...args], o), dir, access, options);
+        await lfsPull((args, o) => run("git", ["-C", dir, ...args], o), dir, access, options, log);
       } finally {
         await fs.rm(`${dir}.auth`, { recursive: true, force: true });
       }
@@ -345,6 +390,7 @@ async function updateInPlace(
         await git(["submodule", "update", "--init", "--recursive", "--depth", "1"], options);
       }
     }
+    await lfsPull(git, dir, access, options, log);
   };
 
   try {

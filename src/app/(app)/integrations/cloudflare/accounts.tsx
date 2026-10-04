@@ -391,10 +391,25 @@ export function CloudflareAccount({
       <PageHeader
         title={
           <span className="flex items-center gap-2.5">
-            <Cloud className="size-5 text-[#f38020]" /> {a.name}
+            {/* The only account: this is the Cloudflare page itself, named like every page in the sidebar. */}
+            {single ? (
+              "Cloudflare"
+            ) : (
+              <>
+                <Cloud className="size-5 text-[#f38020]" /> {a.name}
+              </>
+            )}
           </span>
         }
-        description={<ConnectionLine a={a} />}
+        description={
+          single ? (
+            <>
+              <span className="text-fg-2">{a.name}</span> · <ConnectionLine a={a} />
+            </>
+          ) : (
+            <ConnectionLine a={a} />
+          )
+        }
         breadcrumbs={single ? [{ label: "Cloudflare" }] : [{ label: "Cloudflare", href: "/integrations/cloudflare" }, { label: a.name }]}
         back={single ? undefined : { href: "/integrations/cloudflare", label: "All Cloudflare accounts" }}
         actions={

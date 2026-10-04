@@ -74,6 +74,8 @@ describe("database plan", () => {
     ]);
     // Required: plain connections only from the container's networks, never through its gateway.
     expect(plan.cmd?.[2]).toContain(`$4 = "samenet"`);
+    // Services on other servers come from their environment's private network address.
+    expect(plan.cmd?.[2]).toContain(`$4 = "10.241.0.0/16"`);
     expect(plan.cmd?.[2]).toContain("/proc/net/route");
     expect(databaseUrl(pg({ tls: { enabled: true, mode: "require" } }), plan.creds, "db", 5432)).not.toMatch(/sslmode/);
     const prefer = databasePlan(pg({ tls: { enabled: true, mode: "prefer" } }), "x", "/d/s");

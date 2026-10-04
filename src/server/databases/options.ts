@@ -14,14 +14,16 @@ export const TLS_DIR = "/run/serve-tls";
  * two: with TLS from anywhere, without only from "samenet". The socket and loopback stay as they are.
  * The gateway is in samenet too, and the public port can come through it (Docker's proxy): it
  * goes first, refused without TLS. /proc/net/route keeps it as little-endian hex.
+ * Services on other servers arrive from their environment's private network address (10.241.0.0/16,
+ * see allocateAddress), which only that environment can use: they may connect without TLS too.
  * A shell step that writes <dir>/pg_hba.conf; the database (or a replica) reads it with hba_file.
  */
 export function pgRequireHba(dir: string) {
   const gateway =
     'function h(s) { return (index("0123456789ABCDEF", substr(s, 1, 1)) - 1) * 16 + index("0123456789ABCDEF", substr(s, 2, 1)) - 1 } NR > 1 && $2 == "00000000" && $3 != "00000000" { printf "hostnossl all all %d.%d.%d.%d/32 reject\\n", h(substr($3, 7, 2)), h(substr($3, 5, 2)), h(substr($3, 3, 2)), h(substr($3, 1, 2)); exit }';
   const rules =
-    '$1 == "host" && ($4 == "all" || $4 == "0.0.0.0/0" || $4 == "::/0") { $1 = "hostssl"; ssl = $0; $1 = "hostnossl"; $4 = "samenet"; print; print ssl; next } { print }';
-  return `{ awk '${gateway}' /proc/net/route; awk '${rules}' "$PGDATA/pg_hba.conf" 2>/dev/null || printf 'local all all trust\\nhost all all 127.0.0.1/32 trust\\nhost all all ::1/128 trust\\nhostnossl all all samenet %s\\nhostssl all all all %s\\n' "\${POSTGRES_HOST_AUTH_METHOD:-scram-sha-256}" "\${POSTGRES_HOST_AUTH_METHOD:-scram-sha-256}"; } > ${dir}/pg_hba.conf`;
+    '$1 == "host" && ($4 == "all" || $4 == "0.0.0.0/0" || $4 == "::/0") { $1 = "hostssl"; ssl = $0; $1 = "hostnossl"; $4 = "samenet"; print; $4 = "10.241.0.0/16"; print; print ssl; next } { print }';
+  return `{ awk '${gateway}' /proc/net/route; awk '${rules}' "$PGDATA/pg_hba.conf" 2>/dev/null || printf 'local all all trust\\nhost all all 127.0.0.1/32 trust\\nhost all all ::1/128 trust\\nhostnossl all all samenet %s\\nhostnossl all all 10.241.0.0/16 %s\\nhostssl all all all %s\\n' "\${POSTGRES_HOST_AUTH_METHOD:-scram-sha-256}" "\${POSTGRES_HOST_AUTH_METHOD:-scram-sha-256}" "\${POSTGRES_HOST_AUTH_METHOD:-scram-sha-256}"; } > ${dir}/pg_hba.conf`;
 }
 
 /** The certificate of a database's domain (one clients trust): read-only binds of its files, and their paths in the container. */

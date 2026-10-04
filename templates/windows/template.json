@@ -5,7 +5,7 @@
   "website": "https://github.com/dockur/windows",
   "color": "#0078D4",
   "hostAccess": true,
-  "note": "Needs a server with KVM (/dev/kvm) and NET_ADMIN. The first start downloads and installs Windows, which takes a while; watch it on the domain.",
+  "note": "Needs a server with KVM (/dev/kvm) and NET_ADMIN. The web viewer asks for a login: use the Windows user and password below. The first start downloads and installs Windows, which takes a while; watch it on the domain.",
   "expose": {
     "service": "windows",
     "port": 8006

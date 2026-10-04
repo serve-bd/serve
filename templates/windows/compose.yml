@@ -6,6 +6,8 @@ services:
       VERSION: ${WINDOWS_VERSION}
       USERNAME: ${WINDOWS_USERNAME}
       PASSWORD: ${WINDOWS_PASSWORD}
+      # Puts a login (the Windows user and password) on the web viewer.
+      PROTECT: "Y"
       RAM_SIZE: 4G
       CPU_CORES: "2"
       DISK_SIZE: 64G

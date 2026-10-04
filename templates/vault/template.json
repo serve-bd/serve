@@ -4,7 +4,7 @@
   "category": "Security",
   "website": "https://www.hashicorp.com/products/vault",
   "color": "#FFEC6E",
-  "note": "Open the domain to initialize Vault: save the unseal keys and root token it shows. Vault starts sealed after every restart and must be unsealed with those keys.",
+  "note": "Right after deploy, open the service Console and run vault operator init. Do not wait: until it is done, any visitor to the domain can initialize Vault and keep the keys. Save the unseal keys and root token it prints. Vault starts sealed after every restart; unseal it with vault operator unseal or on the domain.",
   "expose": {
     "service": "vault",
     "port": 8200

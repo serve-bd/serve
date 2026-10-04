@@ -4,7 +4,7 @@
   "category": "Automation",
   "website": "https://www.prefect.io",
   "color": "#070E10",
-  "note": "Sign in with admin and the generated admin password. Clients use PREFECT_API_URL set to this domain plus /api and PREFECT_API_AUTH_STRING set to admin:<password>.",
+  "note": "The web UI asks for one login string: type admin:<password>, where <password> is the generated admin password (Variables tab). Clients use PREFECT_API_URL set to this domain plus /api and PREFECT_API_AUTH_STRING set to the same admin:<password>.",
   "expose": {
     "service": "prefect",
     "port": 4200

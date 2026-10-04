@@ -4,7 +4,8 @@
   "category": "Media",
   "website": "https://fileflows.com",
   "color": "#1E88E5",
-  "note": "Files to process go in the media volume, mounted at /media. Set up the first library and flow in the web UI.",
+  "fullColorLogo": true,
+  "note": "The web UI has no login unless you have a paid FileFlows license, and anyone who opens the domain can run flows. Turn on Basic auth for the domain (Domains page, proxy options) before you use it. Files to process go in the media volume, mounted at /media. Set up the first library and flow in the web UI.",
   "expose": {
     "service": "fileflows",
     "port": 5000

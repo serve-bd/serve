@@ -1,8 +1,0 @@
-services:
-  whoogle:
-    image: benbusby/whoogle-search:1.2.4
-    restart: unless-stopped
-    volumes:
-      - whoogle-config:/config
-volumes:
-  whoogle-config:

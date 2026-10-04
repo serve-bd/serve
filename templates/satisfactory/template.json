@@ -4,8 +4,9 @@
   "category": "Media",
   "website": "https://github.com/wolveix/satisfactory-server",
   "color": "#E59345",
+  "fullColorLogo": true,
   "hostAccess": true,
-  "note": "Publishes ports 7777 (TCP and UDP) and 8888 on the server. Players connect to the server address on port 7777, and the first player to join claims the server and sets the admin password. Needs at least 8 GB of RAM; the first start downloads the game.",
+  "note": "The domain is not used: port 7777 serves only the game and its HTTPS API with a self-signed certificate, so the domain shows an error. Players connect with the server IP and port 7777. Publishes ports 7777 (TCP and UDP) and 8888 on the server. The first player to join claims the server and sets the admin password. Needs at least 8 GB of RAM; the first start downloads the game.",
   "expose": {
     "service": "satisfactory",
     "port": 7777

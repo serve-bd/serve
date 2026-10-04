@@ -4,7 +4,7 @@
   "category": "Productivity",
   "website": "https://www.redmine.org",
   "color": "#B32024",
-  "note": "Sign in with admin / admin. Redmine asks you to set a new password on the first login.",
+  "note": "Sign in with admin / admin right after deploy. Redmine then asks you to set a new password. Until you do, anyone can sign in with the default login, so do it at once, or turn on Basic auth for the domain (Domains page, proxy options) until then.",
   "expose": {
     "service": "redmine",
     "port": 3000

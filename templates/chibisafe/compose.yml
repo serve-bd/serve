@@ -18,6 +18,9 @@ services:
   chibisafe-server:
     image: chibisafe/chibisafe-server:v6.5.5
     restart: unless-stopped
+    environment:
+      # Password of the admin user created on the first start.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     volumes:
       - chibisafe-database:/app/database
       - chibisafe-uploads:/app/uploads

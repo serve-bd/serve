@@ -62,7 +62,7 @@ services:
     environment:
       GOTRUE_ADMIN_EMAIL: ${ADMIN_EMAIL}
       GOTRUE_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP}
       GOTRUE_SITE_URL: appflowy-flutter://
       GOTRUE_URI_ALLOW_LIST: "**"
       GOTRUE_JWT_SECRET: ${JWT_SECRET}

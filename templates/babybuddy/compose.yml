@@ -8,7 +8,27 @@ services:
       TZ: UTC
       CSRF_TRUSTED_ORIGINS: ${BABYBUDDY_URL}
       SECURE_PROXY_SSL_HEADER: "True"
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    configs:
+      # Runs after the migrations on every start: replaces the default admin password, and only that one.
+      - source: admin-password
+        target: /custom-cont-init.d/admin-password.sh
+        mode: 0555
     volumes:
       - babybuddy-config:/config
+configs:
+  admin-password:
+    content: |
+      #!/usr/bin/with-contenv bash
+      cd /app/www/public || exit 0
+      DJANGO_SETTINGS_MODULE=babybuddy.settings.base SECRET_KEY="$$(cat /config/.secretkey)" s6-setuidgid abc python3 manage.py shell -c "
+      import os
+      from django.contrib.auth import get_user_model
+      u = get_user_model().objects.filter(username='admin').first()
+      if u and u.check_password('admin'):
+          u.set_password(os.environ['ADMIN_PASSWORD'])
+          u.save()
+          print('Set the admin password')
+      "
 volumes:
   babybuddy-config:

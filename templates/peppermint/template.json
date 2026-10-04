@@ -4,7 +4,8 @@
   "category": "Productivity",
   "website": "https://peppermint.sh",
   "color": "#10B981",
-  "note": "Sign in with admin@admin.com and password 1234, then change both right away.",
+  "fullColorLogo": true,
+  "note": "Sign in with admin@admin.com and password 1234 right after deploy, then change both at once. Until you do, anyone can sign in with the default login, so turn on Basic auth for the domain (Domains page, proxy options) until then.",
   "expose": {
     "service": "peppermint",
     "port": 3000

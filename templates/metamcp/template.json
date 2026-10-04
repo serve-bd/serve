@@ -4,7 +4,8 @@
   "category": "AI",
   "website": "https://github.com/metatool-ai/metamcp",
   "color": "#111827",
-  "note": "Sign up on the domain to create the first account.",
+  "fullColorLogo": true,
+  "note": "Sign up on the domain right after deploy to create the first account. Sign-up stays open for anyone after that, and every user can add STDIO MCP servers, which run commands in the container. So right after you sign up, go to Settings and turn on Disable UI Registration and Disable SSO Registration. Until then, you can turn on Basic auth for the domain (Domains page, proxy options).",
   "expose": {
     "service": "metamcp",
     "port": 12008

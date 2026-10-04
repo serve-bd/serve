@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Tooltip } from "@/components/ui/tooltip";
 import { StatusDot, statusText } from "@/components/ui/status";
 import { serverReachable } from "@/lib/server-services";
 import { cn } from "@/lib/utils";
@@ -29,9 +30,11 @@ export function ProjectRow({ project }: { project: ProjectSummary }) {
       <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-fg">{project.name}</span>
       <span className="flex max-w-[45%] flex-wrap justify-end gap-x-2 gap-y-1.5" aria-hidden>
         {project.services.map((s) => (
-          <span key={s.id} title={`${s.name}: ${statusText(s.status)}`} className="flex">
-            <StatusDot status={s.status} />
-          </span>
+          <Tooltip key={s.id} content={`${s.name}: ${statusText(s.status)}`} delay={0}>
+            <span className="flex">
+              <StatusDot status={s.status} />
+            </span>
+          </Tooltip>
         ))}
       </span>
       <span className="w-9 flex-none text-right font-mono text-[12px] text-faint tabular-nums">{total ? `${running}/${total}` : "0"}</span>

@@ -1,5 +1,6 @@
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** `mark` draws a finished deployment as a check or a cross instead of a light. */
 type Tone = { led: string; label: string; pulse?: boolean; off?: boolean; mark?: "check" | "cross" };
@@ -66,9 +67,11 @@ export function StatusLabel({ status, kind = "service", className }: { status: s
   // A deployment that worked is only its check mark, without a pill or a word.
   if (tone.mark === "check")
     return (
-      <span role="img" aria-label={tone.label} title={tone.label} className="inline-flex flex-none">
-        <Mark tone={tone} />
-      </span>
+      <Tooltip content={tone.label} delay={0}>
+        <span role="img" aria-label={tone.label} className="inline-flex flex-none">
+          <Mark tone={tone} />
+        </span>
+      </Tooltip>
     );
   return (
     <span className={cn("inline-flex items-center gap-2 text-[13px] font-medium text-fg-2", className)}>

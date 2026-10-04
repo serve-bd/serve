@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Box, Database, Layers } from "lucide-react";
 import { StatusDot, statusColor, statusText } from "@/components/ui/status";
 import { TimeAgo } from "@/components/ui/misc";
@@ -29,10 +30,12 @@ function Counts({ counts }: { counts: ReturnType<typeof summary>["counts"] }) {
   return counts.map(({ t, n }) => {
     const Icon = typeIcon[t];
     return (
-      <span key={t} className="inline-flex items-center gap-1" title={`${n} ${typeLabel[t].toLowerCase()}${n === 1 ? "" : "s"}`}>
-        <Icon className="size-3.5 text-faint" />
-        {n}
-      </span>
+      <Tooltip key={t} content={`${n} ${typeLabel[t].toLowerCase()}${n === 1 ? "" : "s"}`} delay={0}>
+        <span className="inline-flex items-center gap-1">
+          <Icon className="size-3.5 text-faint" />
+          {n}
+        </span>
+      </Tooltip>
     );
   });
 }
@@ -43,12 +46,9 @@ function HealthStrip({ services }: { services: ProjectSummary["services"] }) {
   return (
     <span className="flex h-2 w-full items-stretch gap-[3px]" aria-hidden>
       {shown.map((s) => (
-        <span
-          key={s.id}
-          title={`${s.name}: ${statusText(s.status)}`}
-          className="min-w-1 flex-1 rounded-full"
-          style={{ background: statusColor(s.status), opacity: s.status === "running" ? 1 : 0.75 }}
-        />
+        <Tooltip key={s.id} content={`${s.name}: ${statusText(s.status)}`} delay={0}>
+          <span className="min-w-1 flex-1 rounded-full" style={{ background: statusColor(s.status), opacity: s.status === "running" ? 1 : 0.75 }} />
+        </Tooltip>
       ))}
     </span>
   );

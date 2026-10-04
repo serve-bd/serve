@@ -31,7 +31,7 @@ export default async function ZonePage(props: PageProps<"/integrations/cloudflar
       <PageHeader
         title={zone.name}
         description={`Cloudflare zone · ${zone.status}${zone.plan?.name ? ` · ${zone.plan.name}` : ""}`}
-        breadcrumbs={[{ label: "Cloudflare", href: "/integrations/cloudflare" }, { label: account.name }, { label: zone.name }]}
+        breadcrumbs={[{ label: "Cloudflare", href: "/integrations/cloudflare" }, { label: account.name, href: `/integrations/cloudflare/${accountId}` }, { label: zone.name }]}
       />
       <PageBody>
         <ZoneManager

@@ -23,10 +23,13 @@ export function takeRequest(key: string, limit: number, now = Date.now()): RateR
       lastSweep = now;
       for (const [k, v] of windows) if (now - v.start >= WINDOW_MS) windows.delete(k);
     }
-    if (windows.size > MAX_KEYS)
-      for (const k of windows.keys())
-        if (windows.size > MAX_KEYS) windows.delete(k);
-        else break;
+    // Maps keep insertion order: the first keys are the oldest.
+    const keys = windows.keys();
+    while (windows.size > MAX_KEYS) {
+      const oldest = keys.next();
+      if (oldest.done) break;
+      windows.delete(oldest.value);
+    }
   }
   const reset = Math.ceil((w.start + WINDOW_MS) / 1000);
   const allowed = w.count < limit;

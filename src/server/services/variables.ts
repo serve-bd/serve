@@ -189,7 +189,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     if (!lookup.has(referenceName(s.name)) && !slugs.has(referenceName(s.name))) lookup.set(referenceName(s.name), provided);
   }
   // Secret manager values, fetched now for the references this service's values use.
-  const ownValues = own.map((v) => decrypt(v.value));
+  // Literal values are never filled in: their ${{secrets.…}} text is not fetched either.
+  const ownValues = own.filter((v) => !v.literal).map((v) => decrypt(v.value));
   const secretRefs = scope
     ? await resolveSecretRefs(scope.organizationId, scope.projectId, service.environmentId, [
         ...ownValues,

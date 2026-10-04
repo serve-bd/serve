@@ -53,7 +53,11 @@ export async function environmentServices(environmentId: string): Promise<Servic
       .where(inArray(schema.deployment.serviceId, ids))
       .orderBy(schema.deployment.serviceId, desc(schema.deployment.createdAt)),
     serviceIssues(ids),
-    db.select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value }).from(schema.envVar).where(inArray(schema.envVar.serviceId, ids)),
+    // Literal values reference nothing: their ${{…}} is text.
+    db
+      .select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value })
+      .from(schema.envVar)
+      .where(and(inArray(schema.envVar.serviceId, ids), eq(schema.envVar.literal, false))),
     db
       .select({ id: schema.server.id, name: schema.server.name, status: schema.server.status, isLocal: schema.server.isLocal })
       .from(schema.server)

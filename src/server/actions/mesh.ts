@@ -366,9 +366,13 @@ export async function meshChangeImpact(change: MeshChange) {
         .select({ serviceId: schema.envVar.serviceId, key: schema.envVar.key, value: schema.envVar.value })
         .from(schema.envVar)
         .where(
-          inArray(
-            schema.envVar.serviceId,
-            relevant.map((s) => s.id),
+          and(
+            inArray(
+              schema.envVar.serviceId,
+              relevant.map((s) => s.id),
+            ),
+            // Literal values reference nothing: their ${{…}} is text.
+            eq(schema.envVar.literal, false),
           ),
         )
         .then((list) => list.map((v) => ({ ...v, value: decryptOrNull(v.value) ?? "" }))),

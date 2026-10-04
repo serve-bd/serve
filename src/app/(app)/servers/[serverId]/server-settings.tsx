@@ -431,7 +431,12 @@ export function DangerZone({ server }: { server: ServerDetails }) {
   const remove = useAction((removeTailnetDevice: boolean) => deleteServer(server.id, { removeTailnetDevice }), { refresh: false, onSuccess: () => router.push("/servers") });
   return (
     <Card className="border-bad/25">
-      <CardHeader title="Remove server" description={<>This server is forgotten. Containers already running there keep running until you stop them on the server.</>} />
+      <CardHeader
+        title="Remove server"
+        description={
+          <>Serve forgets this server and removes its own containers there (the proxy, the private network and the log collector). Your files and other containers stay.</>
+        }
+      />
       <CardBody className="flex flex-wrap items-center justify-between gap-3 py-4">
         <p className="text-[13px] text-muted">
           {server.services > 0

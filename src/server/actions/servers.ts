@@ -455,6 +455,9 @@ export async function deleteServer(id: string, opts: { removeTailnetDevice?: boo
       // An auth key made for a join that never finished must not stay valid.
       if (client && row.tailscale.authKeyId) await client.deleteKey(row.tailscale.authKeyId).catch(() => {});
     }
+    // Serve's own containers there (the proxy and its helpers, the log collector): no service is left
+    // to use them. The server's files and other containers stay.
+    await Promise.race([getServer(id).then(removeServeContainers), new Promise((r) => setTimeout(r, 30_000))]).catch(() => {});
     // Its tunnels go too: the connector stops there and the tunnel is deleted on Cloudflare.
     const tunnels = await db.select({ id: schema.cloudflareTunnel.id }).from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serverId, id));
     if (tunnels.length) {
@@ -516,4 +519,15 @@ export async function makeDefaultServer(serverId: string) {
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.update", message: `Made ${server.name} the default server` });
     return null;
   });
+}
+
+/** Serve's own containers on a server that is being removed. */
+async function removeServeContainers(ctx: Awaited<ReturnType<typeof getServer>>) {
+  const { companionContainer, relayContainer } = await import("@/server/proxy/host-relay");
+  for (const name of [relayContainer(ctx), companionContainer(ctx), ctx.proxyContainer, "serve-log-drain"]) {
+    await ctx.docker
+      .getContainer(name)
+      .remove({ force: true })
+      .catch(() => {});
+  }
 }

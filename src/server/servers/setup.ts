@@ -220,10 +220,12 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
     let message = (error as Error).message;
     // Through Tailscale, a connection that never got an answer usually means the dashboard's machine is not in the tailnet.
     if (row.tailscale?.address) {
-      const { looksLikeNetwork, tailnetReachHint } = await import("@/server/tailscale");
-      const hint = looksLikeNetwork(message) ? await tailnetReachHint(row).catch(() => null) : null;
+      const { looksLikeNetwork, tailnetReachHint, syncTailscale } = await import("@/server/tailscale");
+      // No answer: ask Tailscale right away whether the device still exists, so a removed one says so (and offers Join again).
+      const fresh = looksLikeNetwork(message) ? await recheckTailnet(row, syncTailscale) : row;
+      const hint = looksLikeNetwork(message) ? await tailnetReachHint(fresh).catch(() => null) : null;
       // A server that left the tailnet gets only the reason: "check the firewall" would mislead.
-      if (hint) message = row.tailscale.error ? hint : `${message} ${hint}`;
+      if (hint) message = fresh.tailscale?.error ? hint : `${message} ${hint}`;
     }
     log(`==> ${message}`);
     await setStatus(serverId, error instanceof HostKeyMismatchError ? "error" : "unreachable", message);
@@ -250,13 +252,25 @@ export async function probeServer(serverId: string) {
     if (row.status === "ready") {
       let message = (error as Error).message;
       if (row.tailscale?.address) {
-        const { looksLikeNetwork, tailnetReachHint } = await import("@/server/tailscale");
-        const hint = looksLikeNetwork(message) ? await tailnetReachHint(row).catch(() => null) : null;
+        const { looksLikeNetwork, tailnetReachHint, syncTailscale } = await import("@/server/tailscale");
+        const fresh = looksLikeNetwork(message) ? await recheckTailnet(row, syncTailscale) : row;
+        const hint = looksLikeNetwork(message) ? await tailnetReachHint(fresh).catch(() => null) : null;
         // A server that left the tailnet gets only the reason: "check the firewall" would mislead.
-        if (hint) message = row.tailscale.error ? hint : `${message} ${hint}`;
+        if (hint) message = fresh.tailscale?.error ? hint : `${message} ${hint}`;
       }
       await setStatus(serverId, "unreachable", message);
     }
     return false;
   }
+}
+
+/** The server row after an on-demand check of its tailnet (the worker checks only every few minutes). */
+async function recheckTailnet<T extends { id: string; tailscale: (typeof schema.server.$inferSelect)["tailscale"] }>(
+  row: T,
+  sync: (tailnetId?: string) => Promise<void>,
+): Promise<T> {
+  if (!row.tailscale?.tailnetId) return row;
+  await sync(row.tailscale.tailnetId).catch(() => {});
+  const [fresh] = await db.select({ tailscale: schema.server.tailscale }).from(schema.server).where(eq(schema.server.id, row.id));
+  return fresh ? { ...row, tailscale: fresh.tailscale } : row;
 }

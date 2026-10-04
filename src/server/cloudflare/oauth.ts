@@ -19,9 +19,10 @@ const CLIENT_ID = "ea2e921d3fb6f1acfd6e24bd319b8b77";
 const RELAY_URL = "https://serve.bd/connect/cloudflare";
 /**
  * The permissions Serve uses, as Cloudflare's OAuth scope ids (GET /oauth/scopes). Tunnels need
- * Cloudflare Tunnel Write; Cloudflare One Connectors Write is its newer name.
+ * Cloudflare Tunnel Write; Cloudflare One Connectors Write is its newer name. offline_access brings a
+ * refresh token (the client also needs the Refresh Token grant); without it access ends after an hour.
  */
-const SCOPES = ["zone.read", "dns.write", "zone-settings.write", "ssl-and-certificates.write", "argotunnel.write", "teams-connectors.write"];
+const SCOPES = ["zone.read", "dns.write", "zone-settings.write", "ssl-and-certificates.write", "argotunnel.write", "teams-connectors.write", "offline_access"];
 
 /** Renew this long before the access token runs out, so no request races the expiry. */
 const RENEW_BEFORE_MS = 5 * 60_000;

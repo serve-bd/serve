@@ -4,6 +4,7 @@
   "category": "CMS",
   "website": "https://getcockpit.com",
   "color": "#2D2D2D",
+  "fullColorLogo": true,
   "note": "Open /install on the new domain right after deploy and create the admin account with your own password. Until that is done, anyone who opens /install can create it. If you cannot do it at once, turn on Basic auth for the domain (Domains page, proxy options) first.",
   "expose": {
     "service": "cockpit",

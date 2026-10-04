@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://kroki.io",
   "color": "#2F4858",
+  "fullColorLogo": true,
   "expose": {
     "service": "kroki",
     "port": 8000

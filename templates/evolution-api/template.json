@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://doc.evolution-api.com",
   "color": "#25D366",
+  "fullColorLogo": true,
   "note": "Open /manager and sign in with the API key (Variables tab). API requests send it in the apikey header.",
   "expose": {
     "service": "api",

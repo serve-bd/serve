@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://www.useplunk.com",
   "color": "#18181B",
+  "fullColorLogo": true,
   "note": "Needs an AWS SES account: fill in the region, access keys and configuration set, or the API does not start. Create your account on the first visit.",
   "expose": {
     "service": "plunk",

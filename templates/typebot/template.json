@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://typebot.com",
   "color": "#0042DA",
+  "fullColorLogo": true,
   "minVersion": "0.1.9",
   "note": "Typebot uses two domains: the main one is the builder, the second one serves your bots. Sign in uses links sent by email, so fill in the SMTP values. Sign in with the admin email to get full access.",
   "expose": {

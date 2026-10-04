@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://teable.io",
   "color": "#18181B",
+  "fullColorLogo": true,
   "note": "Sign up to create the first account.",
   "expose": {
     "service": "teable",

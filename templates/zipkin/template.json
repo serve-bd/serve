@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://zipkin.io",
   "color": "#FE7139",
+  "fullColorLogo": true,
   "note": "The UI and API have no login. Traces are kept in memory and lost on restart.",
   "expose": {
     "service": "zipkin",

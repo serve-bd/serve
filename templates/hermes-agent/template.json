@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://github.com/NousResearch/hermes-agent",
   "color": "#1E1B4B",
+  "fullColorLogo": true,
   "note": "Sign in to the dashboard with the user and password below. Fill in at least one model provider API key. Chat platform users can only talk to the agent when their user IDs are in the allowed users list (comma separated), or when you approve their pairing request on the Pairing page of the dashboard.",
   "expose": {
     "service": "hermes-agent",

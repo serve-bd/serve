@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://usesend.com",
   "color": "#000000",
+  "fullColorLogo": true,
   "note": "Needs Amazon SES credentials and a GitHub OAuth app for sign-in (callback URL <domain>/api/auth/callback/github). Fill them in before creating.",
   "expose": {
     "service": "usesend",

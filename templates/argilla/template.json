@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://argilla.io",
   "color": "#FF675F",
+  "fullColorLogo": true,
   "note": "Sign in with the user name and the generated password (Variables tab). The API key is for the Python SDK. Elasticsearch needs about 1 GB of RAM.",
   "expose": {
     "service": "argilla",

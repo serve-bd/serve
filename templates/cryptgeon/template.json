@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://github.com/cupcakearmy/cryptgeon",
   "color": "#1F2937",
+  "fullColorLogo": true,
   "expose": {
     "service": "cryptgeon",
     "port": 8000

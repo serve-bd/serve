@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://imgcompress.karimzouine.com",
   "color": "#2563EB",
+  "fullColorLogo": true,
   "note": "There is no login: anyone with the link can use it.",
   "expose": {
     "service": "imgcompress",

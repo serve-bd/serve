@@ -4,6 +4,7 @@
   "category": "Automation",
   "website": "https://www.mage.ai",
   "color": "#6B50D7",
+  "fullColorLogo": true,
   "note": "Log in with the admin email and password below.",
   "expose": {
     "service": "mage",

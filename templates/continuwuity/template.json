@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://continuwuity.org",
   "color": "#0DBD8B",
+  "fullColorLogo": true,
   "note": "The server name is the domain at first start and cannot change later. Find the one-time registration token in the logs, then register the first account with any Matrix client, such as the Element Web template. That account becomes the admin.",
   "expose": {
     "service": "continuwuity",

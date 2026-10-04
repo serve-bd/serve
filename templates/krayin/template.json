@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://krayincrm.com",
   "color": "#0041FF",
+  "fullColorLogo": true,
   "note": "Log in at /admin/login with admin@example.com and password admin123, then change the password.",
   "expose": {
     "service": "krayin",

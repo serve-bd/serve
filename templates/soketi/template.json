@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://soketi.app",
   "color": "#FF7A59",
+  "fullColorLogo": true,
   "note": "Point your Pusher client at this domain on port 443 with the app ID, key and secret below.",
   "expose": {
     "service": "soketi",

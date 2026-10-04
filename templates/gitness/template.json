@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://www.harness.io/open-source",
   "color": "#0278D5",
+  "fullColorLogo": true,
   "hostAccess": true,
   "note": "Log in as admin with the generated admin password. Has full control of Docker on the server, to run pipelines.",
   "expose": {

@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://invoiceshelf.com",
   "color": "#5851D8",
+  "fullColorLogo": true,
   "note": "Open the site to finish the setup wizard and create the admin account. Database connection: PostgreSQL, host postgres, database and user invoiceshelf, password from POSTGRES_PASSWORD.",
   "expose": {
     "service": "invoiceshelf",

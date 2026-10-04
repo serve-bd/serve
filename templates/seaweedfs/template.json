@@ -4,6 +4,7 @@
   "category": "Storage",
   "website": "https://github.com/seaweedfs/seaweedfs",
   "color": "#2B6CB0",
+  "fullColorLogo": true,
   "minVersion": "0.1.9",
   "note": "The admin UI is on the main domain; sign in as admin with the generated password. The S3 API has a domain of its own and uses the S3 access key and secret key.",
   "expose": {

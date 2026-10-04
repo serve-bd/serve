@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://big-agi.com",
   "color": "#0B6BCB",
+  "fullColorLogo": true,
   "note": "big-AGI has no login. Add your AI provider keys under Models in the app; they stay in your browser.",
   "expose": {
     "service": "big-agi",

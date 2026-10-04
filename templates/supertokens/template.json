@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://supertokens.com",
   "color": "#FF9933",
+  "fullColorLogo": true,
   "note": "This is the SuperTokens core API used by your app's backend SDK; it has no web UI. Use the domain as the connection URI and the API key below.",
   "expose": {
     "service": "supertokens",

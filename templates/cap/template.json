@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://cap.so",
   "color": "#1C64F2",
+  "fullColorLogo": true,
   "minVersion": "0.1.9",
   "note": "Recordings are stored in MinIO, which gets its own domain. Without an email provider, the sign-in code is printed in the cap-web logs.",
   "expose": {

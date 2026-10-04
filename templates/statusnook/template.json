@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://statusnook.com",
   "color": "#2563EB",
+  "fullColorLogo": true,
   "note": "Open the domain to create the admin account on the first visit.",
   "expose": {
     "service": "statusnook",

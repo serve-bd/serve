@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://github.com/CodeWithCJ/SparkyFitness",
   "color": "#16A34A",
+  "fullColorLogo": true,
   "note": "Sign up on the first visit. The account with the admin email below can open the admin panel.",
   "expose": {
     "service": "frontend",

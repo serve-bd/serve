@@ -4,6 +4,7 @@
   "category": "Media",
   "website": "https://github.com/grimmory-tools/grimmory",
   "color": "#7C3AED",
+  "fullColorLogo": true,
   "note": "Open the domain to create the admin account on first visit.",
   "expose": {
     "service": "grimmory",

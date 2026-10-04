@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://lowcoder.cloud",
   "color": "#222222",
+  "fullColorLogo": true,
   "note": "Log in with the admin email and password shown here. The first start takes a few minutes.",
   "expose": {
     "service": "lowcoder",

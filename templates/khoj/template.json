@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://khoj.dev",
   "color": "#F07A36",
+  "fullColorLogo": true,
   "note": "Runs in single-user mode: anyone with the URL can use it. Log in to the admin panel at /server/admin with the admin email and password to add chat models and API keys.",
   "expose": {
     "service": "khoj",

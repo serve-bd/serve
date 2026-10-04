@@ -4,6 +4,7 @@
   "category": "Databases",
   "website": "https://getsqlpad.com",
   "color": "#2C3E50",
+  "fullColorLogo": true,
   "note": "Sign in with the admin email and password shown here, then add a connection to your database.",
   "expose": {
     "service": "sqlpad",

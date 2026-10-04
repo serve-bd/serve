@@ -4,6 +4,7 @@
   "category": "Databases",
   "website": "https://weaviate.io",
   "color": "#0B6B3A",
+  "fullColorLogo": true,
   "note": "Connect as user admin with the API key (Authorization: Bearer <key>). gRPC is not exposed, so use the REST API or turn off gRPC in your client.",
   "expose": {
     "service": "weaviate",

@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://mindsdb.com",
   "color": "#00B06D",
+  "fullColorLogo": true,
   "note": "Log in to the editor with the user and password below. The MySQL and Postgres wire ports stay on the private network.",
   "expose": {
     "service": "mindsdb",

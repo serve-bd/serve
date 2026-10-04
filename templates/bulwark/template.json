@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://bulwarkmail.org",
   "color": "#1D4ED8",
+  "fullColorLogo": true,
   "note": "Set the URL of your JMAP mail server, for example a Stalwart service. Users sign in with their mail account.",
   "expose": {
     "service": "bulwark",

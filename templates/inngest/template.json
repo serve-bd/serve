@@ -4,6 +4,7 @@
   "category": "Automation",
   "website": "https://www.inngest.com",
   "color": "#000000",
+  "fullColorLogo": true,
   "note": "Point your app's Inngest SDK at the domain with the event key and signing key below. The dashboard on the domain has no login of its own.",
   "expose": {
     "service": "inngest",

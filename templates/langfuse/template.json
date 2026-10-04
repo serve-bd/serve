@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://langfuse.com",
   "color": "#E11312",
+  "fullColorLogo": true,
   "minVersion": "0.1.9",
   "note": "Sign up on the login page to create the first account. The second domain is the file storage that browsers upload media to.",
   "expose": {

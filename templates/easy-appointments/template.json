@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://easyappointments.org",
   "color": "#35A768",
+  "fullColorLogo": true,
   "note": "Open the site to run the installer and make the first admin account.",
   "expose": {
     "service": "easyappointments",

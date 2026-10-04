@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://github.com/Gentleman-Programming/engram",
   "color": "#7C3AED",
+  "fullColorLogo": true,
   "note": "Clients sync with the cloud token: engram cloud config --server https://<domain>. Sign in to the dashboard at /dashboard/login with the admin token (Variables tab).",
   "expose": {
     "service": "engram",

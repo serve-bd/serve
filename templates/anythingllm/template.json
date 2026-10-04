@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://anythingllm.com",
   "color": "#0E0F0F",
+  "fullColorLogo": true,
   "note": "The instance is open to anyone until you set a password in Settings → Security. Pick an LLM provider and enter its API key on first open.",
   "expose": {
     "service": "anythingllm",

@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://blinko.space",
   "color": "#2D2D2D",
+  "fullColorLogo": true,
   "note": "Open the site and make the first account. It becomes the admin.",
   "expose": {
     "service": "blinko",

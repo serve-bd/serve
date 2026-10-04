@@ -4,6 +4,7 @@
   "category": "Databases",
   "website": "https://autobase.tech",
   "color": "#2F6BF5",
+  "fullColorLogo": true,
   "hostAccess": true,
   "note": "Sign in with the generated auth token (Variables tab). The console mounts the Docker socket to run its deployment jobs on the server.",
   "expose": {

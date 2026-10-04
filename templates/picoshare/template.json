@@ -4,6 +4,7 @@
   "category": "Storage",
   "website": "https://pico.rocks",
   "color": "#1F6F8B",
+  "fullColorLogo": true,
   "note": "Sign in with the generated passphrase (Variables tab).",
   "expose": {
     "service": "picoshare",

@@ -4,6 +4,7 @@
   "category": "Automation",
   "website": "https://hatchet.run",
   "color": "#0A1029",
+  "fullColorLogo": true,
   "hostAccess": true,
   "minVersion": "0.2.7",
   "note": "Log in with the admin email and password below, then create an API token for your workers. Publishes port 7077 (gRPC, no TLS) on the server for workers; set HATCHET_CLIENT_TLS_STRATEGY=none in them.",

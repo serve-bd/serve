@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://github.com/basecamp/once-campfire",
   "color": "#1D2D35",
+  "fullColorLogo": true,
   "note": "Open the domain to create the admin account; the first person to sign up becomes the admin.",
   "expose": {
     "service": "campfire",

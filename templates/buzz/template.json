@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://github.com/block/buzz",
   "color": "#F5B700",
+  "fullColorLogo": true,
   "note": "Set the owner pubkey to your Nostr public key in hex (64 characters). Only the owner and members added by the owner can use the relay. Connect with the Buzz desktop or mobile app using the domain.",
   "expose": {
     "service": "relay",

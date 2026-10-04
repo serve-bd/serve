@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://azimutt.app",
   "color": "#4F46E5",
+  "fullColorLogo": true,
   "note": "Create your account on the first visit.",
   "expose": {
     "service": "azimutt",

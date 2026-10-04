@@ -4,6 +4,7 @@
   "category": "Communication",
   "website": "https://github.com/rmyndharis/OpenWA",
   "color": "#25D366",
+  "fullColorLogo": true,
   "note": "Sign in to the dashboard with the API master key below, then scan the QR code with WhatsApp to link a session.",
   "expose": {
     "service": "openwa",

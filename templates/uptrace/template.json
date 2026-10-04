@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://uptrace.dev",
   "color": "#4F46E5",
+  "fullColorLogo": true,
   "note": "Log in with the admin email and the generated admin password. Send OpenTelemetry data over OTLP/HTTP to your domain, with the project token as the DSN.",
   "expose": {
     "service": "uptrace",

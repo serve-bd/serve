@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://www.litellm.ai",
   "color": "#1E3A8A",
+  "fullColorLogo": true,
   "note": "Open /ui and log in as admin with the generated UI password, then add models and provider API keys there. API clients use the master key: sk- followed by LITELLM_MASTER_KEY.",
   "expose": {
     "service": "litellm",

@@ -4,6 +4,7 @@
   "category": "CMS",
   "website": "https://www.vvveb.com",
   "color": "#1F8EF1",
+  "fullColorLogo": true,
   "note": "Open the domain to run the installer: keep SQLite and create the admin account. The admin panel is at /admin.",
   "expose": {
     "service": "vvveb",

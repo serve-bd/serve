@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://www.orangehrm.com",
   "color": "#F28C38",
+  "fullColorLogo": true,
   "note": "Open the domain to run the installer. Choose an existing empty database: host mariadb, port 3306, database orangehrm, user orangehrm and the database password below.",
   "expose": {
     "service": "orangehrm",

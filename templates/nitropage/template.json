@@ -4,6 +4,7 @@
   "category": "CMS",
   "website": "https://nitropage.org",
   "color": "#0F172A",
+  "fullColorLogo": true,
   "note": "Open /admin on the domain to create the first admin account.",
   "expose": {
     "service": "nitropage",

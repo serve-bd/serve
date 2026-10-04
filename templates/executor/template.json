@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://executor.sh",
   "color": "#18181B",
+  "fullColorLogo": true,
   "note": "Sign in with the admin email and password. Agents connect to the MCP endpoint at /mcp.",
   "expose": {
     "service": "executor",

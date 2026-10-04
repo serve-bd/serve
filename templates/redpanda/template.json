@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://www.redpanda.com",
   "color": "#E2401B",
+  "fullColorLogo": true,
   "note": "The console asks for the user and password below. Services connect with any Kafka client to <stack>-redpanda:9092 on the private network.",
   "expose": {
     "service": "web",

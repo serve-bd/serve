@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://www.opensignlabs.com",
   "color": "#47A3AD",
+  "fullColorLogo": true,
   "note": "Open the site to make the admin account. A self-signed signing certificate is made on the first start. Emails to signers need SMTP settings on the server service.",
   "expose": {
     "service": "caddy",

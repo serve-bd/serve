@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://www.getunleash.io",
   "color": "#1A4049",
+  "fullColorLogo": true,
   "note": "Log in as admin with the generated admin password, then create API tokens for your SDKs.",
   "expose": {
     "service": "unleash",

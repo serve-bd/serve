@@ -4,6 +4,7 @@
   "category": "Databases",
   "website": "https://sequinstream.com",
   "color": "#2E2E2E",
+  "fullColorLogo": true,
   "note": "Sign in with the admin email and password below (Variables tab). Sign-up is turned off.",
   "expose": {
     "service": "sequin",

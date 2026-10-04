@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://github.com/ChatGPTNextWeb/NextChat",
   "color": "#1D93AB",
+  "fullColorLogo": true,
   "note": "Chats are saved in your browser. To use the API key set here, enter the access code in the app settings; without it, each user enters their own key.",
   "expose": {
     "service": "nextchat",

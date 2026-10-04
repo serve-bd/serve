@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://getwud.github.io/wud/",
   "color": "#2496ED",
+  "fullColorLogo": true,
   "hostAccess": true,
   "note": "Reads the Docker socket of the server. Log in as admin with the generated admin password.",
   "expose": {

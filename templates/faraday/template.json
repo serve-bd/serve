@@ -4,6 +4,7 @@
   "category": "Security",
   "website": "https://faradaysec.com",
   "color": "#1E3A8A",
+  "fullColorLogo": true,
   "note": "Sign in as faraday with the admin password (Variables tab).",
   "expose": {
     "service": "faraday",

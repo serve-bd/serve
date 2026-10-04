@@ -4,6 +4,7 @@
   "category": "Productivity",
   "website": "https://vert.sh",
   "color": "#F2ABEE",
+  "fullColorLogo": true,
   "expose": {
     "service": "vert",
     "port": 80

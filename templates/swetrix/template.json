@@ -4,6 +4,7 @@
   "category": "Analytics",
   "website": "https://swetrix.com",
   "color": "#4F46E5",
+  "fullColorLogo": true,
   "note": "Sign up on the first visit to create your account. Turn off sign-ups afterwards by setting DISABLE_REGISTRATION to true in the compose file.",
   "expose": {
     "service": "nginx",

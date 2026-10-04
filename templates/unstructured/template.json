@@ -4,6 +4,7 @@
   "category": "AI",
   "website": "https://unstructured.io",
   "color": "#1C1C2E",
+  "fullColorLogo": true,
   "note": "API only, no web UI. Send files to /general/v0/general with the API key below in the unstructured-api-key header.",
   "expose": {
     "service": "unstructured",

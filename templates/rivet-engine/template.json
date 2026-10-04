@@ -4,6 +4,7 @@
   "category": "Developer tools",
   "website": "https://rivet.dev",
   "color": "#FF4F00",
+  "fullColorLogo": true,
   "note": "Your apps connect to this domain with the admin token (Variables tab). The dashboard is at /ui.",
   "expose": {
     "service": "rivet-engine",

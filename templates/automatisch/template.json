@@ -4,6 +4,7 @@
   "category": "Automation",
   "website": "https://automatisch.io",
   "color": "#6E3AD8",
+  "fullColorLogo": true,
   "note": "Open the site to create the admin account on the installation page.",
   "expose": {
     "service": "automatisch",

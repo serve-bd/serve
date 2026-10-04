@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://openobserve.ai",
   "color": "#3F7994",
+  "fullColorLogo": true,
   "minVersion": "0.2.7",
   "note": "Sign in with the admin email and password shown here.",
   "expose": {

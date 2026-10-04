@@ -4,6 +4,7 @@
   "category": "Monitoring",
   "website": "https://github.com/marckohlbrugge/sessy",
   "color": "#4F46E5",
+  "fullColorLogo": true,
   "note": "Sign in as admin with the generated password (Variables tab). Then point an SES configuration set at the webhook URL Sessy shows.",
   "expose": {
     "service": "sessy",

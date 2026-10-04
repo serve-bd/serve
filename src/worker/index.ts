@@ -856,7 +856,7 @@ async function main() {
   // Private network: addresses for new services, servers that joined or left, agents that went missing.
   every(30_000, "mesh", () => syncMesh(), true);
   // Servers that connect out: the listener runs while any exist.
-  every(10_000, "tunnels", () => syncTunnels(), true);
+  every(10_000, "server-listener", () => syncTunnels(), true);
   // Uptime checks run every 15 s and pick the monitors that are due.
   every(15_000, "uptime", runUptimeChecks, true);
   every(60_000, "container-health", checkContainerHealth);

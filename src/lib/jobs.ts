@@ -6,6 +6,7 @@ export const SCHEDULER_LABELS: Record<string, string> = {
   servers: "Server reachability",
   "host-ports": "Host port relays",
   tunnels: "Cloudflare Tunnels",
+  "server-listener": "Servers that connect out",
   metrics: "Metrics",
   "metrics-agents": "Metrics agents",
   "metric-rollups": "Metric rollups",

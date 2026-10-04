@@ -6,7 +6,7 @@ import { Check, Info, Loader2, Play, Power, RefreshCw, RotateCw, Square, Triangl
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, EmptyState, TimeAgo, Copyable } from "@/components/ui/misc";
 import { Led } from "@/components/ui/status";
-import { Textarea } from "@/components/ui/input";
+import { CodeEditor } from "@/components/code-editor";
 import { useConfirm } from "@/components/ui/confirm";
 import { LogViewer, type LogLine } from "@/components/log-viewer";
 import { useAction } from "@/hooks/use-action";
@@ -305,13 +305,14 @@ function CustomConfigCard({ initial }: { initial: string }) {
           }
         />
         <CardBody className="flex flex-col gap-3 py-5">
-          <Textarea
+          <CodeEditor
             value={value}
-            onChange={(e) => setValue(e.target.value)}
-            rows={8}
-            spellCheck={false}
+            onChange={setValue}
+            language="text"
+            minRows={8}
+            maxHeight="28rem"
             placeholder={"# Example\nproxy_read_timeout 600s;\nlimit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;"}
-            className="font-mono text-[12.5px] leading-relaxed"
+            aria-label="Shared nginx directives"
           />
           {error && (
             <Copyable value={error}>

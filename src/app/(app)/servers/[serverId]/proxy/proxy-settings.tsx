@@ -6,7 +6,8 @@ import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader, Copyable } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
-import { Input, InputGroup, Textarea } from "@/components/ui/input";
+import { CodeEditor } from "@/components/code-editor";
+import { Input, InputGroup } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import { saveProxySettings } from "@/server/actions/proxy-kind";
@@ -200,13 +201,14 @@ export function CaddySettingsCard({ serverId, initial, acmeEmail }: { serverId: 
         onCheckedChange={(x) => form.set({ http3: x })}
       />
       <Field label="Extra global options" description="Lines inside Caddy's global options block.">
-        <Textarea
+        <CodeEditor
           value={v.rawGlobal}
-          onChange={(e) => form.set({ rawGlobal: e.target.value })}
-          rows={4}
-          spellCheck={false}
+          onChange={(x) => form.set({ rawGlobal: x })}
+          language="text"
+          minRows={4}
+          maxHeight="20rem"
           placeholder={"# Example\nocsp_stapling off"}
-          className="font-mono text-[12.5px]"
+          aria-label="Extra global options"
         />
       </Field>
     </FormCard>

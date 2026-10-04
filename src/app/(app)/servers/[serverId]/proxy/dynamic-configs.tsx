@@ -7,7 +7,8 @@ import { ChevronRight, FileCode2, Lock, Pencil, Plus, RefreshCw, RotateCcw, Tras
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardBody, CardFooter, CardHeader, EmptyState, TimeAgo, Copyable } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
-import { Input, Textarea } from "@/components/ui/input";
+import { CodeEditor } from "@/components/code-editor";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SwitchRow } from "@/components/ui/switch";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -260,13 +261,14 @@ function FileForm({
           label="Content"
           description="127.0.0.1:PORT and localhost:PORT reach this machine's own ports, also apps that listen on 127.0.0.1 only. Ports the proxy uses itself still reach the proxy."
         >
-          <Textarea
+          <CodeEditor
             value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={16}
-            spellCheck={false}
+            onChange={setContent}
+            language={kind === "traefik" ? "yaml" : "text"}
+            minRows={16}
+            maxHeight="32rem"
             placeholder={help.placeholder}
-            className="font-mono text-[12.5px] leading-relaxed"
+            aria-label="Content"
           />
         </Field>
         {error && <ErrorBox message={error} />}

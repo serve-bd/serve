@@ -2,14 +2,20 @@
 # Installs the serve CLI.
 #   curl -fsSL https://raw.githubusercontent.com/serve-bd/serve/main/install-cli.sh | sh
 #
+# The CLI has its own releases, tagged cli-v1.2.3, apart from Serve's own (v1.2.3). Serve's
+# releases do not carry the CLI any more; older ones (up to v0.3.x) keep the archives they had.
+# Once installed, `serve upgrade` updates it.
+#
 # Environment overrides:
-#   SERVE_CLI_VERSION   release to install, like v0.3.2 (default: the newest release)
+#   SERVE_CLI_VERSION   version to install: v1.2.3, 1.2.3 or cli-v1.2.3 (default: the newest)
 #   SERVE_CLI_DIR       folder to install into (default: /usr/local/bin when writable, else ~/.local/bin)
 #   SERVE_CLI_BASE      where releases are downloaded from (default: the GitHub releases of serve-bd/serve)
+#   SERVE_CLI_API       the GitHub API list of releases, to find the newest CLI
 set -eu
 
 REPO="${SERVE_REPO:-serve-bd/serve}"
 RELEASES="${SERVE_CLI_BASE:-https://github.com/$REPO/releases}"
+API="${SERVE_CLI_API:-https://api.github.com/repos/$REPO/releases?per_page=100}"
 
 info() { printf '  \033[34m→\033[0m %s\n' "$*"; }
 ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -22,7 +28,7 @@ command -v tar >/dev/null || fail "tar is required."
 case "$(uname -s)" in
   Linux) os=linux ;;
   Darwin) os=darwin ;;
-  MINGW* | MSYS* | CYGWIN*) fail "On Windows, download serve_<version>_windows_amd64.zip from $RELEASES/latest and put serve.exe in your PATH." ;;
+  MINGW* | MSYS* | CYGWIN*) fail "On Windows, download serve_<version>_windows_amd64.zip from the newest \"Serve CLI\" release at $RELEASES and put serve.exe in your PATH." ;;
   *) fail "There is no serve CLI build for $(uname -s)." ;;
 esac
 case "$(uname -m)" in
@@ -31,22 +37,43 @@ case "$(uname -m)" in
   *) fail "There is no serve CLI build for $(uname -m) processors." ;;
 esac
 
+# newest_cli prints the tag of the newest CLI release: the first cli-v* tag in GitHub's list
+# (newest first) that is not a draft or a pre-release. No jq needed: the JSON is split at commas
+# and read field by field (tag_name comes before draft and prerelease in each release).
+newest_cli() {
+  curl -fsSL -H 'Accept: application/vnd.github+json' "$API" | tr ',' '\n' | awk '
+    /"tag_name": *"/ { tag = $0; sub(/.*"tag_name": *"/, "", tag); sub(/".*/, "", tag); draft = 0 }
+    /"draft": *true/ { draft = 1 }
+    /"prerelease": *false/ {
+      if (!draft && tag ~ /^cli-v[0-9]+[.][0-9]+[.][0-9]+$/) { print tag; exit }
+    }'
+}
+
 version="${SERVE_CLI_VERSION:-}"
 if [ -z "$version" ]; then
-  # The latest release page redirects to its tag; this needs no API token and has no rate limit.
-  latest="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$RELEASES/latest")" || fail "Could not find the newest release."
-  version="${latest##*/}"
-  case "$version" in v*) ;; *) fail "Could not find the newest release (got $latest)." ;; esac
+  tag="$(newest_cli)" || fail "Could not read the list of releases at $API. Set SERVE_CLI_VERSION=v1.2.3 to skip this."
+  [ -n "$tag" ] || fail "Found no serve CLI release (tags cli-v*) at $RELEASES."
+  version="$tag"
 fi
-case "$version" in v*) ;; *) version="v$version" ;; esac
+version="${version#cli-}"
+version="v${version#v}"
+case "$version" in
+  v[0-9]*.[0-9]*.[0-9]*) ;;
+  *) fail "SERVE_CLI_VERSION should look like v1.2.3 (got ${SERVE_CLI_VERSION:-$version})." ;;
+esac
 
 name="serve_${version#v}_${os}_${arch}"
-base="$RELEASES/download/$version"
+base="$RELEASES/download/cli-$version"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 info "Downloading serve $version for $os/$arch"
-curl -fsSL "$base/$name.tar.gz" -o "$tmp/$name.tar.gz" || fail "Could not download $base/$name.tar.gz. Does release $version have CLI builds?"
+if ! curl -fsSL "$base/$name.tar.gz" -o "$tmp/$name.tar.gz" 2>/dev/null; then
+  # Versions up to v0.3.x were attached to Serve's release of the same tag.
+  old="$RELEASES/download/$version"
+  curl -fsSL "$old/$name.tar.gz" -o "$tmp/$name.tar.gz" 2>/dev/null || fail "Could not download $base/$name.tar.gz. Is there a serve CLI $version?"
+  base="$old"
+fi
 curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt" || fail "Could not download the checksums of $version."
 
 want="$(grep " $name.tar.gz\$" "$tmp/checksums.txt" | cut -d' ' -f1)"

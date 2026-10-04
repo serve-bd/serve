@@ -429,7 +429,7 @@ func TestVersionCheckIsCached(t *testing.T) {
 	hits := 0
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
-		w.Write([]byte(`{"tag_name":"v9.0.0"}`))
+		w.Write([]byte(`[{"tag_name":"v10.0.0"},{"tag_name":"cli-v9.0.0"}]`))
 	}))
 	defer gh.Close()
 	old := ReleasesURL
@@ -437,7 +437,7 @@ func TestVersionCheckIsCached(t *testing.T) {
 	defer func() { ReleasesURL = old }()
 	for i := 0; i < 2; i++ {
 		r := execute(t, "version")
-		if !strings.Contains(r.errout, "v9.0.0") {
+		if !strings.Contains(r.errout, "v9.0.0") || strings.Contains(r.errout, "v10") || !strings.Contains(r.errout, "serve upgrade") {
 			t.Fatalf("should tell about the newer version: %q", r.errout)
 		}
 	}

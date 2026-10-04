@@ -10,9 +10,15 @@ curl -fsSL https://raw.githubusercontent.com/serve-bd/serve/main/install-cli.sh 
 ```
 
 It installs to `/usr/local/bin` when that is writable, else to `~/.local/bin`. Set
-`SERVE_CLI_VERSION=v0.3.2` for a given release. On Windows, download the `.zip` for your
-machine from the [releases](https://github.com/serve-bd/serve/releases) and put `serve.exe`
-in your PATH.
+`SERVE_CLI_VERSION=v1.0.0` for a given version. On Windows, download the `.zip` for your
+machine from the newest "Serve CLI" [release](https://github.com/serve-bd/serve/releases) and
+put `serve.exe` in your PATH.
+
+The CLI has its own versions (tags `cli-v1.0.0` and up), apart from Serve's, and works with
+any recent Serve. `serve upgrade` replaces it with the newest version (`--check` only says
+whether there is one). After everyday commands it prints one line on stderr when a newer
+version is out; it is never shown without a terminal, with `--json`, in CI or when
+`SERVE_NO_UPDATE_CHECK` is set.
 
 From source (Go 1.26 or newer): `go install github.com/serve-bd/serve/cli/cmd/serve@latest`.
 
@@ -110,6 +116,7 @@ Exit codes: 0 done, 1 error, 2 usage error, 3 the deployment failed or was cance
 | `serve db url [--public]` | The connection string of a database |
 | `serve projects`, `services`, `servers` | Browse |
 | `serve version` | The version, and whether a newer one is out |
+| `serve upgrade` | Replace this serve with the newest version (`--check`, `--version v1.2.0`) |
 | `serve completion bash\|zsh\|fish\|powershell` | Shell completion script |
 
 Read commands take `--json` for scripts. Commands that work on a service use the linked one,

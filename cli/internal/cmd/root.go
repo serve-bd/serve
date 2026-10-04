@@ -40,9 +40,21 @@ type App struct {
 	cfg            *config.Config
 	login          *config.Context
 	client         *api.Client
+	notice         *updateNotice
 }
 
 func NewRoot(b Build) *cobra.Command {
+	root, _ := newRoot(b)
+	return root
+}
+
+// noticeCommands show the update notice when they end (see notice.go).
+var noticeCommands = [][]string{
+	{"deploy"}, {"redeploy"}, {"rollback"}, {"init"}, {"link"}, {"status"}, {"login"}, {"logs"},
+	{"env", "pull"}, {"env", "push"},
+}
+
+func newRoot(b Build) (*cobra.Command, *App) {
 	cobra.EnableCommandSorting = false
 	a := &App{Build: b}
 	root := &cobra.Command{
@@ -64,6 +76,7 @@ Commands that work on a service use the one this folder is linked to (serve link
 			if a.noColor {
 				ui.DisableColor()
 			}
+			a.startNotice(cmd)
 		},
 	}
 	root.SetVersionTemplate("serve {{.Version}}\n")
@@ -94,13 +107,18 @@ Commands that work on a service use the one this folder is linked to (serve link
 	add("deploy", a.deployCmd(), a.deploymentsCmd(), a.redeployCmd(), a.rollbackCmd(), a.cancelCmd(), a.forceStartCmd())
 	add("manage", a.statusCmd(), a.openCmd(), a.logsCmd(), a.controlCmd("start"), a.controlCmd("stop"), a.controlCmd("restart"), a.builderCmd(), a.envCmd(), a.domainsCmd(), a.dbCmd())
 	add("browse", a.projectsCmd(), a.servicesCmd(), a.serversCmd())
-	root.AddCommand(a.versionCmd())
-	return root
+	root.AddCommand(a.versionCmd(), a.upgradeCmd())
+	for _, p := range noticeCommands {
+		if c, _, err := root.Find(p); err == nil && c.Name() == p[len(p)-1] {
+			withNotice(c)
+		}
+	}
+	return root, a
 }
 
 // Execute runs the CLI and answers the exit code.
 func Execute(b Build, args []string) int {
-	root := NewRoot(b)
+	root, a := newRoot(b)
 	root.SetArgs(args)
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
@@ -112,6 +130,7 @@ func Execute(b Build, args []string) int {
 		}
 		PrintError(err, path)
 	}
+	a.finishNotice()
 	return ExitCode(err)
 }
 

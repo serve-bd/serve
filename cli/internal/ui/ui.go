@@ -175,3 +175,6 @@ func Duration(d time.Duration) string {
 
 // Line prints a message as it is.
 func Line(s string) { fmt.Fprintln(Err, s) }
+
+// ErrIsTerminal says whether stderr is a terminal (where hints like the update notice belong).
+func ErrIsTerminal() bool { return errTTY }

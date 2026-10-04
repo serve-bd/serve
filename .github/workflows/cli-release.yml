@@ -1,17 +1,21 @@
 name: CLI release
 
-# The serve CLI is released with Serve: each tag like v0.3.2 gets serve_<version>_<os>_<arch>
-# archives and checksums.txt on its GitHub release, which install-cli.sh and `serve version` use.
-# It runs after the Image workflow of the tag has published the release, so instances never see
-# a release before its image exists. Run it by hand to attach the archives to a release again.
+# The serve CLI has its own versions, apart from Serve's: pushing a tag like cli-v1.2.0 builds
+# serve_1.2.0_<os>_<arch> archives and checksums.txt and publishes them as the GitHub release
+# "Serve CLI v1.2.0". install-cli.sh, `serve version` and `serve upgrade` find it in the list of
+# releases. Serve's own releases (tags v*) no longer carry the CLI; older ones keep theirs.
+#
+# A CLI release is never marked "latest": Serve instances look for their own updates through
+# /releases/latest, and must never see a CLI tag there.
+#
+# Run it by hand to build a tag again; it then replaces the archives of the existing release.
 on:
-  workflow_run:
-    workflows: [Image]
-    types: [completed]
+  push:
+    tags: ["cli-v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to build and attach, like v0.3.2
+        description: CLI tag to build and publish, like cli-v1.2.0
         required: true
 
 permissions:
@@ -19,14 +23,20 @@ permissions:
 
 jobs:
   release:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-latest
     env:
-      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_branch }}
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
+      - name: Check the tag
+        run: |
+          case "$TAG" in
+            cli-v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::$TAG is not a CLI tag like cli-v1.2.0"; exit 1 ;;
+          esac
+          echo "VERSION=${TAG#cli-v}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_sha }}
+          ref: ${{ env.TAG }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: cli/go.mod
@@ -44,12 +54,12 @@ jobs:
           mkdir -p build dist
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             os="${target%/*}" arch="${target#*/}"
-            name="serve_${TAG#v}_${os}_${arch}"
+            name="serve_${VERSION}_${os}_${arch}"
             exe=serve
             [ "$os" = windows ] && exe=serve.exe
             mkdir -p "build/$name"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
-              -ldflags "-s -w -X main.version=$TAG -X main.commit=$commit -X main.date=$date" \
+              -ldflags "-s -w -X main.version=v$VERSION -X main.commit=$commit -X main.date=$date" \
               -o "build/$name/$exe" ./cmd/serve
             cp README.md ../LICENSE "build/$name/"
             if [ "$os" = windows ]; then
@@ -60,7 +70,22 @@ jobs:
           done
           (cd dist && sha256sum -- * > checksums.txt)
           cat dist/checksums.txt
-      - name: Attach to the release
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$TAG" cli/dist/* --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          prerelease=
+          case "$VERSION" in *-*) prerelease=--prerelease ;; esac
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" cli/dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            printf '%s\n' \
+              "The serve command line tool, version $VERSION. It works with any recent Serve." \
+              "" \
+              "Install it or update it: https://serve.bd/docs/cli (or run \`serve upgrade\`)." \
+              "" \
+              "Pick the archive for your system below. checksums.txt has their SHA-256." > notes.md
+            # --latest=false: Serve instances check /releases/latest for their own updates.
+            gh release create "$TAG" cli/dist/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "Serve CLI v$VERSION" --notes-file notes.md --latest=false $prerelease
+          fi

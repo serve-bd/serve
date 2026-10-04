@@ -105,11 +105,15 @@ export async function queueDeployment(
     if (opts.userId) throw new UserError(full);
     return recordSkipped(serviceId, trigger, full, opts);
   }
+  const { queueCommitStatus } = await import("@/server/git/commit-status");
   if (gate.kind === "approve") {
     await supersedeWaiting(serviceId, id);
+    await queueCommitStatus(id);
     await notifyWaiting(serviceId, id);
     return id;
   }
+  // Before the deploy job: the report of its first state is queued ahead of the later ones.
+  await queueCommitStatus(id);
   await enqueue("deploy", { deploymentId: id }, { concurrencyKey: `service:${serviceId}` });
   return id;
 }
@@ -188,6 +192,8 @@ export async function recordSkipped(
     upload: commit.upload ?? null,
     finishedAt: new Date(),
   });
+  const { queueCommitStatus } = await import("@/server/git/commit-status");
+  await queueCommitStatus(id);
   return id;
 }
 

@@ -49,8 +49,11 @@ export async function canApprove(organizationId: string, userId: string) {
 
 /** A newer deploy waiting for approval replaces the older ones of the same service. */
 export async function supersedeWaiting(serviceId: string, exceptId: string) {
-  await db
+  const skipped = await db
     .update(schema.deployment)
     .set({ status: "superseded", finishedAt: new Date(), logs: "Skipped: a newer deployment is waiting for approval.\n" })
-    .where(and(eq(schema.deployment.serviceId, serviceId), eq(schema.deployment.status, "waiting"), ne(schema.deployment.id, exceptId)));
+    .where(and(eq(schema.deployment.serviceId, serviceId), eq(schema.deployment.status, "waiting"), ne(schema.deployment.id, exceptId)))
+    .returning({ id: schema.deployment.id });
+  const { queueCommitStatuses } = await import("@/server/git/commit-status");
+  await queueCommitStatuses(skipped.map((d) => d.id));
 }

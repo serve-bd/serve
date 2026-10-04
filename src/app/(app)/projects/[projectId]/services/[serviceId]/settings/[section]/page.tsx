@@ -279,6 +279,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
           : undefined
       }
       distribution={section === "servers" ? await distributionProps(service, servers, ctx.org.id, ctx.isAdmin) : undefined}
+      commitStatusProblem={section === "source" && source?.type === "git" ? await (await import("@/server/git/commit-status")).commitStatusProblem(source.credentialId) : null}
     />
   );
 }

@@ -21,6 +21,7 @@ import { engines } from "@/server/databases/engines";
 import { resolveTemplate, templateVarValue } from "@/server/services/custom-templates";
 import { assertCredentialHost, normalizeRepoUrl, repoUrlProblem } from "@/server/deploy/git";
 import { registerRepoWebhook, syncRepoWebhook } from "@/server/git/repo-webhooks";
+import { queueCommitStatus } from "@/server/git/commit-status";
 import { composeServiceNames, parseCompose } from "@/server/deploy/compose";
 import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
@@ -539,7 +540,14 @@ const updateSchema = z.object({
   previewDomain: z.string().trim().toLowerCase().nullable().optional(),
   source: z
     .discriminatedUnion("type", [
-      z.object({ type: z.literal("git"), repository: repositoryField, branch: z.string().trim().min(1), credentialId: z.string().nullable().optional() }),
+      z.object({
+        type: z.literal("git"),
+        repository: repositoryField,
+        branch: z.string().trim().min(1),
+        credentialId: z.string().nullable().optional(),
+        /** Report deployments on their commits; left out, it stays as it was (on by default). */
+        commitStatuses: z.boolean().optional(),
+      }),
       z.object({
         type: z.literal("image"),
         image: z.string().trim().min(1),
@@ -780,7 +788,15 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     if (data.source) {
       if (data.source.type === "git") {
         await assertCredential(data.source.credentialId, ctx.org.id, data.source.repository);
-        patch.source = { type: "git", repository: normalizeRepoUrl(data.source.repository), branch: data.source.branch, credentialId: data.source.credentialId ?? null };
+        const commitStatuses = data.source.commitStatuses ?? (service.source?.type === "git" ? service.source.commitStatuses : undefined);
+        patch.source = {
+          type: "git",
+          repository: normalizeRepoUrl(data.source.repository),
+          branch: data.source.branch,
+          credentialId: data.source.credentialId ?? null,
+          // Only "off" is stored: unset means on.
+          ...(commitStatuses === false ? { commitStatuses: false } : {}),
+        };
       } else if (data.source.type === "dockerfile") {
         if (service.type !== "app") throw new UserError("Only apps can be built from a Dockerfile.");
         patch.source = { type: "dockerfile", content: data.source.content };
@@ -1163,6 +1179,7 @@ export async function cancelDeployment(deploymentId: string) {
         .update(schema.deployment)
         .set({ status: "cancelled", finishedAt: new Date(), logs: "Cancelled while it waited for approval.\n" })
         .where(and(eq(schema.deployment.id, deploymentId), eq(schema.deployment.status, "waiting")));
+      await queueCommitStatus(deploymentId);
       return null;
     }
     if (dep.status === "queued") {
@@ -1172,6 +1189,7 @@ export async function cancelDeployment(deploymentId: string) {
         .where(and(eq(schema.deployment.id, deploymentId), eq(schema.deployment.status, "queued")))
         .returning({ id: schema.deployment.id });
       if (cancelled) {
+        await queueCommitStatus(deploymentId);
         await settleCancelledStatus(dep.serviceId);
         return null;
       }

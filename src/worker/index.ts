@@ -124,6 +124,11 @@ async function handle(job: Job, signal: AbortSignal) {
       return runUpdate(p.to);
     case "notification.deliver":
       return void (await attemptDelivery(p.deliveryId));
+    case "commit.status": {
+      const { reportCommitStatus } = await import("@/server/git/commit-status");
+      const q = job.payload as JobPayloads["commit.status"];
+      return void (await reportCommitStatus(q.deploymentId, q.status, { last: job.attempts >= job.maxAttempts }));
+    }
     case "mesh.sync":
       return syncMesh();
     case "tunnel.sync":
@@ -248,6 +253,8 @@ async function settleTimedOut(job: Job, error: string) {
         .where(and(eq(schema.deployment.id, p.deploymentId), inArray(schema.deployment.status, ["building", "deploying"])))
         .returning({ id: schema.deployment.id, serviceId: schema.deployment.serviceId, startedAt: schema.deployment.startedAt });
       if (!dep) return;
+      const { queueCommitStatus } = await import("@/server/git/commit-status");
+      await queueCommitStatus(dep.id);
       const [service] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, dep.serviceId));
       const server = service ? await getServer(service.serverId).catch(() => null) : null;
       const up = server ? await recoverInterruptedDeployment(dep, server.docker).catch(() => false) : false;
@@ -681,7 +688,9 @@ async function recover() {
     .set({ status: "failed", error: "The worker restarted during this deployment.", finishedAt: new Date() })
     .where(inArray(schema.deployment.status, ["building", "deploying"]))
     .returning({ id: schema.deployment.id, serviceId: schema.deployment.serviceId, startedAt: schema.deployment.startedAt });
+  const { queueCommitStatus } = await import("@/server/git/commit-status");
   for (const dep of stuck) {
+    await queueCommitStatus(dep.id);
     const [service] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, dep.serviceId));
     const server = service ? await getServer(service.serverId).catch(() => null) : null;
     const up = server ? await recoverInterruptedDeployment(dep, server.docker).catch(() => false) : false;

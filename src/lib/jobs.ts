@@ -43,6 +43,7 @@ export const JOB_LABELS: Record<string, string> = {
   "task.run": "Scheduled task",
   "certificate.issue": "Certificate",
   "certificate.retire": "Certificate removal",
+  "commit.status": "Commit status",
   cleanup: "Docker cleanup",
   "database.branch": "Database branch",
   "environment.copy-data": "Data copy",

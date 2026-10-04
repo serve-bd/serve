@@ -27,12 +27,15 @@ export type JobType =
   | "preview.database"
   | "database.branch"
   | "mesh.sync"
+  | "commit.status"
   | "tunnel.sync";
 
 export type JobPayloads = {
   /** `force`: started at once, past the build server's slot limit (someone chose Force start). */
   deploy: { deploymentId: string; force?: boolean };
   "mesh.sync": Record<string, never>;
+  /** Report a deployment's state on its commit; `status` is the state it was queued for. */
+  "commit.status": { deploymentId: string; status: import("@/server/db/schema").DeploymentStatus };
   "tunnel.sync": Record<string, never>;
   "service.stop": { serviceId: string };
   "service.start": { serviceId: string };

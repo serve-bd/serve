@@ -46,6 +46,9 @@ export async function GET(request: NextRequest) {
         .set({ name: `GitHub · ${installation.account.login}`, publicInfo: installation.account.login })
         .where(eq(schema.gitCredential.id, cred.id));
       forgetToken(cred.id);
+      // Installed again or updated (new permissions): a refused commit status is tried again.
+      const { clearCommitStatusBlock } = await import("@/server/git/commit-status");
+      await clearCommitStatusBlock(cred.id);
       return redirectToGitPage(base, { connected: installation.account.login });
     } catch {
       // not this app's installation

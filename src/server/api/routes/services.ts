@@ -174,7 +174,7 @@ export const serviceRoutes: ApiRoute[] = [
     tag: "Services",
     summary: "Change a service",
     description:
-      "Change settings: name, hostname, autoDeploy, previewsEnabled, previewDomain, source, build, runtime (port, replicas, healthcheck, resources, volumes, ports, restart policy, ...), as the service's settings pages send them. Only the given fields change.",
+      "Change settings: name, hostname, autoDeploy, previewsEnabled, previewDomain, source, build, runtime (port, replicas, healthcheck, resources, volumes, ports, restart policy, ...), as the service's settings pages send them. Only the given fields change. A git source takes commitStatuses: false to stop reporting deployments on commits (on by default).",
     needs: ["services.manage"],
     body: z.looseObject({}),
     handler: async ({ auth, params, body }) => {

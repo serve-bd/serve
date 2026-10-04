@@ -201,6 +201,7 @@ export const RULES_JQ = String.raw`def targets($e):
     | select($e.kind == null or .Labels["serve.kind"] == $e.kind)
     | select($e.compose == null or .Labels["com.docker.compose.service"] == $e.compose)
     | select($e.deployment == null or .Labels["serve.deployment"] == null or .Labels["serve.deployment"] == $e.deployment)
+    | select($e.slot == null or .Labels["serve.kind"] == "app" and (.Names[0] | test("-[a-z0-9]{6}-\($e.slot)$")))
     | (if $e.network then .NetworkSettings.Networks[$e.network].IPAddress else ([.NetworkSettings.Networks[].IPAddress | select(. != "")] | first) end)
     | select(. != null and . != "")] | unique;
 def dnat($e):

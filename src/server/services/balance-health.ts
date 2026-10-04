@@ -4,7 +4,7 @@ import { execInContainer } from "@/server/docker/client";
 import { statusMatcher } from "@/server/deploy/options";
 import { getServer } from "@/server/servers/context";
 import { appCopies, nextBalance } from "./balance";
-import { decide, step, type Streak, targetsSignature } from "./balance-rules";
+import { copyId, decide, step, type Streak, targetsSignature } from "./balance-rules";
 
 export { CHECK_INTERVAL_MS } from "./balance-rules";
 
@@ -77,7 +77,8 @@ export async function checkBalances(log: (...args: unknown[]) => void = () => {}
           let changed = false;
           if (service.status !== "stopped") {
             for (const c of copies) {
-              const key = `${service.id}|${c.serverId}`;
+              const id = copyId(c.serverId, c.slot);
+              const key = `${service.id}|${id}`;
               if (!c.linked || !c.host || !c.deployed) {
                 streaks.delete(key);
                 continue;
@@ -85,15 +86,22 @@ export async function checkBalances(log: (...args: unknown[]) => void = () => {}
               const result = await probe({ container: ctx.proxyContainer, docker: ctx.docker }, c.host, service);
               const streak = step(streaks.get(key), result.ok);
               streaks.set(key, streak);
-              const verdict = decide(state?.copies?.[c.serverId]?.ok ?? null, streak);
+              const verdict = decide(state?.copies?.[id]?.ok ?? null, streak);
               if (verdict === null) continue;
-              const next = nextBalance(state, c.serverId, verdict, verdict ? null : result.error, now);
+              const next = nextBalance(state, id, verdict, verdict ? null : result.error, now);
               if (next) {
-                if (state?.copies?.[c.serverId]?.ok !== verdict) log(`load balancing: ${service.name} on ${c.serverId} is ${verdict ? "up" : `down (${result.error})`}`);
+                if (state?.copies?.[id]?.ok !== verdict) log(`load balancing: ${service.name} replica ${c.slot} on ${c.serverId} is ${verdict ? "up" : `down (${result.error})`}`);
                 state = next;
                 changed = true;
               }
             }
+          }
+          // Replicas that no longer exist (fewer replicas, a server removed) are forgotten.
+          const ids = new Set(copies.map((c) => copyId(c.serverId, c.slot)));
+          const stale = Object.keys(state?.copies ?? {}).filter((k) => !ids.has(k));
+          if (stale.length && state) {
+            state = { copies: Object.fromEntries(Object.entries(state.copies).filter(([k]) => ids.has(k))) };
+            changed = true;
           }
           if (changed) {
             await db.update(schema.service).set({ balance: state }).where(eq(schema.service.id, service.id));

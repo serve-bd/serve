@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { replicaCount } from "@/lib/refs";
 import os from "node:os";
 import path from "node:path";
 import { eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -78,6 +79,7 @@ function toPlanService(s: Service): PlanService {
     isolated: !!s.compose?.isolated,
     composeSubnet: s.compose?.subnet ?? null,
     currentDeploymentId: s.currentDeploymentId,
+    replicas: s.type === "app" ? replicaCount(s.runtime.replicas) : 1,
     // A database answers with its own container only: never its pooler or a replica.
     kind: s.type === "database" ? "database" : null,
   };
@@ -439,7 +441,8 @@ export async function meshBeforeStart(service: Pick<Service, "id" | "environment
       (i) => i.network === envNetworkName(service.environmentId),
     );
     if (!wanted.length) return;
-    log(`Private network: ${wanted.flatMap((i) => i.aliases).join(", ")} on other servers`);
+    const names = wanted.flatMap((i) => i.aliases);
+    if (names.length) log(`Private network: ${names.join(", ")} on other servers`);
     const ctx = await getServer(serverId);
     const deadline = Date.now() + 20_000;
     let missing = wanted.map((w) => w.name);

@@ -19,7 +19,7 @@ import { monitorUrl } from "@/server/monitoring/checks";
 import { logDrainsProps } from "@/server/log-drains/view";
 import { needsApproval } from "@/lib/deploy-rules";
 import { normalizeDistribution } from "@/server/deploy/distribution";
-import { appCopies, copyProblem } from "@/server/services/balance";
+import { appCopies, serverTraffic } from "@/server/services/balance";
 import { buildsImage, replicaInstances, replicasSupported } from "@/server/services/types";
 import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
 
@@ -119,7 +119,7 @@ async function distributionProps(service: typeof schema.service.$inferSelect, se
   ]);
   return {
     // How each copy on an extra server takes part in the load balancing.
-    traffic: Object.fromEntries(copies.map((c) => [c.serverId, { problem: copyProblem(c), error: c.error, since: c.since }])),
+    traffic: Object.fromEntries([...new Set(copies.map((c) => c.serverId))].map((id) => [id, serverTraffic(copies.filter((c) => c.serverId === id))])),
     // How visitors reach the own server: its public address, or a Cloudflare Tunnel per domain.
     entry: { publicIp: primary?.publicIp ?? null, domains: domains.length, tunneled: domains.filter((d) => d.tunnelId).length },
     // Built images (git and Dockerfile sources) can come from a build server and a registry.

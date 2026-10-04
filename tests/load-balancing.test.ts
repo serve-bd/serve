@@ -18,7 +18,7 @@ import {
   parseCopyKey,
   serviceKey,
 } from "@/server/mesh/plan";
-import { balancedTargets, type Copy, copyProblem, decide, nextBalance, step, targetsSignature } from "@/server/services/balance-rules";
+import { balancedTargets, type Copy, copyProblem, decide, nextBalance, serverTraffic, step, targetsSignature } from "@/server/services/balance-rules";
 import { upstreamBlock } from "@/server/proxy/templates";
 import { renderCaddySite } from "@/server/proxy/caddy";
 import { renderTraefikSite } from "@/server/proxy/traefik";
@@ -51,6 +51,7 @@ const app = (patch: Partial<PlanService> = {}): PlanService => ({
   isolated: false,
   composeSubnet: null,
   currentDeploymentId: "dep2",
+  replicas: 3,
   ...patch,
 });
 
@@ -72,18 +73,19 @@ describe("the private network carries the app's copies", () => {
   it("gives the app's copy on each extra server an address of its own there", () => {
     const needs = neededAddresses([A, B, C], [app()]);
     const keys = needs.map((n) => `${n.serverId} ${n.key}`).sort();
-    expect(keys).toContain("b lb:web:b");
-    expect(keys).toContain("c lb:web:c");
+    // One per replica: the proxy keeps connections open, so each replica needs an address of its own.
+    for (const x of ["b", "c"]) for (const slot of [1, 2, 3]) expect(keys).toContain(`${x} lb:web:${x}:${slot}`);
+    expect(keys).not.toContain("b lb:web:b:4");
     // The own server keeps the app's usual address; no copy address there.
     expect(keys).toContain("a svc:web");
-    expect(keys).not.toContain("a lb:web:a");
+    expect(keys.some((k) => k.startsWith("a lb:"))).toBe(false);
   });
 
   it("gives no copy address to an extra server without a private network with the own server", () => {
     const lonely = server("c", 3, "10.0.0.3", ["n2"]);
     const keys = neededAddresses([A, B, lonely], [app()]).map((n) => n.key);
-    expect(keys).toContain("lb:web:b");
-    expect(keys).not.toContain("lb:web:c");
+    expect(keys).toContain("lb:web:b:1");
+    expect(keys.some((k) => k.startsWith("lb:web:c"))).toBe(false);
   });
 
   it("gives no copy addresses to databases or stacks, nor without extra servers", () => {
@@ -92,7 +94,9 @@ describe("the private network carries the app's copies", () => {
   });
 
   it("reads copy keys back, and never mistakes other keys for them", () => {
-    expect(parseCopyKey(copyKey("web", "b"))).toEqual({ serviceId: "web", serverId: "b" });
+    expect(parseCopyKey(copyKey("web", "b", 2))).toEqual({ serviceId: "web", serverId: "b", slot: 2 });
+    expect(parseCopyKey("lb:web:b")).toBeNull();
+    expect(parseCopyKey("lb:web:b:0")).toBeNull();
     expect(parseCopyKey(serviceKey("web"))).toBeNull();
     expect(parseCopyKey(serviceKey("stack", "lb"))).toBeNull();
     expect(parseCopyKey(environmentKey("env1"))).toBeNull();
@@ -100,12 +104,15 @@ describe("the private network carries the app's copies", () => {
 
   it("forgets a copy's address once the app leaves that server, and never moves it", () => {
     const addresses: PlanAddress[] = [
-      { serverId: "b", key: copyKey("web", "b"), ip: "10.240.1.2" },
-      { serverId: "c", key: copyKey("web", "c"), ip: "10.240.1.3" },
-      { serverId: "c", key: copyKey("gone", "c"), ip: "10.240.1.4" },
+      { serverId: "b", key: copyKey("web", "b", 1), ip: "10.240.1.2" },
+      { serverId: "c", key: copyKey("web", "c", 1), ip: "10.240.1.3" },
+      { serverId: "c", key: copyKey("gone", "c", 1), ip: "10.240.1.4" },
+      { serverId: "b", key: copyKey("web", "b", 4), ip: "10.240.1.5" },
+      { serverId: "b", key: "lb:web:b", ip: "10.240.1.6" },
     ];
     const { remove, move } = addressChanges(addresses, [app({ extraServerIds: ["b"] })]);
-    expect(remove.map((a) => a.ip).sort()).toEqual(["10.240.1.3", "10.240.1.4"]);
+    // Server c left, the app "gone" is deleted, replica 4 is more than the app runs now, and a key in an old format.
+    expect(remove.map((a) => a.ip).sort()).toEqual(["10.240.1.3", "10.240.1.4", "10.240.1.5", "10.240.1.6"]);
     expect(move).toEqual([]);
     // The app moved its own server to b: the copy on b is no longer a copy.
     expect(addressChanges(addresses.slice(0, 1), [app({ serverId: "b", extraServerIds: ["c"] })]).remove.map((a) => a.ip)).toEqual(["10.240.1.2"]);
@@ -118,7 +125,7 @@ describe("the private network carries the app's copies", () => {
 
   it("on an extra server: forwards the copy's address to whatever runs of the app there, from the own server only", () => {
     const cfg = agentConfig({ ...B, privateKey: "k" }, [A, B, C], services, addresses, needs);
-    const exposure = cfg.exposures.find((e) => e.ip === ipOf("b", copyKey("web", "b")))!;
+    const exposure = cfg.exposures.find((e) => e.ip === ipOf("b", copyKey("web", "b", 1)))!;
     // Any version running there (a deploy in progress or a failed one keeps the old containers).
     expect(exposure).toMatchObject({ service: "web", deployment: null, network: "serve-env-env1" });
     expect(exposure.allow).toContain(ipOf("a", environmentKey("env1")));
@@ -128,7 +135,7 @@ describe("the private network carries the app's copies", () => {
   it("on the own server: a link container per copy, and routes to the copies' addresses", () => {
     const cfg = agentConfig({ ...A, privateKey: "k" }, [A, B, C], services, addresses, needs);
     for (const x of ["b", "c"]) {
-      const ip = ipOf(x, copyKey("web", x));
+      const ip = ipOf(x, copyKey("web", x, 1));
       expect(cfg.imports).toContainEqual({ name: linkName(ip), ip, network: "serve-env-env1", aliases: [] });
       expect(cfg.peers.find((p) => p.serverId === x)!.allowedIps).toContain(`${ip}/32`);
     }
@@ -138,10 +145,10 @@ describe("the private network carries the app's copies", () => {
 
   it("extra servers do not import each other's copies", () => {
     const cfg = agentConfig({ ...C, privateKey: "k" }, [A, B, C], services, addresses, needs);
-    expect(cfg.imports.some((i) => i.ip === ipOf("b", copyKey("web", "b")))).toBe(false);
+    expect(cfg.imports.some((i) => i.ip === ipOf("b", copyKey("web", "b", 1)))).toBe(false);
   });
 
-  it("firewall: spreads the copy's address over the app's containers on that server, old and new, never pre-deploy ones", () => {
+  it("firewall: each replica address leads to that replica on the server, old or new version, never a pre-deploy container", () => {
     const cfg = agentConfig({ ...B, privateKey: "k" }, [A, B, C], services, addresses, needs);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "serve-lb-"));
     const write = (name: string, data: unknown) => {
@@ -149,8 +156,9 @@ describe("the private network carries the app's copies", () => {
       fs.writeFileSync(p, typeof data === "string" ? data : JSON.stringify(data));
       return p;
     };
-    const container = (ip: string, labels: Record<string, string>) => ({
-      Labels: { "serve.service": "web", ...labels },
+    const container = (name: string, ip: string, labels: Record<string, string>) => ({
+      Names: [`/${name}`],
+      Labels: { "serve.service": "web", "serve.kind": "app", ...labels },
       NetworkSettings: { Networks: { "serve-env-env1": { IPAddress: ip } } },
     });
     const out = execFileSync(
@@ -163,9 +171,12 @@ describe("the private network carries the app's copies", () => {
         "--slurpfile",
         "c",
         write("c.json", [
-          container("172.20.0.5", { "serve.deployment": "dep2" }),
-          container("172.20.0.6", { "serve.deployment": "dep1" }),
-          container("172.20.0.7", { "serve.deployment": "dep2", "serve.kind": "predeploy" }),
+          // A rolling deploy in progress: replica 1 of the new version next to replica 1 of the old one.
+          container("web-dep2ab-1", "172.20.0.5", { "serve.deployment": "dep2ab" }),
+          container("web-dep1cd-1", "172.20.0.6", { "serve.deployment": "dep1cd" }),
+          container("web-dep2ab-2", "172.20.0.7", { "serve.deployment": "dep2ab" }),
+          container("web-dep2ab-11", "172.20.0.8", { "serve.deployment": "dep2ab" }),
+          container("web-dep2ab-1-predeploy", "172.20.0.9", { "serve.deployment": "dep2ab", "serve.kind": "predeploy" }),
         ]),
         "--slurpfile",
         "nets",
@@ -176,19 +187,26 @@ describe("the private network carries the app's copies", () => {
       ],
       { encoding: "utf8" },
     );
-    const ip = ipOf("b", copyKey("web", "b"));
-    expect(out).toContain(`-d ${ip}/32 -m statistic --mode random --probability 0.5 -j DNAT --to-destination 172.20.0.5`);
-    expect(out).toContain(`-d ${ip}/32 -j DNAT --to-destination 172.20.0.6`);
-    expect(out).not.toContain("172.20.0.7");
-    expect(out).toContain(`-s ${ipOf("a", environmentKey("env1"))}/32 -m conntrack --ctorigdst ${ip}/32 -j ACCEPT`);
+    const one = ipOf("b", copyKey("web", "b", 1));
+    const two = ipOf("b", copyKey("web", "b", 2));
+    const three = ipOf("b", copyKey("web", "b", 3));
+    expect(out).toContain(`-d ${one}/32 -m statistic --mode random --probability 0.5 -j DNAT --to-destination 172.20.0.5`);
+    expect(out).toContain(`-d ${one}/32 -j DNAT --to-destination 172.20.0.6`);
+    expect(out).toContain(`-d ${two}/32 -j DNAT --to-destination 172.20.0.7`);
+    // Replica 11 is not replica 1, and a pre-deploy container never takes traffic.
+    expect(out).not.toContain("172.20.0.8");
+    expect(out).not.toContain("172.20.0.9");
+    // Replica 3 runs nowhere yet: no forwarding (the health check takes it out).
+    expect(out).not.toContain(`-d ${three}/32 -j DNAT`);
+    expect(out).toContain(`-s ${ipOf("a", environmentKey("env1"))}/32 -m conntrack --ctorigdst ${one}/32 -j ACCEPT`);
   });
 });
 
 describe("which copies get traffic", () => {
   const copy = (serverId: string, patch: Partial<Copy> = {}): Copy => ({
     serverId,
+    slot: 1,
     host: `serve-link-${serverId}`,
-    weight: 3,
     deployed: true,
     linked: true,
     healthy: true,
@@ -197,11 +215,15 @@ describe("which copies get traffic", () => {
     ...patch,
   });
 
-  it("sends traffic to linked, deployed copies that answer, weighted by their replicas", () => {
-    expect(balancedTargets(3, [copy("b"), copy("c")])).toEqual([
-      { host: "serve-link-b", weight: 3 },
-      { host: "serve-link-c", weight: 3 },
-    ]);
+  it("sends traffic to every replica on other servers that is linked, deployed and answers", () => {
+    expect(balancedTargets(3, [copy("b"), copy("c")])).toEqual(["serve-link-b", "serve-link-c"]);
+  });
+
+  it("sums a server's replicas up: traffic while any replica takes it, else its worst problem", () => {
+    expect(serverTraffic([copy("b"), copy("b", { slot: 2, healthy: false, error: "No answer." })])).toMatchObject({ problem: null, up: 1, total: 2, error: "No answer." });
+    expect(serverTraffic([copy("b", { healthy: false }), copy("b", { slot: 2, healthy: false })])).toMatchObject({ problem: "down", up: 0, total: 2 });
+    expect(serverTraffic([copy("b", { linked: false }), copy("b", { slot: 2, linked: false })]).problem).toBe("network");
+    expect(serverTraffic([copy("b", { deployed: false })]).problem).toBe("deploy");
   });
 
   it("counts a copy not checked yet as up", () => {
@@ -210,13 +232,13 @@ describe("which copies get traffic", () => {
 
   it("leaves out copies that are down, not deployed, without an address or without a private network", () => {
     const list = [copy("b", { healthy: false }), copy("c", { deployed: false }), copy("d", { host: null }), copy("e", { linked: false }), copy("f")];
-    expect(balancedTargets(2, list).map((t) => t.host)).toEqual(["serve-link-f"]);
+    expect(balancedTargets(2, list)).toEqual(["serve-link-f"]);
     expect(list.map(copyProblem)).toEqual(["down", "deploy", "address", "network", null]);
   });
 
   it("tries every usable copy when nothing else is left (a health check can be wrong)", () => {
     const list = [copy("b", { healthy: false }), copy("c", { healthy: false }), copy("d", { deployed: false })];
-    expect(balancedTargets(0, list).map((t) => t.host)).toEqual(["serve-link-b", "serve-link-c"]);
+    expect(balancedTargets(0, list)).toEqual(["serve-link-b", "serve-link-c"]);
     // With local containers the copies that are down stay out.
     expect(balancedTargets(2, list)).toEqual([]);
   });
@@ -249,7 +271,7 @@ describe("which copies get traffic", () => {
     const base = [copy("b"), copy("c")];
     expect(targetsSignature(base)).toBe(targetsSignature([copy("c"), copy("b")]));
     expect(targetsSignature(base)).not.toBe(targetsSignature([copy("b"), copy("c", { healthy: false })]));
-    expect(targetsSignature(base)).not.toBe(targetsSignature([copy("b"), copy("c", { weight: 2 })]));
+    expect(targetsSignature(base)).not.toBe(targetsSignature([copy("b"), copy("c"), copy("c", { slot: 2 })]));
     expect(targetsSignature(base)).toBe(targetsSignature([copy("b"), copy("c", { healthy: null })]));
   });
 });

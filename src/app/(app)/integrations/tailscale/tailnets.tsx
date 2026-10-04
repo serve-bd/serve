@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { AlertTriangle, MoreHorizontal, Network, Pencil, Plus, Server, Trash2, Zap } from "lucide-react";
+import { AlertTriangle, ChevronRight, MoreHorizontal, Network, Pencil, Plus, Server, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -89,13 +89,9 @@ function TailnetCard({ tailnet: t, local, root, onEdit }: { tailnet: TailnetItem
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[15px] font-semibold text-fg">{t.name}</h3>
           <p className="mt-0.5 truncate text-xs text-muted">
-            {t.authType === "oauth" ? "OAuth client" : "API access key"} · <span className="font-mono">{t.tag}</span>
-            {t.dnsSuffix && (
-              <>
-                {" "}
-                · <span className="font-mono">{t.dnsSuffix}</span>
-              </>
-            )}
+            {[t.dnsSuffix, t.authType === "oauth" ? "OAuth client" : "API access key", t.tag].filter(Boolean).join(" · ")}
+            {" · checked "}
+            {t.checkedAt ? <TimeAgo date={t.checkedAt} /> : "never"}
           </p>
         </div>
         <div className="flex flex-none items-center gap-1">
@@ -165,50 +161,29 @@ function TailnetCard({ tailnet: t, local, root, onEdit }: { tailnet: TailnetItem
           <span>{t.error}</span>
         </p>
       )}
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-t border-line px-5 py-4 text-[13px] sm:grid-cols-3">
-        <div className="min-w-0">
-          <dt className="text-xs text-faint">Tailnet</dt>
-          <dd className="truncate font-mono text-[12px] text-fg-2">{t.tailnet === "-" ? "default (-)" : t.tailnet}</dd>
+      <div className="border-t border-line">
+        <div className="flex items-center justify-between gap-3 px-5 pt-3.5 pb-1.5">
+          <span className="text-[11px] font-medium tracking-wide text-faint uppercase">Machines</span>
+          {root && (
+            <Link href="/servers/new" className="text-xs text-accent hover:underline">
+              Add a server
+            </Link>
+          )}
         </div>
-        <div className="min-w-0">
-          <dt className="text-xs text-faint">{t.authType === "oauth" ? "Client id" : "Signs in with"}</dt>
-          <dd className="truncate font-mono text-[12px] text-fg-2">{t.authType === "oauth" ? t.clientId : "API access key"}</dd>
+        <div className="divide-y divide-line">
+          <LocalRow tailnet={t} local={local} />
+          {t.servers.map((s) => (
+            <MachineRow
+              key={s.id}
+              href={`/servers/${s.id}`}
+              name={s.name}
+              detail={s.address ? <span className="font-mono">{s.address}</span> : "Waiting for its join command"}
+              state={s.online ? "ok" : s.address ? "bad" : "warn"}
+              label={s.online ? "Online" : s.address ? "Offline" : "Not joined"}
+            />
+          ))}
+          {t.servers.length === 0 && <p className="px-5 py-3 text-xs text-muted">No other servers yet. Add one through Tailscale, or connect an existing server on its page.</p>}
         </div>
-        <div className="min-w-0">
-          <dt className="text-xs text-faint">Last checked</dt>
-          <dd className="truncate text-fg-2">{t.checkedAt ? <TimeAgo date={t.checkedAt} /> : "Never"}</dd>
-        </div>
-      </dl>
-      <LocalRow tailnet={t} local={local} />
-      <div className="mt-auto flex min-w-0 flex-wrap items-center gap-1.5 border-t border-line px-5 py-3 text-xs text-muted">
-        {t.servers.length ? (
-          <>
-            <span className="mr-0.5">Servers</span>
-            {t.servers.map((s) => (
-              <Link
-                key={s.id}
-                href={`/servers/${s.id}`}
-                className="inline-flex items-center gap-1.5 rounded-md bg-surface-2 px-1.5 py-0.5 text-fg-2 transition-colors hover:text-fg"
-                title={s.address ?? "Not joined yet"}
-              >
-                <span className={cn("size-1.5 rounded-full", s.online ? "bg-ok" : s.address ? "bg-bad" : "bg-warn")} />
-                {s.name}
-              </Link>
-            ))}
-          </>
-        ) : (
-          <span>
-            No servers yet.{" "}
-            {root ? (
-              <Link href="/servers/new" className="text-accent hover:underline">
-                Add a server
-              </Link>
-            ) : (
-              "Switch to the Root organization to add one"
-            )}{" "}
-            through Tailscale, or connect an existing one on its page.
-          </span>
-        )}
       </div>
     </Card>
   );
@@ -234,34 +209,78 @@ function LocalRow({ tailnet: t, local }: { tailnet: TailnetItem; local: Local | 
   if (!local) return null;
   const here = local.tailnetId === t.id && !!local.address;
   const elsewhere = !!local.tailnetId && local.tailnetId !== t.id;
+  const left = local.tailnetId === t.id && !!local.error;
   return (
-    <div className="flex flex-col gap-2 border-t border-line px-5 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="flex min-w-0 items-center gap-2 text-[13px] text-fg">
-          <Server className="size-4 flex-none text-muted" />
-          {here ? (
-            <span className="min-w-0 truncate">
-              {local.name} is in the tailnet at <span className="font-mono">{local.address}</span>
-            </span>
-          ) : (
-            <span className="min-w-0 truncate">
-              {local.name} (the dashboard&apos;s machine) {local.tailnetId === t.id && local.error ? "left this tailnet" : "is not in this tailnet"}
-            </span>
-          )}
-        </span>
-        {!here && !elsewhere && (
-          <Button size="sm" loading={add.pending} onClick={() => void add.run(false)}>
-            <Plus /> Add this server to the tailnet
+    <MachineRow
+      name={local.name}
+      badge="This server"
+      detail={
+        here ? (
+          <span className="font-mono">{local.address}</span>
+        ) : elsewhere ? (
+          "In another connected tailnet"
+        ) : (
+          // Why it matters, only while it is missing: everything else in this tailnet depends on it.
+          "Serve reaches the other machines through this one. Adding it installs Tailscale on the host."
+        )
+      }
+      state={here ? "ok" : left ? "bad" : "warn"}
+      label={here ? "Online" : left ? "Left the tailnet" : elsewhere ? "Other tailnet" : "Not in the tailnet"}
+      action={
+        !here &&
+        !elsewhere && (
+          <Button size="xs" loading={add.pending} onClick={() => void add.run(false)}>
+            <Plus /> Add to tailnet
           </Button>
-        )}
-      </div>
-      <p className="text-xs leading-relaxed text-muted">
-        {here
-          ? "Serve's containers reach the tailnet through this machine."
-          : elsewhere
-            ? "It is in another connected tailnet. Servers in this one are reached only once the dashboard's machine can reach them too."
-            : "Serve's containers reach 100.x addresses through this machine, so it must be in the tailnet before servers can be reached through it. This installs Tailscale on the host (not in a container) and joins with the tag."}
-      </p>
+        )
+      }
+    />
+  );
+}
+
+/** One machine of the tailnet: name, address (or what is missing), its state and what to do. */
+function MachineRow({
+  name,
+  badge,
+  href,
+  detail,
+  state,
+  label,
+  action,
+}: {
+  name: string;
+  badge?: string;
+  href?: string;
+  detail: React.ReactNode;
+  state: "ok" | "warn" | "bad";
+  label: string;
+  action?: React.ReactNode;
+}) {
+  const body = (
+    <>
+      <Server className="size-4 flex-none text-muted" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-center gap-2 text-[13px]">
+          <span className="truncate font-medium text-fg">{name}</span>
+          {badge && <span className="flex-none text-xs text-faint">{badge}</span>}
+        </span>
+        <span className="truncate text-xs text-muted">{detail}</span>
+      </span>
+      <span className={cn("inline-flex flex-none items-center gap-1.5 text-xs", state === "ok" ? "text-fg-2" : state === "warn" ? "text-warn" : "text-bad")}>
+        <span className={cn("size-1.5 rounded-full", state === "ok" ? "bg-ok" : state === "warn" ? "bg-warn" : "bg-bad")} />
+        {label}
+      </span>
+    </>
+  );
+  return href ? (
+    <Link href={href} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-hover/40">
+      {body}
+      <ChevronRight className="size-4 flex-none text-faint" />
+    </Link>
+  ) : (
+    <div className="flex items-center gap-3 px-5 py-3">
+      {body}
+      {action}
     </div>
   );
 }

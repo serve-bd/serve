@@ -60,7 +60,12 @@ type Service struct {
 		Port     *int `json:"port"`
 	} `json:"runtime"`
 	Build *struct {
-		RootDir string `json:"rootDir"`
+		Builder      string  `json:"builder"`
+		RootDir      string  `json:"rootDir"`
+		Dockerfile   string  `json:"dockerfile"`
+		BuildCommand *string `json:"buildCommand"`
+		StartCommand *string `json:"startCommand"`
+		PublishDir   *string `json:"publishDir"`
 	} `json:"build"`
 	Database *struct {
 		Engine string `json:"engine"`

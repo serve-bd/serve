@@ -142,6 +142,7 @@ func (a *App) unlinkCmd() *cobra.Command {
 func (a *App) initCmd() *cobra.Command {
 	var name, server, newProject string
 	var port int
+	var build buildChoice
 	cmd := &cobra.Command{
 		Use:   "init [path]",
 		Short: "Create an app for this folder and link it",
@@ -156,7 +157,7 @@ repository needed), then link the folder to it. The name defaults to the folder'
 			if len(args) > 0 {
 				dir = args[0]
 			}
-			_, err := a.create(cmd.Context(), dir, createOptions{name: name, server: server, newProject: newProject, port: port})
+			_, err := a.create(cmd.Context(), dir, createOptions{name: name, server: server, newProject: newProject, port: port, build: build})
 			return err
 		},
 	}
@@ -165,12 +166,17 @@ repository needed), then link the folder to it. The name defaults to the folder'
 	cmd.Flags().StringVarP(&name, "name", "n", "", "app name (default: the folder name)")
 	cmd.Flags().StringVar(&server, "server", "", "server name or id")
 	cmd.Flags().IntVar(&port, "port", 0, "port the app listens on (optional)")
+	cmd.Flags().StringVar(&build.builder, "builder", "", "how to build it: "+builderNames()+" (default: a pick, or the guess from the folder)")
+	cmd.Flags().StringVar(&build.publishDir, "publish-dir", "", "folder with the site's files (static builder)")
+	cmd.Flags().StringVar(&build.buildCommand, "build-command", "", "command that builds the app")
+	cmd.Flags().StringVar(&build.startCommand, "start-command", "", "command that starts the app")
 	return cmd
 }
 
 type createOptions struct {
 	name, server, newProject string
 	port                     int
+	build                    buildChoice
 }
 
 var nameChars = regexp.MustCompile(`[^a-zA-Z0-9-]+`)
@@ -281,9 +287,14 @@ func (a *App) create(ctx context.Context, dir string, o createOptions) (*config.
 		}
 	}
 
+	build, err := pickBuild(dir, o.build)
+	if err != nil {
+		return nil, err
+	}
+
 	body := map[string]any{
 		"type": "app", "projectId": projectID, "environmentId": env.ID, "name": name,
-		"source": map[string]any{"type": "upload"},
+		"source": map[string]any{"type": "upload"}, "build": build.body(),
 	}
 	if serverID != "" {
 		body["serverId"] = serverID

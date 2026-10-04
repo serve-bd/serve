@@ -29,6 +29,7 @@ export const notifyEventCatalog = [
   { id: "certificate.failed", label: "Certificate failed", group: "Certificates", severity: "warning" },
   { id: "server.resource", label: "Server CPU, memory or disk high", group: "Servers", severity: "warning" },
   { id: "server.disk", label: "Disk full, cleanup ran", group: "Servers", severity: "warning" },
+  { id: "server.updates", label: "Operating system updates available", group: "Servers", severity: "info" },
   { id: "task.failed", label: "Scheduled task failed", group: "Tasks", severity: "warning" },
   { id: "org.limit", label: "Organization limit reached", group: "Organization", severity: "warning" },
   { id: "instance.backup.success", label: "Instance backup succeeded", group: "Instance", severity: "info" },

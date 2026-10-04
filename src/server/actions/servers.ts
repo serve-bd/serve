@@ -447,3 +447,38 @@ export async function deleteServer(id: string) {
     return null;
   });
 }
+
+/** Checks the server for operating system updates (in the background). Installs nothing. */
+export async function checkOsUpdatesAction(serverId: string) {
+  return act(async () => {
+    await requireServerAdmin(serverId);
+    const { enqueue } = await import("@/server/queue");
+    await enqueue("server.os-updates", { serverId, op: "check" }, { concurrencyKey: `server-os:${serverId}` });
+    return null;
+  });
+}
+
+/** Installs updates: "all" (without Docker's packages) or the named packages. */
+export async function installOsUpdatesAction(serverId: string, what: "all" | string[]) {
+  return act(async () => {
+    const { row } = await requireServerAdmin(serverId);
+    const list = what === "all" ? "all" : z.array(z.string().max(128)).min(1).max(2000).parse(what);
+    if (row.osUpdates?.run?.state === "running") throw new UserError("Updates are being installed already.");
+    const { DOCKER_PACKAGE } = await import("@/server/servers/os-updates");
+    if (row.isLocal && list !== "all" && list.some((n) => DOCKER_PACKAGE.test(n)))
+      throw new UserError("Docker's packages cannot be updated from here on this server: it would stop Serve itself. Update them in a terminal on the host.");
+    if (row.osUpdates?.manager === "pacman" && list !== "all") throw new UserError("Arch Linux updates everything at once: use Update all.");
+    // Shown as running right away; the job fills in the log.
+    await db
+      .update(schema.server)
+      .set({
+        osUpdates: row.osUpdates
+          ? { ...row.osUpdates, run: { state: "running", startedAt: new Date().toISOString(), finishedAt: null, what: list, error: null, log: "Waiting to start…\n" } }
+          : row.osUpdates,
+      })
+      .where(eq(schema.server.id, serverId));
+    const { enqueue } = await import("@/server/queue");
+    await enqueue("server.os-updates", { serverId, op: "install", what: list }, { concurrencyKey: `server-os:${serverId}` });
+    return null;
+  });
+}

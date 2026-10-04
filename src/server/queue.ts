@@ -18,6 +18,7 @@ export type JobType =
   | "cleanup"
   | "task.run"
   | "server.setup"
+  | "server.os-updates"
   | "proxy.switch"
   | "instance.backup"
   | "instance.update"
@@ -55,6 +56,7 @@ export type JobPayloads = {
   "proxy.sync": Record<string, never>;
   cleanup: { full?: boolean; serverId?: string };
   "server.setup": { serverId: string; installDocker?: boolean };
+  "server.os-updates": { serverId: string; op: "check" | "install"; what?: "all" | string[]; notify?: boolean };
   "proxy.switch": { serverId: string; to: "nginx" | "caddy" | "traefik" | "none" };
   "task.run": { runId: string };
   "instance.backup": { backupId: string };

@@ -108,6 +108,14 @@ async function handle(job: Job, signal: AbortSignal) {
       return runTask(p.runId);
     case "server.setup":
       return setupServer(p.serverId, { installDocker: (job.payload as { installDocker?: boolean }).installDocker === true });
+    case "server.os-updates": {
+      const os = await import("@/server/servers/os-updates");
+      const q = job.payload as { serverId: string; op: "check" | "install"; what?: "all" | string[]; notify?: boolean };
+      if (q.op === "install") return os.installOsUpdates(q.serverId, q.what ?? "all");
+      await os.checkOsUpdates(q.serverId);
+      if (q.notify) await os.notifyOsUpdates(q.serverId);
+      return;
+    }
     case "instance.backup":
       return runInstanceBackup(p.backupId, (l) => log(`instance backup: ${l}`));
     case "instance.update":
@@ -247,6 +255,17 @@ async function settleTimedOut(job: Job, error: string) {
       return;
     case "proxy.switch":
       return failProxySwitch(p.serverId, `${error} Switch again to finish it.`);
+    case "server.os-updates": {
+      // An install that never finished says so, instead of running for ever on the page.
+      const [row] = await db.select({ osUpdates: schema.server.osUpdates }).from(schema.server).where(eq(schema.server.id, p.serverId));
+      const run = row?.osUpdates?.run;
+      if (row?.osUpdates && run?.state === "running")
+        await db
+          .update(schema.server)
+          .set({ osUpdates: { ...row.osUpdates, run: { ...run, state: "failed", finishedAt: new Date().toISOString(), error } } })
+          .where(eq(schema.server.id, p.serverId));
+      return;
+    }
     case "database.branch":
       return failBranch(job.payload as JobPayloads["database.branch"], error);
     case "preview.database":
@@ -806,6 +825,12 @@ async function main() {
   // Vector on each server, with the organizations' log drains and the names their lines carry.
   every(60_000, "log-drains", async () => (await import("@/server/log-drains/sync")).syncLogDrains(), true);
   every(5 * 60_000, "cleanup", scheduleCleanup, true);
+  // Weekly per server: checks, and tells the organization about updates. Never installs.
+  every(60 * 60_000, "os-updates", async () =>
+    (await import("@/server/servers/os-updates")).weeklyOsUpdateCheck((serverId) =>
+      enqueue("server.os-updates", { serverId, op: "check", notify: true }, { concurrencyKey: `server-os:${serverId}` }),
+    ),
+  );
   // Databases on domains: routes, certificates picked up after renewal, and containers that moved.
   every(5 * 60_000, "db-allowlists", async () => (await import("@/server/databases/allowlist")).syncDatabaseAllowlists(), true);
   every(5 * 60_000, "db-tunnels", async () => (await import("@/server/cloudflare/tunnels")).reattachDatabaseTunnels(), true);

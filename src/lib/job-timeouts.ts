@@ -20,6 +20,7 @@ const LIMITS: Record<string, number> = {
   // Backs up the instance first.
   "instance.update": 6 * HOUR,
   "server.setup": 2 * HOUR,
+  "server.os-updates": 2 * HOUR,
   "task.run": 2 * HOUR,
   cleanup: HOUR,
   "service.stop": HOUR,

@@ -29,6 +29,7 @@ export const SCHEDULER_LABELS: Record<string, string> = {
   "org-disk": "Organization disk usage",
   "server-resources": "Server resource alerts",
   uptime: "Uptime checks",
+  "os-updates": "Operating system update checks",
 };
 
 export const JOB_LABELS: Record<string, string> = {
@@ -54,6 +55,7 @@ export const JOB_LABELS: Record<string, string> = {
   "service.restart": "Service restart",
   "service.stop": "Service stop",
   "tunnel.sync": "Tunnel sync",
+  "server.os-updates": "OS updates",
 };
 
 /** "every 5 min" for an interval in milliseconds. */

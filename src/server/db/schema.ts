@@ -334,6 +334,20 @@ export type ServerAgent = {
   error?: string | null;
 };
 
+export type PackageManager = "apt" | "dnf" | "yum" | "zypper" | "pacman" | "apk";
+export type OsPackage = { name: string; current: string | null; next: string | null; docker: boolean };
+/** Operating system updates of a server: the last check, and the last install with its log. */
+export type OsUpdates = {
+  checkedAt: string | null;
+  manager: PackageManager | null;
+  packages: OsPackage[];
+  rebootRequired: boolean;
+  error: string | null;
+  run: { state: "running" | "success" | "failed"; startedAt: string; finishedAt: string | null; what: "all" | string[]; error: string | null; log: string } | null;
+  /** Last time the organization was told about updates. */
+  notifiedAt?: string | null;
+};
+
 export type ServerInfo = {
   os?: string;
   kernel?: string;
@@ -379,6 +393,7 @@ export const server = pgTable("server", {
   deployTimeoutMinutes: integer("deploy_timeout_minutes"),
   /** Deployments that may wait in the queue for this server; null for no limit. */
   deployQueueLimit: integer("deploy_queue_limit"),
+  osUpdates: jsonb("os_updates").$type<OsUpdates>(),
   /** Images kept per service on this server, for instant rollbacks. */
   imageRetention: integer("image_retention").notNull().default(5),
   /** Hours of CPU, memory and request metrics kept for this server and its services. */

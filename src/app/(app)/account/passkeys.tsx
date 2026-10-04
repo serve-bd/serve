@@ -11,6 +11,8 @@ import { useConfirm } from "@/components/ui/confirm";
 import { showError } from "@/hooks/use-action";
 import { useRouter } from "@/hooks/use-router";
 import { authClient } from "@/lib/auth-client";
+import { authErrorMessage, needsFreshSession } from "@/lib/reauth";
+import { ConfirmIdentity, useResumeAfterConfirm } from "./confirm-identity";
 
 export type PasskeyRow = { id: string; name: string | null; createdAt: string | null; backedUp: boolean };
 
@@ -35,6 +37,16 @@ export function PasskeysCard({ passkeys, hostname, allowed, email }: { passkeys:
 
   const [naming, setNaming] = React.useState(false);
   const [newName, setNewName] = React.useState("");
+  // Adding a passkey needs a recent sign-in: the dialog asks to confirm it is you first.
+  const [confirming, setConfirming] = React.useState(false);
+
+  // Back from confirming with a provider: the dialog opens again with the name typed before. The
+  // browser asks for the passkey only after a click, so it waits for Continue.
+  useResumeAfterConfirm("passkey", (label) => {
+    setNewName(label || deviceName());
+    setConfirming(false);
+    setNaming(true);
+  });
 
   async function add(label: string) {
     setAdding(true);
@@ -44,8 +56,9 @@ export function PasskeysCard({ passkeys, hostname, allowed, email }: { passkeys:
     const { data, error } = await authClient.passkey.addPasskey({ name: email });
     if (data?.id) await authClient.passkey.updatePasskey({ id: data.id, name: label.trim() || deviceName() });
     setAdding(false);
+    if (needsFreshSession(error)) return setConfirming(true);
     // Closing the browser's prompt is not an error worth showing.
-    if (error && !/cancel|abort|not allowed/i.test(error.message ?? "")) return showError(error.message ?? "Could not add the passkey.");
+    if (error && !/cancel|abort|not allowed/i.test(error.message ?? "")) return showError(authErrorMessage(error, "Could not add the passkey."));
     if (!error) {
       setNaming(false);
       router.refresh();
@@ -123,7 +136,7 @@ export function PasskeysCard({ passkeys, hostname, allowed, email }: { passkeys:
                   setBusy(p.id);
                   const { error } = await authClient.passkey.deletePasskey({ id: p.id });
                   setBusy(null);
-                  if (error) return showError(error.message ?? "Could not remove the passkey.");
+                  if (error) return showError(authErrorMessage(error, "Could not remove the passkey."));
                   router.refresh();
                 }}
               >
@@ -133,27 +146,50 @@ export function PasskeysCard({ passkeys, hostname, allowed, email }: { passkeys:
           ))}
         </div>
       )}
-      <Dialog open={naming} onOpenChange={(o) => !o && !adding && setNaming(false)}>
+      <Dialog
+        open={naming}
+        onOpenChange={(o) => {
+          if (o || adding) return;
+          setNaming(false);
+          setConfirming(false);
+        }}
+      >
         <DialogContent>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void add(newName);
-            }}
-          >
-            <DialogHeader title="Add passkey" />
-            <DialogBody className="flex flex-col gap-3">
-              <Field label="Name" description="To tell your passkeys apart here. Your browser or password manager saves it under your email.">
-                <Input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={100} autoFocus placeholder="Work laptop" />
-              </Field>
-            </DialogBody>
-            <DialogFooter>
-              <DialogClose render={<Button variant="ghost" size="sm" type="button" />}>Cancel</DialogClose>
-              <Button type="submit" variant="primary" size="sm" loading={adding}>
-                Continue
-              </Button>
-            </DialogFooter>
-          </form>
+          {confirming ? (
+            <ConfirmIdentity
+              description="Adding a passkey needs a recent sign-in."
+              resume={{ key: "passkey", data: newName }}
+              cancel={
+                <Button variant="ghost" size="sm" type="button" onClick={() => setConfirming(false)}>
+                  Back
+                </Button>
+              }
+              onConfirmed={async () => {
+                setConfirming(false);
+                await add(newName);
+              }}
+            />
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void add(newName);
+              }}
+            >
+              <DialogHeader title="Add passkey" />
+              <DialogBody className="flex flex-col gap-3">
+                <Field label="Name" description="To tell your passkeys apart here. Your browser or password manager saves it under your email.">
+                  <Input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={100} autoFocus placeholder="Work laptop" />
+                </Field>
+              </DialogBody>
+              <DialogFooter>
+                <DialogClose render={<Button variant="ghost" size="sm" type="button" />}>Cancel</DialogClose>
+                <Button type="submit" variant="primary" size="sm" loading={adding}>
+                  Continue
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
       <Dialog open={!!rename} onOpenChange={(o) => !o && setRename(null)}>
@@ -165,7 +201,7 @@ export function PasskeysCard({ passkeys, hostname, allowed, email }: { passkeys:
               setBusy("rename");
               const { error } = await authClient.passkey.updatePasskey({ id: rename.id, name: name.trim() || "Passkey" });
               setBusy(null);
-              if (error) return showError(error.message ?? "Could not rename the passkey.");
+              if (error) return showError(authErrorMessage(error, "Could not rename the passkey."));
               setRename(null);
               router.refresh();
             }}

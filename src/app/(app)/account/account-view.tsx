@@ -15,6 +15,8 @@ import useSWR from "swr";
 import { authClient } from "@/lib/auth-client";
 import { useProductName } from "@/components/brand";
 import { SignInMethods } from "./sign-in-methods";
+import { authErrorMessage, needsFreshSession } from "@/lib/reauth";
+import { useConfirmFailure, useFreshSession, useResumeAfterConfirm } from "./confirm-identity";
 
 type SessionRow = { id: string; token: string; userAgent?: string | null; ipAddress?: string | null; createdAt: Date; updatedAt: Date };
 
@@ -29,6 +31,7 @@ export function AccountView({
   user,
   providers = [],
   linkError = null,
+  reauthError = null,
   hasPassword = true,
   canEmailPasswordLink = false,
   passkeys = null,
@@ -37,6 +40,8 @@ export function AccountView({
   /** Sign-in providers that are on, which the user may link. */
   providers?: { id: string; label: string }[];
   linkError?: string | null;
+  /** Why confirming it is you with a provider failed, from its return to this page. */
+  reauthError?: string | null;
   /** False for accounts that only sign in through a provider. */
   hasPassword?: boolean;
   /** Email works and password sign-in is on, so a link to set a password can be sent. */
@@ -52,11 +57,17 @@ export function AccountView({
   const [changing, setChanging] = React.useState(false);
   const { data, mutate } = useSWR("account-sessions", async () => {
     const [list, me] = await Promise.all([authClient.listSessions(), authClient.getSession()]);
-    return { sessions: (list.data ?? []) as SessionRow[], currentToken: me.data?.session.token ?? null };
+    // better-auth lists devices only for a recent sign-in: the card asks to confirm it is you.
+    return { sessions: (list.data ?? []) as SessionRow[], currentToken: me.data?.session.token ?? null, locked: needsFreshSession(list.error) };
   });
   const sessions = data?.sessions ?? [];
   const currentToken = data?.currentToken ?? null;
+  const locked = data?.locked ?? false;
   const load = () => void mutate();
+  const { ask, dialog } = useFreshSession();
+  useConfirmFailure(reauthError);
+  // Back from confirming with a provider: the list loads on its own, so only the saved step is dropped.
+  useResumeAfterConfirm("sessions", load);
 
   return (
     <div className="flex flex-col gap-6">
@@ -68,7 +79,7 @@ export function AccountView({
             setSaving(true);
             const { error } = await authClient.updateUser({ name });
             setSaving(false);
-            if (error) return showError(error.message ?? "Could not save");
+            if (error) return showError(authErrorMessage(error, "Could not save"));
             router.refresh();
           }}
         >
@@ -98,7 +109,7 @@ export function AccountView({
               setChanging(true);
               const { error } = await authClient.changePassword({ currentPassword: current, newPassword: next, revokeOtherSessions: true });
               setChanging(false);
-              if (error) return showError(error.message ?? "Could not change password");
+              if (error) return showError(authErrorMessage(error, "Could not change password"));
               toast.success("Password changed. Other devices were signed out.");
               setCurrent("");
               setNext("");
@@ -135,11 +146,12 @@ export function AccountView({
           title="Sessions"
           description="Devices signed in to your account."
           actions={
-            sessions.length > 1 && (
+            (sessions.length > 1 || locked) && (
               <Button
                 size="sm"
                 onClick={async () => {
-                  await authClient.revokeOtherSessions();
+                  const { error } = await authClient.revokeOtherSessions();
+                  if (error) return showError(authErrorMessage(error, "Could not sign out the other devices."));
                   toast.success("Signed out other devices");
                   void load();
                 }}
@@ -149,6 +161,21 @@ export function AccountView({
             )
           }
         />
+        {dialog}
+        {locked && (
+          <div className="flex flex-col gap-3 border-t border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[13px] leading-relaxed text-fg-2">Confirm it's you to see the devices signed in to your account.</p>
+            <Button
+              size="sm"
+              className="self-start sm:self-auto"
+              onClick={async () => {
+                if (await ask({ key: "sessions" }, "Seeing your signed-in devices needs a recent sign-in.")) void load();
+              }}
+            >
+              <ShieldCheck /> Confirm it's you
+            </Button>
+          </div>
+        )}
         <div className="divide-y divide-line">
           {sessions.map((s) => (
             <div key={s.id} className="flex items-center gap-3 px-5 py-3">
@@ -167,7 +194,8 @@ export function AccountView({
                   variant="ghost"
                   aria-label="Sign out"
                   onClick={async () => {
-                    await authClient.revokeSession({ token: s.token });
+                    const { error } = await authClient.revokeSession({ token: s.token });
+                    if (error) return showError(authErrorMessage(error, "Could not sign out that device."));
                     void load();
                   }}
                 >
@@ -203,7 +231,7 @@ function SetPasswordCard({ email, canEmail }: { email: string; canEmail: boolean
               setSending(true);
               const { error } = await authClient.requestPasswordReset({ email, redirectTo: "/reset-password" });
               setSending(false);
-              if (error) return showError(error.message ?? "Could not send the link");
+              if (error) return showError(authErrorMessage(error, "Could not send the link"));
               toast.success(`Link sent to ${email}`);
             }}
           >
@@ -240,19 +268,19 @@ function TwoFactorCard({ enabled, hasPassword }: { enabled: boolean; hasPassword
     try {
       if (enabled) {
         const { error } = await authClient.twoFactor.disable({ password });
-        if (error) return showError(error.message ?? "Could not disable two-factor authentication");
+        if (error) return showError(authErrorMessage(error, "Could not disable two-factor authentication"));
         setOpen(false);
         router.refresh();
       } else if (step === "password") {
         // The authenticator app lists the account under the white-label name.
         const { data, error } = await authClient.twoFactor.enable({ password, issuer: productName });
-        if (error || !data || !("totpURI" in data)) return showError(error?.message ?? "Wrong password");
+        if (error || !data || !("totpURI" in data)) return showError(authErrorMessage(error, "That password is not right."));
         setQr(await QRCode.toDataURL(data.totpURI, { margin: 1, width: 200 }));
         setBackupCodes(data.backupCodes);
         setStep("scan");
       } else {
         const { error } = await authClient.twoFactor.verifyTotp({ code });
-        if (error) return showError(error.message ?? "That code is not valid");
+        if (error) return showError(authErrorMessage(error, "That code is not valid."));
         setOpen(false);
         router.refresh();
       }

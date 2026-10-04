@@ -102,6 +102,13 @@ export function traefikBaseDynamic(opts: {
       middlewares: ["serve-traefik-dashboard-auth"],
       tls: opts.resolver ? { certResolver: "le" } : {},
     };
+    // http:// goes to https:// (the dashboard and metrics answer on HTTPS only).
+    routers["serve-traefik-dashboard-http"] = {
+      rule: `Host(\`${opts.dashboard.hostname}\`)`,
+      entryPoints: ["web"],
+      service: "noop@internal",
+      middlewares: ["serve-redirect-https"],
+    };
     if (opts.metrics)
       routers["serve-traefik-metrics"] = {
         rule: `Host(\`${opts.dashboard.hostname}\`) && Path(\`/metrics\`)`,

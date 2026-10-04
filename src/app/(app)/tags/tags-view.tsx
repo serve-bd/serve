@@ -9,11 +9,11 @@ import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHea
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
-import { Card, CardHeader, CopyField, EmptyState } from "@/components/ui/misc";
-import { StatusDot } from "@/components/ui/status";
+import { Card, CopyField, EmptyState } from "@/components/ui/misc";
+import { StatusDot, statusText } from "@/components/ui/status";
 import { useAction } from "@/hooks/use-action";
 import { createTag, deleteTag, deployTagAction, rotateTagHook, updateTag } from "@/server/actions/tags";
-import { TAG_COLOR_NAMES, tagColorClass } from "@/lib/tags";
+import { TAG_COLOR_NAMES, tagColorClass, tagDotClass } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
 type TagRow = {
@@ -28,6 +28,19 @@ export function TagChip({ name, color, className }: { name: string; color: strin
   return <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium ring-1", tagColorClass(color), className)}>{name}</span>;
 }
 
+/** The page header's button: a new tag, in its own dialog. */
+export function NewTagButton() {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
+        <Plus /> New tag
+      </Button>
+      <EditTagDialog tag={open ? "new" : null} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
 export function TagsView({ tags, canManage, canDeploy }: { tags: TagRow[]; canManage: boolean; canDeploy: boolean }) {
   const [editing, setEditing] = React.useState<TagRow | "new" | null>(null);
   // By id: after a new URL the page refreshes, and the dialog shows the new one.
@@ -35,13 +48,6 @@ export function TagsView({ tags, canManage, canDeploy }: { tags: TagRow[]; canMa
 
   return (
     <div className="flex flex-col gap-4">
-      {canManage && (
-        <div className="flex justify-end">
-          <Button size="sm" variant="primary" onClick={() => setEditing("new")}>
-            <Plus /> New tag
-          </Button>
-        </div>
-      )}
       {tags.length === 0 ? (
         <Card>
           <EmptyState
@@ -70,84 +76,80 @@ function TagCard({ tag, canManage, canDeploy, onEdit, onHook }: { tag: TagRow; c
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader
-        title={
-          <span className="flex items-center gap-2">
-            <TagChip name={tag.name} color={tag.color} />
-            <span className="text-xs font-normal text-muted">
-              {count} service{count === 1 ? "" : "s"}
-            </span>
-          </span>
-        }
-        actions={
-          <div className="flex items-center gap-1.5">
-            {canDeploy && (
-              <Button
-                size="sm"
-                disabled={!count}
-                loading={deploy.pending}
-                onClick={async () => {
-                  if (
-                    await confirm({
-                      title: `Deploy everything tagged ${tag.name}?`,
-                      description: `${count} service${count === 1 ? "" : "s"} deploy now. Project rules still apply: a freeze skips a deploy, an approval holds it.`,
-                      confirmLabel: "Deploy all",
-                    })
-                  )
-                    void deploy.run();
-                }}
-              >
-                <Rocket /> Deploy all
-              </Button>
-            )}
-            {canManage && (
-              <Menu>
-                <MenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Options for ${tag.name}`} />}>
-                  <MoreHorizontal />
-                </MenuTrigger>
-                <MenuContent>
-                  <MenuItem onClick={onEdit}>
-                    <Pencil /> Rename or recolor
-                  </MenuItem>
-                  <MenuItem onClick={onHook}>
-                    <Webhook /> Deploy hook
-                  </MenuItem>
-                  <MenuSeparator />
-                  <MenuItem
-                    danger
-                    onClick={async () => {
-                      if (
-                        await confirm({
-                          title: `Delete the tag ${tag.name}?`,
-                          description: "It is taken off every service. The services stay, and its deploy hook stops working.",
-                          confirmLabel: "Delete tag",
-                          danger: true,
-                        })
-                      )
-                        void remove.run();
-                    }}
-                  >
-                    <Trash2 /> Delete
-                  </MenuItem>
-                </MenuContent>
-              </Menu>
-            )}
-          </div>
-        }
-      />
+      <div className="flex items-center gap-3 px-5 py-4">
+        <span className={cn("size-2.5 flex-none rounded-full", tagDotClass(tag.color))} />
+        <h2 className="min-w-0 truncate text-[15px] font-semibold text-fg">{tag.name}</h2>
+        <span className="flex-none text-xs text-muted tabular-nums">
+          {count} service{count === 1 ? "" : "s"}
+        </span>
+        <div className="ml-auto flex flex-none items-center gap-1.5">
+          {canDeploy && (
+            <Button
+              size="sm"
+              disabled={!count}
+              loading={deploy.pending}
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: `Deploy everything tagged ${tag.name}?`,
+                    description: `${count} service${count === 1 ? "" : "s"} deploy now. Project rules still apply: a freeze skips a deploy, an approval holds it.`,
+                    confirmLabel: "Deploy all",
+                  })
+                )
+                  void deploy.run();
+              }}
+            >
+              <Rocket /> Deploy all
+            </Button>
+          )}
+          {canManage && (
+            <Menu>
+              <MenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Options for ${tag.name}`} />}>
+                <MoreHorizontal />
+              </MenuTrigger>
+              <MenuContent>
+                <MenuItem onClick={onEdit}>
+                  <Pencil /> Rename or recolor
+                </MenuItem>
+                <MenuItem onClick={onHook}>
+                  <Webhook /> Deploy hook
+                </MenuItem>
+                <MenuSeparator />
+                <MenuItem
+                  danger
+                  onClick={async () => {
+                    if (
+                      await confirm({
+                        title: `Delete the tag ${tag.name}?`,
+                        description: "It is taken off every service. The services stay, and its deploy hook stops working.",
+                        confirmLabel: "Delete tag",
+                        danger: true,
+                      })
+                    )
+                      void remove.run();
+                  }}
+                >
+                  <Trash2 /> Delete
+                </MenuItem>
+              </MenuContent>
+            </Menu>
+          )}
+        </div>
+      </div>
       {count === 0 ? (
         <p className="border-t border-line px-5 py-3 text-[13px] text-muted">No service has this tag yet. Add it in a service&apos;s Settings → General.</p>
       ) : (
         <ul className="divide-y divide-line border-t border-line">
           {tag.services.map((s) => (
-            <li key={s.id} className="flex min-w-0 items-center gap-2.5 px-5 py-2.5">
-              <StatusDot status={s.status} kind="service" />
-              <Link href={`/projects/${s.projectId}/services/${s.id}`} className="min-w-0 truncate text-[13px] font-medium text-fg hover:underline">
-                {s.name}
+            <li key={s.id}>
+              <Link href={`/projects/${s.projectId}/services/${s.id}`} className="flex min-w-0 items-center gap-3 px-5 py-2.5 transition-colors hover:bg-hover">
+                <StatusDot status={s.status} kind="service" />
+                <span className="min-w-0 truncate text-[13px] font-medium text-fg">{s.name}</span>
+                <span className="hidden min-w-0 truncate text-xs text-muted sm:inline">
+                  {s.project} · {s.environment}
+                </span>
+                <span className="ml-auto flex-none text-xs text-muted">{statusText(s.status)}</span>
               </Link>
-              <span className="min-w-0 truncate text-xs text-muted">
-                {s.project} · {s.environment}
-              </span>
             </li>
           ))}
         </ul>

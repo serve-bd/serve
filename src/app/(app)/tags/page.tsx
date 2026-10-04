@@ -3,7 +3,7 @@ import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { publicBaseUrl } from "@/server/git/github-app";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
-import { TagsView } from "./tags-view";
+import { NewTagButton, TagsView } from "./tags-view";
 
 export const metadata = { title: "Tags" };
 
@@ -38,7 +38,11 @@ export default async function TagsPage() {
   const base = await publicBaseUrl();
   return (
     <>
-      <PageHeader title="Tags" description="Labels on services across projects. Redeploy everything with a tag at once, from here or from CI." />
+      <PageHeader
+        title="Tags"
+        description="Labels on services across projects. Redeploy everything with a tag at once, from here or from CI."
+        actions={canManage ? <NewTagButton /> : undefined}
+      />
       <PageBody>
         <TagsView
           canManage={canManage}

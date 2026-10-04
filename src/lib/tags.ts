@@ -15,6 +15,20 @@ export const TAG_COLOR_NAMES = Object.keys(TAG_COLORS) as TagColor[];
 /** Letters, numbers, dots, dashes and underscores, up to 40: short labels like prod, team-api or v2. */
 export const TAG_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
 
+/** The solid dot of each color. */
+const TAG_DOTS: Record<TagColor, string> = {
+  gray: "bg-fg-2/50",
+  red: "bg-bad",
+  orange: "bg-warn",
+  green: "bg-ok",
+  blue: "bg-info",
+  purple: "bg-accent",
+};
+
+export function tagDotClass(color: string) {
+  return TAG_DOTS[color as TagColor] ?? TAG_DOTS.gray;
+}
+
 export function tagColorClass(color: string) {
   return TAG_COLORS[color as TagColor] ?? TAG_COLORS.gray;
 }

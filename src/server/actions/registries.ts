@@ -189,7 +189,16 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
 
     const before = runServerIds(service.serverId, service.distribution).slice(1);
     const removed = before.filter((id) => !dist.extraServerIds.includes(id));
-    await db.update(schema.service).set({ distribution: dist }).where(eq(schema.service.id, serviceId));
+    // Health of copies on servers the app leaves is forgotten (a server added again starts fresh).
+    const balance = service.balance ? { copies: Object.fromEntries(Object.entries(service.balance.copies ?? {}).filter(([id]) => dist.extraServerIds.includes(id))) } : null;
+    await db.update(schema.service).set({ distribution: dist, balance }).where(eq(schema.service.id, serviceId));
+
+    // The own server's proxy stops sending traffic to removed copies before they are deleted, and the
+    // private network hands out (or forgets) the copies' addresses for the load balancing.
+    const { syncServiceProxy } = await import("@/server/proxy/nginx");
+    await syncServiceProxy(serviceId, service.serverId).catch(() => {});
+    const { syncMesh } = await import("@/server/mesh");
+    void syncMesh().catch(() => {});
 
     for (const serverId of removed) {
       await removeServiceProxy(serviceId, serverId).catch(() => {});

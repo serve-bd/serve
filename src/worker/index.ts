@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { paths } from "@/server/paths";
 import { checkLimitNotices, hasRoomFor, measureOrgDisk } from "@/server/limits";
+import { CHECK_INTERVAL_MS, checkBalances } from "@/server/services/balance-health";
 import { copyEnvironmentData, failInterruptedCopy, preparePreviewDatabase } from "@/server/services/environments";
 import { and, sql as dsql, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import type { ProxyKind } from "@/server/proxy/config";
@@ -843,6 +844,7 @@ async function main() {
     true,
   );
   every(30_000, "metrics", collectMetrics, true);
+  every(CHECK_INTERVAL_MS, "load-balancing", () => checkBalances((...a) => log(...a)), true);
   every(60_000, "metrics-agents", syncMetricsAgents, true);
   every(5 * 60_000, "metric-rollups", rollupRecent, true);
   every(60_000, "backups", scheduleBackups);

@@ -1,0 +1,319 @@
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import YAML from "yaml";
+import { RULES_JQ } from "@/server/mesh/agent";
+import {
+  addressChanges,
+  agentConfig,
+  copyKey,
+  environmentKey,
+  linkName,
+  neededAddresses,
+  type PlanAddress,
+  type PlanServer,
+  type PlanService,
+  parseCopyKey,
+  serviceKey,
+} from "@/server/mesh/plan";
+import { balancedTargets, type Copy, copyProblem, decide, nextBalance, step, targetsSignature } from "@/server/services/balance-rules";
+import { upstreamBlock } from "@/server/proxy/templates";
+import { renderCaddySite } from "@/server/proxy/caddy";
+import { renderTraefikSite } from "@/server/proxy/traefik";
+import type { SiteModel } from "@/server/proxy/model";
+import { buildProxyConfig, proxyInputSchema } from "@/server/services/proxy-config";
+
+/*
+ * Load balancing across servers: the app's own server (a) sends traffic to its local containers and
+ * to the app's copies on its extra servers (b, c), each reached at an address of its own in the
+ * private network through a link container on a.
+ */
+
+const server = (id: string, index: number, endpoint: string | null = `10.0.0.${index}`, networks = ["n1"]): PlanServer => ({
+  id,
+  index,
+  endpoint,
+  port: 51820,
+  publicKey: `pub-${id}`,
+  networks,
+});
+const app = (patch: Partial<PlanService> = {}): PlanService => ({
+  id: "web",
+  environmentId: "env1",
+  serverId: "a",
+  extraServerIds: ["b", "c"],
+  type: "app",
+  slug: "web",
+  hostname: null,
+  composeServices: [],
+  isolated: false,
+  composeSubnet: null,
+  currentDeploymentId: "dep2",
+  ...patch,
+});
+
+// a: the app's own server, behind NAT (no public address), like a home machine.
+const A = server("a", 1, null);
+const B = server("b", 2);
+const C = server("c", 3);
+
+/** Addresses as the network would hand them out for these needs. */
+function addressesFor(needs: ReturnType<typeof neededAddresses>): PlanAddress[] {
+  let svc = 0;
+  return needs.map((n) => {
+    const index = [A, B, C].find((s) => s.id === n.serverId)!.index;
+    return { serverId: n.serverId, key: n.key, ip: n.key.startsWith("env:") ? `10.241.${index}.2` : `10.240.1.${++svc}` };
+  });
+}
+
+describe("the private network carries the app's copies", () => {
+  it("gives the app's copy on each extra server an address of its own there", () => {
+    const needs = neededAddresses([A, B, C], [app()]);
+    const keys = needs.map((n) => `${n.serverId} ${n.key}`).sort();
+    expect(keys).toContain("b lb:web:b");
+    expect(keys).toContain("c lb:web:c");
+    // The own server keeps the app's usual address; no copy address there.
+    expect(keys).toContain("a svc:web");
+    expect(keys).not.toContain("a lb:web:a");
+  });
+
+  it("gives no copy address to an extra server without a private network with the own server", () => {
+    const lonely = server("c", 3, "10.0.0.3", ["n2"]);
+    const keys = neededAddresses([A, B, lonely], [app()]).map((n) => n.key);
+    expect(keys).toContain("lb:web:b");
+    expect(keys).not.toContain("lb:web:c");
+  });
+
+  it("gives no copy addresses to databases or stacks, nor without extra servers", () => {
+    expect(neededAddresses([A, B], [app({ extraServerIds: [] })]).some((n) => n.key.startsWith("lb:"))).toBe(false);
+    expect(neededAddresses([A, B], [app({ type: "database", extraServerIds: ["b"] })]).some((n) => n.key.startsWith("lb:"))).toBe(false);
+  });
+
+  it("reads copy keys back, and never mistakes other keys for them", () => {
+    expect(parseCopyKey(copyKey("web", "b"))).toEqual({ serviceId: "web", serverId: "b" });
+    expect(parseCopyKey(serviceKey("web"))).toBeNull();
+    expect(parseCopyKey(serviceKey("stack", "lb"))).toBeNull();
+    expect(parseCopyKey(environmentKey("env1"))).toBeNull();
+  });
+
+  it("forgets a copy's address once the app leaves that server, and never moves it", () => {
+    const addresses: PlanAddress[] = [
+      { serverId: "b", key: copyKey("web", "b"), ip: "10.240.1.2" },
+      { serverId: "c", key: copyKey("web", "c"), ip: "10.240.1.3" },
+      { serverId: "c", key: copyKey("gone", "c"), ip: "10.240.1.4" },
+    ];
+    const { remove, move } = addressChanges(addresses, [app({ extraServerIds: ["b"] })]);
+    expect(remove.map((a) => a.ip).sort()).toEqual(["10.240.1.3", "10.240.1.4"]);
+    expect(move).toEqual([]);
+    // The app moved its own server to b: the copy on b is no longer a copy.
+    expect(addressChanges(addresses.slice(0, 1), [app({ serverId: "b", extraServerIds: ["c"] })]).remove.map((a) => a.ip)).toEqual(["10.240.1.2"]);
+  });
+
+  const services = [app()];
+  const needs = neededAddresses([A, B, C], services);
+  const addresses = addressesFor(needs);
+  const ipOf = (serverId: string, key: string) => addresses.find((a) => a.serverId === serverId && a.key === key)!.ip;
+
+  it("on an extra server: forwards the copy's address to whatever runs of the app there, from the own server only", () => {
+    const cfg = agentConfig({ ...B, privateKey: "k" }, [A, B, C], services, addresses, needs);
+    const exposure = cfg.exposures.find((e) => e.ip === ipOf("b", copyKey("web", "b")))!;
+    // Any version running there (a deploy in progress or a failed one keeps the old containers).
+    expect(exposure).toMatchObject({ service: "web", deployment: null, network: "serve-env-env1" });
+    expect(exposure.allow).toContain(ipOf("a", environmentKey("env1")));
+    expect(cfg.localAddresses).toContain(exposure.ip);
+  });
+
+  it("on the own server: a link container per copy, and routes to the copies' addresses", () => {
+    const cfg = agentConfig({ ...A, privateKey: "k" }, [A, B, C], services, addresses, needs);
+    for (const x of ["b", "c"]) {
+      const ip = ipOf(x, copyKey("web", x));
+      expect(cfg.imports).toContainEqual({ name: linkName(ip), ip, network: "serve-env-env1", aliases: [] });
+      expect(cfg.peers.find((p) => p.serverId === x)!.allowedIps).toContain(`${ip}/32`);
+    }
+    // The app runs on a itself: no link to its own usual address.
+    expect(cfg.imports.some((i) => i.ip === ipOf("a", serviceKey("web")))).toBe(false);
+  });
+
+  it("extra servers do not import each other's copies", () => {
+    const cfg = agentConfig({ ...C, privateKey: "k" }, [A, B, C], services, addresses, needs);
+    expect(cfg.imports.some((i) => i.ip === ipOf("b", copyKey("web", "b")))).toBe(false);
+  });
+
+  it("firewall: spreads the copy's address over the app's containers on that server, old and new, never pre-deploy ones", () => {
+    const cfg = agentConfig({ ...B, privateKey: "k" }, [A, B, C], services, addresses, needs);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "serve-lb-"));
+    const write = (name: string, data: unknown) => {
+      const p = path.join(dir, name);
+      fs.writeFileSync(p, typeof data === "string" ? data : JSON.stringify(data));
+      return p;
+    };
+    const container = (ip: string, labels: Record<string, string>) => ({
+      Labels: { "serve.service": "web", ...labels },
+      NetworkSettings: { Networks: { "serve-env-env1": { IPAddress: ip } } },
+    });
+    const out = execFileSync(
+      "jq",
+      [
+        "-r",
+        "--arg",
+        "if",
+        "serve-mesh",
+        "--slurpfile",
+        "c",
+        write("c.json", [
+          container("172.20.0.5", { "serve.deployment": "dep2" }),
+          container("172.20.0.6", { "serve.deployment": "dep1" }),
+          container("172.20.0.7", { "serve.deployment": "dep2", "serve.kind": "predeploy" }),
+        ]),
+        "--slurpfile",
+        "nets",
+        write("nets.json", { "serve-env-env1": ["172.20.0.0/16"] }),
+        "-f",
+        write("rules.jq", RULES_JQ),
+        write("config.json", cfg),
+      ],
+      { encoding: "utf8" },
+    );
+    const ip = ipOf("b", copyKey("web", "b"));
+    expect(out).toContain(`-d ${ip}/32 -m statistic --mode random --probability 0.5 -j DNAT --to-destination 172.20.0.5`);
+    expect(out).toContain(`-d ${ip}/32 -j DNAT --to-destination 172.20.0.6`);
+    expect(out).not.toContain("172.20.0.7");
+    expect(out).toContain(`-s ${ipOf("a", environmentKey("env1"))}/32 -m conntrack --ctorigdst ${ip}/32 -j ACCEPT`);
+  });
+});
+
+describe("which copies get traffic", () => {
+  const copy = (serverId: string, patch: Partial<Copy> = {}): Copy => ({
+    serverId,
+    host: `serve-link-${serverId}`,
+    weight: 3,
+    deployed: true,
+    linked: true,
+    healthy: true,
+    error: null,
+    since: null,
+    ...patch,
+  });
+
+  it("sends traffic to linked, deployed copies that answer, weighted by their replicas", () => {
+    expect(balancedTargets(3, [copy("b"), copy("c")])).toEqual([
+      { host: "serve-link-b", weight: 3 },
+      { host: "serve-link-c", weight: 3 },
+    ]);
+  });
+
+  it("counts a copy not checked yet as up", () => {
+    expect(balancedTargets(1, [copy("b", { healthy: null })])).toHaveLength(1);
+  });
+
+  it("leaves out copies that are down, not deployed, without an address or without a private network", () => {
+    const list = [copy("b", { healthy: false }), copy("c", { deployed: false }), copy("d", { host: null }), copy("e", { linked: false }), copy("f")];
+    expect(balancedTargets(2, list).map((t) => t.host)).toEqual(["serve-link-f"]);
+    expect(list.map(copyProblem)).toEqual(["down", "deploy", "address", "network", null]);
+  });
+
+  it("tries every usable copy when nothing else is left (a health check can be wrong)", () => {
+    const list = [copy("b", { healthy: false }), copy("c", { healthy: false }), copy("d", { deployed: false })];
+    expect(balancedTargets(0, list).map((t) => t.host)).toEqual(["serve-link-b", "serve-link-c"]);
+    // With local containers the copies that are down stay out.
+    expect(balancedTargets(2, list)).toEqual([]);
+  });
+
+  it("checks: down after two failures in a row, up again after two successes", () => {
+    let s = step(undefined, false);
+    expect(decide(true, s)).toBe(true);
+    s = step(s, false);
+    expect(decide(true, s)).toBe(false);
+    s = step(s, true);
+    expect(decide(false, s)).toBe(false);
+    s = step(s, true);
+    expect(decide(false, s)).toBe(true);
+    // Never checked: one success is enough to know, one failure is not.
+    expect(decide(null, step(undefined, true))).toBe(true);
+    expect(decide(null, step(undefined, false))).toBeNull();
+  });
+
+  it("saves the health only when it changes (pages refresh on every saved change)", () => {
+    const now = new Date("2026-10-05T10:00:00Z");
+    const first = nextBalance(null, "b", false, "Nothing answers on port 3000.", now)!;
+    expect(first.copies.b).toEqual({ ok: false, since: now.toISOString(), error: "Nothing answers on port 3000." });
+    expect(nextBalance(first, "b", false, "Nothing answers on port 3000.", new Date())).toBeNull();
+    const up = nextBalance(first, "b", true, null, new Date("2026-10-05T10:05:00Z"))!;
+    expect(up.copies.b).toEqual({ ok: true, since: "2026-10-05T10:05:00.000Z", error: null });
+    expect(nextBalance(up, "b", true, null, new Date())).toBeNull();
+  });
+
+  it("syncs the proxy when the targets change, not on every check", () => {
+    const base = [copy("b"), copy("c")];
+    expect(targetsSignature(base)).toBe(targetsSignature([copy("c"), copy("b")]));
+    expect(targetsSignature(base)).not.toBe(targetsSignature([copy("b"), copy("c", { healthy: false })]));
+    expect(targetsSignature(base)).not.toBe(targetsSignature([copy("b"), copy("c", { weight: 2 })]));
+    expect(targetsSignature(base)).toBe(targetsSignature([copy("b"), copy("c", { healthy: null })]));
+  });
+});
+
+describe("the proxies balance over the copies", () => {
+  it("nginx: local containers as before, copies weighted and skipped for a while after a failure", () => {
+    const block = upstreamBlock({
+      name: "svc_web_3000",
+      servers: ["web-1:3000", "web-2:3000"],
+      remote: [
+        { server: "serve-link-10-240-1-2:3000", weight: 2 },
+        { server: "serve-link-10-240-1-3:3000", weight: 1 },
+      ],
+    });
+    expect(block).toContain("server web-1:3000 resolve max_fails=0;");
+    expect(block).toContain("server serve-link-10-240-1-2:3000 resolve weight=2 max_fails=1 fail_timeout=10s;");
+    expect(block).toContain("server serve-link-10-240-1-3:3000 resolve max_fails=1 fail_timeout=10s;");
+    expect(block).not.toContain("127.0.0.1:1 down");
+  });
+
+  it("nginx: copies alone when the own server runs no container (it fails over to them)", () => {
+    const block = upstreamBlock({ name: "u", servers: [], remote: [{ server: "serve-link-10-240-1-2:3000", weight: 1 }] });
+    expect(block).toContain("serve-link-10-240-1-2:3000");
+    expect(block).not.toContain("down;");
+  });
+
+  it("nginx: sticky visitors hash over local containers and copies alike", () => {
+    expect(upstreamBlock({ name: "u", servers: ["web-1:3000"], sticky: true, remote: [{ server: "l:3000", weight: 1 }] })).toContain("hash $remote_addr consistent;");
+  });
+
+  const site = (sticky: boolean): SiteModel => ({
+    name: "svc-web",
+    title: "web",
+    serviceId: "web",
+    stopped: false,
+    upstreams: [{ key: "app-3000", targets: ["web-1:3000", "serve-link-10-240-1-2:3000"], weights: [1, 3], remote: true }],
+    hosts: [{ hostname: "web.test", upstream: "app-3000", redirectTo: null, https: false, forceHttps: false, tunnel: false, tls: null }],
+    options: { ...buildProxyConfig(proxyInputSchema.parse({ sticky }), null), connectTimeout: 3 },
+  });
+
+  it("Caddy: weighted round robin, passive health for the copies, a short dial timeout", () => {
+    const out = renderCaddySite(site(false));
+    expect(out).toContain("lb_policy weighted_round_robin 1 3");
+    expect(out).toContain("fail_duration 10s");
+    expect(out).toContain("max_fails 1");
+    expect(out).toContain("dial_timeout 3s");
+    expect(out).toContain("reverse_proxy web-1:3000 serve-link-10-240-1-2:3000 {");
+    // Sticky keeps the client IP hash (weights do not apply to it).
+    expect(renderCaddySite(site(true))).toContain("lb_policy client_ip_hash");
+  });
+
+  it("Traefik: server weights, a retry on another copy, a short dial timeout", () => {
+    const y = YAML.parse(renderTraefikSite(site(false), { resolver: false, trusted: [] }));
+    expect(y.http.services["svc-web-app-3000"].loadBalancer.servers).toEqual([{ url: "http://web-1:3000" }, { url: "http://serve-link-10-240-1-2:3000", weight: 3 }]);
+    expect(y.http.middlewares["svc-web-retry"]).toEqual({ retry: { attempts: 3, initialInterval: "100ms" } });
+    const router = Object.values(y.http.routers as Record<string, { middlewares?: string[] }>).find((r) => r.middlewares?.includes("svc-web-retry"));
+    expect(router).toBeTruthy();
+    expect(y.http.serversTransports["svc-web-transport"].forwardingTimeouts.dialTimeout).toBe("3s");
+  });
+
+  it("without copies nothing changes", () => {
+    const plain: SiteModel = { ...site(false), upstreams: [{ key: "app-3000", targets: ["web-1:3000"] }], options: buildProxyConfig(proxyInputSchema.parse({}), null) };
+    expect(renderCaddySite(plain)).not.toContain("fail_duration");
+    expect(renderCaddySite(plain)).toContain("lb_policy round_robin");
+    expect(YAML.parse(renderTraefikSite(plain, { resolver: false, trusted: [] })).http.middlewares?.["svc-web-retry"]).toBeUndefined();
+  });
+});

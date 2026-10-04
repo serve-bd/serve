@@ -214,7 +214,7 @@ export function renderTraefikSite(
     services[`${p}-${u.key}`] = {
       loadBalancer: {
         passHostHeader: true,
-        servers: u.targets.map((t) => ({ url: `http://${t}` })),
+        servers: u.targets.map((t, i) => ({ url: `http://${t}`, ...(u.weights && u.weights[i] !== 1 ? { weight: u.weights[i] } : {}) })),
         // Traefik pins visitors with a cookie; it has no client-IP hash.
         ...(o?.sticky && u.targets.length > 1 ? { sticky: { cookie: { name: `serve_${p.replace(/[^A-Za-z0-9_]/g, "_")}`, httpOnly: true, sameSite: "lax" } } } : {}),
         ...(o?.buffering === false ? { responseForwarding: { flushInterval: "1ms" } } : {}),
@@ -245,9 +245,15 @@ export function renderTraefikSite(
       mws = [`${base}-redirect`];
     } else {
       const targets = h.upstream ? site.upstreams.find((u) => u.key === h.upstream)?.targets : undefined;
+      const up = h.upstream ? site.upstreams.find((u) => u.key === h.upstream) : undefined;
       if (targets?.length) {
         service = `${p}-${h.upstream}`;
         mws = chain;
+        // Copies on other servers: a connection that fails is tried again on another copy.
+        if (up?.remote) {
+          middlewares[`${p}-retry`] = { retry: { attempts: 3, initialInterval: "100ms" } };
+          mws = [...chain, `${p}-retry`];
+        }
       } else if (defaults.unavailablePage) {
         // Stopped or not running: Serve's 503 page.
         service = "serve-pages";

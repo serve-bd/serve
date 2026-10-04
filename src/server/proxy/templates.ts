@@ -300,8 +300,12 @@ export function errorPages(productName = "Serve") {
   };
 }
 
-/** `sticky`: the same client IP always reaches the same server (real client IP, after the tunnel). */
-export type SiteUpstream = { name: string; servers: string[]; sticky?: boolean };
+/**
+ * `sticky`: the same client IP always reaches the same server (real client IP, after the tunnel).
+ * `remote`: the app's copies on other servers (load balancing over the private network), each
+ * weighted by its replicas; one that fails is left alone for a few seconds while the others answer.
+ */
+export type SiteUpstream = { name: string; servers: string[]; sticky?: boolean; remote?: { server: string; weight: number }[] };
 
 export type SiteServer = {
   hostname: string;
@@ -378,13 +382,18 @@ export function usesDockerDns(server: string) {
 }
 
 export function upstreamBlock(u: SiteUpstream) {
-  const servers = u.servers.length
-    ? u.servers.map((s) => `    server ${s}${usesDockerDns(s) ? " resolve" : ""} max_fails=0;`).join("\n")
+  const remote = u.remote ?? [];
+  const lines = [
+    ...u.servers.map((s) => `    server ${s}${usesDockerDns(s) ? " resolve" : ""} max_fails=0;`),
+    ...remote.map((r) => `    server ${r.server}${usesDockerDns(r.server) ? " resolve" : ""}${r.weight > 1 ? ` weight=${r.weight}` : ""} max_fails=1 fail_timeout=10s;`),
+  ];
+  const servers = lines.length
+    ? lines.join("\n")
     : // No running container: keep a placeholder so nginx loads, requests get the 502 page.
       `    server 127.0.0.1:1 down;`;
   return `upstream ${u.name} {
     zone ${u.name} 64k;
-${u.sticky && u.servers.length > 1 ? "    hash $remote_addr consistent;\n" : ""}${servers}
+${u.sticky && lines.length > 1 ? "    hash $remote_addr consistent;\n" : ""}${servers}
     keepalive 32;
 }
 `;

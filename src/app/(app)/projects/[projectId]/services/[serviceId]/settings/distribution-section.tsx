@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Info, Rocket, Server } from "lucide-react";
+import { Info, Rocket, Server, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,6 +16,8 @@ import { saveDistribution } from "@/server/actions/registries";
 import { DEFAULT_TAG, defaultRepository, renderTag } from "@/server/registries/refs";
 import type { Distribution } from "@/server/deploy/distribution";
 import type { DeploymentTarget } from "@/server/services/types";
+import type { CopyProblem } from "@/server/services/balance-rules";
+import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type ServerOption = { id: string; name: string; status: string; isLocal: boolean };
@@ -41,6 +43,10 @@ export function DistributionSection(props: {
   registries: RegistryOption[];
   initial: Distribution;
   last: { deploymentId: string; targets: DeploymentTarget[] | null; registryImage: string | null } | null;
+  /** Load balancing: how each saved extra server's copy takes part. */
+  traffic?: Record<string, { problem: CopyProblem | null; error: string | null; since: string | null }>;
+  /** How visitors reach the service's own server. */
+  entry?: { publicIp: string | null; domains: number; tunneled: number };
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -78,6 +84,8 @@ export function DistributionSection(props: {
               disabled={!props.canEdit || (s.status !== "ready" && !s.isLocal)}
               onChange={(on) => toggleExtra(s.id, on)}
               target={value.extraServerIds.includes(s.id) ? targetOf(s.id) : undefined}
+              traffic={value.extraServerIds.includes(s.id) && props.initial.extraServerIds.includes(s.id) ? props.traffic?.[s.id] : undefined}
+              primaryName={props.primary.name}
             />
           ))}
           {others.length === 0 && (
@@ -205,27 +213,43 @@ export function DistributionSection(props: {
         </CardFooter>
       </Card>
 
+      {value.extraServerIds.length > 0 && props.entry && props.entry.domains > 0 && !props.entry.publicIp && props.entry.tunneled < props.entry.domains && (
+        <Card className="border-warn/30">
+          <div className="flex gap-3 px-5 py-4 text-[13px] leading-5 text-fg-2">
+            <TriangleAlert className="mt-0.5 size-4 flex-none text-warn" />
+            <p>
+              <span className="font-medium text-fg">{props.primary.name} has no public address.</span> Visitors reach this app through {props.primary.name} only, so give its
+              domains a Cloudflare Tunnel (Domains tab), or set the public IP of {props.primary.name}.
+            </p>
+          </div>
+        </Card>
+      )}
+
       {value.extraServerIds.length > 0 && (
         <Card className="border-info/25">
           <div className="flex gap-3 px-5 py-4 text-[13px] leading-5 text-fg-2">
             <Info className="mt-0.5 size-4 flex-none text-info" />
             <div className="flex flex-col gap-2">
-              <p className="font-medium text-fg">Before you run on several servers</p>
+              <p className="font-medium text-fg">How several servers work</p>
               <ul className="flex list-disc flex-col gap-1.5 pl-4">
                 <li>
-                  <span className="text-fg">Domains:</span> every server answers for this app&apos;s domains. Point DNS at each server (one A record per server) or put a load
-                  balancer in front. Cloudflare Tunnel domains only reach the service&apos;s own server.
+                  <span className="text-fg">Load balancing:</span> visitors arrive at {props.primary.name} (its public IP, or its Cloudflare Tunnel). Its proxy spreads them over
+                  every server here, each by its number of replicas, and stops sending traffic to a server that does not answer until it does again. DNS points at{" "}
+                  {props.primary.name} only.
                 </li>
                 <li>
-                  <span className="text-fg">HTTPS:</span> with Caddy or Traefik each server gets its own certificate. With nginx, a server without a certificate of its own serves
-                  plain HTTP.
+                  <span className="text-fg">Private network:</span> each extra server needs a private network with {props.primary.name} (Servers → Private network). The other
+                  servers need no open ports and no DNS records.
                 </li>
                 <li>
-                  <span className="text-fg">Private network:</span> databases and other services of this environment stay on {props.primary.name}. Their private hostnames only work
-                  there, so apps on other servers need a public address or a private network between servers.
+                  <span className="text-fg">Deploys:</span> each server switches to the new version on its own. A server whose deploy fails keeps the previous version and gets no
+                  traffic until a deploy succeeds there.
                 </li>
                 <li>
-                  <span className="text-fg">Data:</span> each server has its own volumes. Nothing is shared or synced between them.
+                  <span className="text-fg">HTTPS:</span> handled by {props.primary.name}, which holds the certificates.
+                </li>
+                <li>
+                  <span className="text-fg">Data:</span> each server has its own volumes. Nothing is shared or synced between them, so keep state in a database.
                 </li>
                 <li>
                   <span className="text-fg">Pre-deploy command:</span> runs once, on {props.primary.name}. Logs, metrics and the console show {props.primary.name}.
@@ -239,6 +263,13 @@ export function DistributionSection(props: {
   );
 }
 
+const trafficLabel: Record<CopyProblem, string> = {
+  network: "No traffic: no private network",
+  address: "Joining the private network",
+  deploy: "No traffic until deployed",
+  down: "No traffic: not answering",
+};
+
 function ServerRow({
   name,
   note,
@@ -246,6 +277,8 @@ function ServerRow({
   disabled,
   onChange,
   target,
+  traffic,
+  primaryName,
 }: {
   name: string;
   note?: string;
@@ -253,13 +286,32 @@ function ServerRow({
   disabled?: boolean;
   onChange?: (on: boolean) => void;
   target?: DeploymentTarget;
+  traffic?: { problem: CopyProblem | null; error: string | null; since: string | null };
+  primaryName?: string;
 }) {
+  const why =
+    traffic?.problem === "network"
+      ? `Put ${name} in a private network with ${primaryName} (Servers → Private network).`
+      : traffic?.problem === "down"
+        ? `${traffic.error ?? "Not answering."}${traffic.since ? ` Since ${new Date(traffic.since).toLocaleString()}.` : ""}`
+        : traffic?.problem === "deploy"
+          ? "Deploy to run the current version here."
+          : traffic?.problem === "address"
+            ? "Its private address is being set up."
+            : `${primaryName} sends it a share of the visitors.`;
   return (
     <label className={cn("flex items-center gap-3 rounded-lg px-2 py-2 transition-colors", !disabled && "cursor-pointer hover:bg-fg/[0.03]")}>
       <Checkbox checked={checked} disabled={disabled} onCheckedChange={(c) => onChange?.(!!c)} />
       <Server className="size-4 flex-none text-faint" />
       <span className="min-w-0 flex-1 truncate text-[14px] text-fg">{name}</span>
       {note && <span className="flex-none text-xs text-muted">{note}</span>}
+      {traffic && (
+        <Tooltip content={why}>
+          <Badge tone={traffic.problem === null ? "ok" : traffic.problem === "address" ? "info" : "warn"}>
+            {traffic.problem === null ? "Gets traffic" : trafficLabel[traffic.problem]}
+          </Badge>
+        </Tooltip>
+      )}
       {target && (
         <Badge tone={statusTone[target.status]} title={target.error ?? undefined}>
           {statusLabel[target.status]}

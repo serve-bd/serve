@@ -9,6 +9,7 @@ import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import { certificateCovers } from "@/server/ssl/match";
 import { maintenanceOf, type ProxyMaintenance } from "@/server/services/maintenance";
 import { composeAlias, tunnelNetworkName } from "./names";
+import { BALANCE_CONNECT_TIMEOUT, remoteTargets } from "@/server/services/balance";
 
 /**
  * Proxy-agnostic description of one site (a service with domains, or the
@@ -37,7 +38,12 @@ export type SiteModel = {
   title: string;
   serviceId: string | null;
   stopped: boolean;
-  upstreams: { key: string; targets: string[] }[];
+  /**
+   * `weights`: one per target, when they differ (an app's copies on other servers count their
+   * replicas). `remote`: some targets are on other servers (load balancing): a target that fails is
+   * skipped for a while instead of being tried by every request.
+   */
+  upstreams: { key: string; targets: string[]; weights?: number[]; remote?: boolean }[];
   hosts: HostModel[];
   options: ServiceProxyConfig | null;
   /** Maintenance page on every host (except redirects). */
@@ -91,8 +97,8 @@ export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<S
   const certs = await orgCertificates(service.project.organizationId, ctx.id);
   const stopped = service.status === "stopped";
   const containers = service.type === "app" && !stopped ? await appTargets(ctx, service) : [];
-  const cfg = service.proxy ?? null;
-  const upstreams = new Map<string, string[]>();
+  let cfg = service.proxy ?? null;
+  const upstreams = new Map<string, { targets: string[]; weights?: number[]; remote?: boolean }>();
   const hostnames = new Set(service.domains.map((d) => d.hostname));
 
   const wwwTarget = (hostname: string) => {
@@ -103,24 +109,31 @@ export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<S
     return `${target.https || target.tunnelId ? "https" : "http"}://${other}`;
   };
 
-  const hosts: HostModel[] = service.domains.map((d) => {
+  const hosts: HostModel[] = [];
+  for (const d of service.domains) {
     let upstream: string | null = null;
     if (!d.redirectTo && !stopped) {
       const port = d.port ?? service.runtime.port ?? 80;
       if (service.type === "app") {
         upstream = `app-${port}`;
-        if (!upstreams.has(upstream))
+        if (!upstreams.has(upstream)) {
+          const local = containers.map((c) => `${c}:${port}`);
+          // The app's copies on its extra servers, when this is its own server (load balancing).
+          const remote = await remoteTargets(service, ctx.id, containers.length, port);
           upstreams.set(
             upstream,
-            containers.map((c) => `${c}:${port}`),
+            remote.length
+              ? { targets: [...local, ...remote.map((r) => r.server)], weights: [...local.map(() => 1), ...remote.map((r) => r.weight)], remote: true }
+              : { targets: local },
           );
+        }
       } else if (service.type === "compose" && d.composeService) {
         upstream = `${d.composeService}-${port}`.replace(/[^a-zA-Z0-9-]/g, "-");
-        if (!upstreams.has(upstream)) upstreams.set(upstream, [`${composeAlias(service.slug, d.composeService)}:${port}`]);
+        if (!upstreams.has(upstream)) upstreams.set(upstream, { targets: [`${composeAlias(service.slug, d.composeService)}:${port}`] });
       }
     }
     const tunnel = !!d.tunnelId;
-    return {
+    hosts.push({
       hostname: d.hostname,
       upstream,
       redirectTo: d.redirectTo ?? wwwTarget(d.hostname),
@@ -128,15 +141,17 @@ export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<S
       forceHttps: d.forceHttps,
       tunnel,
       tls: d.https && !tunnel ? certificateFor(d.hostname, d.certificateId, certs) : null,
-    };
-  });
+    });
+  }
+  // A copy on another server that does not answer must not hold a visitor for long before the next is tried.
+  if ([...upstreams.values()].some((u) => u.remote) && !cfg?.connectTimeout) cfg = { ...(cfg ?? {}), connectTimeout: BALANCE_CONNECT_TIMEOUT } as ServiceProxyConfig;
 
   return {
     name: `svc-${service.id}`,
     title: `service "${service.name}" (${service.id})`,
     serviceId: service.id,
     stopped,
-    upstreams: [...upstreams].map(([key, targets]) => ({ key, targets })),
+    upstreams: [...upstreams].map(([key, u]) => ({ key, ...u })),
     hosts,
     options: cfg,
     maintenance: maintenanceOf(service.id, service.maintenance),

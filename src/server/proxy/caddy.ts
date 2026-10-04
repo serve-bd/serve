@@ -155,7 +155,7 @@ function headerLines(o: SiteModel["options"], tls: boolean) {
   return lines;
 }
 
-function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, realIp: boolean, tunnelRanges: string[]) {
+function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, realIp: boolean, tunnelRanges: string[], up?: SiteModel["upstreams"][number]) {
   const o = site.options;
   const lines: string[] = [];
   // A tunnel host while Caddy reads a header the tunnel is not trusted for: the visitor is
@@ -210,7 +210,11 @@ function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, real
   if (!targets) lines.push(site.stopped ? "error 503" : "error 502");
   else {
     // client_ip_hash uses the real visitor IP (trusted_proxies covers the tunnel).
-    const proxy: string[] = [`lb_policy ${o?.sticky && targets.length > 1 ? "client_ip_hash" : "round_robin"}`, "lb_try_duration 5s"];
+    const sticky = o?.sticky && targets.length > 1;
+    const weighted = !sticky && up?.weights && up.weights.length === targets.length && up.weights.some((w) => w !== 1);
+    const proxy: string[] = [`lb_policy ${sticky ? "client_ip_hash" : weighted ? `weighted_round_robin ${up!.weights!.join(" ")}` : "round_robin"}`, "lb_try_duration 5s"];
+    // Copies on other servers: one that fails is skipped for a while (passive health) instead of slowing every visitor.
+    if (up?.remote) proxy.push("fail_duration 10s", "max_fails 1");
     const transport: string[] = [];
     if (o?.connectTimeout) transport.push(`dial_timeout ${o.connectTimeout}s`);
     if (o?.readTimeout) transport.push(`read_timeout ${o.readTimeout}s`, `write_timeout ${o.readTimeout}s`);
@@ -238,8 +242,9 @@ export function renderCaddySite(site: SiteModel, defaults: Required<ProxyDefault
     const guard = h.tunnel && tunnelSubnets.length ? [`@serve_outside not remote_ip ${tunnelSubnets.join(" ")}`, "respond @serve_outside 403"] : [];
     if (h.redirectTo) inner.push("route {", tab([...guard, `redir ${h.redirectTo.replace(/\/$/, "")}{uri} 308`]), "}");
     else {
-      const targets = h.upstream ? (site.upstreams.find((u) => u.key === h.upstream)?.targets ?? []) : [];
-      inner.push("route {", tab([...guard, ...routeBody(site, h, targets.length ? targets : null, realIp, tunnelRanges)]), "}");
+      const up = h.upstream ? site.upstreams.find((u) => u.key === h.upstream) : undefined;
+      const targets = up?.targets ?? [];
+      inner.push("route {", tab([...guard, ...routeBody(site, h, targets.length ? targets : null, realIp, tunnelRanges, up)]), "}");
     }
     blocks.push(`${addresses(h)} {\n${tab(inner)}\n}`);
     // The :80 catch-all would win over Caddy's automatic redirect, so redirect explicitly.

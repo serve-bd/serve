@@ -187,7 +187,8 @@ describe("private network planning", () => {
       ],
     );
     const keys = needs.map((n) => `${n.serverId} ${n.key}`).sort();
-    expect(keys).toEqual(["a env:env1", "a svc:app", "b env:env1", "b svc:stack:web", "b svc:stack:worker", "c env:env1"]);
+    // The app's copy on its extra server gets an address of its own there (load balancing from a).
+    expect(keys).toEqual(["a env:env1", "a svc:app", "b env:env1", "b svc:stack:web", "b svc:stack:worker", "c env:env1", "c lb:app:c"]);
   });
 
   it("keeps service addresses when they move and forgets only what is gone", () => {

@@ -42,6 +42,7 @@ import { sh } from "@/server/servers/ssh";
 import { removeHostRelay, syncHostRelay } from "./host-relay";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
+import { BALANCE_CONNECT_TIMEOUT, remoteTargets } from "@/server/services/balance";
 import { caddyMainConfig, renderCaddySite, tunnelTrustFor } from "./caddy";
 import { renderTraefikSite, TRAEFIK_API, traefikBaseDynamic, traefikRouters, traefikStaticArgs, type ExpectedRouter } from "./traefik";
 
@@ -878,7 +879,9 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
       if (service.type === "app") {
         const name = upstreamName(service.slug, suffix);
         if (!upstreams.has(name)) {
-          upstreams.set(name, { name, servers: containers.map((c) => `${c}:${port}`), sticky: !!cfg?.sticky });
+          // The app's copies on its extra servers, when this is its own server (load balancing).
+          const remote = await remoteTargets(service, server.id, containers.length, port);
+          upstreams.set(name, { name, servers: containers.map((c) => `${c}:${port}`), sticky: !!cfg?.sticky, ...(remote.length ? { remote } : {}) });
         }
         upstream = name;
       } else if (service.type === "compose" && d.composeService) {
@@ -906,6 +909,11 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
       ...(proxyProtocol ? { proxyProtocol } : {}),
     });
   }
+
+  // A copy on another server that does not answer must not hold a visitor for the default 10 seconds
+  // before the next one is tried: 3 seconds, unless the service sets its own connect timeout.
+  if ([...upstreams.values()].some((u) => u.remote?.length) && !cfg?.connectTimeout)
+    for (const s of servers) if (s.upstream) s.options = { ...(s.options ?? {}), connectTimeout: BALANCE_CONNECT_TIMEOUT } as SiteOptions;
 
   const geo = [
     ...(maintenance?.allow.length ? [maintenanceGeo(maintenanceVar(service.id), maintenance.allow)] : []),

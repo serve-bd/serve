@@ -7,6 +7,7 @@ import type {
   DatabaseConfig,
   DbEngine,
   DeploymentTarget,
+  BalanceState,
   DistributionConfig,
   MaintenanceConfig,
   PreviewDatabaseConfig,
@@ -545,6 +546,8 @@ export const service = pgTable(
     compose: jsonb("compose").$type<ComposeConfig>(),
     /** Build server, registry and extra servers of an app (build once, run on many servers). */
     distribution: jsonb("distribution").$type<DistributionConfig>(),
+    /** Health of the app's copies on its extra servers, for the load balancing on its own server. */
+    balance: jsonb("balance").$type<BalanceState>(),
     /** Per-service HTTP options for the nginx site (limits, auth, headers…). */
     proxy: jsonb("proxy").$type<ServiceProxyConfig>(),
     /** Full site configuration written instead of the generated one, per proxy kind. Root admins only. */

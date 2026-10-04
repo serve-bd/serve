@@ -72,6 +72,14 @@ export type DistributionConfig = {
   extraServerIds?: string[];
 };
 
+/**
+ * Load balancing state of an app's copies on its extra servers, as the health checks last saw it
+ * (written only when a copy goes down or comes back, so pages do not refresh on every check).
+ */
+export type BalanceState = {
+  copies: Record<string, { ok: boolean; since: string; error: string | null }>;
+};
+
 /** Per-server result of a deployment that runs on several servers. */
 export type DeploymentTarget = {
   serverId: string;

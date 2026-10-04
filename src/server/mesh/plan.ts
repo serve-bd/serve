@@ -112,6 +112,19 @@ export type AgentConfig = {
 };
 
 export const serviceKey = (serviceId: string, compose?: string | null) => (compose ? `svc:${serviceId}:${compose}` : `svc:${serviceId}`);
+/**
+ * The copy of an app on one of its extra servers: its own address there, so the proxy of the app's
+ * own server can send it traffic (load balancing). Only the app's own server imports it.
+ */
+export const copyKey = (serviceId: string, serverId: string) => `lb:${serviceId}:${serverId}`;
+/** The service and server of a copy address, or null for other keys. */
+export function parseCopyKey(key: string): { serviceId: string; serverId: string } | null {
+  if (!key.startsWith("lb:")) return null;
+  const [, serviceId, serverId] = key.split(":");
+  return serviceId && serverId ? { serviceId, serverId } : null;
+}
+/** The service an address belongs to (its own address, a stack service's, or a copy's). */
+const serviceIdOf = (key: string) => (key.startsWith("svc:") || key.startsWith("lb:") ? key.split(":")[1] : null);
 export const environmentKey = (environmentId: string) => `env:${environmentId}`;
 
 /** Address keys of a service: one, or one per compose service. Isolated stacks have none. */
@@ -143,6 +156,12 @@ export function neededAddresses(servers: PlanServer[], services: PlanService[]):
       if (!taking.has(s.serverId)) continue;
       // A database's pooler and replicas belong to the database (their key says which one they are).
       for (const { key } of serviceKeys(s)) needs.push({ serverId: s.serverId, key, serviceId: s.container ?? s.id, environmentId: null });
+      // Each copy on an extra server linked to the app's own server: the proxy there balances over it.
+      const own = byServer.get(s.serverId);
+      for (const x of s.type === "app" ? s.extraServerIds : []) {
+        const extra = byServer.get(x);
+        if (own && extra && taking.has(x) && linked(own, extra)) needs.push({ serverId: x, key: copyKey(s.id, x), serviceId: s.id, environmentId: null });
+      }
     }
   }
   return needs;
@@ -158,6 +177,13 @@ export function addressChanges(addresses: PlanAddress[], services: PlanService[]
   const remove: PlanAddress[] = [];
   const move: { address: PlanAddress; serverId: string }[] = [];
   for (const a of addresses) {
+    const copy = parseCopyKey(a.key);
+    if (copy) {
+      // A copy's address stays on its server: forgotten once the app no longer runs there.
+      const s = byId.get(copy.serviceId);
+      if (s?.type !== "app" || copy.serverId !== a.serverId || !s.extraServerIds.includes(copy.serverId)) remove.push(a);
+      continue;
+    }
     if (!a.key.startsWith("svc:")) continue;
     const [, id, compose] = a.key.split(":");
     const s = byId.get(id);
@@ -201,8 +227,9 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
       sources.push({ ip: a.ip, networks: [envNetworkName(environmentId)], subnets });
       continue;
     }
-    const [, id, compose] = a.key.split(":");
-    const s = byId.get(id);
+    const copy = parseCopyKey(a.key);
+    const [, id, compose] = copy ? [null, copy.serviceId, undefined] : a.key.split(":");
+    const s = byId.get(id as string);
     if (!s) continue;
     const allow = live
       .filter((x) => near.has(x.serverId) && x.key === environmentKey(s.environmentId))
@@ -213,7 +240,9 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
       service: s.container ?? s.id,
       kind: s.kind ?? null,
       compose: compose ?? null,
-      deployment: s.type === "app" ? s.currentDeploymentId : null,
+      // A copy answers with whatever runs of the app on this server: an extra server whose last deploy
+      // failed keeps its previous version (the proxy then leaves it out, see services/balance).
+      deployment: s.type === "app" && !copy ? s.currentDeploymentId : null,
       network: envNetworkName(s.environmentId),
       allow,
     });
@@ -223,7 +252,7 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
   const mine = new Set(live.filter((x) => x.serverId === self.id && x.key.startsWith("env:")).map((x) => x.key.slice(4)));
   const routed = (serverId: string) =>
     live
-      .filter((x) => x.serverId === serverId && x.key.startsWith("svc:") && mine.has(byId.get(x.key.split(":")[1])?.environmentId ?? ""))
+      .filter((x) => x.serverId === serverId && (x.key.startsWith("svc:") || x.key.startsWith("lb:")) && mine.has(byId.get(serviceIdOf(x.key) ?? "")?.environmentId ?? ""))
       .map((x) => `${x.ip}/32`)
       .sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
 
@@ -267,6 +296,15 @@ function imports(serverId: string, near: Set<string>, services: PlanService[], l
     for (const { key, compose } of serviceKeys(s)) {
       const ip = live.find((a) => a.serverId === s.serverId && a.key === key)?.ip;
       if (ip) out.push({ name: linkName(ip), ip, network: envNetworkName(s.environmentId), aliases: meshAliases(s, compose) });
+    }
+  }
+  // The copies of this server's own apps on their extra servers: a link each, reached by its name only.
+  for (const s of services) {
+    if (s.type !== "app" || s.serverId !== serverId || !envs.has(s.environmentId)) continue;
+    for (const x of s.extraServerIds) {
+      if (!near.has(x)) continue;
+      const ip = live.find((a) => a.serverId === x && a.key === copyKey(s.id, x))?.ip;
+      if (ip) out.push({ name: linkName(ip), ip, network: envNetworkName(s.environmentId), aliases: [] });
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));

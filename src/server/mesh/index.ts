@@ -666,7 +666,11 @@ export async function meshOverview(serverId: string, readStatus = true): Promise
       .map((a) => ({
         ip: a.ip,
         kind: a.key.startsWith("env:") ? ("environment" as const) : ("service" as const),
-        name: a.key.startsWith("env:") ? (a.environmentName ?? "Environment") : `${a.serviceName ?? "Service"}${a.key.split(":")[2] ? ` · ${a.key.split(":")[2]}` : ""}`,
+        name: a.key.startsWith("env:")
+          ? (a.environmentName ?? "Environment")
+          : a.key.startsWith("lb:")
+            ? `${a.serviceName ?? "Service"} · copy for load balancing`
+            : `${a.serviceName ?? "Service"}${a.key.split(":")[2] ? ` · ${a.key.split(":")[2]}` : ""}`,
         projectName: a.projectName,
         environmentName: a.environmentName,
         href: a.serviceId && a.projectId ? `/projects/${a.projectId}/services/${a.serviceId}` : null,

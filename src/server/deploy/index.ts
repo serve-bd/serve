@@ -617,6 +617,10 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
         slog.line(`Failed: ${t.error}`);
       }
       await saveTargets();
+      // The own server's proxy balances over this copy: forward its private address to the new
+      // containers now, then take the copy in (or out, after a failure) right away.
+      if (t.status === "success") await meshAfterStart(extra.id, (l) => slog.line(l));
+      await syncServiceProxy(service.id, server.id).catch((error) => slog.line(`Warning: load balancing on ${server.name}: ${(error as Error).message}`));
       return t;
     }),
   );

@@ -80,6 +80,13 @@ func ExcludesFile(dir string) string {
 	return p
 }
 
+// IgnoreCase says whether git matches ignore rules without regard to case in dir's repository
+// (core.ignorecase, set on macOS and Windows).
+func IgnoreCase(dir string) bool {
+	out, err := git(dir, "config", "--bool", "--get", "core.ignorecase")
+	return err == nil && strings.TrimSpace(out) == "true"
+}
+
 // IsSha says whether s is a commit hash (the server takes 4 to 64 hex characters).
 func IsSha(s string) bool {
 	if len(s) < 4 || len(s) > 64 {

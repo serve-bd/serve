@@ -143,7 +143,13 @@ func TestDeployEdgeCases(t *testing.T) {
 	if r := execute(t, "deploy", "-s", "web", "--no-wait"); r.code != 1 || f.uploads != 3 {
 		t.Fatalf("gives up after two retries: %+v uploads %d", r, f.uploads)
 	}
-	f.uploadFailures = 0
+	// A gateway error after the whole archive went out is not sent again: the server may have
+	// started a deployment, and a second upload would deploy twice.
+	f.uploads, f.uploadFailures, f.uploadFailStatus = 0, 2, 502
+	if r := execute(t, "deploy", "-s", "web", "--no-wait"); r.code != 1 || f.uploads != 1 || !strings.Contains(r.errout, "check `serve deployments`") {
+		t.Fatalf("no retry after a full send: %+v uploads %d", r, f.uploads)
+	}
+	f.uploadFailures, f.uploadFailStatus = 0, 0
 
 	// Cancelled in the dashboard while streaming: exit 3.
 	f.finalStatus = "cancelled"

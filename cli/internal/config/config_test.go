@@ -104,11 +104,12 @@ func TestResolve(t *testing.T) {
 		t.Fatalf("env: %+v %v", got, err)
 	}
 	t.Setenv("SERVE_URL", "")
-	if got, _ = c.Resolve("", "https://linked.example.com"); got.URL != "https://linked.example.com" || got.Token != "srv_env" {
-		t.Fatalf("SERVE_TOKEN without SERVE_URL should use the link's URL: %+v", got)
+	// Never sent to a link's URL (a cloned repository could name any host) or a saved login's.
+	if got, err := c.Resolve("", "https://linked.example.com"); err != ErrTokenWithoutURL {
+		t.Fatalf("SERVE_TOKEN without SERVE_URL must be refused, got %+v %v", got, err)
 	}
 	empty := &Config{}
-	if _, err := empty.Resolve("", ""); err == nil {
+	if _, err := empty.Resolve("", ""); err != ErrTokenWithoutURL {
 		t.Fatal("SERVE_TOKEN without any URL is an error")
 	}
 

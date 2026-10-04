@@ -31,7 +31,8 @@ Each login is a context. `serve context ls` lists them, `serve context use <name
 and `--context <name>` picks one for a single command. A folder linked to a dashboard uses the
 context for that dashboard.
 
-In CI, set `SERVE_URL` and `SERVE_TOKEN` instead of logging in. Nothing ever prompts without a
+In CI, set `SERVE_URL` and `SERVE_TOKEN` instead of logging in. Both are needed: the token is
+only ever sent to `SERVE_URL`, never to the address in a folder's link. Nothing ever prompts without a
 terminal: where a choice is needed, the error names the flag to pass.
 
 For a dashboard with a self-signed certificate, pass `--insecure` (or set `SERVE_INSECURE=1`).
@@ -61,11 +62,13 @@ is added to `.gitignore`).
 The folder is packed and uploaded, built on the server and the build log is streamed until the
 deployment ends. Left out of the upload:
 
-- what `.gitignore` files (nested ones too, `.git/info/exclude` and your global git ignore
-  file) and `.dockerignore` name. A `.serveignore` (same format) replaces the `.gitignore`
-  files, so build output that git ignores can still be sent. The deploy says which files it used;
-- always `.git`, `.serve`, `node_modules` and `.env` files (pass `--include-env` to keep the
-  `.env` files);
+- what git ignores: every `.gitignore` from the repository root down (also above a deployed
+  subfolder), `.git/info/exclude` and your global git ignore file. A `.serveignore` (same
+  format) in the deployed folder replaces these, so build output that git ignores can still be
+  sent. The deploy says which files it used, and warns about a rule it cannot read;
+- what `.dockerignore` names, on top: a `!` line there never brings back a file git ignores;
+- always `.git`, `.serve`, `node_modules` and `.env` files (`.env`, `.env.*`, `.env-*`,
+  `*.env`, `.envrc`; pass `--include-env` to keep them);
 - symlinks that point outside the folder, and files that cannot be read (both with a warning).
 
 A home folder, the root folder, or a folder with more than 5,000 files and no project file is

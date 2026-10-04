@@ -152,6 +152,9 @@ func (a *App) Client() (*api.Client, error) {
 		linkURL = l.URL
 	}
 	login, err := cfg.Resolve(a.contextName, linkURL)
+	if errors.Is(err, config.ErrTokenWithoutURL) {
+		return nil, usagef("%s", err.Error())
+	}
 	if errors.Is(err, config.ErrNoLogin) && linkURL != "" {
 		login, err = a.offerLogin(linkURL)
 	}

@@ -195,23 +195,20 @@ func (c *Config) NameFor(rawURL, orgID, orgName string) string {
 // ErrNoLogin means there is no login to use.
 var ErrNoLogin = errors.New("Not signed in. Run serve login <url>")
 
-// Resolve picks the login to use. In order: SERVE_TOKEN (with SERVE_URL, the link's URL or the
-// current context's URL), the --context flag, SERVE_CONTEXT, a context for the linked project's
+// ErrTokenWithoutURL is SERVE_TOKEN set without SERVE_URL.
+var ErrTokenWithoutURL = errors.New("Set SERVE_URL with SERVE_TOKEN: the token is only sent to the address named in SERVE_URL")
+
+// Resolve picks the login to use. Each login's token only ever goes to that login's own URL; a
+// link's URL only helps pick a login. In order: SERVE_TOKEN with SERVE_URL, the --context flag, SERVE_CONTEXT, a context for the linked project's
 // URL, the current context, the only context, and last the host's cli.json (the "local"
 // context) unless serve logout turned that off.
 func (c *Config) Resolve(flagContext, linkURL string) (*Context, error) {
 	if token := os.Getenv("SERVE_TOKEN"); token != "" {
+		// The token goes only to the address given with it, never to one read from a link
+		// file (a cloned repository could name any host) or from a saved login.
 		u := os.Getenv("SERVE_URL")
 		if u == "" {
-			u = linkURL
-		}
-		if u == "" {
-			if cur := c.Get(c.Current); cur != nil {
-				u = cur.URL
-			}
-		}
-		if u == "" {
-			return nil, errors.New("SERVE_TOKEN is set but SERVE_URL is not. Set SERVE_URL to the address of your Serve dashboard")
+			return nil, ErrTokenWithoutURL
 		}
 		u, err := NormalizeURL(u)
 		if err != nil {

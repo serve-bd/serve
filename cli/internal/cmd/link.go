@@ -149,6 +149,9 @@ func (a *App) initCmd() *cobra.Command {
 repository needed), then link the folder to it. The name defaults to the folder's name.`,
 		Args: maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if port < 0 || port > 65535 {
+				return usagef("--port must be from 1 to 65535")
+			}
 			dir := "."
 			if len(args) > 0 {
 				dir = args[0]

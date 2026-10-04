@@ -55,6 +55,9 @@ func (a *App) deploymentsCmd() *cobra.Command {
 		Short:   "List the deployments of the service, newest first",
 		Args:    noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if limit < 1 || limit > 200 {
+				return usagef("--limit must be from 1 to 200")
+			}
 			ctx := cmd.Context()
 			s, err := a.target(ctx, ".", anyService)
 			if err != nil {

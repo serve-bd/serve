@@ -322,21 +322,36 @@ func (a *App) logoutCmd() *cobra.Command {
 				}
 				return fmt.Errorf("there is no context named %q", name)
 			}
+			revoked := false
+			var revokeErr error
 			if !keep {
-				c := api.New(login.URL, login.Token, a.userAgent())
+				insecure := login.Insecure || a.insecureWanted()
+				if insecure {
+					a.warnInsecure()
+				}
+				c := api.NewInsecure(login.URL, login.Token, a.userAgent(), insecure)
 				ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
 				defer cancel()
-				if me, err := c.Me(ctx); err == nil {
-					if err := c.Delete(ctx, "/tokens/"+api.P(me.Token.ID), nil, nil); err != nil {
-						ui.Warn("Could not revoke the token (%v). Revoke it on the Keys & tokens page.", err)
-					}
+				me, err := c.Me(ctx)
+				if err == nil {
+					err = c.Delete(ctx, "/tokens/"+api.P(me.Token.ID), nil, nil)
 				}
+				revoked, revokeErr = err == nil, err
 			}
+			addr := login.URL
 			cfg.Remove(name)
 			if err := cfg.Save(); err != nil {
 				return err
 			}
-			ui.Success("Logged out of %s.", login.Name)
+			switch {
+			case revoked:
+				ui.Success("Logged out of %s and revoked its token.", name)
+			case keep:
+				ui.Success("Logged out of %s. The token still works.", name)
+			default:
+				ui.Success("Logged out of %s here.", name)
+				ui.Warn("Could not revoke the token on %s: %v. Revoke it in Keys & tokens.", addr, revokeErr)
+			}
 			if cfg.Current != "" {
 				ui.Line(ui.Dim("Now using context " + cfg.Current + "."))
 			}

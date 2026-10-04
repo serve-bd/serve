@@ -24,22 +24,23 @@ import (
 
 // fake is a small Serve API: one project, one upload app (s1) and one database.
 type fake struct {
-	mu             sync.Mutex
-	uploadFailures int  // answer 502 to this many uploads first
-	rateLimited    int  // answer 429 to this many GET /me first
-	apiOff         bool // answer 503 as an instance with the API turned off
-	noCLILogin     bool // an older Serve without /api/cli
-	uploads        int
-	slowDown       int    // answer slow_down to this many polls first
-	refuseUpload   string // answer the upload with this reason before reading it
-	refuseStatus   int
-	buildLog       string
-	finalStatus    string
-	uploaded       []string
-	query          url.Values
-	vars           map[string]string
-	polls          int
-	created        map[string]any
+	mu               sync.Mutex
+	uploadFailures   int // answer uploadFailStatus (503 by default) to this many uploads first
+	uploadFailStatus int
+	rateLimited      int  // answer 429 to this many GET /me first
+	apiOff           bool // answer 503 as an instance with the API turned off
+	noCLILogin       bool // an older Serve without /api/cli
+	uploads          int
+	slowDown         int    // answer slow_down to this many polls first
+	refuseUpload     string // answer the upload with this reason before reading it
+	refuseStatus     int
+	buildLog         string
+	finalStatus      string
+	uploaded         []string
+	query            url.Values
+	vars             map[string]string
+	polls            int
+	created          map[string]any
 }
 
 func (f *fake) handler(t *testing.T) http.Handler {
@@ -139,7 +140,11 @@ func (f *fake) handler(t *testing.T) http.Handler {
 			if f.uploadFailures > 0 {
 				f.uploadFailures--
 				io.Copy(io.Discard, r.Body)
-				j(w, 502, map[string]any{"error": "Bad gateway"})
+				status := f.uploadFailStatus
+				if status == 0 {
+					status = 503
+				}
+				j(w, status, map[string]any{"error": http.StatusText(status)})
 				return
 			}
 			if r.Header.Get("Content-Type") != "application/gzip" {

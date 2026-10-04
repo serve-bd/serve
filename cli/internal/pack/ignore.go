@@ -2,6 +2,7 @@ package pack
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
@@ -9,7 +10,7 @@ import (
 
 // rule is one line of an ignore file.
 type rule struct {
-	base    string // folder of the ignore file, relative to the root ("" for the root)
+	base    string // folder of the ignore file, relative to the root of its rules ("" for the root)
 	negate  bool
 	dirOnly bool
 	// docker rules (.dockerignore) also match every path below a matching folder, and a
@@ -19,12 +20,18 @@ type rule struct {
 }
 
 // parseIgnore reads gitignore syntax. With docker set, every pattern is relative to the root,
-// as in .dockerignore.
-func parseIgnore(r io.Reader, base string, docker bool) []rule {
-	var rules []rule
+// as in .dockerignore. With fold set, patterns match without regard to case (core.ignorecase).
+// Lines that cannot be read as a pattern are answered in bad, never dropped silently.
+func parseIgnore(r io.Reader, base string, docker, fold bool) (rules []rule, bad []string) {
 	sc := bufio.NewScanner(r)
+	first := true
 	for sc.Scan() {
 		line := strings.TrimRight(sc.Text(), "\r")
+		if first {
+			// Editors on Windows may start the file with a byte order mark; git skips it.
+			line = strings.TrimPrefix(line, "\ufeff")
+			first = false
+		}
 		if docker {
 			line = strings.TrimSpace(line)
 		} else {
@@ -33,6 +40,7 @@ func parseIgnore(r io.Reader, base string, docker bool) []rule {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		raw := line
 		ru := rule{base: base, docker: docker}
 		if strings.HasPrefix(line, "!") {
 			ru.negate = true
@@ -58,14 +66,18 @@ func parseIgnore(r io.Reader, base string, docker bool) []rule {
 		} else {
 			expr = "(^|/)" + expr + "$"
 		}
+		if fold {
+			expr = "(?i)" + expr
+		}
 		re, err := regexp.Compile(expr)
 		if err != nil {
+			bad = append(bad, raw)
 			continue
 		}
 		ru.re = re
 		rules = append(rules, ru)
 	}
-	return rules
+	return rules, bad
 }
 
 // trimTrailingSpace drops trailing spaces unless escaped with a backslash.
@@ -89,8 +101,12 @@ func globToRegexp(p string) string {
 					// "**/": any number of folders, also none.
 					b.WriteString("(?:.*/)?")
 					i++
-				} else {
+				} else if atStart && i+1 == len(p) {
+					// A trailing "/**": everything inside.
 					b.WriteString(".*")
+				} else {
+					// Elsewhere "**" is a plain "*".
+					b.WriteString("[^/]*")
 				}
 			} else {
 				b.WriteString("[^/]*")
@@ -98,26 +114,13 @@ func globToRegexp(p string) string {
 		case '?':
 			b.WriteString("[^/]")
 		case '[':
-			j := i + 1
-			if j < len(p) && (p[j] == '!' || p[j] == '^') {
-				j++
-			}
-			if j < len(p) && p[j] == ']' {
-				j++
-			}
-			for j < len(p) && p[j] != ']' {
-				j++
-			}
-			if j >= len(p) {
+			class, end, ok := bracket(p, i)
+			if !ok {
 				b.WriteString(`\[`)
 				continue
 			}
-			class := p[i+1 : j]
-			if strings.HasPrefix(class, "!") {
-				class = "^" + class[1:]
-			}
-			b.WriteString("[" + strings.ReplaceAll(class, `\`, `\\`) + "]")
-			i = j
+			b.WriteString(class)
+			i = end
 		case '\\':
 			if i+1 < len(p) {
 				i++
@@ -130,29 +133,87 @@ func globToRegexp(p string) string {
 	return b.String()
 }
 
-// Matcher holds the rules of .gitignore files, then .dockerignore, then .serveignore files. A
-// later rule wins over an earlier one, so .serveignore has the last word.
-type Matcher struct {
-	git, docker, serve []rule
-}
+// posixClasses are the [:name:] classes git knows.
+var posixClasses = map[string]bool{"alnum": true, "alpha": true, "blank": true, "cntrl": true, "digit": true, "graph": true,
+	"lower": true, "print": true, "punct": true, "space": true, "upper": true, "xdigit": true}
 
-// Ignored says whether a path (slash separated, relative to the root) is left out. inIgnored is
-// true inside an ignored folder that is still walked because a .dockerignore negation could
-// bring something back: there every rule also matches the folders above the path, so the path
-// stays ignored unless a later rule names it again.
-func (m *Matcher) Ignored(path string, isDir, inIgnored bool) bool {
-	ignored := false
-	for _, layer := range [][]rule{m.git, m.docker, m.serve} {
-		for _, r := range layer {
-			if r.matches(path, isDir, inIgnored) {
-				ignored = !r.negate
+// bracket turns the glob bracket expression that starts at p[i] into a regexp class, and answers
+// the index of its closing ']'. Not ok when the bracket is not closed (then '[' is literal).
+func bracket(p string, i int) (string, int, bool) {
+	var b strings.Builder
+	b.WriteString("[")
+	j := i + 1
+	if j < len(p) && (p[j] == '!' || p[j] == '^') {
+		b.WriteString("^")
+		j++
+	}
+	for start := j; j < len(p); j++ {
+		c := p[j]
+		switch {
+		case c == ']' && j > start:
+			b.WriteString("]")
+			return b.String(), j, true
+		case c == '[' && j+1 < len(p) && p[j+1] == ':':
+			end := strings.Index(p[j+2:], ":]")
+			if end < 0 {
+				b.WriteString(`\[`)
+				continue
 			}
+			name := p[j+2 : j+2+end]
+			if !posixClasses[name] {
+				// Not a class git knows: the pattern does not compile, and the rule is reported.
+				return "[[:" + name + ":]]", j + 2 + end + 1, true
+			}
+			b.WriteString("[:" + name + ":]")
+			j += 2 + end + 1
+		case c == '\\' && j+1 < len(p):
+			j++
+			b.WriteString(regexp.QuoteMeta(string(p[j])))
+		default:
+			b.WriteString(regexp.QuoteMeta(string(c)))
 		}
 	}
-	return ignored
+	return "", 0, false
 }
 
-// MayReinclude says whether a docker negation could bring back something inside an ignored folder.
+// Matcher holds two separate gates. The git gate is the .gitignore files (from the repository
+// root down), .git/info/exclude and the global git ignore file, or the .serveignore files that
+// replace them. The docker gate is .dockerignore. A path is left out when either gate leaves it
+// out: a .dockerignore negation never brings back what git ignores.
+type Matcher struct {
+	git, docker []rule
+	// prefix is the scanned folder relative to the git repository root ("" when it is the root
+	// or there is no repository). Git rules are matched against prefix + path.
+	prefix string
+}
+
+// Ignored says whether a path (slash separated, relative to the scanned folder) is left out.
+func (m *Matcher) Ignored(path string, isDir bool) bool {
+	g, d := m.gates(path, isDir)
+	return g || d
+}
+
+// gates answers what each gate says of a path.
+func (m *Matcher) gates(path string, isDir bool) (git, docker bool) {
+	full := path
+	if m.prefix != "" {
+		full = m.prefix + "/" + path
+	}
+	for _, r := range m.git {
+		if r.matches(full, isDir) {
+			git = !r.negate
+		}
+	}
+	for _, r := range m.docker {
+		if r.matches(path, isDir) {
+			docker = !r.negate
+		}
+	}
+	return git, docker
+}
+
+// MayReinclude says whether a docker negation could bring back something inside a folder that
+// only .dockerignore leaves out.
 func (m *Matcher) MayReinclude() bool {
 	for _, r := range m.docker {
 		if r.negate {
@@ -162,7 +223,7 @@ func (m *Matcher) MayReinclude() bool {
 	return false
 }
 
-func (r rule) matches(path string, isDir, parents bool) bool {
+func (r rule) matches(path string, isDir bool) bool {
 	rel := path
 	if r.base != "" {
 		if !strings.HasPrefix(path, r.base+"/") {
@@ -173,7 +234,7 @@ func (r rule) matches(path string, isDir, parents bool) bool {
 	if r.re.MatchString(rel) && (!r.dirOnly || isDir) {
 		return true
 	}
-	if r.docker || parents {
+	if r.docker {
 		// A folder rule covers what is inside it.
 		for i := len(rel) - 1; i > 0; i-- {
 			if rel[i] == '/' && r.re.MatchString(rel[:i]) {
@@ -182,4 +243,12 @@ func (r rule) matches(path string, isDir, parents bool) bool {
 		}
 	}
 	return false
+}
+
+func badRules(file string, bad []string) []string {
+	out := make([]string, 0, len(bad))
+	for _, b := range bad {
+		out = append(out, fmt.Sprintf("%s: %s", file, b))
+	}
+	return out
 }

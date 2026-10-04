@@ -5,10 +5,12 @@ package pack
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -21,6 +23,8 @@ type Options struct {
 	IncludeEnv bool
 	// GlobalExcludes is the user's global git ignore file (core.excludesfile), if any.
 	GlobalExcludes string
+	// IgnoreCase matches the git rules without regard to case (git's core.ignorecase).
+	IgnoreCase bool
 }
 
 // File is one entry of the archive.
@@ -45,13 +49,18 @@ type Result struct {
 	Unreadable []string
 	// Rules names the ignore files that were used, like ".gitignore (2 files)".
 	Rules []string
+	// BadRules lists ignore lines that could not be read as a pattern ("file: line").
+	BadRules []string
 }
 
 // alwaysSkipped are left out wherever they are. .git may also be a file (worktrees, submodules).
 var alwaysSkipped = map[string]bool{".git": true, ".serve": true, "node_modules": true}
 
-// IsEnvFile is true for .env, .env.local, .env.production and the like.
-func IsEnvFile(name string) bool { return name == ".env" || strings.HasPrefix(name, ".env.") }
+// IsEnvFile is true for .env, .env.local, .env-production, .envrc, production.env and the like.
+func IsEnvFile(name string) bool {
+	n := strings.ToLower(name)
+	return n == ".env" || n == ".envrc" || strings.HasPrefix(n, ".env.") || strings.HasPrefix(n, ".env-") || strings.HasSuffix(n, ".env")
+}
 
 // alwaysKept files are needed by a Docker build even when .dockerignore names them.
 func alwaysKept(name string) bool {
@@ -84,9 +93,9 @@ func HasProjectMarker(dir string) bool {
 }
 
 // Scan walks root and lists what goes into the archive. With a .serveignore in root, the
-// .serveignore files replace the .gitignore files (so build output git ignores can be sent);
-// otherwise .gitignore files (nested ones too), .git/info/exclude and the global git ignore file
-// apply. .dockerignore applies in both cases.
+// .serveignore files replace the git rules (so build output git ignores can be sent); otherwise
+// the git rules apply: every .gitignore from the repository root (which may be above root) down,
+// .git/info/exclude and the global git ignore file. .dockerignore applies on top in both cases.
 func Scan(root string, opts Options) (*Result, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -105,18 +114,33 @@ func Scan(root string, opts Options) (*Result, error) {
 		w.serveMode = true
 	} else {
 		if opts.GlobalExcludes != "" {
-			if r := loadFile(opts.GlobalExcludes, ""); len(r) > 0 {
-				w.m.git = append(w.m.git, r...)
+			if r := w.load(opts.GlobalExcludes, "", "global git ignore"); len(r) > 0 {
 				res.Rules = append(res.Rules, "global git ignore")
 			}
 		}
-		if r := loadFile(filepath.Join(root, ".git", "info", "exclude"), ""); len(r) > 0 {
-			w.m.git = append(w.m.git, r...)
-			res.Rules = append(res.Rules, ".git/info/exclude")
+		if top, gitDir := repoRoot(root); top != "" {
+			if r := w.load(filepath.Join(gitDir, "info", "exclude"), "", ".git/info/exclude"); len(r) > 0 {
+				res.Rules = append(res.Rules, ".git/info/exclude")
+			}
+			// The .gitignore files of the folders between the repository root and root.
+			rel, _ := filepath.Rel(top, root)
+			if rel = filepath.ToSlash(rel); rel != "." {
+				w.m.prefix = rel
+				parts := strings.Split(rel, "/")
+				for i := range parts {
+					dir := strings.Join(parts[:i], "/")
+					file := filepath.Join(top, filepath.FromSlash(dir), ".gitignore")
+					if r := w.load(file, dir, path.Join(dir, ".gitignore")); r != nil {
+						w.gitFiles++
+					}
+				}
+			}
 		}
 	}
 	if f, err := os.Open(filepath.Join(root, ".dockerignore")); err == nil {
-		w.m.docker = parseIgnore(f, "", true)
+		var bad []string
+		w.m.docker, bad = parseIgnore(f, "", true, false)
+		res.BadRules = append(res.BadRules, badRules(".dockerignore", bad)...)
 		f.Close()
 	}
 	if err := w.walk("", false); err != nil {
@@ -137,13 +161,57 @@ func Scan(root string, opts Options) (*Result, error) {
 	return res, nil
 }
 
-func loadFile(path, rel string) []rule {
-	f, err := os.Open(path)
+// repoRoot answers the root of the git repository that holds dir and its git folder, or "".
+// .git may be a file (worktrees, submodules) naming the git folder; a worktree keeps
+// info/exclude in the common folder.
+func repoRoot(dir string) (top, gitDir string) {
+	for {
+		g := filepath.Join(dir, ".git")
+		if info, err := os.Stat(g); err == nil {
+			if info.IsDir() {
+				return dir, g
+			}
+			if b, err := os.ReadFile(g); err == nil {
+				if d, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir:"); ok {
+					d = strings.TrimSpace(d)
+					if !filepath.IsAbs(d) {
+						d = filepath.Join(dir, d)
+					}
+					if c, err := os.ReadFile(filepath.Join(d, "commondir")); err == nil {
+						common := strings.TrimSpace(string(c))
+						if !filepath.IsAbs(common) {
+							common = filepath.Join(d, common)
+						}
+						d = common
+					}
+					return dir, d
+				}
+			}
+			return dir, g
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", ""
+		}
+		dir = parent
+	}
+}
+
+// load adds the git-style rules of one ignore file (nil when there is none). base is the
+// file's folder relative to the root its rules are matched against; name is how it is reported.
+func (w *walker) load(file, base, name string) []rule {
+	f, err := os.Open(file)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
-	return parseIgnore(f, rel, false)
+	r, bad := parseIgnore(f, base, false, w.opts.IgnoreCase && !w.serveMode)
+	w.res.BadRules = append(w.res.BadRules, badRules(name, bad)...)
+	if r == nil {
+		r = []rule{}
+	}
+	w.m.git = append(w.m.git, r...)
+	return r
 }
 
 type walker struct {
@@ -167,12 +235,10 @@ func (w *walker) walk(rel string, inIgnored bool) error {
 	}
 	m := w.m
 	if w.serveMode {
-		if r := loadFile(filepath.Join(dir, ".serveignore"), rel); r != nil {
-			m.serve = append(m.serve, r...)
+		if w.load(filepath.Join(dir, ".serveignore"), rel, path.Join(rel, ".serveignore")) != nil {
 			w.serveFiles++
 		}
-	} else if r := loadFile(filepath.Join(dir, ".gitignore"), rel); r != nil {
-		m.git = append(m.git, r...)
+	} else if w.load(filepath.Join(dir, ".gitignore"), path.Join(m.prefix, rel), path.Join(rel, ".gitignore")) != nil {
 		w.gitFiles++
 	}
 
@@ -188,17 +254,20 @@ func (w *walker) walk(rel string, inIgnored bool) error {
 		t := e.Type()
 		isDir := t.IsDir()
 		if !isDir && IsEnvFile(name) && !w.opts.IncludeEnv {
-			if !inIgnored && !m.Ignored(p, false, false) {
+			if !inIgnored && !m.Ignored(p, false) {
 				w.res.SkippedEnv = append(w.res.SkippedEnv, p)
 			}
 			continue
 		}
-		ignored := m.Ignored(p, isDir, inIgnored)
-		if ignored && !isDir && !inIgnored && alwaysKept(name) {
-			ignored = false
+		gitIgnored, dockerIgnored := m.gates(p, isDir)
+		if !isDir && !inIgnored && alwaysKept(name) {
+			gitIgnored, dockerIgnored = false, false
 		}
+		ignored := gitIgnored || dockerIgnored
 		if isDir {
-			if ignored && !m.MayReinclude() {
+			// Nothing inside a folder git ignores can come back. Inside one only .dockerignore
+			// leaves out, a docker negation can bring something back, so it is walked.
+			if gitIgnored || (dockerIgnored && !m.MayReinclude()) {
 				continue
 			}
 			info, err := e.Info()
@@ -338,14 +407,17 @@ func (r *Result) Largest(n int) []Folder {
 	return out
 }
 
-// Write writes the listed entries as a gzip compressed tar to w.
-func (r *Result) Write(w io.Writer) error {
+// Write writes the listed entries as a gzip compressed tar to w. It stops when ctx is done.
+func (r *Result) Write(ctx context.Context, w io.Writer) error {
 	gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
 	if err != nil {
 		return err
 	}
 	tw := tar.NewWriter(gz)
 	for _, f := range r.Files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		h := &tar.Header{Name: f.Rel, Mode: int64(f.Mode.Perm()), ModTime: f.ModTime.Truncate(time.Second), Format: tar.FormatPAX}
 		switch {
 		case f.Mode.IsDir():
@@ -364,7 +436,7 @@ func (r *Result) Write(w io.Writer) error {
 		if h.Typeflag != tar.TypeReg {
 			continue
 		}
-		if err := copyFile(tw, filepath.Join(r.Root, filepath.FromSlash(f.Rel)), f.Size); err != nil {
+		if err := copyFile(ctx, tw, filepath.Join(r.Root, filepath.FromSlash(f.Rel)), f.Size); err != nil {
 			return err
 		}
 	}
@@ -376,14 +448,17 @@ func (r *Result) Write(w io.Writer) error {
 
 // copyFile writes exactly size bytes: a file that grew or shrank since the scan is cut or
 // padded, so the archive stays valid.
-func copyFile(w io.Writer, file string, size int64) error {
+func copyFile(ctx context.Context, w io.Writer, file string, size int64) error {
 	f, err := os.Open(file)
 	if err != nil {
 		return fmt.Errorf("cannot read %s: %w", file, err)
 	}
 	defer f.Close()
-	n, err := io.Copy(w, io.LimitReader(f, size))
+	n, err := io.Copy(w, &ctxReader{ctx, io.LimitReader(f, size)})
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("cannot read %s: %w", file, err)
 	}
 	if n < size {
@@ -392,13 +467,27 @@ func copyFile(w io.Writer, file string, size int64) error {
 	return err
 }
 
-// WriteTemp writes the archive to a temporary file and answers its path and size.
-func (r *Result) WriteTemp() (string, int64, error) {
+// ctxReader stops a long copy (a huge file) when ctx is done.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c *ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
+}
+
+// WriteTemp writes the archive to a temporary file and answers its path and size. When ctx is
+// done it stops and removes the file.
+func (r *Result) WriteTemp(ctx context.Context) (string, int64, error) {
 	f, err := os.CreateTemp("", "serve-upload-*.tar.gz")
 	if err != nil {
 		return "", 0, err
 	}
-	if err := r.Write(f); err != nil {
+	if err := r.Write(ctx, f); err != nil {
 		f.Close()
 		os.Remove(f.Name())
 		return "", 0, err

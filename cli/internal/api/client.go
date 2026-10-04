@@ -41,7 +41,7 @@ func NewInsecure(baseURL, token, userAgent string, insecure bool) *Client {
 		UserAgent: userAgent,
 		MaxWait:   60 * time.Second,
 		// No overall timeout: uploads and log follows run long. Each call passes a context.
-		HTTP: &http.Client{Transport: &http.Transport{
+		HTTP: &http.Client{CheckRedirect: checkRedirect, Transport: &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,
 			DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 			TLSHandshakeTimeout:   15 * time.Second,
@@ -51,6 +51,30 @@ func NewInsecure(baseURL, token, userAgent string, insecure bool) *Client {
 			MaxIdleConnsPerHost:   4,
 		}},
 	}
+}
+
+// RedirectError is a redirect that was not followed because it would leak the token.
+type RedirectError struct{ msg string }
+
+func (e *RedirectError) Error() string { return e.msg }
+
+// checkRedirect refuses a redirect that would carry the token to another host, or from https to
+// plain http where anyone on the way could read it.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	first := via[0]
+	if first.Header.Get("Authorization") == "" {
+		return nil
+	}
+	if first.URL.Scheme == "https" && req.URL.Scheme != "https" {
+		return &RedirectError{fmt.Sprintf("refused a redirect from %s to %s: it would send your token without HTTPS", first.URL.Scheme+"://"+first.URL.Host, req.URL.Scheme+"://"+req.URL.Host)}
+	}
+	if !strings.EqualFold(first.URL.Host, req.URL.Host) {
+		return &RedirectError{fmt.Sprintf("refused a redirect from %s to %s: it would send your token to another host. Log in with the dashboard's own address", first.URL.Host, req.URL.Host)}
+	}
+	return nil
 }
 
 // Error is an answer of the API that is not a success.
@@ -219,6 +243,10 @@ func (c *Client) send(ctx context.Context, r Request) (*http.Response, error) {
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		var re *RedirectError
+		if errors.As(err, &re) {
+			return nil, re
 		}
 		return nil, &NetworkError{URL: c.BaseURL, Err: err, Hint: c.DownHint}
 	}

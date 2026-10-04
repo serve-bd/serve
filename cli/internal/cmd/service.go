@@ -182,6 +182,9 @@ named (--build=<id>). With -f it follows that log until the deployment ends.`,
 		Example: "  serve logs -f\n  serve logs --tail 500\n  serve logs --build\n  serve logs --build=abc123 -f",
 		Args:    noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if tail < 1 {
+				return usagef("--tail must be 1 or more")
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			if cmd.Flags().Changed("build") {
@@ -213,9 +216,7 @@ named (--build=<id>). With -f it follows that log until the deployment ends.`,
 			}
 			multi = len(names) > 1
 			if !follow {
-				if len(lines) > tail {
-					lines = lines[len(lines)-tail:]
-				}
+				lines = api.LastLines(lines, tail)
 				if len(lines) == 0 {
 					ui.Info(ui.Dim("No log lines. Is %s running? See `serve status`."), s.Name)
 				}

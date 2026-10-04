@@ -43,10 +43,11 @@ func (a *App) deployCmd() *cobra.Command {
 		Long: `Upload a folder (this one by default) to the linked app, build it on the server and
 stream the build log until the deployment ends.
 
-Left out of the upload: what .gitignore files (nested ones too, .git/info/exclude
-and your global git ignore file) and .dockerignore name, and always .git, .serve,
-node_modules and .env files (keep the .env files with --include-env). A .serveignore
-file replaces the .gitignore files, so build output that git ignores can be sent.
+Left out of the upload: what git ignores (every .gitignore from the repository root
+down, .git/info/exclude and your global git ignore file), what .dockerignore names, and
+always .git, .serve, node_modules and .env files (keep the .env files with
+--include-env). A .serveignore file in the folder replaces the git rules, so build
+output that git ignores can be sent; a .dockerignore "!" never brings back what git ignores.
 Symlinks that point outside the folder are left out.
 
 In a monorepo, deploy a subfolder (serve deploy apps/web), or pass --root to upload
@@ -300,7 +301,7 @@ func (a *App) offerLink(ctx context.Context, dir string) (*api.Service, error) {
 // upload packs dir, sends it and answers the new deployment's id.
 func (a *App) upload(ctx context.Context, c *api.Client, s *api.Service, dir string, f deployFlags) (string, error) {
 	sp := ui.StartSpinner("Reading the folder...")
-	res, err := pack.Scan(dir, pack.Options{IncludeEnv: f.includeEnv, GlobalExcludes: gitinfo.ExcludesFile(dir)})
+	res, err := pack.Scan(dir, pack.Options{IncludeEnv: f.includeEnv, GlobalExcludes: gitinfo.ExcludesFile(dir), IgnoreCase: gitinfo.IgnoreCase(dir)})
 	sp.Stop()
 	if err != nil {
 		return "", err
@@ -312,6 +313,9 @@ func (a *App) upload(ctx context.Context, c *api.Client, s *api.Service, dir str
 	ui.Info("  %s files, %s", fmt.Sprint(res.Count), ui.Bytes(res.Size))
 	if len(res.Rules) > 0 {
 		ui.Line(ui.Dim("  Ignore rules from " + strings.Join(res.Rules, ", ")))
+	}
+	if len(res.BadRules) > 0 {
+		ui.Warn("Could not read %d ignore rule(s), so they do not apply: %s", len(res.BadRules), listSome(res.BadRules, 5))
 	}
 	if len(res.SkippedEnv) > 0 {
 		ui.Line(ui.Dim(fmt.Sprintf("  Left out %d .env file(s); pass --include-env to upload them.", len(res.SkippedEnv))))
@@ -369,8 +373,11 @@ func (a *App) upload(ctx context.Context, c *api.Client, s *api.Service, dir str
 	defer stop()
 
 	sp = ui.StartSpinner("Compressing...")
-	archive, size, err := res.WriteTemp()
+	archive, size, err := res.WriteTemp(ctx)
 	sp.Stop()
+	if ctx.Err() != nil {
+		return "", errors.New("upload stopped; nothing was deployed")
+	}
 	if err != nil {
 		return "", fmt.Errorf("cannot pack the folder: %w", err)
 	}
@@ -378,8 +385,19 @@ func (a *App) upload(ctx context.Context, c *api.Client, s *api.Service, dir str
 
 	var r map[string]any
 	for attempt := 0; ; attempt++ {
-		err = a.send(ctx, c, s, archive, size, q, &r)
-		if err == nil || ctx.Err() != nil || attempt >= UploadRetries || !uploadRetryable(err) {
+		var sent int64
+		sent, err = a.send(ctx, c, s, archive, size, q, &r)
+		if err == nil || ctx.Err() != nil {
+			break
+		}
+		if !uploadRetryable(err, sent < size) {
+			if sent >= size && uploadRetryable(err, true) {
+				// The whole archive went out, so the server may have started a deployment.
+				return "", fmt.Errorf("the upload was sent, but no clear answer came back (%v). It may have started a deployment: check `serve deployments` before you deploy again", err)
+			}
+			break
+		}
+		if attempt >= UploadRetries {
 			break
 		}
 		wait := UploadBackoff << attempt
@@ -403,15 +421,21 @@ func (a *App) upload(ctx context.Context, c *api.Client, s *api.Service, dir str
 	return api.DeploymentIDOf(r), nil
 }
 
-// uploadRetryable is a failed upload worth sending again: no answer, or a gateway error. An
-// answer of the server about the upload itself (a 4xx, 507 disk full) never is.
-func uploadRetryable(err error) bool {
+// uploadRetryable is a failed upload worth sending again. A 503 (no server behind the proxy)
+// always is. No answer or another gateway error is only when the archive was not sent in full
+// (partial): the server then cannot have started a deployment, while after a full send it may
+// have, and a second send would deploy twice. An answer of the server about the upload itself
+// (a 4xx, 507 disk full) never is.
+func uploadRetryable(err error, partial bool) bool {
 	var ne *api.NetworkError
 	if errors.As(err, &ne) {
-		return true
+		return partial
 	}
 	var ae *api.Error
-	return errors.As(err, &ae) && (ae.Status == 502 || ae.Status == 503 || ae.Status == 504)
+	if !errors.As(err, &ae) {
+		return false
+	}
+	return ae.Status == 503 || (partial && (ae.Status == 502 || ae.Status == 504))
 }
 
 // Upload retries: two more tries after a network or server error, waiting 2s, then 4s.
@@ -420,15 +444,16 @@ var (
 	UploadBackoff = 2 * time.Second
 )
 
-func (a *App) send(ctx context.Context, c *api.Client, s *api.Service, archive string, size int64, q url.Values, out any) error {
+// send uploads the archive once and answers how many of its bytes went out.
+func (a *App) send(ctx context.Context, c *api.Client, s *api.Service, archive string, size int64, q url.Values, out any) (int64, error) {
 	file, err := os.Open(archive)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer file.Close()
 	bar := ui.NewProgress(file, size, "  Uploading")
 	defer bar.Done()
-	return c.Do(ctx, api.Request{
+	err = c.Do(ctx, api.Request{
 		Method:      http.MethodPost,
 		Path:        "/services/" + api.P(s.ID) + "/deploy/upload",
 		Query:       q,
@@ -436,6 +461,7 @@ func (a *App) send(ctx context.Context, c *api.Client, s *api.Service, archive s
 		ContentType: "application/gzip",
 		Length:      size,
 	}, out)
+	return bar.Sent(), err
 }
 
 func listSome(list []string, n int) string {

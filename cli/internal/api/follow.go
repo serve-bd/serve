@@ -160,6 +160,17 @@ func (c *Client) ServiceLogs(ctx context.Context, serviceID string, tail int, si
 	return lines, nil
 }
 
+// LastLines answers the last n lines (none when n is 0 or less).
+func LastLines(lines []LogLine, n int) []LogLine {
+	if n <= 0 {
+		return nil
+	}
+	if len(lines) > n {
+		return lines[len(lines)-n:]
+	}
+	return lines
+}
+
 // FollowServiceLogs prints the last tail lines and then new lines as they come, polling with since.
 // Lines at the same instant as the last one seen are told apart by their text, so none repeats.
 func (c *Client) FollowServiceLogs(ctx context.Context, serviceID string, tail int, interval time.Duration, emit func(LogLine)) error {
@@ -167,9 +178,7 @@ func (c *Client) FollowServiceLogs(ctx context.Context, serviceID string, tail i
 	if err != nil {
 		return err
 	}
-	if len(lines) > tail {
-		lines = lines[len(lines)-tail:]
-	}
+	lines = LastLines(lines, tail)
 	var last time.Time
 	seen := map[string]bool{}
 	take := func(ls []LogLine) {

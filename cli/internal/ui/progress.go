@@ -107,6 +107,9 @@ func (p *Progress) draw() {
 	fmt.Fprintf(Err, "\r\033[K%s %s %3.0f%%  %s / %s%s", p.label, bar, frac*100, Bytes(p.n), Bytes(p.total), rate)
 }
 
+// Sent is how many bytes were read so far.
+func (p *Progress) Sent() int64 { return p.n }
+
 // Done ends the bar line.
 func (p *Progress) Done() {
 	if p.enabled {

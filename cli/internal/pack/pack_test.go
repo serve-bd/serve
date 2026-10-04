@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -217,7 +218,7 @@ func TestUnreadableFilesAreSkipped(t *testing.T) {
 		t.Fatalf("unreadable %v, files %v", res.Unreadable, fileList(res))
 	}
 	var buf bytes.Buffer
-	if err := res.Write(&buf); err != nil {
+	if err := res.Write(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -263,8 +264,9 @@ func TestGlobs(t *testing.T) {
 		{`\#hash`, "#hash", false, true},
 	}
 	for _, c := range cases {
-		m := &Matcher{git: parseIgnore(strings.NewReader(c.pattern), "", false)}
-		if got := m.Ignored(c.path, c.dir, false); got != c.want {
+		rules, _ := parseIgnore(strings.NewReader(c.pattern), "", false, false)
+		m := &Matcher{git: rules}
+		if got := m.Ignored(c.path, c.dir); got != c.want {
 			t.Errorf("%q on %q (dir %v): got %v, want %v", c.pattern, c.path, c.dir, got, c.want)
 		}
 	}
@@ -281,7 +283,7 @@ func TestWriteArchive(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := res.Write(&buf); err != nil {
+	if err := res.Write(context.Background(), &buf); err != nil {
 		t.Fatal(err)
 	}
 	gz, err := gzip.NewReader(&buf)
@@ -321,7 +323,7 @@ func TestWriteArchive(t *testing.T) {
 		t.Fatalf("count %d for %d entries", res.Count, len(contents))
 	}
 
-	path, size, err := res.WriteTemp()
+	path, size, err := res.WriteTemp(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,5 +350,143 @@ func TestLargest(t *testing.T) {
 	}
 	if res.Size != 5101 {
 		t.Fatalf("size %d", res.Size)
+	}
+}
+
+func TestParentGitignoreApplies(t *testing.T) {
+	root := tree(t, map[string]string{
+		".gitignore":               "*.pem\nsecrets.json\napps/web/local.key\ndist/\n",
+		"apps/.gitignore":          "/web/notes.txt\n",
+		"apps/web/package.json":    "{}",
+		"apps/web/server.pem":      "KEY",
+		"apps/web/secrets.json":    "{}",
+		"apps/web/local.key":       "k",
+		"apps/web/notes.txt":       "n",
+		"apps/web/creds.txt":       "c",
+		"apps/web/index.js":        "x",
+		"apps/web/lib/.gitignore":  "gen/\n",
+		"apps/web/lib/gen/a.js":    "x",
+		"apps/web/lib/b.js":        "x",
+		"apps/web/dist/index.html": "x",
+		".git/info/exclude":        "creds.txt\n",
+	})
+	res, err := Scan(filepath.Join(root, "apps/web"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"index.js", "lib/.gitignore", "lib/b.js", "package.json"}
+	if got := fileList(res); !reflect.DeepEqual(got, want) {
+		t.Fatalf("subfolder of a repository:\n got %v\nwant %v", got, want)
+	}
+
+	// A folder git ignores can still be deployed on its own (build output); the rule that
+	// names the folder itself does not empty it.
+	res, err = Scan(filepath.Join(root, "apps/web/dist"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileList(res); !reflect.DeepEqual(got, []string{"index.html"}) {
+		t.Fatalf("ignored build folder: %v", got)
+	}
+
+	// A worktree: .git is a file naming the git folder, info/exclude is in the common folder.
+	wt := tree(t, map[string]string{
+		"main/.git/info/exclude":           "*.secret\n",
+		"main/.git/worktrees/wt/commondir": "../..\n",
+		"wt/a.secret":                      "s",
+		"wt/b.js":                          "x",
+	})
+	os.WriteFile(filepath.Join(wt, "wt/.git"), []byte("gitdir: ../main/.git/worktrees/wt\n"), 0o644)
+	res, _ = Scan(filepath.Join(wt, "wt"), Options{})
+	if got := fileList(res); !reflect.DeepEqual(got, []string{"b.js"}) {
+		t.Fatalf("worktree exclude: %v", got)
+	}
+}
+
+func TestDockerNegationNeverOverridesGit(t *testing.T) {
+	root := tree(t, map[string]string{
+		".gitignore":    "*.pem\nsecret/\n",
+		".dockerignore": "*\n!src\n!package.json\n!secret\n",
+		"package.json":  "{}",
+		"src/index.js":  "x",
+		"src/key.pem":   "KEY",
+		"secret/a.txt":  "s",
+		"README.md":     "x",
+	})
+	res, _ := Scan(root, Options{})
+	want := []string{".dockerignore", "package.json", "src/index.js"}
+	if got := fileList(res); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	// .serveignore replaces the git rules, but .dockerignore still applies on top.
+	root = tree(t, map[string]string{
+		".gitignore":    "dist/\n",
+		".serveignore":  "tmp/\n",
+		".dockerignore": "*.log\n",
+		"dist/a.js":     "x",
+		"tmp/b":         "x",
+		"c.log":         "x",
+	})
+	res, _ = Scan(root, Options{})
+	want = []string{".dockerignore", ".gitignore", ".serveignore", "dist/a.js"}
+	if got := fileList(res); !reflect.DeepEqual(got, want) {
+		t.Fatalf(".serveignore: got %v, want %v", got, want)
+	}
+}
+
+func TestIgnoreSyntaxLikeGit(t *testing.T) {
+	root := tree(t, map[string]string{
+		".gitignore":   "\xef\xbb\xbfsecrets.json\nkey[[:digit:]].txt\nbad[[:nope:]]\nfoo**bar\n",
+		"secrets.json": "{}",
+		"key1.txt":     "x",
+		"keyA.txt":     "x",
+		"foo/x/bar":    "x",
+		"fooxbar":      "x",
+		"index.js":     "x",
+	})
+	res, _ := Scan(root, Options{})
+	want := []string{".gitignore", "foo/x/bar", "index.js", "keyA.txt"}
+	if got := fileList(res); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if !reflect.DeepEqual(res.BadRules, []string{".gitignore: bad[[:nope:]]"}) {
+		t.Fatalf("bad rules: %v", res.BadRules)
+	}
+
+	// core.ignorecase: git rules match without regard to case; .dockerignore does not.
+	root = tree(t, map[string]string{".gitignore": "secrets.json\n", ".dockerignore": "*.LOG\n", "Secrets.JSON": "{}", "a.log": "x"})
+	res, _ = Scan(root, Options{IgnoreCase: true})
+	if got := fileList(res); !reflect.DeepEqual(got, []string{".dockerignore", ".gitignore", "a.log"}) {
+		t.Fatalf("ignorecase: %v", got)
+	}
+}
+
+func TestEnvFileNames(t *testing.T) {
+	for name, want := range map[string]bool{".env": true, ".env.local": true, ".env-prod": true, ".envrc": true, "prod.env": true, ".ENV": true,
+		"env.js": false, ".environment": false, "environment.ts": false} {
+		if IsEnvFile(name) != want {
+			t.Errorf("IsEnvFile(%q) = %v", name, !want)
+		}
+	}
+}
+
+func TestWriteStopsWhenCancelled(t *testing.T) {
+	root := tree(t, map[string]string{"a.bin": strings.Repeat("x", 1<<20), "b.bin": "x"})
+	res, err := Scan(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := res.Write(ctx, io.Discard); err != context.Canceled {
+		t.Fatalf("write after cancel: %v", err)
+	}
+	before, _ := filepath.Glob(filepath.Join(os.TempDir(), "serve-upload-*.tar.gz"))
+	if _, _, err := res.WriteTemp(ctx); err == nil {
+		t.Fatal("WriteTemp should stop")
+	}
+	if after, _ := filepath.Glob(filepath.Join(os.TempDir(), "serve-upload-*.tar.gz")); len(after) > len(before) {
+		t.Fatal("the temporary archive was left behind")
 	}
 }

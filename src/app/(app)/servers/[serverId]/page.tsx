@@ -6,7 +6,7 @@ import { proxyStatus } from "@/server/proxy/nginx";
 import { commandExists } from "@/server/process";
 import { fingerprint } from "@/server/servers/ssh";
 import { ServerOverview } from "./general";
-import { AccessCard, BuildsLimitsCard, ConnectionSettings, ValidationCard, type ServerDetails } from "./server-settings";
+import { AccessCard, ConnectionSettings, ValidationCard, type ServerDetails } from "./server-settings";
 import { loadServerView, withTimeout } from "./_lib/load";
 import { TunnelCard } from "./tunnel-card";
 
@@ -110,15 +110,6 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
       ) : (
         <ConnectionSettings server={details} keys={keys} />
       )}
-      <BuildsLimitsCard
-        serverId={row.id}
-        limits={{
-          buildConcurrency: row.buildConcurrency,
-          imageRetention: row.imageRetention,
-          deployTimeoutMinutes: row.deployTimeoutMinutes,
-          deployQueueLimit: row.deployQueueLimit,
-        }}
-      />
       {ctx.isInstanceAdmin ? (
         <AccessCard server={details} organizations={orgs} />
       ) : (

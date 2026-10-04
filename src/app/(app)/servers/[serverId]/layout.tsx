@@ -93,6 +93,7 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
                     items: [
                       { href: `${base}/proxy`, label: "Proxy", icon: "Network", warn: !!health && !health.proxy },
                       { href: `${base}/resources`, label: "Resources", icon: "Boxes" },
+                      { href: `${base}/builds`, label: "Builds & deploys", icon: "Hammer" },
                     ],
                   },
                   {

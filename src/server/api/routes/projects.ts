@@ -301,6 +301,19 @@ export const projectRoutes: ApiRoute[] = [
   }),
   route({
     method: "POST",
+    path: "/deployments/{deploymentId}/force-start",
+    tag: "Deployments",
+    summary: "Force start a queued deployment",
+    description: "Starts it now, past its build server's limit of concurrent builds. A deployment of the same service that is running still goes first.",
+    needs: ["services.deploy"],
+    handler: async ({ auth, params }) => {
+      await loadDeployment(auth, params.deploymentId);
+      await unwrap(services.forceStartDeployment(params.deploymentId));
+      return { ok: true };
+    },
+  }),
+  route({
+    method: "POST",
     path: "/deployments/{deploymentId}/rollback",
     tag: "Deployments",
     summary: "Roll back to this deployment",

@@ -11,7 +11,7 @@ import { requirePermission } from "@/server/auth";
 import { db, schema, sql } from "@/server/db";
 import { encrypt, randomPassword } from "@/server/crypto";
 import { newId } from "@/server/id";
-import { CANCEL_CHANNEL, enqueue } from "@/server/queue";
+import { CANCEL_CHANNEL, enqueue, JOB_CHANNEL } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { projectInOrg, serviceInOrg } from "@/server/services/access";
 import { generatedHostname, newWebhookSecret, queueDeployment, serviceNameTaken, uniqueServiceName, uniqueServiceSlug } from "@/server/services/create";
@@ -1167,6 +1167,47 @@ export async function cancelDeployment(deploymentId: string) {
     } else if (dep.status !== "queued") {
       throw new UserError("This deployment has already finished.");
     }
+    return null;
+  });
+}
+
+/**
+ * Starts a queued deployment now, past its build server's limit of concurrent builds. It still
+ * waits for a deployment of the same service that is running: two at once would fight over it.
+ */
+export async function forceStartDeployment(deploymentId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.deploy");
+    const [dep] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, deploymentId));
+    if (!dep) throw new UserError("Deployment not found.");
+    const { service } = await serviceInOrg(dep.serviceId, ctx.org.id);
+    if (dep.status !== "queued") throw new UserError("This deployment is not waiting any more.");
+    const [job] = await db
+      .select()
+      .from(schema.job)
+      .where(and(eq(schema.job.type, "deploy"), eq(schema.job.status, "pending"), dsql`${schema.job.payload}->>'deploymentId' = ${deploymentId}`));
+    if (!job) throw new UserError("This deployment is starting already.");
+    if (job.concurrencyKey) {
+      const [busy] = await db
+        .select({ id: schema.job.id })
+        .from(schema.job)
+        .where(and(eq(schema.job.status, "running"), eq(schema.job.concurrencyKey, job.concurrencyKey)))
+        .limit(1);
+      if (busy) throw new UserError(`Another deployment of ${service.name} is running. This one starts when it ends; cancel that one to start this one now.`);
+    }
+    await db
+      .update(schema.job)
+      .set({ payload: { ...(job.payload as object), force: true }, runAt: new Date() })
+      .where(and(eq(schema.job.id, job.id), eq(schema.job.status, "pending")));
+    await sql.notify(JOB_CHANNEL, job.id).catch(() => {});
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "deployment.force-started",
+      targetType: "service",
+      targetId: service.id,
+      message: `Force started a deployment of ${service.name}`,
+    });
     return null;
   });
 }

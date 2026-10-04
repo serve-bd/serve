@@ -4,7 +4,7 @@ import { toast } from "@/components/ui/toast";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { AlertTriangle, ArrowLeft, Ban, Check, Clock, Hourglass, Container, GitBranch, GitCommitHorizontal, RefreshCw, RotateCcw, Server, User } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Ban, Check, Clock, Hourglass, Container, GitBranch, GitCommitHorizontal, Play, RefreshCw, RotateCcw, Server, User } from "lucide-react";
 import type { DeploymentTarget } from "@/server/services/types";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, TimeAgo, Copyable } from "@/components/ui/misc";
@@ -12,7 +12,7 @@ import { StatusLabel } from "@/components/ui/status";
 import { LogViewer, type LogLine } from "@/components/log-viewer";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { cancelDeployment, redeployDeployment, rollbackTo } from "@/server/actions/services";
+import { cancelDeployment, forceStartDeployment, redeployDeployment, rollbackTo } from "@/server/actions/services";
 import { approveDeployment, rejectDeployment } from "@/server/actions/deploy-rules";
 import { formatDuration } from "@/lib/utils";
 import { triggerText } from "@/lib/labels";
@@ -146,6 +146,8 @@ export function DeploymentView({
     setCancelling(false);
     if (state.status !== "cancelled") toast.info(`The deployment ${state.status === "success" ? "finished" : state.status} before it could be cancelled`);
   }, [cancelling, active, state.status]);
+  // The page follows the status live: it shows "building" when the forced start begins.
+  const forceStart = useAction(() => forceStartDeployment(deployment.id), { refresh: false });
   const approve = useAction(() => approveDeployment(deployment.id), { refresh: false });
   const reject = useAction(() => rejectDeployment(deployment.id), { refresh: false });
   const redeploy = useAction(() => redeployDeployment(deployment.id), {
@@ -206,9 +208,30 @@ export function DeploymentView({
           {can("services.deploy") && (
             <div className="flex items-center gap-2">
               {active ? (
-                <Button variant="danger-ghost" size="sm" onClick={() => cancel.run()} loading={cancel.pending || cancelling} disabled={cancelling}>
-                  {!(cancel.pending || cancelling) && <Ban />} {cancelling ? "Cancelling…" : "Cancel"}
-                </Button>
+                <>
+                  {state.status === "queued" && !cancelling && (
+                    <Button
+                      size="sm"
+                      title="Start now, without waiting for a free build slot on the server"
+                      onClick={async () => {
+                        if (
+                          await confirm({
+                            title: "Start this deployment now?",
+                            description: "It skips the queue and builds next to the builds already running, past the server's limit of concurrent builds.",
+                            confirmLabel: "Force start",
+                          })
+                        )
+                          forceStart.run();
+                      }}
+                      loading={forceStart.pending}
+                    >
+                      <Play /> Force start
+                    </Button>
+                  )}
+                  <Button variant="danger-ghost" size="sm" onClick={() => cancel.run()} loading={cancel.pending || cancelling} disabled={cancelling}>
+                    {!(cancel.pending || cancelling) && <Ban />} {cancelling ? "Cancelling…" : "Cancel"}
+                  </Button>
+                </>
               ) : (
                 <>
                   {serviceType === "app" && state.status === "success" && !isCurrent && deployment.image && (

@@ -30,7 +30,8 @@ export type JobType =
   | "tunnel.sync";
 
 export type JobPayloads = {
-  deploy: { deploymentId: string };
+  /** `force`: started at once, past the build server's slot limit (someone chose Force start). */
+  deploy: { deploymentId: string; force?: boolean };
   "mesh.sync": Record<string, never>;
   "tunnel.sync": Record<string, never>;
   "service.stop": { serviceId: string };
@@ -121,8 +122,9 @@ export async function claimJob(excludeKeys: string[] = [], filter: { excludeType
         AND (${only}::jsonb IS NULL OR ${only}::jsonb ? j.type)
         -- A deploy waits only while its own build server is full; other servers keep building.
         -- One that builds nothing (a rollback, an image or a database) never waits for a slot.
+        -- Force start skips that wait.
         AND NOT (
-          j.type = 'deploy' AND ${fullServers}::jsonb ? COALESCE((
+          j.type = 'deploy' AND COALESCE(j.payload->>'force', '') <> 'true' AND ${fullServers}::jsonb ? COALESCE((
             SELECT COALESCE(NULLIF(s.distribution->>'buildServerId', ''), s.server_id)
             FROM deployment d JOIN service s ON s.id = d.service_id
             WHERE d.id = j.payload->>'deploymentId' AND ${BUILDS}

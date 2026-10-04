@@ -348,16 +348,13 @@ async function loop() {
     const others = running.size - runningDeploys.length;
     let claimed = false;
 
-    const buildsFull = limits.size > 0 && [...limits.keys()].every((id) => fullServers.includes(id));
     const othersFull = others >= 4;
-    if (!(buildsFull && othersFull)) {
+    {
       const busyKeys = [...running.values()].map((r) => r.job.concurrencyKey).filter(Boolean) as string[];
       try {
         // Only ask for job types that have a free slot, so a waiting build never blocks other work.
-        const job = await claimJob(
-          busyKeys,
-          buildsFull ? { excludeTypes: ["deploy"] } : othersFull ? { onlyTypes: ["deploy"], fullBuildServers: fullServers } : { fullBuildServers: fullServers },
-        );
+        // Deploys on full build servers wait in claimJob, unless they build nothing or were force started.
+        const job = await claimJob(busyKeys, othersFull ? { onlyTypes: ["deploy"], fullBuildServers: fullServers } : { fullBuildServers: fullServers });
         if (job) {
           claimed = true;
           const buildServer = job.type === "deploy" ? await buildServerForDeployment((job.payload as { deploymentId: string }).deploymentId).catch(() => null) : null;

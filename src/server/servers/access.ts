@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
+import { pickDefault } from "@/lib/default-server";
 import { UserError } from "@/server/action";
 import { ForbiddenError, type OrgContext, requireOrg } from "@/server/auth";
 import { canAddServers, canManageServer, canViewServer, listedInOrg, ownerFor, serverAllowsOrg, serverFitsNetwork } from "./ownership";
@@ -47,6 +48,25 @@ export async function orgHasServers(organizationId: string) {
 }
 
 /** Servers an organization may deploy to, the local server first. */
+/** Setting rows (kept out of getSettings) holding each organization's default server. */
+export const DEFAULT_SERVER_PREFIX = "defaultServer:";
+
+export async function chosenDefaultServer(organizationId: string): Promise<string | null> {
+  const [row] = await db
+    .select()
+    .from(schema.setting)
+    .where(eq(schema.setting.key, `${DEFAULT_SERVER_PREFIX}${organizationId}`));
+  return typeof row?.value === "string" ? row.value : null;
+}
+
+export async function setDefaultServer(organizationId: string, serverId: string) {
+  const key = `${DEFAULT_SERVER_PREFIX}${organizationId}`;
+  await db
+    .insert(schema.setting)
+    .values({ key, value: serverId })
+    .onConflictDoUpdate({ target: schema.setting.key, set: { value: serverId } });
+}
+
 export async function serversForOrg(organizationId: string) {
   const rows = await db
     .select({
@@ -60,15 +80,18 @@ export async function serversForOrg(organizationId: string) {
     })
     .from(schema.server)
     .orderBy(asc(schema.server.createdAt));
-  return rows
-    .filter((s) => serverAllowsOrg(s, organizationId))
-    .sort((a, b) => Number(b.isLocal) - Number(a.isLocal))
-    .map((s) => ({ id: s.id, name: s.name, host: s.host, status: s.status, isLocal: s.isLocal }));
+  const allowed = rows.filter((s) => serverAllowsOrg(s, organizationId)).sort((a, b) => Number(b.isLocal) - Number(a.isLocal));
+  const fallback = pickDefault(allowed, await chosenDefaultServer(organizationId));
+  // The default first: pickers start on the first server, so new services go there unless changed.
+  return allowed
+    .map((s) => ({ id: s.id, name: s.name, host: s.host, status: s.status, isLocal: s.isLocal, isDefault: s.id === fallback?.id }))
+    .sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
 }
 
 /** Validates that an organization can place a service on a server (defaults to the local server). */
 export async function resolveServerForOrg(serverId: string | null | undefined, organizationId: string) {
-  const id = serverId || LOCAL_SERVER_ID;
+  // No server named (the API, the CLI, templates): the organization's default.
+  const id = serverId || (await serversForOrg(organizationId)).find((s) => s.isDefault)?.id || LOCAL_SERVER_ID;
   const [server] = await db.select().from(schema.server).where(eq(schema.server.id, id));
   if (!server) throw new UserError("Server not found.");
   if (!serverAllowsOrg(server, organizationId)) throw new UserError(`This organization cannot deploy to ${server.name}.`);

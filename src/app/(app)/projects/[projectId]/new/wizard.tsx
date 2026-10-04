@@ -65,7 +65,7 @@ export type CatalogTemplate = {
   vars: { key: string; generate?: string; value?: string; publicUrl?: boolean; publicHost?: boolean; serviceUrl?: string; serviceHost?: string; label?: string }[];
 };
 
-type ServerOption = { id: string; name: string; host: string; status: string; isLocal: boolean };
+type ServerOption = { id: string; name: string; host: string; status: string; isLocal: boolean; isDefault?: boolean };
 
 const gitProviderNames: Record<string, string> = { github: "GitHub", gitlab: "GitLab", gitea: "Gitea", bitbucket: "Bitbucket" };
 
@@ -1328,7 +1328,7 @@ function ServerBar({ servers, value, onChange }: { servers: Props["servers"]; va
         options={servers.map((s) => ({
           value: s.id,
           label: s.isLocal ? `${s.name} (this server)` : s.name,
-          description: s.isLocal ? "Where this dashboard runs" : s.host,
+          description: [s.isDefault ? "Default" : null, s.isLocal ? "Where this dashboard runs" : s.host].filter(Boolean).join(" · "),
           disabled: !s.isLocal && s.status !== "ready" && s.status !== "unreachable",
         }))}
       />

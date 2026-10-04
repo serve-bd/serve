@@ -160,7 +160,8 @@ export function TailscaleCard({ server, view, tailnets }: Props) {
               <Network /> {server.isLocal ? "Add this server to the tailnet" : "Connect through Tailscale"}
             </Button>
           )}
-          {!server.isLocal && (!joined || view?.only) && (
+          {/* A server that answers needs no new command; one added through Tailscale that stops answering gets it back. */}
+          {!server.isLocal && (!joined || (view?.only && !view.online && !view.reach?.ok)) && (
             <Button size="sm" variant={(!joined && !server.ready) || left ? "primary" : "secondary"} loading={join.pending} disabled={!tailnetId} onClick={() => void join.run()}>
               <KeyRound /> {joined ? "New join command (after a reinstall)" : left ? "Join again" : command || view?.waiting ? "New join command" : "Join command instead"}
             </Button>

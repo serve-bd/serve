@@ -9,6 +9,8 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/misc";
 import { statusText } from "@/components/ui/status";
 import { loadServerView, withTimeout } from "./_lib/load";
+import { serversForOrg } from "@/server/servers/access";
+import { MakeDefaultButton } from "./default-button";
 
 export default async function ServerLayout({ children, params }: LayoutProps<"/servers/[serverId]">) {
   const { serverId } = await params;
@@ -19,6 +21,10 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
   const issues = health ? health.issues : row.status === "ready" ? ["The server did not answer in time"] : [row.statusMessage ?? statusText(row.status, "server")];
   const ready = issues.length === 0;
   const base = `/servers/${serverId}`;
+  // New services go to the organization's default server unless someone picks another.
+  const choices = await serversForOrg(viewer.org.id);
+  const isDefault = choices.some((s) => s.id === serverId && s.isDefault);
+  const canMakeDefault = viewer.isAdmin && !isDefault && choices.some((s) => s.id === serverId) && (row.isLocal || row.status === "ready");
   const openAlerts = await db
     .select({ id: schema.incident.id })
     .from(schema.incident)
@@ -32,6 +38,13 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
           <span className="flex min-w-0 items-center gap-2.5">
             <span className="truncate">{row.name}</span>
             {row.isLocal && <Badge tone="accent">This server</Badge>}
+            {isDefault && (
+              <Tooltip content="New services go to this server unless you pick another" delay={0}>
+                <span>
+                  <Badge tone="ok">Default</Badge>
+                </span>
+              </Tooltip>
+            )}
           </span>
         }
         description={
@@ -56,16 +69,19 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
           )
         }
         actions={
-          <Tooltip content={ready ? "Docker, the proxy and the worker are running." : issues.join(" · ")}>
-            <span className="inline-flex h-7 items-center gap-2 rounded-full bg-surface px-3 text-xs font-medium text-fg ring-1 ring-line">
-              <span
-                className={
-                  ready ? "size-1.5 rounded-full bg-ok" : row.status === "validating" ? "size-1.5 animate-led rounded-full bg-info" : "size-1.5 animate-led rounded-full bg-warn"
-                }
-              />
-              {ready ? "Ready" : row.status === "validating" ? "Validating" : "Attention required"}
-            </span>
-          </Tooltip>
+          <span className="flex items-center gap-2">
+            {canMakeDefault && <MakeDefaultButton serverId={serverId} />}
+            <Tooltip content={ready ? "Docker, the proxy and the worker are running." : issues.join(" · ")}>
+              <span className="inline-flex h-7 items-center gap-2 rounded-full bg-surface px-3 text-xs font-medium text-fg ring-1 ring-line">
+                <span
+                  className={
+                    ready ? "size-1.5 rounded-full bg-ok" : row.status === "validating" ? "size-1.5 animate-led rounded-full bg-info" : "size-1.5 animate-led rounded-full bg-warn"
+                  }
+                />
+                {ready ? "Ready" : row.status === "validating" ? "Validating" : "Attention required"}
+              </span>
+            </Tooltip>
+          </span>
         }
       />
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 pt-4 pb-16 sm:px-8 lg:flex-row lg:gap-10 lg:pt-6">

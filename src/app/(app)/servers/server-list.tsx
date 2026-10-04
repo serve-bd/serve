@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@/components/ui/tooltip";
 import { HiddenIp } from "@/components/ui/hidden-ip";
 import Link from "next/link";
 import { ArrowRight, Plus, Server } from "lucide-react";
@@ -47,7 +48,18 @@ type SharedRow = {
   own?: boolean;
 };
 
-export function ServerList({ servers, shared = [], canAdd = true }: { servers: Row[]; shared?: SharedRow[]; canAdd?: boolean }) {
+export function ServerList({
+  servers,
+  shared = [],
+  canAdd = true,
+  defaultServerId = null,
+}: {
+  servers: Row[];
+  shared?: SharedRow[];
+  canAdd?: boolean;
+  /** Where new services go unless someone picks another server. */
+  defaultServerId?: string | null;
+}) {
   if (!servers.length && !shared.length && !canAdd) {
     return (
       <Card>
@@ -58,17 +70,17 @@ export function ServerList({ servers, shared = [], canAdd = true }: { servers: R
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       {servers.map((s) => (
-        <ServerCard key={s.id} server={s} />
+        <ServerCard key={s.id} server={s} isDefault={s.id === defaultServerId} />
       ))}
       {shared.map((s) => (
-        <SharedCard key={s.id} server={s} />
+        <SharedCard key={s.id} server={s} isDefault={s.id === defaultServerId} />
       ))}
       {canAdd && <AddCard />}
     </div>
   );
 }
 
-function SharedCard({ server: s }: { server: SharedRow }) {
+function SharedCard({ server: s, isDefault }: { server: SharedRow; isDefault: boolean }) {
   return (
     <Link
       href={`/servers/${s.id}`}
@@ -82,6 +94,7 @@ function SharedCard({ server: s }: { server: SharedRow }) {
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-[15px] font-semibold text-fg">{s.name}</span>
             {s.own ? <Badge>View only</Badge> : <Badge tone="info">Shared</Badge>}
+            {isDefault && <DefaultBadge />}
           </div>
           <span className="truncate text-[12px] text-muted">{s.description || (s.own ? "This organization's server" : "Shared with this organization")}</span>
         </div>
@@ -116,7 +129,7 @@ function AddCard() {
   );
 }
 
-function ServerCard({ server: s }: { server: Row }) {
+function ServerCard({ server: s, isDefault }: { server: Row; isDefault: boolean }) {
   const facts = [s.info.os, s.info.cpus ? `${s.info.cpus} CPU` : null, s.info.memory ? formatBytes(s.info.memory, 0) : null].filter(Boolean);
   const problem = s.status === "unreachable" || s.status === "error";
   return (
@@ -135,6 +148,7 @@ function ServerCard({ server: s }: { server: Row }) {
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-[15px] font-semibold text-fg">{s.name}</span>
             {s.isLocal && <Badge tone="accent">This server</Badge>}
+            {isDefault && <DefaultBadge />}
             {s.mesh && <Badge>Private network</Badge>}
             {s.owner && <Badge tone="info">{s.owner}</Badge>}
           </div>
@@ -176,5 +190,16 @@ function ServerCard({ server: s }: { server: Row }) {
         )}
       </div>
     </Link>
+  );
+}
+
+/** New services go to this server unless someone picks another. */
+function DefaultBadge() {
+  return (
+    <Tooltip content="New services go to this server unless you pick another" delay={0}>
+      <span>
+        <Badge tone="ok">Default</Badge>
+      </span>
+    </Tooltip>
   );
 }

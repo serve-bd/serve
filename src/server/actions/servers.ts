@@ -4,8 +4,8 @@ import { and, count, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
-import { ForbiddenError, type OrgContext } from "@/server/auth";
-import { ownerFor, requireServerAdmin, requireServerCreator, serverFitsNetwork } from "@/server/servers/access";
+import { ownerFor, requireServerAdmin, requireServerCreator, serverFitsNetwork, serversForOrg, setDefaultServer } from "@/server/servers/access";
+import { ForbiddenError, type OrgContext, requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { requireRoomForServer } from "@/server/limits";
 import { encrypt } from "@/server/crypto";
@@ -500,6 +500,20 @@ export async function installOsUpdatesAction(serverId: string, what: "all" | str
       .where(eq(schema.server.id, serverId));
     const { enqueue } = await import("@/server/queue");
     await enqueue("server.os-updates", { serverId, op: "install", what: list }, { concurrencyKey: `server-os:${serverId}` });
+    return null;
+  });
+}
+
+/** Make a server the organization's default: new services go there unless someone picks another. */
+export async function makeDefaultServer(serverId: string) {
+  return act(async () => {
+    const ctx = await requireOrg();
+    if (!ctx.isAdmin) throw new ForbiddenError("Only admins of the organization choose its default server.");
+    const server = (await serversForOrg(ctx.org.id)).find((s) => s.id === serverId);
+    if (!server) throw new UserError("This organization cannot deploy to that server.");
+    if (!server.isLocal && server.status !== "ready") throw new UserError(`${server.name} is not ready yet. Validate it first.`);
+    await setDefaultServer(ctx.org.id, serverId);
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.update", message: `Made ${server.name} the default server` });
     return null;
   });
 }

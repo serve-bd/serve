@@ -2,7 +2,7 @@ import Link from "next/link";
 import { asc, sql } from "drizzle-orm";
 import { Plus } from "lucide-react";
 import { requireOrg } from "@/server/auth";
-import { canAddServers, listedServerIds } from "@/server/servers/access";
+import { canAddServers, listedServerIds, serversForOrg } from "@/server/servers/access";
 import { serverAllowsOrg } from "@/server/servers/ownership";
 import { db, schema } from "@/server/db";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
@@ -84,7 +84,12 @@ export default async function ServersPage() {
         }
       />
       <PageBody>
-        <ServerList servers={rows.map((r) => ({ ...r, lastSeenAt: r.lastSeenAt?.toISOString() ?? null }))} shared={shared} canAdd={canAddServers(ctx)} />
+        <ServerList
+          servers={rows.map((r) => ({ ...r, lastSeenAt: r.lastSeenAt?.toISOString() ?? null }))}
+          shared={shared}
+          canAdd={canAddServers(ctx)}
+          defaultServerId={(await serversForOrg(ctx.org.id)).find((s) => s.isDefault)?.id ?? null}
+        />
       </PageBody>
     </>
   );

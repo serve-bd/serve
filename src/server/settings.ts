@@ -235,7 +235,7 @@ export async function getSettings(): Promise<Settings> {
       .select()
       .from(schema.setting)
       // Commit status refusals (per git connection) are not settings either.
-      .where(and(notLike(schema.setting.key, `${BRAND_ASSET_PREFIX}%`), notLike(schema.setting.key, "commitStatusBlock:%"))),
+      .where(and(notLike(schema.setting.key, `${BRAND_ASSET_PREFIX}%`), notLike(schema.setting.key, "commitStatusBlock:%"), notLike(schema.setting.key, "defaultServer:%"))),
     localAddressing(),
   ]);
   const values = Object.fromEntries(rows.map((r) => [r.key, r.value]));

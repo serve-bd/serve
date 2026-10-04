@@ -93,7 +93,7 @@ export default async function NewServicePage(props: PageProps<"/projects/[projec
       projectId={project.id}
       environmentId={current.id}
       environmentName={current.name}
-      servers={servers.map((s) => ({ id: s.id, name: s.name, host: s.host, status: s.status, isLocal: s.isLocal }))}
+      servers={servers.map((s) => ({ id: s.id, name: s.name, host: s.host, status: s.status, isLocal: s.isLocal, isDefault: s.isDefault }))}
       credentials={credentials}
       registries={registries}
       nixpacks={nixpacks}

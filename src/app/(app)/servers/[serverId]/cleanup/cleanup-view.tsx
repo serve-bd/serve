@@ -215,17 +215,26 @@ function StorageBody({
         <div className="grid grid-cols-2 divide-line sm:grid-cols-4 sm:divide-x">
           {(
             [
-              ["Images", usage.images?.size, usage.images && `${usage.images.count} images · ${usage.images.unused} unused`],
-              ["Build cache", usage.buildCache?.size, usage.buildCache && `${usage.buildCache.count} entries`],
-              ["Volumes", usage.volumes?.size, usage.volumes && `${usage.volumes.count} volumes`],
-              ["Containers", usage.containers?.size, usage.containers && `${usage.containers.count} containers`],
+              ["Images", "image", usage.images?.size, usage.images && `${usage.images.count} images · ${usage.images.unused} unused`],
+              ["Build cache", "build-cache", usage.buildCache?.size, usage.buildCache && `${usage.buildCache.count} entries`],
+              ["Volumes", "volume", usage.volumes?.size, usage.volumes && `${usage.volumes.count} volumes`],
+              ["Containers", "container", usage.containers?.size, usage.containers && `${usage.containers.count} containers`],
             ] as const
-          ).map(([label, size, sub]) => (
+          ).map(([label, kind, size, sub]) => (
             <div key={label} className="flex min-w-0 flex-col gap-1 px-5 py-4">
               <span className="text-xs text-muted">{label}</span>
               <span className={cn("text-[18px] font-semibold tabular-nums", size == null ? "text-faint" : "text-fg")}>{size == null ? "…" : formatBytes(size)}</span>
-              <span className="truncate text-[11px] text-faint" title={size == null ? "Docker took too long to count this. Reload the page to try again." : undefined}>
-                {sub || "Took too long to count"}
+              <span
+                className="truncate text-[11px] text-faint"
+                title={
+                  size == null
+                    ? usage.failed.includes(kind)
+                      ? "Docker answered with an error. Reload the page to try again."
+                      : "Docker took too long to count this. Reload the page to try again."
+                    : undefined
+                }
+              >
+                {sub || (usage.failed.includes(kind) ? "Could not count" : "Took too long to count")}
               </span>
             </div>
           ))}

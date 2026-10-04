@@ -60,6 +60,8 @@ export type DockerUsage = {
   containers: { count: number; size: number } | null;
   volumes: { count: number; size: number } | null;
   buildCache: { count: number; size: number } | null;
+  /** Kinds Docker answered with an error (null above means it took too long). */
+  failed: string[];
 };
 
 /**
@@ -69,14 +71,18 @@ export type DockerUsage = {
  */
 export async function dockerDiskUsage(ctx?: ServerCtx, timeoutMs = 10_000): Promise<DockerUsage> {
   const d = ctx?.docker ?? docker;
+  let pingTimer: ReturnType<typeof setTimeout> | undefined;
   const reachable = await Promise.race([
     d.ping().then(
       () => true,
       () => false,
     ),
-    new Promise<boolean>((r) => setTimeout(() => r(false), 5000)),
-  ]);
-  if (!reachable) return { reachable: false, images: null, containers: null, volumes: null, buildCache: null };
+    new Promise<boolean>((r) => {
+      pingTimer = setTimeout(() => r(false), 5000);
+    }),
+  ]).finally(() => clearTimeout(pingTimer));
+  if (!reachable) return { reachable: false, images: null, containers: null, volumes: null, buildCache: null, failed: [] };
+  const failed: string[] = [];
   // dockerode's df() sends no query: dial the endpoint with `type`. Older Docker ignores it and
   // counts everything, still right, only slower. A count past the limit is cancelled.
   const part = <T>(type: string, pick: (df: DfResult) => T): Promise<T | null> => {
@@ -88,7 +94,11 @@ export async function dockerDiskUsage(ctx?: ServerCtx, timeoutMs = 10_000): Prom
         (err: unknown, data: unknown) => (err ? reject(err) : resolve(data as DfResult)),
       ),
     )
-      .then(pick, () => null)
+      .then(pick, () => {
+        // Cut off by the time limit: null, shown as too slow. Any other error is a failure.
+        if (!abort.signal.aborted) failed.push(type);
+        return null;
+      })
       .finally(() => clearTimeout(timer));
   };
   const [images, containers, volumes, buildCache] = await Promise.all([
@@ -100,7 +110,7 @@ export async function dockerDiskUsage(ctx?: ServerCtx, timeoutMs = 10_000): Prom
     part("volume", (df) => ({ count: (df.Volumes ?? []).length, size: (df.Volumes ?? []).reduce((a, v) => a + Math.max(0, v.UsageData?.Size ?? 0), 0) })),
     part("build-cache", (df) => ({ count: (df.BuildCache ?? []).length, size: (df.BuildCache ?? []).reduce((a, c) => a + c.Size, 0) })),
   ]);
-  return { reachable: true, images, containers, volumes, buildCache };
+  return { reachable: true, images, containers, volumes, buildCache, failed };
 }
 
 type DockerInfo = {

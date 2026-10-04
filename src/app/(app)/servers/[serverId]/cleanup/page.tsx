@@ -13,10 +13,9 @@ export default async function CleanupPage(props: PageProps<"/servers/[serverId]/
   const { server, ctx } = await loadServer(serverId);
   const settings = await getSettings();
   // Not awaited: the page shows at once, and these stream in when Docker has counted.
-  const usage = withTimeout(
-    server().then((ctx) => dockerDiskUsage(ctx)),
-    16_000,
-  ).then((u) => u ?? { reachable: false, images: null, containers: null, volumes: null, buildCache: null });
+  // The connection gets its own time; the count has its own limits per kind inside dockerDiskUsage.
+  const unreachable = { reachable: false, images: null, containers: null, volumes: null, buildCache: null, failed: [] };
+  const usage = withTimeout(server(), 15_000).then((ctx) => (ctx ? dockerDiskUsage(ctx) : unreachable));
   const disk = withTimeout(
     server().then((ctx) => serverSnapshot(ctx).catch(() => null)),
     12_000,

@@ -206,6 +206,42 @@ describe("unpacking an uploaded archive", () => {
     expect(fs.statSync(path.join(dir, "copy.sh")).ino).toBe(fs.statSync(path.join(dir, "bin/run.sh")).ino);
   });
 
+  it("refuses hard links to files a later entry removed, at upload time", async () => {
+    const dir = tmp();
+    await expect(
+      extract(
+        [
+          { name: "d/x", body: "1" },
+          { name: "d", body: "now a file" },
+          { name: "y", type: "1", link: "d/x" },
+        ],
+        dir,
+      ),
+    ).rejects.toThrow(/hard link/);
+    await expect(
+      extract(
+        [
+          { name: "a", body: "1" },
+          { name: "a", type: "1", link: "a" },
+        ],
+        tmp(),
+      ),
+    ).rejects.toThrow(/itself/);
+    // A file written again after the folder was replaced is fine.
+    const ok = tmp();
+    await extract(
+      [
+        { name: "d/x", body: "1" },
+        { name: "d", body: "file" },
+        { name: "d", type: "5" },
+        { name: "d/x", body: "2" },
+        { name: "y", type: "1", link: "d/x" },
+      ],
+      ok,
+    );
+    expect(fs.readFileSync(path.join(ok, "y"), "utf8")).toBe("2");
+  });
+
   it("refuses path names past 4096 characters before checking them", async () => {
     const dir = tmp();
     const huge = Array.from({ length: 20_000 }, () => "a").join("/");

@@ -270,6 +270,7 @@ export const serviceRoutes: ApiRoute[] = [
         throw e;
       }
       const yes = (v?: string) => v === "1" || v === "true";
+      let setNoCache = false;
       try {
         if (!stored.files) throw new ApiError(400, "The upload holds no files. Check that the folder is not empty and that your ignore files do not leave out everything.");
         if (yes(query.noCache) && service.build) {
@@ -277,6 +278,7 @@ export const serviceRoutes: ApiRoute[] = [
             .update(schema.service)
             .set({ build: { ...service.build, noCacheOnce: true } })
             .where(eq(schema.service.id, service.id));
+          setNoCache = !service.build.noCacheOnce;
         }
         await queueDeployment(service.id, "cli", {
           id: deploymentId,
@@ -290,6 +292,13 @@ export const serviceRoutes: ApiRoute[] = [
         return { deploymentId };
       } catch (e) {
         await discardUpload(stored.archive);
+        // Nothing was queued: the next deploy must not build without the cache because of this one.
+        if (setNoCache && service.build)
+          await db
+            .update(schema.service)
+            .set({ build: { ...service.build, noCacheOnce: false } })
+            .where(eq(schema.service.id, service.id))
+            .catch(() => {});
         throw e;
       }
     },

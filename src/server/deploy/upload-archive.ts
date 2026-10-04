@@ -189,6 +189,15 @@ export async function readArchive(input: NodeJS.ReadableStream, opts: ReadOption
   // Paths the archive made a symlink at: nothing may be written at or below them afterwards.
   const symlinks = new Map<string, string>();
   const files = new Set<string>();
+  // When each file was written, and when each path was last written over (by entry number).
+  const writtenAt = new Map<string, number>();
+  const replacedAt = new Map<string, number>();
+  /** Whether a folder above the file was written over after the file (taking the file along). */
+  const replacedSince = (file: string) => {
+    const at = writtenAt.get(file) ?? 0;
+    for (let i = file.lastIndexOf("/"); i > 0; i = file.lastIndexOf("/", i - 1)) if ((replacedAt.get(file.slice(0, i)) ?? 0) > at) return true;
+    return false;
+  };
   let count = 0;
   let entries = 0;
   let bytes = 0;
@@ -246,7 +255,8 @@ export async function readArchive(input: NodeJS.ReadableStream, opts: ReadOption
       let hardTarget = "";
       if (type === "hardlink") {
         hardTarget = safeEntryPath(linkname);
-        if (!files.has(hardTarget)) throw new ArchiveError(`The upload has a hard link to a file it does not hold: ${name} -> ${linkname}.`);
+        if (hardTarget === rel) throw new ArchiveError(`The upload has a hard link to itself: ${name}.`);
+        if (!files.has(hardTarget) || replacedSince(hardTarget)) throw new ArchiveError(`The upload has a hard link to a file it does not hold: ${name} -> ${linkname}.`);
       }
       const dataSize = type === "file" ? size : 0;
 
@@ -258,7 +268,11 @@ export async function readArchive(input: NodeJS.ReadableStream, opts: ReadOption
       if (type === "file" || type === "hardlink") {
         count += 1;
         files.add(rel);
+        writtenAt.set(rel, count + entries);
       }
+      // A file or link written over a path removes what was there, folder contents included: remember when, so a
+      // later hard link to a file that went with it fails here, not with a raw error at deploy.
+      if (type !== "dir") replacedAt.set(rel, count + entries);
       if (type === "symlink") {
         symlinks.set(rel, linkname);
         files.delete(rel);
@@ -273,6 +287,9 @@ export async function readArchive(input: NodeJS.ReadableStream, opts: ReadOption
       const target = path.join(root, ...rel.split("/"));
       await fs.promises.mkdir(path.dirname(target), { recursive: true });
       if (type === "dir") {
+        // A folder over a file or link of an earlier entry replaces it.
+        const was = await fs.promises.lstat(target).catch(() => null);
+        if (was && !was.isDirectory()) await fs.promises.rm(target, { force: true });
         await fs.promises.mkdir(target, { recursive: true });
         continue;
       }
@@ -310,6 +327,8 @@ export async function readArchive(input: NodeJS.ReadableStream, opts: ReadOption
     if (e instanceof ArchiveError) throw e;
     const code = (e as NodeJS.ErrnoException).code;
     if (code === "Z_DATA_ERROR" || code === "Z_BUF_ERROR" || code === "ERR_STREAM_PREMATURE_CLOSE") throw new ArchiveError("The upload is not a valid .tar.gz archive.");
+    // Entries that clash (a file where a folder must be): a plain answer, not a raw file system error.
+    if (code === "ENOTDIR" || code === "EEXIST" || code === "EISDIR") throw new ArchiveError("The upload has entries that clash: a file and a folder at the same path.");
     throw e;
   } finally {
     input.unpipe?.(gunzip);

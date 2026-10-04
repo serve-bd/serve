@@ -27,17 +27,22 @@ export function formatDuration(ms: number) {
   return `${h}h ${m % 60}m`;
 }
 
+/** "5m ago", or "in 7d" for a date still to come (an invitation or a certificate that expires). */
 export function timeAgo(date: Date | string | number) {
   const d = new Date(date).getTime();
   const diff = Math.round((Date.now() - d) / 1000);
-  if (diff < 5) return "just now";
-  if (diff < 60) return `${diff}s ago`;
-  const m = Math.floor(diff / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const days = Math.floor(h / 24);
-  if (days < 30) return `${days}d ago`;
+  if (Math.abs(diff) < 5) return "just now";
+  const span = (n: string) => (diff < 0 ? `in ${n}` : `${n} ago`);
+  const sec = Math.abs(diff);
+  // The past counts whole units gone by; a date to come rounds, so a link made now for 7 days says "in 7d".
+  const whole = diff < 0 ? Math.round : Math.floor;
+  if (sec < 60) return span(`${sec}s`);
+  const m = whole(sec / 60);
+  if (m < 60) return span(`${m}m`);
+  const h = whole(sec / 3600);
+  if (h < 24) return span(`${h}h`);
+  const days = whole(sec / 86400);
+  if (days < 30) return span(`${days}d`);
   return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 

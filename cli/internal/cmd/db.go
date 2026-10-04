@@ -67,5 +67,15 @@ address that works from outside, when the database has a public port or a domain
 	}
 	urlCmd.Flags().BoolVar(&public, "public", false, "the address that works from outside the server")
 	cmd.AddCommand(urlCmd)
+	cmd.AddCommand(a.dbCreateCmd())
+	cmd.AddCommand(a.dbBackupsCmd())
+	cmd.AddCommand(a.dbImportCmd())
+	cmd.AddCommand(a.dbQueryCmd())
+	cmd.AddCommand(a.dbTablesCmd())
+	cmd.AddCommand(a.dbUsersCmd())
+	cmd.AddCommand(a.dbPasswordCmd())
+	cmd.AddCommand(a.dbBranchesCmd())
+	cmd.AddCommand(a.dbReplicasCmd())
+	cmd.AddCommand(a.dbDependentsCmd())
 	return cmd
 }

@@ -365,36 +365,6 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
             </div>
           </Card>
         )}
-
-        {/* Recent deployments */}
-        <Card>
-          <CardHeader
-            title="Recent deployments"
-            description={data.successRate !== null ? `${data.deploymentCount} in total · ${Math.round(data.successRate * 100)}% succeeded` : `${data.deploymentCount} in total`}
-            actions={
-              <Link href={`${base}/deployments`} className={buttonVariants({ size: "sm", variant: "ghost" })}>
-                View all <ChevronRight />
-              </Link>
-            }
-          />
-          {data.recent.length === 0 ? (
-            <p className="px-5 py-4 text-[13px] text-muted">No deployments yet.</p>
-          ) : (
-            <div className="divide-y divide-line">
-              {data.recent.map((d) => (
-                <Link key={d.id} href={`${base}/deployments/${d.id}`} className="flex items-center gap-3 px-5 py-2.5 text-[13px] transition-colors hover:bg-hover/50">
-                  <StatusLabel status={d.status} kind="deployment" className="w-24 flex-none text-xs" />
-                  <span className="min-w-0 flex-1 truncate text-fg-2">{d.commitMessage || triggerLabel[d.trigger] || "Deployment"}</span>
-                  {d.id === current?.id && <Badge tone="ok">Current</Badge>}
-                  <span className="hidden flex-none text-xs text-muted sm:inline">{duration(d)}</span>
-                  <span className="flex-none text-xs text-faint">
-                    <TimeAgo date={d.createdAt} />
-                  </span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </Card>
       </div>
 
       <div className="flex min-w-0 flex-col gap-6">

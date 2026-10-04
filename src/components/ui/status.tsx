@@ -52,11 +52,7 @@ export function Led({ color, pulse, off, className }: { color: string; pulse?: b
 
 function Mark({ tone, className }: { tone: Tone; className?: string }) {
   const Icon = tone.mark === "check" ? Check : X;
-  return (
-    <span className={cn("inline-flex size-3.5 flex-none items-center justify-center rounded-full text-white", className)} style={{ background: tone.led }} aria-hidden>
-      <Icon className="size-2.5" strokeWidth={3.5} />
-    </span>
-  );
+  return <Icon className={cn("size-3.5 flex-none", className)} style={{ color: tone.led }} strokeWidth={2} aria-hidden />;
 }
 
 export function StatusDot({ status, kind = "service", className }: { status: string; kind?: keyof typeof maps; className?: string }) {
@@ -67,6 +63,13 @@ export function StatusDot({ status, kind = "service", className }: { status: str
 
 export function StatusLabel({ status, kind = "service", className }: { status: string; kind?: keyof typeof maps; className?: string }) {
   const tone = maps[kind][status] ?? { led: "var(--idle)", label: status };
+  // A deployment that worked is only its check mark, without a pill or a word.
+  if (tone.mark === "check")
+    return (
+      <span role="img" aria-label={tone.label} title={tone.label} className="inline-flex flex-none">
+        <Mark tone={tone} />
+      </span>
+    );
   return (
     <span className={cn("inline-flex items-center gap-2 text-[13px] font-medium text-fg-2", className)}>
       {tone.mark ? <Mark tone={tone} /> : <Led color={tone.led} pulse={tone.pulse} off={tone.off} />}

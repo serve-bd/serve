@@ -31,20 +31,20 @@ function BlurredIp({ ip }: { ip: string }) {
       title={shown ? "Click to hide" : "Click to show the IP address"}
       aria-label={shown ? ip : "Hidden IP address, click to show"}
       onClick={(e) => {
-        // Inside a link, the first click only reveals.
-        if (!shown) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
+        // Inside a link (a server card), showing or hiding the address never opens the link.
+        e.preventDefault();
+        e.stopPropagation();
         setShown((v) => !v);
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
+          e.stopPropagation();
           setShown((v) => !v);
         }
       }}
-      className={cn("cursor-pointer rounded-sm transition-[filter]", !shown && "blur-[4px] select-none")}
+      // A little padding makes the target bigger than the blurred text, so a click beside it does not open the card.
+      className={cn("-mx-1 cursor-pointer rounded-sm px-1 transition-[filter]", !shown && "blur-[4px] select-none")}
     >
       {ip}
     </span>

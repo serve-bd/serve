@@ -7,14 +7,26 @@ const WINDOW_MS = 60_000;
 
 export type RateResult = { allowed: boolean; headers: Record<string, string> };
 
+/** Keys kept at most: a forged flood then only costs memory up to this. */
+const MAX_KEYS = 200_000;
+let lastSweep = 0;
+
 export function takeRequest(key: string, limit: number, now = Date.now()): RateResult {
   if (limit <= 0) return { allowed: true, headers: {} };
   let w = windows.get(key);
   if (!w || now - w.start >= WINDOW_MS) {
     w = { start: now, count: 0 };
     windows.set(key, w);
-    // Windows of tokens that went quiet are dropped now and then, so the map stays small.
-    if (windows.size > 10_000) for (const [k, v] of windows) if (now - v.start >= WINDOW_MS) windows.delete(k);
+    // Windows that went quiet are dropped at most once a window, so a flood of new keys (forged
+    // client addresses) costs one pass a minute, not one per request. Past a hard cap, the oldest go.
+    if (windows.size > 10_000 && now - lastSweep >= WINDOW_MS) {
+      lastSweep = now;
+      for (const [k, v] of windows) if (now - v.start >= WINDOW_MS) windows.delete(k);
+    }
+    if (windows.size > MAX_KEYS)
+      for (const k of windows.keys())
+        if (windows.size > MAX_KEYS) windows.delete(k);
+        else break;
   }
   const reset = Math.ceil((w.start + WINDOW_MS) / 1000);
   const allowed = w.count < limit;
@@ -31,4 +43,5 @@ export function takeRequest(key: string, limit: number, now = Date.now()): RateR
 /** For tests. */
 export function resetRateLimits() {
   windows.clear();
+  lastSweep = 0;
 }

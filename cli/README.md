@@ -6,7 +6,7 @@ repository needed.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/serve-bd/serve/main/install-cli.sh | sh
+curl -fsSL https://serve.bd/cli.sh | sh
 ```
 
 It installs to `/usr/local/bin` when that is writable, else to `~/.local/bin`. Set

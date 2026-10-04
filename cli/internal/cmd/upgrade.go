@@ -25,7 +25,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const installScript = "curl -fsSL https://raw.githubusercontent.com/serve-bd/serve/main/install-cli.sh | sh"
+const installScript = "curl -fsSL https://serve.bd/cli.sh | sh"
 
 // maxBinary caps the size of a download and of the binary in it.
 const maxBinary = 256 << 20

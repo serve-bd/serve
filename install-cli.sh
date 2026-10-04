@@ -1,6 +1,7 @@
 #!/bin/sh
 # Installs the serve CLI.
-#   curl -fsSL https://raw.githubusercontent.com/serve-bd/serve/main/install-cli.sh | sh
+#   curl -fsSL https://serve.bd/cli.sh | sh
+#   (also at https://raw.githubusercontent.com/serve-bd/serve/main/install-cli.sh)
 #
 # The CLI has its own releases, tagged cli-v1.2.3, apart from Serve's own (v1.2.3). Serve's
 # releases do not carry the CLI any more; older ones (up to v0.3.x) keep the archives they had.

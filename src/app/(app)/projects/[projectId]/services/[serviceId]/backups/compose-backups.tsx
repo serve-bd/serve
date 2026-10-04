@@ -211,6 +211,8 @@ export function ComposeBackups(props: {
         retention={props.configs[current]?.retention ?? 7}
         retentionS3={props.configs[current]?.retentionS3 ?? null}
         keepLocal={props.configs[current]?.local !== false}
+        timeoutMinutes={props.configs[current]?.timeoutMinutes ?? null}
+        lowPriority={!!props.configs[current]?.lowPriority}
         s3DestinationId={props.configs[current]?.s3DestinationId ?? null}
         destinations={props.destinations}
         timezone={props.timezone}

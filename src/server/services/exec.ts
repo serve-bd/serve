@@ -111,7 +111,7 @@ export function killMarkedScript(marker: string) {
 }
 
 /** Best effort and bounded: a container without a shell or grep, or one that stopped, keeps what it has. */
-async function killMarked(container: Docker.Container, marker: string) {
+export async function killMarked(container: Docker.Container, marker: string) {
   try {
     const killer = await container.exec({ Cmd: ["sh", "-c", killMarkedScript(marker)], AttachStdout: true, AttachStderr: true });
     const stream = await killer.start({ hijack: true, stdin: false });

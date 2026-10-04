@@ -274,6 +274,10 @@ export type ComposeBackupConfig = {
   s3DestinationId?: string | null;
   /** With a bucket: false keeps copies in the bucket only (not on the server). Default true. */
   local?: boolean;
+  /** Minutes a dump may take before it is stopped; null for no limit. Database dumps only. */
+  timeoutMinutes?: number | null;
+  /** Run the dump (and its compression) at the lowest CPU priority. Database dumps only. */
+  lowPriority?: boolean;
 };
 
 export type ReplicaInstance = { id: string; serverId: string };
@@ -347,6 +351,10 @@ export type DatabaseConfig = {
   s3DestinationId?: string | null;
   /** With a bucket: false keeps backups in the bucket only (not on the server). Default true. */
   backupLocal?: boolean;
+  /** Minutes a backup may take before it is stopped; null for no limit. */
+  backupTimeoutMinutes?: number | null;
+  /** Run backups (the dump and its compression) at the lowest CPU priority, so the database's own work comes first. */
+  backupLowPriority?: boolean;
 
   /* Everything below is optional so older configs keep working. */
   description?: string | null;

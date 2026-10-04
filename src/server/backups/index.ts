@@ -172,10 +172,25 @@ async function composeCommands(service: ServiceRow, name: string): Promise<Comma
   return { docker, container, engine, ...dumpCommands(engine, creds), password: creds.password, database: creds.database ?? "" };
 }
 
-/** Dumps through a database container into a file on this machine. The dump streams back. Returns the size. */
-async function dumpWith(t: Commands, file: string) {
-  const exec = await t.container.exec({ Cmd: ["sh", "-c", t.backup], AttachStdout: true, AttachStderr: true });
+/**
+ * Dumps through a database container into a file on this machine. The dump streams back. Returns the size.
+ * `lowPriority` runs it under nice 19 (a priority, not a cap: Docker cannot limit the CPU of one command
+ * in a running container); `timeoutMinutes` stops it, and every process it started, when it runs longer.
+ */
+async function dumpWith(t: Commands, file: string, opts: { timeoutMinutes?: number | null; lowPriority?: boolean } = {}) {
+  const marker = `SERVE_EXEC=${crypto.randomBytes(8).toString("hex")}`;
+  const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+  // Images without nice (rare) dump at the usual priority.
+  const command = opts.lowPriority ? `if command -v nice >/dev/null 2>&1; then exec nice -n 19 sh -c ${q(t.backup)}; else exec sh -c ${q(t.backup)}; fi` : t.backup;
+  const exec = await t.container.exec({ Cmd: ["sh", "-c", command], AttachStdout: true, AttachStderr: true, Env: [marker] });
   const stream = await exec.start({ hijack: true, stdin: false });
+  let timedOut = false;
+  const timer = opts.timeoutMinutes
+    ? setTimeout(() => {
+        timedOut = true;
+        (stream as unknown as { destroy: (e?: Error) => void }).destroy(new Error("timeout"));
+      }, opts.timeoutMinutes * 60_000)
+    : undefined;
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   let errText = "";
@@ -186,7 +201,19 @@ async function dumpWith(t: Commands, file: string) {
     stderr.end();
   });
   stream.on("error", (e: Error) => stdout.destroy(e));
-  await pipeline(stdout, fs.createWriteStream(file));
+  try {
+    await pipeline(stdout, fs.createWriteStream(file));
+  } catch (e) {
+    if (!timedOut) throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (timedOut) {
+    // Docker has no call to stop an exec: its processes are found by the marker and killed.
+    const { killMarked } = await import("@/server/services/exec");
+    await killMarked(t.container, marker);
+    throw new Error(`The backup took longer than ${opts.timeoutMinutes} minutes and was stopped.`);
+  }
   // The output ended; a large dump may still take a moment to exit.
   const exitCode = await execExitCode(exec, 60_000);
   const masked = t.password ? errText.replaceAll(t.password, "***") : errText;
@@ -343,7 +370,7 @@ export async function targetOf(service: ServiceRow, key: string | null, database
       retention: cfg.backupRetention,
       retentionS3: cfg.backupRetentionS3 ?? cfg.backupRetention,
       keepLocal: !cfg.s3DestinationId || cfg.backupLocal !== false,
-      dump: async (file) => dumpWith(await databaseCommands(service, databases), file),
+      dump: async (file) => dumpWith(await databaseCommands(service, databases), file, { timeoutMinutes: cfg.backupTimeoutMinutes, lowPriority: cfg.backupLowPriority }),
       restore: async (file, log, _onStopped, opts) => restoreWith(await databaseCommands(service), file, log, opts),
     };
   }
@@ -364,7 +391,7 @@ export async function targetOf(service: ServiceRow, key: string | null, database
       label: `${service.name} / ${parsed.name}`,
       stem: `${service.slug}-${fileSafe(parsed.name)}-${keyHash(key)}`,
       extension: DUMP_EXTENSION[commands.engine],
-      dump: (file) => dumpWith(commands, file),
+      dump: (file) => dumpWith(commands, file, { timeoutMinutes: cfg?.timeoutMinutes, lowPriority: cfg?.lowPriority }),
       restore: (file, log, _onStopped, opts) => restoreWith(commands, file, log, opts),
     };
   }

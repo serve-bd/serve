@@ -675,6 +675,8 @@ const updateSchema = z.object({
       backupRetention: z.number().int().min(1).max(365),
       backupRetentionS3: z.number().int().min(1).max(3650).nullable(),
       backupLocal: z.boolean(),
+      backupTimeoutMinutes: z.number().int().min(1).max(10080).nullable(),
+      backupLowPriority: z.boolean(),
       s3DestinationId: z.string().nullable(),
     })
     .partial()

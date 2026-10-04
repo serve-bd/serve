@@ -92,6 +92,8 @@ const configSchema = z.object({
   retentionS3: z.number().int().min(1).max(3650).nullable(),
   s3DestinationId: z.string().max(64).nullable(),
   local: z.boolean().optional(),
+  timeoutMinutes: z.number().int().min(1).max(10080).nullable().optional(),
+  lowPriority: z.boolean().optional(),
 });
 
 /** Schedule, retention and S3 storage of one backup of a stack. */

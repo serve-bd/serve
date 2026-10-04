@@ -78,7 +78,11 @@ export function ScheduleCard(props: {
   canEdit: boolean;
   /** A database service whose backups can take several databases: which ones the schedule takes. */
   databaseChoices?: DatabaseChoices | null;
+  /** Database dumps: minutes a backup may take (null: no limit), and whether it runs at low CPU priority. */
+  timeoutMinutes?: number | null;
+  lowPriority?: boolean;
 }) {
+  const dumps = props.noun !== "copies";
   const choices = props.databaseChoices ?? null;
   const [dbs, setDbs] = React.useState<string[]>(() => (choices ? (choices.selected?.length ? choices.selected : defaultDatabases(choices)) : []));
   const initial = React.useMemo(
@@ -90,8 +94,10 @@ export function ScheduleCard(props: {
       bucket: props.s3DestinationId,
       // Without a bucket, the server is the only place.
       local: !props.s3DestinationId || props.keepLocal !== false,
+      timeout: props.timeoutMinutes ? String(props.timeoutMinutes) : "",
+      lowPriority: !!props.lowPriority,
     }),
-    [props.schedule, props.retention, props.retentionS3, props.s3DestinationId, props.keepLocal],
+    [props.schedule, props.retention, props.retentionS3, props.s3DestinationId, props.keepLocal, props.timeoutMinutes, props.lowPriority],
   );
   const [enabled, setEnabled] = React.useState(initial.enabled);
   const [plan, setPlan] = React.useState<Plan>(initial.plan);
@@ -99,6 +105,8 @@ export function ScheduleCard(props: {
   const [retentionS3, setRetentionS3] = React.useState(initial.retentionS3);
   const [bucket, setBucket] = React.useState(initial.bucket);
   const [local, setLocal] = React.useState(initial.local);
+  const [timeout, setTimeoutValue] = React.useState(initial.timeout);
+  const [lowPriority, setLowPriority] = React.useState(initial.lowPriority);
   // The plan only counts while the schedule is on: turned off, the saved schedule has none.
   const [saved, setSaved] = React.useState(() =>
     JSON.stringify({ ...initial, plan: initial.enabled ? initial.plan : null, dbs: props.databaseChoices?.selected?.length ? [...props.databaseChoices.selected].sort() : null }),
@@ -109,7 +117,17 @@ export function ScheduleCard(props: {
   const now = useNow();
   const runs = enabled && now ? nextRuns(cron, props.timezone, 3, now) : null;
   const invalid = enabled && (!cron || !nextRuns(cron, props.timezone, 1));
-  const snapshot = JSON.stringify({ enabled, plan: enabled ? plan : null, retention, retentionS3, bucket, local, dbs: choices ? savedChoice(choices, dbs) : null });
+  const snapshot = JSON.stringify({
+    enabled,
+    plan: enabled ? plan : null,
+    retention,
+    retentionS3,
+    bucket,
+    local,
+    timeout,
+    lowPriority,
+    dbs: choices ? savedChoice(choices, dbs) : null,
+  });
   const dirty = snapshot !== saved;
   const set = (patch: Partial<Plan>) => setPlan((p) => ({ ...p, ...patch }));
 
@@ -118,6 +136,7 @@ export function ScheduleCard(props: {
       const keep = Math.max(1, Math.min(365, Number(retention) || 7));
       const keepS3 = bucket ? Math.max(1, Math.min(3650, Number(retentionS3) || Number(retention) || 7)) : null;
       const onServer = !bucket || local;
+      const minutes = timeout ? Math.max(1, Math.min(10080, Number(timeout))) : null;
       if (props.target)
         return saveComposeBackup(props.serviceId, props.target, {
           schedule: enabled ? cron : null,
@@ -125,6 +144,8 @@ export function ScheduleCard(props: {
           retentionS3: keepS3,
           s3DestinationId: bucket,
           local: onServer,
+          timeoutMinutes: minutes,
+          lowPriority,
         });
       return updateService(props.serviceId, {
         database: {
@@ -133,6 +154,8 @@ export function ScheduleCard(props: {
           backupRetentionS3: keepS3,
           s3DestinationId: bucket,
           backupLocal: onServer,
+          backupTimeoutMinutes: minutes,
+          backupLowPriority: lowPriority,
           ...(choices ? { backupDatabases: savedChoice(choices, dbs) } : {}),
         },
       });
@@ -340,6 +363,24 @@ export function ScheduleCard(props: {
             )}
           </div>
         </Field>
+        {dumps && (
+          <div className="grid grid-cols-1 gap-4 border-t border-line pt-5 sm:grid-cols-2">
+            <Field label="Time limit" optional description="A backup running longer is stopped and marked failed. Also for Back up now.">
+              <InputGroup suffix="minutes">
+                <Input
+                  value={timeout}
+                  onChange={(e) => setTimeoutValue(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                  placeholder="No limit"
+                  inputMode="numeric"
+                  disabled={!props.canEdit}
+                />
+              </InputGroup>
+            </Field>
+            <Field label="Low CPU priority" description="The dump and its compression get the CPU only when the database and apps leave it free. Slower backups, steadier apps.">
+              <Switch checked={lowPriority} onCheckedChange={setLowPriority} disabled={!props.canEdit} aria-label="Low CPU priority" />
+            </Field>
+          </div>
+        )}
       </CardBody>
       {props.canEdit && (
         <CardFooter>
@@ -356,6 +397,8 @@ export function ScheduleCard(props: {
                   setRetentionS3(initial.retentionS3);
                   setBucket(initial.bucket);
                   setLocal(initial.local);
+                  setTimeoutValue(initial.timeout);
+                  setLowPriority(initial.lowPriority);
                 }}
               >
                 Discard

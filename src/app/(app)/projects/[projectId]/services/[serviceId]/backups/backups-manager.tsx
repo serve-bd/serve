@@ -201,6 +201,8 @@ export function BackupsManager(props: {
   retention: number;
   retentionS3: number | null;
   keepLocal?: boolean;
+  timeoutMinutes?: number | null;
+  lowPriority?: boolean;
   s3DestinationId: string | null;
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
@@ -306,6 +308,8 @@ export function BackupsManager(props: {
           retention={props.retention}
           retentionS3={props.retentionS3}
           keepLocal={props.keepLocal}
+          timeoutMinutes={props.timeoutMinutes}
+          lowPriority={props.lowPriority}
           s3DestinationId={props.s3DestinationId}
           destinations={props.destinations}
           timezone={props.timezone}

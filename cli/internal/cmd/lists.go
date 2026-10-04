@@ -26,6 +26,7 @@ func lsCmd(use, short string, aliases []string, run func(cmd *cobra.Command, asJ
 func (a *App) projectsCmd() *cobra.Command {
 	cmd := a.projectsList()
 	cmd.AddCommand(a.projectRmCmd())
+	cmd.AddCommand(a.projectCreateCmd(), a.projectRenameCmd(), a.projectShowCmd())
 	return cmd
 }
 
@@ -127,6 +128,7 @@ func (a *App) servicesCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&a.project, "project", "p", "", "project name or id")
 	cmd.PersistentFlags().BoolVarP(&all, "all", "a", false, "every project, not only the linked one")
 	cmd.AddCommand(a.serviceRmCmd())
+	cmd.AddCommand(a.serviceCreateCmd(), a.serviceRenameCmd(), a.serviceCloneCmd(), a.serviceMoveCmd(), a.serviceSetCmd())
 	return cmd
 }
 

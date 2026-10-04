@@ -105,8 +105,8 @@ Commands that work on a service use the one this folder is linked to (serve link
 	}
 	add("start", a.loginCmd(), a.logoutCmd(), a.whoamiCmd(), a.contextCmd(), a.linkCmd(), a.initCmd(), a.unlinkCmd())
 	add("deploy", a.deployCmd(), a.deploymentsCmd(), a.redeployCmd(), a.rollbackCmd(), a.cancelCmd(), a.forceStartCmd())
-	add("manage", a.statusCmd(), a.openCmd(), a.logsCmd(), a.controlCmd("start"), a.controlCmd("stop"), a.controlCmd("restart"), a.builderCmd(), a.envCmd(), a.domainsCmd(), a.dbCmd())
-	add("browse", a.projectsCmd(), a.servicesCmd(), a.serversCmd())
+	add("manage", a.statusCmd(), a.openCmd(), a.logsCmd(), a.controlCmd("start"), a.controlCmd("stop"), a.controlCmd("restart"), a.builderCmd(), a.envCmd(), a.domainsCmd(), a.dbCmd(), a.maintenanceCmd(), a.composeCmd(), a.containersCmd())
+	add("browse", a.projectsCmd(), a.servicesCmd(), a.serversCmd(), a.environmentsCmd(), a.templatesCmd())
 	root.AddCommand(a.versionCmd(), a.upgradeCmd())
 	guardGroups(root)
 	for _, p := range noticeCommands {

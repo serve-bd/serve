@@ -6,6 +6,8 @@ import { imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { getServer, type ServerCtx } from "@/server/servers/context";
 import { serverAllowsOrg } from "@/server/servers/ownership";
 import { type DrainSpec, type ServiceRow, servicesCsv, vectorConfig } from "./config";
+import { runServerIds } from "@/server/deploy/distribution";
+import { replicaInstances } from "@/server/services/types";
 
 export const VECTOR_IMAGE = "timberio/vector:0.58.0-alpine";
 const CONTAINER = "serve-log-drain";
@@ -50,6 +52,21 @@ async function drainedServices(organizationIds: string[]): Promise<ServiceRow[]>
     .innerJoin(schema.environment, eq(schema.service.environmentId, schema.environment.id))
     .where(inArray(schema.project.organizationId, organizationIds));
   return rows;
+}
+
+/** The servers each service runs on: its own, its extra servers and its database replicas. */
+async function servicePlacement(serviceIds: string[]) {
+  const map = new Map<string, Set<string>>();
+  if (!serviceIds.length) return map;
+  const rows = await db
+    .select({ id: schema.service.id, serverId: schema.service.serverId, distribution: schema.service.distribution, database: schema.service.database })
+    .from(schema.service)
+    .where(inArray(schema.service.id, serviceIds));
+  for (const r of rows) {
+    if (!r.serverId) continue;
+    map.set(r.id, new Set([...runServerIds(r.serverId, r.distribution), ...replicaInstances({ serverId: r.serverId, database: r.database }).map((i) => i.serverId)]));
+  }
+  return map;
 }
 
 function drainDir(ctx: ServerCtx) {
@@ -125,6 +142,7 @@ export async function syncLogDrains(serverIds?: string[]) {
   // A drain with nothing picked sends nothing; with none left, Vector is not needed.
   const drains = (await enabledDrains()).filter((d) => d.projectIds?.length || d.serviceIds?.length);
   const services = await drainedServices([...new Set(drains.map((d) => d.organizationId))]);
+  const placement = await servicePlacement(services.map((r) => r.serviceId));
   const servers = await db
     .select({
       id: schema.server.id,
@@ -143,7 +161,15 @@ export async function syncLogDrains(serverIds?: string[]) {
           const ctx = await getServer(s.id);
           // A server holds the drains (and service names) of the organizations it serves only: its
           // owner can read its files, and must not see other organizations' tokens.
-          const here = drains.filter((d) => serverAllowsOrg(s, d.organizationId));
+          // Only drains with a picked service running here: a server without one needs no collector.
+          const here = drains.filter(
+            (d) =>
+              serverAllowsOrg(s, d.organizationId) &&
+              services.some(
+                (r) =>
+                  r.organizationId === d.organizationId && (d.projectIds?.includes(r.projectId) || d.serviceIds?.includes(r.serviceId)) && placement.get(r.serviceId)?.has(s.id),
+              ),
+          );
           const csv = servicesCsv(services.filter((r) => serverAllowsOrg(s, r.organizationId)));
           if (here.length) await ensureVector(ctx, vectorConfig(s.name, here, csv), csv);
           else await removeVector(ctx);

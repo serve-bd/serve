@@ -110,6 +110,7 @@ Commands that work on a service use the one this folder is linked to (serve link
 	add("manage", a.varsCmd(), a.tasksCmd(), a.previewsCmd(), a.tagsCmd(), a.uptimeCmd(), a.webhookCmd())
 	add("browse", a.projectsCmd(), a.servicesCmd(), a.serversCmd(), a.environmentsCmd(), a.templatesCmd())
 	add("admin", a.sshKeysCmd(), a.certificatesCmd(), a.instanceCmd())
+	add("admin", a.orgCmd(), a.membersCmd(), a.inviteCmd(), a.invitationsCmd(), a.rolesCmd(), a.tokensCmd(), a.activityCmd(), a.registriesCmd(), a.s3Cmd(), a.notificationsCmd(), a.secretManagersCmd(), a.gitCmd(), a.cloudflareCmd())
 	root.AddCommand(a.versionCmd(), a.upgradeCmd())
 	guardGroups(root)
 	for _, p := range noticeCommands {

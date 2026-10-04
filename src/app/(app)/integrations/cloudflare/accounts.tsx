@@ -77,15 +77,15 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
     },
   });
   return (
-    <div className="border-t border-line">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-4 pb-2">
-        <div className="min-w-0">
-          <p className="flex items-center gap-2 text-[13px] font-medium text-fg">
-            <Waypoints className="size-3.5 text-[#f38020]" /> Tunnels
-          </p>
-          <p className="text-xs text-muted">Serve domains from a server without a public IP or open ports. HTTPS is handled by Cloudflare.</p>
-        </div>
-      </div>
+    <Card className="overflow-hidden">
+      <CardHeader
+        title={
+          <span className="flex items-center gap-2">
+            <Waypoints className="size-4 text-[#f38020]" /> Tunnels
+          </span>
+        }
+        description={`Serve domains of ${account.name} from a server without a public IP or open ports. HTTPS is handled by Cloudflare.`}
+      />
       <div className="divide-y divide-line">
         {servers.map((server) => {
           const tunnel = mine.find((t) => t.serverId === server.id);
@@ -127,7 +127,7 @@ function TunnelsSection({ account, servers, tunnels, isAdmin }: { account: Accou
           );
         })}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -293,83 +293,85 @@ export function CloudflareAccounts({
           </Card>
         ) : (
           accounts.map((a) => (
-            <Card key={a.id} className="overflow-hidden">
-              <CardHeader
-                title={
-                  <span className="flex items-center gap-2">
-                    <Cloud className="size-4 text-[#f38020]" /> {a.name}
-                  </span>
-                }
-                description={a.error ? `Could not load zones: ${a.error}` : `${a.zones.length} zone${a.zones.length === 1 ? "" : "s"}`}
-                actions={
-                  isAdmin && (
-                    <div className="flex items-center gap-1">
-                      {a.oauth && a.error && oauth && (
-                        <Button variant="secondary" size="sm" loading={signIn.pending} onClick={() => signIn.run(a.id)}>
-                          <RefreshCw /> Reconnect
-                        </Button>
-                      )}
-                      <Button
-                        variant="danger-ghost"
-                        size="sm"
-                        onClick={async () => {
-                          const impact = await cloudflareDisconnectImpact(a.id);
-                          const tunnels = impact.ok ? impact.data : [];
-                          const offline = tunnels.flatMap((t) => t.domains);
-                          const ok = await confirm({
-                            title: `Disconnect ${a.name}?`,
-                            description: tunnels.length
-                              ? `This stops and deletes ${tunnels.length === 1 ? "the Cloudflare Tunnel" : `${tunnels.length} Cloudflare Tunnels`} of this account. Other DNS records stay in Cloudflare, and certificates using this account stop renewing.`
-                              : "Existing DNS records stay in Cloudflare. Certificates using this account stop renewing.",
-                            confirmLabel: tunnels.length ? "Disconnect and stop tunnels" : "Disconnect",
-                            danger: true,
-                            typeToConfirm: offline.length ? a.name : undefined,
-                            children:
-                              tunnels.length > 0 ? (
-                                <div className="flex flex-col gap-2 rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-3 text-[13px]">
-                                  <p className="font-medium text-fg">
-                                    {offline.length ? `${offline.length} site${offline.length === 1 ? "" : "s"} will stop working:` : "No domains use these tunnels."}
-                                  </p>
-                                  {offline.length > 0 && (
-                                    <ul className="flex flex-col gap-0.5 font-mono text-[12.5px] text-fg-2">
-                                      {offline.map((h) => (
-                                        <li key={h}>{h}</li>
-                                      ))}
-                                    </ul>
-                                  )}
-                                  <p className="text-xs text-muted">{tunnels.map((t) => `${t.name} on ${t.serverName}`).join(", ")}</p>
-                                </div>
-                              ) : undefined,
-                          });
-                          if (ok) remove.run(a.id);
-                        }}
-                      >
-                        <Trash2 /> Disconnect
-                      </Button>
-                    </div>
-                  )
-                }
-              />
-              <div className="divide-y divide-line">
-                {a.zones.map((z) => (
-                  <Link key={z.id} href={`/integrations/cloudflare/${a.id}/${z.id}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-hover/40 sm:px-5">
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="truncate text-[14px] font-medium text-fg">{z.name}</span>
-                      {(z.plan || z.status !== "active") && (
-                        <span className="truncate text-xs text-muted">
-                          {/* Active is the normal state; only other states are worth a word. */}
-                          {z.status !== "active" && <span className="text-warn capitalize">{z.status}</span>}
-                          {z.status !== "active" && z.plan && " · "}
-                          {z.plan}
-                        </span>
-                      )}
+            <div key={a.id} className="flex flex-col gap-3">
+              <Card className="overflow-hidden">
+                <CardHeader
+                  title={
+                    <span className="flex items-center gap-2">
+                      <Cloud className="size-4 text-[#f38020]" /> {a.name}
                     </span>
-                    <ChevronRight className="size-4 flex-none text-faint" />
-                  </Link>
-                ))}
-              </div>
+                  }
+                  description={a.error ? `Could not load zones: ${a.error}` : `${a.zones.length} zone${a.zones.length === 1 ? "" : "s"}`}
+                  actions={
+                    isAdmin && (
+                      <div className="flex items-center gap-1">
+                        {a.oauth && a.error && oauth && (
+                          <Button variant="secondary" size="sm" loading={signIn.pending} onClick={() => signIn.run(a.id)}>
+                            <RefreshCw /> Reconnect
+                          </Button>
+                        )}
+                        <Button
+                          variant="danger-ghost"
+                          size="sm"
+                          onClick={async () => {
+                            const impact = await cloudflareDisconnectImpact(a.id);
+                            const tunnels = impact.ok ? impact.data : [];
+                            const offline = tunnels.flatMap((t) => t.domains);
+                            const ok = await confirm({
+                              title: `Disconnect ${a.name}?`,
+                              description: tunnels.length
+                                ? `This stops and deletes ${tunnels.length === 1 ? "the Cloudflare Tunnel" : `${tunnels.length} Cloudflare Tunnels`} of this account. Other DNS records stay in Cloudflare, and certificates using this account stop renewing.`
+                                : "Existing DNS records stay in Cloudflare. Certificates using this account stop renewing.",
+                              confirmLabel: tunnels.length ? "Disconnect and stop tunnels" : "Disconnect",
+                              danger: true,
+                              typeToConfirm: offline.length ? a.name : undefined,
+                              children:
+                                tunnels.length > 0 ? (
+                                  <div className="flex flex-col gap-2 rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-3 text-[13px]">
+                                    <p className="font-medium text-fg">
+                                      {offline.length ? `${offline.length} site${offline.length === 1 ? "" : "s"} will stop working:` : "No domains use these tunnels."}
+                                    </p>
+                                    {offline.length > 0 && (
+                                      <ul className="flex flex-col gap-0.5 font-mono text-[12.5px] text-fg-2">
+                                        {offline.map((h) => (
+                                          <li key={h}>{h}</li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                    <p className="text-xs text-muted">{tunnels.map((t) => `${t.name} on ${t.serverName}`).join(", ")}</p>
+                                  </div>
+                                ) : undefined,
+                            });
+                            if (ok) remove.run(a.id);
+                          }}
+                        >
+                          <Trash2 /> Disconnect
+                        </Button>
+                      </div>
+                    )
+                  }
+                />
+                <div className="divide-y divide-line">
+                  {a.zones.map((z) => (
+                    <Link key={z.id} href={`/integrations/cloudflare/${a.id}/${z.id}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-hover/40 sm:px-5">
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="truncate text-[14px] font-medium text-fg">{z.name}</span>
+                        {(z.plan || z.status !== "active") && (
+                          <span className="truncate text-xs text-muted">
+                            {/* Active is the normal state; only other states are worth a word. */}
+                            {z.status !== "active" && <span className="text-warn capitalize">{z.status}</span>}
+                            {z.status !== "active" && z.plan && " · "}
+                            {z.plan}
+                          </span>
+                        )}
+                      </span>
+                      <ChevronRight className="size-4 flex-none text-faint" />
+                    </Link>
+                  ))}
+                </div>
+              </Card>
               {!a.error && <TunnelsSection account={a} servers={servers} tunnels={tunnels} isAdmin={isAdmin} />}
-            </Card>
+            </div>
           ))
         )}
         <ConnectCloudflareDialog open={open} onOpenChange={setOpen} oauth={oauth} />

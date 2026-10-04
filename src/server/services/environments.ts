@@ -108,6 +108,7 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
       if (lost) notes.add(lost);
     } else if (s.runtime.volumes.some((v) => v.kind === "bind")) notes.add("Bind mounts still point at the same folders on the server as the original.");
     if (s.source?.type === "git" && s.autoDeploy) notes.add("Deploy on push is off in the copy. Turn it on in Settings → Source.");
+    if (s.source?.type === "upload") notes.add("Apps deployed from the CLI have no uploaded files in the copy yet: run serve deploy for them.");
     rows.push({
       id,
       projectId: s.projectId,

@@ -6,6 +6,8 @@ export function pathsFor(dataDir: string) {
   return {
     root: dataDir,
     builds: path.posix.join(dataDir, "builds"),
+    /** Project folders uploaded by the CLI (serve deploy), per service. */
+    uploads: path.posix.join(dataDir, "uploads"),
     service: (serviceId: string) => path.posix.join(dataDir, "services", serviceId),
     proxy: path.posix.join(dataDir, "proxy"),
     proxySites: path.posix.join(dataDir, "proxy", "sites"),

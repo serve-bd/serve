@@ -1,5 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { logsFrom } from "@/lib/log-offset";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import * as projects from "@/server/actions/projects";
@@ -281,10 +282,13 @@ export const projectRoutes: ApiRoute[] = [
     path: "/deployments/{deploymentId}/logs",
     tag: "Deployments",
     summary: "Full build and deploy log",
+    description:
+      "With offset (from the previous answer), only the text after it: poll with the offset you got to follow a deployment. An offset past the end (the log was shortened) starts again from the beginning.",
     needs: ["logs.view"],
-    handler: async ({ auth, params }) => {
+    query: z.object({ offset: z.coerce.number().int().min(0).optional() }),
+    handler: async ({ auth, params, query }) => {
       const { deployment } = await loadDeployment(auth, params.deploymentId);
-      return { status: deployment.status, logs: deployment.logs };
+      return { status: deployment.status, ...logsFrom(deployment.logs, query.offset) };
     },
   }),
   route({

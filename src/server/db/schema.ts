@@ -667,7 +667,18 @@ export const customTemplate = pgTable(
 /** "waiting": held for approval (deploy rules), not queued yet. */
 export type DeploymentStatus = "waiting" | "queued" | "building" | "deploying" | "success" | "failed" | "cancelled" | "superseded";
 
-export type DeploymentTrigger = "manual" | "webhook" | "rollback" | "redeploy" | "create" | "deploy-hook" | "api";
+export type DeploymentTrigger = "manual" | "webhook" | "rollback" | "redeploy" | "create" | "deploy-hook" | "api" | "cli";
+
+/** The project folder a deployment was built from, uploaded by the CLI (a .tar.gz kept in the data directory). */
+export type DeploymentUpload = {
+  /** The archive, relative to the uploads directory: "<serviceId>/<id>.tar.gz". */
+  archive: string;
+  /** Size of the archive in bytes. */
+  size: number;
+  files: number;
+  /** The folder had changes that were not committed. */
+  dirty: boolean;
+};
 
 export const deployment = pgTable(
   "deployment",
@@ -701,6 +712,8 @@ export const deployment = pgTable(
       volumes?: { from: string; to: string }[];
       git?: { repository: string; branch: string; credentialId: string | null };
     }>(),
+    /** Files uploaded from the CLI that this deployment builds instead of cloning (a redeploy reuses them). */
+    upload: jsonb("upload").$type<DeploymentUpload>(),
     /** Fingerprint of the settings this deployment ran with: a different one now means a redeploy would apply changes. */
     configHash: text("config_hash"),
     /** Who let a deployment that waited for approval go ahead, and when. */
@@ -1030,6 +1043,33 @@ export const apiToken = pgTable("api_token", {
   lastUsedIp: text("last_used_ip"),
   createdAt: createdAt(),
 });
+
+/**
+ * A sign-in of the CLI (`serve login`): the CLI polls with the device code while someone signed
+ * in to the dashboard approves the short user code. Approving makes an API token, handed out once.
+ */
+export const cliLogin = pgTable(
+  "cli_login",
+  {
+    id: id(),
+    /** SHA-256 hash of the device code the CLI polls with. */
+    deviceCodeHash: text("device_code_hash").notNull().unique(),
+    /** The code people compare and approve, like ABCD-1234. */
+    userCode: text("user_code").notNull().unique(),
+    /** The computer the CLI runs on, as it says. */
+    client: text("client").notNull(),
+    version: text("version"),
+    ip: text("ip"),
+    status: text("status").$type<"pending" | "approved" | "denied" | "spent">().notNull().default("pending"),
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id").references(() => organization.id, { onDelete: "cascade" }),
+    /** The new token, encrypted, until the CLI collects it. */
+    token: text("token"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("cli_login_expires_idx").on(t.expiresAt)],
+);
 
 /* -------------------------------------------------------------------------- */
 /*                                  Backups                                   */

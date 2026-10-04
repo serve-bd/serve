@@ -235,6 +235,7 @@ export async function destroyService(opts: {
     // Its backup list is gone with the service, so the local files could never be used again.
     // Copies in S3 stay: they are the off-site history and can be imported elsewhere.
     await fs.rm(path.join(paths.backups, opts.serviceId), { recursive: true, force: true }).catch(() => {});
+    await fs.rm(path.join(paths.uploads, opts.serviceId), { recursive: true, force: true }).catch(() => {});
   }
   if (!server.local && !opts.keepServerFiles) await server.fs.rm(server.paths.service(opts.serviceId)).catch(() => {});
   await docker.pruneImages({ filters: { dangling: { true: true }, label: [`${LABEL.service}=${opts.serviceId}`] } }).catch(() => {});

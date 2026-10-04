@@ -52,6 +52,7 @@ import { startStoppedContainers } from "@/server/backups/storage";
 import { currentVersion } from "@/server/instance/version";
 import { attemptDelivery, flushHeldNotifications, pruneDeliveries, retryDueDeliveries } from "@/server/notifications/deliver";
 import { recordSchedulerRun, recordSchedulerSkip } from "@/server/schedulers";
+import { ensureServerCli } from "@/server/server-cli";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -751,6 +752,23 @@ async function recover() {
   }
 }
 
+/**
+ * cli.json for the CLI on this host. A fresh install has no admin yet: checked again every
+ * minute until the first one signs up.
+ */
+async function startServerCli() {
+  const line = await ensureServerCli();
+  log(line);
+  if (!line.includes("no admin yet")) return;
+  const timer = setInterval(async () => {
+    const next = await ensureServerCli();
+    if (next.includes("no admin yet")) return;
+    clearInterval(timer);
+    log(next);
+  }, 60_000);
+  timer.unref();
+}
+
 async function main() {
   if (process.argv.includes("--migrate")) {
     await runMigrations();
@@ -764,6 +782,7 @@ async function main() {
   await docker.ping();
   await ensureNetwork();
   await recover();
+  await startServerCli();
   try {
     await ensureProxy((l) => log(l));
     await syncLocalProxy();

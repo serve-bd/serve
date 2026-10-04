@@ -1,5 +1,7 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { newId } from "@/server/id";
+import { dockerSince } from "@/lib/log-offset";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 import * as actions from "@/server/actions/services";
@@ -16,6 +18,9 @@ const listQuery = z.object({
   offset: z.coerce.number().int().optional(),
 });
 
+/** Content types a .tar.gz may arrive with; none at all is fine too. */
+const UPLOAD_TYPES = ["application/gzip", "application/x-gzip", "application/octet-stream", "application/x-tar", "application/x-compressed-tar", "application/tar+gzip"];
+
 const variable = z.object({
   key: z.string().max(200),
   value: z.string().max(256 * 1024),
@@ -27,8 +32,10 @@ const variable = z.object({
 });
 
 const source = z
-  .looseObject({ type: z.enum(["git", "image", "dockerfile"]) })
-  .describe('Where the code comes from: {type:"git", repository, branch, credentialId?}, {type:"image", image, registryId?} or {type:"dockerfile", dockerfile}.');
+  .looseObject({ type: z.enum(["git", "image", "dockerfile", "upload"]) })
+  .describe(
+    'Where the code comes from: {type:"git", repository, branch, credentialId?}, {type:"image", image, registryId?}, {type:"dockerfile", content} or {type:"upload"} (deployed from the CLI: POST /services/{serviceId}/deploy/upload).',
+  );
 
 const createBody = z.discriminatedUnion("type", [
   z.looseObject({
@@ -207,6 +214,75 @@ export const serviceRoutes: ApiRoute[] = [
       const r = await unwrap(body.noCache ? actions.deployWithoutCache(params.serviceId) : actions.deployService(params.serviceId));
       const deploymentId = (r as { id?: string } | null)?.id ?? null;
       return { deploymentId };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/deploy/upload",
+    tag: "Deployments",
+    summary: "Deploy uploaded files",
+    description: [
+      "The body is the project folder as a .tar.gz (Content-Type: application/gzip), streamed to disk. This is what `serve deploy` sends.",
+      "Serve unpacks it where a repository would be cloned and builds it like a checkout: the Dockerfile, the detected builder and the build settings all apply.",
+      'For apps with source {type:"upload"}, and as a one-off deploy of local files for apps built from Git or a Dockerfile. Not for image apps, compose stacks or databases.',
+      "Query: message, commit, branch (shown with the deployment), dirty=1 (the folder had changes that were not committed), noCache=1.",
+      "Redeploying the deployment builds the same files again; the files of the last 5 uploads are kept.",
+    ].join(" "),
+    needs: ["services.deploy"],
+    query: z.object({
+      message: z.string().max(5000).optional(),
+      commit: z
+        .string()
+        .regex(/^[0-9a-f]{4,64}$/i, "A commit is a hexadecimal hash")
+        .optional(),
+      branch: z.string().max(255).optional(),
+      dirty: z.enum(["0", "1", "true", "false"]).optional(),
+      noCache: z.enum(["0", "1", "true", "false"]).optional(),
+    }),
+    status: 202,
+    handler: async ({ auth, params, query, request }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      if (service.type !== "app") throw new ApiError(400, `Only apps can be deployed from uploaded files. This is a ${service.type === "compose" ? "compose stack" : "database"}.`);
+      if (!service.source || service.source.type === "image")
+        throw new ApiError(400, 'This app runs an image, so there is nothing to build from files. Set its source to {"type": "upload"} to deploy it from the CLI.');
+      const type = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+      if (type && !UPLOAD_TYPES.includes(type)) throw new ApiError(400, `Send the project folder as a .tar.gz with Content-Type: application/gzip (got ${type}).`);
+      const { receiveUpload, discardUpload, pruneUploads, UploadError } = await import("@/server/deploy/uploads");
+      const { deployRefusal, queueDeployment } = await import("@/server/services/create");
+      // A freeze or a full queue refuses the deploy before the body is stored.
+      const refusal = await deployRefusal(service.id, "cli", auth.userId);
+      if (refusal) throw new ApiError(409, refusal);
+      const deploymentId = newId();
+      let stored: Awaited<ReturnType<typeof receiveUpload>>;
+      try {
+        stored = await receiveUpload(service.id, deploymentId, request.body, Number(request.headers.get("content-length") ?? 0) || 0);
+      } catch (e) {
+        if (e instanceof UploadError) throw new ApiError(e.status, e.message);
+        throw e;
+      }
+      const yes = (v?: string) => v === "1" || v === "true";
+      try {
+        if (!stored.files) throw new ApiError(400, "The upload holds no files. Check that the folder is not empty and that your ignore files do not leave out everything.");
+        if (yes(query.noCache) && service.build) {
+          await db
+            .update(schema.service)
+            .set({ build: { ...service.build, noCacheOnce: true } })
+            .where(eq(schema.service.id, service.id));
+        }
+        await queueDeployment(service.id, "cli", {
+          id: deploymentId,
+          userId: auth.userId,
+          commitSha: query.commit?.toLowerCase() ?? null,
+          commitMessage: query.message?.trim() || null,
+          branch: query.branch?.trim() || null,
+          upload: { archive: stored.archive, size: stored.size, files: stored.files, dirty: yes(query.dirty) },
+        });
+        await pruneUploads(service.id).catch(() => {});
+        return { deploymentId };
+      } catch (e) {
+        await discardUpload(stored.archive);
+        throw e;
+      }
     },
   }),
   ...(["start", "stop", "restart"] as const).map((command) =>
@@ -752,9 +828,17 @@ export const serviceRoutes: ApiRoute[] = [
     path: "/services/{serviceId}/logs",
     tag: "Logs",
     summary: "Recent container logs",
-    description: "The last lines of each running container of the service (tail, 10-5000, default 200).",
+    description:
+      "The last lines of each running container of the service (tail, 10-5000, default 200). since (RFC 3339 or Unix seconds) gives only newer lines: poll with the time of the last line to follow the logs.",
     needs: ["logs.view"],
-    query: z.object({ tail: z.coerce.number().int().min(10).max(5000).default(200), container: z.string().optional() }),
+    query: z.object({
+      tail: z.coerce.number().int().min(10).max(5000).default(200),
+      container: z.string().optional(),
+      since: z
+        .string()
+        .refine((v) => dockerSince(v) !== null, "Use an RFC 3339 time or Unix seconds")
+        .optional(),
+    }),
     handler: async ({ auth, params, query }) => {
       const { service } = await loadService(auth, params.serviceId);
       const { serverOf } = await import("@/server/servers/context");
@@ -772,7 +856,7 @@ export const serviceRoutes: ApiRoute[] = [
       for (const c of containers) {
         const buf = await docker
           .getContainer(c.Id)
-          .logs({ stdout: true, stderr: true, tail: query.tail, timestamps: true })
+          .logs({ stdout: true, stderr: true, tail: query.tail, timestamps: true, ...(query.since ? { since: dockerSince(query.since) as unknown as number } : {}) })
           .catch(() => null);
         out.push({
           id: c.Id.slice(0, 12),

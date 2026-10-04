@@ -4,7 +4,7 @@ import { toast } from "@/components/ui/toast";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { AlertTriangle, ArrowLeft, Ban, Check, Clock, Hourglass, Container, GitBranch, GitCommitHorizontal, Play, RefreshCw, RotateCcw, Server, User } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Ban, Check, Clock, Hourglass, Container, GitBranch, GitCommitHorizontal, Play, RefreshCw, RotateCcw, Server, Upload, User } from "lucide-react";
 import type { DeploymentTarget } from "@/server/services/types";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, TimeAgo, Copyable } from "@/components/ui/misc";
@@ -14,7 +14,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
 import { cancelDeployment, forceStartDeployment, redeployDeployment, rollbackTo } from "@/server/actions/services";
 import { approveDeployment, rejectDeployment } from "@/server/actions/deploy-rules";
-import { formatDuration } from "@/lib/utils";
+import { formatBytes, formatDuration } from "@/lib/utils";
 import { triggerText } from "@/lib/labels";
 import { useCan } from "@/components/permissions";
 
@@ -27,6 +27,8 @@ type Dep = {
   commitAuthor: string | null;
   branch: string | null;
   image: string | null;
+  /** Files uploaded from the CLI that this deployment builds. */
+  upload: { files: number; size: number; dirty: boolean } | null;
   createdAt: string;
   userName: string | null;
 };
@@ -192,6 +194,13 @@ export function DeploymentView({
                 <span className="inline-flex items-center gap-1 font-mono">
                   <GitBranch className="size-3.5" />
                   {deployment.branch}
+                </span>
+              )}
+              {deployment.upload && (
+                <span className="inline-flex items-center gap-1" title={`${formatBytes(deployment.upload.size)} uploaded`}>
+                  <Upload className="size-3.5" />
+                  {deployment.upload.files} {deployment.upload.files === 1 ? "file" : "files"}
+                  {deployment.upload.dirty && " + local changes"}
                 </span>
               )}
               <span className="inline-flex items-center gap-1">

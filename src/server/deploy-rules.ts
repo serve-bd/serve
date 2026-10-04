@@ -10,7 +10,7 @@ export type DeployGate = { kind: "run" } | { kind: "frozen"; message: string } |
  * Rollbacks (a way back when something broke) and a new service's first deploy are never held.
  * Databases are left out too: their deploys follow settings and certificates, not code.
  */
-const HELD: DeploymentTrigger[] = ["manual", "redeploy", "webhook", "deploy-hook", "api"];
+const HELD: DeploymentTrigger[] = ["manual", "redeploy", "webhook", "deploy-hook", "api", "cli"];
 
 export async function deployGate(serviceId: string, trigger: DeploymentTrigger, userId: string | null | undefined): Promise<DeployGate> {
   if (!HELD.includes(trigger)) return { kind: "run" };

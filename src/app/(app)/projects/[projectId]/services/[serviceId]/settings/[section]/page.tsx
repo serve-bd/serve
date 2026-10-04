@@ -163,7 +163,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
   const nav = settingsNav({
     type: service.type,
     hasSource: !!service.source,
-    gitSource: service.source?.type === "git",
+    gitSource: service.source?.type === "git" || service.source?.type === "upload",
     hasBuild: !!service.build,
     hasCompose: !!service.compose,
     previews: service.type === "app" && (service.source?.type === "git" || service.source?.type === "image") && !service.parentServiceId,
@@ -194,7 +194,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
         previewDomain: service.previewDomain,
         isPreview: !!service.parentServiceId,
         source: service.source
-          ? service.source.type === "git" || service.source.type === "dockerfile"
+          ? service.source.type === "git" || service.source.type === "dockerfile" || service.source.type === "upload"
             ? service.source
             : {
                 type: "image",

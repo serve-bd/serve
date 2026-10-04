@@ -14,7 +14,7 @@ export type SiblingService = {
   type: string;
   icon: string | null;
   engine: string | null;
-  sourceType: "git" | "image" | "dockerfile" | null;
+  sourceType: "git" | "image" | "dockerfile" | "upload" | null;
   status: string;
 };
 

@@ -16,7 +16,7 @@ export default async function SettingsLayout(props: LayoutProps<"/projects/[proj
   const nav = settingsNav({
     type: service.type,
     hasSource: !!service.source,
-    gitSource: service.source?.type === "git",
+    gitSource: service.source?.type === "git" || service.source?.type === "upload",
     hasBuild: !!service.build,
     hasCompose: !!service.compose,
     previews: service.type === "app" && (service.source?.type === "git" || service.source?.type === "image") && !service.parentServiceId,

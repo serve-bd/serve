@@ -34,7 +34,12 @@ export type DockerfileSource = {
   content: string;
 };
 
-export type SourceConfig = GitSource | ImageSource | DockerfileSource;
+/** An app without a repository: each deploy uploads the project folder from the CLI (`serve deploy`). */
+export type UploadSource = {
+  type: "upload";
+};
+
+export type SourceConfig = GitSource | ImageSource | DockerfileSource | UploadSource;
 
 export type SourceType = SourceConfig["type"];
 
@@ -43,7 +48,7 @@ export const DOCKERFILE_MAX_BYTES = 64 * 1024;
 
 /** Sources Serve builds an image from (build servers, registries and the build cache apply). */
 export function buildsImage(type: SourceType | null | undefined): boolean {
-  return type === "git" || type === "dockerfile";
+  return type === "git" || type === "dockerfile" || type === "upload";
 }
 
 /**

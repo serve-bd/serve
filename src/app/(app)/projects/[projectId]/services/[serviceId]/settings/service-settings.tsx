@@ -46,7 +46,8 @@ import { updateDatabaseSettings } from "@/server/actions/databases";
 type Source =
   | { type: "git"; repository: string; branch: string; credentialId?: string | null; webhook?: RepoWebhook | null }
   | { type: "image"; image: string; registryId: string | null; registryUsername: string | null; hasPassword: boolean }
-  | { type: "dockerfile"; content: string };
+  | { type: "dockerfile"; content: string }
+  | { type: "upload" };
 
 type Props = {
   projectId: string;
@@ -471,7 +472,19 @@ export function ServiceSettings(props: Props) {
         </Section>
       )}
 
-      {show("build") && service.build && service.source?.type === "git" && (
+      {show("source") && service.source?.type === "upload" && (
+        <Card id="source" className="scroll-mt-6">
+          <CardHeader title="Source" description="This app has no repository. Each deploy uploads the project folder from your computer." />
+          <CardBody className="flex flex-col gap-2 py-5 text-[13px] text-fg-2">
+            <p>
+              Deployed from the CLI: run <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[12.5px] text-fg">serve deploy</code> in the project folder.
+            </p>
+            <p className="text-muted">The files of the last 5 uploads are kept, so Redeploy builds them again without the CLI.</p>
+          </CardBody>
+        </Card>
+      )}
+
+      {show("build") && service.build && (service.source?.type === "git" || service.source?.type === "upload") && (
         <BuildSection
           serviceId={service.id}
           build={service.build}
@@ -590,9 +603,16 @@ export function ServiceSettings(props: Props) {
 
       {show("webhooks") && service.type !== "database" && (
         <Card id="webhooks" className="scroll-mt-6">
-          <CardHeader title="Webhooks" description="Trigger deployments from your Git provider or CI." />
+          <CardHeader
+            title="Webhooks"
+            description={
+              service.source?.type === "upload"
+                ? "Trigger deployments from CI. Git webhooks do not apply: this app is deployed from the CLI."
+                : "Trigger deployments from your Git provider or CI."
+            }
+          />
           <CardBody className="flex flex-col gap-4 py-5">
-            {props.viaGithubApp ? (
+            {service.source?.type === "upload" ? null : props.viaGithubApp ? (
               <>
                 <p className="flex items-start gap-2 rounded-xl bg-ok-soft px-3.5 py-3 text-[13px] leading-relaxed text-fg-2">
                   <Check className="mt-0.5 size-4 shrink-0 text-ok" />
@@ -645,7 +665,10 @@ export function ServiceSettings(props: Props) {
                 </Button>
               </div>
             </Field>
-            <Field label="Deploy hook" description="POST to this URL from CI to deploy the latest commit.">
+            <Field
+              label="Deploy hook"
+              description={service.source?.type === "upload" ? "POST to this URL to build the newest upload again." : "POST to this URL from CI to deploy the latest commit."}
+            >
               <SecretField value={props.deployHookUrl} hidden={props.hideSecrets} shape={props.deployHookUrl} />
             </Field>
           </CardBody>

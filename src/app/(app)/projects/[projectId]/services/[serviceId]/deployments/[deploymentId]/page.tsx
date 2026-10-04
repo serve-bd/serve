@@ -20,6 +20,7 @@ export default async function DeploymentPage(props: PageProps<"/projects/[projec
       commitAuthor: schema.deployment.commitAuthor,
       branch: schema.deployment.branch,
       image: schema.deployment.image,
+      upload: schema.deployment.upload,
       createdAt: schema.deployment.createdAt,
       userName: schema.user.name,
     })
@@ -31,7 +32,7 @@ export default async function DeploymentPage(props: PageProps<"/projects/[projec
     <PageBody>
       <DeploymentView
         key={dep.id}
-        deployment={JSON.parse(JSON.stringify(dep))}
+        deployment={JSON.parse(JSON.stringify({ ...dep, upload: dep.upload ? { files: dep.upload.files, size: dep.upload.size, dirty: dep.upload.dirty } : null }))}
         backHref={`/projects/${projectId}/services/${serviceId}/deployments`}
         serviceType={service.type}
         isCurrent={service.currentDeploymentId === dep.id}

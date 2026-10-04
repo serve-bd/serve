@@ -57,6 +57,7 @@ const triggerLabel: Record<string, string> = {
   push: "Git push",
   webhook: "Webhook",
   api: "API",
+  cli: "CLI upload",
   rollback: "Rollback",
   redeploy: "Redeploy",
   create: "Initial deploy",
@@ -171,9 +172,11 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                           ? service.source.image
                           : service.source?.kind === "dockerfile"
                             ? "Built from the Dockerfile"
-                            : service.source?.kind === "compose"
-                              ? (service.source.template ?? "Compose stack")
-                              : (triggerLabel[current.trigger] ?? "Deployment"))}
+                            : service.source?.kind === "upload"
+                              ? "Uploaded from the CLI"
+                              : service.source?.kind === "compose"
+                                ? (service.source.template ?? "Compose stack")
+                                : (triggerLabel[current.trigger] ?? "Deployment"))}
                     </p>
                     <StatusLabel status={current.status} kind="deployment" className="flex-none rounded-full bg-surface-2 px-2 py-0.5 text-xs" />
                   </div>
@@ -501,6 +504,7 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                 {service.source.base ? `FROM ${service.source.base}` : "Saved in Serve"}
               </Row>
             )}
+            {service.source?.kind === "upload" && <Row label="Source">Deployed from the CLI</Row>}
             {service.source?.kind === "compose" && (
               <>
                 <Row label="Stack">{service.source.template ?? (service.source.mode === "git" ? service.source.path : "Inline compose file")}</Row>

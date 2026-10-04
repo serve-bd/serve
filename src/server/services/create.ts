@@ -1,10 +1,10 @@
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { newId, shortId, slugify } from "@/server/id";
 import { randomSecret } from "@/server/crypto";
 import { autoDomainFor } from "@/server/proxy/addressing";
 import { enqueue } from "@/server/queue";
-import { LOCAL_SERVER_ID, type DeploymentTrigger } from "@/server/db/schema";
+import { LOCAL_SERVER_ID, type DeploymentTrigger, type DeploymentUpload } from "@/server/db/schema";
 import { UserError } from "@/server/action";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -60,9 +60,19 @@ export async function queueDeployment(
     branch?: string | null;
     /** A container made outside Serve that this deployment takes over. */
     adopt?: import("@/server/adopt/handoff").Handoff | null;
+    /** Files uploaded by the CLI to build instead of the source. */
+    upload?: DeploymentUpload | null;
+    /** The id to use (an upload names its archive after the deployment before it is queued). */
+    id?: string;
   } = {},
 ) {
-  const id = newId();
+  const id = opts.id ?? newId();
+  if (!opts.upload && !opts.rollbackOf) {
+    // An app deployed from the CLI builds its newest upload again; without one there is nothing to build.
+    const last = await lastUploadOf(serviceId);
+    if (last === "none") return recordSkipped(serviceId, trigger, NO_UPLOAD, opts);
+    if (last) opts = { ...opts, upload: last.upload, commitSha: last.commitSha, commitMessage: last.commitMessage, branch: last.branch };
+  }
   // The project's deploy rules: a freeze stops it, an approval holds it.
   const { deployGate, supersedeWaiting } = await import("@/server/deploy-rules");
   const gate = await deployGate(serviceId, trigger, opts.userId);
@@ -87,6 +97,7 @@ export async function queueDeployment(
       commitMessage: opts.commitMessage ?? null,
       branch: opts.branch ?? null,
       adopt: opts.adopt ?? null,
+      upload: opts.upload ?? null,
     });
     return null;
   });
@@ -101,6 +112,38 @@ export async function queueDeployment(
   }
   await enqueue("deploy", { deploymentId: id }, { concurrencyKey: `service:${serviceId}` });
   return id;
+}
+
+export const NO_UPLOAD = "This app is deployed from the CLI and has no uploaded files yet: run serve deploy in the project folder.";
+
+/**
+ * For an app deployed from the CLI: its newest upload deployment whose files are still kept, or
+ * "none" when there is none. Null for other services (they build from their source).
+ */
+export async function lastUploadOf(serviceId: string) {
+  const [service] = await db.select({ source: schema.service.source }).from(schema.service).where(eq(schema.service.id, serviceId));
+  if (service?.source?.type !== "upload") return null;
+  const { uploadExists } = await import("@/server/deploy/uploads");
+  const rows = await db
+    .select({ upload: schema.deployment.upload, commitSha: schema.deployment.commitSha, commitMessage: schema.deployment.commitMessage, branch: schema.deployment.branch })
+    .from(schema.deployment)
+    .where(and(eq(schema.deployment.serviceId, serviceId), isNotNull(schema.deployment.upload)))
+    .orderBy(desc(schema.deployment.createdAt))
+    .limit(10);
+  for (const r of rows) if (r.upload && (await uploadExists(r.upload.archive))) return { ...r, upload: r.upload };
+  return "none" as const;
+}
+
+/**
+ * Why a deploy started by someone would be refused right now (a freeze, a full queue), or null.
+ * Asked before a large upload is stored; queueDeployment checks again when it queues.
+ */
+export async function deployRefusal(serviceId: string, trigger: DeploymentTrigger, userId: string) {
+  const { deployGate } = await import("@/server/deploy-rules");
+  const gate = await deployGate(serviceId, trigger, userId);
+  if (gate.kind === "frozen") return gate.message;
+  if (gate.kind === "approve") return null;
+  return db.transaction((tx) => queueFull(tx, serviceId));
 }
 
 /**
@@ -129,7 +172,7 @@ export async function recordSkipped(
   serviceId: string,
   trigger: DeploymentTrigger,
   reason: string,
-  commit: { commitSha?: string | null; commitMessage?: string | null; branch?: string | null } = {},
+  commit: { commitSha?: string | null; commitMessage?: string | null; branch?: string | null; upload?: DeploymentUpload | null } = {},
 ) {
   const id = newId();
   await db.insert(schema.deployment).values({
@@ -142,6 +185,7 @@ export async function recordSkipped(
     commitSha: commit.commitSha ?? null,
     commitMessage: commit.commitMessage ?? null,
     branch: commit.branch ?? null,
+    upload: commit.upload ?? null,
     finishedAt: new Date(),
   });
   return id;

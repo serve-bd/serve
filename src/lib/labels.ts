@@ -7,6 +7,7 @@ export const triggerShort: Record<string, string> = {
   webhook: "Git push",
   "deploy-hook": "Deploy hook",
   api: "API",
+  cli: "CLI upload",
 };
 
 export const triggerText = (t: string) => triggerShort[t] ?? t;

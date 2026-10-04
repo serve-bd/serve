@@ -14,7 +14,8 @@ import { newId } from "@/server/id";
 import { CANCEL_CHANNEL, enqueue, JOB_CHANNEL } from "@/server/queue";
 import { logActivity } from "@/server/activity";
 import { projectInOrg, serviceInOrg } from "@/server/services/access";
-import { generatedHostname, newWebhookSecret, queueDeployment, serviceNameTaken, uniqueServiceName, uniqueServiceSlug } from "@/server/services/create";
+import { generatedHostname, lastUploadOf, NO_UPLOAD, newWebhookSecret, queueDeployment, serviceNameTaken, uniqueServiceName, uniqueServiceSlug } from "@/server/services/create";
+import { KEEP_UPLOADS, uploadExists } from "@/server/deploy/uploads";
 import { buildsImage, defaultBuild, defaultRuntime, type BuildConfig, type RuntimeConfig, type SourceConfig, hasHostAccess, usesOutsideResources } from "@/server/services/types";
 import { engines } from "@/server/databases/engines";
 import { resolveTemplate, templateVarValue } from "@/server/services/custom-templates";
@@ -38,7 +39,7 @@ import { SERVICE_NAME_RE, toServiceName } from "@/lib/service-name";
 import { CAPABILITIES, DROP_CAPABILITIES, SECURITY_OPT_RE } from "@/server/deploy/options";
 import { containerOptionsSchema } from "@/server/deploy/runtime-schema";
 import { volumeListSchema } from "@/server/services/volume-schema";
-import { dockerfileSourceSchema } from "@/server/services/source-schema";
+import { dockerfileSourceSchema, uploadSourceSchema } from "@/server/services/source-schema";
 import { getRegistry } from "@/server/registries";
 import { sameRegistryHost, splitImage } from "@/server/registries/browse";
 
@@ -181,6 +182,7 @@ const appSchema = z.object({
       registryPassword: z.string().optional().nullable(),
     }),
     dockerfileSourceSchema,
+    uploadSourceSchema,
   ]),
   build: z
     .object({
@@ -221,17 +223,19 @@ export async function createAppService(input: z.input<typeof appSchema>) {
         ? { type: "git", repository: normalizeRepoUrl(data.source.repository), branch: data.source.branch, credentialId: data.source.credentialId ?? null }
         : data.source.type === "dockerfile"
           ? { type: "dockerfile", content: data.source.content }
-          : {
-              type: "image",
-              image: data.source.image,
-              ...(data.source.registryId
-                ? { registryId: data.source.registryId, registryUsername: null, registryPassword: null }
-                : {
-                    registryId: null,
-                    registryUsername: data.source.registryUsername || null,
-                    registryPassword: data.source.registryPassword ? encrypt(data.source.registryPassword) : null,
-                  }),
-            };
+          : data.source.type === "upload"
+            ? { type: "upload" }
+            : {
+                type: "image",
+                image: data.source.image,
+                ...(data.source.registryId
+                  ? { registryId: data.source.registryId, registryUsername: null, registryPassword: null }
+                  : {
+                      registryId: null,
+                      registryUsername: data.source.registryUsername || null,
+                      registryPassword: data.source.registryPassword ? encrypt(data.source.registryPassword) : null,
+                    }),
+              };
 
     const id = newId();
     data.name = await uniqueServiceName(data.environmentId, data.name);
@@ -246,7 +250,7 @@ export async function createAppService(input: z.input<typeof appSchema>) {
       type: "app",
       source,
       build:
-        data.source.type === "git"
+        data.source.type === "git" || data.source.type === "upload"
           ? { ...defaultBuild(), ...(data.build as Partial<BuildConfig>) }
           : data.source.type === "dockerfile"
             ? { ...defaultBuild(), builder: "dockerfile" }
@@ -544,6 +548,7 @@ const updateSchema = z.object({
         registryPassword: z.string().nullable().optional(),
       }),
       dockerfileSourceSchema,
+      uploadSourceSchema,
     ])
     .optional(),
   build: z
@@ -780,6 +785,10 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         if (service.type !== "app") throw new UserError("Only apps can be built from a Dockerfile.");
         patch.source = { type: "dockerfile", content: data.source.content };
         if (!service.build) patch.build = { ...defaultBuild(), builder: "dockerfile" };
+      } else if (data.source.type === "upload") {
+        if (service.type !== "app") throw new UserError("Only apps can be deployed from the CLI.");
+        patch.source = { type: "upload" };
+        if (!service.build) patch.build = defaultBuild();
       } else {
         const prev = service.source?.type === "image" ? service.source : null;
         // Left out: keeps the registry it had (older clients do not send the field).
@@ -1082,6 +1091,7 @@ export async function deployService(serviceId: string) {
     const ctx = await requirePermission("services.deploy");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.type === "app" && !service.source) throw new UserError("Connect a source before deploying.");
+    if ((await lastUploadOf(serviceId)) === "none") throw new UserError(NO_UPLOAD);
     const id = await queueDeployment(serviceId, "manual", { userId: ctx.user.id });
     return { id };
   });
@@ -1108,7 +1118,14 @@ export async function redeployDeployment(deploymentId: string) {
     const [dep] = await db.select().from(schema.deployment).where(eq(schema.deployment.id, deploymentId));
     if (!dep) throw new UserError("Deployment not found.");
     await serviceInOrg(dep.serviceId, ctx.org.id);
-    const id = await queueDeployment(dep.serviceId, "redeploy", { userId: ctx.user.id });
+    // Uploaded files are built again as they were, with the commit they were sent with.
+    if (dep.upload && !(await uploadExists(dep.upload.archive)))
+      throw new UserError(`The files of this upload were deleted (Serve keeps those of the last ${KEEP_UPLOADS} uploads). Run serve deploy again.`);
+    const id = await queueDeployment(
+      dep.serviceId,
+      "redeploy",
+      dep.upload ? { userId: ctx.user.id, upload: dep.upload, commitSha: dep.commitSha, commitMessage: dep.commitMessage, branch: dep.branch } : { userId: ctx.user.id },
+    );
     return { id };
   });
 }

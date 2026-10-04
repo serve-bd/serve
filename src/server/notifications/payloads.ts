@@ -67,6 +67,7 @@ const triggers: Record<string, string> = {
   create: "New service",
   "deploy-hook": "Deploy hook",
   api: "API",
+  cli: "CLI upload",
 };
 function duration(seconds: number) {
   if (seconds < 60) return `${Math.round(seconds)}s`;

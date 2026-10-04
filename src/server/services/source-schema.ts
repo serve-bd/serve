@@ -11,3 +11,6 @@ export const dockerfileSourceSchema = z.object({
     .refine((v) => Buffer.byteLength(v, "utf8") <= DOCKERFILE_MAX_BYTES, "The Dockerfile is limited to 64 KB.")
     .refine((v) => !v.trim() || dockerfileBase(v) !== null, "A Dockerfile starts from an image: add a FROM line."),
 });
+
+/** An app deployed from the CLI: no settings, the files come with each deploy. */
+export const uploadSourceSchema = z.object({ type: z.literal("upload") });

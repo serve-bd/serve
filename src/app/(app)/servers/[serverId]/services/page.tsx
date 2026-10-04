@@ -63,7 +63,7 @@ export default async function ServerServicesPage(props: PageProps<"/servers/[ser
                 type={s.type}
                 engine={s.engine}
                 icon={s.icon}
-                source={s.sourceType === "git" || s.sourceType === "image" || s.sourceType === "dockerfile" ? s.sourceType : null}
+                source={s.sourceType === "git" || s.sourceType === "image" || s.sourceType === "dockerfile" || s.sourceType === "upload" ? s.sourceType : null}
                 size="sm"
               />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">

@@ -24,6 +24,10 @@ import { logActivity } from "@/server/activity";
 import { notify, orgOfService } from "@/server/notify";
 import { buildImage } from "./builders";
 import { cloneRepository, staleEntries } from "./git";
+import { extractArchive } from "./upload-archive";
+import { hasRoom, KEEP_UPLOADS, uploadExists, uploadPath } from "./uploads";
+import { NO_UPLOAD } from "@/server/services/create";
+import { formatBytes } from "@/lib/utils";
 import { DeployLogger, type StepLog } from "./logger";
 import { distributionProblem, normalizeDistribution, type Distribution } from "./distribution";
 import { getRegistry, pushImage, registryAuth, type RegistryRow } from "@/server/registries";
@@ -156,6 +160,9 @@ async function prepareAppImage(
 
   const source = service.source;
   if (!source) throw new Error("This service has no source configured.");
+  // Files uploaded from the CLI: built instead of the repository or the saved Dockerfile.
+  const upload = dep.upload;
+  if (source.type === "upload" && !upload) throw new Error(NO_UPLOAD);
 
   const platform = service.runtime.platform ?? null;
   const foreign = await foreignPlatform(platform, server, log.line);
@@ -205,7 +212,28 @@ async function prepareAppImage(
   const origin: Record<string, string> = {};
   let commit: string | null = null;
   try {
-    if (source.type === "git") {
+    if (upload) {
+      log.step("Unpacking the uploaded files");
+      if (source.type !== "upload")
+        log.line(`A one-off deploy of files uploaded from the CLI, ${source.type === "git" ? "instead of the repository" : "built with the saved Dockerfile"}.`);
+      if (build.noCache) log.line("Building without cache");
+      if (!(await uploadExists(upload.archive)))
+        throw new Error(`The uploaded files were deleted (Serve keeps those of the last ${KEEP_UPLOADS} uploads). Run serve deploy again.`);
+      await fs.rm(workDir, { recursive: true, force: true });
+      await fs.mkdir(workDir, { recursive: true });
+      const unpacked = await extractArchive(uploadPath(upload.archive), workDir, async () => {
+        if (!(await hasRoom(workDir, 0))) throw new Error("The server's disk ran out of room while unpacking the upload.");
+      });
+      log.line(
+        `${unpacked.files} ${unpacked.files === 1 ? "file" : "files"}, ${formatBytes(unpacked.bytes)} unpacked${upload.dirty ? ", with changes that were not committed" : ""}`,
+      );
+      // A Dockerfile source keeps building its saved Dockerfile, now with the uploaded files around it.
+      if (source.type === "dockerfile") await fs.writeFile(path.join(workDir, "Dockerfile"), source.content);
+      if (dep.commitSha) origin["org.opencontainers.image.revision"] = dep.commitSha;
+      if (dep.branch) origin[LABEL.branch] = dep.branch;
+      // A clean commit is passed to the build as SOURCE_COMMIT; files with local changes are no commit.
+      commit = dep.commitSha && !upload.dirty ? dep.commitSha : null;
+    } else if (source.type === "git") {
       log.step("Cloning repository");
       if (build.noCache) log.line("Building without cache");
       const clone = await cloneRepository(source, workDir, log.line, buildSignal, await orgIdOf(service), { submodules: build.submodules });
@@ -231,7 +259,7 @@ async function prepareAppImage(
           return { image: target, detectedPort: await imagePort(target, d), registryImage: null, rollback: false };
         }
       }
-    } else {
+    } else if (source.type === "dockerfile") {
       log.step("Preparing the Dockerfile");
       if (build.noCache) log.line("Building without cache");
       // A fresh directory holding only the Dockerfile: there are no local files to COPY.

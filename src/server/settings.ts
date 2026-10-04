@@ -36,6 +36,8 @@ export type Settings = {
   defaultOrgLimits: OrgLimits;
   /** Last time the worker reported in (ISO timestamp). */
   workerHeartbeat: string | null;
+  /** The API token in <dataDir>/cli.json (the CLI on the Serve host); only this token is ever rotated. */
+  serverCliTokenId: string | null;
   /** Cloudflare Tunnel (on the local server) that serves the dashboard domain; HTTPS by Cloudflare. */
   dashboardTunnelId: string | null;
   /** The dashboard domain is meant to use a tunnel; kept when the tunnel goes away so it can be reconnected. */
@@ -175,6 +177,7 @@ export const defaultSettings: Settings = {
   domainVerification: true,
   defaultOrgLimits: {},
   workerHeartbeat: null,
+  serverCliTokenId: null,
   workerSchemaVersion: null,
   workerVersion: null,
   dashboardTunnelId: null,

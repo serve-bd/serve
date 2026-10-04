@@ -115,11 +115,13 @@ export async function environmentServices(environmentId: string): Promise<Servic
             ? s.source.image
             : s.source?.type === "dockerfile"
               ? "Dockerfile"
-              : s.compose?.template
-                ? `Template · ${s.compose.template}`
-                : s.type === "compose"
-                  ? "Docker Compose"
-                  : null,
+              : s.source?.type === "upload"
+                ? "CLI upload"
+                : s.compose?.template
+                  ? `Template · ${s.compose.template}`
+                  : s.type === "compose"
+                    ? "Docker Compose"
+                    : null,
       domain: primary?.hostname ?? null,
       domainHttps: primary?.https ?? false,
       lastDeploy: dep ? { id: dep.id, status: dep.status, commitMessage: dep.commitMessage, createdAt: dep.createdAt } : null,

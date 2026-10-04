@@ -16,10 +16,11 @@ const PUBLIC = [
   "/api/branding",
   "/api/servers/join",
   "/api/agent",
+  "/api/cli/login",
 ];
 
 /** Routes that go by a token or a signature, never the session cookie (better-auth checks its own origins). */
-const NOT_SESSION = ["/api/v1", "/api/webhooks", "/api/deploy-hooks", "/api/servers/join", "/api/agent", "/api/auth", "/api/github"];
+const NOT_SESSION = ["/api/v1", "/api/webhooks", "/api/deploy-hooks", "/api/servers/join", "/api/agent", "/api/auth", "/api/github", "/api/cli/login"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -30,13 +31,14 @@ export function proxy(request: NextRequest) {
   if (!getSessionCookie(request)) {
     if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const url = new URL("/login", request.url);
-    if (pathname !== "/") url.searchParams.set("next", pathname);
+    // The query comes along: /cli/login?code=… must still have its code after signing in.
+    if (pathname !== "/") url.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(url);
   }
   return NextResponse.next();
 }
 
 export const config = {
-  // Backup uploads skip the proxy: it would buffer (and cut off) large bodies. The route checks the session itself.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/services/[^/]+/backups/import|.*\\.(?:svg|png|jpg|ico|webp)$).*)"],
+  // Backup and CLI uploads skip the proxy: it would buffer (and cut off) large bodies. The routes check the session or token themselves.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/services/[^/]+/backups/import|api/v1/services/[^/]+/deploy/upload|.*\\.(?:svg|png|jpg|ico|webp)$).*)"],
 };

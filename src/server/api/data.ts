@@ -136,6 +136,8 @@ export function deploymentView(d: Deployment, opts: { logTail?: boolean } = {}) 
     commitAuthor: d.commitAuthor,
     branch: d.branch,
     rollbackOf: d.rollbackOf,
+    /** Files uploaded from the CLI that the deployment builds (trigger "cli", or a redeploy of one). */
+    upload: d.upload ? { size: d.upload.size, files: d.upload.files, dirty: d.upload.dirty } : null,
     targets: d.targets,
     error: d.error,
     createdBy: d.createdBy,

@@ -113,15 +113,17 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
             ? { kind: "image" as const, image: service.source.image }
             : service.source?.type === "dockerfile"
               ? { kind: "dockerfile" as const, base: dockerfileBase(service.source.content) }
-              : service.compose
-                ? {
-                    kind: "compose" as const,
-                    template: template?.name ?? null,
-                    mode: service.compose.mode,
-                    path: service.compose.path,
-                    services: composeServiceNames(service.compose.content),
-                  }
-                : null,
+              : service.source?.type === "upload"
+                ? { kind: "upload" as const }
+                : service.compose
+                  ? {
+                      kind: "compose" as const,
+                      template: template?.name ?? null,
+                      mode: service.compose.mode,
+                      path: service.compose.path,
+                      services: composeServiceNames(service.compose.content),
+                    }
+                  : null,
     },
     server: { id: server.id, name: server.name, isLocal: server.isLocal },
     environment: environment[0]?.name ?? "production",

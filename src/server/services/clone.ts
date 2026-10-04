@@ -72,6 +72,7 @@ export async function cloneService(source: Service, opts: CloneServiceOptions): 
     if (lost) notes.add(lost);
   } else if (source.runtime.volumes.some((v) => v.kind === "bind")) notes.add("Bind mounts still point at the same folders on the server.");
   if (source.source?.type === "git" && source.autoDeploy) notes.add("Deploy on push is off in the copy. Turn it on in Settings → Source.");
+  if (source.source?.type === "upload") notes.add("The copy has no uploaded files yet: run serve deploy for it.");
   const extra = source.type === "app" ? (source.distribution?.extraServerIds ?? []) : [];
   if (!sameServer && extra.length) notes.add("Extra servers stay with the original: the copy runs on its own server only.");
 

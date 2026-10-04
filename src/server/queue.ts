@@ -105,7 +105,7 @@ export async function enqueue<T extends JobType>(type: T, payload: JobPayloads[T
  * stacks (they may build some of their services). Rollbacks reuse an earlier image; image apps
  * only pull, and databases never build.
  */
-export const BUILDS_SQL = `(d.rollback_of IS NULL AND (s.type = 'compose' OR (s.type = 'app' AND s.source->>'type' IN ('git', 'dockerfile'))))`;
+export const BUILDS_SQL = `(d.rollback_of IS NULL AND (s.type = 'compose' OR (s.type = 'app' AND s.source->>'type' IN ('git', 'dockerfile', 'upload'))))`;
 const BUILDS = dsql.raw(BUILDS_SQL);
 
 /** Claim the next runnable job, respecting per-key concurrency. */

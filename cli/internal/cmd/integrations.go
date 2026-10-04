@@ -1022,5 +1022,6 @@ printed: delete it with serve cloudflare dns rm <zone> <id>.`,
 	}
 	purge.Flags().StringVar(&account, "account", "", "the Cloudflare account (`name` or id) when several have the zone")
 	cmd.AddCommand(zones, dns, purge)
+	cmd.AddCommand(a.cloudflareTunnelsCmd())
 	return cmd
 }

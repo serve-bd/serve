@@ -48,15 +48,19 @@ const MAX_PER_USER = 8;
 const store = globalThis as unknown as { __serveTerminals?: Map<string, Session> };
 const sessions = (store.__serveTerminals ??= new Map());
 
-/** Start bash when the image has it, else sh. Database images get their client defaults. */
-const SHELL = [
+/** Database images get their client defaults (psql, mysql log in without asking). */
+const CLIENT_DEFAULTS = [
   'if [ -n "$POSTGRES_USER" ]; then export PGUSER="$POSTGRES_USER" PGDATABASE="${POSTGRES_DB:-$POSTGRES_USER}"; fi',
   'if [ -n "$POSTGRES_PASSWORD" ]; then export PGPASSWORD="$POSTGRES_PASSWORD"; fi',
   'if [ -n "$MYSQL_ROOT_PASSWORD" ]; then export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; fi',
   'if [ -n "$MARIADB_ROOT_PASSWORD" ]; then export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"; fi',
-  "cd ~ 2>/dev/null || true",
-  "if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi",
-].join("; ");
+];
+
+/** Start bash when the image has it, else sh. */
+const SHELL = [...CLIENT_DEFAULTS, "cd ~ 2>/dev/null || true", "if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi"].join("; ");
+
+/** One command with a TTY in a container, with the same client defaults as the shell. */
+export const containerCommand = (command: string) => ["sh", "-c", [...CLIENT_DEFAULTS, command].join("; ")];
 
 function scheduleIdle(session: Session) {
   if (session.idleTimer) clearTimeout(session.idleTimer);

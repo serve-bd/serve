@@ -189,14 +189,14 @@ export const consoleRoutes: ApiRoute[] = [
     tag: "Console",
     summary: "Open a shell in a container",
     description:
-      "An interactive shell with a TTY (bash when the image has it, else sh; a helper container for images without a shell). Read its output from GET .../terminal/{id} and type with POST .../terminal/{id}.",
+      "An interactive shell with a TTY (bash when the image has it, else sh; a helper container for images without a shell). With command, that command runs with a TTY instead (with sh, and the database client defaults the shell has), and the session ends with it. Read its output from GET .../terminal/{id} and type with POST .../terminal/{id}.",
     needs: ["console.access"],
     status: 201,
-    body: z.object({ ...pick, ...size }),
+    body: z.object({ command: z.string().trim().min(1).max(4000).optional(), ...pick, ...size }),
     handler: async ({ auth, params, body }) => {
       const service = await consoleService(auth, params.serviceId);
       const target = await container(service, body);
-      const { openSession } = await import("@/server/services/terminal");
+      const { openSession, containerCommand } = await import("@/server/services/terminal");
       let session: Awaited<ReturnType<typeof openSession>>;
       try {
         session = await openSession({
@@ -207,6 +207,7 @@ export const consoleRoutes: ApiRoute[] = [
           cols: body.cols,
           rows: body.rows,
           docker: target.docker,
+          ...(body.command ? { cmd: containerCommand(body.command) } : {}),
         });
       } catch (e) {
         throw new ApiError(502, `Could not start a shell: ${(e as Error).message}`);
@@ -218,7 +219,7 @@ export const consoleRoutes: ApiRoute[] = [
         action: "service.terminal",
         targetType: "service",
         targetId: service.id,
-        message: `Opened a terminal in ${service.name}`,
+        message: body.command ? `Ran \`${body.command.slice(0, 80)}\` in ${service.name}` : `Opened a terminal in ${service.name}`,
       });
       return { id: session.id, container: target.name };
     },

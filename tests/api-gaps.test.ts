@@ -109,6 +109,7 @@ vi.mock("@/server/services/exec", () => ({
 const sessions = vi.hoisted(() => new Map<string, { id: string; userId: string; scope: string; input: string[] }>());
 vi.mock("@/server/services/terminal", () => ({
   hostScope: (id: string) => `host:${id}`,
+  containerCommand: (command: string) => ["sh", "-c", command],
   openSession: async (o: { userId: string; scope: string }) => {
     const s = { id: `t${sessions.size + 1}`, userId: o.userId, scope: o.scope, input: [] };
     sessions.set(s.id, s);

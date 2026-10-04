@@ -199,6 +199,11 @@ export async function updateServer(id: string, input: Partial<z.input<typeof ser
         const [org] = await db.select({ id: schema.organization.id }).from(schema.organization).where(eq(schema.organization.id, data.ownerOrganizationId));
         if (!org) throw new UserError("Organization not found.");
         // The new owner gets root on the machine: nothing of another organization may stay on it.
+        // An organization's server is reached at its public address, never through the instance's tailnet.
+        if (before.tailscale)
+          throw new UserError(
+            "This server is in the instance's tailnet. Stop using Tailscale for it first (on its page); an organization's server is reached at its public address.",
+          );
         const foreign = await foreignWorkOn(id, data.ownerOrganizationId);
         if (foreign.length) throw new UserError(`Move these off the server first; they belong to other organizations: ${foreign.join(", ")}.`);
         if (!before.tunnel) await assertPublicHost(data.host ?? before.host);
@@ -410,7 +415,8 @@ export async function resetHostKey(id: string) {
   });
 }
 
-export async function deleteServer(id: string) {
+/** `removeTailnetDevice`: also take the machine out of the tailnet it joined through Serve. */
+export async function deleteServer(id: string, opts: { removeTailnetDevice?: boolean } = {}) {
   return act(async () => {
     const { ctx, row } = await requireServerAdmin(id);
     if (row.isLocal) throw new UserError("The server the dashboard runs on cannot be removed.");
@@ -433,6 +439,21 @@ export async function deleteServer(id: string) {
     if (row.agent) {
       const { removeMetricsAgent } = await import("@/server/metrics-agent");
       await Promise.race([getServer(id).then(removeMetricsAgent), new Promise((r) => setTimeout(r, 30_000))]).catch(() => {});
+    }
+    if (row.tailscale) {
+      const { clientFor, getTailnet } = await import("@/server/tailscale");
+      const tailnet = await getTailnet(row.tailscale.tailnetId);
+      const client = tailnet ? clientFor(tailnet) : null;
+      // Checked first: a device that could not be removed keeps the server, so nothing is half done.
+      if (opts.removeTailnetDevice && row.tailscale.deviceId) {
+        if (!client)
+          throw new UserError("The tailnet is no longer connected, so Serve cannot remove the device. Remove it in the Tailscale admin console, or remove the server without it.");
+        await client.deleteDevice(row.tailscale.deviceId).catch((error: Error) => {
+          throw new UserError(`${error.message} Remove the server without removing the device, then remove it in the Tailscale admin console.`);
+        });
+      }
+      // An auth key made for a join that never finished must not stay valid.
+      if (client && row.tailscale.authKeyId) await client.deleteKey(row.tailscale.authKeyId).catch(() => {});
     }
     // Its tunnels go too: the connector stops there and the tunnel is deleted on Cloudflare.
     const tunnels = await db.select({ id: schema.cloudflareTunnel.id }).from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.serverId, id));

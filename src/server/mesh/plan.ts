@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { MESH_MTU, MESH_ROUTES, meshEndpoint, meshServerAddress, meshServerRange } from "@/lib/mesh";
+import { MESH_MTU, MESH_ROUTES, MESH_TAILNET_MTU, meshEndpoint, meshServerAddress, meshServerRange } from "@/lib/mesh";
 import { networkAliases } from "@/lib/hostname";
 import { composeAlias } from "@/server/proxy/names";
 
@@ -15,10 +15,12 @@ export type PlanServer = {
   publicKey: string;
   /** Private networks the server is in: it only talks to servers sharing one. */
   networks: string[];
+  /** Its Tailscale address while it uses a tailnet: two servers without a public address meet there. */
+  tailnet?: string | null;
 };
 
-/** Joined servers: the private networks each is in, and whether it has no public address. */
-export type MeshMembers = Map<string, { networks: string[]; nat: boolean }>;
+/** Joined servers: the private networks each is in, whether it has no public address, and its Tailscale address. */
+export type MeshMembers = Map<string, { networks: string[]; nat: boolean; tailnet?: string | null }>;
 
 /**
  * Two servers reach each other's private names: the same server, or both joined, sharing a
@@ -28,7 +30,7 @@ export function privatelyConnected(members: MeshMembers, a: string, b: string) {
   if (a === b) return true;
   const ma = members.get(a);
   const mb = members.get(b);
-  return !!ma && !!mb && !(ma.nat && mb.nat) && ma.networks.some((n) => mb.networks.includes(n));
+  return !!ma && !!mb && !(ma.nat && mb.nat && !(ma.tailnet && mb.tailnet)) && ma.networks.some((n) => mb.networks.includes(n));
 }
 
 /**
@@ -42,11 +44,26 @@ export function reachesPrivately(members: MeshMembers, from: string[], provider:
 
 /**
  * Two servers of the mesh that share a private network and can connect: at least one of them has
- * a public address (two behind NAT never reach each other, see privatelyConnected).
+ * a public address, or both are in a tailnet (two behind NAT otherwise never reach each other, see
+ * privatelyConnected).
  */
-export function linked(a: Pick<PlanServer, "id" | "networks" | "endpoint">, b: Pick<PlanServer, "id" | "networks" | "endpoint">) {
-  return a.id !== b.id && (!!a.endpoint || !!b.endpoint) && a.networks.some((n) => b.networks.includes(n));
+export function linked(a: Pick<PlanServer, "id" | "networks" | "endpoint" | "tailnet">, b: Pick<PlanServer, "id" | "networks" | "endpoint" | "tailnet">) {
+  return a.id !== b.id && (!!a.endpoint || !!b.endpoint || (!!a.tailnet && !!b.tailnet)) && a.networks.some((n) => b.networks.includes(n));
 }
+
+/**
+ * Where `self` sends WireGuard to `peer`: the peer's public address, or its Tailscale address when
+ * neither of them has a public one and both are in a tailnet. Null: the peer connects in.
+ */
+export function peerEndpoint(self: Pick<PlanServer, "endpoint" | "tailnet">, peer: Pick<PlanServer, "endpoint" | "tailnet">): string | null {
+  if (peer.endpoint) return peer.endpoint;
+  if (!self.endpoint && self.tailnet && peer.tailnet) return peer.tailnet;
+  return null;
+}
+
+/** Whether `self` talks to `peer` through the tailnet (WireGuard inside Tailscale needs a smaller MTU). */
+export const throughTailnet = (self: Pick<PlanServer, "endpoint" | "tailnet">, peer: Pick<PlanServer, "endpoint" | "tailnet">) =>
+  !self.endpoint && !peer.endpoint && !!self.tailnet && !!peer.tailnet;
 
 export type PlanService = {
   id: string;
@@ -214,14 +231,15 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
     privateKey: self.privateKey,
     listenPort: self.port,
     address: meshServerAddress(self.index),
-    mtu: MESH_MTU,
+    // Packets to a peer through the tailnet are wrapped twice: they must fit Tailscale's own MTU.
+    mtu: peers.some((s) => throughTailnet(self, s)) ? MESH_TAILNET_MTU : MESH_MTU,
     routes: MESH_ROUTES,
     peers: peers
       .sort((a, b) => a.index - b.index)
       .map((s) => ({
         serverId: s.id,
         publicKey: s.publicKey,
-        endpoint: s.endpoint ? meshEndpoint(s.endpoint, s.port) : null,
+        endpoint: ((e) => (e ? meshEndpoint(e, s.port) : null))(peerEndpoint(self, s)),
         allowedIps: [meshServerRange(s.index), ...routed(s.id)],
       })),
     localAddresses: [...exposures.map((e) => e.ip), ...sources.map((s) => s.ip)].sort(),

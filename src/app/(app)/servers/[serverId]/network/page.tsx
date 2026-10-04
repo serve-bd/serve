@@ -17,7 +17,7 @@ export default async function ServerNetworkPage(props: PageProps<"/servers/[serv
     .where(or(isNull(schema.server.mesh), sql`not coalesce((${schema.server.mesh}->>'enabled')::boolean, false)`));
   const [{ services }] = await db.select({ services: count() }).from(schema.service).where(eq(schema.service.serverId, serverId));
   const loopback = /^(localhost|127\.|::1$)/i.test(row.host);
-  const suggested = row.mesh?.endpoint ?? row.publicIp ?? (row.isLocal || loopback || row.tunnel ? "" : row.host);
+  const suggested = row.mesh?.endpoint ?? row.publicIp ?? (row.isLocal || loopback || row.tunnel || row.tailscale?.only ? "" : row.host);
   return (
     <MeshView
       serverId={serverId}
@@ -25,7 +25,7 @@ export default async function ServerNetworkPage(props: PageProps<"/servers/[serv
       ready={row.isLocal || row.status === "ready"}
       initial={overview}
       suggestedEndpoint={suggested}
-      behindNat={!!row.tunnel && !row.mesh?.endpoint}
+      behindNat={(!!row.tunnel || !!row.tailscale?.only) && !row.mesh?.endpoint}
       outside={Math.max(0, outside - (overview.enabled ? 0 : 1))}
       services={services}
     />

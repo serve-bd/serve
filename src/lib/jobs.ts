@@ -33,6 +33,7 @@ export const SCHEDULER_LABELS: Record<string, string> = {
   "os-updates": "Operating system update checks",
   "cli-logins": "CLI sign-in cleanup",
   "cloudflare-oauth": "Cloudflare sign-in renewal",
+  tailscale: "Tailscale device status",
 };
 
 export const JOB_LABELS: Record<string, string> = {

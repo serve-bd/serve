@@ -26,6 +26,7 @@ import {
   LogOut,
   Menu as MenuIcon,
   Moon,
+  Network,
   Search,
   Server,
   Settings,
@@ -89,6 +90,8 @@ const integrationNav: NavItem[] = [
   { href: "/integrations/secrets", label: "Secret managers", icon: Vault },
   { href: "/integrations/notifications", label: "Notifications", icon: Bell },
   { href: "/integrations/log-drains", label: "Log drains", icon: ScrollText },
+  // Servers are the instance's: their tailnet is managed by Root admins only.
+  { href: "/integrations/tailscale", label: "Tailscale", icon: Network },
 ];
 
 const orgNav: NavItem[] = [
@@ -170,9 +173,11 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
 
         {props.access.permissions.includes("integrations.manage") && (
           <NavGroup title="Integrations">
-            {integrationNav.map((item) => (
-              <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
-            ))}
+            {integrationNav
+              .filter((item) => item.href !== "/integrations/tailscale" || props.isInstanceAdmin)
+              .map((item) => (
+                <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+              ))}
           </NavGroup>
         )}
 

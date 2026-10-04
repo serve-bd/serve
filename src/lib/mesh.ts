@@ -10,6 +10,8 @@ export const MESH_ROUTES = ["10.240.0.0/15"];
 export const MESH_DEFAULT_PORT = 51820;
 export const MESH_MAX_SERVERS = 254;
 export const MESH_MTU = 1420;
+/** WireGuard inside Tailscale (MTU 1280, minus 60 bytes of WireGuard over IPv4, with room to spare). */
+export const MESH_TAILNET_MTU = 1200;
 
 export const meshServerAddress = (index: number) => `10.241.${index}.1`;
 export const meshServerRange = (index: number) => `10.241.${index}.0/24`;

@@ -21,7 +21,7 @@ const PACKAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._+:@-]{0,127}$/;
 const sh = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
 
 /** Runs a shell script as root on the server's host. */
-async function hostRun(server: ServerCtx, script: string, opts: { onLine?: (line: string) => void; timeoutMs: number }) {
+export async function hostRun(server: ServerCtx, script: string, opts: { onLine?: (line: string) => void; timeoutMs: number }) {
   if (!server.local) {
     const asRoot = server.ssh?.username === "root" ? script : `sudo -n sh -c ${sh(script)}`;
     return server.exec(asRoot, { onLine: opts.onLine, timeoutMs: opts.timeoutMs });

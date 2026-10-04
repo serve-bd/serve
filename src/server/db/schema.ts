@@ -264,6 +264,38 @@ export type ServerTunnel = {
   remote: string | null;
 };
 
+/**
+ * A server in a Tailscale tailnet (Integrations → Tailscale). While it uses the tailnet, Serve
+ * reaches its SSH at the Tailscale address instead of its host or its tunnel.
+ */
+export type ServerTailscale = {
+  /** The connected tailnet; null once that integration was removed. */
+  tailnetId: string | null;
+  /** Host name it gets in the tailnet (serve-<name>, with a number when that one is taken). */
+  hostname: string;
+  /** Added through Tailscale: it has no other address Serve could fall back to. */
+  only: boolean;
+  /** sha256 of the one-time join token, and when it stops working (until it joined). */
+  tokenHash: string | null;
+  tokenExpiresAt: string | null;
+  /** The auth key last made for it (its id only); removed once the server joined. */
+  authKeyId: string | null;
+  /** Its device in the tailnet, once it joined. */
+  deviceId: string | null;
+  nodeKey: string | null;
+  /** Its Tailscale IPv4 address (100.x.y.z): where Serve connects. */
+  address: string | null;
+  /** MagicDNS name, like serve-web.tail1234.ts.net. */
+  dnsName: string | null;
+  joinedAt: string | null;
+  /** The device as the Tailscale API last showed it. */
+  online: boolean | null;
+  lastSeen: string | null;
+  checkedAt: string | null;
+  /** Why the last look failed (the device was removed, the API refused). */
+  error: string | null;
+};
+
 /** A server's membership in the private network (WireGuard between servers). */
 export type ServerMesh = {
   enabled: boolean;
@@ -426,6 +458,8 @@ export const server = pgTable("server", {
   mesh: jsonb("mesh").$type<ServerMesh>(),
   /** Set for servers without a public address that connect out (see ServerTunnel). */
   tunnel: jsonb("tunnel").$type<ServerTunnel>(),
+  /** Set for servers in a Tailscale tailnet (see ServerTailscale). */
+  tailscale: jsonb("tailscale").$type<ServerTailscale>(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -892,6 +926,34 @@ export const cloudflareAccount = pgTable("cloudflare_account", {
     .references(() => cloudflareCredential.id, { onDelete: "cascade" }),
   cfAccountId: text("cf_account_id"),
   email: text("email"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/**
+ * A Tailscale tailnet Serve may add servers to. Instance-wide like the servers it holds, so only
+ * Root admins manage it. Signs in with an OAuth client (preferred, it does not expire) or an API key.
+ */
+export const tailscaleTailnet = pgTable("tailscale_tailnet", {
+  id: id(),
+  name: text("name").notNull(),
+  /** The tailnet as the API names it: "-" for the default tailnet of the credentials. */
+  tailnet: text("tailnet").notNull(),
+  authType: text("auth_type").$type<"oauth" | "apikey">().notNull(),
+  /** OAuth client id (not secret). */
+  clientId: text("client_id"),
+  /** Encrypted OAuth client secret, or the API access key. */
+  secret: text("secret").notNull(),
+  /** Encrypted OAuth access token (one hour), renewed with the client when it runs out. */
+  accessToken: text("access_token"),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+  /** Tag every device Serve adds gets; its owner is set in the tailnet policy. */
+  tag: text("tag").notNull().default("tag:serve"),
+  /** MagicDNS suffix of the tailnet (tail1234.ts.net), learned from its devices. */
+  dnsSuffix: text("dns_suffix"),
+  /** Why the last call to the API failed; null when it worked. */
+  error: text("error"),
+  checkedAt: timestamp("checked_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

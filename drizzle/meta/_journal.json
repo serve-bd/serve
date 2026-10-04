@@ -512,6 +512,13 @@
       "when": 1791129306754,
       "tag": "0072_cloudflare_credentials_move",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1791131291894,
+      "tag": "0073_tailscale",
+      "breakpoints": true
     }
   ]
 }

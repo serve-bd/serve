@@ -21,6 +21,8 @@ export default async function ServersPage() {
       description: schema.server.description,
       host: schema.server.host,
       tunnel: sql<boolean>`${schema.server.tunnel} is not null`,
+      // Reached at this address while it uses a tailnet.
+      tailnetAddress: sql<string | null>`case when ${schema.server.tailscale}->>'tailnetId' is not null then ${schema.server.tailscale}->>'address' end`,
       port: schema.server.port,
       username: schema.server.username,
       isLocal: schema.server.isLocal,

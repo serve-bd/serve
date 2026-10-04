@@ -16,6 +16,8 @@ type Row = {
   host: string;
   /** No public IP: reached through its tunnel. */
   tunnel: boolean;
+  /** Its Tailscale address while Serve reaches it through a tailnet. */
+  tailnetAddress?: string | null;
   port: number;
   username: string;
   isLocal: boolean;
@@ -138,7 +140,15 @@ function ServerCard({ server: s }: { server: Row }) {
           </div>
           <span className="truncate font-mono text-[12px] text-muted">
             <HiddenIp
-              text={s.isLocal ? (s.publicIp ?? "Local Docker") : s.tunnel ? `${s.username}@${s.host} · via tunnel` : `${s.username}@${s.host}${s.port === 22 ? "" : `:${s.port}`}`}
+              text={
+                s.isLocal
+                  ? (s.publicIp ?? "Local Docker")
+                  : s.tailnetAddress
+                    ? `${s.username}@${s.tailnetAddress} · via Tailscale`
+                    : s.tunnel
+                      ? `${s.username}@${s.host} · via tunnel`
+                      : `${s.username}@${s.host}${s.port === 22 ? "" : `:${s.port}`}`
+              }
             />
           </span>
         </div>

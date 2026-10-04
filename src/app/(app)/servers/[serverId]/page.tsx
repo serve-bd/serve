@@ -9,6 +9,8 @@ import { ServerOverview } from "./general";
 import { ConnectionSettings, ValidationCard, type ServerDetails } from "./server-settings";
 import { loadServerView, withTimeout } from "./_lib/load";
 import { TunnelCard } from "./tunnel-card";
+import { TailscaleCard } from "./tailscale-card";
+import { tailnetChoices, tailscaleView } from "@/server/tailscale/view";
 
 export const metadata = { title: "Server" };
 
@@ -76,7 +78,8 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
     hostKey: row.hostKey,
     hostKeyFingerprint: row.hostKey ? fingerprint(row.hostKey) : null,
     tunnel: !!row.tunnel,
-    tunnelConnected: !!row.tunnel?.connectedAt,
+    // Through Tailscale it is reached without its tunnel.
+    tunnelConnected: !!row.tunnel?.connectedAt || !!(row.tailscale?.tailnetId && row.tailscale.address),
     dataDir: row.dataDir,
     status: row.status,
     statusMessage: row.statusMessage,
@@ -84,7 +87,11 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
     organizationIds: row.organizationIds,
     ownerOrganizationId: row.ownerOrganizationId,
     services,
+    tailscaleOnly: !!row.tailscale?.only,
   };
+  // The tailnet is the instance's: Root admins manage it, for the instance's servers.
+  const tailnets = ctx.isInstanceAdmin ? await tailnetChoices(row) : [];
+  const tailscale = ctx.isInstanceAdmin && (row.tailscale || tailnets.length) ? await tailscaleView(row) : null;
 
   return (
     <>
@@ -106,6 +113,9 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
         />
       ) : (
         <ConnectionSettings server={details} keys={keys} />
+      )}
+      {ctx.isInstanceAdmin && (row.tailscale || tailnets.length > 0) && (
+        <TailscaleCard server={{ id: row.id, name: row.name, isLocal: row.isLocal, ready: row.status === "ready", user: row.username }} view={tailscale} tailnets={tailnets} />
       )}
     </>
   );

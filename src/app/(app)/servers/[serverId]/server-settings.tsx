@@ -42,6 +42,10 @@ export type ServerDetails = {
   /** Organization that brought the server; null: the instance's. */
   ownerOrganizationId: string | null;
   services: number;
+  /** Added through Tailscale: reached only at its Tailscale address, so its host is not edited here. */
+  tailscaleOnly?: boolean;
+  /** Its device in the tailnet (MagicDNS name), when it joined one through Serve. */
+  tailnetDevice?: string | null;
 };
 
 export function ConnectionSettings({ server, keys }: { server: ServerDetails; keys: { id: string; name: string }[] }) {
@@ -102,9 +106,15 @@ export function ConnectionSettings({ server, keys }: { server: ServerDetails; ke
             </Field>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
-            <Field label="IP address or hostname">
-              <Input value={v.host} onChange={(e) => set("host")(e.target.value)} className="font-mono" spellCheck={false} />
-            </Field>
+            {server.tailscaleOnly ? (
+              <Field label="Name in the tailnet" description="Serve connects to its Tailscale address (see Tailscale below).">
+                <Input value={v.host} disabled className="font-mono" />
+              </Field>
+            ) : (
+              <Field label="IP address or hostname">
+                <Input value={v.host} onChange={(e) => set("host")(e.target.value)} className="font-mono" spellCheck={false} />
+              </Field>
+            )}
             <Field label="SSH port">
               <Input value={v.port} onChange={(e) => set("port")(e.target.value.replace(/\D/g, "").slice(0, 5))} inputMode="numeric" className="font-mono" />
             </Field>
@@ -415,7 +425,7 @@ export function AccessCard({
 export function DangerZone({ server }: { server: ServerDetails }) {
   const router = useRouter();
   const confirm = useConfirm();
-  const remove = useAction(() => deleteServer(server.id), { refresh: false, onSuccess: () => router.push("/servers") });
+  const remove = useAction((removeTailnetDevice: boolean) => deleteServer(server.id, { removeTailnetDevice }), { refresh: false, onSuccess: () => router.push("/servers") });
   return (
     <Card className="border-bad/25">
       <CardHeader title="Remove server" description={<>This server is forgotten. Containers already running there keep running until you stop them on the server.</>} />
@@ -431,9 +441,11 @@ export function DangerZone({ server }: { server: ServerDetails }) {
           disabled={server.services > 0}
           loading={remove.pending}
           onClick={async () => {
+            let removeDevice = false;
             if (
               await confirm({
                 title: `Remove ${server.name}?`,
+                children: server.tailnetDevice ? <RemoveDeviceChoice device={server.tailnetDevice} onChange={(v) => (removeDevice = v)} /> : undefined,
                 description: server.tunnel ? (
                   <span className="flex flex-col gap-2">
                     <span>This cannot be undone. The server&apos;s tunnel can no longer sign in; to remove it from the machine, run there:</span>
@@ -448,12 +460,32 @@ export function DangerZone({ server }: { server: ServerDetails }) {
                 danger: true,
               })
             )
-              void remove.run();
+              void remove.run(removeDevice);
           }}
         >
           <Trash2 /> Remove server
         </Button>
       </CardBody>
     </Card>
+  );
+}
+
+/** Whether removing the server also takes its device out of the tailnet; read when the dialog closes. */
+function RemoveDeviceChoice({ device, onChange }: { device: string; onChange: (v: boolean) => void }) {
+  const [on, setOn] = React.useState(false);
+  return (
+    <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-[13px] text-fg">
+      <Checkbox
+        className="mt-0.5"
+        checked={on}
+        onCheckedChange={(v) => {
+          setOn(!!v);
+          onChange(!!v);
+        }}
+      />
+      <span>
+        Also remove its device <span className="font-mono">{device}</span> from the tailnet
+      </span>
+    </label>
   );
 }

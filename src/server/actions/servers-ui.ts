@@ -18,12 +18,17 @@ export async function getServerProgress(serverId: string) {
         info: schema.server.info,
         hostKey: schema.server.hostKey,
         tunnel: schema.server.tunnel,
+        tailscale: schema.server.tailscale,
       })
       .from(schema.server)
       .where(eq(schema.server.id, serverId));
     if (!row) throw new UserError("Server not found.");
     // Only whether a server that connects out is connected; its keys and tokens stay here.
-    const { tunnel, ...rest } = row;
-    return { ...rest, tunnel: tunnel ? { connectedAt: tunnel.connectedAt, joined: !!tunnel.clientKey } : null };
+    const { tunnel, tailscale, ...rest } = row;
+    return {
+      ...rest,
+      tunnel: tunnel ? { connectedAt: tunnel.connectedAt, joined: !!tunnel.clientKey } : null,
+      tailscale: tailscale ? { joined: !!tailscale.joinedAt && !tailscale.tokenHash, address: tailscale.address } : null,
+    };
   });
 }

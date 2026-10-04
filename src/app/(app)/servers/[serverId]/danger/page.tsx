@@ -33,6 +33,8 @@ export default async function DangerPage(props: { params: Promise<{ serverId: st
     organizationIds: row.organizationIds,
     ownerOrganizationId: row.ownerOrganizationId,
     services,
+    tailscaleOnly: !!row.tailscale?.only,
+    tailnetDevice: row.tailscale?.deviceId ? (row.tailscale.dnsName ?? row.tailscale.hostname) : null,
   };
   return <DangerZone server={details} />;
 }

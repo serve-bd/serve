@@ -15,6 +15,7 @@ import { runServerIds } from "@/server/deploy/distribution";
 import type { DistributionConfig } from "@/server/services/types";
 import { localFs, remoteFs, type ServerFs } from "./fs";
 import { relayHost } from "@/server/tunnel";
+import { tailnetRoute } from "@/server/tailscale";
 import { publicAddress } from "@/server/net/public-host";
 import { closeConnection, dockerStream, sshExec, type SshExecResult, type SshTarget } from "./ssh";
 
@@ -122,10 +123,12 @@ export async function sshTargetFor(row: ServerRow, previous?: string): Promise<S
   if (!row.privateKeyId) throw new Error(`Server ${row.name} has no SSH key.`);
   const [key] = await db.select().from(schema.privateKey).where(eq(schema.privateKey.id, row.privateKeyId));
   if (!key) throw new Error(`The SSH key of ${row.name} was deleted.`);
-  // A server that connects out is reached through its relay on the worker, not at its own address.
+  // A server in the tailnet is reached at its Tailscale address; one that connects out through its
+  // relay on the worker, not at its own address.
   // An IPv6 address may be saved in brackets ([2001:db8::1]); sockets and ssh take it bare.
-  const via = row.tunnel ? { host: relayHost(), port: row.tunnel.relayPort } : { host: row.host.replace(/^\[|\]$/g, ""), port: row.port };
-  if (!row.tunnel && row.ownerOrganizationId) {
+  const tailnet = tailnetRoute(row);
+  const via = tailnet ?? (row.tunnel ? { host: relayHost(), port: row.tunnel.relayPort } : { host: row.host.replace(/^\[|\]$/g, ""), port: row.port });
+  if (!tailnet && !row.tunnel && row.ownerOrganizationId) {
     // An organization's server must be a public machine: Serve never connects into its own network for them.
     const address = await publicAddress(row.host, previous);
     if (!address) throw new Error(`${row.host} is a private address or does not resolve. Use a public address, or add the server as one that connects out.`);
@@ -186,6 +189,9 @@ function stamp(row: ServerRow) {
     row.host,
     row.port,
     row.tunnel?.relayPort ?? null,
+    // The Tailscale address wins while the server uses the tailnet.
+    row.tailscale?.tailnetId ?? null,
+    row.tailscale?.address ?? null,
     row.username,
     row.privateKeyId,
     row.hostKey,
@@ -210,7 +216,7 @@ export async function getServerRow(id: string) {
 export async function getServer(id: string | null | undefined = LOCAL_SERVER_ID): Promise<ServerCtx> {
   const row = await getServerRow(id || LOCAL_SERVER_ID);
   const cached = cache.get(row.id);
-  const pinned = !!row.ownerOrganizationId && !row.tunnel && !net.isIP(row.host.replace(/^\[|\]$/g, ""));
+  const pinned = !!row.ownerOrganizationId && !row.tunnel && !row.tailscale?.address && !net.isIP(row.host.replace(/^\[|\]$/g, ""));
   const fresh = cached && cached.stamp === stamp(row);
   if (fresh && !(pinned && Date.now() - cached.at > PINNED_TTL)) return cached.ctx;
   const previous = fresh ? await cached.ctx.then((c: ServerCtx) => c.ssh?.host).catch(() => undefined) : undefined;

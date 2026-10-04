@@ -4,7 +4,7 @@ import { showError } from "@/hooks/use-action";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { ArrowLeft, ArrowRight, Cable, Check, CheckCircle2, Download, Globe, KeyRound, Loader2, Plus, RotateCw, Server, TriangleAlert, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Cable, Check, CheckCircle2, Download, Globe, KeyRound, Loader2, Network, Plus, RotateCw, Server, TriangleAlert, XCircle } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
@@ -15,6 +15,9 @@ import { createPrivateKey, createServer, updateServer, validateServer } from "@/
 import { createTunnelServer, newJoinCommand } from "@/server/actions/tunnel";
 import { useNow } from "@/hooks/use-client";
 import { JoinCommand } from "@/components/tunnel-join";
+import { TailscaleJoinCommand } from "@/components/tailscale-join";
+import { Select } from "@/components/ui/select";
+import { createTailscaleServer, tailscaleJoinCommand } from "@/server/actions/tailscale";
 import { getServerProgress } from "@/server/actions/servers-ui";
 import type { ServerStatus } from "@/server/db/schema";
 import { cn } from "@/lib/utils";
@@ -59,12 +62,28 @@ function Stepper({ step, steps: STEPS }: { step: Step; steps: { id: Step; label:
 
 type KeyMode = "existing" | "generate" | "import";
 
-/** `onFinished`: shown as a Continue button once the server exists, in place of the link to its page (onboarding). */
-export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key[]; tunnel: { address: string; port: number }; onFinished?: () => void }) {
+type Tailnet = { id: string; name: string };
+
+/**
+ * `onFinished`: shown as a Continue button once the server exists, in place of the link to its page (onboarding).
+ * `tailnets`: connected tailnets, for Root admins (null: the option is not offered).
+ */
+export function AddServer({
+  keys: initialKeys,
+  tunnel,
+  tailnets,
+  onFinished,
+}: {
+  keys: Key[];
+  tunnel: { address: string; port: number };
+  tailnets?: Tailnet[] | null;
+  onFinished?: () => void;
+}) {
   const router = useRouter();
   const [step, setStep] = React.useState<Step>("connection");
-  // Reachable over SSH, or without a public IP (it connects out through a tunnel).
-  const [reach, setReach] = React.useState<"ssh" | "tunnel">("ssh");
+  // Reachable over SSH, without a public IP (it connects out through a tunnel), or through a tailnet.
+  const [reach, setReach] = React.useState<"ssh" | "tunnel" | "tailscale">("ssh");
+  const [tailnetId, setTailnetId] = React.useState<string | null>(tailnets?.[0]?.id ?? null);
   const [tunnelForm, setTunnelForm] = React.useState({ address: tunnel.address, sshPort: "22" });
   const [joined, setJoined] = React.useState<{ id: string; command: string; expiresAt: string } | null>(null);
   const [conn, setConn] = React.useState({ name: "", host: "", port: "22", username: "root" });
@@ -80,6 +99,20 @@ export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key
   const connectionValid = conn.name.trim() && conn.host.trim() && port > 0 && port < 65536 && conn.username.trim();
   const sshPort = Number(tunnelForm.sshPort) || 22;
   const tunnelValid = conn.name.trim() && conn.username.trim() && tunnelForm.address.trim() && sshPort > 0 && sshPort < 65536;
+  const tailscaleValid = !!(conn.name.trim() && conn.username.trim() && tailnetId && sshPort > 0 && sshPort < 65536);
+  const tailnet = tailnets?.find((t) => t.id === tailnetId) ?? null;
+
+  async function createTailscale() {
+    if (!tailnetId) return;
+    setBusy(true);
+    const res = await createTailscaleServer({ name: conn.name.trim(), username: conn.username.trim(), sshPort, tailnetId, origin: window.location.origin });
+    setBusy(false);
+    if (!res.ok) return showError(res.error);
+    setJoined(res.data);
+    setServerId(res.data.id);
+    setStep("join");
+    router.refresh();
+  }
 
   async function createTunnel() {
     setBusy(true);
@@ -148,7 +181,7 @@ export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key
 
   return (
     <div className="flex animate-rise flex-col gap-5">
-      <Stepper step={step} steps={reach === "tunnel" ? TUNNEL_STEPS : STEPS} />
+      <Stepper step={step} steps={reach === "ssh" ? STEPS : TUNNEL_STEPS} />
 
       {step === "connection" && (
         <form
@@ -156,17 +189,20 @@ export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key
             e.preventDefault();
             if (reach === "tunnel") {
               if (tunnelValid) void createTunnel();
+            } else if (reach === "tailscale") {
+              if (tailscaleValid) void createTailscale();
             } else if (connectionValid) setStep("key");
           }}
         >
           <Card>
             <CardHeader title="Where is the server?" description={<>Any Linux machine with SSH. The connection uses this user to install and run Docker.</>} />
             <CardBody className="flex flex-col gap-4 py-5">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="How to reach the server">
+              <div className={cn("grid grid-cols-1 gap-2", tailnets ? "sm:grid-cols-3" : "sm:grid-cols-2")} role="radiogroup" aria-label="How to reach the server">
                 {(
                   [
                     ["ssh", "Public IP or hostname", "A VPS or any machine reachable over SSH", Globe],
                     ["tunnel", "No public IP", "Home or office internet, shared IP, behind NAT", Cable],
+                    ...(tailnets ? ([["tailscale", "Through Tailscale", "Any machine, joined to your tailnet", Network]] as const) : []),
                   ] as const
                 ).map(([value, label, hint, Icon]) => (
                   <button
@@ -222,6 +258,30 @@ export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key
                   spellCheck={false}
                 />
               </Field>
+              {reach === "tailscale" &&
+                (tailnets?.length ? (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
+                    <Field label="Tailnet" description="The server joins it with a single-use key; Serve then connects to its Tailscale address.">
+                      <Select value={tailnetId} onValueChange={setTailnetId} options={tailnets.map((t) => ({ value: t.id, label: t.name }))} />
+                    </Field>
+                    <Field label="Its SSH port" description="On the server itself.">
+                      <Input
+                        value={tunnelForm.sshPort}
+                        onChange={(e) => setTunnelForm({ ...tunnelForm, sshPort: e.target.value.replace(/\D/g, "").slice(0, 5) })}
+                        inputMode="numeric"
+                        className="font-mono"
+                      />
+                    </Field>
+                  </div>
+                ) : (
+                  <p className="rounded-xl bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed text-muted">
+                    Connect a tailnet first in{" "}
+                    <Link href="/integrations/tailscale" className="text-accent hover:underline">
+                      Integrations, Tailscale
+                    </Link>
+                    . It takes an OAuth client and a tag for Serve&apos;s devices.
+                  </p>
+                ))}
               {reach === "tunnel" && (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_110px]">
                   <Field
@@ -249,8 +309,13 @@ export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key
               )}
             </CardBody>
             <CardFooter className="justify-end">
-              <Button type="submit" variant="primary" disabled={reach === "tunnel" ? !tunnelValid : !connectionValid} loading={reach === "tunnel" && busy}>
-                {reach === "tunnel" ? "Create join command" : "Continue"} <ArrowRight />
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={reach === "tunnel" ? !tunnelValid : reach === "tailscale" ? !tailscaleValid : !connectionValid}
+                loading={reach !== "ssh" && busy}
+              >
+                {reach === "ssh" ? "Continue" : "Create join command"} <ArrowRight />
               </Button>
             </CardFooter>
           </Card>
@@ -345,7 +410,18 @@ export function AddServer({ keys: initialKeys, tunnel, onFinished }: { keys: Key
       )}
 
       {step === "connect" && serverId && <ConnectStep serverId={serverId} name={conn.name} onBack={() => setStep("key")} onFinished={onFinished} />}
-      {step === "join" && joined && (
+      {step === "join" && joined && reach === "tailscale" && (
+        <TailscaleJoinStep
+          serverId={joined.id}
+          name={conn.name}
+          command={joined.command}
+          expiresAt={joined.expiresAt}
+          user={conn.username}
+          tailnet={tailnet ?? { id: tailnetId ?? "", name: "the tailnet" }}
+          onFinished={onFinished}
+        />
+      )}
+      {step === "join" && joined && reach !== "tailscale" && (
         <JoinStep
           serverId={joined.id}
           name={conn.name}
@@ -593,6 +669,93 @@ function JoinStep(props: { serverId: string; name: string; command: string; expi
             ) : (
               <p className="flex items-center gap-2 text-[13px] text-muted">
                 <Loader2 className="size-4 animate-spin text-info" /> Waiting for {props.name} to connect…
+              </p>
+            )}
+          </>
+        )}
+      </CardBody>
+      <CardFooter className="justify-end">
+        <FinishAction serverId={props.serverId} ready={ready} onFinished={props.onFinished} />
+      </CardFooter>
+    </Card>
+  );
+}
+
+/** Waits for a server to run its Tailscale join command, then follows its setup. */
+function TailscaleJoinStep(props: {
+  serverId: string;
+  name: string;
+  command: string;
+  expiresAt: string;
+  user: string;
+  tailnet: { id: string; name: string };
+  onFinished?: () => void;
+}) {
+  const router = useRouter();
+  const [join, setJoin] = React.useState({ command: props.command, expiresAt: props.expiresAt });
+  const [renewing, setRenewing] = React.useState(false);
+  const now = useNow();
+  const expired = now !== null && now > new Date(join.expiresAt).getTime();
+  const [joined, setJoined] = React.useState(false);
+  const [ready, setReady] = React.useState(false);
+  React.useEffect(() => {
+    if (joined) return;
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      const res = await getServerProgress(props.serverId);
+      if (stop) return;
+      if (res.ok && (res.data.tailscale?.joined || res.data.status !== "pending")) {
+        setJoined(true);
+        router.refresh();
+        return;
+      }
+      timer = setTimeout(poll, 2000);
+    };
+    void poll();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [joined, props.serverId, router]);
+  return (
+    <Card>
+      <CardHeader
+        title={joined ? `Setting up ${props.name}` : `Connect ${props.name}`}
+        description={
+          joined ? (
+            <>In the tailnet. Docker is checked over its Tailscale address, its data directory is prepared and the proxy is started.</>
+          ) : (
+            "Run the command on the server. This page moves on by itself when it joined the tailnet."
+          )
+        }
+      />
+      <CardBody className="flex flex-col gap-4 py-5">
+        {joined ? (
+          <ServerSetupProgress serverId={props.serverId} onReady={() => setReady(true)} />
+        ) : (
+          <>
+            <TailscaleJoinCommand command={join.command} expiresAt={join.expiresAt} user={props.user} tailnet={props.tailnet.name} />
+            {expired ? (
+              <div className="flex flex-wrap items-center gap-3 text-[13px] text-muted">
+                This command expired.
+                <Button
+                  size="sm"
+                  loading={renewing}
+                  onClick={async () => {
+                    setRenewing(true);
+                    const res = await tailscaleJoinCommand(props.serverId, props.tailnet.id, window.location.origin);
+                    setRenewing(false);
+                    if (!res.ok) return showError(res.error);
+                    setJoin(res.data);
+                  }}
+                >
+                  <RotateCw /> New command
+                </Button>
+              </div>
+            ) : (
+              <p className="flex items-center gap-2 text-[13px] text-muted">
+                <Loader2 className="size-4 animate-spin text-info" /> Waiting for {props.name} to join the tailnet…
               </p>
             )}
           </>

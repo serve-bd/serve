@@ -217,7 +217,13 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
     await setStatus(serverId, "ready", proxyProblem, { lastSeenAt: new Date() });
     log("==> Server is ready");
   } catch (error) {
-    const message = (error as Error).message;
+    let message = (error as Error).message;
+    // Through Tailscale, a connection that never got an answer usually means the dashboard's machine is not in the tailnet.
+    if (row.tailscale?.address) {
+      const { looksLikeNetwork, tailnetReachHint } = await import("@/server/tailscale");
+      const hint = looksLikeNetwork(message) ? await tailnetReachHint(row).catch(() => null) : null;
+      if (hint) message = `${message} ${hint}`;
+    }
     log(`==> ${message}`);
     await setStatus(serverId, error instanceof HostKeyMismatchError ? "error" : "unreachable", message);
     throw error;
@@ -240,7 +246,15 @@ export async function probeServer(serverId: string) {
       .where(eq(schema.server.id, serverId));
     return true;
   } catch (error) {
-    if (row.status === "ready") await setStatus(serverId, "unreachable", (error as Error).message);
+    if (row.status === "ready") {
+      let message = (error as Error).message;
+      if (row.tailscale?.address) {
+        const { looksLikeNetwork, tailnetReachHint } = await import("@/server/tailscale");
+        const hint = looksLikeNetwork(message) ? await tailnetReachHint(row).catch(() => null) : null;
+        if (hint) message = `${message} ${hint}`;
+      }
+      await setStatus(serverId, "unreachable", message);
+    }
     return false;
   }
 }

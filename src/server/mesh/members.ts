@@ -2,14 +2,19 @@ import { sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type { MeshMembers } from "./plan";
 
-/** Servers in the private network (it may still be starting on some), with their networks and whether they have no public address. */
+/** Servers in the private network (it may still be starting on some), with their networks, whether they have no public address, and their Tailscale address. */
 export async function meshMemberIds(): Promise<MeshMembers> {
   const rows = await db
-    .select({ id: schema.server.id, mesh: schema.server.mesh })
+    .select({ id: schema.server.id, mesh: schema.server.mesh, tailscale: schema.server.tailscale })
     .from(schema.server)
     .where(sql`${schema.server.meshIndex} is not null and coalesce((${schema.server.mesh}->>'enabled')::boolean, false)`);
   const links = await db.select().from(schema.privateNetworkMember);
-  return new Map(rows.map((r) => [r.id, { networks: links.filter((l) => l.serverId === r.id).map((l) => l.networkId), nat: !r.mesh?.endpoint }]));
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      { networks: links.filter((l) => l.serverId === r.id).map((l) => l.networkId), nat: !r.mesh?.endpoint, tailnet: (r.tailscale?.tailnetId && r.tailscale.address) || null },
+    ]),
+  );
 }
 
 export { privatelyConnected, reachesPrivately, type MeshMembers } from "./plan";

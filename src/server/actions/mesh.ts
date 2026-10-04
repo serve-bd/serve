@@ -197,14 +197,14 @@ export async function meshAddressOptions(serverId: string) {
     add(row.publicIp, "seen from the internet");
     if (!row.isLocal) {
       // A server that connects out has no address of its own to offer.
-      if (!row.tunnel) add(row.host, "SSH address");
-      // The server's own interfaces, without Docker's bridges and the private network itself.
+      if (!row.tunnel && !row.tailscale?.only) add(row.host, "SSH address");
+      // The server's own interfaces, without Docker's bridges, the private network itself and Tailscale (Serve uses that address on its own when both ends are in a tailnet).
       const { getServer } = await import("@/server/servers/context");
       const ctx = await getServer(serverId);
       const res = await ctx.exec("ip -4 -o addr show scope global", { timeoutMs: 10_000 }).catch(() => null);
       for (const line of res?.stdout.split("\n") ?? []) {
         const [, iface, , cidr] = line.trim().split(/\s+/);
-        if (!iface || !cidr || /^(docker|br-|veth|serve-mesh|virbr|cni|flannel|kube)/.test(iface)) continue;
+        if (!iface || !cidr || /^(docker|br-|veth|serve-mesh|virbr|cni|flannel|kube|tailscale)/.test(iface)) continue;
         add(cidr.split("/")[0], iface);
       }
     }

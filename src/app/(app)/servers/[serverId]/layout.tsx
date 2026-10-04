@@ -46,7 +46,11 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
           ) : (
             <HiddenIp
               text={
-                row.tunnel ? `${row.username}@${row.host} · no public IP, connects out through a tunnel` : `${row.username}@${row.host}${row.port === 22 ? "" : `:${row.port}`}`
+                row.tailscale?.tailnetId && row.tailscale.address
+                  ? `${row.username}@${row.tailscale.address}${row.port === 22 ? "" : `:${row.port}`} · through Tailscale`
+                  : row.tunnel
+                    ? `${row.username}@${row.host} · no public IP, connects out through a tunnel`
+                    : `${row.username}@${row.host}${row.port === 22 ? "" : `:${row.port}`}`
               }
             />
           )

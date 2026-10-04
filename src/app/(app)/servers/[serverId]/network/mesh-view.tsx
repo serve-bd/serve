@@ -257,7 +257,7 @@ function JoinForm({
                 {mode === "nat" && (
                   <p className="bg-accent-soft/60 px-4 pt-0.5 pb-3 pl-11 text-xs leading-relaxed text-fg-2">
                     This server connects out to the others, so nothing needs to be opened on your router. It reaches only servers that have a public address; two servers without
-                    one cannot connect to each other.
+                    one cannot connect to each other, unless both are in a Tailscale tailnet: then they meet at their Tailscale addresses.
                   </p>
                 )}
               </div>
@@ -520,6 +520,7 @@ function Peers({ peers, outside, inAny, selfNat }: { peers: MeshPeerView[]; outs
                   <span className="truncate font-mono text-xs text-muted">
                     {p.address}
                     {p.endpoint && <span className="text-faint"> · {p.endpoint}</span>}
+                    {p.tailnet && <span className="text-faint"> · through Tailscale</span>}
                   </span>
                 </div>
                 <div className="flex flex-col items-start text-xs sm:items-end">

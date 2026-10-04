@@ -24,12 +24,17 @@ export default async function NewServerPage() {
   // The address a server without a public IP connects out to: this machine's public IP by default.
   // Never a loopback address: the other machine would connect to itself.
   const fromUrl = new URL(env.appUrl).hostname;
+  // Root admins add instance servers through a connected tailnet too.
+  const tailnets =
+    ctx.isRoot && ctx.isInstanceAdmin
+      ? await db.select({ id: schema.tailscaleTailnet.id, name: schema.tailscaleTailnet.name }).from(schema.tailscaleTailnet).orderBy(schema.tailscaleTailnet.createdAt)
+      : null;
   const tunnel = { address: local?.publicIp ?? (/^(localhost|127\.|0\.0\.0\.0$|\[?::1\]?$)/.test(fromUrl) ? "" : fromUrl), port: tunnelPort() };
   return (
     <>
       <PageHeader title="Add server" breadcrumbs={[{ label: "Servers", href: "/servers" }, { label: "Add server" }]} />
       <PageBody>
-        <AddServer keys={keys} tunnel={tunnel} />
+        <AddServer keys={keys} tunnel={tunnel} tailnets={tailnets} />
       </PageBody>
     </>
   );

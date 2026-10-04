@@ -13,10 +13,25 @@ import { envNetworkName } from "@/server/docker/networks";
 import { meshMemberIds } from "./members";
 import { poolerEnabled, replicaInstances } from "@/server/services/types";
 import { AGENT_CONTAINER, AGENT_DOCKERFILE, AGENT_IMAGE, AGENT_SCRIPT, AGENT_VERSION, LINKS_JQ, RULES_JQ, WG_JQ } from "./agent";
-import { addressChanges, type AgentConfig, agentConfig, allocateAddress, linked, type Need, neededAddresses, type PlanAddress, type PlanServer, type PlanService } from "./plan";
+import {
+  addressChanges,
+  type AgentConfig,
+  agentConfig,
+  allocateAddress,
+  linked,
+  type Need,
+  neededAddresses,
+  type PlanAddress,
+  type PlanServer,
+  type PlanService,
+  peerEndpoint,
+} from "./plan";
 
 type Service = typeof schema.service.$inferSelect;
 type Member = ServerRow & { mesh: ServerMesh; meshIndex: number; networks: string[] };
+
+/** A server's Tailscale address while it uses a tailnet. */
+const tailnetAddress = (r: Pick<ServerRow, "tailscale">) => (r.tailscale?.tailnetId && r.tailscale.address) || null;
 
 const isMember = (r: ServerRow): r is ServerRow & { mesh: ServerMesh; meshIndex: number } => !!r.mesh?.enabled && r.meshIndex !== null;
 
@@ -39,6 +54,7 @@ const toPlanServer = (r: Member): PlanServer => ({
   port: r.mesh.port,
   publicKey: r.mesh.publicKey,
   networks: r.networks,
+  tailnet: tailnetAddress(r),
 });
 
 function toPlanService(s: Service): PlanService {
@@ -507,6 +523,8 @@ export type MeshPeerView = {
   message: string | null;
   /** It has no public address: it connects out and cannot be dialed. */
   nat: boolean;
+  /** Both servers have no public address and meet through Tailscale. */
+  tailnet: boolean;
 };
 
 export type MeshNetworkView = {
@@ -589,17 +607,20 @@ export async function meshOverview(serverId: string, readStatus = true): Promise
     .sort((a, b) => a.meshIndex - b.meshIndex)
     .map((m) => {
       const seen = agent?.peers.find((p) => p.publicKey === m.mesh.publicKey);
+      const dialed = self ? peerEndpoint(toPlanServer(self), toPlanServer(m)) : m.mesh.endpoint;
       return {
         serverId: m.id,
         name: m.name,
         address: meshServerAddress(m.meshIndex),
-        endpoint: seen?.endpoint ?? (m.mesh.endpoint ? meshEndpoint(m.mesh.endpoint, m.mesh.port) : null),
+        endpoint: seen?.endpoint ?? (dialed ? meshEndpoint(dialed, m.mesh.port) : null),
         latestHandshake: seen?.latestHandshake ?? 0,
         rx: seen?.rx ?? 0,
         tx: seen?.tx ?? 0,
         state: m.mesh.state,
         message: m.mesh.message ?? null,
-        nat: !m.mesh.endpoint,
+        // Reached through the tailnet counts as dialable: only a peer nobody can dial is "behind NAT".
+        nat: !dialed,
+        tailnet: !!self && !self.mesh.endpoint && !m.mesh.endpoint && !!dialed,
       };
     });
   const { peers: _p, ...agentRest } = agent ?? { peers: [] };

@@ -890,6 +890,8 @@ async function main() {
   // CLI sign-ins: tokens nobody collected, and sign-ins a day past their time.
   every(60_000, "cli-logins", pruneCliLogins);
   every(3600_000, "cloudflare-oauth", async () => (await import("@/server/cloudflare/oauth")).renewIdleOauth((l) => log(l)), true);
+  // Servers in a tailnet: their address, and whether Tailscale sees them online.
+  every(5 * 60_000, "tailscale", async () => (await import("@/server/tailscale")).syncTailscale(), true);
   every(60_000, "container-health", checkContainerHealth);
   every(60_000, "server-resources", checkServerResources);
   every(3600_000, "monitoring-prune", pruneMonitoring);

@@ -3,7 +3,8 @@ import type { Duplex } from "node:stream";
 import type Docker from "dockerode";
 import { docker as localDocker, execExitCode, imageExists, LABEL, pullImage, removeContainer } from "@/server/docker/client";
 import { getServer } from "@/server/servers/context";
-import { shellChannel } from "@/server/servers/ssh";
+import type { ClientChannel } from "ssh2";
+import { execChannel, shellChannel } from "@/server/servers/ssh";
 
 /**
  * Interactive shells: inside containers (docker exec with a TTY) or on a
@@ -356,20 +357,35 @@ const HOST_SHELL = [
   "if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh -l; fi",
 ].join("; ");
 
-/** Open a root shell on a server: nsenter on the local host, a login shell over SSH elsewhere. */
-export async function openHostSession(opts: { userId: string; cols: number; rows: number; serverId?: string }) {
+/** One command in the host's namespaces, from the home folder like the shell. */
+const hostCommand = (command: string) => `export TERM=xterm-256color COLORTERM=truecolor; cd ~ 2>/dev/null || cd /; ${command}`;
+
+/**
+ * Open a root shell on a server: nsenter on the local host, a login shell over SSH elsewhere.
+ * With `command`, that command runs instead of the shell (with a TTY), and the session ends with it.
+ */
+export async function openHostSession(opts: { userId: string; cols: number; rows: number; serverId?: string; command?: string }) {
   const server = await getServer(opts.serverId);
   const scope = hostScope(server.id);
   if (!server.local) {
     evictOldest(opts.userId);
     const cols = Math.max(10, Math.min(500, Math.floor(opts.cols)));
     const rows = Math.max(4, Math.min(200, Math.floor(opts.rows)));
-    const channel = await shellChannel(server.ssh!, { cols, rows });
-    let exitCode: number | null = null;
-    channel.once("exit", (code: number | null) => (exitCode = code));
+    let channel: ClientChannel;
+    let exitCode: () => number | null;
+    if (opts.command) {
+      const ch = await execChannel(server.ssh!, opts.command, { pty: { cols, rows } });
+      channel = ch;
+      exitCode = ch.exitStatus;
+    } else {
+      let code: number | null = null;
+      channel = await shellChannel(server.ssh!, { cols, rows });
+      channel.once("exit", (c: number | null) => (code = c));
+      exitCode = () => code;
+    }
     const backend: Backend = {
       resize: async (c, r) => void channel.setWindow(r, c, 0, 0),
-      exitCode: async () => exitCode,
+      exitCode: async () => exitCode(),
     };
     const session = track({ userId: opts.userId, scope, containerName: `${server.row.username}@${server.row.host}` }, backend, channel as unknown as Duplex);
     scheduleIdle(session);
@@ -391,7 +407,7 @@ export async function openHostSession(opts: { userId: string; cols: number; rows
     containerName: HOST_CONTAINER,
     cols: opts.cols,
     rows: opts.rows,
-    cmd: ["nsenter", "-t", "1", "-m", "-u", "-i", "-n", "-p", "--", "sh", "-c", HOST_SHELL],
+    cmd: ["nsenter", "-t", "1", "-m", "-u", "-i", "-n", "-p", "--", "sh", "-c", opts.command ? hostCommand(opts.command) : HOST_SHELL],
     onClose: () => scheduleHostCleanup(scope),
   });
 }

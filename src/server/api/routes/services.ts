@@ -347,11 +347,22 @@ export const serviceRoutes: ApiRoute[] = [
     path: "/services/{serviceId}/webhook-secret",
     tag: "Services",
     summary: "Make a new deploy webhook secret",
-    description: "The old secret stops working. The answer holds the new deploy hook URL secret.",
+    description:
+      "The old secret stops working. The answer holds the new secret (webhookSecret) and the deploy hook URL with it (deployHookUrl); without variables.view-secrets, as in the dashboard, the secret is hidden.",
     needs: ["services.manage"],
-    handler: async ({ auth, params }) => {
+    handler: async ({ auth, params, request }) => {
       await loadService(auth, params.serviceId);
-      return (await unwrap(actions.regenerateWebhookSecret(params.serviceId))) ?? { ok: true };
+      await unwrap(actions.regenerateWebhookSecret(params.serviceId));
+      const [row] = await db.select({ webhookSecret: schema.service.webhookSecret }).from(schema.service).where(eq(schema.service.id, params.serviceId));
+      const { preferHttps, publicBaseUrl } = await import("@/server/git/github-app");
+      const base = await preferHttps((await publicBaseUrl().catch(() => "")) || new URL(request.url).origin);
+      const secret = auth.can("variables.view-secrets") ? (row?.webhookSecret ?? null) : null;
+      return {
+        ok: true,
+        webhookSecret: secret,
+        deployHookUrl: `${base}/api/deploy-hooks/${params.serviceId}?token=${secret ?? "********"}`,
+        webhookUrl: `${base}/api/webhooks/git/${params.serviceId}`,
+      };
     },
   }),
   route({

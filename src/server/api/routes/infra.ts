@@ -45,7 +45,13 @@ export const infraRoutes: ApiRoute[] = [
         .from(schema.service)
         .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
         .where(and(eq(schema.service.serverId, server.id), eq(schema.project.organizationId, auth.organizationId)));
-      return { server: { ...serverView(server), services: services.filter((s) => auth.canAccessProject(s.projectId)) } };
+      // What the server's admin pages show (setup log, alert thresholds, a proxy switch): for admin tokens, as those pages are for admins.
+      let admin = {};
+      if (auth.admin) {
+        const { alertsFor } = await import("@/server/monitoring/config");
+        admin = { setupLog: server.setupLog, alerts: await alertsFor(server.id), proxySwitch: server.proxySwitch ?? null };
+      }
+      return { server: { ...serverView(server), ...admin, services: services.filter((s) => auth.canAccessProject(s.projectId)) } };
     },
   }),
   route({
@@ -83,8 +89,30 @@ export const infraRoutes: ApiRoute[] = [
     path: "/servers/{serverId}",
     tag: "Servers",
     summary: "Remove a server",
+    description:
+      "A server with services needs services: stop (they are stopped and deleted; removeData=true also deletes their volumes) or keep (they keep running there and are only forgotten; Serve's proxy and the server's tunnels are removed unless removeProxy=false or removeTunnels=false). removeTailnetDevice=true also takes the machine out of its tailnet.",
     needs: ["admin"],
-    handler: async ({ params }) => (await unwrap(servers.deleteServer(params.serverId))) ?? { ok: true },
+    query: z.object({
+      services: z.enum(["stop", "keep"]).optional(),
+      removeData: z.enum(["true", "false"]).optional(),
+      removeProxy: z.enum(["true", "false"]).optional(),
+      removeTunnels: z.enum(["true", "false"]).optional(),
+      removeTailnetDevice: z.enum(["true", "false"]).optional(),
+    }),
+    handler: async ({ params, query }) => {
+      const flag = (v: "true" | "false" | undefined) => (v === undefined ? undefined : v === "true");
+      return (
+        (await unwrap(
+          servers.deleteServer(params.serverId, {
+            services: query.services,
+            removeData: flag(query.removeData),
+            removeProxy: flag(query.removeProxy),
+            removeTunnels: flag(query.removeTunnels),
+            removeTailnetDevice: flag(query.removeTailnetDevice),
+          }),
+        )) ?? { ok: true }
+      );
+    },
   }),
   route({
     method: "POST",
@@ -503,6 +531,42 @@ export const infraRoutes: ApiRoute[] = [
     },
   }),
   route({
+    method: "GET",
+    path: "/notification-channels/types",
+    tag: "Integrations",
+    summary: "Kinds of notification channels, their fields and the events",
+    description:
+      "kinds: each kind with the config fields POST /notification-channels takes (secret ones are stored encrypted and never shown again). events: the event ids a channel can get, with their group and severity; defaultEvents are the ones a new channel gets. placeholders: what custom message text can use.",
+    needs: ["integrations.manage"],
+    handler: async () => {
+      const n = await import("@/lib/notifications");
+      return {
+        kinds: n.providers.map((p) => ({
+          id: p.id,
+          label: p.label,
+          category: p.category,
+          description: p.description,
+          docs: "docs" in p ? (p.docs ?? null) : null,
+          alerting: "alerting" in p ? !!p.alerting : false,
+          fields: (p.fields as readonly import("@/lib/notifications").ProviderField[]).map((f) => ({
+            key: f.key,
+            label: f.label,
+            type: f.type ?? "text",
+            optional: !!f.optional,
+            secret: !!f.secret,
+            placeholder: f.placeholder ?? null,
+            description: f.description ?? null,
+            options: f.options ?? null,
+          })),
+        })),
+        events: n.notifyEventCatalog.map((e) => ({ id: e.id, label: e.label, group: e.group, severity: e.severity })),
+        defaultEvents: n.defaultChannelEvents,
+        severities: n.severityOptions.map((s) => ({ value: s.value, label: s.label, description: s.description })),
+        placeholders: n.placeholders,
+      };
+    },
+  }),
+  route({
     method: "POST",
     path: "/notification-channels",
     tag: "Integrations",
@@ -623,6 +687,43 @@ export const infraRoutes: ApiRoute[] = [
     },
   }),
   route({
+    method: "GET",
+    path: "/cloudflare/accounts/{accountId}/zones/{zoneId}/dns",
+    tag: "Integrations",
+    summary: "List a zone's DNS records",
+    description: "type and name narrow the list (name is the full record name, like app.example.com).",
+    needs: ["integrations.manage"],
+    query: z.object({ type: z.string().max(10).optional(), name: z.string().max(253).optional() }),
+    handler: async ({ auth, params, query }) => {
+      const [row] = await db
+        .select()
+        .from(schema.cloudflareAccount)
+        .where(and(eq(schema.cloudflareAccount.id, params.accountId), eq(schema.cloudflareAccount.organizationId, auth.organizationId)));
+      if (!row) throw new ApiError(404, "Cloudflare account not found");
+      const { Cloudflare } = await import("@/server/cloudflare/api");
+      const cf = await Cloudflare.forRow(row);
+      const zone = await cf.zone(params.zoneId).catch(() => null);
+      if (!zone) throw new ApiError(404, "Zone not found in this Cloudflare account");
+      const records = await cf.dnsRecords(params.zoneId, { type: query.type?.toUpperCase(), name: query.name }).catch((e: Error) => {
+        throw new ApiError(502, `Cloudflare refused: ${e.message}`);
+      });
+      return {
+        zone: { id: zone.id, name: zone.name },
+        records: records.map((r) => ({
+          id: r.id,
+          type: r.type,
+          name: r.name,
+          content: r.content,
+          proxied: r.proxied,
+          proxiable: r.proxiable,
+          ttl: r.ttl,
+          priority: r.priority ?? null,
+          comment: r.comment ?? null,
+        })),
+      };
+    },
+  }),
+  route({
     method: "PUT",
     path: "/cloudflare/accounts/{accountId}/zones/{zoneId}/dns",
     tag: "Integrations",
@@ -689,11 +790,26 @@ export const infraRoutes: ApiRoute[] = [
     path: "/templates",
     tag: "Templates",
     summary: "List one-click templates",
-    description: "Create one with POST /services, type compose and template set to its id.",
+    description: "The organization's own templates (custom: true, id custom:<id>) and the built-in ones. Create one with POST /services, type compose and template set to its id.",
     needs: ["projects.view"],
-    handler: async () => ({
-      templates: (await getTemplates()).map((t) => ({ id: t.id, name: t.name, description: t.description, category: t.category, website: t.website, vars: t.vars })),
-    }),
+    handler: async ({ auth }) => {
+      const custom = await db.select().from(schema.customTemplate).where(eq(schema.customTemplate.organizationId, auth.organizationId)).orderBy(asc(schema.customTemplate.name));
+      return {
+        templates: [
+          ...custom.map((t) => ({
+            id: `custom:${t.id}`,
+            name: t.name,
+            description: t.description,
+            category: t.category,
+            website: null,
+            vars: t.vars,
+            custom: true,
+            updatedAt: iso(t.updatedAt),
+          })),
+          ...(await getTemplates()).map((t) => ({ id: t.id, name: t.name, description: t.description, category: t.category, website: t.website, vars: t.vars, custom: false })),
+        ],
+      };
+    },
   }),
   route({
     method: "GET",
@@ -701,10 +817,31 @@ export const infraRoutes: ApiRoute[] = [
     tag: "Templates",
     summary: "Get a template with its compose file",
     needs: ["projects.view"],
-    handler: async ({ params }) => {
+    handler: async ({ auth, params }) => {
+      if (params.templateId.startsWith("custom:")) {
+        const [t] = await db
+          .select()
+          .from(schema.customTemplate)
+          .where(and(eq(schema.customTemplate.id, params.templateId.slice(7)), eq(schema.customTemplate.organizationId, auth.organizationId)));
+        if (!t) throw new ApiError(404, "Template not found");
+        return {
+          template: {
+            id: `custom:${t.id}`,
+            name: t.name,
+            description: t.description,
+            category: t.category,
+            iconUrl: t.iconUrl,
+            compose: t.compose,
+            vars: t.vars,
+            exposeService: t.exposeService,
+            exposePort: t.exposePort,
+            custom: true,
+          },
+        };
+      }
       const t = (await getTemplates()).find((x) => x.id === params.templateId);
       if (!t) throw new ApiError(404, "Template not found");
-      return { template: t };
+      return { template: { ...t, custom: false } };
     },
   }),
   route({
@@ -722,8 +859,9 @@ export const infraRoutes: ApiRoute[] = [
     path: "/templates/{templateId}",
     tag: "Templates",
     summary: "Delete a custom template",
+    description: "Its id with or without custom: in front.",
     needs: ["integrations.manage"],
-    handler: async ({ params }) => (await unwrap(templates.deleteCustomTemplate(params.templateId))) ?? { ok: true },
+    handler: async ({ params }) => (await unwrap(templates.deleteCustomTemplate(params.templateId.replace(/^custom:/, "")))) ?? { ok: true },
   }),
 
   // Instance (Root admins)

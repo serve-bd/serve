@@ -97,15 +97,17 @@ export async function approveDeployment(deploymentId: string) {
   });
 }
 
-/** Turn down a deployment that waits for approval. */
-export async function rejectDeployment(deploymentId: string) {
+/** Turn down a deployment that waits for approval, optionally saying why. */
+export async function rejectDeployment(deploymentId: string, reason?: string | null) {
   return act(async () => {
     const ctx = await requirePermission("deploys.approve");
     const { dep, service } = await waitingDeployment(deploymentId, ctx.org.id);
     const who = ctx.user.name || ctx.user.email;
+    const why = z.string().trim().max(500, "Keep the reason under 500 characters.").nullish().parse(reason);
+    const text = why ? `Rejected by ${who}: ${why.replace(/[.\s]+$/, "")}.` : `Rejected by ${who}.`;
     await db
       .update(schema.deployment)
-      .set({ status: "cancelled", finishedAt: new Date(), error: `Rejected by ${who}.`, logs: `Rejected by ${who}.\n` })
+      .set({ status: "cancelled", finishedAt: new Date(), error: text, logs: `${text}\n` })
       .where(and(eq(schema.deployment.id, dep.id), eq(schema.deployment.status, "waiting")));
     await queueCommitStatus(dep.id);
     await logActivity({

@@ -3,15 +3,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { requireOrg } from "@/server/auth";
 import { serviceInOrg } from "@/server/services/access";
-import { serviceHasHostAccess } from "@/server/security";
+import { HOST_SHELL, hostShellRefused } from "@/server/services/console";
 import { pickContainer } from "@/server/services/exec";
 import { openSession } from "@/server/services/terminal";
 import { logActivity } from "@/server/activity";
 import { readJsonLimited } from "@/server/http-body";
 
 export const dynamic = "force-dynamic";
-
-const HOST_SHELL = "This service has host-level access: only admins of the Root organization can run commands in it.";
 
 const bodySchema = z.object({
   target: z.string().nullable().optional(),
@@ -31,7 +29,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/service
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   // Host mounts or privileged: a shell there is close to a shell on the host.
-  if (serviceHasHostAccess(service) && !org.isInstanceAdmin) return NextResponse.json({ error: HOST_SHELL }, { status: 403 });
+  if (hostShellRefused(service, org.isInstanceAdmin)) return NextResponse.json({ error: HOST_SHELL }, { status: 403 });
   const parsed = bodySchema.safeParse(await readJsonLimited(request, 65_536, {}));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   let container;

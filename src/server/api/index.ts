@@ -1,15 +1,28 @@
 import { z } from "zod";
 import { PERMISSION_INFO, PERMISSIONS } from "@/lib/permissions";
 import { currentVersion } from "@/server/instance/version";
+import { consoleRoutes } from "./routes/console";
 import { databaseRoutes } from "./routes/databases";
 import { infraRoutes } from "./routes/infra";
+import { logDrainRoutes } from "./routes/log-drains";
 import { metricsRoutes } from "./routes/metrics";
+import { networkingRoutes } from "./routes/networking";
 import { orgRoutes } from "./routes/org";
 import { projectRoutes } from "./routes/projects";
 import { serviceRoutes } from "./routes/services";
 import { type ApiRoute, createRouter, needLabel } from "./router";
 
-export const apiRoutes: ApiRoute[] = [...orgRoutes, ...projectRoutes, ...serviceRoutes, ...databaseRoutes, ...infraRoutes, ...metricsRoutes];
+export const apiRoutes: ApiRoute[] = [
+  ...orgRoutes,
+  ...projectRoutes,
+  ...serviceRoutes,
+  ...consoleRoutes,
+  ...databaseRoutes,
+  ...infraRoutes,
+  ...networkingRoutes,
+  ...logDrainRoutes,
+  ...metricsRoutes,
+];
 
 const TAGS = [
   ["Token", "The token itself: who it acts as and what it may do."],
@@ -25,11 +38,13 @@ const TAGS = [
   ["Backups", "Database and stack backups."],
   ["Tasks", "Scheduled commands."],
   ["Logs", "Container logs."],
+  ["Console", "Commands and shells in containers and on servers."],
   ["Monitoring", "Uptime checks."],
   ["Metrics", "Resource, request and deployment metrics in the Prometheus text format."],
-  ["Servers", "Servers, their proxy and SSH keys."],
+  ["Servers", "Servers, their proxy, SSH keys and private networks."],
+  ["Tailscale", "Servers in a Tailscale tailnet (Root admins)."],
   ["Certificates", "TLS certificates."],
-  ["Integrations", "Registries, S3, notifications, secret managers, Cloudflare and Git."],
+  ["Integrations", "Registries, S3, notifications, log drains, secret managers, Cloudflare and Git."],
   ["Templates", "One-click templates."],
   ["Instance", "Updates and backups of this Serve instance (Root admins)."],
 ] as const;

@@ -41,6 +41,11 @@ export type ApiRoute = {
   status?: number;
   /** Media type of a successful answer when it is not JSON (the handler returns a Response). */
   produces?: string;
+  /**
+   * Not counted against the token's requests per minute: keystrokes of an open terminal, which
+   * arrive as one small request each and are bounded by the typing. Opening the terminal counts.
+   */
+  unmetered?: boolean;
   // biome-ignore lint/suspicious/noExplicitAny: each route's own schemas type its handler.
   handler: (c: HandlerContext<any, any>) => Promise<unknown>;
 };
@@ -170,7 +175,7 @@ export function createRouter(routes: ApiRoute[], publicRoutes: Record<string, (r
     const { auth, error: authError } = await authenticateToken(request);
     if (authError) return authError;
     const { takeRequest } = await import("./rate-limit");
-    const rate = takeRequest(auth.tokenId, apiRateLimit);
+    const rate = r.unmetered ? { allowed: true, headers: {} } : takeRequest(auth.tokenId, apiRateLimit);
     if (!rate.allowed) {
       const res = error(429, `Too many requests: this token may make ${apiRateLimit} per minute. Try again after the Retry-After seconds.`);
       setHeaders(res, rate.headers);

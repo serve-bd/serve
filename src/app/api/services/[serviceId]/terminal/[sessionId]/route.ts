@@ -2,8 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { requireOrg } from "@/server/auth";
 import { serviceInOrg } from "@/server/services/access";
-import { closeSession, getSession, resizeSession, subscribe, writeSession } from "@/server/services/terminal";
+import { closeSession, getSession, resizeSession, writeSession } from "@/server/services/terminal";
 import { readJsonLimited } from "@/server/http-body";
+import { terminalEvents } from "@/server/services/console";
 
 export const dynamic = "force-dynamic";
 
@@ -33,41 +34,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   if (!session) return NextResponse.json({ error: "Session ended" }, { status: 404 });
   // EventSource sends Last-Event-ID when it reconnects on its own.
   const since = Number(request.headers.get("last-event-id") ?? request.nextUrl.searchParams.get("since") ?? 0) || 0;
-  const encoder = new TextEncoder();
-  let cleanup = () => {};
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const send = (text: string) => {
-        try {
-          controller.enqueue(encoder.encode(text));
-        } catch {
-          cleanup();
-        }
-      };
-      const ping = setInterval(() => send(": ping\n\n"), 15_000);
-      const unsubscribe = subscribe(session, since, (event) => {
-        if (event.type === "data") send(`id: ${event.seq}\ndata: ${event.data.toString("base64")}\n\n`);
-        else {
-          send(`event: exit\ndata: ${JSON.stringify({ code: event.code })}\n\n`);
-          cleanup();
-          try {
-            controller.close();
-          } catch {}
-        }
-      });
-      cleanup = () => {
-        clearInterval(ping);
-        unsubscribe();
-      };
-      request.signal.addEventListener("abort", () => cleanup());
-    },
-    cancel() {
-      cleanup();
-    },
-  });
-  return new Response(body, {
-    headers: { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", "x-accel-buffering": "no", connection: "keep-alive" },
-  });
+  return terminalEvents(session, since, request.signal);
 }
 
 const inputSchema = z.discriminatedUnion("type", [

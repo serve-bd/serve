@@ -665,6 +665,37 @@ export const databaseRoutes: ApiRoute[] = [
 
   // Monitoring and maintenance
   route({
+    method: "GET",
+    path: "/services/{serviceId}/monitor",
+    tag: "Monitoring",
+    summary: "The uptime check of a service",
+    description: "monitor holds the fields PUT takes, so one can be changed and sent back; null when the service has no check. status and the last check come with it.",
+    needs: ["projects.view"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      const [m] = await db.select().from(schema.monitor).where(eq(schema.monitor.serviceId, params.serviceId));
+      if (!m) return { monitor: null };
+      return {
+        monitor: {
+          enabled: m.enabled,
+          kind: m.kind,
+          url: m.url,
+          path: m.path,
+          expectedStatus: m.expectedStatus,
+          keyword: m.keyword,
+          intervalSeconds: m.intervalSeconds,
+          timeoutMs: m.timeoutMs,
+          failureThreshold: m.failureThreshold,
+        },
+        status: m.status,
+        consecutiveFailures: m.consecutiveFailures,
+        lastCheckedAt: iso(m.lastCheckedAt),
+        lastLatencyMs: m.lastLatencyMs,
+        lastError: m.lastError,
+      };
+    },
+  }),
+  route({
     method: "PUT",
     path: "/services/{serviceId}/monitor",
     tag: "Monitoring",

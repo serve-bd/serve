@@ -8,8 +8,15 @@ import * as environments from "@/server/actions/environments";
 import * as services from "@/server/actions/services";
 import * as sharedVars from "@/server/actions/shared-vars";
 import * as move from "@/server/actions/move";
+import { approveDeployment, rejectDeployment } from "@/server/actions/deploy-rules";
 import { deploymentView, environmentView, loadDeployment, loadEnvironment, loadProject, projectFilter, projectView, serviceView } from "../data";
-import { type ApiRoute, assertCan, route, unwrap } from "../router";
+import { ApiError, type ApiRoute, assertCan, route, unwrap } from "../router";
+
+/** A deployment that no longer waits, or a freeze, is a conflict with its state, not a bad request. */
+const waitConflict = (e: unknown): never => {
+  if (e instanceof ApiError && e.status === 400 && /not waiting for approval|frozen/i.test(e.message)) throw new ApiError(409, e.message);
+  throw e;
+};
 
 const projectBody = z.object({
   name: z.string().min(1).max(60),
@@ -314,6 +321,35 @@ export const projectRoutes: ApiRoute[] = [
       await loadDeployment(auth, params.deploymentId);
       await unwrap(services.forceStartDeployment(params.deploymentId));
       return { ok: true };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/deployments/{deploymentId}/approve",
+    tag: "Deployments",
+    summary: "Approve a deployment that waits for approval",
+    description: "It is queued and builds as usual. A deploy freeze still holds it back (409 with when the freeze ends).",
+    needs: ["deploys.approve"],
+    handler: async ({ auth, params }) => {
+      await loadDeployment(auth, params.deploymentId);
+      await unwrap(approveDeployment(params.deploymentId)).catch(waitConflict);
+      const { deployment } = await loadDeployment(auth, params.deploymentId);
+      return { deployment: deploymentView(deployment) };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/deployments/{deploymentId}/reject",
+    tag: "Deployments",
+    summary: "Reject a deployment that waits for approval",
+    description: "It is cancelled. reason (optional, up to 500 characters) is shown with it.",
+    needs: ["deploys.approve"],
+    body: z.object({ reason: z.string().max(500).nullable().optional() }),
+    handler: async ({ auth, params, body }) => {
+      await loadDeployment(auth, params.deploymentId);
+      await unwrap(rejectDeployment(params.deploymentId, body.reason ?? null)).catch(waitConflict);
+      const { deployment } = await loadDeployment(auth, params.deploymentId);
+      return { deployment: deploymentView(deployment) };
     },
   }),
   route({

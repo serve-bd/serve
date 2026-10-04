@@ -28,7 +28,8 @@ const taskSchema = z.object({
   command: z.string().trim().min(1, "Enter a command").max(4000),
   composeService: z.string().nullable().optional(),
   timeoutSeconds: z.number().int().min(10).max(86400).default(3600),
-  enabled: z.boolean().default(true),
+  /** Left out: a new task is on, an edited one stays as it was (editing must not turn a paused task back on). */
+  enabled: z.boolean().optional(),
 });
 
 async function taskInOrg(taskId: string, orgId: string) {
@@ -53,7 +54,7 @@ export async function saveTask(serviceId: string, taskId: string | null, input: 
       return { id: taskId };
     }
     const id = newId();
-    await db.insert(schema.scheduledTask).values({ id, serviceId, ...data });
+    await db.insert(schema.scheduledTask).values({ id, serviceId, ...data, enabled: data.enabled ?? true });
     await logActivity({
       userId: ctx.user.id,
       projectId: service.projectId,

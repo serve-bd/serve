@@ -3,14 +3,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { requireOrg } from "@/server/auth";
 import { serviceInOrg } from "@/server/services/access";
-import { serviceHasHostAccess } from "@/server/security";
-import { execCommand, execTargets, pickContainer } from "@/server/services/exec";
+import { execTargets, pickContainer } from "@/server/services/exec";
+import { execResponse, HOST_SHELL, hostShellRefused } from "@/server/services/console";
 import { logActivity } from "@/server/activity";
 import { readJsonLimited } from "@/server/http-body";
 
 export const dynamic = "force-dynamic";
-
-const HOST_SHELL = "This service has host-level access: only admins of the Root organization can run commands in it.";
 
 /** Containers available for the console. */
 export async function GET(_req: NextRequest, ctx: RouteContext<"/api/services/[serviceId]/exec">) {
@@ -39,7 +37,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/service
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   // Host mounts or privileged: a shell there is close to a shell on the host.
-  if (serviceHasHostAccess(service) && !org.isInstanceAdmin) return NextResponse.json({ error: HOST_SHELL }, { status: 403 });
+  if (hostShellRefused(service, org.isInstanceAdmin)) return NextResponse.json({ error: HOST_SHELL }, { status: 403 });
   const parsed = bodySchema.safeParse(await readJsonLimited(request, 65_536, {}));
   if (!parsed.success) return NextResponse.json({ error: "Enter a command" }, { status: 400 });
   let container;
@@ -57,31 +55,5 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/service
     message: `Ran \`${parsed.data.command.slice(0, 80)}\` in ${service.name}`,
   });
 
-  const encoder = new TextEncoder();
-  const abort = new AbortController();
-  request.signal.addEventListener("abort", () => abort.abort());
-  const body = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const push = (text: string) => {
-        try {
-          controller.enqueue(encoder.encode(text));
-        } catch {
-          abort.abort();
-        }
-      };
-      try {
-        const result = await execCommand(container.id, parsed.data.command, { onData: push, signal: abort.signal, timeoutSeconds: 900, docker: container.docker });
-        push(`\n\u0000${result.exitCode}`);
-      } catch (e) {
-        push(`${(e as Error).message}\n\u00001`);
-      }
-      try {
-        controller.close();
-      } catch {}
-    },
-    cancel() {
-      abort.abort();
-    },
-  });
-  return new Response(body, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-cache", "x-accel-buffering": "no" } });
+  return execResponse(container, parsed.data.command, request.signal);
 }

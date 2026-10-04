@@ -213,7 +213,7 @@ export const orgRoutes: ApiRoute[] = [
     path: "/tokens",
     tag: "Token",
     summary: "List API tokens",
-    description: "Your own tokens; every token of the organization with members.manage. New tokens are made in the dashboard (Keys & tokens).",
+    description: "Your own tokens; every token of the organization with members.manage.",
     needs: [],
     handler: async ({ auth }) => {
       const rows = await db
@@ -233,6 +233,49 @@ export const orgRoutes: ApiRoute[] = [
           lastUsedAt: iso(t.lastUsedAt),
           createdAt: iso(t.createdAt),
         })),
+      };
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/tokens",
+    tag: "Token",
+    summary: "Create an API token",
+    description:
+      "A token for the same person, as in Keys & tokens: scopes are permissions (or admin), never more than this token has; projectIds limits it to projects (a token limited to projects only makes tokens for those). expiresInDays: 1 to 3650, or null for none. A token that expires itself only makes tokens that expire no later. The secret (token) is in the answer once.",
+    needs: [],
+    body: z.object({
+      name: z.string(),
+      scopes: z.array(z.string()).min(1),
+      projectIds: z.array(z.string()).nullable().optional(),
+      expiresInDays: z.number().int().nullable().optional(),
+    }),
+    status: 201,
+    handler: async ({ auth, body }) => {
+      const [self] = await db.select({ expiresAt: schema.apiToken.expiresAt }).from(schema.apiToken).where(eq(schema.apiToken.id, auth.tokenId));
+      let days = body.expiresInDays ?? null;
+      // A leaked token must not outlive itself through the tokens it makes.
+      if (self?.expiresAt) {
+        const left = Math.floor((self.expiresAt.getTime() - Date.now()) / 86_400_000);
+        if (left < 1) throw new ApiError(403, "This token expires within a day: make new tokens in the dashboard (Keys & tokens).");
+        if (body.expiresInDays === undefined) days = left;
+        else if (days === null || days > left)
+          throw new ApiError(400, `This token expires in ${left} day${left === 1 ? "" : "s"}: a token it makes must expire within ${left} day${left === 1 ? "" : "s"} too.`);
+      }
+      const { token } = await unwrap(org.createApiToken({ name: body.name, scopes: body.scopes, projectIds: body.projectIds ?? null, expiresInDays: days }));
+      const [row] = await db
+        .select()
+        .from(schema.apiToken)
+        .where(and(eq(schema.apiToken.organizationId, auth.organizationId), eq(schema.apiToken.prefix, token.slice(0, 10))))
+        .orderBy(desc(schema.apiToken.createdAt))
+        .limit(1);
+      return {
+        token,
+        id: row?.id ?? null,
+        name: row?.name ?? body.name,
+        granted: row?.scopes ?? null,
+        projectIds: row?.projectIds ?? null,
+        expiresAt: iso(row?.expiresAt),
       };
     },
   }),

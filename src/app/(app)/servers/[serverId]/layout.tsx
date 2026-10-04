@@ -86,6 +86,7 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
                       { href: `${base}/services`, label: "Services", icon: "Layers3" },
                       { href: `${base}/domains`, label: "Domains", icon: "Globe" },
                       { href: `${base}/network`, label: "Private network", icon: "Waypoints", warn: row.mesh?.enabled === true && row.mesh.state === "error" },
+                      { href: `${base}/sharing`, label: "Sharing", icon: "Users" },
                     ],
                   },
                   {

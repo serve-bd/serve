@@ -6,7 +6,7 @@ import { proxyStatus } from "@/server/proxy/nginx";
 import { commandExists } from "@/server/process";
 import { fingerprint } from "@/server/servers/ssh";
 import { ServerOverview } from "./general";
-import { AccessCard, ConnectionSettings, ValidationCard, type ServerDetails } from "./server-settings";
+import { ConnectionSettings, ValidationCard, type ServerDetails } from "./server-settings";
 import { loadServerView, withTimeout } from "./_lib/load";
 import { TunnelCard } from "./tunnel-card";
 
@@ -17,7 +17,7 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
   const { row, ctx, server, manage } = await loadServerView(serverId);
   const reachable = row.isLocal || row.status === "ready";
 
-  const [settings, keys, orgs, [{ services }]] = await Promise.all([
+  const [settings, keys, [{ services }]] = await Promise.all([
     getSettings(),
     // Keys of the server's owner (instance keys for instance servers).
     db
@@ -25,9 +25,6 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
       .from(schema.privateKey)
       .where(row.ownerOrganizationId ? eq(schema.privateKey.organizationId, row.ownerOrganizationId) : isNull(schema.privateKey.organizationId))
       .orderBy(asc(schema.privateKey.name)),
-    ctx.isInstanceAdmin
-      ? db.select({ id: schema.organization.id, name: schema.organization.name }).from(schema.organization).orderBy(asc(schema.organization.createdAt))
-      : Promise.resolve([]),
     db.select({ services: count() }).from(schema.service).where(eq(schema.service.serverId, serverId)),
   ]);
 
@@ -109,11 +106,6 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
         />
       ) : (
         <ConnectionSettings server={details} keys={keys} />
-      )}
-      {ctx.isInstanceAdmin ? (
-        <AccessCard server={details} organizations={orgs} />
-      ) : (
-        <p className="px-1 text-[13px] text-muted">This server belongs to {ctx.org.name}. Only this organization deploys to it, unless a Root admin shares it with another one.</p>
       )}
     </>
   );

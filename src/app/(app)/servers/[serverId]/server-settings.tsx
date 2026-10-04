@@ -348,7 +348,13 @@ const INSTANCE = "instance";
 /** Removes the tunnel service from a machine whose server was removed here. */
 const TUNNEL_REMOVE_COMMAND = "sudo systemctl disable --now serve-tunnel; sudo pkill -f /etc/serve-tunnel/; sudo rm -rf /etc/serve-tunnel /etc/systemd/system/serve-tunnel.service";
 
-export function AccessCard({ server, organizations }: { server: ServerDetails; organizations: { id: string; name: string }[] }) {
+export function AccessCard({
+  server,
+  organizations,
+}: {
+  server: Pick<ServerDetails, "id" | "name" | "isLocal" | "organizationIds" | "ownerOrganizationId" | "services" | "tunnel">;
+  organizations: { id: string; name: string }[];
+}) {
   return (
     <SettingsCard
       // The server may save other values than chosen (an owner change resets sharing): start over from what it saved.

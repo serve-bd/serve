@@ -131,7 +131,7 @@ func (a *App) servicesCmd() *cobra.Command {
 }
 
 func (a *App) serversCmd() *cobra.Command {
-	return lsCmd("servers", "List the servers you can deploy to", []string{"server"}, func(cmd *cobra.Command, asJSON bool) error {
+	cmd := lsCmd("servers", "List, add and manage servers", []string{"server"}, func(cmd *cobra.Command, asJSON bool) error {
 		c, err := a.Client()
 		if err != nil {
 			return err
@@ -154,6 +154,8 @@ func (a *App) serversCmd() *cobra.Command {
 		ui.Table([]string{"NAME", "STATUS", "HOST", "ID"}, rows)
 		return nil
 	})
+	cmd.AddCommand(a.serverSubcommands()...)
+	return cmd
 }
 
 func (a *App) domainsCmd() *cobra.Command {

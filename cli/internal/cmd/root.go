@@ -96,6 +96,7 @@ Commands that work on a service use the one this folder is linked to (serve link
 		&cobra.Group{ID: "deploy", Title: "Deploying:"},
 		&cobra.Group{ID: "manage", Title: "Managing a service:"},
 		&cobra.Group{ID: "browse", Title: "Browsing:"},
+		&cobra.Group{ID: "admin", Title: "Administration:"},
 	)
 	add := func(group string, cmds ...*cobra.Command) {
 		for _, c := range cmds {
@@ -107,6 +108,7 @@ Commands that work on a service use the one this folder is linked to (serve link
 	add("deploy", a.deployCmd(), a.deploymentsCmd(), a.redeployCmd(), a.rollbackCmd(), a.cancelCmd(), a.forceStartCmd())
 	add("manage", a.statusCmd(), a.openCmd(), a.logsCmd(), a.controlCmd("start"), a.controlCmd("stop"), a.controlCmd("restart"), a.builderCmd(), a.envCmd(), a.domainsCmd(), a.dbCmd())
 	add("browse", a.projectsCmd(), a.servicesCmd(), a.serversCmd())
+	add("admin", a.sshKeysCmd(), a.certificatesCmd(), a.instanceCmd())
 	root.AddCommand(a.versionCmd(), a.upgradeCmd())
 	guardGroups(root)
 	for _, p := range noticeCommands {

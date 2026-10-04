@@ -17,16 +17,24 @@ func (a *App) dbCmd() *cobra.Command {
 	}
 	var public bool
 	urlCmd := &cobra.Command{
-		Use:   "url",
+		Use:   "url [database]",
 		Short: "Print the connection string of a database",
 		Long: `Print the connection string of a database: the linked service when it is a
 database, else one picked from its environment (or --service).
 
 The address works from other services on the same Serve network. --public prints the
 address that works from outside, when the database has a public port or a domain.`,
-		Args: noArgs,
+		Example: "  serve db url\n  serve db url postgres\n  serve db url --service postgres --public",
+		Args:    maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			// The database may be named directly: serve db url postgres.
+			if len(args) == 1 {
+				if a.service != "" && a.service != args[0] {
+					return usagef("name the database once: %q or --service %q", args[0], a.service)
+				}
+				a.service = args[0]
+			}
 			s, err := a.target(ctx, ".", databaseService)
 			if err != nil {
 				return err

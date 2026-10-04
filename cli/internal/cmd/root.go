@@ -108,6 +108,7 @@ Commands that work on a service use the one this folder is linked to (serve link
 	add("manage", a.statusCmd(), a.openCmd(), a.logsCmd(), a.controlCmd("start"), a.controlCmd("stop"), a.controlCmd("restart"), a.builderCmd(), a.envCmd(), a.domainsCmd(), a.dbCmd())
 	add("browse", a.projectsCmd(), a.servicesCmd(), a.serversCmd())
 	root.AddCommand(a.versionCmd(), a.upgradeCmd())
+	guardGroups(root)
 	for _, p := range noticeCommands {
 		if c, _, err := root.Find(p); err == nil && c.Name() == p[len(p)-1] {
 			withNotice(c)
@@ -242,4 +243,29 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// guardGroups makes a command that only groups others (serve db, serve env) refuse a word it does
+// not know, instead of printing its help as if nothing were wrong. With no word it prints the help.
+func guardGroups(c *cobra.Command) {
+	for _, sub := range c.Commands() {
+		guardGroups(sub)
+	}
+	if c.Parent() == nil || !c.HasSubCommands() || c.Run != nil || c.RunE != nil {
+		return
+	}
+	c.Args = func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return nil
+		}
+		// Typos of up to two letters, like "ulr" for "url", get the right word back.
+		if cmd.SuggestionsMinimumDistance <= 0 {
+			cmd.SuggestionsMinimumDistance = 2
+		}
+		if s := cmd.SuggestionsFor(args[0]); len(s) > 0 {
+			return usagef("unknown command %q for %s. Did you mean %s %s?", args[0], cmd.CommandPath(), cmd.CommandPath(), s[0])
+		}
+		return usagef("unknown command %q for %s", args[0], cmd.CommandPath())
+	}
+	c.RunE = func(cmd *cobra.Command, args []string) error { return cmd.Help() }
 }

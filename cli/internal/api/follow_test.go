@@ -159,8 +159,12 @@ func TestFollowServiceLogs(t *testing.T) {
 	if strings.Join(got, ",") != "b,c,c2,d" {
 		t.Fatalf("lines %v", got)
 	}
-	if sinces[0] != "" || sinces[1] != ts(3) {
-		t.Fatalf("since %v", sinces[:2])
+	// The fake server may still be answering a last poll: read what it saw under its lock.
+	mu.Lock()
+	seen := append([]string(nil), sinces...)
+	mu.Unlock()
+	if seen[0] != "" || seen[1] != ts(3) {
+		t.Fatalf("since %v", seen[:2])
 	}
 }
 

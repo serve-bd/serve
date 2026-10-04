@@ -191,7 +191,7 @@ function EditTagDialog({ tag, onClose }: { tag: TagRow | "new" | null; onClose: 
                     onClick={() => setColor(c)}
                     className={cn("rounded-full", c === color && "ring-2 ring-accent ring-offset-2 ring-offset-surface")}
                   >
-                    <TagChip name={name.trim() || c} color={c} />
+                    <TagChip name={c} color={c} className="capitalize" />
                   </button>
                 ))}
               </div>

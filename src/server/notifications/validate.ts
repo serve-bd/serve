@@ -58,6 +58,8 @@ export function validateChannelConfig(kind: string, input: Record<string, string
       if (!/^\d+:[\w-]{20,}$/.test(c.botToken)) throw new ChannelConfigError("The bot token looks like 123456:ABC-DEF…, from @BotFather.");
       if (!/^(-?\d+|@[A-Za-z]\w{3,})$/.test(c.chatId)) throw new ChannelConfigError("The chat ID is a number like -1001234567890, or @channelname.");
       if (c.threadId && !/^\d+$/.test(c.threadId)) throw new ChannelConfigError("The topic ID is a number.");
+      if (c.threadMap && c.threadMap.split(/[,\n]/).some((p) => p.trim() && !/^[a-z.]+\s*=\s*\d+$/.test(p.trim())))
+        throw new ChannelConfigError("Topics by event: use event=topic pairs, like deploy=12, backup=15.");
       break;
     case "matrix":
       c.homeserver = httpUrl(c.homeserver, "Homeserver URL");

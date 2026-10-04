@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
-import type { Severity } from "@/lib/notifications";
+import { type Severity, topicFor } from "@/lib/notifications";
 
 /** One notification, resolved and ready to send. Also the stored form used for retries. */
 export type OutgoingMessage = {
@@ -406,7 +406,7 @@ export function planDelivery(kind: string, config: Record<string, string>, m: Ou
             trusted: true,
             body: JSON.stringify({
               chat_id: c("chatId"),
-              message_thread_id: c("threadId") ? Number(c("threadId")) : undefined,
+              message_thread_id: topicFor(c("threadMap"), m.event) ?? (c("threadId") ? Number(c("threadId")) : undefined),
               text: html.slice(0, 4096),
               parse_mode: "HTML",
               link_preview_options: { is_disabled: true },

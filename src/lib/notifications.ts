@@ -42,6 +42,21 @@ export type NotifyEvent = (typeof notifyEventCatalog)[number]["id"];
 
 export const notifyEventGroups: NotifyEventGroup[] = ["Deployments", "Uptime & incidents", "Backups", "Certificates", "Servers", "Tasks", "Organization", "Instance"];
 
+/**
+ * The Telegram topic for an event from "deploy=12, backup.failed=15": the longest name that is the
+ * event or the start of it wins (deploy.failed before deploy). Null when none matches.
+ */
+export function topicFor(map: string | undefined, event: string): number | null {
+  let best: { len: number; topic: number } | null = null;
+  for (const part of (map ?? "").split(/[,\n]/)) {
+    const m = part.trim().match(/^([a-z.]+)\s*=\s*(\d+)$/);
+    if (!m) continue;
+    const key = m[1].replace(/\.$/, "");
+    if ((event === key || event.startsWith(`${key}.`)) && (!best || key.length > best.len)) best = { len: key.length, topic: Number(m[2]) };
+  }
+  return best?.topic ?? null;
+}
+
 export function eventInfo(id: string) {
   return notifyEventCatalog.find((e) => e.id === id);
 }
@@ -177,6 +192,14 @@ export const providers = [
       { key: "botToken", label: "Bot token", placeholder: "123456:ABC-DEF…", secret: true, mono: true, description: "From @BotFather." },
       { key: "chatId", label: "Chat ID", placeholder: "-1001234567890", mono: true },
       { key: "threadId", label: "Topic ID", placeholder: "42", optional: true, mono: true, description: "For groups with topics." },
+      {
+        key: "threadMap",
+        label: "Topics by event",
+        placeholder: "deploy=12, backup=15, server=20",
+        optional: true,
+        mono: true,
+        description: "Send some events to other topics. deploy covers every deployment event, deploy.failed only that one. Others go to the Topic ID.",
+      },
     ],
   },
   {

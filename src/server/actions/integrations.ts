@@ -83,7 +83,7 @@ export async function startCloudflareOauth(accountId?: string) {
     const h = await headers();
     const host = (h.get("x-forwarded-host") ?? h.get("host"))?.split(",")[0]?.trim();
     const { publicBaseUrl } = await import("@/server/git/github-app");
-    const base = host && /^[a-z0-9.\-]+(:\d+)?$|^\[[0-9a-f:.]+\](:\d+)?$/i.test(host) ? `${requestIsHttps(h) ? "https" : "http"}://${host}` : await publicBaseUrl();
+    const base = host && /^[a-z0-9.-]+(:\d+)?$|^\[[0-9a-f:.]+\](:\d+)?$/i.test(host) ? `${requestIsHttps(h) ? "https" : "http"}://${host}` : await publicBaseUrl();
     const callback = `${base}/api/cloudflare/oauth/callback`;
     return startOauth({ userId: ctx.user.id, organizationId: ctx.org.id, accountId: accountId ?? null, callback });
   });

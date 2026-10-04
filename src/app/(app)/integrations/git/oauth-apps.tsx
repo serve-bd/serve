@@ -111,12 +111,27 @@ export function OAuthApps({ apps, isAdmin }: { apps: OAuthAppRow[]; isAdmin: boo
 
 /* ----------------------------- Method choice ----------------------------- */
 
-function MethodOption({ icon, title, body, badge, onClick }: { icon: React.ReactNode; title: string; body: string; badge?: string; onClick: () => void }) {
+export function MethodOption({
+  icon,
+  title,
+  body,
+  badge,
+  onClick,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  badge?: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-start gap-3 rounded-xl border border-line px-4 py-3.5 text-left transition-colors hover:border-line-strong hover:bg-hover/40"
+      disabled={disabled}
+      className="flex w-full items-start gap-3 rounded-xl border border-line px-4 py-3.5 text-left transition-colors hover:border-line-strong hover:bg-hover/40 disabled:cursor-wait disabled:opacity-60"
     >
       <span className="mt-0.5 flex size-8 flex-none items-center justify-center rounded-lg bg-accent-soft text-accent [&_svg]:size-4">{icon}</span>
       <span className="flex min-w-0 flex-col gap-0.5">

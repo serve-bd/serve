@@ -59,7 +59,7 @@ describe("startOauth", () => {
     expect(auth.searchParams.get("client_id")).toBe("client-1");
     expect(auth.searchParams.get("redirect_uri")).toBe("https://serve.bd/connect/cloudflare");
     expect(auth.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(auth.searchParams.get("scope")).toContain("offline_access");
+    expect(auth.searchParams.get("scope")).toContain("argotunnel.write");
   });
 
   it("keeps the verifier out of sight of the relay: the state is encrypted", () => {
@@ -79,9 +79,10 @@ describe("startOauth", () => {
     expect(auth.searchParams.get("redirect_uri")).toBe(input.callback);
   });
 
-  it("refuses without a client id", () => {
+  it("uses Serve's own client by default", () => {
     delete process.env.CLOUDFLARE_OAUTH_CLIENT_ID;
-    expect(() => startOauth(input)).toThrow(/not set up/);
+    const auth = new URL(new URL(startOauth(input)).searchParams.get("auth")!);
+    expect(auth.searchParams.get("client_id")).toBe("ea2e921d3fb6f1acfd6e24bd319b8b77");
   });
 });
 

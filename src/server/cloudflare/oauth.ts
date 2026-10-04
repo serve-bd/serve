@@ -14,11 +14,14 @@ const AUTHORIZE_URL = "https://dash.cloudflare.com/oauth2/auth";
 const TOKEN_URL = "https://dash.cloudflare.com/oauth2/token";
 const REVOKE_URL = "https://dash.cloudflare.com/oauth2/revoke";
 
-/** Serve's public OAuth client. Not a secret. Empty until the client is published. */
-const CLIENT_ID = "";
+/** Serve's public OAuth client. Not a secret. */
+const CLIENT_ID = "ea2e921d3fb6f1acfd6e24bd319b8b77";
 const RELAY_URL = "https://serve.bd/connect/cloudflare";
-/** The permissions Serve uses, as Cloudflare's OAuth scope ids. offline_access brings a refresh token. */
-const SCOPES = ["zone.read", "dns.write", "zone-settings.write", "ssl-and-certificates.write", "cloudflare-tunnel.write", "offline_access"];
+/**
+ * The permissions Serve uses, as Cloudflare's OAuth scope ids (GET /oauth/scopes). Tunnels need
+ * Cloudflare Tunnel Write; Cloudflare One Connectors Write is its newer name.
+ */
+const SCOPES = ["zone.read", "dns.write", "zone-settings.write", "ssl-and-certificates.write", "argotunnel.write", "teams-connectors.write"];
 
 /** Renew this long before the access token runs out, so no request races the expiry. */
 const RENEW_BEFORE_MS = 5 * 60_000;

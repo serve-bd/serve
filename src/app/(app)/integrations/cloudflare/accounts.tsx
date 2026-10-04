@@ -4,7 +4,7 @@ import * as React from "react";
 import { toast } from "@/components/ui/toast";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight, Cloud, Plus, RefreshCw, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
+import { ChevronRight, Cloud, KeyRound, Plus, RefreshCw, Server as ServerIcon, Trash2, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, EmptyState } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -14,6 +14,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { showError, useAction } from "@/hooks/use-action";
 import { cloudflareDisconnectImpact, connectCloudflare, disconnectCloudflare, enableTunnel, refreshTunnels, startCloudflareOauth } from "@/server/actions/integrations";
 import { TunnelRow, type TunnelInfo } from "./tunnel-row";
+import { MethodOption } from "../git/oauth-apps";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 
 type Account = {
@@ -142,6 +143,8 @@ function useCloudflareSignIn() {
 
 export function ConnectCloudflareDialog({ open, onOpenChange, oauth }: { open: boolean; onOpenChange: (o: boolean) => void; oauth: boolean }) {
   const signIn = useCloudflareSignIn();
+  // Without sign-in on this instance, the token form is the only way, so it shows at once.
+  const [method, setMethod] = React.useState<"choose" | "token">(oauth ? "choose" : "token");
   const [name, setName] = React.useState("");
   const [token, setToken] = React.useState("");
   const [originKey, setOriginKey] = React.useState("");
@@ -151,56 +154,75 @@ export function ConnectCloudflareDialog({ open, onOpenChange, oauth }: { open: b
       setToken("");
     },
   });
+  // Each opening starts at the choice again.
+  React.useEffect(() => {
+    if (open) setMethod(oauth ? "choose" : "token");
+  }, [open, oauth]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <form
-          method="post"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void run();
-          }}
-        >
-          <DialogHeader title="Connect Cloudflare" description="Tokens are encrypted and only used for your zones." />
-          <DialogBody>
-            {oauth && (
-              <>
-                <Button type="button" variant="primary" className="w-full" loading={signIn.pending} onClick={() => signIn.run()}>
-                  <Cloud /> Sign in with Cloudflare
+        {method === "choose" ? (
+          <>
+            <DialogHeader title="Connect Cloudflare" description="Manage DNS, certificates and tunnels of your domains from Serve." />
+            <DialogBody>
+              <MethodOption
+                icon={<Cloud />}
+                title="Sign in with Cloudflare"
+                badge="Recommended"
+                body="Log in to Cloudflare and allow access. Nothing to copy."
+                disabled={signIn.pending}
+                onClick={() => signIn.run()}
+              />
+              <MethodOption
+                icon={<KeyRound />}
+                title="Paste an API token"
+                body="Create a token in Cloudflare yourself. Needed for Traefik's Cloudflare certificates."
+                onClick={() => setMethod("token")}
+              />
+            </DialogBody>
+          </>
+        ) : (
+          <form
+            method="post"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run();
+            }}
+          >
+            <DialogHeader title="Paste an API token" description="Tokens are encrypted and only used for your zones." />
+            <DialogBody>
+              <Field
+                label="API token"
+                description={
+                  <>
+                    Create one at <span className="text-fg-2">dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom token</span>, with these permissions:
+                  </>
+                }
+              >
+                <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} required className="font-mono" autoComplete="off" autoFocus />
+              </Field>
+              <TokenPermissions />
+              <Field label="Name" optional>
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Company account" />
+              </Field>
+              <Field label="Origin CA key" optional description="Only needed if your token cannot create origin certificates.">
+                <Input type="password" value={originKey} onChange={(e) => setOriginKey(e.target.value)} className="font-mono" autoComplete="off" />
+              </Field>
+            </DialogBody>
+            <DialogFooter>
+              {oauth ? (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setMethod("choose")}>
+                  Back
                 </Button>
-                <p className="-mt-2 text-xs text-muted">
-                  Cloudflare asks which account to allow. Serve renews the access by itself. For Traefik certificates, paste an API token instead.
-                </p>
-                <div className="flex items-center gap-3 text-xs text-faint">
-                  <span className="h-px flex-1 bg-line" /> or paste an API token <span className="h-px flex-1 bg-line" />
-                </div>
-              </>
-            )}
-            <Field label="Name" optional>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Company account" />
-            </Field>
-            <Field
-              label="API token"
-              description={
-                <>
-                  Create one at <span className="text-fg-2">dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom token</span>, with these permissions:
-                </>
-              }
-            >
-              <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} required className="font-mono" autoComplete="off" />
-            </Field>
-            <TokenPermissions />
-            <Field label="Origin CA key" optional description="Only needed if your token cannot create origin certificates.">
-              <Input type="password" value={originKey} onChange={(e) => setOriginKey(e.target.value)} className="font-mono" autoComplete="off" />
-            </Field>
-          </DialogBody>
-          <DialogFooter>
-            <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
-            <Button type="submit" variant={oauth ? "secondary" : "primary"} size="sm" loading={pending}>
-              Connect with token
-            </Button>
-          </DialogFooter>
-        </form>
+              ) : (
+                <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
+              )}
+              <Button type="submit" variant="primary" size="sm" loading={pending}>
+                Connect
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );

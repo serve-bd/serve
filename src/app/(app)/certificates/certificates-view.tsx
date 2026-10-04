@@ -401,7 +401,10 @@ function CertificateRow({
   const days = daysLeft(c.expiresAt);
   const failed = c.status === "failed";
   const managed = c.provider !== "custom";
-  const problem = failed && c.lastError ? explainCertError(c.lastError, { serverIp: c.serverIp ?? serverIp, provider: c.provider }) : null;
+  // A failed renewal keeps the certificate active (the old one still works), but it is shown too.
+  const renewFailed = c.status === "active" && !!c.lastError;
+  const explained = (failed || renewFailed) && c.lastError ? explainCertError(c.lastError, { serverIp: c.serverIp ?? serverIp, provider: c.provider }) : null;
+  const problem = explained && renewFailed ? { ...explained, title: `Renewal failed: ${explained.title}` } : explained;
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3.5 sm:px-5">
@@ -505,7 +508,7 @@ function CertificateRow({
       </div>
 
       {problem && (
-        <div className="rounded-xl border border-bad/15 bg-bad-soft/60 px-3.5 py-3 sm:ml-[50px]">
+        <div className={cn("rounded-xl px-3.5 py-3 sm:ml-[50px]", renewFailed ? "border border-warn/20 bg-warn-soft/60" : "border border-bad/15 bg-bad-soft/60")}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
               <p className="text-[13px] font-medium text-fg">{problem.title}</p>

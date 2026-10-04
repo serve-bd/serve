@@ -187,7 +187,7 @@ async function certbotOn(ctx: ServerCtx, cert: Cert, log: (l: string) => void) {
   if (settings.acmeStaging) args.push("--staging");
   const credsFiles: string[] = [];
   if (isDns) {
-    if (!cert.cloudflareAccountId) throw new Error("Pick a Cloudflare account for DNS validation.");
+    if (!cert.cloudflareAccountId) throw new Error(noCloudflareAccount(cert.domains));
     const [account] = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.id, cert.cloudflareAccountId));
     if (!account) throw new Error("The Cloudflare account for this certificate was removed.");
     // One file per certificate: a run that ends does not delete the file of another still running.
@@ -229,7 +229,7 @@ async function openssl(args: string[], cwd: string) {
 }
 
 async function cloudflareOrigin(cert: Cert, log: (l: string) => void) {
-  if (!cert.cloudflareAccountId) throw new Error("Pick a Cloudflare account for the origin certificate.");
+  if (!cert.cloudflareAccountId) throw new Error(noCloudflareAccount(cert.domains));
   const ctx = await certificateServer(cert);
   const cf = await Cloudflare.forAccount(cert.cloudflareAccountId);
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "serve-csr-"));
@@ -289,6 +289,13 @@ export async function applyCertificate(cert: Cert) {
 }
 
 /** A connected Cloudflare account whose zones contain every domain, if any. */
+/** Certificates that need a Cloudflare account to be issued. */
+export const needsCloudflareAccount = (provider: string) => provider === "cloudflare-origin" || provider === "letsencrypt-cloudflare";
+
+/** Why a certificate cannot be issued without an account: its account was disconnected and no other fits. */
+export const noCloudflareAccount = (domains: string[]) =>
+  `The Cloudflare account of this certificate was disconnected, and no connected account manages ${domains.join(", ")}. Connect one on the Cloudflare page, then renew.`;
+
 export async function cloudflareAccountFor(domains: string[], organizationId: string) {
   const accounts = await db.select().from(schema.cloudflareAccount).where(eq(schema.cloudflareAccount.organizationId, organizationId));
   for (const account of accounts) {
@@ -317,6 +324,11 @@ export async function issueCertificate(certificateId: string) {
         .where(eq(schema.certificate.id, cert.id))
         .returning();
     }
+  }
+  // Its account was disconnected (the reference is cleared): take a connected one that manages the domains.
+  if (needsCloudflareAccount(cert.provider) && !cert.cloudflareAccountId) {
+    const accountId = await cloudflareAccountFor(cert.domains, cert.organizationId);
+    if (accountId) [cert] = await db.update(schema.certificate).set({ cloudflareAccountId: accountId }).where(eq(schema.certificate.id, cert.id)).returning();
   }
   const wasActive = cert.status === "active";
   await db

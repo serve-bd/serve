@@ -10,7 +10,7 @@ import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { getSettings } from "@/server/settings";
 import { serverAllowsOrg } from "@/server/servers/access";
-import { applyCertificate, deleteCertificateFiles, saveCustomCertificate } from "@/server/ssl/certificates";
+import { applyCertificate, cloudflareAccountFor, deleteCertificateFiles, needsCloudflareAccount, noCloudflareAccount, saveCustomCertificate } from "@/server/ssl/certificates";
 import { logActivity } from "@/server/activity";
 import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 
@@ -158,6 +158,9 @@ export async function renewCertificate(id: string) {
     const ctx = await requirePermission("integrations.manage");
     const cert = await certInOrg(id, ctx.org.id);
     if (cert.provider === "custom") throw new UserError("Upload a new file to replace a custom certificate.");
+    // Said here, not only in the log: the renewal would fail at once without an account.
+    if (needsCloudflareAccount(cert.provider) && !cert.cloudflareAccountId && !(await cloudflareAccountFor(cert.domains, ctx.org.id)))
+      throw new UserError(noCloudflareAccount(cert.domains));
     await enqueue("certificate.issue", { certificateId: id }, { concurrencyKey: `cert:${id}` });
     return null;
   });

@@ -35,6 +35,8 @@ export function explainCertError(error: string, ctx: { serverIp?: string | null;
     };
   if (/unauthorized|invalid response|404/.test(e))
     return { title: `The HTTP check failed for ${which}`, hint: `The domain answers, but not from this server. Check that its A record points${ip.replace(" pointing", "")}.` };
+  if (/cloudflare account of this certificate was disconnected/.test(e))
+    return { title: "No Cloudflare account for this certificate", hint: "Its account was disconnected. Connect a Cloudflare account that manages these domains, then retry." };
   if (/caa record/.test(e)) return { title: "A CAA record blocks Let's Encrypt", hint: "Allow letsencrypt.org in the domain's CAA records, or remove them." };
   if (/incorrect txt record|_acme-challenge/.test(e) || ctx.provider === "letsencrypt-cloudflare") {
     if (/authentication|permission|invalid (api )?token|10000|9109/.test(e))

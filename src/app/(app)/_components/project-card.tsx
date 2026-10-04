@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Box, Database, Layers } from "lucide-react";
-import { StatusDot, statusColor, statusText } from "@/components/ui/status";
+import { StatusDot } from "@/components/ui/status";
 import { TimeAgo } from "@/components/ui/misc";
 
 export type ProjectSummary = {
@@ -19,11 +19,8 @@ const typeLabel = { app: "App", database: "Database", compose: "Stack" } as cons
 
 function summary(project: ProjectSummary) {
   const total = project.services.length;
-  const running = project.services.filter((s) => s.status === "running").length;
-  const failing = project.services.filter((s) => s.status === "failed" || s.status === "crashed").length;
   const counts = (Object.keys(typeIcon) as (keyof typeof typeIcon)[]).map((t) => ({ t, n: project.services.filter((s) => s.type === t).length })).filter((c) => c.n);
-  const health = total === 0 ? "idle" : failing ? "failed" : running === total ? "running" : "stopped";
-  return { total, running, failing, counts, health };
+  return { total, counts };
 }
 
 function Counts({ counts }: { counts: ReturnType<typeof summary>["counts"] }) {
@@ -40,45 +37,51 @@ function Counts({ counts }: { counts: ReturnType<typeof summary>["counts"] }) {
   });
 }
 
-/** One bar per service, colored by its status: the health of a project at a glance. */
-function HealthStrip({ services }: { services: ProjectSummary["services"] }) {
-  const shown = services.slice(0, 16);
+/**
+ * The project's health in words, by its most important state: something failing, then something
+ * deploying, then states Serve cannot tell, then stopped services, else all running.
+ */
+function Health({ services }: { services: ProjectSummary["services"] }) {
+  const total = services.length;
+  if (!total) return <span className="text-faint">Empty</span>;
+  const count = (states: string[]) => services.filter((s) => states.includes(s.status)).length;
+  const failing = count(["failed", "crashed"]);
+  const busy = count(["building", "deploying", "restarting"]);
+  const unknown = count(["unknown"]);
+  const down = total - count(["running"]) - failing - busy - unknown;
+  const [status, text] = failing
+    ? ["failed", `${failing} failing`]
+    : busy
+      ? ["deploying", `${busy} deploying`]
+      : unknown
+        ? ["unknown", `${unknown} unknown`]
+        : down
+          ? ["stopped", `${down} stopped`]
+          : ["running", "All running"];
   return (
-    <span className="flex h-2 w-full items-stretch gap-[3px]" aria-hidden>
-      {shown.map((s) => (
-        <Tooltip key={s.id} content={`${s.name}: ${statusText(s.status)}`} delay={0}>
-          <span className="min-w-1 flex-1 rounded-full" style={{ background: statusColor(s.status), opacity: s.status === "running" ? 1 : 0.75 }} />
-        </Tooltip>
-      ))}
+    <span className="inline-flex items-center gap-1.5">
+      <StatusDot status={status} />
+      <span className={failing ? "text-bad" : undefined}>{text}</span>
     </span>
   );
 }
 
 /** A project as a row of the list view. */
 export function ProjectRow({ project }: { project: ProjectSummary }) {
-  const { total, running, failing, counts, health } = summary(project);
+  const { total, counts } = summary(project);
   return (
     <Link href={`/projects/${project.id}`} className="group flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-fg/[0.025]">
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-center gap-2">
           <span className="truncate text-[14px] font-semibold text-fg">{project.name}</span>
-          {failing > 0 && <span className="flex-none rounded-full bg-bad-soft px-2 py-px text-[11px] font-medium text-bad">{failing} failing</span>}
         </span>
         <span className="truncate text-xs text-muted">{project.description || (total ? `${total} service${total === 1 ? "" : "s"}` : "No services yet")}</span>
       </span>
-      <span className="hidden w-40 flex-none md:block">{total > 0 && <HealthStrip services={project.services} />}</span>
       <span className="hidden w-32 flex-none items-center gap-3 text-xs text-muted sm:flex">
         <Counts counts={counts} />
       </span>
-      <span className="inline-flex w-24 flex-none items-center gap-1.5 text-xs text-muted tabular-nums">
-        {total > 0 ? (
-          <>
-            <StatusDot status={health} />
-            {running}/{total} running
-          </>
-        ) : (
-          <span className="text-faint">Empty</span>
-        )}
+      <span className="w-28 flex-none text-xs text-muted tabular-nums">
+        <Health services={project.services} />
       </span>
       <span className="hidden w-20 flex-none text-right text-xs text-faint lg:block">
         <TimeAgo date={project.updatedAt} />
@@ -88,7 +91,7 @@ export function ProjectRow({ project }: { project: ProjectSummary }) {
 }
 
 export function ProjectCard({ project }: { project: ProjectSummary }) {
-  const { total, running, failing, counts, health } = summary(project);
+  const { total, counts } = summary(project);
   return (
     <Link
       href={`/projects/${project.id}`}
@@ -105,14 +108,12 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
             )}
           </p>
         </div>
-        {failing > 0 && <span className="flex-none rounded-full bg-bad-soft px-2 py-0.5 text-[11px] font-medium text-bad">{failing} failing</span>}
       </div>
       <div className="flex items-center justify-between gap-3 text-xs text-muted">
         <div className="flex min-w-0 items-center gap-3">{counts.length ? <Counts counts={counts} /> : <span className="text-faint">No services yet</span>}</div>
         {total > 0 && (
-          <span className="inline-flex flex-none items-center gap-1.5 tabular-nums">
-            <StatusDot status={health} />
-            {running}/{total} running
+          <span className="flex-none tabular-nums">
+            <Health services={project.services} />
           </span>
         )}
       </div>

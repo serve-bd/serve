@@ -1,0 +1,41 @@
+{
+  "name": "Strapi",
+  "description": "Open-source headless CMS with a REST and GraphQL API and an admin panel.",
+  "category": "CMS",
+  "website": "https://strapi.io",
+  "color": "#4945FF",
+  "expose": {
+    "service": "strapi",
+    "port": 1337
+  },
+  "vars": [
+    {
+      "key": "POSTGRES_PASSWORD",
+      "generate": "password"
+    },
+    {
+      "key": "APP_KEYS",
+      "generate": "secret"
+    },
+    {
+      "key": "JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "ADMIN_JWT_SECRET",
+      "generate": "secret"
+    },
+    {
+      "key": "API_TOKEN_SALT",
+      "generate": "secret"
+    },
+    {
+      "key": "TRANSFER_TOKEN_SALT",
+      "generate": "secret"
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "generate": "secret"
+    }
+  ]
+}

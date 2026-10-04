@@ -2,7 +2,7 @@
   "name": "wg-easy",
   "description": "WireGuard VPN server with a web UI to manage clients.",
   "category": "Security",
-  "website": "https://wg-easy.github.io/wg-easy/",
+  "website": "https://wg-easy.github.io/wg-easy/latest/",
   "color": "#88171A",
   "hostAccess": true,
   "note": "Publishes UDP port 51820 (WireGuard) on the server and needs NET_ADMIN. Clients connect to the domain, so it must point straight at the server (no CDN proxy). Sign in as admin with the generated password (Variables tab).",

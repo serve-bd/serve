@@ -92,7 +92,8 @@ export async function previewMove(serviceIds: string[], targetEnvironmentId: str
     blockers.push(`Wait for the running deployment of ${[...new Set(names)].join(", ")} to finish.`);
   }
   const vars: Record<string, { key: string; value: string }[]> = {};
-  for (const v of g.vars) (vars[v.serviceId] ??= []).push({ key: v.key, value: decryptOrNull(v.value) ?? "" });
+  // Literal values hold ${{…}} as text: a move leaves them as they are.
+  for (const v of g.vars) if (!v.literal) (vars[v.serviceId] ??= []).push({ key: v.key, value: decryptOrNull(v.value) ?? "" });
   const envKeys: Record<string, string[]> = {};
   const projectKeys: Record<string, string[]> = {};
   for (const v of g.shared) {

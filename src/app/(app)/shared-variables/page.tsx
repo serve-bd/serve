@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
@@ -10,7 +10,7 @@ export const metadata = { title: "Shared variables" };
 export default async function SharedVariablesPage(props: PageProps<"/shared-variables">) {
   const params = await props.searchParams;
   const ctx = await requireOrg();
-  const scope: Scope = params.scope === "project" || params.scope === "environment" ? params.scope : "org";
+  const scope: Scope = params.scope === "project" || params.scope === "environment" || params.scope === "server" ? params.scope : "org";
 
   const projects = await db
     .select({ id: schema.project.id, name: schema.project.name })
@@ -35,23 +35,37 @@ export default async function SharedVariablesPage(props: PageProps<"/shared-vari
   const projectEnvs = environments.filter((e) => e.projectId === project?.id);
   const environment = projectEnvs.find((e) => e.name === params.env) ?? projectEnvs.find((e) => e.name === "production") ?? projectEnvs[0] ?? null;
 
+  const { serversForOrg } = await import("@/server/servers/access");
+  const servers = (await serversForOrg(ctx.org.id)).map((s) => ({ id: s.id, name: s.name }));
+  const server = servers.find((s) => s.id === params.server) ?? servers[0] ?? null;
+
+  const serverRows =
+    scope === "server" && server
+      ? await db
+          .select()
+          .from(schema.serverVar)
+          .where(and(eq(schema.serverVar.serverId, server.id), eq(schema.serverVar.organizationId, ctx.org.id)))
+          .orderBy(asc(schema.serverVar.key))
+      : [];
   const where =
-    scope === "org"
-      ? eq(schema.sharedVar.organizationId, ctx.org.id)
-      : scope === "project"
-        ? project && eq(schema.sharedVar.projectId, project.id)
-        : environment && eq(schema.sharedVar.environmentId, environment.id);
-  const rows = where ? await db.select().from(schema.sharedVar).where(where).orderBy(asc(schema.sharedVar.key)) : [];
+    scope === "server"
+      ? null
+      : scope === "org"
+        ? eq(schema.sharedVar.organizationId, ctx.org.id)
+        : scope === "project"
+          ? project && eq(schema.sharedVar.projectId, project.id)
+          : environment && eq(schema.sharedVar.environmentId, environment.id);
+  const rows = scope === "server" ? serverRows : where ? await db.select().from(schema.sharedVar).where(where).orderBy(asc(schema.sharedVar.key)) : [];
   // Organization values are admin-only; members see which keys exist.
   // Values are edited in place, so editing them needs seeing them.
-  const canEdit = ctx.can("variables.edit") && ctx.can("variables.view-secrets") && (scope === "org" ? ctx.isAdmin : true);
+  const canEdit = ctx.can("variables.edit") && ctx.can("variables.view-secrets") && (scope === "org" || scope === "server" ? ctx.isAdmin : true);
 
   return (
     <>
       <PageHeader title="Shared variables" description="Define a value once and reference it from any service. Values are encrypted at rest." />
       <PageBody>
         <SharedVariables
-          key={`${scope}:${project?.id ?? ""}:${environment?.id ?? ""}`}
+          key={`${scope}:${project?.id ?? ""}:${environment?.id ?? ""}:${server?.id ?? ""}`}
           scope={scope}
           canEdit={canEdit}
           canDeploy={ctx.can("services.deploy")}
@@ -59,6 +73,8 @@ export default async function SharedVariablesPage(props: PageProps<"/shared-vari
           environments={projectEnvs.map((e) => ({ id: e.id, name: e.name }))}
           project={project}
           environment={environment ? { id: environment.id, name: environment.name } : null}
+          servers={servers}
+          server={server}
           vars={rows.map((r) => ({ key: r.key, value: canEdit ? (decryptOrNull(r.value) ?? "") : "" }))}
         />
       </PageBody>

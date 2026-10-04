@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, Code2, Lock, Eye, EyeOff, Plus, Trash2, Link2, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, Code2, Lock, Eye, EyeOff, MoreHorizontal, Plus, Trash2, Link2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardFooter, CardHeader, CopyButton, EmptyState } from "@/components/ui/misc";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
@@ -19,7 +19,19 @@ import { Tab, Tabs, TabsList, TabsPanel } from "@/components/ui/tabs";
 import { CollapseButton, PreviewVars, type ReplicaVar, ReplicaVars, useCollapsed } from "./replica-vars";
 
 /** `hidden`: the value is kept on the server and not sent here (the role cannot see secrets); `from` is its stored key. */
-type Var = { key: string; value: string; buildTime: boolean; runtime: boolean; id?: number; hidden?: boolean; from?: string };
+type Var = {
+  key: string;
+  value: string;
+  buildTime: boolean;
+  runtime: boolean;
+  /** Kept as written: its ${{…}} are not filled in. */
+  literal?: boolean;
+  /** Edited in a multi-line field. */
+  multiline?: boolean;
+  id?: number;
+  hidden?: boolean;
+  from?: string;
+};
 
 /**
  * A group of values to reference. `addAs` names the variable Add creates (default: the key).
@@ -39,6 +51,7 @@ export function VariablesEditor({
   initial,
   references,
   composeVars = [],
+  composeRequired = [],
   replicas = 0,
   replicaVars = {},
   canEdit = true,
@@ -54,6 +67,8 @@ export function VariablesEditor({
   references: Reference[];
   /** ${VARIABLES} the compose file uses without a default. */
   composeVars?: string[];
+  /** ${VAR:?message} of the compose file: an empty value stops the deploy. */
+  composeRequired?: { name: string; message: string | null }[];
   /** Replicas across all servers; 0 when the service has none (compose, databases). */
   replicas?: number;
   replicaVars?: Record<number, ReplicaVar[]>;
@@ -75,14 +90,37 @@ export function VariablesEditor({
   const [collapsed, toggleCollapsed] = useCollapsed(`serve:vars-collapsed:${serviceId}`);
   const baselineOf = (rows: Omit<Var, "id">[]) =>
     JSON.stringify(
-      rows.filter((v) => v.key).map((v) => ({ key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime, ...(v.hidden ? { keep: v.from ?? v.key } : {}) })),
+      rows
+        .filter((v) => v.key)
+        .map((v) => ({
+          key: v.key,
+          value: v.value,
+          buildTime: v.buildTime,
+          runtime: v.runtime,
+          literal: !!v.literal,
+          multiline: !!v.multiline,
+          ...(v.hidden ? { keep: v.from ?? v.key } : {}),
+        })),
     );
   const [baseline, setBaseline] = React.useState(() => baselineOf(initial));
 
+  // The raw editor has no room for the flags: each name keeps the ones it had.
+  const flagsOf = (key: string, value: string) => {
+    const was = vars.find((x) => x.key === key);
+    return { buildTime: was?.buildTime ?? true, runtime: was?.runtime ?? true, literal: !!was?.literal, multiline: !!was?.multiline || value.includes("\n") };
+  };
   const current =
     raw !== null
-      ? parseEnv(raw).map((v) => ({ ...v, buildTime: vars.find((x) => x.key === v.key)?.buildTime ?? true, runtime: vars.find((x) => x.key === v.key)?.runtime ?? true }))
-      : vars.map((v) => ({ key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime, ...(v.hidden ? { keep: v.from ?? v.key } : {}) }));
+      ? parseEnv(raw).map((v) => ({ ...v, ...flagsOf(v.key, v.value) }))
+      : vars.map((v) => ({
+          key: v.key,
+          value: v.value,
+          buildTime: v.buildTime,
+          runtime: v.runtime,
+          literal: !!v.literal,
+          multiline: !!v.multiline,
+          ...(v.hidden ? { keep: v.from ?? v.key } : {}),
+        }));
   const dirty = JSON.stringify(current.filter((v) => v.key)) !== baseline;
 
   const save = useAction((redeploy: boolean) => saveEnvVars(serviceId, current, redeploy), {
@@ -112,6 +150,8 @@ export function VariablesEditor({
   // Saving with a redeploy needs deploy rights; without them the save alone still works.
   const canRedeploy = status !== "idle" && can("services.deploy");
   const missing = composeVars.filter((name) => !current.some((v) => v.key === name));
+  // Hidden values are not known here: only ones that are visibly empty count.
+  const empty = composeRequired.filter((r) => current.some((v) => v.key === r.name && v.value === "" && !("keep" in v)));
 
   return (
     <Tabs value={previewVars ? tab : "main"} onValueChange={(v) => setTab(v as "main" | "previews")} className="flex flex-col gap-4">
@@ -146,6 +186,22 @@ export function VariablesEditor({
                 </Button>
               </div>
             )}
+            {empty.length > 0 && (
+              <div role="alert" className="flex items-start gap-3 rounded-2xl border border-warn/30 bg-warn-soft px-4 py-3 text-[13px]">
+                <TriangleAlert className="mt-0.5 size-4 flex-none text-warn" />
+                <p className="min-w-0 flex-1 text-fg-2">
+                  The compose file needs a value for{" "}
+                  {empty.map((r, i) => (
+                    <React.Fragment key={r.name}>
+                      {i > 0 && ", "}
+                      <span className="font-mono text-fg">{r.name}</span>
+                      {r.message && <span className="text-muted"> ({r.message})</span>}
+                    </React.Fragment>
+                  ))}
+                  . Deploys stop while {empty.length === 1 ? "it is" : "they are"} empty.
+                </p>
+              </div>
+            )}
             <Card className="overflow-hidden">
               <CardHeader
                 className={cn(collapsed && "items-center border-b-0")}
@@ -165,12 +221,7 @@ export function VariablesEditor({
                         onClick={() => {
                           if (raw === null) setRaw(formatEnv(vars));
                           else {
-                            setVars(
-                              parseEnv(raw).map((v) => {
-                                const was = vars.find((x) => x.key === v.key);
-                                return withId({ ...v, buildTime: was?.buildTime ?? true, runtime: was?.runtime ?? true });
-                              }),
-                            );
+                            setVars(parseEnv(raw).map((v) => withId({ ...v, ...flagsOf(v.key, v.value) })));
                             setRaw(null);
                           }
                         }}
@@ -224,12 +275,14 @@ export function VariablesEditor({
                   {vars.map((v) => {
                     const editing = savedValues.get(v.id!) !== v.value;
                     const shown = editing || revealed.has(v.id!);
-                    const isRef = v.value.includes("${{");
+                    const isRef = !v.literal && v.value.includes("${{");
+                    const lines = v.value.split("\n").length;
                     return (
                       <div
                         key={v.id}
                         className={cn(
-                          "grid items-center gap-3 px-5 py-2.5",
+                          "grid gap-3 px-5 py-2.5",
+                          v.multiline ? "items-start" : "items-center",
                           hasBuild ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_120px_32px]" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_32px]",
                         )}
                       >
@@ -241,16 +294,50 @@ export function VariablesEditor({
                           disabled={!canEdit}
                         />
                         <div className="relative">
-                          <Input
-                            value={v.value}
-                            type={shown || isRef ? "text" : "password"}
-                            onChange={(e) => update(v.id!, { value: e.target.value, hidden: false })}
-                            placeholder={v.hidden ? (canEdit ? "Hidden. Type to replace it." : "Hidden") : canEdit ? "value" : ""}
-                            className={cn("pr-9 font-mono text-[12.5px]", isRef && "text-accent")}
-                            autoComplete="off"
-                            disabled={!canEdit}
-                            title={v.hidden ? "Your role cannot see secret values." : undefined}
-                          />
+                          {v.multiline && (shown || isRef || v.hidden || !v.value) ? (
+                            <Textarea
+                              value={v.value}
+                              onChange={(e) => update(v.id!, { value: e.target.value, hidden: false })}
+                              placeholder={v.hidden ? (canEdit ? "Hidden. Type to replace it." : "Hidden") : canEdit ? "value, over several lines" : ""}
+                              rows={Math.min(10, Math.max(3, lines + 1))}
+                              className={cn("min-h-0 pr-9 font-mono text-[12.5px]", isRef && "text-accent", v.literal && "pr-20")}
+                              autoComplete="off"
+                              spellCheck={false}
+                              disabled={!canEdit}
+                              title={v.hidden ? "Your role cannot see secret values." : undefined}
+                            />
+                          ) : v.multiline ? (
+                            // A saved multi-line secret stays masked until revealed.
+                            <div className="flex h-9 items-center rounded-lg border border-line-strong bg-surface px-3 pr-9 font-mono text-[12.5px] text-muted shadow-sm">
+                              ••••••••
+                              <span className="ml-2 font-sans text-[11px] text-faint">
+                                {lines} line{lines === 1 ? "" : "s"}
+                              </span>
+                            </div>
+                          ) : (
+                            <Input
+                              value={v.value}
+                              type={shown || isRef ? "text" : "password"}
+                              onChange={(e) => update(v.id!, { value: e.target.value, hidden: false })}
+                              placeholder={v.hidden ? (canEdit ? "Hidden. Type to replace it." : "Hidden") : canEdit ? "value" : ""}
+                              className={cn("pr-9 font-mono text-[12.5px]", isRef && "text-accent", v.literal && "pr-20")}
+                              autoComplete="off"
+                              disabled={!canEdit}
+                              title={v.hidden ? "Your role cannot see secret values." : undefined}
+                            />
+                          )}
+                          {v.literal && (
+                            <Tooltip content="Kept as written: ${{…}} in it is not filled in.">
+                              <span
+                                className={cn(
+                                  "absolute top-2 rounded border border-line bg-surface-2 px-1 text-[10px] font-medium text-muted",
+                                  isRef || v.hidden ? "right-2" : "right-8",
+                                )}
+                              >
+                                Literal
+                              </span>
+                            </Tooltip>
+                          )}
                           {!isRef && !editing && !v.hidden && (canSeeSecrets || !v.from) && (
                             <button
                               type="button"
@@ -262,7 +349,7 @@ export function VariablesEditor({
                                   return n;
                                 })
                               }
-                              className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-faint hover:text-fg"
+                              className={cn("absolute right-2 rounded p-1 text-faint hover:text-fg", v.multiline ? "top-1.5" : "top-1/2 -translate-y-1/2")}
                               aria-label={shown ? "Hide value" : "Show value"}
                             >
                               {shown ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
@@ -284,9 +371,26 @@ export function VariablesEditor({
                           </div>
                         )}
                         {canEdit ? (
-                          <Button variant="ghost" size="icon-sm" onClick={() => setVars((prev) => prev.filter((x) => x.id !== v.id))} aria-label="Remove variable">
-                            <Trash2 />
-                          </Button>
+                          <Menu>
+                            <MenuTrigger
+                              render={<Button variant="ghost" size="icon-sm" aria-label={`Options for ${v.key || "this variable"}`} />}
+                              className={cn(v.multiline && "self-start")}
+                            >
+                              <MoreHorizontal />
+                            </MenuTrigger>
+                            <MenuContent>
+                              <MenuItem onClick={() => update(v.id!, { multiline: !v.multiline })}>
+                                <Check className={cn(!v.multiline && "invisible")} /> Multiline value
+                              </MenuItem>
+                              <MenuItem onClick={() => update(v.id!, { literal: !v.literal })}>
+                                <Check className={cn(!v.literal && "invisible")} /> Literal value
+                              </MenuItem>
+                              <MenuSeparator />
+                              <MenuItem danger onClick={() => setVars((prev) => prev.filter((x) => x.id !== v.id))}>
+                                <Trash2 /> Remove
+                              </MenuItem>
+                            </MenuContent>
+                          </Menu>
                         ) : (
                           <span />
                         )}

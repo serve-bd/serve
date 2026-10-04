@@ -3,18 +3,18 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
-import { Building2, Code2, Eye, EyeOff, FolderKanban, Layers, Plus, Table2, Trash2 } from "lucide-react";
+import { Building2, Code2, Eye, EyeOff, FolderKanban, Layers, Plus, Server, Table2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardFooter, CardHeader, CopyButton, EmptyState } from "@/components/ui/misc";
 import { Input, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
 import { redeployEnvironment, saveSharedVars } from "@/server/actions/projects";
-import { redeployReferencing, saveOrgSharedVars, saveProjectSharedVars } from "@/server/actions/shared-vars";
+import { redeployReferencing, saveOrgSharedVars, saveProjectSharedVars, saveServerVars } from "@/server/actions/shared-vars";
 import { formatEnv, parseEnv } from "@/lib/env";
 import { cn } from "@/lib/utils";
 
-export type Scope = "org" | "project" | "environment";
+export type Scope = "org" | "project" | "environment" | "server";
 
 type Row = { id: number; key: string; value: string };
 
@@ -42,12 +42,14 @@ const scopes: {
   { value: "org", label: "Organization", icon: Building2 },
   { value: "project", label: "Projects", icon: FolderKanban },
   { value: "environment", label: "Environments", icon: Layers },
+  { value: "server", label: "Servers", icon: Server },
 ];
 
 const refPrefix: Record<Scope, string> = {
   org: "org",
   project: "project",
   environment: "environment",
+  server: "server",
 };
 
 const scopeText: Record<Scope, { title: string; description: string }> = {
@@ -63,6 +65,10 @@ const scopeText: Record<Scope, { title: string; description: string }> = {
     title: "Environment variables",
     description: "Used by services of the environment that reference them, like KEY=${{environment.KEY}}.",
   },
+  server: {
+    title: "Server variables",
+    description: "For this organization's services on the server, like KEY=${{server.KEY}}. A service moved to another server reads that server's values.",
+  },
 };
 
 export function SharedVariables({
@@ -73,6 +79,8 @@ export function SharedVariables({
   environments,
   project,
   environment,
+  servers,
+  server,
   vars,
 }: {
   scope: Scope;
@@ -82,6 +90,8 @@ export function SharedVariables({
   environments: { id: string; name: string }[];
   project: { id: string; name: string } | null;
   environment: { id: string; name: string } | null;
+  servers: { id: string; name: string }[];
+  server: { id: string; name: string } | null;
   vars: { key: string; value: string }[];
 }) {
   const router = useRouter();
@@ -90,10 +100,15 @@ export function SharedVariables({
   const [saved, setSaved] = React.useState(vars);
   const [raw, setRaw] = React.useState<string | null>(null);
 
-  const href = (next: { scope?: Scope; project?: string; env?: string }) => {
+  const href = (next: { scope?: Scope; project?: string; env?: string; server?: string }) => {
     const q = new URLSearchParams();
     const s = next.scope ?? scope;
     if (s !== "org") q.set("scope", s);
+    if (s === "server") {
+      const id = next.server ?? (next.scope ? undefined : server?.id);
+      if (id) q.set("server", id);
+      return `/shared-variables?${q}`;
+    }
     const p = next.project ?? project?.id;
     if (s !== "org" && p) q.set("project", p);
     const e = next.env ?? (next.project ? undefined : environment?.name);
@@ -104,15 +119,28 @@ export function SharedVariables({
 
   const clean = dedupe(raw !== null ? parseEnv(raw) : rows.filter((r) => r.key.trim()).map((r) => ({ key: r.key.trim(), value: r.value })));
   const dirty = JSON.stringify(clean) !== JSON.stringify(saved);
-  const target = scope === "org" ? true : scope === "project" ? !!project : !!environment;
+  const target = scope === "org" ? true : scope === "server" ? !!server : scope === "project" ? !!project : !!environment;
 
   const save = useAction(
-    () => (scope === "org" ? saveOrgSharedVars(clean) : scope === "project" ? saveProjectSharedVars(project!.id, clean) : saveSharedVars(environment!.id, clean)),
+    () =>
+      scope === "org"
+        ? saveOrgSharedVars(clean)
+        : scope === "server"
+          ? saveServerVars(server!.id, clean)
+          : scope === "project"
+            ? saveProjectSharedVars(project!.id, clean)
+            : saveSharedVars(environment!.id, clean),
     { onSuccess: () => setSaved(clean) },
   );
-  const redeploy = useAction(() => (scope === "environment" ? redeployEnvironment(environment!.id) : redeployReferencing(scope === "org" ? "org" : { projectId: project!.id })), {
-    result: (d) => (d.count ? `Redeploying ${d.count} service${d.count === 1 ? "" : "s"}` : "No running service uses these variables"),
-  });
+  const redeploy = useAction(
+    () =>
+      scope === "environment"
+        ? redeployEnvironment(environment!.id)
+        : redeployReferencing(scope === "org" ? "org" : scope === "server" ? { serverId: server!.id } : { projectId: project!.id }),
+    {
+      result: (d) => (d.count ? `Redeploying ${d.count} service${d.count === 1 ? "" : "s"}` : "No running service uses these variables"),
+    },
+  );
 
   const update = (id: number, patch: Partial<Row>) => setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const add = () => setRows((prev) => [...prev, withId({ key: "", value: "" })]);
@@ -143,7 +171,7 @@ export function SharedVariables({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-3 gap-1 rounded-xl bg-surface-2 p-1 ring-1 ring-line">
+      <div className="grid grid-cols-2 gap-1 rounded-xl bg-surface-2 p-1 ring-1 ring-line sm:grid-cols-4">
         {scopes.map((s) => (
           <Link
             key={s.value}
@@ -159,7 +187,11 @@ export function SharedVariables({
         ))}
       </div>
 
-      {scope !== "org" && !project ? (
+      {scope === "server" && !server ? (
+        <Card>
+          <EmptyState title="No servers" description="This organization cannot deploy to any server yet." />
+        </Card>
+      ) : scope !== "org" && scope !== "server" && !project ? (
         <Card>
           <EmptyState title="No projects yet" description="Create a project to give it shared variables." />
         </Card>
@@ -170,7 +202,16 @@ export function SharedVariables({
             description={text.description}
             actions={
               <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
-                {scope !== "org" && (
+                {scope === "server" && server && (
+                  <Select
+                    size="sm"
+                    value={server.id}
+                    onValueChange={(v) => router.push(href({ server: v }))}
+                    options={servers.map((s) => ({ value: s.id, label: s.name }))}
+                    className="min-w-0 flex-1 sm:w-44 sm:flex-none"
+                  />
+                )}
+                {scope !== "org" && scope !== "server" && (
                   <>
                     <Select
                       size="sm"
@@ -353,6 +394,9 @@ export function SharedVariables({
           <li>
             <code className="font-mono text-fg-2">{"${{environment.KEY}}"}</code> reads a variable of the service&apos;s environment. Nothing is added to a service by itself: add
             the reference on its Variables page (Add reference).
+          </li>
+          <li>
+            <code className="font-mono text-fg-2">{"${{server.KEY}}"}</code> reads a variable of the server the service runs on, set for this organization.
           </li>
           <li>
             Use a reference as a whole value or inside one, like <code className="font-mono text-fg-2">{"https://${{project.API_HOST}}/v1"}</code>.

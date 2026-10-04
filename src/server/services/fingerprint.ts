@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { eq, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
 type Service = typeof schema.service.$inferSelect;
@@ -33,7 +33,10 @@ export async function configFingerprint(service: Service) {
       .where(eq(schema.environment.id, service.environmentId))
       .then((r) => r[0]),
   ]);
-  const vars = own.map((v) => ({ key: v.key, value: decryptOrNull(v.value) ?? "", build: v.buildTime, runtime: v.runtime })).sort((a, b) => a.key.localeCompare(b.key));
+  // The literal flag only when set: fingerprints of services without it stay as they were.
+  const vars = own
+    .map((v) => ({ key: v.key, value: decryptOrNull(v.value) ?? "", build: v.buildTime, runtime: v.runtime, ...(v.literal ? { literal: true } : {}) }))
+    .sort((a, b) => a.key.localeCompare(b.key));
   const replicaVars = Object.fromEntries(
     Object.entries(service.replicaVars ?? {}).map(([n, values]) => [n, Object.fromEntries(Object.entries(values).map(([k, v]) => [k, decryptOrNull(v) ?? ""]))]),
   );
@@ -52,9 +55,19 @@ export async function configFingerprint(service: Service) {
           ),
         )
     : [];
-  const sharedUsed = shared
+  const serverVars =
+    scope && texts.includes("${{")
+      ? await db
+          .select()
+          .from(schema.serverVar)
+          .where(and(eq(schema.serverVar.serverId, service.serverId), eq(schema.serverVar.organizationId, scope.organizationId)))
+      : [];
+  const sharedUsed = [
+    ...shared.map((v) => ({ scope: v.environmentId ? "environment" : v.projectId ? "project" : "org", key: v.key, value: v.value })),
+    ...serverVars.map((v) => ({ scope: "server", key: v.key, value: v.value })),
+  ]
     .filter((v) => texts.includes(`.${v.key}}}`))
-    .map((v) => ({ scope: v.environmentId ? "environment" : v.projectId ? "project" : "org", key: v.key, value: decryptOrNull(v.value) ?? "" }))
+    .map((v) => ({ ...v, value: decryptOrNull(v.value) ?? "" }))
     .sort((a, b) => `${a.scope}.${a.key}`.localeCompare(`${b.scope}.${b.key}`));
 
   const source = service.source

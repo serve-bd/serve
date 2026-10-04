@@ -138,9 +138,12 @@ export async function cloneEnvironment(opts: CloneOptions): Promise<CloneSummary
     id: newId(),
     serviceId: idMap.get(v.serviceId)!,
     key: v.key,
-    value: encrypt(rewriteValue(decrypt(v.value), slugMap, passwordMap)),
+    // A literal value is copied as written: its ${{…}} are text, not references.
+    value: v.literal ? v.value : encrypt(rewriteValue(decrypt(v.value), slugMap, passwordMap)),
     buildTime: v.buildTime,
     runtime: v.runtime,
+    literal: v.literal,
+    multiline: v.multiline,
   }));
   const newShared = shared.map((v) => ({ id: newId(), environmentId, key: v.key, value: encrypt(rewriteValue(decrypt(v.value), slugMap, passwordMap)) }));
 

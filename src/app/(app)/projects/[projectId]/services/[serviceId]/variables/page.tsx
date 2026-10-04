@@ -1,4 +1,4 @@
-import { asc, eq, or } from "drizzle-orm";
+import { and, asc, eq, or } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { decryptOrNull } from "@/server/crypto";
@@ -19,7 +19,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   const canSeeSecrets = ctx.can("variables.view-secrets");
-  const [vars, shared, siblings, scoped, servers, mesh, domains] = await Promise.all([
+  const [vars, shared, siblings, scoped, servers, mesh, domains, serverKeys] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId)).orderBy(asc(schema.envVar.key)),
     db.select({ key: schema.sharedVar.key }).from(schema.sharedVar).where(eq(schema.sharedVar.environmentId, service.environmentId)),
     db.select().from(schema.service).where(eq(schema.service.environmentId, service.environmentId)),
@@ -35,6 +35,11 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
       .from(schema.domain)
       .innerJoin(schema.service, eq(schema.domain.serviceId, schema.service.id))
       .where(eq(schema.service.environmentId, service.environmentId)),
+    db
+      .select({ key: schema.serverVar.key })
+      .from(schema.serverVar)
+      .where(and(eq(schema.serverVar.serverId, service.serverId), eq(schema.serverVar.organizationId, ctx.org.id)))
+      .orderBy(asc(schema.serverVar.key)),
   ]);
   const domainsOf = (id: string) => domains.filter((d) => d.domain.serviceId === id).map((d) => d.domain);
   // The service's own values. PORT is set anyway, and a variable named like a value would hide it.
@@ -79,6 +84,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
       }),
     ...(projectKeys.length ? [{ name: "project", label: "Project variables", keys: projectKeys }] : []),
     ...(orgKeys.length ? [{ name: "org", label: "Organization variables", keys: orgKeys }] : []),
+    ...(serverKeys.length ? [{ name: "server", label: "Server variables", keys: serverKeys.map((k) => k.key) }] : []),
     // Different in each replica: shard a bot or split work, e.g. SHARD_ID=${{replica.index}}.
     ...(service.type === "app"
       ? [
@@ -105,8 +111,8 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
           // next to a reference) stays on the server for roles without secret access.
           // replica.pick lists hold literal values (tokens, often), so they count as secret too.
           return canSeeSecrets || (/^(\$\{\{[^}]+\}\})+$/.test(value.trim()) && !/replica\.pick\(/i.test(value))
-            ? { key: v.key, value, buildTime: v.buildTime, runtime: v.runtime }
-            : { key: v.key, value: "", buildTime: v.buildTime, runtime: v.runtime, hidden: true, from: v.key };
+            ? { key: v.key, value, buildTime: v.buildTime, runtime: v.runtime, literal: v.literal, multiline: v.multiline || value.includes("\n") }
+            : { key: v.key, value: "", buildTime: v.buildTime, runtime: v.runtime, literal: v.literal, multiline: v.multiline, hidden: true, from: v.key };
         })}
         replicas={service.type === "app" ? replicaCount(service.runtime.replicas, service.distribution?.extraServerIds?.length ?? 0) : 0}
         replicaVars={Object.fromEntries(
@@ -119,7 +125,10 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
           ]),
         )}
         previewVars={
-          service.type === "app" && (service.source?.type === "git" || service.source?.type === "image") && !service.parentServiceId && (service.previewsEnabled || service.previewVars)
+          service.type === "app" &&
+          (service.source?.type === "git" || service.source?.type === "image") &&
+          !service.parentServiceId &&
+          (service.previewsEnabled || service.previewVars)
             ? Object.entries(service.previewVars ?? {}).map(([key, enc]) => {
                 const value = decryptOrNull(enc) ?? "";
                 return canSeeSecrets || (/^(\$\{\{[^}]+\}\})+$/.test(value.trim()) && !/replica\.pick\(/i.test(value)) ? { key, value } : { key, value: "", hidden: true };
@@ -138,6 +147,7 @@ export default async function VariablesPage(props: PageProps<"/projects/[project
                 .map((v) => v.name)
             : []
         }
+        composeRequired={service.compose ? composeVariables(service.compose.content).filter((v) => v.required) : []}
       />
     </PageBody>
   );

@@ -70,14 +70,36 @@ export async function saveProjectSharedVars(projectId: string, vars: z.input<typ
 }
 
 /**
+ * The organization's variables of one server, used as ${{server.KEY}} by its services there. Only
+ * admins change them, like organization variables.
+ */
+export async function saveServerVars(serverId: string, vars: z.input<typeof varsSchema>) {
+  return act(async () => {
+    const ctx = await requireOrgAdmin();
+    const [server] = await db.select().from(schema.server).where(eq(schema.server.id, serverId));
+    const { serverAllowsOrg } = await import("@/server/servers/access");
+    if (!server || !serverAllowsOrg(server, ctx.org.id)) throw new UserError("Server not found.");
+    const data = parseVars(vars);
+    await assertHostStackShared(ctx, { serverId, organizationId: ctx.org.id }, data);
+    const where = and(eq(schema.serverVar.serverId, serverId), eq(schema.serverVar.organizationId, ctx.org.id));
+    await db.transaction(async (tx) => {
+      await tx.delete(schema.serverVar).where(where);
+      if (data.length) await tx.insert(schema.serverVar).values(data.map((v) => ({ id: newId(), serverId, organizationId: ctx.org.id, key: v.key, value: encrypt(v.value) })));
+    });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "variables.shared", message: `Updated the variables of server ${server.name}` });
+    return null;
+  });
+}
+
+/**
  * Redeploys running services that reference the scope (${{org.…}}, ${{team.…}} or ${{project.…}}).
  * Organization and project variables are never injected on their own, so other services are unaffected.
  */
-export async function redeployReferencing(scope: "org" | { projectId: string }) {
+export async function redeployReferencing(scope: "org" | { projectId: string } | { serverId: string }) {
   return act(async () => {
     const ctx = await requirePermission("services.deploy");
     const projectIds =
-      scope === "org"
+      scope === "org" || "serverId" in scope
         ? (await db.select({ id: schema.project.id }).from(schema.project).where(eq(schema.project.organizationId, ctx.org.id)))
             .map((p) => p.id)
             // A member limited to some projects redeploys only those.
@@ -88,7 +110,13 @@ export async function redeployReferencing(scope: "org" | { projectId: string }) 
       .select({ id: schema.service.id, environmentId: schema.service.environmentId })
       .from(schema.service)
       .innerJoin(schema.environment, eq(schema.service.environmentId, schema.environment.id))
-      .where(and(inArray(schema.environment.projectId, projectIds), inArray(schema.service.status, ["running", "failed", "crashed"])));
+      .where(
+        and(
+          inArray(schema.environment.projectId, projectIds),
+          inArray(schema.service.status, ["running", "failed", "crashed"]),
+          typeof scope === "object" && "serverId" in scope ? eq(schema.service.serverId, scope.serverId) : undefined,
+        ),
+      );
     if (!services.length) return { count: 0 };
     const vars = await db
       .select({ serviceId: schema.envVar.serviceId, value: schema.envVar.value })
@@ -99,7 +127,7 @@ export async function redeployReferencing(scope: "org" | { projectId: string }) 
           services.map((s) => s.id),
         ),
       );
-    const ref = scope === "org" ? /\$\{\{\s*(org|team)\./i : /\$\{\{\s*project\./i;
+    const ref = scope === "org" ? /\$\{\{\s*(org|team)\./i : "serverId" in scope ? /\$\{\{\s*server\./i : /\$\{\{\s*project\./i;
     const affected = new Set(vars.filter((v) => ref.test(decryptOrNull(v.value) ?? "")).map((v) => v.serviceId));
     // Environment shared variables reach every service of their environment.
     const envVars = await db

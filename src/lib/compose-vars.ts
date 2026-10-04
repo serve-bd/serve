@@ -20,17 +20,22 @@ function stripComments(content: string) {
  * `${VAR}` names a compose file interpolates (ignores `$${…}` escapes and comments).
  * `hasDefault` is true when the file still works with the variable unset:
  * `${VAR-x}`, `${VAR:-x}`, `${VAR+x}` and `${VAR:+x}`.
+ * `required` is set by `${VAR:?message}`: the value must not be empty either, and `message` is the
+ * file's own explanation (or null).
  */
-export function composeVariables(content: string): { name: string; hasDefault: boolean }[] {
-  const seen = new Map<string, boolean>();
+export function composeVariables(content: string): { name: string; hasDefault: boolean; required: boolean; message: string | null }[] {
+  const seen = new Map<string, { hasDefault: boolean; required: boolean; message: string | null }>();
   // `$$` is a literal dollar: dropped first, so `$$${VAR}` still names VAR.
   for (const m of stripComments(content)
     .replace(/\$\$/g, "")
     .matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-?+][^}]*)?\}/g)) {
     const hasDefault = !!m[2] && /^:?[-+]/.test(m[2]);
-    seen.set(m[1], (seen.get(m[1]) ?? false) || hasDefault);
+    const required = !!m[2]?.startsWith(":?");
+    const message = m[2] && /^:?\?/.test(m[2]) ? m[2].replace(/^:?\?/, "").trim() || null : null;
+    const was = seen.get(m[1]);
+    seen.set(m[1], { hasDefault: (was?.hasDefault ?? false) || hasDefault, required: (was?.required ?? false) || required, message: was?.message ?? message });
   }
-  return [...seen].map(([name, hasDefault]) => ({ name, hasDefault }));
+  return [...seen].map(([name, v]) => ({ name, ...v }));
 }
 
 /** A reasonable first guess for how a detected variable should be filled. */

@@ -106,7 +106,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     .from(schema.environment)
     .innerJoin(schema.project, eq(schema.environment.projectId, schema.project.id))
     .where(eq(schema.environment.id, service.environmentId));
-  const [own, shared, siblings, siblingDomains, mesh, branches] = await Promise.all([
+  const [own, shared, siblings, siblingDomains, mesh, branches, serverVars] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, service.id)),
     db
       .select()
@@ -131,6 +131,13 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       .from(schema.databaseBranch)
       .innerJoin(schema.service, eq(schema.databaseBranch.serviceId, schema.service.id))
       .where(eq(schema.service.environmentId, service.environmentId)),
+    // The organization's variables of the server the service runs on: ${{server.KEY}}.
+    scope
+      ? db
+          .select()
+          .from(schema.serverVar)
+          .where(and(eq(schema.serverVar.serverId, service.serverId), eq(schema.serverVar.organizationId, scope.organizationId)))
+      : Promise.resolve([]),
   ]);
 
   const domainsBy = new Map<string, Domain[]>();
@@ -146,6 +153,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
     const target = v.environmentId ? sharedMap : v.projectId ? projectMap : orgMap;
     target[v.key] = decryptOrNull(v.value) ?? "";
   }
+  const serverMap: Record<string, string> = {};
+  for (const v of serverVars) serverMap[v.key] = decryptOrNull(v.value) ?? "";
 
   const lookup = new Map<string, Record<string, string>>();
   const nameCount = new Map<string, number>();
@@ -187,6 +196,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
         ...Object.values(sharedMap),
         ...Object.values(projectMap),
         ...Object.values(orgMap),
+        ...Object.values(serverMap),
         ...Object.values(service.replicaVars ?? {}).flatMap((vars) => Object.values(vars).map((v) => decryptOrNull(v) ?? "")),
       ])
     : { found: new Map<string, string>(), errors: [] as { ref: string; message: string }[] };
@@ -198,9 +208,11 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   lookup.set("project", projectMap);
   lookup.set("org", orgMap);
   lookup.set("team", orgMap);
+  // A service named "server" keeps answering for the keys the server has no variable for.
+  lookup.set("server", { ...(lookup.get("server") ?? {}), ...serverMap });
 
-  const ownRaw: Record<string, { value: string; build: boolean; runtime: boolean }> = {};
-  for (const v of own) ownRaw[v.key] = { value: decrypt(v.value), build: v.buildTime, runtime: v.runtime };
+  const ownRaw: Record<string, { value: string; build: boolean; runtime: boolean; literal: boolean }> = {};
+  for (const v of own) ownRaw[v.key] = { value: decrypt(v.value), build: v.buildTime, runtime: v.runtime, literal: v.literal };
 
   const self = providedVars(service, domainsBy.get(service.id) ?? []);
   const missing = new Set<string>();
@@ -228,6 +240,8 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
       const dot = ref.indexOf(".");
       let result: string | undefined;
       if (dot === -1) {
+        // A literal variable goes in as written, its own ${{…}} left alone.
+        if (ownRaw[ref]?.literal && !(ref.startsWith("SERVE_") && self[ref] !== undefined)) return ownRaw[ref].value;
         // Serve's own names win: SERVE_PUBLIC_URL=${{SERVE_PUBLIC_URL}} is the domain, not itself.
         result = ref.startsWith("SERVE_") && self[ref] !== undefined ? self[ref] : (ownRaw[ref]?.value ?? sharedMap[ref] ?? self[ref]);
       } else {
@@ -259,7 +273,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   // Shared variables only reach a service through references like KEY=${{environment.KEY}}.
   if (service.type === "app" && service.runtime.port) runtime.PORT = String(service.runtime.port);
   for (const [k, v] of Object.entries(ownRaw)) {
-    const value = expand(v.value);
+    const value = v.literal ? v.value : expand(v.value);
     if (v.runtime) runtime[k] = value;
     if (v.build) build[k] = value;
   }
@@ -282,7 +296,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
   for (const [k, v] of [...values]) for (const m of v.matchAll(REPLICA_REF)) if (m[2] !== undefined) for (const item of pickList(m[2])) values.push([k, item]);
   const secrets = values.filter(([k, v]) => v.length >= 6 && (secretKey.test(k) || v.length >= 20)).map(([, v]) => v);
   // Shared values of any scope that ended up in the environment are redacted too.
-  for (const [k, v] of [...Object.entries(sharedMap), ...Object.entries(projectMap), ...Object.entries(orgMap)]) {
+  for (const [k, v] of [...Object.entries(sharedMap), ...Object.entries(projectMap), ...Object.entries(orgMap), ...Object.entries(serverMap)]) {
     if (v.length >= 6 && secretKey.test(k) && values.some(([, x]) => x.includes(v))) secrets.push(v);
   }
 
@@ -307,7 +321,7 @@ export async function resolveEnv(service: Service): Promise<ResolvedEnv> {
 export function hostStackReach(
   content: string,
   own: Record<string, string>,
-  shared: { environment: Record<string, string>; project: Record<string, string>; org: Record<string, string> },
+  shared: { environment: Record<string, string>; project: Record<string, string>; org: Record<string, string>; server?: Record<string, string> },
 ) {
   const reached = new Set<string>();
   const texts: string[] = [];
@@ -317,7 +331,14 @@ export function hostStackReach(
     if (value !== undefined) texts.push(value);
   };
   for (const v of composeVariables(content)) visit(`own:${v.name}`, own[v.name]);
-  const scopes: Record<string, keyof typeof shared> = { shared: "environment", environment: "environment", project: "project", org: "org", team: "org" };
+  const scopes: Record<string, "environment" | "project" | "org" | "server"> = {
+    shared: "environment",
+    environment: "environment",
+    project: "project",
+    org: "org",
+    team: "org",
+    server: "server",
+  };
   while (texts.length) {
     for (const m of texts.pop()!.matchAll(REF)) {
       const ref = m[1];
@@ -329,7 +350,7 @@ export function hostStackReach(
       }
       const scope = scopes[ref.slice(0, dot).toLowerCase()];
       const key = ref.slice(dot + 1);
-      if (scope) visit(`${scope}:${key}`, shared[scope][key]);
+      if (scope) visit(`${scope}:${key}`, shared[scope]?.[key]);
     }
   }
   return reached;
@@ -340,7 +361,7 @@ export function hostStackReach(
  * into those options: like the stack's own variables, only admins of the Root organization change them.
  */
 export async function hostStackSharedUse(
-  scope: { environmentId: string } | { projectId: string } | { organizationId: string },
+  scope: { environmentId: string } | { projectId: string } | { organizationId: string } | { serverId: string; organizationId: string },
   before: Record<string, string>,
   after: Record<string, string>,
 ) {
@@ -357,7 +378,9 @@ export async function hostStackSharedUse(
           ? eq(schema.service.environmentId, scope.environmentId)
           : "projectId" in scope
             ? eq(schema.service.projectId, scope.projectId)
-            : eq(schema.project.organizationId, scope.organizationId),
+            : "serverId" in scope
+              ? and(eq(schema.service.serverId, scope.serverId), eq(schema.project.organizationId, scope.organizationId))
+              : eq(schema.project.organizationId, scope.organizationId),
       ),
     );
   const stacks = rows.filter(({ service: s }) => {
@@ -368,7 +391,7 @@ export async function hostStackSharedUse(
       return true;
     }
   });
-  const name = "environmentId" in scope ? "environment" : "projectId" in scope ? "project" : "org";
+  const name = "environmentId" in scope ? "environment" : "projectId" in scope ? "project" : "serverId" in scope ? "server" : "org";
   const used = new Set<string>();
   for (const { service: s, organizationId } of stacks) {
     const reach = await hostStackReachOf(s, organizationId);
@@ -380,31 +403,45 @@ export async function hostStackSharedUse(
 /** Shared variables a compose stack with host options passes into them change only by admins of the Root organization. */
 export async function assertHostStackShared(
   ctx: { isInstanceAdmin: boolean; isRoot: boolean },
-  scope: { environmentId: string } | { projectId: string } | { organizationId: string },
+  scope: { environmentId: string } | { projectId: string } | { organizationId: string } | { serverId: string; organizationId: string },
   data: { key: string; value: string }[],
 ) {
   if (ctx.isInstanceAdmin && ctx.isRoot) return;
-  const where =
-    "organizationId" in scope
-      ? eq(schema.sharedVar.organizationId, scope.organizationId)
-      : "projectId" in scope
-        ? eq(schema.sharedVar.projectId, scope.projectId)
-        : eq(schema.sharedVar.environmentId, scope.environmentId);
-  const stored = await db.select({ key: schema.sharedVar.key, value: schema.sharedVar.value }).from(schema.sharedVar).where(where);
+  const stored =
+    "serverId" in scope
+      ? await db
+          .select({ key: schema.serverVar.key, value: schema.serverVar.value })
+          .from(schema.serverVar)
+          .where(and(eq(schema.serverVar.serverId, scope.serverId), eq(schema.serverVar.organizationId, scope.organizationId)))
+      : await db
+          .select({ key: schema.sharedVar.key, value: schema.sharedVar.value })
+          .from(schema.sharedVar)
+          .where(
+            "organizationId" in scope
+              ? eq(schema.sharedVar.organizationId, scope.organizationId)
+              : "projectId" in scope
+                ? eq(schema.sharedVar.projectId, scope.projectId)
+                : eq(schema.sharedVar.environmentId, scope.environmentId),
+          );
   const used = await hostStackSharedUse(scope, Object.fromEntries(stored.map((v) => [v.key, decryptOrNull(v.value) ?? ""])), Object.fromEntries(data.map((v) => [v.key, v.value])));
   if (used.length) throw new UserError(`A compose file with host options uses ${used.slice(0, 3).join(", ")}, so only admins of the Root organization can change it.`);
 }
 
 /** hostStackReach with the stack's stored variables. */
 export async function hostStackReachOf(s: Service, organizationId: string) {
-  const [own, shared] = await Promise.all([
+  const [own, shared, server] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, s.id)),
     db
       .select()
       .from(schema.sharedVar)
       .where(or(eq(schema.sharedVar.environmentId, s.environmentId), eq(schema.sharedVar.projectId, s.projectId), eq(schema.sharedVar.organizationId, organizationId))),
+    db
+      .select()
+      .from(schema.serverVar)
+      .where(and(eq(schema.serverVar.serverId, s.serverId), eq(schema.serverVar.organizationId, organizationId))),
   ]);
-  const maps = { environment: {} as Record<string, string>, project: {} as Record<string, string>, org: {} as Record<string, string> };
+  const maps = { environment: {} as Record<string, string>, project: {} as Record<string, string>, org: {} as Record<string, string>, server: {} as Record<string, string> };
   for (const v of shared) (v.environmentId ? maps.environment : v.projectId ? maps.project : maps.org)[v.key] = decryptOrNull(v.value) ?? "";
+  for (const v of server) maps.server[v.key] = decryptOrNull(v.value) ?? "";
   return hostStackReach(s.compose?.content ?? "", Object.fromEntries(own.map((v) => [v.key, decryptOrNull(v.value) ?? ""])), maps);
 }

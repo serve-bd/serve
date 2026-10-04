@@ -528,10 +528,37 @@ export const envVar = pgTable(
     value: text("value").notNull(),
     buildTime: boolean("build_time").notNull().default(false),
     runtime: boolean("runtime").notNull().default(true),
+    /** Kept exactly as written: ${{…}} in it is not filled in. */
+    literal: boolean("literal").notNull().default(false),
+    /** Edited in a multi-line field (keys, certificates). */
+    multiline: boolean("multiline").notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex("env_var_service_key_idx").on(t.serviceId, t.key)],
+);
+
+/**
+ * Variables of one server for one organization's services on it, used as ${{server.KEY}}. Per
+ * organization: a server shared by several organizations gives each its own values.
+ */
+export const serverVar = pgTable(
+  "server_var",
+  {
+    id: id(),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => server.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    /** Encrypted value. */
+    value: text("value").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("server_var_key_idx").on(t.serverId, t.organizationId, t.key)],
 );
 
 /** Variables shared by all services of a project environment. */

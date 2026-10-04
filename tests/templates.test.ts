@@ -112,9 +112,18 @@ describe("built-in templates", () => {
 describe("composeVariables", () => {
   it("finds plain and defaulted variables and skips escapes", () => {
     expect(composeVariables("a: ${A}\nb: ${B:-x}\nc: $${C}\nd: ${D-y}")).toEqual([
-      { name: "A", hasDefault: false },
-      { name: "B", hasDefault: true },
-      { name: "D", hasDefault: true },
+      { name: "A", hasDefault: false, required: false, message: null },
+      { name: "B", hasDefault: true, required: false, message: null },
+      { name: "D", hasDefault: true, required: false, message: null },
+    ]);
+  });
+
+  it("marks ${VAR:?message} as needing a value, with the file's message", () => {
+    expect(composeVariables("a: ${A:?Set A to the admin email}\nb: ${B?}\nc: ${C:?}")).toEqual([
+      { name: "A", hasDefault: false, required: true, message: "Set A to the admin email" },
+      // Without the colon only an unset value fails, which the unset check covers.
+      { name: "B", hasDefault: false, required: false, message: null },
+      { name: "C", hasDefault: false, required: true, message: null },
     ]);
   });
 });

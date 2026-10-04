@@ -1247,12 +1247,19 @@ async function deployCompose(service: Service, dep: Deployment, log: DeployLogge
 
   // Docker Compose silently turns an unset ${VAR} into an empty string, which fails later in
   // confusing ways (a database without a password never becomes healthy). Stop here instead.
-  const unset = composeVariables(content).filter((v) => !v.hasDefault && !(v.name in env.runtime));
+  const used = composeVariables(content);
+  const unset = used.filter((v) => !v.hasDefault && !(v.name in env.runtime));
   if (unset.length) {
     const names = unset.map((v) => v.name).join(", ");
     throw new Error(
       `The compose file uses ${unset.length === 1 ? "a variable that is" : "variables that are"} not set: ${names}. Add ${unset.length === 1 ? "it" : "them"} in Variables (an empty value is fine if that is intended), then deploy again.`,
     );
+  }
+  // ${VAR:?message}: the file asks for a value, so an empty one stops here, with its own words.
+  const empty = used.filter((v) => v.required && env.runtime[v.name] === "");
+  if (empty.length) {
+    const list = empty.map((v) => (v.message ? `${v.name} (${v.message})` : v.name)).join(", ");
+    throw new Error(`The compose file needs a value for ${list}. Fill ${empty.length === 1 ? "it" : "them"} in Variables, then deploy again.`);
   }
   // postgres:18+ keeps its data in /var/lib/postgresql and refuses to start with the old mount.
   for (const [name, svc] of Object.entries(parseCompose(content).services ?? {})) {

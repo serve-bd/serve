@@ -1349,7 +1349,7 @@ export async function deleteService(serviceId: string, removeVolumes: boolean) {
 /* -------------------------------------------------------------------------- */
 
 /** `keep`: keep the stored value of that key (the editor did not receive it). */
-type VarInput = { key: string; value: string; buildTime: boolean; runtime: boolean; keep?: string };
+type VarInput = { key: string; value: string; buildTime: boolean; runtime: boolean; literal?: boolean; multiline?: boolean; keep?: string };
 
 /** Variables as the forms send them: names and values with a size cap, at most a few hundred. */
 const varsSchema = z
@@ -1359,6 +1359,8 @@ const varsSchema = z
       value: z.string().max(256 * 1024),
       buildTime: z.boolean().default(true),
       runtime: z.boolean().default(true),
+      literal: z.boolean().default(false),
+      multiline: z.boolean().default(false),
       keep: z.string().max(200).optional(),
     }),
   )
@@ -1374,7 +1376,18 @@ async function writeEnvVars(serviceId: string, vars: VarInput[]) {
   await db.transaction(async (tx) => {
     await tx.delete(schema.envVar).where(eq(schema.envVar.serviceId, serviceId));
     if (vars.length) {
-      await tx.insert(schema.envVar).values(vars.map((v) => ({ id: newId(), serviceId, key: v.key, value: encrypt(v.value), buildTime: v.buildTime, runtime: v.runtime })));
+      await tx.insert(schema.envVar).values(
+        vars.map((v) => ({
+          id: newId(),
+          serviceId,
+          key: v.key,
+          value: encrypt(v.value),
+          buildTime: v.buildTime,
+          runtime: v.runtime,
+          literal: v.literal ?? false,
+          multiline: v.multiline ?? false,
+        })),
+      );
     }
   });
 }
@@ -1391,10 +1404,11 @@ export async function saveEnvVars(serviceId: string, input: VarInput[], redeploy
     const { decryptOrNull } = await import("@/server/crypto");
     const next = vars
       .map((v) => {
-        if (v.keep === undefined) return { key: v.key.trim(), value: v.value, buildTime: v.buildTime, runtime: v.runtime };
+        const flags = { buildTime: v.buildTime, runtime: v.runtime, literal: v.literal, multiline: v.multiline };
+        if (v.keep === undefined) return { key: v.key.trim(), value: v.value, ...flags };
         const kept = stored.find((s) => s.key === v.keep);
         if (!kept) throw new UserError(`${v.keep} no longer exists. Reload the page.`);
-        return { key: v.key.trim(), value: decryptOrNull(kept.value) ?? "", buildTime: v.buildTime, runtime: v.runtime };
+        return { key: v.key.trim(), value: decryptOrNull(kept.value) ?? "", ...flags };
       })
       .filter((v) => v.key);
     // A compose file a Root admin allowed host options for: its variables can point those options

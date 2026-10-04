@@ -20,6 +20,9 @@ const variable = z.object({
   value: z.string().max(256 * 1024),
   buildTime: z.boolean().default(true),
   runtime: z.boolean().default(true),
+  /** Kept as written: ${{…}} in it is not filled in. */
+  literal: z.boolean().default(false),
+  multiline: z.boolean().default(false),
 });
 
 const source = z
@@ -74,7 +77,14 @@ const createBody = z.discriminatedUnion("type", [
 /** Variables as stored, values shown only with variables.view-secrets. */
 async function variablesOf(serviceId: string, withValues: boolean) {
   const rows = await db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, serviceId)).orderBy(asc(schema.envVar.key));
-  return rows.map((r) => ({ key: r.key, ...(withValues ? { value: decryptOrNull(r.value) ?? "" } : {}), buildTime: r.buildTime, runtime: r.runtime }));
+  return rows.map((r) => ({
+    key: r.key,
+    ...(withValues ? { value: decryptOrNull(r.value) ?? "" } : {}),
+    buildTime: r.buildTime,
+    runtime: r.runtime,
+    literal: r.literal,
+    multiline: r.multiline,
+  }));
 }
 
 export const serviceRoutes: ApiRoute[] = [
@@ -384,13 +394,21 @@ export const serviceRoutes: ApiRoute[] = [
       const changes = body.variables;
       const next = stored
         .filter((v) => !(v.key in changes))
-        .map((v) => ({ key: v.key, value: "", keep: v.key, buildTime: v.buildTime, runtime: v.runtime }))
+        .map((v) => ({ key: v.key, value: "", keep: v.key, buildTime: v.buildTime, runtime: v.runtime, literal: v.literal, multiline: v.multiline }))
         .concat(
           Object.entries(changes)
             .filter(([, value]) => value !== null)
             .map(([key, value]) => {
               const prev = stored.find((v) => v.key === key);
-              return { key, value: value as string, keep: undefined as unknown as string, buildTime: prev?.buildTime ?? true, runtime: prev?.runtime ?? true };
+              return {
+                key,
+                value: value as string,
+                keep: undefined as unknown as string,
+                buildTime: prev?.buildTime ?? true,
+                runtime: prev?.runtime ?? true,
+                literal: prev?.literal ?? false,
+                multiline: prev?.multiline ?? (value as string).includes("\n"),
+              };
             }),
         )
         .map(({ keep, ...v }) => (keep ? { ...v, keep } : v));

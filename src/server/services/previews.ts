@@ -170,7 +170,16 @@ async function deployPreviewLocked(parent: Service, pr: PullRequest) {
 
     // Copy variables and mark the environment as a preview.
     const vars = await db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, parent.id));
-    const rows = vars.map((v) => ({ id: newId(), serviceId: id, key: v.key, value: v.value, buildTime: v.buildTime, runtime: v.runtime }));
+    const rows: (typeof schema.envVar.$inferInsert)[] = vars.map((v) => ({
+      id: newId(),
+      serviceId: id,
+      key: v.key,
+      value: v.value,
+      buildTime: v.buildTime,
+      runtime: v.runtime,
+      literal: v.literal,
+      multiline: v.multiline,
+    }));
     const { encrypt } = await import("@/server/crypto");
     for (const [key, value] of [
       ["SERVE_PREVIEW", "true"],

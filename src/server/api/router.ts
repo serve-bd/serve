@@ -39,6 +39,8 @@ export type ApiRoute = {
   query?: z.ZodType;
   /** Status of a successful answer (200 by default). */
   status?: number;
+  /** Media type of a successful answer when it is not JSON (the handler returns a Response). */
+  produces?: string;
   // biome-ignore lint/suspicious/noExplicitAny: each route's own schemas type its handler.
   handler: (c: HandlerContext<any, any>) => Promise<unknown>;
 };

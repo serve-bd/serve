@@ -3,12 +3,13 @@ import { PERMISSION_INFO, PERMISSIONS } from "@/lib/permissions";
 import { currentVersion } from "@/server/instance/version";
 import { databaseRoutes } from "./routes/databases";
 import { infraRoutes } from "./routes/infra";
+import { metricsRoutes } from "./routes/metrics";
 import { orgRoutes } from "./routes/org";
 import { projectRoutes } from "./routes/projects";
 import { serviceRoutes } from "./routes/services";
 import { type ApiRoute, createRouter, needLabel } from "./router";
 
-export const apiRoutes: ApiRoute[] = [...orgRoutes, ...projectRoutes, ...serviceRoutes, ...databaseRoutes, ...infraRoutes];
+export const apiRoutes: ApiRoute[] = [...orgRoutes, ...projectRoutes, ...serviceRoutes, ...databaseRoutes, ...infraRoutes, ...metricsRoutes];
 
 const TAGS = [
   ["Token", "The token itself: who it acts as and what it may do."],
@@ -25,6 +26,7 @@ const TAGS = [
   ["Tasks", "Scheduled commands."],
   ["Logs", "Container logs."],
   ["Monitoring", "Uptime checks."],
+  ["Metrics", "Resource, request and deployment metrics in the Prometheus text format."],
   ["Servers", "Servers, their proxy and SSH keys."],
   ["Certificates", "TLS certificates."],
   ["Integrations", "Registries, S3, notifications, secret managers, Cloudflare and Git."],
@@ -61,7 +63,10 @@ export function openApiDocument(baseUrl: string) {
       parameters: [...params, ...query],
       ...(r.body ? { requestBody: { required: true, content: { "application/json": { schema: jsonSchema(r.body) } } } } : {}),
       responses: {
-        [String(r.status ?? 200)]: { description: "Success", content: { "application/json": { schema: { type: "object" } } } },
+        [String(r.status ?? 200)]: {
+          description: "Success",
+          content: r.produces ? { [r.produces]: { schema: { type: "string" } } } : { "application/json": { schema: { type: "object" } } },
+        },
         "400": { $ref: "#/components/responses/Error" },
         "401": { $ref: "#/components/responses/Error" },
         "403": { $ref: "#/components/responses/Error" },

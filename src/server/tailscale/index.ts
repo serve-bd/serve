@@ -193,7 +193,8 @@ export async function syncTailscale() {
               address: null,
               online: false,
               checkedAt: new Date().toISOString(),
-              error: "This device is no longer in the tailnet (removed in the Tailscale admin console, or its key expired). Serve reaches the server at its own address again. Connect it through Tailscale again to use the tailnet.",
+              error:
+                "This device is no longer in the tailnet (removed in the Tailscale admin console, or its key expired). Serve reaches the server at its own address again. Connect it through Tailscale again to use the tailnet.",
             };
       await db.update(schema.server).set({ tailscale: next }).where(eq(schema.server.id, s.id));
       if (next.address !== ts.address) {

@@ -180,12 +180,21 @@ export async function syncTailscale() {
       const device = devices.find((d) => d.id === ts.deviceId) ?? findByNodeKey(devices, ts.nodeKey);
       const next: ServerTailscale = device
         ? { ...ts, ...deviceFields(device), address: tailnetIpv4(device) ?? ts.address }
-        : {
-            ...ts,
-            online: false,
-            checkedAt: new Date().toISOString(),
-            error: "This device is no longer in the tailnet (removed in the Tailscale admin console, or its key expired). Connect the server through Tailscale again.",
-          };
+        : ts.only
+          ? {
+              ...ts,
+              online: false,
+              checkedAt: new Date().toISOString(),
+              error: "This device is no longer in the tailnet (removed in the Tailscale admin console, or its key expired). Connect the server through Tailscale again.",
+            }
+          : {
+              // A server that has its own address again goes back to it: the old Tailscale address leads nowhere.
+              ...ts,
+              address: null,
+              online: false,
+              checkedAt: new Date().toISOString(),
+              error: "This device is no longer in the tailnet (removed in the Tailscale admin console, or its key expired). Serve reaches the server at its own address again. Connect it through Tailscale again to use the tailnet.",
+            };
       await db.update(schema.server).set({ tailscale: next }).where(eq(schema.server.id, s.id));
       if (next.address !== ts.address) {
         forgetServer(s.id);

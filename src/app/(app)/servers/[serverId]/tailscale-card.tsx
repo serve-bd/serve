@@ -70,7 +70,9 @@ export function TailscaleCard({ server, view, tailnets }: Props) {
   const join = useAction(() => tailscaleJoinCommand(server.id, tailnetId ?? "", window.location.origin), { onSuccess: setCommand });
   const stop = useAction((removeDevice: boolean) => stopUsingTailscale(server.id, removeDevice));
 
-  const joined = !!view?.address && !!view.tailnetId;
+  // A device removed from the tailnet (its error says so) is not joined any more, even with an old address kept.
+  const left = !!view?.error && !!view.tailnetId;
+  const joined = !!view?.address && !!view.tailnetId && !left;
   const lost = !!view && !view.tailnetId;
   const picker = tailnets.length > 1 && !joined && (
     <Field label="Tailnet" className="sm:max-w-xs">
@@ -159,8 +161,8 @@ export function TailscaleCard({ server, view, tailnets }: Props) {
             </Button>
           )}
           {!server.isLocal && (!joined || view?.only) && (
-            <Button size="sm" variant={!joined && !server.ready ? "primary" : "secondary"} loading={join.pending} disabled={!tailnetId} onClick={() => void join.run()}>
-              <KeyRound /> {joined ? "New join command (after a reinstall)" : command || view?.waiting ? "New join command" : "Join command instead"}
+            <Button size="sm" variant={(!joined && !server.ready) || left ? "primary" : "secondary"} loading={join.pending} disabled={!tailnetId} onClick={() => void join.run()}>
+              <KeyRound /> {joined ? "New join command (after a reinstall)" : left ? "Join again" : command || view?.waiting ? "New join command" : "Join command instead"}
             </Button>
           )}
           {view && !(view.only && !server.isLocal) && (
@@ -190,9 +192,11 @@ export function TailscaleCard({ server, view, tailnets }: Props) {
         </div>
         {!joined && !server.isLocal && (
           <p className="text-xs leading-relaxed text-muted">
-            {server.ready
-              ? "Connect through Tailscale installs Tailscale on the server over SSH and joins it with a single-use key. The join command does the same when you run it on the machine."
-              : "The server is not reachable right now: run the join command on the machine."}{" "}
+            {left
+              ? "Run the join command on the machine (log in to it another way, like SSH at its public address or your provider's console). It joins the tailnet again and Serve reconnects by itself."
+              : server.ready
+                ? "Connect through Tailscale installs Tailscale on the server over SSH and joins it with a single-use key. The join command does the same when you run it on the machine."
+                : "The server is not reachable right now: run the join command on the machine."}{" "}
             The dashboard&apos;s machine must be in the tailnet too (Integrations, Tailscale).
           </p>
         )}

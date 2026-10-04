@@ -1,7 +1,7 @@
 "use server";
 
 import { ALL_DATABASES, SKIP_PREFIX } from "@/lib/backup-databases";
-import { and, isNotNull, eq, inArray, ne, sql as dsql } from "drizzle-orm";
+import { and, asc, isNotNull, eq, inArray, ne, sql as dsql } from "drizzle-orm";
 import { z } from "zod";
 import { PASSWORD_PATTERN } from "@/server/databases/password";
 import { normalizeTrustedRanges } from "@/lib/trusted-proxies";
@@ -1026,6 +1026,50 @@ export async function deployImagePreview(serviceId: string, input: { pr: number;
     });
     if (!result) throw new UserError("The preview could not be created.");
     return { previewId: result.preview.id, deploymentId: result.deploymentId };
+  });
+}
+
+/** Where a service can be cloned to: the organization's projects with their environments, and its servers. */
+export async function cloneTargets() {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const { serversForOrg } = await import("@/server/servers/access");
+    const rows = await db
+      .select({ projectId: schema.project.id, projectName: schema.project.name, environmentId: schema.environment.id, environmentName: schema.environment.name })
+      .from(schema.environment)
+      .innerJoin(schema.project, eq(schema.environment.projectId, schema.project.id))
+      .where(eq(schema.project.organizationId, ctx.org.id))
+      .orderBy(asc(schema.project.name), asc(schema.environment.createdAt));
+    const projects = new Map<string, { id: string; name: string; environments: { id: string; name: string }[] }>();
+    for (const r of rows) {
+      if (!ctx.canAccessProject(r.projectId)) continue;
+      const p = projects.get(r.projectId) ?? { id: r.projectId, name: r.projectName, environments: [] };
+      p.environments.push({ id: r.environmentId, name: r.environmentName });
+      projects.set(r.projectId, p);
+    }
+    const servers = (await serversForOrg(ctx.org.id)).filter((s) => s.isLocal || s.status === "ready").map((s) => ({ id: s.id, name: s.name }));
+    return { projects: [...projects.values()], servers };
+  });
+}
+
+/** Copies a service into an environment of the organization, on one of its servers. Nothing is deployed. */
+export async function cloneServiceAction(serviceId: string, input: { name?: string; environmentId: string; serverId: string; copyData?: boolean }) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const data = z
+      .object({ name: serviceName.optional(), environmentId: z.string().min(1).max(64), serverId: z.string().min(1).max(64), copyData: z.boolean().optional() })
+      .parse(input);
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (service.parentServiceId) throw new UserError("Previews cannot be cloned: clone the app they belong to.");
+    const { cloneService, environmentInOrg } = await import("@/server/services/clone");
+    const env = await environmentInOrg(data.environmentId, ctx.org.id);
+    if (!env || !ctx.canAccessProject(env.projectId)) throw new UserError("Environment not found.");
+    await resolveServerForOrg(data.serverId, ctx.org.id);
+    const { requireRoomFor } = await import("@/server/limits");
+    await requireRoomFor(ctx.org.id, [{ type: service.type, runtime: service.runtime, distribution: data.serverId === service.serverId ? service.distribution : null }]);
+    // Reading the data to copy it is a backup's right too.
+    if (data.copyData && !ctx.can("databases.backups")) throw new UserError(cannotMessage("databases.backups"));
+    return cloneService(service, { ...data, userId: ctx.user.id, hostAccess: ctx.isInstanceAdmin && ctx.isRoot });
   });
 }
 

@@ -283,6 +283,21 @@ export const serviceRoutes: ApiRoute[] = [
     },
   }),
   route({
+    method: "POST",
+    path: "/services/{serviceId}/clone",
+    tag: "Services",
+    summary: "Clone a service",
+    description:
+      "Copies the service into an environment of the organization, on one of its servers: settings, variables, scheduled tasks (turned off) and a generated domain. Nothing is deployed. copyData: true also copies a database's data (needs databases.backups).",
+    needs: ["services.manage"],
+    body: z.object({ environmentId: z.string(), serverId: z.string(), name: z.string().optional(), copyData: z.boolean().optional() }),
+    status: 201,
+    handler: async ({ auth, params, body }) => {
+      await loadService(auth, params.serviceId);
+      return unwrap(actions.cloneServiceAction(params.serviceId, body));
+    },
+  }),
+  route({
     method: "GET",
     path: "/services/{serviceId}/pull-requests",
     tag: "Services",

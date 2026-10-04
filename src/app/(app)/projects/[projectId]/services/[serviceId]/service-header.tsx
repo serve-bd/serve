@@ -5,10 +5,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "@/hooks/use-router";
 import useSWR from "swr";
-import { AlertTriangle, ArrowLeft, ArrowUpRight, Construction, FolderInput, Play, Plug, Power, RotateCw, Rocket, Square } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowUpRight, Construction, Copy, FolderInput, Play, Plug, Power, RotateCw, Rocket, Square } from "lucide-react";
 import { Breadcrumbs } from "@/components/shell/page-header";
 import { ServiceSwitcher, type SiblingService } from "./service-switcher";
 import { MoveServicesDialog } from "@/components/move-services-dialog";
+import { CloneServiceDialog } from "@/components/clone-service-dialog";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { StatusLabel } from "@/components/ui/status";
@@ -63,7 +64,7 @@ export function useServiceLive(serviceId: string, fallback?: ServiceLive) {
   });
 }
 
-export function ServiceHeader({ project, environment, service, initialLive, ports, maintenance, issues, siblings }: Props) {
+export function ServiceHeader({ project, environment, service, initialLive, server, ports, maintenance, issues, siblings }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const confirm = useConfirm();
@@ -133,6 +134,7 @@ export function ServiceHeader({ project, environment, service, initialLive, port
   const primary = pickPrimaryDomain(live.domains);
   const stopped = live.status === "stopped";
   const [moving, setMoving] = React.useState(false);
+  const [cloning, setCloning] = React.useState(false);
   // Never deployed: nothing runs yet, so there is nothing to restart or stop.
   const notDeployed = live.status === "idle";
   const busy = ["building", "deploying", "restarting"].includes(live.status);
@@ -261,6 +263,9 @@ export function ServiceHeader({ project, environment, service, initialLive, port
                       <MenuItem onClick={() => setMoving(true)}>
                         <FolderInput /> Move to project…
                       </MenuItem>
+                      <MenuItem onClick={() => setCloning(true)}>
+                        <Copy /> Clone…
+                      </MenuItem>
                     </>
                   )}
                   {maintenance && (
@@ -296,6 +301,13 @@ export function ServiceHeader({ project, environment, service, initialLive, port
                 </MenuContent>
               </Menu>
               <MoveServicesDialog serviceIds={[service.id]} environmentId={service.environmentId} open={moving} onOpenChange={setMoving} />
+              {!service.isPreview && can("services.manage") && (
+                <CloneServiceDialog
+                  service={{ id: service.id, name: service.name, type: service.type, environmentId: service.environmentId, projectId: project.id, serverId: server?.id ?? null }}
+                  open={cloning}
+                  onOpenChange={setCloning}
+                />
+              )}
               <Button
                 variant="primary"
                 size="sm"

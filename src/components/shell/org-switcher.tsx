@@ -23,6 +23,17 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
   const [switching, setSwitching] = React.useState<OrgItem | null>(null);
   const [navigating, startNavigation] = React.useTransition();
   const busy = !!switching && (navigating || switching.id !== current.id);
+  // Set once the navigation to the other organization has begun.
+  const navStarted = React.useRef(false);
+
+  // The switch ends when the shell shows the new organization: the next switch can start. If the
+  // navigation finished but the shell still shows the old one, a full load shows the right one.
+  React.useEffect(() => {
+    if (!switching || navigating || !navStarted.current) return;
+    navStarted.current = false;
+    if (switching.id === current.id) setSwitching(null);
+    else window.location.assign("/");
+  }, [switching, navigating, current.id]);
 
   async function switchTo(org: OrgItem) {
     if (org.id === current.id || switching) return;
@@ -32,6 +43,7 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
       setSwitching(null);
       return showError(res.error);
     }
+    navStarted.current = true;
     startNavigation(() => {
       router.push("/");
       router.refresh();

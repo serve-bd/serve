@@ -110,7 +110,15 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
       ) : (
         <ConnectionSettings server={details} keys={keys} />
       )}
-      <BuildsLimitsCard serverId={row.id} limits={{ buildConcurrency: row.buildConcurrency, imageRetention: row.imageRetention }} />
+      <BuildsLimitsCard
+        serverId={row.id}
+        limits={{
+          buildConcurrency: row.buildConcurrency,
+          imageRetention: row.imageRetention,
+          deployTimeoutMinutes: row.deployTimeoutMinutes,
+          deployQueueLimit: row.deployQueueLimit,
+        }}
+      />
       {ctx.isInstanceAdmin ? (
         <AccessCard server={details} organizations={orgs} />
       ) : (

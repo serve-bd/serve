@@ -41,6 +41,9 @@ import { execCommand, killMarkedScript } from "@/server/services/exec";
 describe("job time limits", () => {
   it("gives long work hours and quick syncs minutes", () => {
     expect(jobTimeoutMinutes("deploy")).toBe(120);
+    // A server's own deployment limit wins, shorter or longer than the build's.
+    expect(jobTimeoutMinutes("deploy", { serverDeployMinutes: 15, buildTimeoutMinutes: 240 })).toBe(15);
+    expect(jobTimeoutMinutes("deploy", { serverDeployMinutes: 600 })).toBe(600);
     expect(jobTimeoutMinutes("backup.restore")).toBeGreaterThanOrEqual(120);
     expect(jobTimeoutMinutes("server.setup")).toBe(120);
     expect(jobTimeoutMinutes("proxy.sync")).toBeLessThanOrEqual(30);

@@ -129,11 +129,12 @@ async function timeoutOf(job: Job) {
   const p = job.payload as Record<string, string>;
   if (job.type === "deploy") {
     const [row] = await db
-      .select({ build: schema.service.build })
+      .select({ build: schema.service.build, serverLimit: schema.server.deployTimeoutMinutes })
       .from(schema.deployment)
       .innerJoin(schema.service, eq(schema.service.id, schema.deployment.serviceId))
+      .leftJoin(schema.server, eq(schema.server.id, schema.service.serverId))
       .where(eq(schema.deployment.id, p.deploymentId));
-    return jobTimeoutMinutes(job.type, { buildTimeoutMinutes: row?.build?.buildTimeoutMinutes });
+    return jobTimeoutMinutes(job.type, { buildTimeoutMinutes: row?.build?.buildTimeoutMinutes, serverDeployMinutes: row?.serverLimit });
   }
   if (job.type === "task.run") {
     const [row] = await db
@@ -181,7 +182,7 @@ async function execute(job: Job, buildServer: string | null = null) {
  * on regardless keeps running in the background, but nothing waits for it any more.
  */
 async function giveUp(job: Job, controller: AbortController, work: Promise<unknown>, minutes: number) {
-  const reason = new JobTimeout(minutes);
+  const reason = job.type === "deploy" ? new JobTimeout(minutes, "the deployment ran past its time limit (its server's, or Serve's default)") : new JobTimeout(minutes);
   log(`${job.type} ${job.id} ran past its ${minutes} minute limit; stopping it`);
   controller.abort(reason);
   let grace: NodeJS.Timeout | undefined;

@@ -375,6 +375,10 @@ export const server = pgTable("server", {
   sslipFallback: boolean("sslip_fallback").notNull().default(true),
   /** Builds this server runs at once (deploys it builds count against it). */
   buildConcurrency: integer("build_concurrency").notNull().default(2),
+  /** Minutes a deployment on this server may run before it is stopped; null for Serve's default. */
+  deployTimeoutMinutes: integer("deploy_timeout_minutes"),
+  /** Deployments that may wait in the queue for this server; null for no limit. */
+  deployQueueLimit: integer("deploy_queue_limit"),
   /** Images kept per service on this server, for instant rollbacks. */
   imageRetention: integer("image_retention").notNull().default(5),
   /** Hours of CPU, memory and request metrics kept for this server and its services. */

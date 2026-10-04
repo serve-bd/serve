@@ -215,13 +215,31 @@ export function ValidationCard({ server }: { server: ServerDetails }) {
 const count = (value: string, fallback = 1) => Number(value.replace(/\D/g, "").slice(0, 4)) || fallback;
 
 /** How much this server builds at once, and how long it keeps images. */
-export function BuildsLimitsCard({ serverId, limits }: { serverId: string; limits: { buildConcurrency: number; imageRetention: number } }) {
+export function BuildsLimitsCard({
+  serverId,
+  limits,
+}: {
+  serverId: string;
+  limits: { buildConcurrency: number; imageRetention: number; deployTimeoutMinutes: number | null; deployQueueLimit: number | null };
+}) {
   return (
     <SettingsCard
       title="Builds and limits"
       description="For this server: builds it runs at once, and how many images it keeps. Max upload size is on the Proxy page."
-      initial={{ builds: String(limits.buildConcurrency), images: String(limits.imageRetention) }}
-      onSave={(v) => updateServer(serverId, { buildConcurrency: count(v.builds), imageRetention: count(v.images) })}
+      initial={{
+        builds: String(limits.buildConcurrency),
+        images: String(limits.imageRetention),
+        timeout: limits.deployTimeoutMinutes ? String(limits.deployTimeoutMinutes) : "",
+        queue: limits.deployQueueLimit ? String(limits.deployQueueLimit) : "",
+      }}
+      onSave={(v) =>
+        updateServer(serverId, {
+          buildConcurrency: count(v.builds),
+          imageRetention: count(v.images),
+          deployTimeoutMinutes: v.timeout ? Number(v.timeout) : null,
+          deployQueueLimit: v.queue ? Number(v.queue) : null,
+        })
+      }
     >
       {(v, set) => (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -230,6 +248,18 @@ export function BuildsLimitsCard({ serverId, limits }: { serverId: string; limit
           </Field>
           <Field label="Images kept per service" description="Older images are removed. Each kept one allows an instant rollback.">
             <Input value={v.images} onChange={(e) => set("images")(e.target.value.replace(/\D/g, ""))} inputMode="numeric" />
+          </Field>
+          <Field label="Deployment time limit" optional description="A deployment running longer is stopped and the previous version keeps running. Empty: Serve's default.">
+            <InputGroup suffix="minutes">
+              <Input value={v.timeout} onChange={(e) => set("timeout")(e.target.value.replace(/\D/g, ""))} placeholder="Default" inputMode="numeric" />
+            </InputGroup>
+          </Field>
+          <Field
+            label="Deploy queue size"
+            optional
+            description="Deployments that may wait for this server. A full queue refuses new ones (pushes are recorded as skipped). Empty: no limit."
+          >
+            <Input value={v.queue} onChange={(e) => set("queue")(e.target.value.replace(/\D/g, ""))} placeholder="No limit" inputMode="numeric" />
           </Field>
         </div>
       )}

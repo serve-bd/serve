@@ -42,11 +42,15 @@ export type JobTimeoutHints = {
   buildTimeoutMinutes?: number | null;
   /** The task's own timeout (task runs). */
   taskTimeoutSeconds?: number | null;
+  /** The deployment time limit of the service's server (deploys). */
+  serverDeployMinutes?: number | null;
 };
 
 /** Minutes a job of this type may run before the worker gives up on it. */
 export function jobTimeoutMinutes(type: string, hints: JobTimeoutHints = {}): number {
   const base = LIMITS[type] ?? HOUR;
+  // The server's own limit for deployments is the owner's choice: it wins, longer or shorter.
+  if (type === "deploy" && hints.serverDeployMinutes) return hints.serverDeployMinutes;
   // A service may allow its build up to 4 hours, and a task up to a day: the job outlives both.
   if (type === "deploy" && hints.buildTimeoutMinutes) return Math.max(base, hints.buildTimeoutMinutes + HOUR);
   if (type === "task.run" && hints.taskTimeoutSeconds) return Math.max(base, Math.ceil(hints.taskTimeoutSeconds / 60) + 15);
@@ -55,8 +59,11 @@ export function jobTimeoutMinutes(type: string, hints: JobTimeoutHints = {}): nu
 
 /** The abort reason of a job that ran past its limit, so a handler can tell it from a cancel. */
 export class JobTimeout extends Error {
-  constructor(public minutes: number) {
-    super(`Stopped after ${minutes} minutes: the job ran longer than its time limit and looked stuck.`);
+  constructor(
+    public minutes: number,
+    why = "the job ran longer than its time limit and looked stuck",
+  ) {
+    super(`Stopped after ${minutes} minutes: ${why}.`);
     this.name = "JobTimeout";
   }
 }

@@ -135,7 +135,11 @@ const serverSchema = z.object({
   organizationIds: z.array(z.string()).nullable(),
   /** Root admins only: hand the server to an organization, or back to the instance (null). */
   ownerOrganizationId: z.string().nullable(),
-  buildConcurrency: z.number().int().min(1, "At least 1 build").max(16, "At most 16 builds"),
+  buildConcurrency: z.number().int().min(1, "At least 1 build").max(1000),
+  /** Minutes; null for Serve's default. */
+  deployTimeoutMinutes: z.number().int().min(5, "At least 5 minutes").max(10080).nullable(),
+  /** Waiting deployments; null for no limit. */
+  deployQueueLimit: z.number().int().min(1, "At least 1").max(100_000).nullable(),
   imageRetention: z.number().int().min(1, "Keep at least 1 image").max(50),
   metricsRetentionHours: z
     .number()

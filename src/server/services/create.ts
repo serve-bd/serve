@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { newId, shortId, slugify } from "@/server/id";
 import { randomSecret } from "@/server/crypto";
@@ -61,6 +61,12 @@ export async function queueDeployment(
   } = {},
 ) {
   const id = newId();
+  // The server's queue limit: a full queue refuses someone deploying and records a skipped push or hook.
+  const full = await queueFull(serviceId);
+  if (full) {
+    if (opts.userId) throw new UserError(full);
+    return recordSkipped(serviceId, trigger, full, opts);
+  }
   // The project's deploy rules: a freeze stops it, an approval holds it.
   const { deployGate, supersedeWaiting } = await import("@/server/deploy-rules");
   const gate = await deployGate(serviceId, trigger, opts.userId);
@@ -88,6 +94,22 @@ export async function queueDeployment(
   }
   await enqueue("deploy", { deploymentId: id }, { concurrencyKey: `service:${serviceId}` });
   return id;
+}
+
+/** Why a new deployment cannot wait in its server's queue (the server's limit is reached), or null. */
+async function queueFull(serviceId: string) {
+  const [row] = await db
+    .select({ serverId: schema.service.serverId, limit: schema.server.deployQueueLimit, name: schema.server.name })
+    .from(schema.service)
+    .innerJoin(schema.server, eq(schema.server.id, schema.service.serverId))
+    .where(eq(schema.service.id, serviceId));
+  if (!row?.limit) return null;
+  const [{ n }] = await db
+    .select({ n: count() })
+    .from(schema.deployment)
+    .innerJoin(schema.service, eq(schema.service.id, schema.deployment.serviceId))
+    .where(and(eq(schema.service.serverId, row.serverId), eq(schema.deployment.status, "queued")));
+  return n >= row.limit ? `The deploy queue of ${row.name} is full (${n} waiting, its limit is ${row.limit}). Try again when some have run.` : null;
 }
 
 /** A deployment that never ran, kept in the deployments list with the reason it was skipped. */

@@ -405,7 +405,7 @@ func TestNewerVersion(t *testing.T) {
 		a, b string
 		want bool
 	}{
-		{"v0.4.0", "v0.3.1", true},
+		{"v0.3.2", "v0.3.1", true},
 		{"v0.3.1", "v0.3.1", false},
 		{"v0.3.1", "v0.10.0", false},
 		{"v1.0.0", "v1.0.0-rc.1", true},

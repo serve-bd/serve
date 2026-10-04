@@ -10,7 +10,7 @@ curl -fsSL https://raw.githubusercontent.com/serve-bd/serve/main/install-cli.sh 
 ```
 
 It installs to `/usr/local/bin` when that is writable, else to `~/.local/bin`. Set
-`SERVE_CLI_VERSION=v0.4.0` for a given release. On Windows, download the `.zip` for your
+`SERVE_CLI_VERSION=v0.3.2` for a given release. On Windows, download the `.zip` for your
 machine from the [releases](https://github.com/serve-bd/serve/releases) and put `serve.exe`
 in your PATH.
 

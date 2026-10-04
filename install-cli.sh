@@ -3,7 +3,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/serve-bd/serve/main/install-cli.sh | sh
 #
 # Environment overrides:
-#   SERVE_CLI_VERSION   release to install, like v0.4.0 (default: the newest release)
+#   SERVE_CLI_VERSION   release to install, like v0.3.2 (default: the newest release)
 #   SERVE_CLI_DIR       folder to install into (default: /usr/local/bin when writable, else ~/.local/bin)
 #   SERVE_CLI_BASE      where releases are downloaded from (default: the GitHub releases of serve-bd/serve)
 set -eu

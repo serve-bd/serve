@@ -1,6 +1,6 @@
 name: CLI release
 
-# The serve CLI is released with Serve: each tag like v0.4.0 gets serve_<version>_<os>_<arch>
+# The serve CLI is released with Serve: each tag like v0.3.2 gets serve_<version>_<os>_<arch>
 # archives and checksums.txt on its GitHub release, which install-cli.sh and `serve version` use.
 # It runs after the Image workflow of the tag has published the release, so instances never see
 # a release before its image exists. Run it by hand to attach the archives to a release again.
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to build and attach, like v0.4.0
+        description: Release tag to build and attach, like v0.3.2
         required: true
 
 permissions:

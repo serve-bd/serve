@@ -315,6 +315,15 @@ func NormalizeURL(raw string) (string, error) {
 		return "", fmt.Errorf("%q is not a valid address. Use one like https://serve.example.com", raw)
 	}
 	u.RawQuery, u.Fragment = "", ""
+	// The dashboard address is wanted: an API address (…/api/v1, as the API docs use) works too.
+	u.Path = strings.TrimRight(u.Path, "/")
+	for _, suffix := range []string{"/api/v1", "/api"} {
+		if strings.HasSuffix(strings.ToLower(u.Path), suffix) {
+			u.Path = u.Path[:len(u.Path)-len(suffix)]
+			break
+		}
+	}
+	u.RawPath = ""
 	return strings.TrimRight(u.String(), "/"), nil
 }
 

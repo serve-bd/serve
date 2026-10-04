@@ -125,6 +125,10 @@ func TestNormalizeURL(t *testing.T) {
 		"https://serve.example.com/": "https://serve.example.com",
 		"localhost:3000":             "http://localhost:3000",
 		"http://10.0.0.1:3000/x/":    "http://10.0.0.1:3000/x",
+		// An API address is taken as its dashboard.
+		"https://serve.example.com/api/v1":  "https://serve.example.com",
+		"https://serve.example.com/api/v1/": "https://serve.example.com",
+		"https://serve.example.com/API":     "https://serve.example.com",
 	}
 	for in, want := range cases {
 		if got, err := NormalizeURL(in); err != nil || got != want {

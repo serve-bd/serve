@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import { Ban, Check, GitCommitHorizontal, MoreHorizontal, RefreshCw, RotateCcw, Rocket, User } from "lucide-react";
-import { Card, CardHeader, EmptyState, TimeAgo, Badge } from "@/components/ui/misc";
+import { Card, EmptyState, TimeAgo, Badge } from "@/components/ui/misc";
 import { StatusDot, statusText } from "@/components/ui/status";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
@@ -44,7 +44,6 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader title="Deployments" description="Every deploy is kept so you can roll back instantly." />
       {deployments.length === 0 ? (
         <EmptyState icon={<Rocket />} title="No deployments yet" description="Press Deploy to build and start this service." />
       ) : (

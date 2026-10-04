@@ -106,7 +106,7 @@ describe("database plan", () => {
   it("asks public clients for TLS", () => {
     const cfg = pg({ tls: { enabled: true } });
     const creds = databasePlan(cfg, "pw", "/d").creds;
-    expect(databaseUrl(cfg, creds, "app-db", 5432)).toMatch(/sslmode=prefer$/);
+    expect(databaseUrl(cfg, creds, "app-db", 5432)).not.toMatch(/sslmode/);
     expect(databaseUrl(cfg, creds, "db.example.com", 15432, { public: true })).toMatch(/sslmode=require$/);
     expect(databaseUrl(cfg, creds, "db.example.com", 15432, { public: true, verified: true })).toMatch(/:15432\/app\?sslmode=require$/);
     // ClickHouse: TLS only on the public port.

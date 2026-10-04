@@ -147,7 +147,10 @@ export function ConnectionSettings({ server, keys }: { server: ServerDetails; ke
   );
 }
 
-export function ValidationCard({ server }: { server: ServerDetails }) {
+/** A server whose device left its tailnet: its join command, offered where the error shows. */
+export type Rejoin = { tailnetId: string; tailnetName: string; user: string };
+
+export function ValidationCard({ server, rejoin }: { server: ServerDetails; rejoin?: Rejoin }) {
   const router = useRouter();
   const confirm = useConfirm();
   const [watching, setWatching] = React.useState(server.status === "validating" || server.status !== "ready");
@@ -211,7 +214,7 @@ export function ValidationCard({ server }: { server: ServerDetails }) {
         </div>
         {watching ? (
           // A new status (the server connected, a setup started elsewhere) starts watching afresh.
-          <ServerSetupProgress key={`${validate.pending ? "pending" : "watch"}|${server.status}`} serverId={server.id} compact />
+          <ServerSetupProgress key={`${validate.pending ? "pending" : "watch"}|${server.status}`} serverId={server.id} compact rejoin={rejoin} />
         ) : (
           <button type="button" onClick={() => setWatching(true)} className="w-fit text-[12.5px] font-medium text-accent hover:underline">
             Show the last setup log

@@ -92,11 +92,16 @@ export default async function ServerGeneralPage(props: PageProps<"/servers/[serv
   // The tailnet is the instance's: Root admins manage it, for the instance's servers.
   const tailnets = ctx.isInstanceAdmin ? await tailnetChoices(row) : [];
   const tailscale = ctx.isInstanceAdmin && (row.tailscale || tailnets.length) ? await tailscaleView(row) : null;
+  // Its device left the tailnet: the way back is its join command, offered right where the error shows.
+  const rejoin =
+    ctx.isInstanceAdmin && !row.isLocal && row.tailscale?.tailnetId && row.tailscale.error
+      ? { tailnetId: row.tailscale.tailnetId, tailnetName: tailscale?.tailnetName ?? "the tailnet", user: row.username }
+      : undefined;
 
   return (
     <>
       {overview && <ServerOverview host={overview.host} health={overview.health} extra={overview.extra} />}
-      {!row.isLocal && <ValidationCard server={details} />}
+      {!row.isLocal && <ValidationCard server={details} rejoin={rejoin} />}
       {row.tunnel ? (
         <TunnelCard
           serverId={row.id}

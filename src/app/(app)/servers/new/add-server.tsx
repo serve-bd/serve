@@ -440,7 +440,20 @@ export function AddServer({
 type Progress = { status: ServerStatus; statusMessage: string | null; setupLog: string };
 
 /** Live log of the setup job, with the next action for every outcome. */
-export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: string; onReady?: () => void; compact?: boolean }) {
+export function ServerSetupProgress({
+  serverId,
+  onReady,
+  compact,
+  rejoin,
+}: {
+  serverId: string;
+  onReady?: () => void;
+  compact?: boolean;
+  /** Its device left the tailnet: the error offers the join command instead of a retry that cannot work. */
+  rejoin?: { tailnetId: string; tailnetName: string; user: string };
+}) {
+  const [joinCommand, setJoinCommand] = React.useState<{ command: string; expiresAt: string } | null>(null);
+  const [joining, setJoining] = React.useState(false);
   const router = useRouter();
   const [progress, setProgress] = React.useState<Progress | null>(null);
   const [tick, setTick] = React.useState(0);
@@ -554,6 +567,21 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
               <Button size="xs" variant="primary" loading={pending === "install"} onClick={() => void rerun(true)}>
                 <Download /> Install Docker
               </Button>
+            ) : rejoin ? (
+              <Button
+                size="xs"
+                variant="primary"
+                loading={joining}
+                onClick={async () => {
+                  setJoining(true);
+                  const res = await tailscaleJoinCommand(serverId, rejoin.tailnetId, window.location.origin);
+                  setJoining(false);
+                  if (res.ok) setJoinCommand(res.data);
+                  else showError(res.error);
+                }}
+              >
+                <Network /> {joinCommand ? "New join command" : "Join again"}
+              </Button>
             ) : (
               <Button size="xs" loading={pending === "retry"} onClick={() => void rerun(false)}>
                 <RotateCw /> Try again
@@ -562,6 +590,15 @@ export function ServerSetupProgress({ serverId, onReady, compact }: { serverId: 
           </div>
         )}
       </div>
+      {rejoin && joinCommand && status !== "validating" && status !== "ready" && (
+        <div className="rounded-xl border border-line p-4">
+          <p className="mb-3 text-[13px] leading-relaxed text-fg-2">
+            Run this on the server. Log in to it another way first, like SSH at its public address or your provider&apos;s console. It joins the tailnet again and Serve reconnects
+            by itself.
+          </p>
+          <TailscaleJoinCommand command={joinCommand.command} expiresAt={joinCommand.expiresAt} user={rejoin.user} tailnet={rejoin.tailnetName} />
+        </div>
+      )}
       <LogViewer lines={lines} height={compact ? "min(40vh, 320px)" : "min(46vh, 380px)"} emptyText="Waiting for the setup to start…" filename="server-setup.log" />
     </div>
   );

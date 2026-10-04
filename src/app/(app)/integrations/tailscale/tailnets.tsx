@@ -65,7 +65,7 @@ export function Tailnets({ tailnets, local, root }: { tailnets: TailnetItem[]; l
             />
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="flex flex-col gap-4">
             {tailnets.map((t) => (
               <TailnetCard key={t.id} tailnet={t} local={local} root={root} onEdit={() => setEditing(t)} />
             ))}

@@ -44,29 +44,63 @@ export async function systemStatus() {
 
 export { resolveA } from "@/server/dns";
 
-/** Docker disk usage summary (images, containers, volumes, build cache) of a server. */
-export async function dockerDiskUsage(ctx?: ServerCtx) {
+type DfResult = {
+  LayersSize?: number;
+  Images?: { Size: number; Containers: number }[];
+  Containers?: { SizeRw?: number }[];
+  Volumes?: { UsageData?: { Size: number; RefCount: number } }[];
+  BuildCache?: { Size: number; InUse: boolean }[];
+};
+
+/** Docker's disk use by kind. A kind is null when Docker took too long to count it (volumes on a busy server can). */
+export type DockerUsage = {
+  /** False when Docker did not answer at all. */
+  reachable: boolean;
+  images: { count: number; size: number; unused: number } | null;
+  containers: { count: number; size: number } | null;
+  volumes: { count: number; size: number } | null;
+  buildCache: { count: number; size: number } | null;
+};
+
+/**
+ * Docker disk usage summary (images, containers, volumes, build cache) of a server. Each kind is
+ * asked for on its own (Docker API 1.42+), each with its own time limit, so a slow count of
+ * volume sizes does not hide the rest.
+ */
+export async function dockerDiskUsage(ctx?: ServerCtx, timeoutMs = 10_000): Promise<DockerUsage> {
   const d = ctx?.docker ?? docker;
-  try {
-    const df = (await d.df()) as {
-      LayersSize?: number;
-      Images?: { Size: number; Containers: number }[];
-      Containers?: { SizeRw?: number }[];
-      Volumes?: { UsageData?: { Size: number; RefCount: number } }[];
-      BuildCache?: { Size: number; InUse: boolean }[];
-    };
-    const images = df.Images ?? [];
-    const volumes = df.Volumes ?? [];
-    const cache = df.BuildCache ?? [];
-    return {
-      images: { count: images.length, size: df.LayersSize ?? images.reduce((a, i) => a + i.Size, 0), unused: images.filter((i) => i.Containers === 0).length },
-      containers: { count: (df.Containers ?? []).length, size: (df.Containers ?? []).reduce((a, c) => a + (c.SizeRw ?? 0), 0) },
-      volumes: { count: volumes.length, size: volumes.reduce((a, v) => a + Math.max(0, v.UsageData?.Size ?? 0), 0) },
-      buildCache: { count: cache.length, size: cache.reduce((a, c) => a + c.Size, 0) },
-    };
-  } catch {
-    return null;
-  }
+  const reachable = await Promise.race([
+    d.ping().then(
+      () => true,
+      () => false,
+    ),
+    new Promise<boolean>((r) => setTimeout(() => r(false), 5000)),
+  ]);
+  if (!reachable) return { reachable: false, images: null, containers: null, volumes: null, buildCache: null };
+  // dockerode's df() sends no query: dial the endpoint with `type`. Older Docker ignores it and
+  // counts everything, still right, only slower. A count past the limit is cancelled.
+  const part = <T>(type: string, pick: (df: DfResult) => T): Promise<T | null> => {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), timeoutMs);
+    return new Promise<DfResult>((resolve, reject) =>
+      d.modem.dial(
+        { path: "/system/df?", method: "GET", options: { type: [type] }, abortSignal: abort.signal, statusCodes: { 200: true, 500: "server error" } },
+        (err: unknown, data: unknown) => (err ? reject(err) : resolve(data as DfResult)),
+      ),
+    )
+      .then(pick, () => null)
+      .finally(() => clearTimeout(timer));
+  };
+  const [images, containers, volumes, buildCache] = await Promise.all([
+    part("image", (df) => {
+      const list = df.Images ?? [];
+      return { count: list.length, size: df.LayersSize ?? list.reduce((a, i) => a + i.Size, 0), unused: list.filter((i) => i.Containers === 0).length };
+    }),
+    part("container", (df) => ({ count: (df.Containers ?? []).length, size: (df.Containers ?? []).reduce((a, c) => a + (c.SizeRw ?? 0), 0) })),
+    part("volume", (df) => ({ count: (df.Volumes ?? []).length, size: (df.Volumes ?? []).reduce((a, v) => a + Math.max(0, v.UsageData?.Size ?? 0), 0) })),
+    part("build-cache", (df) => ({ count: (df.BuildCache ?? []).length, size: (df.BuildCache ?? []).reduce((a, c) => a + c.Size, 0) })),
+  ]);
+  return { reachable: true, images, containers, volumes, buildCache };
 }
 
 type DockerInfo = {

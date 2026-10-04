@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Brush, History } from "lucide-react";
+import { Brush, History, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState, TimeAgo } from "@/components/ui/misc";
 import { useConfirm } from "@/components/ui/confirm";
@@ -10,14 +10,8 @@ import { toast } from "@/components/ui/toast";
 import { useAction, showError } from "@/hooks/use-action";
 import { runCleanup } from "@/server/actions/server";
 import type { CleanupRun } from "@/server/settings";
+import type { DockerUsage } from "@/server/system";
 import { cn, formatBytes } from "@/lib/utils";
-
-type Usage = {
-  images: { count: number; size: number; unused: number };
-  containers: { count: number; size: number };
-  volumes: { count: number; size: number };
-  buildCache: { count: number; size: number };
-} | null;
 
 type AutoSettings = {
   cleanupEnabled: boolean;
@@ -50,8 +44,8 @@ export function CleanupView({
 }: {
   serverId: string;
   isInstanceAdmin: boolean;
-  usage: Usage;
-  disk: { total: number; used: number } | null;
+  usage: Promise<DockerUsage>;
+  disk: Promise<{ total: number; used: number } | null>;
   history: CleanupRun[];
   lastAt: string | null;
   settings: AutoSettings;
@@ -83,9 +77,6 @@ export function CleanupView({
   }, [latest, waitingSince]);
 
   const running = waitingSince !== undefined || start.pending;
-  const percent = disk?.total ? (disk.used / disk.total) * 100 : null;
-  const over = percent !== null && percent >= settings.cleanupDiskThreshold;
-
   return (
     <>
       <Card>
@@ -132,45 +123,10 @@ export function CleanupView({
             </Button>
           }
         />
-        {percent !== null && disk && (
-          <div className="flex flex-col gap-2 border-b border-line px-5 py-4">
-            <div className="flex items-baseline justify-between gap-3 text-[13px]">
-              <span className="text-muted">Data disk</span>
-              <span className="tabular-nums text-fg-2">
-                <span className={cn("font-semibold", over ? "text-warn" : "text-fg")}>{formatBytes(disk.used)}</span> of {formatBytes(disk.total)} · {Math.round(percent)}%
-              </span>
-            </div>
-            <div className="relative h-2 rounded-full bg-sunken">
-              <div className={cn("h-full rounded-full transition-[width]", over ? "bg-warn" : "bg-accent")} style={{ width: `${Math.min(100, percent)}%` }} />
-              <div
-                className="absolute -top-1 -bottom-1 w-px bg-fg/50"
-                style={{ left: `${settings.cleanupDiskThreshold}%` }}
-                title={`Automatic cleanup at ${settings.cleanupDiskThreshold}%`}
-              />
-            </div>
-            <p className="text-[11.5px] text-faint">
-              {over ? "Above the cleanup threshold. " : ""}The marker shows where an automatic cleanup starts ({settings.cleanupDiskThreshold}%).
-            </p>
-          </div>
-        )}
-        {usage ? (
-          <div className="grid grid-cols-2 divide-line sm:grid-cols-4 sm:divide-x">
-            {[
-              ["Images", usage.images.size, `${usage.images.count} images · ${usage.images.unused} unused`],
-              ["Build cache", usage.buildCache.size, `${usage.buildCache.count} entries`],
-              ["Volumes", usage.volumes.size, `${usage.volumes.count} volumes`],
-              ["Containers", usage.containers.size, `${usage.containers.count} containers`],
-            ].map(([label, size, sub]) => (
-              <div key={String(label)} className="flex min-w-0 flex-col gap-1 px-5 py-4">
-                <span className="text-xs text-muted">{label}</span>
-                <span className="text-[18px] font-semibold text-fg tabular-nums">{formatBytes(Number(size))}</span>
-                <span className="truncate text-[11px] text-faint">{sub}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="px-5 py-4 text-[13px] text-muted">Docker is not reachable.</p>
-        )}
+        {/* Counting Docker's disk use can take seconds: the page shows at once, the numbers follow. */}
+        <React.Suspense fallback={<StorageLoading />}>
+          <StorageBody usage={usage} disk={disk} threshold={settings.cleanupDiskThreshold} />
+        </React.Suspense>
       </Card>
 
       <Card>
@@ -211,6 +167,72 @@ export function CleanupView({
           </div>
         )}
       </Card>
+    </>
+  );
+}
+
+function StorageLoading() {
+  return (
+    <div className="flex items-center gap-2 px-5 py-4 text-[13px] text-muted">
+      <Loader2 className="size-3.5 animate-spin" /> Counting Docker&apos;s disk use…
+    </div>
+  );
+}
+
+function StorageBody({
+  usage: usagePromise,
+  disk: diskPromise,
+  threshold,
+}: {
+  usage: Promise<DockerUsage>;
+  disk: Promise<{ total: number; used: number } | null>;
+  threshold: number;
+}) {
+  const usage = React.use(usagePromise);
+  const disk = React.use(diskPromise);
+  const percent = disk?.total ? (disk.used / disk.total) * 100 : null;
+  const over = percent !== null && percent >= threshold;
+  return (
+    <>
+      {percent !== null && disk && (
+        <div className="flex flex-col gap-2 border-b border-line px-5 py-4">
+          <div className="flex items-baseline justify-between gap-3 text-[13px]">
+            <span className="text-muted">Data disk</span>
+            <span className="tabular-nums text-fg-2">
+              <span className={cn("font-semibold", over ? "text-warn" : "text-fg")}>{formatBytes(disk.used)}</span> of {formatBytes(disk.total)} · {Math.round(percent)}%
+            </span>
+          </div>
+          <div className="relative h-2 rounded-full bg-sunken">
+            <div className={cn("h-full rounded-full transition-[width]", over ? "bg-warn" : "bg-accent")} style={{ width: `${Math.min(100, percent)}%` }} />
+            <div className="absolute -top-1 -bottom-1 w-px bg-fg/50" style={{ left: `${threshold}%` }} title={`Automatic cleanup at ${threshold}%`} />
+          </div>
+          <p className="text-[11.5px] text-faint">
+            {over ? "Above the cleanup threshold. " : ""}The marker shows where an automatic cleanup starts ({threshold}%).
+          </p>
+        </div>
+      )}
+      {usage.reachable ? (
+        <div className="grid grid-cols-2 divide-line sm:grid-cols-4 sm:divide-x">
+          {(
+            [
+              ["Images", usage.images?.size, usage.images && `${usage.images.count} images · ${usage.images.unused} unused`],
+              ["Build cache", usage.buildCache?.size, usage.buildCache && `${usage.buildCache.count} entries`],
+              ["Volumes", usage.volumes?.size, usage.volumes && `${usage.volumes.count} volumes`],
+              ["Containers", usage.containers?.size, usage.containers && `${usage.containers.count} containers`],
+            ] as const
+          ).map(([label, size, sub]) => (
+            <div key={label} className="flex min-w-0 flex-col gap-1 px-5 py-4">
+              <span className="text-xs text-muted">{label}</span>
+              <span className={cn("text-[18px] font-semibold tabular-nums", size == null ? "text-faint" : "text-fg")}>{size == null ? "…" : formatBytes(size)}</span>
+              <span className="truncate text-[11px] text-faint" title={size == null ? "Docker took too long to count this. Reload the page to try again." : undefined}>
+                {sub || "Took too long to count"}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="px-5 py-4 text-[13px] text-muted">Docker did not answer on this server. Check that it runs, then reload.</p>
+      )}
     </>
   );
 }

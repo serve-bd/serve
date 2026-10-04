@@ -290,7 +290,11 @@ export function TraefikSettingsCard({
       />
       <SwitchRow
         title="Prometheus metrics"
-        description="Exposes /metrics inside the container (loopback only)."
+        description={
+          v.dashboardEnabled && v.dashboardHost
+            ? `For Prometheus at https://${v.dashboardHost}/metrics, with the dashboard's user and password.`
+            : "Turn on the dashboard to read them at its /metrics, with its user and password. Until then they stay inside the container."
+        }
         checked={v.metrics}
         onCheckedChange={(x) => form.set({ metrics: x })}
       />

@@ -51,7 +51,11 @@ export function traefikStaticArgs(cfg: TraefikSettings, opts: { email: string | 
       "--accesslog.fields.headers.names.Referer=keep",
     );
   }
-  if (cfg.metrics) args.push("--metrics.prometheus=true", "--metrics.prometheus.entrypoint=traefik");
+  if (cfg.metrics) {
+    args.push("--metrics.prometheus=true");
+    // With the dashboard on, a router serves them at <dashboard host>/metrics, behind its login; otherwise loopback only.
+    args.push(cfg.dashboard?.enabled && cfg.dashboard.hostname ? "--metrics.prometheus.manualrouting=true" : "--metrics.prometheus.entrypoint=traefik");
+  }
   if (cfg.dashboard?.enabled) args.push("--api.dashboard=true");
   if (opts.email) {
     args.push(`--certificatesresolvers.le.acme.email=${opts.email}`, "--certificatesresolvers.le.acme.storage=/data/acme.json");
@@ -65,7 +69,14 @@ export function traefikStaticArgs(cfg: TraefikSettings, opts: { email: string | 
 }
 
 /** Shared routers, middlewares and the error-page service. */
-export function traefikBaseDynamic(opts: { pagesUrl: string; resolver: boolean; dashboard: TraefikSettings["dashboard"]; defaults: Required<ProxyDefaults> }) {
+export function traefikBaseDynamic(opts: {
+  pagesUrl: string;
+  resolver: boolean;
+  dashboard: TraefikSettings["dashboard"];
+  defaults: Required<ProxyDefaults>;
+  /** Prometheus metrics on: served at the dashboard's /metrics. */
+  metrics?: boolean;
+}) {
   // Unknown hosts: the pages server's 404 page, or a redirect (Traefik answers ACME challenges before any router).
   const redirect = safeRedirectUrl(opts.defaults.unknownRedirect);
   const target = () => (redirect ? { service: "noop@internal", middlewares: ["serve-unknown-redirect"] } : { service: "serve-pages" });
@@ -91,6 +102,14 @@ export function traefikBaseDynamic(opts: { pagesUrl: string; resolver: boolean; 
       middlewares: ["serve-traefik-dashboard-auth"],
       tls: opts.resolver ? { certResolver: "le" } : {},
     };
+    if (opts.metrics)
+      routers["serve-traefik-metrics"] = {
+        rule: `Host(\`${opts.dashboard.hostname}\`) && Path(\`/metrics\`)`,
+        entryPoints: ["websecure"],
+        service: "prometheus@internal",
+        middlewares: ["serve-traefik-dashboard-auth"],
+        tls: opts.resolver ? { certResolver: "le" } : {},
+      };
   }
   return `${GENERATED}\n${YAML.stringify({
     // Traefik rejects empty maps ("routers cannot be a standalone element").

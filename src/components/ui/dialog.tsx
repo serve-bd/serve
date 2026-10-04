@@ -59,7 +59,9 @@ export function DialogContent({
       <BaseDialog.Viewport className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-4 py-6 sm:py-10">
         <BaseDialog.Popup
           className={cn(
-            "relative my-auto w-full rounded-2xl border border-line bg-surface shadow-lg outline-none transition-[transform,opacity] duration-200 ease-[var(--ease-out-quint)] data-[ending-style]:translate-y-2 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:translate-y-2 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0",
+            // At most the screen's height: the body scrolls inside, the title and the buttons stay in view.
+            // A <form> around the parts gets the same column layout. Dialogs without a DialogBody scroll whole.
+            "relative my-auto flex max-h-[calc(100dvh-3rem)] w-full flex-col overflow-y-auto rounded-2xl border border-line bg-surface shadow-lg outline-none sm:max-h-[calc(100dvh-5rem)] [&>form]:flex [&>form]:min-h-0 [&>form]:flex-col transition-[transform,opacity] duration-200 ease-[var(--ease-out-quint)] data-[ending-style]:translate-y-2 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:translate-y-2 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0",
             width,
             className,
           )}
@@ -79,7 +81,7 @@ export function DialogContent({
 
 export function DialogHeader({ title, description, className }: { title: React.ReactNode; description?: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("flex flex-col gap-1 px-5 pt-5 pr-12", className)}>
+    <div className={cn("flex flex-none flex-col gap-1 px-5 pt-5 pr-12", className)}>
       <BaseDialog.Title className="font-display text-[17px] font-semibold text-fg">{title}</BaseDialog.Title>
       {description && <BaseDialog.Description className="text-[13px] leading-relaxed text-muted">{description}</BaseDialog.Description>}
     </div>
@@ -87,7 +89,7 @@ export function DialogHeader({ title, description, className }: { title: React.R
 }
 
 export function DialogBody({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={cn("flex flex-col gap-4 px-5 py-5", className)}>{children}</div>;
+  return <div className={cn("flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-5 py-5", className)}>{children}</div>;
 }
 
 export function DialogFooter({ className, children }: { className?: string; children: React.ReactNode }) {
@@ -99,7 +101,12 @@ export function DialogFooter({ className, children }: { className?: string; chil
     return () => setHasFooter(false);
   }, [setHasFooter]);
   return (
-    <div className={cn("flex flex-col-reverse gap-2 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end", className)}>
+    <div
+      className={cn(
+        "flex flex-none flex-col-reverse gap-2 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end",
+        className,
+      )}
+    >
       {children}
       {/* Its own row above the buttons. */}
       <DialogError message={ctx?.error ?? null} className="sm:order-first sm:w-full" />

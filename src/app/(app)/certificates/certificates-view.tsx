@@ -308,7 +308,7 @@ function PathsDialog({ cert, open, onClose }: { cert: Cert; open: boolean; onClo
           {snippet && (
             <Field label={snippet.label}>
               <Copyable value={snippet.text}>
-                <pre className="rounded-md border border-line bg-surface-2 py-2.5 pr-9 pl-3 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap text-fg-2">
+                <pre className="rounded-md border border-line bg-surface-2 py-2.5 pr-9 pl-3 font-mono text-[12px] leading-relaxed whitespace-pre overflow-x-auto scrollbar-thin text-fg-2">
                   {snippet.text}
                 </pre>
               </Copyable>

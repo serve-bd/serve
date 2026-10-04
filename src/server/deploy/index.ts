@@ -481,6 +481,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     service.runtime.volumes.some((v) => v.kind === "bind") && "host path mounts",
     service.runtime.ports.length > 0 && "published host ports",
     (service.runtime.privileged || !!service.runtime.capAdd?.length) && "privileged mode or extra capabilities",
+    !!service.runtime.securityOpt?.length && "security options",
     (!!service.runtime.gpus || !!service.runtime.devices?.length) && "GPUs or host devices",
     (service.runtime.volumes.some((v) => v.external) || !!service.runtime.networks?.length) && "volumes or networks made outside Serve",
   ].filter(Boolean);
@@ -697,6 +698,8 @@ async function runOnServer(opts: {
     log.step(`Taking over from ${adopt.name}`);
     await retireOld(d, adopt, log.line, runtime.stopTimeout ?? 30);
   }
+  if (runtime.swappiness != null && (await d.info().catch(() => null))?.CgroupVersion === "2")
+    log.line(`Note: ${server.name} uses cgroup v2, which has no per-container swappiness. That setting is ignored there.`);
   log.step(`Starting ${replicas} container${replicas > 1 ? "s" : ""}`);
   const started: string[] = [];
   try {

@@ -35,7 +35,7 @@ import { restartOwnContainer } from "@/server/services/container-info";
 import { resolveServerForOrg, serverPublicIp } from "@/server/servers/access";
 import { HOSTNAME_RE } from "@/lib/hostname";
 import { SERVICE_NAME_RE, toServiceName } from "@/lib/service-name";
-import { CAPABILITIES } from "@/server/deploy/options";
+import { CAPABILITIES, DROP_CAPABILITIES, SECURITY_OPT_RE } from "@/server/deploy/options";
 import { containerOptionsSchema } from "@/server/deploy/runtime-schema";
 import { volumeListSchema } from "@/server/services/volume-schema";
 import { dockerfileSourceSchema } from "@/server/services/source-schema";
@@ -640,8 +640,25 @@ const updateSchema = z.object({
         .min(16)
         .max(1024 * 1024)
         .nullable(),
+      cpuset: z
+        .string()
+        .trim()
+        .max(100)
+        .regex(/^\d+(-\d+)?(,\d+(-\d+)?)*$/, "Use CPU cores like 0-3 or 0,2")
+        .nullable(),
+      cpuWeight: z.number().int().min(2).max(262144).nullable(),
+      swapLimit: z
+        .number()
+        .int()
+        .min(0)
+        .max(1024 * 1024)
+        .nullable(),
+      swappiness: z.number().int().min(0).max(100).nullable(),
+      noNewPrivileges: z.boolean(),
+      capDrop: z.array(z.enum(DROP_CAPABILITIES)).max(20),
       privileged: z.boolean(),
       capAdd: z.array(z.enum(CAPABILITIES)).max(20),
+      securityOpt: z.array(z.string().trim().regex(SECURITY_OPT_RE, "Use options like apparmor=profile or seccomp=unconfined")).max(10),
       ...containerOptionsSchema,
     })
     .partial()
@@ -810,6 +827,8 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
       if (runtime.replicas > 1 && runtime.ports.length) throw new UserError("Published host ports only work with a single replica.");
       const grantsHost = (data.runtime.privileged === true && !service.runtime.privileged) || data.runtime.capAdd?.some((c) => !(service.runtime.capAdd ?? []).includes(c));
       if (grantsHost) assertHostAccess(ctx, "Privileged mode and extra capabilities");
+      if (data.runtime.securityOpt?.some((o) => !(service.runtime.securityOpt ?? []).includes(o))) assertHostAccess(ctx, "Security options");
+      if (runtime.swapLimit != null && !runtime.memoryLimit) throw new UserError("Set a memory limit first: swap is added on top of it.");
       const grantsHardware =
         (!!data.runtime.gpus && data.runtime.gpus !== service.runtime.gpus) ||
         (!!data.runtime.devices?.length && JSON.stringify(data.runtime.devices) !== JSON.stringify(service.runtime.devices ?? []));

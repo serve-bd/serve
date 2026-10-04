@@ -210,9 +210,23 @@ export type RuntimeConfig = {
   logMaxFiles?: number | null;
   /** Soft memory reservation in MB. */
   memoryReservation?: number | null;
+  /** CPU cores the container may use, like "0-3" or "0,2". */
+  cpuset?: string | null;
+  /** Share of CPU time when the server is busy (Docker's --cpu-shares, default 1024). */
+  cpuWeight?: number | null;
+  /** Swap in MB on top of the memory limit; 0 for none. Unset: Docker's default. */
+  swapLimit?: number | null;
+  /** 0 to 100: how readily the container's memory moves to swap (cgroup v1 servers only). */
+  swappiness?: number | null;
+  /** Processes cannot gain rights (setuid binaries) after the start. */
+  noNewPrivileges?: boolean;
+  /** Linux capabilities taken away from Docker's defaults, or ALL. */
+  capDrop?: string[];
   /** Root organization only. */
   privileged?: boolean;
   capAdd?: string[];
+  /** --security-opt values (AppArmor, seccomp, SELinux profiles). Root organization only. */
+  securityOpt?: string[];
   /** Replaces the image's entrypoint; unset or null keeps it. */
   entrypoint?: string[] | null;
   /** NVIDIA GPUs: "all" or a count. Root organization only. */
@@ -390,7 +404,14 @@ export type DatabaseConfig = {
 /** Whether a runtime has host-level access: host paths, host ports, privileges or hardware. */
 export function hasHostAccess(r: RuntimeConfig) {
   return (
-    r.volumes.some((v) => v.kind === "bind" || v.external) || !!r.networks?.length || r.ports.length > 0 || !!r.privileged || !!r.capAdd?.length || !!r.gpus || !!r.devices?.length
+    r.volumes.some((v) => v.kind === "bind" || v.external) ||
+    !!r.networks?.length ||
+    r.ports.length > 0 ||
+    !!r.privileged ||
+    !!r.capAdd?.length ||
+    !!r.securityOpt?.length ||
+    !!r.gpus ||
+    !!r.devices?.length
   );
 }
 
@@ -404,7 +425,16 @@ export function withoutOutsideResources(r: RuntimeConfig): RuntimeConfig {
 
 /** A runtime without host-level access, for copies made by someone who may not grant it. */
 export function withoutHostAccess(r: RuntimeConfig): RuntimeConfig {
-  return { ...withoutOutsideResources(r), ports: [], volumes: r.volumes.filter((v) => v.kind !== "bind" && !v.external), privileged: false, capAdd: [], gpus: null, devices: [] };
+  return {
+    ...withoutOutsideResources(r),
+    ports: [],
+    volumes: r.volumes.filter((v) => v.kind !== "bind" && !v.external),
+    privileged: false,
+    capAdd: [],
+    securityOpt: [],
+    gpus: null,
+    devices: [],
+  };
 }
 
 /** Whether a service keeps data or names outside Serve (it was moved in): such a service stays on its server. */

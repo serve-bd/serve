@@ -100,6 +100,11 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
       NanoCpus: runtime.cpuLimit ? Math.round(runtime.cpuLimit * 1e9) : undefined,
       Memory: runtime.memoryLimit ? runtime.memoryLimit * 1024 * 1024 : undefined,
       MemoryReservation: runtime.memoryReservation ? runtime.memoryReservation * 1024 * 1024 : undefined,
+      // Docker's --memory-swap is memory and swap together; the setting is the swap alone.
+      MemorySwap: runtime.memoryLimit && runtime.swapLimit != null ? (runtime.memoryLimit + runtime.swapLimit) * 1024 * 1024 : undefined,
+      MemorySwappiness: runtime.swappiness ?? undefined,
+      CpusetCpus: runtime.cpuset || undefined,
+      CpuShares: runtime.cpuWeight ?? undefined,
       LogConfig: {
         Type: "json-file",
         Config: { "max-size": `${runtime.logMaxSizeMb ?? 20}m`, "max-file": String(runtime.logMaxFiles ?? 5) },
@@ -110,6 +115,8 @@ export function createSpec(spec: ContainerSpec): Docker.ContainerCreateOptions {
       // Only settable by Root organization admins (checked when saving).
       Privileged: runtime.privileged || undefined,
       CapAdd: runtime.capAdd?.length ? runtime.capAdd : undefined,
+      CapDrop: runtime.capDrop?.length ? runtime.capDrop : undefined,
+      SecurityOpt: securityOpts(runtime),
       // Host hardware: Root organization only as well.
       Devices: runtime.devices?.length
         ? runtime.devices.map((dev) => ({ PathOnHost: dev.host, PathInContainer: dev.container || dev.host, CgroupPermissions: dev.permissions ?? "rwm" }))
@@ -339,4 +346,10 @@ export async function waitHealthy(
 /** Docker's restart policy for a service's setting. */
 export function dockerRestartPolicy(restart: string) {
   return restart === "no" ? { Name: "no" } : restart === "on-failure" ? { Name: "on-failure", MaximumRetryCount: 5 } : { Name: restart };
+}
+
+/** --security-opt values: no-new-privileges for anyone, profiles saved by Root admins. */
+function securityOpts(runtime: RuntimeConfig) {
+  const opts = [...(runtime.noNewPrivileges ? ["no-new-privileges"] : []), ...(runtime.securityOpt ?? [])];
+  return opts.length ? opts : undefined;
 }

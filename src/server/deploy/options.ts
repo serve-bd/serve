@@ -90,6 +90,31 @@ export const CAPABILITIES = [
   "AUDIT_WRITE",
 ] as const;
 
+/**
+ * Capabilities that can be dropped: Docker's defaults, or ALL of them. Dropping only takes rights
+ * away, so any member may do it.
+ */
+export const DROP_CAPABILITIES = [
+  "ALL",
+  "AUDIT_WRITE",
+  "CHOWN",
+  "DAC_OVERRIDE",
+  "FOWNER",
+  "FSETID",
+  "KILL",
+  "MKNOD",
+  "NET_BIND_SERVICE",
+  "NET_RAW",
+  "SETFCAP",
+  "SETGID",
+  "SETPCAP",
+  "SETUID",
+  "SYS_CHROOT",
+] as const;
+
+/** `--security-opt` values: AppArmor, seccomp and SELinux profiles, and systempaths=unconfined. */
+export const SECURITY_OPT_RE = /^(apparmor|seccomp|label|systempaths)[=:][^\s,]{1,200}$/;
+
 /** Resource limits Docker can set per container (`--ulimit`). */
 export const ULIMIT_NAMES = ["core", "cpu", "data", "fsize", "locks", "memlock", "msgqueue", "nice", "nofile", "nproc", "rss", "rtprio", "rttime", "sigpending", "stack"] as const;
 

@@ -12,7 +12,7 @@ import { useRouter } from "@/hooks/use-router";
 import { useConfirm } from "@/components/ui/confirm";
 import { deployWithoutCache, type updateService } from "@/server/actions/services";
 import { type BuildConfig, DEFAULT_CRASH_LIMIT, type KeyValue, type RuntimeConfig } from "@/server/services/types";
-import { CAPABILITIES, joinArgs, PLATFORMS, splitArgs } from "@/server/deploy/options";
+import { CAPABILITIES, DROP_CAPABILITIES, joinArgs, PLATFORMS, splitArgs } from "@/server/deploy/options";
 import { digits, KeyValueEditor, linesOf, num, Section } from "./section";
 import { NixpacksHint } from "@/components/nixpacks-hint";
 
@@ -527,8 +527,25 @@ export function ResourcesSection({ runtime, save }: { runtime: RuntimeConfig; sa
         memory: String(runtime.memoryLimit ?? ""),
         reservation: String(runtime.memoryReservation ?? ""),
         shm: String(runtime.shmSize ?? ""),
+        cpuset: runtime.cpuset ?? "",
+        cpuWeight: String(runtime.cpuWeight ?? ""),
+        swap: String(runtime.swapLimit ?? ""),
+        swappiness: String(runtime.swappiness ?? ""),
       }}
-      onSave={(v) => save({ runtime: { cpuLimit: v.cpu ? Number(v.cpu) : null, memoryLimit: num(v.memory), memoryReservation: num(v.reservation), shmSize: num(v.shm) } })}
+      onSave={(v) =>
+        save({
+          runtime: {
+            cpuLimit: v.cpu ? Number(v.cpu) : null,
+            memoryLimit: num(v.memory),
+            memoryReservation: num(v.reservation),
+            shmSize: num(v.shm),
+            cpuset: v.cpuset.replace(/\s/g, "") || null,
+            cpuWeight: num(v.cpuWeight),
+            swapLimit: num(v.swap),
+            swappiness: num(v.swappiness),
+          },
+        })
+      }
     >
       {(v, set) => (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -551,6 +568,30 @@ export function ResourcesSection({ runtime, save }: { runtime: RuntimeConfig; sa
             <InputGroup suffix="MB">
               <Input value={v.shm} onChange={(e) => set({ shm: digits(e.target.value) })} placeholder="64" inputMode="numeric" />
             </InputGroup>
+          </Field>
+          <Field label="CPU cores" optional description="Only these cores, like 0-3 or 0,2. Empty: any core.">
+            <Input value={v.cpuset} onChange={(e) => set({ cpuset: e.target.value.replace(/[^\d,-]/g, "") })} placeholder="0-3" className="font-mono text-[13px]" />
+          </Field>
+          <Field label="CPU weight" optional description="Share of CPU time when the server is busy. 1024 is normal, 2048 twice as much.">
+            <Input value={v.cpuWeight} onChange={(e) => set({ cpuWeight: digits(e.target.value) })} placeholder="1024" inputMode="numeric" />
+          </Field>
+          <Field
+            label="Swap"
+            optional
+            description={v.memory ? "Disk used as extra memory, on top of the memory limit. 0: no swap." : "Needs a memory limit: swap is added on top of it."}
+          >
+            <InputGroup suffix="MB">
+              <Input
+                value={v.swap}
+                onChange={(e) => set({ swap: digits(e.target.value) })}
+                placeholder={v.memory ? "Docker's default" : ""}
+                inputMode="numeric"
+                disabled={!v.memory && !v.swap}
+              />
+            </InputGroup>
+          </Field>
+          <Field label="Swappiness" optional description="0 to 100: how readily memory moves to swap. 0 for databases. Servers with cgroup v2 (most new Linux) ignore it.">
+            <Input value={v.swappiness} onChange={(e) => set({ swappiness: digits(e.target.value).slice(0, 3) })} placeholder="60" inputMode="numeric" />
           </Field>
         </div>
       )}
@@ -575,6 +616,9 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
         logMaxFiles: String(runtime.logMaxFiles ?? 5),
         privileged: runtime.privileged ?? false,
         capAdd: runtime.capAdd ?? ([] as string[]),
+        noNewPrivileges: runtime.noNewPrivileges ?? false,
+        capDrop: runtime.capDrop ?? ([] as string[]),
+        securityOpt: (runtime.securityOpt ?? []).join("\n"),
         ulimits: (runtime.ulimits ?? []).map((u) => `${u.name}=${u.soft === u.hard ? u.soft : `${u.soft}:${u.hard}`}`).join("\n"),
         sysctls: Object.entries(runtime.sysctls ?? {}).map(([key, value]) => ({ key, value })),
         dns: (runtime.dns ?? []).join("\n"),
@@ -596,10 +640,13 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
             dns: linesOf(v.dns),
             dnsSearch: words(v.dnsSearch),
             dnsOptions: words(v.dnsOptions),
+            noNewPrivileges: v.noNewPrivileges,
+            capDrop: v.capDrop as (typeof DROP_CAPABILITIES)[number][],
             ...(isRootAdmin
               ? {
                   privileged: v.privileged,
                   capAdd: v.capAdd as (typeof CAPABILITIES)[number][],
+                  securityOpt: linesOf(v.securityOpt),
                   gpus: v.gpus === "" ? null : v.gpus === "all" ? "all" : Number(v.gpus),
                   devices: linesOf(v.devices).map(parseDevice),
                 }
@@ -651,6 +698,30 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
               </Field>
             </div>
           </div>
+          <SwitchRow
+            title="No new privileges"
+            description="Processes cannot gain rights after the start, such as through setuid programs. Safe for most apps."
+            checked={v.noNewPrivileges}
+            onCheckedChange={(c) => set({ noNewPrivileges: c })}
+          />
+          <Field label="Drop capabilities" optional description="Rights taken away from Docker's defaults. ALL drops every one: add back only what the app needs.">
+            <div className="flex flex-wrap gap-1.5">
+              {DROP_CAPABILITIES.map((cap) => {
+                const on = v.capDrop.includes(cap);
+                return (
+                  <button
+                    key={cap}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => set({ capDrop: on ? v.capDrop.filter((c) => c !== cap) : [...v.capDrop, cap] })}
+                    className={`rounded-md px-2 py-1 font-mono text-[11.5px] ring-1 transition-colors ${on ? "bg-accent-soft text-accent ring-accent/40" : "text-muted ring-line hover:text-fg"}`}
+                  >
+                    {cap}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
           {isRootAdmin && (
             <div className="flex flex-col gap-3 rounded-xl border border-warn/25 bg-warn-soft/40 p-4">
               <p className="text-xs font-medium text-warn">Host access · Root organization only</p>
@@ -677,11 +748,21 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
                   })}
                 </div>
               </Field>
+              <Field label="Security options" optional description="One per line, like apparmor=my-profile, seccomp=unconfined or label=disable.">
+                <Textarea
+                  value={v.securityOpt}
+                  onChange={(e) => set({ securityOpt: e.target.value })}
+                  rows={2}
+                  placeholder="seccomp=unconfined"
+                  className="font-mono text-[12.5px]"
+                />
+              </Field>
               <Field label="GPUs" optional description="NVIDIA GPUs for the container. The server needs the NVIDIA driver and Container Toolkit.">
                 <Select
-                  value={v.gpus}
-                  onValueChange={(g) => set({ gpus: g })}
-                  options={[{ value: "", label: "None" }, { value: "all", label: "All" }, ...[1, 2, 3, 4, 8].map((n) => ({ value: String(n), label: String(n) }))]}
+                  // "" reads as no choice to the select: "none" stands for it.
+                  value={v.gpus || "none"}
+                  onValueChange={(g) => set({ gpus: g === "none" ? "" : g })}
+                  options={[{ value: "none", label: "None" }, { value: "all", label: "All" }, ...[1, 2, 3, 4, 8].map((n) => ({ value: String(n), label: String(n) }))]}
                 />
               </Field>
               <Field label="Devices" optional description="One per line: host path, then optionally :container path and :permissions (r, rw or rwm).">

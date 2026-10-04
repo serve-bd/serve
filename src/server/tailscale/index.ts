@@ -132,6 +132,9 @@ export const looksLikeNetwork = (message: string) => /timed out|timeout|ETIMEDOU
 export async function tailnetReachHint(row: Pick<ServerRow, "tailscale" | "port">): Promise<string | null> {
   const ts = row.tailscale;
   if (!ts?.address || !ts.tailnetId) return null;
+  // Its device is gone from the tailnet: no firewall or address problem, the machine has to join again.
+  if (ts.error)
+    return "This server is no longer in the tailnet: its device was removed in the Tailscale admin console, or its key expired. Run its join command on the machine again (Tailscale card on this page).";
   const [local] = await db.select({ tailscale: schema.server.tailscale }).from(schema.server).where(eq(schema.server.isLocal, true));
   if (!local?.tailscale?.address)
     return `As far as Serve knows, the machine this dashboard runs on is not in the tailnet, so it cannot reach ${ts.address}. Use Add this server to the tailnet in Integrations, Tailscale (a machine that is in the tailnet already is only recorded).`;

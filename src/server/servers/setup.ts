@@ -222,7 +222,8 @@ export async function setupServer(serverId: string, opts: { installDocker?: bool
     if (row.tailscale?.address) {
       const { looksLikeNetwork, tailnetReachHint } = await import("@/server/tailscale");
       const hint = looksLikeNetwork(message) ? await tailnetReachHint(row).catch(() => null) : null;
-      if (hint) message = `${message} ${hint}`;
+      // A server that left the tailnet gets only the reason: "check the firewall" would mislead.
+      if (hint) message = row.tailscale.error ? hint : `${message} ${hint}`;
     }
     log(`==> ${message}`);
     await setStatus(serverId, error instanceof HostKeyMismatchError ? "error" : "unreachable", message);
@@ -251,7 +252,8 @@ export async function probeServer(serverId: string) {
       if (row.tailscale?.address) {
         const { looksLikeNetwork, tailnetReachHint } = await import("@/server/tailscale");
         const hint = looksLikeNetwork(message) ? await tailnetReachHint(row).catch(() => null) : null;
-        if (hint) message = `${message} ${hint}`;
+        // A server that left the tailnet gets only the reason: "check the firewall" would mislead.
+        if (hint) message = row.tailscale.error ? hint : `${message} ${hint}`;
       }
       await setStatus(serverId, "unreachable", message);
     }

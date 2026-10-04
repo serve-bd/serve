@@ -224,7 +224,13 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
     changed =
       (await ctx.fs.writeIfChanged(
         path.posix.join(p.proxySites, TRAEFIK_BASE),
-        traefikBaseDynamic({ pagesUrl: `http://${pagesContainer(ctx)}:80`, resolver: !!settings.acmeEmail, dashboard: t.dashboard ?? null, defaults: defaultsOf(t.defaults), metrics: !!t.metrics }),
+        traefikBaseDynamic({
+          pagesUrl: `http://${pagesContainer(ctx)}:80`,
+          resolver: !!settings.acmeEmail,
+          dashboard: t.dashboard ?? null,
+          defaults: defaultsOf(t.defaults),
+          metrics: !!t.metrics,
+        }),
       )) || changed;
     changed = (await writeOrRemove(ctx, path.posix.join(p.proxySites, TRAEFIK_CUSTOM), null)) || changed;
     if (await ctx.fs.writeIfChanged(path.posix.join(p.proxy, "pages-server", "default.conf"), pagesServerConfig)) {

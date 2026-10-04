@@ -127,6 +127,18 @@ function queryObject(url: URL) {
   return out;
 }
 
+/** Adds headers; a response whose headers cannot change (one passed through from fetch) is copied first. */
+function setHeaders(res: Response, headers: Record<string, string>) {
+  try {
+    for (const [k, v] of Object.entries(headers)) res.headers.set(k, v);
+    return res;
+  } catch {
+    const copy = new Response(res.body, res);
+    for (const [k, v] of Object.entries(headers)) copy.headers.set(k, v);
+    return copy;
+  }
+}
+
 export function createRouter(routes: ApiRoute[], publicRoutes: Record<string, (request: Request) => Promise<Response>> = {}) {
   const compiled = compile(routes);
 
@@ -159,12 +171,11 @@ export function createRouter(routes: ApiRoute[], publicRoutes: Record<string, (r
     const rate = takeRequest(auth.tokenId, apiRateLimit);
     if (!rate.allowed) {
       const res = error(429, `Too many requests: this token may make ${apiRateLimit} per minute. Try again after the Retry-After seconds.`);
-      for (const [k, v] of Object.entries(rate.headers)) res.headers.set(k, v);
+      setHeaders(res, rate.headers);
       return res;
     }
     const response = await dispatch(auth);
-    for (const [k, v] of Object.entries(rate.headers)) response.headers.set(k, v);
-    return response;
+    return setHeaders(response, rate.headers);
 
     async function dispatch(auth: ApiAuth): Promise<Response> {
       const missing: Need[] = [];

@@ -62,7 +62,8 @@ export async function queueDeployment(
 ) {
   const id = newId();
   // The server's queue limit: a full queue refuses someone deploying and records a skipped push or hook.
-  const full = await queueFull(serviceId);
+  // A rollback (urgent) and a new service's first deploy always get in.
+  const full = trigger === "rollback" || trigger === "create" ? null : await queueFull(serviceId);
   if (full) {
     if (opts.userId) throw new UserError(full);
     return recordSkipped(serviceId, trigger, full, opts);

@@ -13,7 +13,16 @@ export default async function SettingsLayout({ children }: LayoutProps<"/setting
   const settings = await getSettings();
   const security = (await securityChecks(settings)).some((c) => c.status === "warn");
   // A scheduler whose last run failed: the Jobs page says which.
-  const jobsFailing = (await db.select({ name: schema.schedulerRun.name }).from(schema.schedulerRun).where(isNotNull(schema.schedulerRun.lastError)).limit(1)).length > 0;
+  // A table the update's migration may not have made yet: no warning then, never a broken page.
+  const jobsFailing =
+    (
+      await db
+        .select({ name: schema.schedulerRun.name })
+        .from(schema.schedulerRun)
+        .where(isNotNull(schema.schedulerRun.lastError))
+        .limit(1)
+        .catch(() => [])
+    ).length > 0;
 
   return (
     <>

@@ -340,14 +340,22 @@ function JoinForm({
         )}
       </CardBody>
       <CardFooter>
-        <span className="truncate text-xs text-muted">{ready ? (joined ? "Changes apply to every server in the network." : "") : "Finish setting up this server first."}</span>
+        <span className="truncate text-xs text-muted">
+          {!ready
+            ? "Finish setting up this server first."
+            : options === null
+              ? "Looking up this server's addresses…"
+              : joined
+                ? "Changes apply to every server in the network."
+                : ""}
+        </span>
         <div className="flex flex-none gap-2">
           {onCancel && (
             <Button size="sm" variant="ghost" onClick={onCancel}>
               Cancel
             </Button>
           )}
-          <Button size="sm" variant="primary" type="submit" loading={save.pending} disabled={!ready}>
+          <Button size="sm" variant="primary" type="submit" loading={save.pending} disabled={!ready || options === null}>
             {joined ? "Save" : "Join private network"}
           </Button>
         </div>

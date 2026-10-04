@@ -258,21 +258,47 @@ func guardGroups(c *cobra.Command) {
 	for _, sub := range c.Commands() {
 		guardGroups(sub)
 	}
-	if c.Parent() == nil || !c.HasSubCommands() || c.Run != nil || c.RunE != nil {
+	if c.Parent() == nil || !c.HasSubCommands() {
+		return
+	}
+	if c.RunE != nil {
+		// A command that also takes a name (serve db backups [service]) reads a mistyped
+		// subcommand as that name: when the name is not found, point at the subcommand.
+		run := c.RunE
+		c.RunE = func(cmd *cobra.Command, args []string) error {
+			err := run(cmd, args)
+			if err == nil || len(args) == 0 {
+				return err
+			}
+			if s := suggestSub(cmd, args[0]); s != "" {
+				return fmt.Errorf("%w\nDid you mean `%s %s`?", err, cmd.CommandPath(), s)
+			}
+			return err
+		}
+		return
+	}
+	if c.Run != nil {
 		return
 	}
 	c.Args = func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return nil
 		}
-		// Typos of up to two letters, like "ulr" for "url", get the right word back.
-		if cmd.SuggestionsMinimumDistance <= 0 {
-			cmd.SuggestionsMinimumDistance = 2
-		}
-		if s := cmd.SuggestionsFor(args[0]); len(s) > 0 {
-			return usagef("unknown command %q for %s. Did you mean %s %s?", args[0], cmd.CommandPath(), cmd.CommandPath(), s[0])
+		if s := suggestSub(cmd, args[0]); s != "" {
+			return usagef("unknown command %q for %s. Did you mean %s %s?", args[0], cmd.CommandPath(), cmd.CommandPath(), s)
 		}
 		return usagef("unknown command %q for %s", args[0], cmd.CommandPath())
 	}
 	c.RunE = func(cmd *cobra.Command, args []string) error { return cmd.Help() }
+}
+
+// suggestSub is the subcommand a word is a typo of (up to two letters off, like "ulr" for "url"), or "".
+func suggestSub(cmd *cobra.Command, word string) string {
+	if cmd.SuggestionsMinimumDistance <= 0 {
+		cmd.SuggestionsMinimumDistance = 2
+	}
+	if s := cmd.SuggestionsFor(word); len(s) > 0 {
+		return s[0]
+	}
+	return ""
 }

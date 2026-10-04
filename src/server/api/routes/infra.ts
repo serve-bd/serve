@@ -45,9 +45,12 @@ export const infraRoutes: ApiRoute[] = [
         .from(schema.service)
         .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
         .where(and(eq(schema.service.serverId, server.id), eq(schema.project.organizationId, auth.organizationId)));
-      // What the server's admin pages show (setup log, alert thresholds, a proxy switch): for admin tokens, as those pages are for admins.
+      // What the server's admin pages show (setup log, alert thresholds, a proxy switch): only for those who manage it, as
+      // in the dashboard. A server shared from another organization stays read-only.
       let admin = {};
-      if (auth.admin) {
+      const { requireOrg } = await import("@/server/auth");
+      const { canManageServer } = await import("@/server/servers/access");
+      if (auth.admin && canManageServer(await requireOrg(), server)) {
         const { alertsFor } = await import("@/server/monitoring/config");
         admin = { setupLog: server.setupLog, alerts: await alertsFor(server.id), proxySwitch: server.proxySwitch ?? null };
       }

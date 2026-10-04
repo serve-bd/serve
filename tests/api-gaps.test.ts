@@ -44,6 +44,7 @@ vi.mock("@/server/db", () => {
     p.where = (w: unknown) => builder(table, w);
     p.orderBy = () => builder(table, where);
     p.limit = () => builder(table, where);
+    p.innerJoin = () => builder(table, where);
     return p;
   };
   const db = { select: () => ({ from: (t: { __table: string }) => builder(t.__table) }) };
@@ -83,6 +84,13 @@ vi.mock("@/server/api/data", async (actual) => {
   return {
     ...real,
     loadService,
+    // Every server in the table is one this organization deploys to (its own or shared with it).
+    loadServer: async (_auth: unknown, id: string) => {
+      const row = (state.tables.server ?? []).find((s) => s.id === id);
+      if (!row) throw new ApiError(404, "Server not found");
+      return { status: "ready", host: null, setupLog: "installed docker", proxySwitch: null, ...row };
+    },
+    serverView: (s: { id: string; name: string }) => ({ id: s.id, name: s.name }),
     loadDeployment: async (auth: Parameters<typeof loadService>[0], id: string) => {
       const d = (state.tables.deployment ?? []).find((x) => x.id === id);
       if (!d) throw new ApiError(404, "Deployment not found");
@@ -93,6 +101,7 @@ vi.mock("@/server/api/data", async (actual) => {
     },
   };
 });
+vi.mock("@/server/monitoring/config", () => ({ alertsFor: async () => ({ cpu: 90 }) }));
 vi.mock("@/server/security", () => ({ serviceHasHostAccess: (s: { runtime: { hostAccess: boolean } }) => s.runtime.hostAccess }));
 vi.mock("@/server/services/exec", () => ({
   execTargets: async () => [
@@ -202,7 +211,8 @@ const { networkingRoutes } = await import("@/server/api/routes/networking");
 const { logDrainRoutes } = await import("@/server/api/routes/log-drains");
 const { projectRoutes } = await import("@/server/api/routes/projects");
 const { orgRoutes } = await import("@/server/api/routes/org");
-const handle = createRouter([...projectRoutes, ...consoleRoutes, ...networkingRoutes, ...logDrainRoutes, ...orgRoutes]);
+const { infraRoutes } = await import("@/server/api/routes/infra");
+const handle = createRouter([...projectRoutes, ...consoleRoutes, ...networkingRoutes, ...logDrainRoutes, ...orgRoutes, ...infraRoutes]);
 
 const call = (method: string, path: string, body?: unknown) =>
   handle(new Request(`http://x/api/v1${path}`, { method, headers: { authorization: "Bearer srv_x" }, body: body === undefined ? undefined : JSON.stringify(body) }), path);
@@ -363,6 +373,20 @@ describe("a shell on a server", () => {
     expect(called("openHostSession")).toEqual([["openHostSession", "srv-mine", "uptime"]]);
     state.instanceAdmin = true;
     expect((await call("POST", "/servers/srv-root/terminal", {})).status).toBe(201);
+  });
+});
+
+describe("a server's details", () => {
+  it("show the setup log and alerts only to admins who manage the server", async () => {
+    token(["projects.view"], { admin: true });
+    const shared = (await (await call("GET", "/servers/srv-root")).json()).server;
+    expect(shared.setupLog).toBeUndefined();
+    expect(shared.alerts).toBeUndefined();
+    const mine = (await (await call("GET", "/servers/srv-mine")).json()).server;
+    expect(mine.setupLog).toBe("installed docker");
+    expect(mine.alerts).toEqual({ cpu: 90 });
+    token(["projects.view"]);
+    expect((await (await call("GET", "/servers/srv-mine")).json()).server.setupLog).toBeUndefined();
   });
 });
 

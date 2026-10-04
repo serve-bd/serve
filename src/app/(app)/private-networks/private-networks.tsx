@@ -20,6 +20,7 @@ import { useRouter } from "@/hooks/use-router";
 import { cn } from "@/lib/utils";
 
 type View = "list" | "canvas";
+const VIEW_COOKIE = "serve-networks-view";
 
 type ServerRow = {
   id: string;
@@ -63,23 +64,24 @@ export function PrivateNetworks({
   const router = useRouter();
   const setView = React.useCallback(
     (v: View) => {
-      try {
-        localStorage.setItem(VIEW_KEY, v);
-      } catch {}
+      // A cookie, so the server draws the chosen view at once (no list first, then the canvas).
+      // biome-ignore lint/suspicious/noDocumentCookie: the Cookie Store API is missing in older Safari and Firefox
+      document.cookie = `${VIEW_COOKIE}=${v}; path=/; max-age=31536000; samesite=lax`;
       router.replace(v === "canvas" ? "/private-networks?view=canvas" : "/private-networks", { scroll: false });
     },
     [router],
   );
-  // Opened without a choice in the URL: use the one from last time.
-  const asked = React.useRef(false);
+  // Earlier versions kept the choice in this browser's storage: move it to the cookie once.
+  const moved = React.useRef(false);
   React.useEffect(() => {
-    if (asked.current) return;
-    asked.current = true;
+    if (moved.current) return;
+    moved.current = true;
     let stored: string | null = null;
     try {
       stored = localStorage.getItem(VIEW_KEY);
+      localStorage.removeItem(VIEW_KEY);
     } catch {}
-    if (stored === "canvas" && view === "list" && !new URLSearchParams(window.location.search).has("view")) setView("canvas");
+    if (stored === "canvas" && view === "list" && !document.cookie.includes(`${VIEW_COOKIE}=`) && !new URLSearchParams(window.location.search).has("view")) setView("canvas");
   }, [view, setView]);
   const meshConfirm = useMeshConfirm();
   const [creating, setCreating] = React.useState(false);

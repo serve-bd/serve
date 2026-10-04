@@ -55,6 +55,7 @@ export function BranchesView({
   scrubSupported,
   allSupported,
   mainDatabase,
+  initialView,
 }: {
   serviceId: string;
   serviceName: string;
@@ -69,24 +70,29 @@ export function BranchesView({
   canManage: boolean;
   branches: Branch[];
   projectId: string;
+  /** The view chosen last time (a cookie the server reads, so the page opens in it). */
+  initialView?: "canvas" | "list";
 }) {
   const router = useRouter();
   const confirm = useConfirm();
   const [creating, setCreating] = React.useState(false);
   const [cleaning, setCleaning] = React.useState(false);
-  // The list by default; the last view chosen in this browser after that.
-  const [view, setViewState] = React.useState<"canvas" | "list">("list");
-  React.useEffect(() => {
-    try {
-      if (localStorage.getItem("serve.branches.view") === "canvas") setViewState("canvas");
-    } catch {}
-  }, []);
+  const [view, setViewState] = React.useState<"canvas" | "list">(initialView ?? "list");
   const setView = (next: "canvas" | "list") => {
     setViewState(next);
-    try {
-      localStorage.setItem("serve.branches.view", next);
-    } catch {}
+    // biome-ignore lint/suspicious/noDocumentCookie: the Cookie Store API is missing in older Safari and Firefox
+    document.cookie = `serve-branches-view=${next}; path=/; max-age=31536000; samesite=lax`;
   };
+  // Earlier versions kept the choice in this browser's storage: move it to the cookie once.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, on the first visit after the update.
+  React.useEffect(() => {
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem("serve.branches.view");
+      localStorage.removeItem("serve.branches.view");
+    } catch {}
+    if (stored === "canvas" && !document.cookie.includes("serve-branches-view=")) setView("canvas");
+  }, []);
   const reset = useAction(resetDatabaseBranch);
   const remove = useAction(deleteDatabaseBranch);
 

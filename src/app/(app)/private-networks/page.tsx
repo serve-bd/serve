@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { asc } from "drizzle-orm";
 import { requireOrg } from "@/server/auth";
@@ -11,7 +12,9 @@ import { PrivateNetworks } from "./private-networks";
 export const metadata = { title: "Private networks" };
 
 export default async function PrivateNetworksPage(props: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const { view } = await props.searchParams;
+  const { view: asked } = await props.searchParams;
+  // The address wins, then the choice from last time.
+  const view = typeof asked === "string" ? asked : (await cookies()).get("serve-networks-view")?.value;
   const ctx = await requireOrg();
   if (!ctx.isInstanceAdmin && !ctx.isAdmin) redirect("/");
   const [allNetworks, allServers, settings] = await Promise.all([

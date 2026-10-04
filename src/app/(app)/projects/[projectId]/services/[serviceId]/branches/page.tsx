@@ -1,4 +1,5 @@
 import { asc, eq, inArray } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -57,6 +58,7 @@ export default async function BranchesPage(props: PageProps<"/projects/[projectI
   return (
     <PageBody>
       <BranchesView
+        initialView={(await cookies()).get("serve-branches-view")?.value === "canvas" ? "canvas" : "list"}
         serviceId={service.id}
         serviceName={service.name}
         engine={service.database?.engine ?? "postgres"}

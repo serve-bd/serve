@@ -336,6 +336,7 @@ export function CloudflareAccount({
   tunnels,
   isAdmin,
   oauth,
+  single = false,
 }: {
   account: AccountSummary;
   zones: Zone[];
@@ -343,12 +344,15 @@ export function CloudflareAccount({
   tunnels: Tunnel[];
   isAdmin: boolean;
   oauth: boolean;
+  /** The organization's only account, shown as the Cloudflare page itself (no list to go back to). */
+  single?: boolean;
 }) {
   const router = useRouter();
+  const [connecting, setConnecting] = React.useState(false);
   const signIn = useCloudflareSignIn();
   const confirm = useConfirm();
   const remove = useAction(disconnectCloudflare, { onSuccess: () => router.push("/integrations/cloudflare") });
-  useSignInResult(`/integrations/cloudflare/${a.id}`);
+  useSignInResult(single ? "/integrations/cloudflare" : `/integrations/cloudflare/${a.id}`);
   const disconnect = async () => {
     const impact = await cloudflareDisconnectImpact(a.id);
     const affected = impact.ok ? impact.data : [];
@@ -391,10 +395,16 @@ export function CloudflareAccount({
           </span>
         }
         description={<ConnectionLine a={a} />}
-        breadcrumbs={[{ label: "Cloudflare", href: "/integrations/cloudflare" }, { label: a.name }]}
+        breadcrumbs={single ? [{ label: "Cloudflare" }] : [{ label: "Cloudflare", href: "/integrations/cloudflare" }, { label: a.name }]}
+        back={single ? undefined : { href: "/integrations/cloudflare", label: "All Cloudflare accounts" }}
         actions={
           isAdmin && (
             <div className="flex items-center gap-2">
+              {single && (
+                <Button variant="secondary" size="sm" onClick={() => setConnecting(true)}>
+                  <Plus /> Connect another account
+                </Button>
+              )}
               {a.oauth && a.error && oauth && (
                 <Button variant="primary" size="sm" loading={signIn.pending} onClick={() => signIn.run(a.id)}>
                   <RefreshCw /> Reconnect
@@ -440,6 +450,7 @@ export function CloudflareAccount({
           )}
         </Card>
         {!a.error && <TunnelsSection account={a} servers={servers} tunnels={tunnels} isAdmin={isAdmin} />}
+        <ConnectCloudflareDialog open={connecting} onOpenChange={setConnecting} oauth={oauth} />
       </PageBody>
     </>
   );

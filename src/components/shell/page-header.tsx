@@ -1,6 +1,6 @@
 import * as React from "react";
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type Crumb = { label: React.ReactNode; href?: string };
@@ -36,6 +36,7 @@ export function PageHeader({
   crumb,
   crumbActions,
   stackActions,
+  back,
   className,
   children,
 }: {
@@ -50,6 +51,8 @@ export function PageHeader({
   crumbActions?: React.ReactNode;
   /** Phones: the actions get their own full-width row under the title, so a long title is not cut. */
   stackActions?: boolean;
+  /** A link above the title back to the list this page belongs to. */
+  back?: { href: string; label: string };
   className?: string;
   children?: React.ReactNode;
 }) {
@@ -66,6 +69,11 @@ export function PageHeader({
       </header>
       {(title || description || actions || children) && (
         <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-1 px-4 pt-7 pb-2 sm:px-8">
+          {back && (
+            <Link href={back.href} className="-mt-2 mb-1.5 inline-flex w-fit items-center gap-1 text-[13px] text-muted transition-colors hover:text-fg">
+              <ArrowLeft className="size-3.5" /> {back.label}
+            </Link>
+          )}
           {/* Actions sit beside the title (under it on phones with stackActions); the description runs full width under both. */}
           <div className={cn("flex min-w-0 justify-between gap-3", stackActions ? "flex-col sm:flex-row sm:items-center" : "items-center")}>
             {title && <h1 className="min-w-0 truncate text-[22px] leading-tight font-semibold text-fg">{title}</h1>}

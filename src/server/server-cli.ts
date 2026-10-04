@@ -1,6 +1,7 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { env } from "@/server/env";
 import { newId } from "@/server/id";
@@ -34,11 +35,14 @@ async function readFile(file: string): Promise<Partial<ServerCliFile> | null> {
   }
 }
 
-/** Written to a temporary file first, so a reader never sees half a file. */
+/**
+ * Written to a temporary file first, so a reader never sees half a file. The name is random and
+ * the file must be new ("wx"), so nothing already at that path (a symlink) is written through.
+ */
 async function writeFile(file: string, content: ServerCliFile) {
-  const tmp = `${file}.${process.pid}.tmp`;
+  const tmp = `${file}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   try {
-    await fs.writeFile(tmp, `${JSON.stringify(content, null, 2)}\n`, { mode: 0o600 });
+    await fs.writeFile(tmp, `${JSON.stringify(content, null, 2)}\n`, { mode: 0o600, flag: "wx" });
     await fs.chmod(tmp, 0o600);
     await fs.rename(tmp, file);
   } catch (e) {
@@ -52,6 +56,18 @@ async function writeFile(file: string, content: ServerCliFile) {
  * that cannot be written only means the host CLI needs `serve login`.
  */
 export async function ensureServerCli(): Promise<string> {
+  try {
+    // One at a time: two workers at once (an update starting the new one early) would each make a token.
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('serve:server-cli'))`);
+      return writeServerCli();
+    });
+  } catch (e) {
+    return `Server CLI: could not write ${serverCliPath()}: ${(e as Error).message}`;
+  }
+}
+
+async function writeServerCli(): Promise<string> {
   const file = serverCliPath();
   try {
     const rootId = await getSetting("rootOrganizationId");

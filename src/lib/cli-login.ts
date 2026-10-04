@@ -8,6 +8,12 @@
 export const CLI_LOGIN_TTL = 600;
 /** Seconds between polls the CLI is asked to keep. */
 export const CLI_LOGIN_INTERVAL = 2;
+/** Sign-ins that may wait at once on the whole instance; past it, new ones are refused. */
+export const CLI_LOGIN_MAX_PENDING = 500;
+/** Code lookups (page, approve, deny) one person may make per minute. */
+export const CLI_CODE_LOOKUPS_PER_MINUTE = 20;
+/** Polls one address may make per minute (a CLI makes 30). */
+export const CLI_POLLS_PER_MINUTE = 120;
 
 /** Letters without vowels (no words by accident) and digits without 0 and 1 (no O/I mix-ups). */
 const LETTERS = "BCDFGHJKLMNPQRSTVWXZ";
@@ -45,9 +51,22 @@ export function cleanClientName(input: unknown): string {
 }
 
 /**
+ * When an approved sign-in's token stops working unless the CLI collects it: shortly after the
+ * sign-in expires. Collecting it removes the expiry.
+ */
+export function cliTokenExpiry(loginExpiresAt: Date): Date {
+  return new Date(loginExpiresAt.getTime() + 5 * 60_000);
+}
+
+/**
  * Whether a poll came sooner than the interval allows (slow_down). Half a second of slack covers
  * timers and network jitter.
  */
 export function pollTooSoon(last: number | undefined, now: number, interval = CLI_LOGIN_INTERVAL) {
   return last !== undefined && now - last < interval * 1000 - 500;
+}
+
+/** Drops poll times older than any code lives. */
+export function sweepPolls(lastPoll: Map<string, number>, now: number) {
+  for (const [k, t] of lastPoll) if (now - t > 15 * 60_000) lastPoll.delete(k);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CLI_LOGIN_TTL, cleanClientName, cliLoginState, newUserCode, normalizeUserCode, pollTooSoon } from "@/lib/cli-login";
+import { CLI_LOGIN_TTL, cleanClientName, cliLoginState, cliTokenExpiry, newUserCode, normalizeUserCode, pollTooSoon, sweepPolls } from "@/lib/cli-login";
 
 describe("CLI sign-in codes", () => {
   it("makes codes like BCDF-2345 without vowels, 0 or 1", () => {
@@ -44,5 +44,22 @@ describe("CLI sign-in codes", () => {
     expect(pollTooSoon(10_000, 11_000)).toBe(true);
     expect(pollTooSoon(10_000, 11_600)).toBe(false);
     expect(pollTooSoon(10_000, 12_000)).toBe(false);
+  });
+
+  it("lets an uncollected token expire shortly after its sign-in", () => {
+    const expires = new Date("2026-10-04T12:10:00Z");
+    const gap = cliTokenExpiry(expires).getTime() - expires.getTime();
+    expect(gap).toBeGreaterThan(0);
+    expect(gap).toBeLessThanOrEqual(10 * 60_000);
+  });
+
+  it("forgets poll times older than any code lives", () => {
+    const now = 100 * 60_000;
+    const polls = new Map([
+      ["fresh", now - 1000],
+      ["old", now - 16 * 60_000],
+    ]);
+    sweepPolls(polls, now);
+    expect([...polls.keys()]).toEqual(["fresh"]);
   });
 });

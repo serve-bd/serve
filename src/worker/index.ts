@@ -53,6 +53,7 @@ import { currentVersion } from "@/server/instance/version";
 import { attemptDelivery, flushHeldNotifications, pruneDeliveries, retryDueDeliveries } from "@/server/notifications/deliver";
 import { recordSchedulerRun, recordSchedulerSkip } from "@/server/schedulers";
 import { ensureServerCli } from "@/server/server-cli";
+import { pruneCliLogins } from "@/server/cli-login";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -753,20 +754,19 @@ async function recover() {
 }
 
 /**
- * cli.json for the CLI on this host. A fresh install has no admin yet: checked again every
- * minute until the first one signs up.
+ * cli.json for the CLI on this host, checked again every 10 minutes so a removed or demoted admin
+ * or a new Root organization is picked up (it only writes when something changed). A fresh install
+ * has no admin yet: checked every minute until the first one signs up.
  */
 async function startServerCli() {
-  const line = await ensureServerCli();
-  log(line);
-  if (!line.includes("no admin yet")) return;
-  const timer = setInterval(async () => {
-    const next = await ensureServerCli();
-    if (next.includes("no admin yet")) return;
-    clearInterval(timer);
-    log(next);
-  }, 60_000);
-  timer.unref();
+  let last = "";
+  const run = async () => {
+    const line = await ensureServerCli();
+    if (line !== last) log(line);
+    last = line;
+    if (!stopping) setTimeout(run, line.includes("no admin yet") ? 60_000 : 10 * 60_000).unref();
+  };
+  await run();
 }
 
 async function main() {
@@ -878,6 +878,8 @@ async function main() {
   every(10_000, "server-listener", () => syncTunnels(), true);
   // Uptime checks run every 15 s and pick the monitors that are due.
   every(15_000, "uptime", runUptimeChecks, true);
+  // CLI sign-ins: tokens nobody collected, and sign-ins a day past their time.
+  every(60_000, "cli-logins", pruneCliLogins);
   every(60_000, "container-health", checkContainerHealth);
   every(60_000, "server-resources", checkServerResources);
   every(3600_000, "monitoring-prune", pruneMonitoring);

@@ -31,6 +31,7 @@ export const SCHEDULER_LABELS: Record<string, string> = {
   "server-resources": "Server resource alerts",
   uptime: "Uptime checks",
   "os-updates": "Operating system update checks",
+  "cli-logins": "CLI sign-in cleanup",
 };
 
 export const JOB_LABELS: Record<string, string> = {

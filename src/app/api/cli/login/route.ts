@@ -18,7 +18,10 @@ export async function POST(request: Request) {
   const rate = takeRequest(`cli-login:${ip ?? "unknown"}`, STARTS_PER_MINUTE);
   if (!rate.allowed) return Response.json({ error: "Too many sign-ins from this address. Try again in a minute." }, { status: 429, headers: rate.headers });
   const body = (await readJsonLimited(request, 4096, {})) as { client?: unknown; version?: unknown } | null;
-  const { deviceCode, userCode } = await startCliLogin({ client: body?.client, version: body?.version, ip });
+  const started = await startCliLogin({ client: body?.client, version: body?.version, ip });
+  if (!started)
+    return Response.json({ error: "Too many sign-ins are waiting on this Serve instance. Try again in a few minutes." }, { status: 429, headers: { "retry-after": "60" } });
+  const { deviceCode, userCode } = started;
   const { publicBaseUrl } = await import("@/server/git/github-app");
   const base = (await publicBaseUrl().catch(() => "")) || new URL(request.url).origin;
   return Response.json(

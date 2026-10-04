@@ -4,9 +4,10 @@ import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { getSession } from "@/server/auth";
 import { getSettings } from "@/server/settings";
-import { pendingCliLogin } from "@/server/cli-login";
+import { pendingCliLogin, takeCodeLookup } from "@/server/cli-login";
 import { normalizeUserCode } from "@/lib/cli-login";
 import { buttonVariants } from "@/components/ui/button";
+import { TimeAgo } from "@/components/ui/misc";
 import { AuthCard } from "../../_components/auth-card";
 import { memberAccess } from "@/server/permissions";
 import { CliApproval, CodeForm } from "./cli-approval";
@@ -27,6 +28,13 @@ export default async function CliLoginPage(props: PageProps<"/cli/login">) {
         title="Sign in the CLI"
         description={raw ? "That code does not look right. Type the code your terminal shows." : "Type the code your terminal shows after serve login."}
       >
+        <CodeForm />
+      </AuthCard>
+    );
+  // Guessing codes is slowed down: the same limit as approving.
+  if (!takeCodeLookup(session.user.id))
+    return (
+      <AuthCard eyebrow="Serve CLI" title="Too many codes tried" description="Wait a minute, then reload this page.">
         <CodeForm />
       </AuthCard>
     );
@@ -67,8 +75,9 @@ export default async function CliLoginPage(props: PageProps<"/cli/login">) {
       title="Sign in the CLI"
       description={
         <>
-          The CLI on <span className="text-fg-2">{row.client}</span> asks to act as <span className="text-fg-2">{session.user.email}</span>. Approve only if you just ran{" "}
-          <code className="font-mono text-[13px] text-fg-2">serve login</code> there and it shows this code.
+          The CLI on <span className="text-fg-2">{row.client}</span> (from <span className="text-fg-2">{row.ip ?? "an unknown address"}</span>, asked{" "}
+          <TimeAgo date={row.createdAt} className="text-fg-2" />) asks to act as <span className="text-fg-2">{session.user.email}</span>. Only approve a code you see in your own
+          terminal right now, after running <code className="font-mono text-[13px] text-fg-2">serve login</code> yourself.
         </>
       }
     >

@@ -9,9 +9,10 @@ import { newId } from "@/server/id";
 import { logActivity } from "@/server/activity";
 import { memberAccess } from "@/server/permissions";
 import { normalizeGrants } from "@/lib/api-scopes";
-import { normalizeUserCode } from "@/lib/cli-login";
-import { takeRequest } from "@/server/api/rate-limit";
-import { approveCliLogin, denyCliLogin, pendingCliLogin } from "@/server/cli-login";
+import { cliTokenExpiry, normalizeUserCode } from "@/lib/cli-login";
+import { approveCliLogin, denyCliLogin, pendingCliLogin, takeCodeLookup } from "@/server/cli-login";
+
+const TOO_MANY = "Too many attempts. Wait a minute and try again.";
 
 /** The sign-in behind a code, while it still waits for an answer. */
 async function waiting(code: string) {
@@ -31,7 +32,7 @@ export async function approveCliSignIn(input: { code: string; organizationId: st
   return act(async () => {
     const user = await requireUser();
     // Guessing codes from a signed-in account is slowed down.
-    if (!takeRequest(`cli-approve:${user.id}`, 20).allowed) throw new UserError("Too many attempts. Wait a minute and try again.");
+    if (!takeCodeLookup(user.id)) throw new UserError(TOO_MANY);
     const data = z.object({ code: z.string().max(20), organizationId: z.string().min(1) }).parse(input);
     const row = await waiting(data.code);
     const access = await memberAccess(data.organizationId, user.id);
@@ -52,7 +53,8 @@ export async function approveCliSignIn(input: { code: string; organizationId: st
       prefix: token.slice(0, 10),
       scopes,
       projectIds: access.projectIds,
-      expiresAt: null,
+      // Expires soon unless the CLI collects it, which removes the expiry (src/server/cli-login.ts).
+      expiresAt: cliTokenExpiry(row.expiresAt),
     });
     if (!(await approveCliLogin(row.id, user.id, data.organizationId, token))) {
       await db.delete(schema.apiToken).where(and(eq(schema.apiToken.id, id), eq(schema.apiToken.userId, user.id)));
@@ -63,10 +65,14 @@ export async function approveCliSignIn(input: { code: string; organizationId: st
   });
 }
 
+/** Denies a sign-in. Unknown, used, expired and answered codes all get the same answer. */
 export async function denyCliSignIn(code: string) {
   return act(async () => {
-    await requireUser();
-    const row = await waiting(z.string().max(20).parse(code));
+    const user = await requireUser();
+    if (!takeCodeLookup(user.id)) throw new UserError(TOO_MANY);
+    const userCode = normalizeUserCode(z.string().max(20).parse(code));
+    const row = userCode ? await pendingCliLogin(userCode) : null;
+    if (row?.state !== "pending") throw new UserError("No sign-in waits for this code. Check the code in your terminal, or run serve login again.");
     await denyCliLogin(row.id);
     return null;
   });

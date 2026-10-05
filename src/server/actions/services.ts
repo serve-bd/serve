@@ -1400,8 +1400,9 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
       },
       { concurrencyKey: `service:${serviceId}` },
     );
-    // Stop routing on the old server right away; the delete job also cleans it up.
-    await removeServiceProxy(serviceId, service.serverId).catch(() => {});
+    // Stop routing on the old server right away, without waiting on it: it may be gone for good, and
+    // the delete job cleans it up too.
+    void removeServiceProxy(serviceId, service.serverId).catch(() => {});
     // The new server can no longer be an extra or the separate build server of this service.
     const distribution = service.distribution
       ? {

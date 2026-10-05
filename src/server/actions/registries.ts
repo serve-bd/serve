@@ -22,7 +22,6 @@ import { resolveServerForOrg } from "@/server/servers/access";
 import { queueDeployment } from "@/server/services/create";
 import { requireResourceChange, requireServers, runCopies } from "@/server/limits";
 import { extraCleanupKey } from "@/server/services/lifecycle";
-import { removeServiceProxy } from "@/server/proxy/nginx";
 
 /* -------------------------------------------------------------------------- */
 /*                                 Registries                                 */
@@ -218,8 +217,8 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     void syncMesh().catch(() => {});
 
     for (const serverId of removed) {
-      await removeServiceProxy(serviceId, serverId).catch(() => {});
-      // Its own queue: a server that went away must not hold up the app's next deploy.
+      // The cleanup there (its proxy site first, then the containers) runs in the background, in its
+      // own queue: a server that went away must not hold up this save or the app's next deploy.
       await enqueue(
         "service.delete",
         { serviceId, slug: service.slug, type: service.type, removeVolumes: false, environmentId: service.environmentId, serverId, keepFiles: true, extraCleanup: true },

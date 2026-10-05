@@ -21,10 +21,10 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
       <main className="flex min-h-dvh flex-col items-center justify-center bg-surface px-4 py-10 sm:px-8">
         <div className="flex w-full max-w-[360px] animate-rise flex-col gap-8">
           {brand.logoUrl ? (
-            <Logo className="justify-center gap-2.5 self-center" logoClassName="h-10" textClassName="text-[18px]" />
+            <Logo className="gap-2.5 self-start" logoClassName="h-10" textClassName="text-[18px]" />
           ) : (
             // No logo of their own: their name alone, not Serve's mark.
-            <span className="self-center font-display text-[20px] font-semibold tracking-tight text-fg">{name}</span>
+            <span className="self-start font-display text-[20px] font-semibold tracking-tight text-fg">{name}</span>
           )}
           {children}
         </div>

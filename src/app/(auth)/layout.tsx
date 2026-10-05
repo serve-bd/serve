@@ -2,6 +2,7 @@ import { connection } from "next/server";
 import { DatabaseBackup, GitBranch, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { getBrand } from "@/server/branding";
+import { DEFAULT_PRODUCT_NAME } from "@/lib/branding";
 import pkg from "../../../package.json";
 
 const points = [
@@ -12,7 +13,23 @@ const points = [
 
 export default async function AuthLayout({ children }: LayoutProps<"/">) {
   await connection();
-  const { name } = await getBrand();
+  const brand = await getBrand();
+  const { name } = brand;
+  // A custom name or logo makes the sign-in pages white labeled: their brand over the form, nothing about Serve.
+  if (brand.name !== DEFAULT_PRODUCT_NAME || brand.logoUrl)
+    return (
+      <main className="flex min-h-dvh flex-col items-center justify-center bg-surface px-4 py-10 sm:px-8">
+        <div className="flex w-full max-w-[360px] animate-rise flex-col gap-8">
+          {brand.logoUrl ? (
+            <Logo className="justify-center gap-2.5 self-center" logoClassName="h-10" textClassName="text-[18px]" />
+          ) : (
+            // No logo of their own: their name alone, not Serve's mark.
+            <span className="self-center font-display text-[20px] font-semibold tracking-tight text-fg">{name}</span>
+          )}
+          {children}
+        </div>
+      </main>
+    );
   return (
     <div className="grid min-h-dvh grid-cols-1 bg-bg lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       {/* Brand panel: always dark, only on wide screens. */}

@@ -13,7 +13,7 @@ import { serverAddressing } from "@/server/proxy/addressing";
 import { getServerRow } from "@/server/servers/context";
 import { busyHostPorts, listeningPorts, publishedPorts } from "@/server/services/ports";
 import { DomainsManager } from "./domains-manager";
-import { runServerIds } from "@/server/deploy/distribution";
+import { balances, runServerIds } from "@/server/deploy/distribution";
 import { entryDomains, entryServers } from "@/server/services/entry-servers";
 import { PortsCard } from "./ports-card";
 import { ProxyOptionsCard } from "./proxy-options-card";
@@ -190,6 +190,11 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           proxyKind={server.proxyKind as "nginx" | "caddy" | "traefik"}
           behindProxy={!!server.trustedProxies && (server.trustedProxies.ranges.length > 0 || server.trustedProxies.cloudflare || !!server.trustedProxies.machine)}
           replicas={service.type === "app" ? Math.max(1, service.runtime.replicas || 1) : 0}
+          across={
+            service.type === "app" && balances(service.serverId, service.distribution)
+              ? { main: server.name, others: runServerIds(service.serverId, service.distribution).length - 1 }
+              : undefined
+          }
         />
       )}
       {ctx.isInstanceAdmin && kind !== "none" && (

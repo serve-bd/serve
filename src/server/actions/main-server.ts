@@ -148,7 +148,7 @@ export async function setMainServer(serviceId: string, serverId: string) {
 
     // The switch itself: one update, so every reader sees the old or the new roles.
     const balance = service.balance
-      ? { ...service.balance, copies: Object.fromEntries(Object.entries(service.balance.copies ?? {}).filter(([k]) => !k.startsWith(`${serverId}:`))) }
+      ? { ...service.balance, main: undefined, copies: Object.fromEntries(Object.entries(service.balance.copies ?? {}).filter(([k]) => !k.startsWith(`${serverId}:`))) }
       : service.balance;
     await db.transaction(async (tx) => {
       await tx

@@ -15,7 +15,7 @@ import { createOrg, switchOrganization } from "@/server/actions/org";
 
 export type OrgItem = { id: string; name: string; logo: string | null; role: string; isRoot: boolean };
 
-export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; orgs: OrgItem[]; canCreate: boolean }) {
+export function OrgSwitcher({ current, orgs, canCreate, compact }: { current: OrgItem; orgs: OrgItem[]; canCreate: boolean; compact?: boolean }) {
   const router = useRouter();
   const [createOpen, setCreateOpen] = React.useState(false);
   const [pending, setPending] = React.useState(false);
@@ -53,17 +53,28 @@ export function OrgSwitcher({ current, orgs, canCreate }: { current: OrgItem; or
   return (
     <>
       <Menu>
-        <MenuTrigger className="group flex w-full items-center gap-2.5 rounded-lg bg-fg/[0.04] px-3 py-2 text-left ring-1 ring-line transition-colors hover:bg-fg/[0.07] data-[popup-open]:bg-fg/[0.07]">
-          <span className="flex min-w-0 flex-1 flex-col leading-tight">
-            <span className="truncate text-[13px] font-semibold text-fg">{current.name}</span>
-            <span className="truncate text-[11px] text-muted capitalize">
-              {current.isRoot ? "Root · " : ""}
-              {current.role}
+        {compact ? (
+          // Beside the brand: the organization's name only; its role is in the menu's title.
+          <MenuTrigger
+            title={`${current.name} · ${current.isRoot ? "Root · " : ""}${current.role}`}
+            className="group flex max-w-[45%] flex-none items-center gap-1 rounded-lg bg-fg/[0.04] py-1.5 pr-1.5 pl-2.5 text-left ring-1 ring-line transition-colors hover:bg-fg/[0.07] data-[popup-open]:bg-fg/[0.07]"
+          >
+            <span className="truncate text-[12px] font-semibold text-fg">{current.name}</span>
+            <ChevronsUpDown className="size-3.5 flex-none text-faint group-hover:text-muted" />
+          </MenuTrigger>
+        ) : (
+          <MenuTrigger className="group flex w-full items-center gap-2.5 rounded-lg bg-fg/[0.04] px-3 py-2 text-left ring-1 ring-line transition-colors hover:bg-fg/[0.07] data-[popup-open]:bg-fg/[0.07]">
+            <span className="flex min-w-0 flex-1 flex-col leading-tight">
+              <span className="truncate text-[13px] font-semibold text-fg">{current.name}</span>
+              <span className="truncate text-[11px] text-muted capitalize">
+                {current.isRoot ? "Root · " : ""}
+                {current.role}
+              </span>
             </span>
-          </span>
-          <ChevronsUpDown className="size-3.5 text-faint group-hover:text-muted" />
-        </MenuTrigger>
-        <MenuContent align="start" className="w-64">
+            <ChevronsUpDown className="size-3.5 text-faint group-hover:text-muted" />
+          </MenuTrigger>
+        )}
+        <MenuContent align={compact ? "end" : "start"} className="w-64">
           <MenuLabel>Organizations</MenuLabel>
           {orgs.map((o) => (
             <MenuItem key={o.id} onClick={() => switchTo(o)}>

@@ -3,8 +3,10 @@ import { db, schema } from "@/server/db";
 import { execInContainer } from "@/server/docker/client";
 import { statusMatcher } from "@/server/deploy/options";
 import { getServer } from "@/server/servers/context";
+import { appTargets } from "@/server/proxy/model";
+import { balancingOf } from "@/lib/balancing";
 import { appCopies, nextBalance } from "./balance";
-import { copyId, decide, probePath, RESYNC_MS, SYNC_RETRY_MS, step, type Streak, targetsSignature } from "./balance-rules";
+import { copyId, decide, nextMain, probePath, RESYNC_MS, SYNC_RETRY_MS, step, type Streak, targetsSignature } from "./balance-rules";
 
 export { CHECK_INTERVAL_MS } from "./balance-rules";
 
@@ -119,6 +121,10 @@ export async function checkBalances(log: (...args: unknown[]) => void = () => {}
           const now = new Date();
           let state = service.balance;
           let changed = false;
+          const mainFirst = balancingOf(service.proxy) === "main-first";
+          // Only needed for main-first: whether the main server runs a replica decides if the others stand by.
+          const local = mainFirst && service.status !== "stopped" ? await appTargets(ctx, service) : [];
+          if (!mainFirst) streaks.delete(`${service.id}|main`);
           // The port visitors are sent to (the first domain's, else the app's), unless a health check port is set.
           const port = service.runtime.healthcheckPort || domains.find((d) => d.serviceId === service.id && d.port)?.port || service.runtime.port;
           if (service.status !== "stopped" && port) {
@@ -141,19 +147,34 @@ export async function checkBalances(log: (...args: unknown[]) => void = () => {}
                 changed = true;
               }
             });
+            // Main server first: its own replicas are checked too, since the others only get visitors when none of them answers.
+            if (mainFirst) {
+              const results = await Promise.all(local.map((name) => probe({ container: ctx.proxyContainer, docker: ctx.docker }, name, service, port)));
+              const ok = results.some((r) => r.ok);
+              const key = `${service.id}|main`;
+              const streak = step(streaks.get(key), ok);
+              streaks.set(key, streak);
+              const verdict = decide(state?.main?.ok ?? null, streak);
+              const next = verdict === null ? null : nextMain(state, verdict, results.find((r) => !r.ok)?.error ?? "No replica is running.", now);
+              if (next) {
+                log(`load balancing: ${service.name} on its main server is ${verdict ? "up" : "down"}`);
+                state = next;
+                changed = true;
+              }
+            }
           }
           // Replicas that no longer exist (fewer replicas, a server removed) are forgotten.
           const ids = new Set(copies.map((c) => copyId(c.serverId, c.slot)));
           const stale = Object.keys(state?.copies ?? {}).filter((k) => !ids.has(k));
           if (stale.length && state) {
-            state = { copies: Object.fromEntries(Object.entries(state.copies).filter(([k]) => ids.has(k))) };
+            state = { ...state, copies: Object.fromEntries(Object.entries(state.copies).filter(([k]) => ids.has(k))) };
             changed = true;
           }
           if (changed) {
             await db.update(schema.service).set({ balance: state }).where(eq(schema.service.id, service.id));
             copies = await appCopies({ ...service, balance: state });
           }
-          const sig = targetsSignature(copies);
+          const sig = `${targetsSignature(copies)}${mainFirst ? `|main=${local.length > 0 ? 1 : 0}/${state?.main?.ok === false ? "down" : "up"}` : ""}`;
           const last = synced.get(service.id);
           const due = !last || last.sig !== sig || Date.now() - last.at > RESYNC_MS;
           if (due && (retryAt.get(service.id) ?? 0) <= Date.now()) {

@@ -1,4 +1,5 @@
 import { proxyPaths } from "@/server/paths";
+import type { Balancing } from "@/lib/balancing";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import type { ProxyMaintenance } from "@/server/services/maintenance";
 import { allTrusted, clientIpHeaderNames, type VisitorIp } from "@/lib/trusted-proxies";
@@ -301,11 +302,12 @@ export function errorPages(productName = "Serve") {
 }
 
 /**
- * `sticky`: the same client IP always reaches the same server (real client IP, after the tunnel).
+ * `balancing`: how visitors are spread (lib/balancing). Sticky hashes the client IP (the real one,
+ * after the tunnel); least-busy is nginx's least_conn.
  * `remote`: the app's copies on other servers (load balancing over the private network), each
  * weighted by its replicas; one that fails is left alone for a few seconds while the others answer.
  */
-export type SiteUpstream = { name: string; servers: string[]; sticky?: boolean; remote?: { server: string; weight: number }[] };
+export type SiteUpstream = { name: string; servers: string[]; balancing?: Balancing; remote?: { server: string; weight: number }[] };
 
 export type SiteServer = {
   hostname: string;
@@ -393,7 +395,7 @@ export function upstreamBlock(u: SiteUpstream) {
       `    server 127.0.0.1:1 down;`;
   return `upstream ${u.name} {
     zone ${u.name} 64k;
-${u.sticky && lines.length > 1 ? "    hash $remote_addr consistent;\n" : ""}${servers}
+${lines.length > 1 ? (u.balancing === "sticky" ? "    hash $remote_addr consistent;\n" : u.balancing === "least-busy" ? "    least_conn;\n" : "") : ""}${servers}
     keepalive 32;
 }
 `;

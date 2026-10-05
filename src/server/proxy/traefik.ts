@@ -2,6 +2,7 @@ import YAML from "yaml";
 import { proxyPaths } from "@/server/paths";
 import { sizeToBytes, type ProxyDefaults, type TraefikSettings } from "./config";
 import type { HostModel, SiteModel } from "./model";
+import { balancingOf } from "@/lib/balancing";
 import { safeRedirectUrl } from "@/lib/unknown-redirect";
 
 /**
@@ -221,8 +222,11 @@ export function renderTraefikSite(
       loadBalancer: {
         passHostHeader: true,
         servers: u.targets.map((t, i) => ({ url: `http://${t}`, ...(u.weights && u.weights[i] !== 1 ? { weight: u.weights[i] } : {}) })),
-        // Traefik pins visitors with a cookie; it has no client-IP hash.
-        ...(o?.sticky && u.targets.length > 1 ? { sticky: { cookie: { name: `serve_${p.replace(/[^A-Za-z0-9_]/g, "_")}`, httpOnly: true, sameSite: "lax" } } } : {}),
+        // Traefik pins visitors with a cookie; it has no client-IP hash. p2c: of two random servers, the one with fewer connections.
+        ...(balancingOf(o) === "least-busy" && u.targets.length > 1 ? { strategy: "p2c" } : {}),
+        ...(balancingOf(o) === "sticky" && u.targets.length > 1
+          ? { sticky: { cookie: { name: `serve_${p.replace(/[^A-Za-z0-9_]/g, "_")}`, httpOnly: true, sameSite: "lax" } } }
+          : {}),
         ...(o?.buffering === false ? { responseForwarding: { flushInterval: "1ms" } } : {}),
         ...(transport ? { serversTransport: transport } : {}),
         // No passiveHealthCheck: Traefik counts the app's own 5xx answers as failures, so two errors

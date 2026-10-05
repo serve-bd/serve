@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { mutate } from "swr";
 import { Globe, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/misc";
@@ -73,6 +74,8 @@ function Notice({ children }: { children: React.ReactNode }) {
 
 /** Tell what is left for the user after a switch: DNS they manage, and anything that failed. */
 export function reportMainServer(result: MainServerResult, name: string) {
+  // The DNS checks compare with the main server's IP: check again against the new one.
+  void mutate((key) => Array.isArray(key) && key[0] === "dns");
   if (result.manual.length) {
     const byIp = new Map<string, string[]>();
     for (const m of result.manual) byIp.set(m.ip, [...(byIp.get(m.ip) ?? []), m.hostname]);

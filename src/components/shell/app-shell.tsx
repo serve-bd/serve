@@ -41,7 +41,7 @@ import {
   ScrollText,
   Tag,
 } from "lucide-react";
-import { Logo } from "@/components/brand";
+import { Logo, useBrand } from "@/components/brand";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { Avatar, Kbd } from "@/components/ui/misc";
 import { authClient } from "@/lib/auth-client";
@@ -142,19 +142,25 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
   const router = useRouter();
   const { theme, toggle } = useTheme();
   const palette = useCommandPalette();
+  const brand = useBrand();
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-14 items-center justify-between gap-2 px-4">
-        <Link href="/" onClick={onNavigate} className="flex min-w-0">
-          <Logo />
+      <div className="flex h-16 items-center gap-2.5 px-4">
+        <Link href="/" onClick={onNavigate} className="flex flex-none" aria-label={brand.name}>
+          <Logo withText={false} />
         </Link>
-        <VersionTag version={props.version} updateTo={props.updateTo} admin={props.isInstanceAdmin} onNavigate={onNavigate} />
+        <div className="flex min-w-0 flex-1 flex-col items-start leading-tight">
+          {(!brand.logoUrl || brand.showName) && (
+            <Link href="/" onClick={onNavigate} className="max-w-full truncate font-display text-[16px] font-semibold tracking-tight text-fg">
+              {brand.name}
+            </Link>
+          )}
+          <VersionTag version={props.version} updateTo={props.updateTo} admin={props.isInstanceAdmin} onNavigate={onNavigate} />
+        </div>
+        <OrgSwitcher compact current={props.org} orgs={props.orgs} canCreate={props.canCreateOrg} />
       </div>
       <div className="px-3">
-        <OrgSwitcher current={props.org} orgs={props.orgs} canCreate={props.canCreateOrg} />
-      </div>
-      <div className="px-3 pt-3">
         <button
           type="button"
           onClick={() => palette.setOpen(true)}
@@ -224,6 +230,11 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
             <MenuItem onClick={() => router.push("/account")}>
               <User /> Account
             </MenuItem>
+            {props.isInstanceAdmin && (
+              <MenuItem onClick={() => router.push("/settings")}>
+                <Settings /> Settings
+              </MenuItem>
+            )}
             <MenuItem onClick={toggle}>
               {theme === "dark" ? <Sun /> : <Moon />} {theme === "dark" ? "Light theme" : "Dark theme"}
             </MenuItem>
@@ -319,7 +330,7 @@ function VersionTag({ version, updateTo, admin, onNavigate }: { version: string;
         href="/settings/updates"
         onClick={onNavigate}
         title={`Update to v${updateTo}`}
-        className="flex flex-none items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20"
+        className="mt-0.5 flex flex-none items-center gap-1 rounded-full bg-accent-soft px-2 py-px text-[11px] font-medium text-accent transition-colors hover:bg-accent/20"
       >
         <span className="size-1.5 rounded-full bg-accent" aria-hidden />
         Update
@@ -327,10 +338,10 @@ function VersionTag({ version, updateTo, admin, onNavigate }: { version: string;
     );
   const tag = <span className="font-mono text-[11px] text-faint">v{version}</span>;
   return admin ? (
-    <Link href="/settings/updates" onClick={onNavigate} title="Updates" className="flex-none rounded px-1 transition-colors hover:text-muted">
+    <Link href="/settings/updates" onClick={onNavigate} title="Updates" className="flex-none rounded transition-colors hover:text-muted">
       {tag}
     </Link>
   ) : (
-    <span className="flex-none px-1">{tag}</span>
+    <span className="flex-none">{tag}</span>
   );
 }

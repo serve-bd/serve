@@ -22,6 +22,7 @@ import { needsApproval } from "@/lib/deploy-rules";
 import { normalizeDistribution } from "@/server/deploy/distribution";
 import { requestLogConfig } from "@/server/request-log";
 import { appCopies, serverTraffic } from "@/server/services/balance";
+import { balancingOf } from "@/lib/balancing";
 import { buildsImage, replicaInstances, replicasSupported } from "@/server/services/types";
 import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
 
@@ -130,13 +131,19 @@ async function distributionProps(service: typeof schema.service.$inferSelect, se
     multi ? entryServers(service, orgId) : undefined,
     multi ? entryDomains(service.id) : undefined,
   ]);
+  // Main server first: the others wait while the main server's replicas answer.
+  const mainFirst = balancingOf(service.proxy) === "main-first";
+  const standby = mainFirst && service.balance?.main?.ok !== false;
+  const takeover = mainFirst && !standby;
   return {
     // Any server the app runs on can be made the main one (Make main server).
     entryServers: entryServerRows,
     entryDomains: entryDomainRows,
     // How each copy on an extra server takes part in the load balancing.
     // Only apps with a domain: without one, no proxy sends visitors anywhere.
-    traffic: Object.fromEntries([...new Set((domains.length ? copies : []).map((c) => c.serverId))].map((id) => [id, serverTraffic(copies.filter((c) => c.serverId === id))])),
+    traffic: Object.fromEntries(
+      [...new Set((domains.length ? copies : []).map((c) => c.serverId))].map((id) => [id, { ...serverTraffic(copies.filter((c) => c.serverId === id)), standby, takeover }]),
+    ),
     // How visitors reach the own server: its public address, or a Cloudflare Tunnel per domain.
     entry: { publicIp: primary?.publicIp ?? null, domains: domains.length, tunneled: domains.filter((d) => d.tunnelId).length },
     // Built images (git and Dockerfile sources) can come from a build server and a registry.

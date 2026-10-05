@@ -9,7 +9,7 @@ import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import { certificateCovers } from "@/server/ssl/match";
 import { maintenanceOf, type ProxyMaintenance } from "@/server/services/maintenance";
 import { composeAlias, tunnelNetworkName } from "./names";
-import { BALANCE_CONNECT_TIMEOUT, remoteTargets } from "@/server/services/balance";
+import { BALANCE_CONNECT_TIMEOUT, localTargets, remoteTargets } from "@/server/services/balance";
 
 /**
  * Proxy-agnostic description of one site (a service with domains, or the
@@ -117,9 +117,9 @@ export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<S
       if (service.type === "app") {
         upstream = `app-${port}`;
         if (!upstreams.has(upstream)) {
-          const local = containers.map((c) => `${c}:${port}`);
           // The app's copies on its extra servers, when this is its own server (load balancing).
           const remote = await remoteTargets(service, ctx.id, containers.length, port);
+          const local = localTargets(service, containers, remote.length).map((c) => `${c}:${port}`);
           upstreams.set(
             upstream,
             remote.length

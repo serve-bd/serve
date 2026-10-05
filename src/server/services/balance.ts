@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { balances, normalizeDistribution } from "@/server/deploy/distribution";
+import { balancingOf } from "@/lib/balancing";
 import { replicaCount } from "@/lib/refs";
 import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
 import { copyKey, linkName } from "@/server/mesh/plan";
@@ -67,7 +68,9 @@ export async function appCopies(service: ServiceRow): Promise<Copy[]> {
 }
 
 /** Remote targets ("host:port" with a weight) for one port of an app, on the server whose proxy is rendered. */
-export async function remoteTargets(service: ServiceRow, renderedOn: string, local: number, port: number) {
+export async function remoteTargets(service: ServiceRow & Pick<typeof schema.service.$inferSelect, "proxy">, renderedOn: string, local: number, port: number) {
   if (renderedOn !== service.serverId) return [];
+  // Main server first: the others stand by while one of its own replicas answers.
+  if (local > 0 && balancingOf(service.proxy) === "main-first" && service.balance?.main?.ok !== false) return [];
   return balancedTargets(local, await appCopies(service)).map((host) => ({ server: `${host}:${port}`, weight: 1 }));
 }

@@ -2,6 +2,7 @@ import { proxyPaths } from "@/server/paths";
 import { sizeToBytes, type CaddySettings, type ProxyDefaults } from "./config";
 import type { HostModel, SiteModel } from "./model";
 import { allTrusted, clientIpHeaderNames, usesProxyProtocol, type VisitorIp } from "@/lib/trusted-proxies";
+import { balancingOf } from "@/lib/balancing";
 import { safeRedirectUrl } from "@/lib/unknown-redirect";
 
 /**
@@ -225,9 +226,17 @@ function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, real
   if (!targets) lines.push(site.stopped ? "error 503" : "error 502");
   else {
     // client_ip_hash uses the real visitor IP (trusted_proxies covers the tunnel).
-    const sticky = o?.sticky && targets.length > 1;
-    const weighted = !sticky && up?.weights && up.weights.length === targets.length && up.weights.some((w) => w !== 1);
-    const proxy: string[] = [`lb_policy ${sticky ? "client_ip_hash" : weighted ? `weighted_round_robin ${up!.weights!.join(" ")}` : "round_robin"}`, "lb_try_duration 5s"];
+    const balancing = balancingOf(o);
+    const weighted = up?.weights && up.weights.length === targets.length && up.weights.some((w) => w !== 1);
+    const policy =
+      targets.length > 1 && balancing === "sticky"
+        ? "client_ip_hash"
+        : targets.length > 1 && balancing === "least-busy"
+          ? "least_conn"
+          : weighted
+            ? `weighted_round_robin ${up!.weights!.join(" ")}`
+            : "round_robin";
+    const proxy: string[] = [`lb_policy ${policy}`, "lb_try_duration 5s"];
     // Copies on other servers: one that fails is skipped for a while (passive health) instead of slowing every visitor.
     if (up?.remote) proxy.push("fail_duration 10s", "max_fails 1");
     const transport: string[] = [];

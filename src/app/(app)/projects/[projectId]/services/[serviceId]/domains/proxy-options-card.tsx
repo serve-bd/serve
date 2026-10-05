@@ -13,6 +13,7 @@ import { SwitchRow } from "@/components/ui/switch";
 import { useAction } from "@/hooks/use-action";
 import { updateServiceProxy } from "@/server/actions/service-proxy";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
+import { type Balancing, balancingOf } from "@/lib/balancing";
 
 type Initial = Omit<ServiceProxyConfig, "basicAuth"> & { basicAuthUser: string | null; basicAuthHasBcrypt?: boolean };
 
@@ -22,7 +23,7 @@ type Form = {
   readTimeout: string;
   websockets: boolean;
   buffering: boolean;
-  sticky: boolean;
+  balancing: Balancing;
   authOn: boolean;
   authUser: string;
   authPassword: string;
@@ -46,7 +47,7 @@ function toForm(c: Initial | null): Form {
     readTimeout: c?.readTimeout ? String(c.readTimeout) : "",
     websockets: c?.websockets ?? true,
     buffering: c?.buffering ?? true,
-    sticky: c?.sticky ?? false,
+    balancing: balancingOf(c),
     authOn: !!c?.basicAuthUser,
     authUser: c?.basicAuthUser ?? "",
     authPassword: "",
@@ -83,6 +84,20 @@ function Group({ title, description, children }: { title: string; description?: 
   );
 }
 
+/** What the picked strategy does, in the words of this proxy. */
+function balancingHelp(b: Balancing, proxyKind: "nginx" | "caddy" | "traefik", across?: { main: string; others: number }) {
+  if (b === "least-busy") return "Each visitor goes to the replica with the fewest open requests. Good when some requests are slow, like uploads, streams or AI calls.";
+  if (b === "sticky")
+    return `Each visitor keeps reaching the same replica, on this server or another one. Needed for Socket.IO and sessions kept in memory. ${
+      proxyKind === "traefik" ? "Traefik remembers the replica in a cookie." : "Visitors are matched by their IP address."
+    }`;
+  if (b === "main-first")
+    return across
+      ? `Visitors only reach the replicas on ${across.main}. When none of them answers its health check, the other ${across.others === 1 ? "server takes" : `${across.others} servers take`} the visitors until ${across.main} is back, within about 10 seconds.`
+      : "Load balancing across servers is off, so the replicas here share visitors in turn.";
+  return "Each replica gets visitors in turn.";
+}
+
 const KIND_LABEL = { nginx: "nginx", caddy: "Caddy", traefik: "Traefik" } as const;
 
 /** Per-service HTTP options (limits, access control, headers, performance, raw directives for the server's proxy). */
@@ -95,6 +110,7 @@ export function ProxyOptionsCard({
   proxyKind = "nginx",
   behindProxy = false,
   replicas = 0,
+  across,
 }: {
   serviceId: string;
   initial: Initial | null;
@@ -106,6 +122,8 @@ export function ProxyOptionsCard({
   behindProxy?: boolean;
   /** Replicas of an app on this server; 0 for other services. */
   replicas?: number;
+  /** The app is load balanced over several servers: the main one and these others. */
+  across?: { main: string; others: number };
 }) {
   const proxyLabel = KIND_LABEL[proxyKind];
   const [form, setForm] = React.useState<Form>(() => toForm(initial));
@@ -123,7 +141,7 @@ export function ProxyOptionsCard({
         readTimeout: seconds(form.readTimeout),
         websockets: form.websockets,
         buffering: form.buffering,
-        sticky: form.sticky,
+        balancing: form.balancing,
         basicAuth: { enabled: form.authOn, username: form.authUser.trim() || undefined, password: form.authPassword || undefined },
         allow: lines(form.allow),
         deny: lines(form.deny),
@@ -184,15 +202,22 @@ export function ProxyOptionsCard({
               checked={form.buffering}
               onCheckedChange={(v) => set("buffering", v)}
             />
-            {(replicas > 1 || initial?.sticky) && (
-              <SwitchRow
-                title="Sticky sessions"
-                description={`Send each visitor to the same replica every time, on this server or another one. Needed for Socket.IO and sessions kept in memory. ${
-                  proxyKind === "traefik" ? "Traefik remembers the replica in a cookie." : "Visitors are matched by their IP address."
-                }`}
-                checked={form.sticky}
-                onCheckedChange={(v) => set("sticky", v)}
-              />
+            {(replicas > 1 || across || balancingOf(initial) !== "round-robin") && (
+              <Field label="Load balancing" description={balancingHelp(form.balancing, proxyKind, across)}>
+                <Select
+                  value={form.balancing}
+                  onValueChange={(v) => set("balancing", v as Balancing)}
+                  options={[
+                    { value: "round-robin", label: "Round robin", description: "Each replica in turn." },
+                    { value: "least-busy", label: "Least busy", description: "The replica with the fewest open requests." },
+                    { value: "sticky", label: "Sticky sessions", description: "Each visitor keeps the same replica." },
+                    ...(across || form.balancing === "main-first"
+                      ? [{ value: "main-first", label: "Main server first", description: "Other servers only take over when it fails." }]
+                      : []),
+                  ]}
+                  className="sm:max-w-sm"
+                />
+              </Field>
             )}
           </Group>
 

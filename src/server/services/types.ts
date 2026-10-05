@@ -100,6 +100,11 @@ export const REQUEST_LOG_DEFAULTS: RequestLogConfig = { enabled: false, days: 7,
 
 export type BalanceState = {
   copies: Record<string, { ok: boolean; since: string; error: string | null }>;
+  /**
+   * The main server's own replicas, checked only for the "main-first" strategy: while one of them
+   * answers, the other servers get no visitors.
+   */
+  main?: { ok: boolean; since: string; error: string | null };
 };
 
 /** Per-server result of a deployment that runs on several servers. */

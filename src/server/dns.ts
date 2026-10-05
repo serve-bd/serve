@@ -43,9 +43,15 @@ export function isCloudflareIp(ip: string) {
   });
 }
 
-export type DnsStatus = "ok" | "proxied" | "wrong" | "missing" | "unknown";
+/** `other`: it points at another server the app runs on (`server` names it), not the main one. */
+export type DnsStatus = "ok" | "proxied" | "wrong" | "other" | "missing" | "unknown";
 
-export async function domainDnsStatus(hostname: string, serverIp: string | null, opts: { tunnel?: boolean; organizationId?: string } = {}) {
+export async function domainDnsStatus(
+  hostname: string,
+  serverIp: string | null,
+  opts: { tunnel?: boolean; organizationId?: string; others?: { name: string; ip: string }[] } = {},
+) {
+  const elsewhere = (ips: string[]) => opts.others?.find((o) => ips.includes(o.ip))?.name;
   if (hostname.endsWith(".sslip.io") || hostname.endsWith(".nip.io")) return { status: "ok" as DnsStatus, records: [] as string[] };
   const records = await resolveA(hostname);
   if (!records.length) return { status: "missing" as DnsStatus, records };
@@ -57,10 +63,13 @@ export async function domainDnsStatus(hostname: string, serverIp: string | null,
     const origin = opts.organizationId ? await proxiedOrigin(hostname, opts.organizationId).catch(() => null) : null;
     if (origin?.length && serverIp) {
       if (origin.includes(serverIp)) return { status: "ok" as DnsStatus, records, origin };
-      return { status: "wrong" as DnsStatus, records: origin, origin };
+      const server = elsewhere(origin);
+      return { status: (server ? "other" : "wrong") as DnsStatus, records: origin, origin, ...(server ? { server } : {}) };
     }
     return { status: "proxied" as DnsStatus, records, origin: origin ?? undefined };
   }
+  const server = elsewhere(records);
+  if (server) return { status: "other" as DnsStatus, records, server };
   return { status: (serverIp ? "wrong" : "unknown") as DnsStatus, records };
 }
 

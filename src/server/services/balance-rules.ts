@@ -1,3 +1,4 @@
+import { type Balancing, balancingOf } from "@/lib/balancing";
 import type { BalanceState } from "./types";
 
 /* Pure rules of the load balancing across servers (see services/balance). */
@@ -69,7 +70,15 @@ export function nextBalance(state: BalanceState | null | undefined, id: string, 
   // Saved only when the copy goes up or down: a copy that stays down keeps its first error, so a
   // message that changes on every check does not write (and refresh every open page) each time.
   if (cur && cur.ok === ok) return null;
-  return { copies: { ...(state?.copies ?? {}), [id]: { ok, since: now.toISOString(), error: ok ? null : error } } };
+  return { ...state, copies: { ...(state?.copies ?? {}), [id]: { ok, since: now.toISOString(), error: ok ? null : error } } };
+}
+
+/** The next state of the main server's own replicas (main-first), or null when nothing changed. */
+export function nextMain(state: BalanceState | null | undefined, ok: boolean, error: string | null, now: Date): BalanceState | null {
+  if (state?.main && state.main.ok === ok) return null;
+  // Never checked and up: nothing to save (no record means up).
+  if (!state?.main && ok) return null;
+  return { copies: state?.copies ?? {}, main: { ok, since: now.toISOString(), error: ok ? null : error } };
 }
 
 export const CHECK_INTERVAL_MS = 5_000;
@@ -105,3 +114,11 @@ export const targetsSignature = (copies: Copy[]) =>
     .map((c) => `${copyId(c.serverId, c.slot)}=${c.host ?? "-"}/${c.linked ? 1 : 0}${c.deployed ? 1 : 0}/${c.healthy === false ? "down" : "up"}`)
     .sort()
     .join(",");
+
+/**
+ * The main server's containers the proxy sends visitors to, next to the remote targets. With
+ * "main-first" and every one of them failing its check, only the other servers get visitors.
+ */
+export function localTargets(service: { proxy: { balancing?: Balancing; sticky?: boolean } | null; balance: BalanceState | null }, containers: string[], remote: number) {
+  return remote > 0 && balancingOf(service.proxy) === "main-first" && service.balance?.main?.ok === false ? [] : containers;
+}

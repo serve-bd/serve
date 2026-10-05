@@ -3,6 +3,9 @@ import net from "node:net";
 import bcrypt from "bcryptjs";
 import YAML from "yaml";
 import { z } from "zod";
+import { BALANCING, type Balancing, balancingOf } from "@/lib/balancing";
+
+export { BALANCING, type Balancing, balancingOf };
 
 /**
  * Per-service HTTP options applied in the service's nginx site. Every field is
@@ -19,7 +22,9 @@ export type ServiceProxyConfig = {
   websockets?: boolean;
   /** Buffer responses (default on). Turn off for streaming and server-sent events. */
   buffering?: boolean;
-  /** Send each visitor to the same replica every time (Socket.IO, in-memory sessions). */
+  /** How visitors are spread over the replicas. Older configs only have `sticky` (see balancingOf). */
+  balancing?: Balancing;
+  /** Saved before `balancing`: true is the "sticky" strategy. */
   sticky?: boolean;
   /**
    * HTTP Basic Auth. nginx and Traefik verify the apr1 hash; Caddy needs bcrypt,
@@ -111,6 +116,8 @@ export const proxyInputSchema = z.object({
   readTimeout: z.number().int().min(1).max(86_400).nullable().optional(),
   websockets: z.boolean().optional(),
   buffering: z.boolean().optional(),
+  balancing: z.enum(BALANCING).optional(),
+  /** Older API callers: true is the "sticky" strategy. */
   sticky: z.boolean().optional(),
   basicAuth: z
     .object({
@@ -180,7 +187,8 @@ export function buildProxyConfig(input: z.output<typeof proxyInputSchema>, previ
     readTimeout: input.readTimeout ?? null,
     websockets: input.websockets ?? true,
     buffering: input.buffering ?? true,
-    sticky: input.sticky ?? false,
+    // Left out: the saved strategy stays (an API call with only the old sticky flag sets that).
+    balancing: input.balancing ?? (input.sticky === undefined ? balancingOf(previous) : input.sticky ? "sticky" : "round-robin"),
     basicAuth,
     allow: input.allow ?? [],
     deny: input.deny ?? [],

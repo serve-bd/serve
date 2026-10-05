@@ -38,11 +38,12 @@ import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type
 import { appTargets, certificateStamp, dashboardModel, serviceModel, type SiteModel } from "./model";
 import { forgetDashboardTrusted, visitorIpOf } from "./trusted-proxies";
 import { headerTrusted, usesProxyProtocol, type TrustedProxies } from "@/lib/trusted-proxies";
+import { balancingOf } from "@/lib/balancing";
 import { sh } from "@/server/servers/ssh";
 import { removeHostRelay, syncHostRelay } from "./host-relay";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
-import { BALANCE_CONNECT_TIMEOUT, remoteTargets } from "@/server/services/balance";
+import { BALANCE_CONNECT_TIMEOUT, localTargets, remoteTargets } from "@/server/services/balance";
 import { caddyLogAppend, caddyMainConfig, renderCaddySite, tunnelTrustFor } from "./caddy";
 import { renderTraefikSite, TRAEFIK_API, traefikBaseDynamic, traefikRouters, traefikStaticArgs, type ExpectedRouter } from "./traefik";
 
@@ -887,7 +888,12 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
         if (!upstreams.has(name)) {
           // The app's copies on its extra servers, when this is its own server (load balancing).
           const remote = await remoteTargets(service, server.id, containers.length, port);
-          upstreams.set(name, { name, servers: containers.map((c) => `${c}:${port}`), sticky: !!cfg?.sticky, ...(remote.length ? { remote } : {}) });
+          upstreams.set(name, {
+            name,
+            servers: localTargets(service, containers, remote.length).map((c) => `${c}:${port}`),
+            balancing: balancingOf(cfg),
+            ...(remote.length ? { remote } : {}),
+          });
         }
         upstream = name;
       } else if (service.type === "compose" && d.composeService) {

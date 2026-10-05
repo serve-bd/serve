@@ -2,6 +2,7 @@
 
 import { ALL_DATABASES, SKIP_PREFIX } from "@/lib/backup-databases";
 import { and, asc, isNotNull, eq, inArray, ne, sql as dsql } from "drizzle-orm";
+import { runServerIds } from "@/server/deploy/distribution";
 import { z } from "zod";
 import { PASSWORD_PATTERN } from "@/server/databases/password";
 import { normalizeTrustedRanges } from "@/lib/trusted-proxies";
@@ -2142,7 +2143,24 @@ export async function checkDomainDns(domainId: string) {
     if (!domain) throw new UserError("Domain not found.");
     const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
     const { domainDnsStatus } = await import("@/server/dns");
-    return domainDnsStatus(domain.hostname, await serverPublicIp(service.serverId), { tunnel: !!domain.tunnelId, organizationId: ctx.org.id });
+    // The app's other servers serve the domain too: a record pointing at one is not just wrong.
+    const otherIds = service.type === "app" ? runServerIds(service.serverId, service.distribution).filter((id) => id !== service.serverId) : [];
+    const others = otherIds.length
+      ? (
+          await Promise.all(
+            (
+              await db.select({ id: schema.server.id, name: schema.server.name }).from(schema.server).where(inArray(schema.server.id, otherIds))
+            ).map(async (s) => ({
+              name: s.name,
+              ip: await serverPublicIp(s.id).catch(() => null),
+            })),
+          )
+        ).flatMap((o) => (o.ip ? [{ name: o.name, ip: o.ip }] : []))
+      : [];
+    const [main] = await db.select({ name: schema.server.name }).from(schema.server).where(eq(schema.server.id, service.serverId));
+    const ip = await serverPublicIp(service.serverId);
+    const status = await domainDnsStatus(domain.hostname, ip, { tunnel: !!domain.tunnelId, organizationId: ctx.org.id, others });
+    return { ...status, expected: ip, main: main?.name ?? null };
   });
 }
 

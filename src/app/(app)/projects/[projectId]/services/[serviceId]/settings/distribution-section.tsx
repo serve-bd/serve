@@ -46,7 +46,7 @@ export function DistributionSection(props: {
   initial: Distribution;
   last: { deploymentId: string; targets: DeploymentTarget[] | null; registryImage: string | null } | null;
   /** Load balancing: how each saved extra server's copy takes part. */
-  traffic?: Record<string, { problem: CopyProblem | null; up: number; total: number; error: string | null; since: string | null }>;
+  traffic?: Record<string, Traffic>;
   /** How visitors reach the service's own server. */
   entry?: { publicIp: string | null; domains: number; tunneled: number };
   /** Every server the app runs on, for Make main server. */
@@ -322,6 +322,12 @@ export function DistributionSection(props: {
   );
 }
 
+/**
+ * How a server's replicas take part in the load balancing. With main server first: `standby` while
+ * the main server answers, `takeover` while it does not.
+ */
+type Traffic = { problem: CopyProblem | null; up: number; total: number; error: string | null; since: string | null; standby?: boolean; takeover?: boolean };
+
 const trafficLabel: Record<CopyProblem, string> = {
   network: "No traffic: no private network",
   address: "Joining the private network",
@@ -346,7 +352,7 @@ function ServerRow({
   disabled?: boolean;
   onChange?: (on: boolean) => void;
   target?: DeploymentTarget;
-  traffic?: { problem: CopyProblem | null; up: number; total: number; error: string | null; since: string | null };
+  traffic?: Traffic;
   primaryName?: string;
   action?: React.ReactNode;
 }) {
@@ -361,9 +367,13 @@ function ServerRow({
             : "Deploy to run the current version here."
           : traffic?.problem === "address"
             ? "Its private address is being set up."
-            : traffic && traffic.up < traffic.total
-              ? `${traffic.up} of ${traffic.total} replicas get traffic. ${traffic.error ?? ""}`.trim()
-              : `${primaryName} sends its replicas a share of the visitors.`;
+            : traffic?.takeover
+              ? `${primaryName} is not answering, so the other servers take its visitors until it is back (Main server first).`
+              : traffic?.standby
+                ? `Ready to take visitors when ${primaryName} stops answering (Main server first, in Domains → Proxy options).`
+                : traffic && traffic.up < traffic.total
+                  ? `${traffic.up} of ${traffic.total} replicas get traffic. ${traffic.error ?? ""}`.trim()
+                  : `${primaryName} sends its replicas a share of the visitors.`;
   return (
     <div className="flex items-center gap-1">
       <label className={cn("flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 transition-colors", !disabled && "cursor-pointer hover:bg-fg/[0.03]")}>
@@ -373,11 +383,13 @@ function ServerRow({
         {note && <span className="flex-none text-xs text-muted">{note}</span>}
         {traffic && (
           <Tooltip content={why}>
-            <Badge tone={traffic.problem === null ? (traffic.up < traffic.total ? "warn" : "ok") : traffic.problem === "address" ? "info" : "warn"}>
+            <Badge tone={traffic.problem === null ? (traffic.standby ? "info" : traffic.up < traffic.total ? "warn" : "ok") : traffic.problem === "address" ? "info" : "warn"}>
               {traffic.problem === null
-                ? traffic.up < traffic.total
-                  ? `Gets traffic (${traffic.up}/${traffic.total})`
-                  : "Gets traffic"
+                ? traffic.standby
+                  ? "Standby"
+                  : traffic.up < traffic.total
+                    ? `Gets traffic (${traffic.up}/${traffic.total})`
+                    : "Gets traffic"
                 : traffic.problem === "deploy" && (target?.status === "failed" || target?.status === "skipped")
                   ? `No traffic: deploy ${target.status === "failed" ? "failed" : "skipped"}`
                   : trafficLabel[traffic.problem]}

@@ -363,7 +363,7 @@ describe("the proxies balance over the copies", () => {
   });
 
   it("nginx: sticky visitors hash over local containers and copies alike", () => {
-    expect(upstreamBlock({ name: "u", servers: ["web-1:3000"], sticky: true, remote: [{ server: "l:3000", weight: 1 }] })).toContain("hash $remote_addr consistent;");
+    expect(upstreamBlock({ name: "u", servers: ["web-1:3000"], balancing: "sticky", remote: [{ server: "l:3000", weight: 1 }] })).toContain("hash $remote_addr consistent;");
   });
 
   const site = (sticky: boolean): SiteModel => ({

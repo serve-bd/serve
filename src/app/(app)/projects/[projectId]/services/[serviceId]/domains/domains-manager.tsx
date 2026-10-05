@@ -251,6 +251,17 @@ function HttpsState({ d, hasAcme, undeployed, proxyKind = "nginx" }: { d: Domain
   );
 }
 
+/** What the DNS check found, and what to change when it is not right. */
+function dnsHint(state: { status: string; records: string[]; server?: string; expected?: string | null; main?: string | null } | null | undefined) {
+  if (!state?.records.length) return "Checks public DNS";
+  const to = `Resolves to ${state.records.join(", ")}.`;
+  const main = state.main ?? "the main server";
+  if (state.status === "other")
+    return `${to} Visitors reach ${state.server}, not ${main}. ${state.server} only serves its own replicas, so visitors are not spread over the other servers. Point the record at ${state.expected ?? main}, or make ${state.server} the main server.`;
+  if (state.status === "wrong" && state.expected) return `${to} Point it at ${state.expected} (${main}).`;
+  return to;
+}
+
 function DnsBadge({ domainId }: { domainId: string }) {
   const {
     data: state,
@@ -269,12 +280,13 @@ function DnsBadge({ domainId }: { domainId: string }) {
     ok: { tone: "ok", label: "DNS OK" },
     proxied: { tone: "info", label: "Cloudflare proxy" },
     wrong: { tone: "bad", label: "Points elsewhere" },
+    other: { tone: "warn", label: `Points to ${state?.server ?? "another server"}` },
     missing: { tone: "warn", label: "No DNS record" },
     unknown: { tone: "neutral", label: "DNS unknown" },
   };
   const m = state ? map[state.status] : null;
   return (
-    <Tooltip content={state?.records.length ? `Resolves to ${state.records.join(", ")}` : "Checks public DNS"}>
+    <Tooltip content={dnsHint(state)}>
       <button type="button" onClick={check} className="inline-flex">
         <Badge tone={m?.tone ?? "neutral"}>{loading && !m ? "Checking…" : m?.label}</Badge>
       </button>

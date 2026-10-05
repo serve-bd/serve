@@ -1,4 +1,4 @@
-import { and, asc, avg, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { dailyBars, uptimePercent } from "@/server/monitoring/state";
 import {
@@ -10,7 +10,9 @@ import {
   maintenancePhase,
   type NoticeFacts,
   noticeActive,
-  STATE_TEXT,
+  fill,
+  labelsOf,
+  type LabelKey,
   type StatusDesign,
   type StatusLevel,
   worst,
@@ -45,14 +47,17 @@ export type NoticeView = {
   kind: "incident" | "maintenance" | "outage";
   title: string;
   impact: IncidentImpact;
-  /** Shown next to the title: Investigating, Scheduled, Resolved… */
+  /** Shown next to the title: Investigating, Scheduled, Resolved… (in the page's words). */
   state: string;
+  /** The state itself, whatever the page calls it. */
+  stateKey: string;
   done: boolean;
   components: string[];
   startsAt: string | null;
   endsAt: string | null;
   resolvedAt: string | null;
   updates: { state: string; body: string; at: string }[];
+  postmortem: string | null;
 };
 
 export type DayView = { day: string; level: StatusLevel; uptime: number | null; notes: string[] };
@@ -66,6 +71,8 @@ export type ComponentView = {
   uptime: number | null;
   /** Average response time over the last day, in ms. */
   latency: number | null;
+  /** Average response time per half hour over the last day (oldest first), when the page shows it. */
+  latencySeries: (number | null)[];
   monitored: boolean;
   bars: DayView[];
 };
@@ -98,6 +105,7 @@ export async function statusView(
   design: StatusDesign = designOf(page.design),
 ): Promise<StatusView> {
   const now = Date.now();
+  const words = labelsOf(design);
   const components = await db.select().from(schema.statusComponent).where(eq(schema.statusComponent.pageId, page.id)).orderBy(asc(schema.statusComponent.position));
   const serviceIds = components.map((c) => c.serviceId).filter((s): s is string => !!s);
   const monitors = serviceIds.length ? await db.select().from(schema.monitor).where(inArray(schema.monitor.serviceId, serviceIds)) : [];
@@ -115,10 +123,9 @@ export async function statusView(
       : [],
     monitorIds.length && design.showLatency
       ? db
-          .select({ monitorId: schema.monitorCheck.monitorId, ms: avg(schema.monitorCheck.latencyMs) })
+          .select({ monitorId: schema.monitorCheck.monitorId, ms: schema.monitorCheck.latencyMs, at: schema.monitorCheck.createdAt })
           .from(schema.monitorCheck)
           .where(and(inArray(schema.monitorCheck.monitorId, monitorIds), gte(schema.monitorCheck.createdAt, new Date(now - DAY)), eq(schema.monitorCheck.ok, true)))
-          .groupBy(schema.monitorCheck.monitorId)
       : [],
     db
       .select()
@@ -182,15 +189,15 @@ export async function statusView(
       kind: n.kind,
       title: n.title,
       impact: n.impact,
-      state: phase ? STATE_TEXT[phase] : STATE_TEXT[n.state],
+      state: words[`state.${phase ?? n.state}`],
+      stateKey: phase ?? n.state,
       done: phase ? phase === "completed" : !!n.resolvedAt,
       components: n.componentIds.map((id) => nameOf.get(id)).filter((x): x is string => !!x),
       startsAt: f.startsAt,
       endsAt: f.endsAt,
       resolvedAt: f.resolvedAt ?? (phase === "completed" ? f.endsAt : null),
-      updates: updates
-        .filter((u) => u.noticeId === n.id)
-        .map((u) => ({ state: STATE_TEXT[u.state as keyof typeof STATE_TEXT] ?? u.state, body: u.body, at: u.createdAt.toISOString() })),
+      updates: updates.filter((u) => u.noticeId === n.id).map((u) => ({ state: words[`state.${u.state}` as LabelKey] ?? u.state, body: u.body, at: u.createdAt.toISOString() })),
+      postmortem: n.postmortem,
     };
   });
 
@@ -215,19 +222,39 @@ export async function statusView(
     outageViews.push({
       id: `outage-${o.id}`,
       kind: "outage",
-      title: o.resolvedAt ? `${names.join(", ")} ${names.length === 1 ? "was" : "were"} unavailable` : `${names.join(", ")} ${names.length === 1 ? "is" : "are"} unavailable`,
+      title: fill(o.resolvedAt ? words.outageOnePast : words.outageOne, { name: names.join(", ") }),
       impact: "critical",
-      state: o.resolvedAt ? "Resolved" : "Investigating",
+      state: o.resolvedAt ? words["state.resolved"] : words["state.investigating"],
+      stateKey: o.resolvedAt ? "resolved" : "investigating",
       done: !!o.resolvedAt,
       components: names,
       startsAt: o.startedAt.toISOString(),
       endsAt: null,
       resolvedAt: iso(o.resolvedAt),
       updates: [],
+      postmortem: null,
     });
   }
 
-  const latencyOf = new Map(latency.map((l) => [l.monitorId, l.ms === null ? null : Math.round(Number(l.ms))]));
+  // Half-hour buckets over the last day; the average over all of them is the number shown.
+  const BUCKET = 30 * 60_000;
+  const first = Math.floor((now - DAY) / BUCKET) * BUCKET;
+  const seriesOf = (monitorId: string) => {
+    const sums = Array.from({ length: 48 }, () => ({ sum: 0, n: 0 }));
+    for (const l of latency) {
+      if (l.monitorId !== monitorId || l.ms === null) continue;
+      const i = Math.min(47, Math.floor((l.at.getTime() - first) / BUCKET));
+      if (i >= 0) {
+        sums[i].sum += l.ms;
+        sums[i].n += 1;
+      }
+    }
+    return sums.map((b) => (b.n ? Math.round(b.sum / b.n) : null));
+  };
+  const latencyOf = (monitorId: string) => {
+    const own = latency.filter((l) => l.monitorId === monitorId && l.ms !== null);
+    return own.length ? Math.round(own.reduce((a, l) => a + (l.ms ?? 0), 0) / own.length) : null;
+  };
   const views: (ComponentView & { group: string | null })[] = components.map((c) => {
     const m = c.serviceId ? monitorOf.get(c.serviceId) : undefined;
     const check = m ? (m.enabled ? m.status : "paused") : null;
@@ -255,7 +282,8 @@ export async function statusView(
       group: c.group,
       level: componentLevel({ componentId: c.id, check, notices: facts, now }),
       uptime: m ? uptimePercent(rows) : null,
-      latency: m ? (latencyOf.get(m.id) ?? null) : null,
+      latency: m ? latencyOf(m.id) : null,
+      latencySeries: m && design.showLatency ? seriesOf(m.id) : [],
       monitored: !!m,
       bars,
     };
@@ -272,10 +300,8 @@ export async function statusView(
   }
 
   const all = [...noticeViews, ...outageViews];
-  const active = all.filter((n) => (n.kind === "maintenance" ? n.state === STATE_TEXT["in-progress"] : !n.done));
-  const upcoming = noticeViews
-    .filter((n) => n.kind === "maintenance" && n.state === STATE_TEXT.scheduled)
-    .sort((a, b) => Date.parse(a.startsAt ?? "") - Date.parse(b.startsAt ?? ""));
+  const active = all.filter((n) => (n.kind === "maintenance" ? n.stateKey === "in-progress" : !n.done));
+  const upcoming = noticeViews.filter((n) => n.kind === "maintenance" && n.stateKey === "scheduled").sort((a, b) => Date.parse(a.startsAt ?? "") - Date.parse(b.startsAt ?? ""));
   const past = all.filter((n) => n.done && Date.parse(n.resolvedAt ?? n.startsAt ?? "") >= historyStart.getTime());
   const byDay = new Map<string, NoticeView[]>();
   for (const n of past.sort((a, b) => Date.parse(b.startsAt ?? "") - Date.parse(a.startsAt ?? ""))) {

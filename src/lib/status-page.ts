@@ -107,6 +107,65 @@ export const BAR_DAYS = [30, 60, 90] as const;
 
 export type StatusImage = { hash: string; mime: string };
 
+/** A saved incident message: filled into the form in one click. */
+export type StatusTemplate = { id: string; name: string; title: string; impact: IncidentImpact; body: string };
+
+/**
+ * Every fixed text on the public page, with its default. A page can reword or translate any of them;
+ * {days} and {name} are filled in.
+ */
+export const DEFAULT_LABELS = {
+  "overall.operational": OVERALL_TEXT.operational,
+  "overall.maintenance": OVERALL_TEXT.maintenance,
+  "overall.degraded": OVERALL_TEXT.degraded,
+  "overall.partial": OVERALL_TEXT.partial,
+  "overall.major": OVERALL_TEXT.major,
+  "overall.unknown": OVERALL_TEXT.unknown,
+  "level.operational": LEVEL_TEXT.operational,
+  "level.maintenance": LEVEL_TEXT.maintenance,
+  "level.degraded": LEVEL_TEXT.degraded,
+  "level.partial": LEVEL_TEXT.partial,
+  "level.major": LEVEL_TEXT.major,
+  "level.unknown": LEVEL_TEXT.unknown,
+  "state.investigating": STATE_TEXT.investigating,
+  "state.identified": STATE_TEXT.identified,
+  "state.monitoring": STATE_TEXT.monitoring,
+  "state.resolved": STATE_TEXT.resolved,
+  "state.scheduled": STATE_TEXT.scheduled,
+  "state.in-progress": STATE_TEXT["in-progress"],
+  "state.completed": STATE_TEXT.completed,
+  updated: "Updated",
+  planned: "Planned maintenance",
+  past: "Past incidents",
+  noIncidents: "No incidents in the last {days} days.",
+  daysAgo: "{days} days ago",
+  today: "Today",
+  uptime: "uptime",
+  responseTime: "Response time",
+  started: "Started",
+  lasted: "lasted",
+  noData: "No data",
+  postmortem: "Postmortem",
+  outageOne: "{name} is unavailable",
+  outageOnePast: "{name} was unavailable",
+  poweredBy: "Powered by",
+  subscribe: "RSS",
+} as const;
+
+export type LabelKey = keyof typeof DEFAULT_LABELS;
+export type Labels = Record<LabelKey, string>;
+
+export function labelsOf(design: Pick<StatusDesign, "labels">): Labels {
+  const out = { ...DEFAULT_LABELS } as Labels;
+  for (const [k, v] of Object.entries(design.labels ?? {})) if (k in out && typeof v === "string" && v.trim()) out[k as LabelKey] = v.trim();
+  return out;
+}
+
+/** A label with its {placeholders} filled in. */
+export function fill(text: string, values: Record<string, string | number>) {
+  return text.replace(/\{(\w+)\}/g, (m, k: string) => (k in values ? String(values[k]) : m));
+}
+
 export type StatusDesign = {
   theme: StatusTheme;
   /** Hex color of links, buttons and the operational banner; null keeps the default green. */
@@ -139,6 +198,10 @@ export type StatusDesign = {
   css: string | null;
   /** Ask search engines not to list the page. */
   noindex: boolean;
+  /** Reworded or translated texts (DEFAULT_LABELS); missing keys keep the default. */
+  labels: Partial<Record<LabelKey, string>>;
+  /** Language of dates and of the page, like "de" or "fr-CA"; null follows the visitor's browser. */
+  locale: string | null;
 };
 
 export const defaultDesign: StatusDesign = {
@@ -164,6 +227,8 @@ export const defaultDesign: StatusDesign = {
   density: "comfortable",
   css: null,
   noindex: false,
+  labels: {},
+  locale: null,
 };
 
 export function designOf(saved: Partial<StatusDesign> | null | undefined): StatusDesign {

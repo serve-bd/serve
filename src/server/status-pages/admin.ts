@@ -52,7 +52,7 @@ export type EditorService = { id: string; name: string; project: string; check: 
 /** Everything the editor shows. Null when the page is not the organization's. */
 export async function editorData(pageId: string, organizationId: string) {
   const [page] = await db
-    .select({ ...pageColumns, images: schema.statusPage.images })
+    .select({ ...pageColumns, images: schema.statusPage.images, templates: schema.statusPage.templates })
     .from(schema.statusPage)
     .where(and(eq(schema.statusPage.id, pageId), eq(schema.statusPage.organizationId, organizationId)));
   if (!page) return null;
@@ -139,10 +139,12 @@ export async function editorData(pageId: string, organizationId: string) {
       startsAt: n.startsAt?.toISOString() ?? null,
       endsAt: n.endsAt?.toISOString() ?? null,
       resolvedAt: n.resolvedAt?.toISOString() ?? null,
+      postmortem: n.postmortem,
       createdAt: n.createdAt.toISOString(),
       updates: updates.filter((u) => u.noticeId === n.id).map((u) => ({ id: u.id, state: u.state, body: u.body, at: u.createdAt.toISOString() })),
     })),
     view,
+    templates: page.templates,
     domain: {
       serverIp: settings.serverIp ?? null,
       proxy: local[0]?.kind ?? "nginx",

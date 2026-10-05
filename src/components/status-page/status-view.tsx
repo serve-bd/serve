@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, CircleCheck, CircleDashed, CircleX, Rss, TriangleAlert, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { cleanCss, formatPercent, LEVEL_TEXT, OVERALL_TEXT, type StatusDesign, type StatusLevel } from "@/lib/status-page";
+import { cleanCss, fill, formatPercent, type Labels, labelsOf, type StatusDesign, type StatusLevel } from "@/lib/status-page";
 import type { ComponentView, NoticeView, StatusView as View } from "@/server/status-pages/data";
 
 /* Theme tokens of the page itself: it never takes the dashboard's colors. */
@@ -46,23 +46,40 @@ function LevelIcon({ level, className }: { level: StatusLevel; className?: strin
   return <Icon className={className} style={{ color: LEVEL_COLOR[level] }} aria-hidden />;
 }
 
+/** The page's words and language, for every part below. */
+const Words = React.createContext<{ w: Labels; locale: string | undefined }>({ w: labelsOf({ labels: {} }), locale: undefined });
+const useWords = () => React.useContext(Words);
+
+/** A locale the browser knows, else none (the visitor's own). */
+function safeLocale(locale: string | null) {
+  if (!locale) return undefined;
+  try {
+    return Intl.DateTimeFormat.supportedLocalesOf([locale]).length ? locale : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Times in the visitor's own zone. The server renders UTC; the browser swaps in local time. */
 function LocalTime({ iso, withDate = true }: { iso: string; withDate?: boolean }) {
+  const { locale } = useWords();
   const [text, setText] = React.useState<string | null>(null);
   React.useEffect(() => {
     const d = new Date(iso);
     setText(
       withDate
-        ? d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-        : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+        ? d.toLocaleString(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+        : d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }),
     );
-  }, [iso, withDate]);
+  }, [iso, withDate, locale]);
   const utc = new Date(iso);
   const fallback = `${withDate ? `${utc.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}, ` : ""}${utc.toISOString().slice(11, 16)} UTC`;
   return <time dateTime={iso}>{text ?? fallback}</time>;
 }
 
-const dayName = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+// A fixed locale when none is set: this renders on the server and in the browser, which may differ.
+const dayName = (day: string, locale: string | undefined) =>
+  new Date(`${day}T00:00:00Z`).toLocaleDateString(locale ?? "en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
 function duration(fromIso: string, toIso: string | null) {
   const ms = (toIso ? Date.parse(toIso) : Date.now()) - Date.parse(fromIso);
@@ -96,50 +113,54 @@ export function StatusView({ view, design, base, live, note, poweredBy }: Status
   const radius = design.corners === "square" ? "0px" : "14px";
   const pad = design.density === "compact" ? "14px" : "20px";
   const css = cleanCss(design.css);
+  const words = React.useMemo(() => ({ w: labelsOf(design), locale: safeLocale(design.locale) }), [design]);
 
   return (
-    <div
-      className="sp min-h-full bg-[var(--sp-bg)] text-[var(--sp-fg)] antialiased"
-      data-theme-mode={design.theme}
-      style={{ fontFamily: FONTS[design.font], ["--sp-radius" as string]: radius, ["--sp-pad" as string]: pad }}
-    >
-      <style>{themeCss(design.accent)}</style>
-      {css && <style>{css}</style>}
-      {note && <div className="sp-note bg-[var(--sp-maint)] px-4 py-2 text-center text-[13px] font-medium text-white">{note}</div>}
-      <div className={cn("mx-auto w-full max-w-[760px] px-4 sm:px-6", design.density === "compact" ? "py-8" : "py-12")}>
-        <Header view={view} design={design} />
-        {design.announcement?.text && (
-          <div
-            className="sp-announcement mt-6 rounded-[var(--sp-radius)] border px-4 py-3 text-[14px] leading-relaxed"
-            style={{
-              borderColor: design.announcement.tone === "warn" ? "color-mix(in srgb, var(--sp-warn) 35%, transparent)" : "var(--sp-line)",
-              background: design.announcement.tone === "warn" ? "color-mix(in srgb, var(--sp-warn) 10%, var(--sp-surface))" : "var(--sp-surface)",
-            }}
-          >
-            {design.announcement.text}
-          </div>
-        )}
-        <Overall view={view} />
-        {view.active.length > 0 && (
-          <section className="sp-active mt-6 flex flex-col gap-3" aria-label="Ongoing">
-            {view.active.map((n) => (
-              <NoticeCard key={n.id} notice={n} open />
-            ))}
-          </section>
-        )}
-        {view.upcoming.length > 0 && (
-          <section className="sp-upcoming mt-6 flex flex-col gap-3" aria-label="Planned maintenance">
-            <h2 className="text-[13px] font-semibold tracking-wide text-[var(--sp-muted)] uppercase">Planned maintenance</h2>
-            {view.upcoming.map((n) => (
-              <NoticeCard key={n.id} notice={n} open />
-            ))}
-          </section>
-        )}
-        <Components view={view} design={design} />
-        {design.historyDays > 0 && <History view={view} days={design.historyDays} />}
-        <Footer design={design} base={base} poweredBy={poweredBy} />
+    <Words.Provider value={words}>
+      <div
+        className="sp min-h-full bg-[var(--sp-bg)] text-[var(--sp-fg)] antialiased"
+        data-theme-mode={design.theme}
+        lang={words.locale}
+        style={{ fontFamily: FONTS[design.font], ["--sp-radius" as string]: radius, ["--sp-pad" as string]: pad }}
+      >
+        <style>{themeCss(design.accent)}</style>
+        {css && <style>{css}</style>}
+        {note && <div className="sp-note bg-[var(--sp-maint)] px-4 py-2 text-center text-[13px] font-medium text-white">{note}</div>}
+        <div className={cn("mx-auto w-full max-w-[760px] px-4 sm:px-6", design.density === "compact" ? "py-8" : "py-12")}>
+          <Header view={view} design={design} />
+          {design.announcement?.text && (
+            <div
+              className="sp-announcement mt-6 rounded-[var(--sp-radius)] border px-4 py-3 text-[14px] leading-relaxed"
+              style={{
+                borderColor: design.announcement.tone === "warn" ? "color-mix(in srgb, var(--sp-warn) 35%, transparent)" : "var(--sp-line)",
+                background: design.announcement.tone === "warn" ? "color-mix(in srgb, var(--sp-warn) 10%, var(--sp-surface))" : "var(--sp-surface)",
+              }}
+            >
+              {design.announcement.text}
+            </div>
+          )}
+          <Overall view={view} />
+          {view.active.length > 0 && (
+            <section className="sp-active mt-6 flex flex-col gap-3" aria-label="Ongoing">
+              {view.active.map((n) => (
+                <NoticeCard key={n.id} notice={n} open />
+              ))}
+            </section>
+          )}
+          {view.upcoming.length > 0 && (
+            <section className="sp-upcoming mt-6 flex flex-col gap-3" aria-label="Planned maintenance">
+              <h2 className="text-[13px] font-semibold tracking-wide text-[var(--sp-muted)] uppercase">{words.w.planned}</h2>
+              {view.upcoming.map((n) => (
+                <NoticeCard key={n.id} notice={n} open />
+              ))}
+            </section>
+          )}
+          <Components view={view} design={design} />
+          {design.historyDays > 0 && <History view={view} days={design.historyDays} />}
+          <Footer design={design} base={base} poweredBy={poweredBy} />
+        </div>
       </div>
-    </div>
+    </Words.Provider>
   );
 }
 
@@ -185,6 +206,7 @@ function Header({ view, design }: { view: View; design: StatusDesign }) {
 }
 
 function Overall({ view }: { view: View }) {
+  const { w } = useWords();
   const color = LEVEL_COLOR[view.overall];
   return (
     <section
@@ -199,9 +221,9 @@ function Overall({ view }: { view: View }) {
         <LevelIcon level={view.overall} className="relative size-6" />
       </span>
       <div className="min-w-0">
-        <h1 className="text-[20px] leading-tight font-semibold tracking-tight">{OVERALL_TEXT[view.overall]}</h1>
+        <h1 className="text-[20px] leading-tight font-semibold tracking-tight">{w[`overall.${view.overall}`]}</h1>
         <p className="mt-0.5 text-[13px] text-[var(--sp-muted)]">
-          Updated <LocalTime iso={view.generatedAt} withDate={false} />
+          {w.updated} <LocalTime iso={view.generatedAt} withDate={false} />
         </p>
       </div>
     </section>
@@ -209,6 +231,7 @@ function Overall({ view }: { view: View }) {
 }
 
 function NoticeCard({ notice, open }: { notice: NoticeView; open?: boolean }) {
+  const { w } = useWords();
   const level: StatusLevel =
     notice.kind === "maintenance" ? "maintenance" : notice.done ? "operational" : notice.impact === "minor" ? "degraded" : notice.impact === "major" ? "partial" : "major";
   return (
@@ -234,8 +257,8 @@ function NoticeCard({ notice, open }: { notice: NoticeView; open?: boolean }) {
               </>
             ) : notice.startsAt ? (
               <>
-                Started <LocalTime iso={notice.startsAt} />
-                {notice.resolvedAt ? ` · lasted ${duration(notice.startsAt, notice.resolvedAt)}` : ""}
+                {w.started} <LocalTime iso={notice.startsAt} />
+                {notice.resolvedAt ? ` · ${w.lasted} ${duration(notice.startsAt, notice.resolvedAt)}` : ""}
               </>
             ) : null}
             {notice.components.length > 0 && <> · {notice.components.join(", ")}</>}
@@ -254,6 +277,12 @@ function NoticeCard({ notice, open }: { notice: NoticeView; open?: boolean }) {
                 </li>
               ))}
             </ol>
+          )}
+          {notice.postmortem && (
+            <details className="sp-postmortem group mt-3 rounded-lg border border-[var(--sp-line)] bg-[var(--sp-sunken)]/50 px-3 py-2">
+              <summary className="cursor-pointer text-[13px] font-semibold text-[var(--sp-fg)] marker:text-[var(--sp-muted)]">{w.postmortem}</summary>
+              <p className="mt-2 text-[14px] leading-relaxed whitespace-pre-line text-[var(--sp-fg2)]">{notice.postmortem}</p>
+            </details>
           )}
         </div>
       </div>
@@ -280,6 +309,8 @@ function Components({ view, design }: { view: View; design: StatusDesign }) {
 }
 
 function ComponentRow({ c, design }: { c: ComponentView; design: StatusDesign }) {
+  const { w } = useWords();
+  const series = design.showLatency && c.latencySeries.some((v) => v !== null);
   return (
     <div className="sp-component p-[var(--sp-pad)]" data-level={c.level}>
       <div className="flex items-start justify-between gap-4">
@@ -288,35 +319,91 @@ function ComponentRow({ c, design }: { c: ComponentView; design: StatusDesign })
           {c.description && <p className="mt-0.5 text-[13px] leading-relaxed text-[var(--sp-muted)]">{c.description}</p>}
         </div>
         <div className="flex flex-none items-center gap-2 text-[13px] font-medium" style={{ color: LEVEL_COLOR[c.level] }}>
-          {LEVEL_TEXT[c.level]}
+          {w[`level.${c.level}`]}
           <LevelIcon level={c.level} className="size-4" />
         </div>
       </div>
       {design.showBars && <Bars c={c} days={design.days} square={design.corners === "square"} />}
-      {(design.showBars || design.showUptime || design.showLatency) && (
+      {(design.showBars || design.showUptime || (design.showLatency && !series)) && (
         <div className="mt-2 flex items-center justify-between gap-3 text-[12px] text-[var(--sp-muted)]">
           {design.showBars ? (
             <span>
-              <span className="sp-days-full">{design.days} days ago</span>
-              <span className="sp-days-short">{Math.min(design.days, PHONE_DAYS)} days ago</span>
+              <span className="sp-days-full">{fill(w.daysAgo, { days: design.days })}</span>
+              <span className="sp-days-short">{fill(w.daysAgo, { days: Math.min(design.days, PHONE_DAYS) })}</span>
             </span>
           ) : (
             <span />
           )}
           <span className="flex items-center gap-3 tabular-nums">
-            {design.showUptime && c.monitored && <span>{formatPercent(c.uptime)} uptime</span>}
-            {design.showLatency && c.latency !== null && <span>{c.latency} ms</span>}
+            {design.showUptime && c.monitored && (
+              <span>
+                {formatPercent(c.uptime)} {w.uptime}
+              </span>
+            )}
+            {design.showLatency && !series && c.latency !== null && <span>{c.latency} ms</span>}
           </span>
-          {design.showBars ? <span>Today</span> : <span />}
+          {design.showBars ? <span>{w.today}</span> : <span />}
         </div>
       )}
+      {series && <Latency series={c.latencySeries} average={c.latency} />}
     </div>
   );
 }
 
 const PHONE_DAYS = 30;
 
+/** Response time over the last day: a line of half-hour averages, gaps where no check answered. */
+function Latency({ series, average }: { series: (number | null)[]; average: number | null }) {
+  const { w } = useWords();
+  const [hover, setHover] = React.useState<number | null>(null);
+  const values = series.filter((v): v is number => v !== null);
+  const max = Math.max(...values, 1) * 1.15;
+  const W = 480;
+  const H = 40;
+  const x = (i: number) => (i / Math.max(1, series.length - 1)) * W;
+  const y = (v: number) => H - (v / max) * H;
+  // One path per run of buckets with data.
+  const runs: string[] = [];
+  let run = "";
+  series.forEach((v, i) => {
+    if (v === null) {
+      if (run) runs.push(run);
+      run = "";
+      return;
+    }
+    run += `${run ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+  });
+  if (run) runs.push(run);
+  const shown = hover !== null ? series[hover] : null;
+  return (
+    <div className="sp-latency mt-4">
+      <div className="mb-1.5 flex items-baseline justify-between text-[12px] text-[var(--sp-muted)]">
+        <span>{w.responseTime}</span>
+        <span className="tabular-nums">{shown !== null && shown !== undefined ? `${shown} ms` : average !== null ? `⌀ ${average} ms` : ""}</span>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="block h-10 w-full overflow-visible"
+        role="img"
+        aria-label={`${w.responseTime}: ${average ?? "—"} ms`}
+        onMouseMove={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setHover(Math.round(((e.clientX - r.left) / r.width) * (series.length - 1)));
+        }}
+        onMouseLeave={() => setHover(null)}
+      >
+        {runs.map((d) => (
+          <path key={d} d={d} fill="none" stroke="var(--sp-accent)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+        ))}
+        {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={0} y2={H} stroke="var(--sp-line)" strokeWidth={1} vectorEffect="non-scaling-stroke" />}
+      </svg>
+    </div>
+  );
+}
+
 function Bars({ c, days, square }: { c: ComponentView; days: number; square: boolean }) {
+  const { w, locale } = useWords();
   // The bar under the pointer and its center, in pixels from the left of the row.
   const [hover, setHover] = React.useState<{ i: number; x: number } | null>(null);
   const bar = hover === null ? null : c.bars[hover.i];
@@ -350,8 +437,10 @@ function Bars({ c, days, square }: { c: ComponentView; days: number; square: boo
           className="pointer-events-none absolute bottom-full z-10 mb-2 w-max max-w-[260px] -translate-x-1/2 rounded-lg border border-[var(--sp-line)] bg-[var(--sp-surface)] px-3 py-2 text-[12px] shadow-lg"
           style={{ left: `clamp(110px, ${hover.x}px, calc(100% - 110px))` }}
         >
-          <p className="font-semibold">{dayName(bar.day)}</p>
-          <p className="text-[var(--sp-muted)]">{bar.uptime !== null ? `${formatPercent(bar.uptime)} uptime` : bar.level === "unknown" ? "No data" : LEVEL_TEXT[bar.level]}</p>
+          <p className="font-semibold">{dayName(bar.day, locale)}</p>
+          <p className="text-[var(--sp-muted)]">
+            {bar.uptime !== null ? `${formatPercent(bar.uptime)} ${w.uptime}` : bar.level === "unknown" ? w.noData : w[`level.${bar.level}`]}
+          </p>
           {bar.notes.map((n) => (
             <p key={n} className="mt-1 text-[var(--sp-fg2)]">
               {n}
@@ -364,16 +453,17 @@ function Bars({ c, days, square }: { c: ComponentView; days: number; square: boo
 }
 
 function History({ view, days }: { view: View; days: number }) {
+  const { w, locale } = useWords();
   return (
     <section className="sp-history mt-10" aria-label="Past incidents">
-      <h2 className="text-[17px] font-semibold tracking-tight">Past incidents</h2>
+      <h2 className="text-[17px] font-semibold tracking-tight">{w.past}</h2>
       {view.history.length === 0 ? (
-        <p className="mt-3 text-[14px] text-[var(--sp-muted)]">No incidents in the last {days === 1 ? "day" : `${days} days`}.</p>
+        <p className="mt-3 text-[14px] text-[var(--sp-muted)]">{fill(w.noIncidents, { days })}</p>
       ) : (
         <div className="mt-4 flex flex-col gap-6">
           {view.history.map((d) => (
             <div key={d.day}>
-              <h3 className="border-b border-[var(--sp-line)] pb-2 text-[13px] font-semibold text-[var(--sp-fg2)]">{dayName(d.day)}</h3>
+              <h3 className="border-b border-[var(--sp-line)] pb-2 text-[13px] font-semibold text-[var(--sp-fg2)]">{dayName(d.day, locale)}</h3>
               <div className="mt-3 flex flex-col gap-3">
                 {d.notices.map((n) => (
                   <NoticeCard key={n.id} notice={n} />
@@ -388,20 +478,23 @@ function History({ view, days }: { view: View; days: number }) {
 }
 
 function Footer({ design, base, poweredBy }: { design: StatusDesign; base: string; poweredBy: StatusViewProps["poweredBy"] }) {
+  const { w } = useWords();
   return (
     <footer className="sp-footer mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--sp-line)] pt-5 text-[13px] text-[var(--sp-muted)]">
       <span className="whitespace-pre-line">{design.footer}</span>
       <span className="flex items-center gap-4">
         <a href={`${base}/feed.xml`} className="inline-flex items-center gap-1.5 hover:text-[var(--sp-accent)]">
-          <Rss className="size-3.5" /> RSS
+          <Rss className="size-3.5" /> {w.subscribe}
         </a>
         {!design.hideBadge &&
           (poweredBy.url ? (
             <a href={poweredBy.url} className="hover:text-[var(--sp-accent)]" rel="noopener">
-              Powered by {poweredBy.name}
+              {w.poweredBy} {poweredBy.name}
             </a>
           ) : (
-            <span>Powered by {poweredBy.name}</span>
+            <span>
+              {w.poweredBy} {poweredBy.name}
+            </span>
           ))}
       </span>
     </footer>

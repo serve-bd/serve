@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { cleanCss, cleanUrl, componentLevel, dayLevel, maintenancePhase, type NoticeFacts, noticeActive, slugify, slugPattern, worst } from "@/lib/status-page";
+import {
+  cleanCss,
+  cleanUrl,
+  componentLevel,
+  DEFAULT_LABELS,
+  dayLevel,
+  fill,
+  labelsOf,
+  maintenancePhase,
+  type NoticeFacts,
+  noticeActive,
+  slugify,
+  slugPattern,
+  worst,
+} from "@/lib/status-page";
 
 const NOW = Date.parse("2026-10-06T12:00:00Z");
 const at = (h: number) => new Date(NOW + h * 3600_000).toISOString();
@@ -78,5 +92,19 @@ describe("status page input", () => {
     expect(cleanUrl("javascript:alert(1)")).toBeNull();
     expect(cleanUrl("data:text/html,hi")).toBeNull();
     expect(cleanUrl("")).toBeNull();
+  });
+});
+
+describe("status page words", () => {
+  it("keeps defaults and takes only known, non-empty overrides", () => {
+    const w = labelsOf({ labels: { "overall.operational": "Alles läuft", today: "  ", bogus: "x" } as never });
+    expect(w["overall.operational"]).toBe("Alles läuft");
+    expect(w.today).toBe(DEFAULT_LABELS.today);
+    expect((w as Record<string, string>).bogus).toBeUndefined();
+  });
+
+  it("fills placeholders and leaves unknown ones", () => {
+    expect(fill("{days} days ago", { days: 90 })).toBe("90 days ago");
+    expect(fill("{name} is down {x}", { name: "API" })).toBe("API is down {x}");
   });
 });

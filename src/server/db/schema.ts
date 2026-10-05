@@ -21,7 +21,7 @@ import type { ChannelScope, MessageTemplate, NotificationKind, QuietHours, Sever
 import type { OrgLimits } from "@/lib/limits";
 import type { TrustedProxies } from "@/lib/trusted-proxies";
 import type { DashboardLayout } from "@/lib/dashboard";
-import type { IncidentImpact, IncidentState, NoticeKind, StatusDesign, StatusImage, StatusVisibility } from "@/lib/status-page";
+import type { IncidentImpact, IncidentState, NoticeKind, StatusDesign, StatusImage, StatusTemplate, StatusVisibility } from "@/lib/status-page";
 import type { SecretProviderAccess, SecretProviderConfig, SecretProviderKind } from "@/lib/secret-providers";
 
 const id = () => text("id").primaryKey();
@@ -1540,6 +1540,8 @@ export const statusPage = pgTable("status_page", {
   /** bcrypt hash, for visibility "password". */
   passwordHash: text("password_hash"),
   design: jsonb("design").$type<Partial<StatusDesign>>().notNull().default({}),
+  /** Saved incident messages, to post in two clicks during an outage. */
+  templates: jsonb("templates").$type<StatusTemplate[]>().notNull().default([]),
   /** Uploaded logos (light, dark) and favicon, as base64 with their type. */
   images: jsonb("images")
     .$type<{ logo?: StatusImage & { data: string }; logoDark?: StatusImage & { data: string }; favicon?: StatusImage & { data: string } }>()
@@ -1587,6 +1589,8 @@ export const statusNotice = pgTable(
     startsAt: timestamp("starts_at", { withTimezone: true }),
     endsAt: timestamp("ends_at", { withTimezone: true }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    /** What happened and what changes, written after the incident. */
+    postmortem: text("postmortem"),
     createdBy: text("created_by"),
     createdAt: createdAt(),
   },

@@ -13,7 +13,7 @@ import { removeStatusLogo, saveStatusPage, uploadStatusLogo } from "@/server/act
 import type { EditorData } from "@/server/status-pages/admin";
 import { StatusView } from "@/components/status-page/status-view";
 import { acceptedTypes, normalizeHex } from "@/lib/branding";
-import { BAR_DAYS, type StatusDesign } from "@/lib/status-page";
+import { BAR_DAYS, DEFAULT_LABELS, type LabelKey, type StatusDesign } from "@/lib/status-page";
 import { cn } from "@/lib/utils";
 import type { PoweredBy } from "./editor";
 
@@ -187,7 +187,7 @@ export function DesignTab({ data, canManage, poweredBy }: { data: EditorData; ca
             <SwitchRow title="Uptime percent" checked={form.showUptime} onCheckedChange={(v) => set("showUptime", v)} disabled={!canManage} />
             <SwitchRow
               title="Response time"
-              description="Average over the last day, from the uptime checks."
+              description="A chart of the last day, from the uptime checks."
               checked={form.showLatency}
               onCheckedChange={(v) => set("showLatency", v)}
               disabled={!canManage}
@@ -296,6 +296,8 @@ export function DesignTab({ data, canManage, poweredBy }: { data: EditorData; ca
             <SwitchRow title={`Hide “Powered by ${poweredBy.name}”`} checked={form.hideBadge} onCheckedChange={(v) => set("hideBadge", v)} disabled={!canManage} />
           </div>
         </Card>
+
+        <WordsCard form={form} set={set} disabled={!canManage} />
 
         <Card>
           <CardHeader title="Advanced" />
@@ -444,5 +446,98 @@ function LogoSlot({
         </Button>
       )}
     </div>
+  );
+}
+
+/** Groups of the page's texts, in the order visitors meet them. */
+const WORD_GROUPS: { title: string; keys: LabelKey[] }[] = [
+  { title: "Banner", keys: ["overall.operational", "overall.degraded", "overall.partial", "overall.major", "overall.maintenance", "overall.unknown", "updated"] },
+  {
+    title: "Components",
+    keys: ["level.operational", "level.degraded", "level.partial", "level.major", "level.maintenance", "level.unknown", "uptime", "responseTime", "daysAgo", "today", "noData"],
+  },
+  {
+    title: "Incidents",
+    keys: [
+      "state.investigating",
+      "state.identified",
+      "state.monitoring",
+      "state.resolved",
+      "state.scheduled",
+      "state.in-progress",
+      "state.completed",
+      "planned",
+      "past",
+      "noIncidents",
+      "started",
+      "lasted",
+      "postmortem",
+      "outageOne",
+      "outageOnePast",
+    ],
+  },
+  { title: "Footer", keys: ["subscribe", "poweredBy"] },
+];
+
+function WordsCard({ form, set, disabled }: { form: Form; set: <K extends keyof Form>(key: K, value: Form[K]) => void; disabled: boolean }) {
+  const [open, setOpen] = React.useState<string | null>(null);
+  const changed = Object.values(form.labels).filter((v) => v?.trim()).length;
+  const setWord = (key: LabelKey, value: string) => {
+    const next = { ...form.labels };
+    if (value) next[key] = value;
+    else delete next[key];
+    set("labels", next);
+  };
+  return (
+    <Card>
+      <CardHeader title="Words and language" description={changed ? `${changed} text${changed === 1 ? "" : "s"} changed.` : "Reword or translate any text on the page."} />
+      <div className="flex flex-col gap-4 px-5 py-4">
+        <Field label="Language of dates" optional description="A code like en, de, fr or pt-BR. Empty uses each visitor's own.">
+          <Input
+            value={form.locale ?? ""}
+            onChange={(e) => set("locale", e.target.value || null)}
+            placeholder="Visitor's language"
+            className="font-mono"
+            maxLength={35}
+            disabled={disabled}
+          />
+        </Field>
+        <div className="flex flex-col divide-y divide-line rounded-lg border border-line">
+          {WORD_GROUPS.map((g) => (
+            <div key={g.title}>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between px-3 py-2.5 text-left text-[13px] font-medium text-fg hover:bg-hover/50"
+                aria-expanded={open === g.title}
+                onClick={() => setOpen(open === g.title ? null : g.title)}
+              >
+                {g.title}
+                <span className="text-xs text-muted">{g.keys.filter((k) => form.labels[k]).length || ""}</span>
+              </button>
+              {open === g.title && (
+                <div className="flex flex-col gap-2 px-3 pb-3">
+                  {g.keys.map((k) => (
+                    <Input
+                      key={k}
+                      value={form.labels[k] ?? ""}
+                      onChange={(e) => setWord(k, e.target.value)}
+                      placeholder={DEFAULT_LABELS[k]}
+                      aria-label={DEFAULT_LABELS[k]}
+                      maxLength={200}
+                      disabled={disabled}
+                    />
+                  ))}
+                  {g.keys.some((k) => DEFAULT_LABELS[k].includes("{")) && (
+                    <p className="text-xs text-muted">
+                      <code className="font-mono">{"{days}"}</code> and <code className="font-mono">{"{name}"}</code> are filled in.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
   );
 }

@@ -19,7 +19,7 @@ import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/ser
 import { cloudflareAccountFor, retireCertificateFor } from "@/server/ssl/certificates";
 import { certificateCovers } from "@/server/ssl/match";
 import { checkBrandImage } from "@/lib/branding";
-import { BAR_DAYS, cleanCss, cleanUrl, designOf, INCIDENT_STATES, RESERVED_SLUGS, type StatusDesign, slugify, slugPattern } from "@/lib/status-page";
+import { BAR_DAYS, cleanCss, cleanUrl, DEFAULT_LABELS, designOf, INCIDENT_STATES, type LabelKey, RESERVED_SLUGS, type StatusDesign, slugify, slugPattern } from "@/lib/status-page";
 
 /**
  * Status pages span every project (a page lists services from any of them): only members who reach
@@ -150,7 +150,17 @@ const designInput = z.object({
   density: z.enum(["comfortable", "compact"]),
   css: z.string().max(20_000).nullable(),
   noindex: z.boolean(),
+  labels: z.record(z.string(), z.string().max(200)),
+  locale: z.string().trim().max(35).nullable(),
 });
+
+function validLocale(locale: string) {
+  try {
+    return Intl.getCanonicalLocales(locale)[0] ?? null;
+  } catch {
+    throw new UserError(`${locale} is not a language code. Use one like en, de or pt-BR.`);
+  }
+}
 
 /** Save the name, address and look. Logos are uploaded on their own. */
 export async function saveStatusPage(pageId: string, input: { name: string; slug: string; design: Omit<StatusDesign, "logo" | "logoDark"> }) {
@@ -184,6 +194,13 @@ export async function saveStatusPage(pageId: string, input: { name: string; slug
       announcement: d.announcement?.text.trim() ? { text: d.announcement.text.trim(), tone: d.announcement.tone } : null,
       links: links.map((l) => ({ label: l.label, url: cleanUrl(l.url)! })),
       css: cleanCss(d.css),
+      // Only known texts, and only those that differ from the default.
+      labels: Object.fromEntries(
+        Object.entries(d.labels)
+          .filter(([k, v]) => k in DEFAULT_LABELS && v.trim() && v.trim() !== DEFAULT_LABELS[k as LabelKey])
+          .map(([k, v]) => [k, v.trim()]),
+      ),
+      locale: d.locale ? validLocale(d.locale) : null,
     };
     await db.update(schema.statusPage).set({ name: data.name, slug: data.slug, design, updatedAt: new Date() }).where(eq(schema.statusPage.id, pageId));
     await logActivity({
@@ -610,11 +627,23 @@ export async function addStatusUpdate(noticeId: string, input: { state: string; 
 }
 
 /** Change an incident's title, impact, components or times (typos, a wider outage than first thought). */
-export async function editStatusNotice(noticeId: string, input: { title: string; impact: string; componentIds: string[]; startsAt: string | null; endsAt: string | null }) {
+export async function editStatusNotice(
+  noticeId: string,
+  input: { title: string; impact: string; componentIds: string[]; startsAt: string | null; endsAt: string | null; postmortem?: string | null },
+) {
   return act(async () => {
     const ctx = await requireStatusManager();
     const notice = await noticeOfOrg(noticeId, ctx.org.id);
-    const data = z.object({ title: noticeInput.shape.title, impact: noticeInput.shape.impact, componentIds: z.array(z.string()), startsAt: date, endsAt: date }).parse(input);
+    const data = z
+      .object({
+        title: noticeInput.shape.title,
+        impact: noticeInput.shape.impact,
+        componentIds: z.array(z.string()),
+        startsAt: date,
+        endsAt: date,
+        postmortem: z.string().max(20_000).nullish(),
+      })
+      .parse(input);
     if (notice.kind === "maintenance") {
       if (!data.startsAt || !data.endsAt) throw new UserError("Set when the maintenance starts and ends.");
       if (data.endsAt <= data.startsAt) throw new UserError("The maintenance must end after it starts.");
@@ -627,6 +656,7 @@ export async function editStatusNotice(noticeId: string, input: { title: string;
         componentIds: await onlyPageComponents(notice.pageId, data.componentIds),
         ...(data.startsAt ? { startsAt: data.startsAt } : {}),
         ...(notice.kind === "maintenance" ? { endsAt: data.endsAt } : {}),
+        ...(data.postmortem !== undefined ? { postmortem: data.postmortem?.trim() || null } : {}),
       })
       .where(eq(schema.statusNotice.id, noticeId));
     await touch(notice.pageId);
@@ -648,6 +678,46 @@ export async function deleteStatusNotice(noticeId: string) {
       targetType: "status-page",
       targetId: notice.pageId,
     });
+    return null;
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  Templates                                 */
+/* -------------------------------------------------------------------------- */
+
+const templateInput = z.object({
+  name: z.string().trim().min(1, "Name the template.").max(60),
+  title: z.string().trim().max(160),
+  impact: z.enum(["minor", "major", "critical"]),
+  body: z.string().trim().max(5000),
+});
+
+/** Save an incident message to reuse; a template with the same name is replaced. */
+export async function saveStatusTemplate(pageId: string, input: z.input<typeof templateInput>) {
+  return act(async () => {
+    const ctx = await requireStatusManager();
+    await pageInOrg(pageId, ctx.org.id);
+    const data = templateInput.parse(input);
+    const [row] = await db.select({ templates: schema.statusPage.templates }).from(schema.statusPage).where(eq(schema.statusPage.id, pageId));
+    const rest = (row?.templates ?? []).filter((t) => t.name.toLowerCase() !== data.name.toLowerCase());
+    await db
+      .update(schema.statusPage)
+      .set({ templates: [...rest, { id: newId(), ...data }].sort((a, b) => a.name.localeCompare(b.name)) })
+      .where(eq(schema.statusPage.id, pageId));
+    return null;
+  });
+}
+
+export async function deleteStatusTemplate(pageId: string, templateId: string) {
+  return act(async () => {
+    const ctx = await requireStatusManager();
+    await pageInOrg(pageId, ctx.org.id);
+    const [row] = await db.select({ templates: schema.statusPage.templates }).from(schema.statusPage).where(eq(schema.statusPage.id, pageId));
+    await db
+      .update(schema.statusPage)
+      .set({ templates: (row?.templates ?? []).filter((t) => t.id !== templateId) })
+      .where(eq(schema.statusPage.id, pageId));
     return null;
   });
 }

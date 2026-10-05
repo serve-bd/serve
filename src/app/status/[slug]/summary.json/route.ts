@@ -1,4 +1,4 @@
-import { designOf, LEVEL_TEXT, OVERALL_TEXT } from "@/lib/status-page";
+import { designOf, labelsOf } from "@/lib/status-page";
 import { statusView } from "@/server/status-pages/data";
 import { publicPage } from "@/server/status-pages/public";
 
@@ -10,7 +10,9 @@ export async function GET(_request: Request, ctx: RouteContext<"/status/[slug]/s
   const found = await publicPage(slug);
   if (!found) return Response.json({ error: "Not found" }, { status: 404 });
   if (found.access === "locked") return Response.json({ error: "This status page needs a password." }, { status: 401 });
-  const view = await statusView(found.page, found.base, designOf(found.page.design));
+  const design = designOf(found.page.design);
+  const view = await statusView(found.page, found.base, design);
+  const w = labelsOf(design);
   const notice = (n: (typeof view.active)[number]) => ({
     id: n.id,
     kind: n.kind,
@@ -22,13 +24,14 @@ export async function GET(_request: Request, ctx: RouteContext<"/status/[slug]/s
     endsAt: n.endsAt,
     resolvedAt: n.resolvedAt,
     updates: n.updates,
+    postmortem: n.postmortem,
   });
   return Response.json(
     {
       page: { name: view.name, updatedAt: view.generatedAt },
-      status: { level: view.overall, description: OVERALL_TEXT[view.overall] },
+      status: { level: view.overall, description: w[`overall.${view.overall}`] },
       components: view.groups.flatMap((g) =>
-        g.components.map((c) => ({ id: c.id, name: c.name, group: g.name, status: c.level, description: LEVEL_TEXT[c.level], uptime: c.uptime })),
+        g.components.map((c) => ({ id: c.id, name: c.name, group: g.name, status: c.level, description: w[`level.${c.level}`], uptime: c.uptime })),
       ),
       ongoing: view.active.map(notice),
       planned: view.upcoming.map(notice),

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarClock, Megaphone, MessageSquarePlus, Pencil, Trash2 } from "lucide-react";
+import { CalendarClock, FileText, Megaphone, MessageSquarePlus, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useConfirm } from "@/components/ui/confirm";
@@ -12,7 +12,7 @@ import { Badge, Card, CardHeader, EmptyState } from "@/components/ui/misc";
 import { Select } from "@/components/ui/select";
 import { TimeInput } from "@/components/ui/time-input";
 import { useAction } from "@/hooks/use-action";
-import { addStatusUpdate, createStatusNotice, deleteStatusNotice, editStatusNotice } from "@/server/actions/status-pages";
+import { addStatusUpdate, createStatusNotice, deleteStatusNotice, deleteStatusTemplate, editStatusNotice, saveStatusTemplate } from "@/server/actions/status-pages";
 import type { EditorData } from "@/server/status-pages/admin";
 import { IMPACT_TEXT, INCIDENT_STATES, type IncidentImpact, maintenancePhase, STATE_TEXT } from "@/lib/status-page";
 
@@ -83,6 +83,7 @@ export function NoticesTab({ data, canManage }: { data: EditorData; canManage: b
           {list("Past", past)}
         </div>
       )}
+      {data.templates.length > 0 && <Templates data={data} canManage={canManage} />}
       <NoticeDialog data={data} kind={creating ?? editing?.kind ?? null} notice={editing} onClose={() => (setCreating(null), setEditing(null))} />
       <UpdateDialog notice={updating} onClose={() => setUpdating(null)} />
     </Card>
@@ -139,6 +140,11 @@ function NoticeRow({
               <MessageSquarePlus /> Update
             </Button>
           )}
+          {phase === "completed" && notice.kind === "incident" && (
+            <Button size="sm" variant="ghost" onClick={onEdit}>
+              <FileText /> {notice.postmortem ? "Edit postmortem" : "Postmortem"}
+            </Button>
+          )}
           <Button variant="ghost" size="icon-sm" aria-label={`Edit ${notice.title}`} onClick={onEdit}>
             <Pencil />
           </Button>
@@ -183,9 +189,15 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
   const [body, setBody] = React.useState("");
   const [startsAt, setStartsAt] = React.useState("");
   const [endsAt, setEndsAt] = React.useState("");
+  const [postmortem, setPostmortem] = React.useState("");
+  const [keep, setKeep] = React.useState(false);
+  const [templateName, setTemplateName] = React.useState("");
 
   React.useEffect(() => {
     if (!kind) return;
+    setPostmortem(notice?.postmortem ?? "");
+    setKeep(false);
+    setTemplateName("");
     // A new window starts at the next full hour and lasts one hour.
     const start = new Date();
     start.setMinutes(0, 0, 0);
@@ -209,6 +221,7 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
             componentIds: components,
             startsAt: kind === "maintenance" ? iso(startsAt) : null,
             endsAt: kind === "maintenance" ? iso(endsAt) : null,
+            ...(kind === "incident" ? { postmortem } : {}),
           })
         : createStatusNotice(data.page.id, {
             kind: kind!,
@@ -220,9 +233,23 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
             startsAt: kind === "maintenance" ? iso(startsAt) : null,
             endsAt: kind === "maintenance" ? iso(endsAt) : null,
           }),
-    { onSuccess: onClose },
+    {
+      onSuccess: () => {
+        // Kept for next time: the same words, two clicks away.
+        if (keep && templateName.trim()) void saveTemplate.run();
+        onClose();
+      },
+    },
   );
+  const saveTemplate = useAction(() => saveStatusTemplate(data.page.id, { name: templateName, title, impact, body }));
   const maintenance = kind === "maintenance";
+  const useTemplate = (id: string) => {
+    const t = data.templates.find((x) => x.id === id);
+    if (!t) return;
+    if (t.title) setTitle(t.title);
+    setImpact(t.impact);
+    setBody(t.body);
+  };
 
   return (
     <Dialog open={!!kind} onOpenChange={(o) => !o && onClose()}>
@@ -244,6 +271,16 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
             }
           />
           <DialogBody>
+            {!notice && !maintenance && data.templates.length > 0 && (
+              <Field label="Start from a template" optional>
+                <Select
+                  value={null}
+                  onValueChange={useTemplate}
+                  placeholder="Pick a template…"
+                  options={data.templates.map((t) => ({ value: t.id, label: t.name, description: t.title || undefined }))}
+                />
+              </Field>
+            )}
             <Field label="Title">
               <Input
                 value={title}
@@ -299,10 +336,31 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
                 <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} maxLength={5000} />
               </Field>
             )}
+            {!notice && !maintenance && (
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-[13px] text-fg-2">
+                  <Checkbox checked={keep} onCheckedChange={(on) => setKeep(!!on)} /> Save as a template
+                </label>
+                {keep && (
+                  <Input
+                    value={templateName}
+                    onChange={(e) => setTemplateName(e.target.value)}
+                    placeholder="Template name, like Slow API"
+                    maxLength={60}
+                    aria-label="Template name"
+                  />
+                )}
+              </div>
+            )}
+            {notice?.kind === "incident" && (
+              <Field label="Postmortem" optional description="What happened, why, and what changes so it does not happen again. Shows under the incident.">
+                <Textarea value={postmortem} onChange={(e) => setPostmortem(e.target.value)} rows={6} maxLength={20_000} />
+              </Field>
+            )}
           </DialogBody>
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" />}>Cancel</DialogClose>
-            <Button type="submit" variant="primary" loading={save.pending} disabled={!title.trim() || (!notice && !maintenance && !body.trim())}>
+            <Button type="submit" variant="primary" loading={save.pending} disabled={!title.trim() || (!notice && !maintenance && !body.trim()) || (keep && !templateName.trim())}>
               {notice ? "Save" : maintenance ? "Plan" : "Post"}
             </Button>
           </DialogFooter>
@@ -355,5 +413,29 @@ function UpdateDialog({ notice, onClose }: { notice: Notice | null; onClose: () 
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Templates({ data, canManage }: { data: EditorData; canManage: boolean }) {
+  const remove = useAction((id: string) => deleteStatusTemplate(data.page.id, id));
+  return (
+    <div className="border-t border-line">
+      <p className="border-b border-line bg-surface-2 px-5 py-1.5 text-[11px] font-semibold tracking-wide text-muted uppercase">Templates</p>
+      <div className="divide-y divide-line">
+        {data.templates.map((t) => (
+          <div key={t.id} className="flex items-center gap-3 px-5 py-2.5">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium text-fg">{t.name}</p>
+              <p className="truncate text-xs text-muted">{t.title || t.body}</p>
+            </div>
+            {canManage && (
+              <Button variant="ghost" size="icon-sm" aria-label={`Delete the template ${t.name}`} loading={remove.pending} onClick={() => remove.run(t.id)}>
+                <Trash2 />
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -301,6 +301,18 @@ function EmbedCard({ data }: { data: EditorData }) {
         <Field label="Badge in Markdown">
           <CopyField value={`[![Status](${base}/badge)](${data.page.url})`} />
         </Field>
+        <Field
+          label="Website widget"
+          description={
+            <>
+              A small status pill on any site, linking here. Options: <code className="font-mono">data-position=&quot;bottom-left&quot;</code> or{" "}
+              <code className="font-mono">&quot;top&quot;</code> (a bar, only during issues), <code className="font-mono">data-only-issues=&quot;true&quot;</code>,{" "}
+              <code className="font-mono">data-theme=&quot;dark&quot;</code>. Public pages only.
+            </>
+          }
+        >
+          <CopyField value={`<script src="${base}/widget.js" async></script>`} />
+        </Field>
         <Field label="JSON">
           <CopyField value={`${base}/summary.json`} />
         </Field>

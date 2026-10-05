@@ -66,11 +66,23 @@ export function serverTraffic(copies: Copy[]): { problem: CopyProblem | null; up
 /** The next balance state after one health check of a copy, or null when nothing changed. */
 export function nextBalance(state: BalanceState | null | undefined, id: string, ok: boolean, error: string | null, now: Date): BalanceState | null {
   const cur = state?.copies?.[id];
-  if (cur && cur.ok === ok && (ok || cur.error === error)) return null;
-  return { copies: { ...(state?.copies ?? {}), [id]: { ok, since: cur && cur.ok === ok ? cur.since : now.toISOString(), error: ok ? null : error } } };
+  // Saved only when the copy goes up or down: a copy that stays down keeps its first error, so a
+  // message that changes on every check does not write (and refresh every open page) each time.
+  if (cur && cur.ok === ok) return null;
+  return { copies: { ...(state?.copies ?? {}), [id]: { ok, since: now.toISOString(), error: ok ? null : error } } };
 }
 
 export const CHECK_INTERVAL_MS = 5_000;
+/** The proxy is synced again this often even when nothing seems to change (a missed or raced sync heals). */
+export const RESYNC_MS = 5 * 60_000;
+/** A failed proxy sync is tried again after this long, not on every check. */
+export const SYNC_RETRY_MS = 60_000;
+
+/** The path of an HTTP health check, with the leading slash a user may leave out. */
+export const probePath = (path: string | null | undefined) => {
+  const p = path?.trim();
+  return p ? (p.startsWith("/") ? p : `/${p}`) : null;
+};
 const DOWN_AFTER = 2;
 const UP_AFTER = 2;
 

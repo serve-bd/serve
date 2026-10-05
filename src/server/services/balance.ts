@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { normalizeDistribution } from "@/server/deploy/distribution";
+import { balances, normalizeDistribution } from "@/server/deploy/distribution";
 import { replicaCount } from "@/lib/refs";
 import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
 import { copyKey, linkName } from "@/server/mesh/plan";
@@ -22,7 +22,7 @@ type ServiceRow = Pick<typeof schema.service.$inferSelect, "id" | "type" | "serv
  * each can take traffic. Empty for other services.
  */
 export async function appCopies(service: ServiceRow): Promise<Copy[]> {
-  if (service.type !== "app") return [];
+  if (service.type !== "app" || !balances(service.serverId, service.distribution)) return [];
   const extras = normalizeDistribution(service.serverId, service.distribution).extraServerIds;
   if (!extras.length) return [];
   const replicas = replicaCount(service.runtime.replicas);
@@ -36,7 +36,7 @@ export async function appCopies(service: ServiceRow): Promise<Copy[]> {
     meshMemberIds(),
     service.currentDeploymentId
       ? db
-          .select({ targets: schema.deployment.targets })
+          .select({ targets: schema.deployment.targets, status: schema.deployment.status })
           .from(schema.deployment)
           .where(and(eq(schema.deployment.id, service.currentDeploymentId), eq(schema.deployment.serviceId, service.id)))
           .then((r) => r[0] ?? null)
@@ -44,7 +44,10 @@ export async function appCopies(service: ServiceRow): Promise<Copy[]> {
   ]);
   return extras.flatMap((serverId) => {
     const target = deployment?.targets?.find((t) => t.serverId === serverId);
-    const deployed = !!target && (target.status === "success" || target.status === "pending" || target.status === "deploying");
+    // Pending or deploying only counts while the deploy runs: one cut short (the worker stopped)
+    // leaves those servers on an older version, which gets no traffic.
+    const running = deployment?.status === "queued" || deployment?.status === "building" || deployment?.status === "deploying";
+    const deployed = !!target && (target.status === "success" || (running && (target.status === "pending" || target.status === "deploying")));
     const linked = privatelyConnected(members, service.serverId, serverId);
     return slots.map((slot) => {
       const address = addresses.find((a) => a.serverId === serverId && a.key === copyKey(service.id, serverId, slot));

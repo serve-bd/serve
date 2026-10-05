@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { distributionProblem, isDistributed, needsRegistry, normalizeDistribution, runServerIds } from "@/server/deploy/distribution";
+import { balances, distributionProblem, isDistributed, needsRegistry, normalizeDistribution, runServerIds } from "@/server/deploy/distribution";
 import { authServer, defaultRepository, imageRef, normalizeHost, normalizeRepository, parsePushDigest, renderTag } from "@/server/registries/refs";
 
 describe("normalizeDistribution", () => {
   it("drops the primary from the build and extra servers and removes duplicates", () => {
     const d = normalizeDistribution("a", { buildServerId: "a", extraServerIds: ["b", "a", "b", "c"], repository: "  ", tag: "" });
-    expect(d).toEqual({ buildServerId: null, registryId: null, repository: null, tag: null, tagLatest: false, extraServerIds: ["b", "c"] });
+    expect(d).toEqual({ buildServerId: null, registryId: null, repository: null, tag: null, tagLatest: false, extraServerIds: ["b", "c"], loadBalance: null });
+  });
+
+  it("load balances only when chosen, and only with extra servers", () => {
+    expect(balances("a", { extraServerIds: ["b"] })).toBe(false);
+    expect(balances("a", { extraServerIds: ["b"], loadBalance: false })).toBe(false);
+    expect(balances("a", { extraServerIds: ["b"], loadBalance: true })).toBe(true);
+    expect(balances("a", { extraServerIds: ["a"], loadBalance: true })).toBe(false);
+    expect(balances("a", null)).toBe(false);
   });
 
   it("treats a missing config as the classic single-server setup", () => {

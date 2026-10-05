@@ -146,6 +146,8 @@ const distributionSchema = z.object({
   tag: z.string().trim().max(128).nullable().default(null),
   tagLatest: z.boolean().default(false),
   extraServerIds: z.array(z.string()).default([]),
+  /** Left out (an API call or form that does not know it): keeps the current choice. */
+  loadBalance: z.boolean().nullable().optional(),
 });
 
 /**
@@ -159,7 +161,7 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     if (service.type !== "app") throw new UserError("Only apps can run on several servers.");
     if (service.parentServiceId) throw new UserError("Preview deployments run on their parent's server only.");
     const raw = distributionSchema.parse(input);
-    const dist = normalizeDistribution(service.serverId, raw);
+    const dist = normalizeDistribution(service.serverId, { ...raw, loadBalance: raw.loadBalance === undefined ? service.distribution?.loadBalance : raw.loadBalance });
 
     const picked = [dist.buildServerId, ...dist.extraServerIds].filter((x): x is string => !!x);
     for (const id of picked) await resolveServerForOrg(id, ctx.org.id);
@@ -190,7 +192,10 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     const before = runServerIds(service.serverId, service.distribution).slice(1);
     const removed = before.filter((id) => !dist.extraServerIds.includes(id));
     // Health of copies on servers the app leaves is forgotten (a server added again starts fresh).
-    const balance = service.balance ? { copies: Object.fromEntries(Object.entries(service.balance.copies ?? {}).filter(([id]) => dist.extraServerIds.includes(id))) } : null;
+    const balance =
+      service.balance && dist.loadBalance
+        ? { copies: Object.fromEntries(Object.entries(service.balance.copies ?? {}).filter(([id]) => dist.extraServerIds.includes(id.split(":")[0]))) }
+        : null;
     await db.update(schema.service).set({ distribution: dist, balance }).where(eq(schema.service.id, serviceId));
 
     // The own server's proxy stops sending traffic to removed copies before they are deleted, and the
@@ -218,7 +223,12 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
       action: "service.distribution",
       targetType: "service",
       targetId: serviceId,
-      message: [`Updated where ${service.name} builds and runs`, added.length ? `added ${added.join(", ")}` : null, gone.length ? `removed ${gone.join(", ")}` : null]
+      message: [
+        `Updated where ${service.name} builds and runs`,
+        added.length ? `added ${added.join(", ")}` : null,
+        gone.length ? `removed ${gone.join(", ")}` : null,
+        !!dist.loadBalance !== !!service.distribution?.loadBalance ? `load balancing ${dist.loadBalance ? "on" : "off"}` : null,
+      ]
         .filter(Boolean)
         .join("; "),
     });

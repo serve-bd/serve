@@ -609,7 +609,24 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
         await ensureImageOn(extra, service, prepared, registry, slog);
         // Replica numbers continue across servers, in the order the servers were added.
         const replicaOffset = (dist.extraServerIds.indexOf(extra.id) + 1) * replicasOf(runtime);
-        await runOnServer({ service, dep, log: slog, server: extra, image, runtime, env, signal, primary: false, replicaOffset, replicaTotal, imageVolumes });
+        await runOnServer({
+          service,
+          dep,
+          log: slog,
+          server: extra,
+          image,
+          runtime,
+          env,
+          signal,
+          primary: false,
+          replicaOffset,
+          replicaTotal,
+          imageVolumes,
+          onSwitch: async () => {
+            t.status = "success";
+            await saveTargets();
+          },
+        });
         t.status = "success";
       } catch (error) {
         t.status = "failed";
@@ -650,6 +667,8 @@ async function runOnServer(opts: {
   imageVolumes: string[];
   /** A container made outside Serve that the new containers replace. */
   adopt?: Handoff | null;
+  /** Runs when this server's new containers are healthy, before traffic switches to them. */
+  onSwitch?: () => Promise<void>;
 }) {
   const { service, dep, log, server, image, runtime, env, signal, primary, replicaOffset, replicaTotal } = opts;
   const d = server.docker;
@@ -796,6 +815,9 @@ async function runOnServer(opts: {
 
   // Switch traffic.
   if (primary) await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
+  // An extra server counts as switched only now: until then its replicas' private addresses keep the
+  // previous version, so the load balancing never sends visitors to containers still starting up.
+  if (opts.onSwitch) await opts.onSwitch();
   // Other servers reach the new containers through the private network from now on (on an extra
   // server: the load balancing from the service's own server), before the old ones are drained.
   await meshAfterStart(server.id, log.line);

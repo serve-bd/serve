@@ -181,7 +181,7 @@ describe("private network planning", () => {
     const needs = neededAddresses(
       [A, B, C],
       [
-        svc("app", { type: "app", extraServerIds: ["c"] }),
+        svc("app", { type: "app", extraServerIds: ["c"], balance: true }),
         svc("stack", { type: "compose", serverId: "b", composeServices: ["web", "worker"] }),
         svc("iso", { type: "compose", serverId: "b", composeServices: ["x"], isolated: true }),
       ],

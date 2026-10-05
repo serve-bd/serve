@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { replicaCount } from "@/lib/refs";
+import { balances } from "@/server/deploy/distribution";
 import os from "node:os";
 import path from "node:path";
 import { eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -80,6 +81,7 @@ function toPlanService(s: Service): PlanService {
     composeSubnet: s.compose?.subnet ?? null,
     currentDeploymentId: s.currentDeploymentId,
     replicas: s.type === "app" ? replicaCount(s.runtime.replicas) : 1,
+    balance: s.type === "app" && balances(s.serverId, s.distribution),
     // A database answers with its own container only: never its pooler or a replica.
     kind: s.type === "database" ? "database" : null,
   };
@@ -114,7 +116,21 @@ async function loadPlan() {
   const members = await meshMembers();
   if (!members.length) return null;
   const [services, addresses] = await Promise.all([db.select().from(schema.service), db.select().from(schema.meshAddress)]);
-  const plan = services.flatMap(toPlanServices);
+  // Extra servers that switched to their app's current deployment (load balancing follows them).
+  const balanced = services.filter((s) => s.type === "app" && s.currentDeploymentId && balances(s.serverId, s.distribution));
+  const deployments = balanced.length
+    ? await db
+        .select({ id: schema.deployment.id, targets: schema.deployment.targets })
+        .from(schema.deployment)
+        .where(
+          inArray(
+            schema.deployment.id,
+            balanced.map((s) => s.currentDeploymentId!),
+          ),
+        )
+    : [];
+  const switched = new Map(deployments.map((d) => [d.id, (d.targets ?? []).filter((t) => !t.primary && t.status === "success").map((t) => t.serverId)]));
+  const plan = services.flatMap(toPlanServices).map((p) => (p.balance ? { ...p, switched: switched.get(p.currentDeploymentId ?? "") ?? [] } : p));
   return { members, servers: members.map(toPlanServer), services: plan, addresses: addresses as (PlanAddress & { id: string })[] };
 }
 

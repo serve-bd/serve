@@ -67,7 +67,13 @@ export function DistributionSection(props: {
   const tagPreview = renderTag(value.tag, { commit: "4f2a9c1e8b7d", deployment: "k3j9x2pq", branch: "main", service: props.slug });
   const needsRegistry = props.gitSource && (!!value.buildServerId || value.extraServerIds.length > 0);
   const targetOf = (id: string) => props.last?.targets?.find((t) => t.serverId === id);
-  const toggleExtra = (id: string, on: boolean) => set({ extraServerIds: on ? [...value.extraServerIds, id] : value.extraServerIds.filter((x) => x !== id) });
+  // The first extra server turns load balancing on, unless it was chosen before (on or off).
+  const toggleExtra = (id: string, on: boolean) =>
+    set({
+      extraServerIds: on ? [...value.extraServerIds, id] : value.extraServerIds.filter((x) => x !== id),
+      ...(on && value.loadBalance === null ? { loadBalance: true } : {}),
+    });
+  const balancing = !!value.loadBalance && value.extraServerIds.length > 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -84,10 +90,28 @@ export function DistributionSection(props: {
               disabled={!props.canEdit || (s.status !== "ready" && !s.isLocal)}
               onChange={(on) => toggleExtra(s.id, on)}
               target={value.extraServerIds.includes(s.id) ? targetOf(s.id) : undefined}
-              traffic={value.extraServerIds.includes(s.id) && props.initial.extraServerIds.includes(s.id) ? props.traffic?.[s.id] : undefined}
+              traffic={
+                balancing && props.initial.loadBalance && value.extraServerIds.includes(s.id) && props.initial.extraServerIds.includes(s.id) ? props.traffic?.[s.id] : undefined
+              }
               primaryName={props.primary.name}
             />
           ))}
+          {value.extraServerIds.length > 0 && (
+            <div className="mt-2 border-t border-border pt-3">
+              <SwitchRow
+                title="Load balance visitors across these servers"
+                description={
+                  <>
+                    {props.primary.name} sends visitors to the replicas on every server here, through the private network. Off: the extra servers run the app, but only{" "}
+                    {props.primary.name} serves its domains.
+                  </>
+                }
+                checked={!!value.loadBalance}
+                onCheckedChange={(c) => set({ loadBalance: c })}
+                disabled={!props.canEdit}
+              />
+            </div>
+          )}
           {others.length === 0 && (
             <p className="flex items-center gap-2 py-2 text-[13px] text-muted">
               <Server className="size-4 text-faint" /> Add another server in{" "}
@@ -213,7 +237,7 @@ export function DistributionSection(props: {
         </CardFooter>
       </Card>
 
-      {value.extraServerIds.length > 0 && props.entry && props.entry.domains > 0 && !props.entry.publicIp && props.entry.tunneled < props.entry.domains && (
+      {balancing && props.entry && props.entry.domains > 0 && !props.entry.publicIp && props.entry.tunneled < props.entry.domains && (
         <Card className="border-warn/30">
           <div className="flex gap-3 px-5 py-4 text-[13px] leading-5 text-fg-2">
             <TriangleAlert className="mt-0.5 size-4 flex-none text-warn" />
@@ -232,11 +256,18 @@ export function DistributionSection(props: {
             <div className="flex flex-col gap-2">
               <p className="font-medium text-fg">How several servers work</p>
               <ul className="flex list-disc flex-col gap-1.5 pl-4">
-                <li>
-                  <span className="text-fg">Load balancing:</span> visitors arrive at {props.primary.name} (its public IP, or its Cloudflare Tunnel). Its proxy spreads them over
-                  every server here, each by its number of replicas, and stops sending traffic to a server that does not answer until it does again. DNS points at{" "}
-                  {props.primary.name} only.
-                </li>
+                {balancing ? (
+                  <li>
+                    <span className="text-fg">Load balancing:</span> visitors arrive at {props.primary.name} (its public IP, or its Cloudflare Tunnel). Its proxy spreads them over
+                    every replica on every server here, and stops sending traffic to a replica that does not answer until it does again. DNS points at {props.primary.name} only.
+                    Each server runs the number of replicas set in Resources.
+                  </li>
+                ) : (
+                  <li>
+                    <span className="text-fg">No load balancing:</span> {props.primary.name} serves the domains with its own replicas only. The extra servers run the app for your
+                    own use, for example behind your own load balancer.
+                  </li>
+                )}
                 <li>
                   <span className="text-fg">Private network:</span> each extra server needs a private network with {props.primary.name} (Servers → Private network). The other
                   servers need no open ports and no DNS records.

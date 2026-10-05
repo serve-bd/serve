@@ -84,6 +84,17 @@ export type PlanService = {
   /** Replicas an app runs on each of its servers. */
   replicas?: number;
   /**
+   * Whether the app's own server balances over its replicas on the extra servers (an app with
+   * extra servers can keep them as plain copies instead). No copy addresses without it.
+   */
+  balance?: boolean;
+  /**
+   * Extra servers that already switched to the current deployment (its health checks passed there).
+   * The others keep their previous version behind the copy addresses (a deploy in progress, or one
+   * that failed there).
+   */
+  switched?: string[];
+  /**
    * The containers that answer for it, when not all of the service's: by their serve.kind label.
    * A database answers with its own container only (never its pooler or replicas), and a
    * database's pooler and replicas are entries of their own with the database's id as `container`.
@@ -122,6 +133,8 @@ export type AgentConfig = {
     allow: string[];
     slot?: number;
     prefer?: boolean;
+    /** Anything of the service but `deployment` (a server that has not switched to it yet). */
+    avoid?: boolean;
   }[];
   sources: { ip: string; networks: string[]; subnets: string[] }[];
   /** Services on other servers this server's environments use: a link container answers to their names. */
@@ -178,7 +191,7 @@ export function neededAddresses(servers: PlanServer[], services: PlanService[]):
       for (const { key } of serviceKeys(s)) needs.push({ serverId: s.serverId, key, serviceId: s.container ?? s.id, environmentId: null });
       // Each copy on an extra server linked to the app's own server: the proxy there balances over it.
       const own = byServer.get(s.serverId);
-      for (const x of s.type === "app" ? s.extraServerIds : []) {
+      for (const x of s.type === "app" && s.balance ? s.extraServerIds : []) {
         const extra = byServer.get(x);
         if (!own || !extra || !taking.has(x) || !linked(own, extra)) continue;
         for (let slot = 1; slot <= (s.replicas ?? 1); slot++) needs.push({ serverId: x, key: copyKey(s.id, x, slot), serviceId: s.id, environmentId: null });
@@ -206,7 +219,7 @@ export function addressChanges(addresses: PlanAddress[], services: PlanService[]
     if (copy) {
       // A copy's address stays on its server: forgotten once the app no longer runs there.
       const s = byId.get(copy.serviceId);
-      if (s?.type !== "app" || copy.serverId !== a.serverId || !s.extraServerIds.includes(copy.serverId) || copy.slot > (s.replicas ?? 1)) remove.push(a);
+      if (s?.type !== "app" || !s.balance || copy.serverId !== a.serverId || !s.extraServerIds.includes(copy.serverId) || copy.slot > (s.replicas ?? 1)) remove.push(a);
       continue;
     }
     if (!a.key.startsWith("svc:")) continue;
@@ -268,8 +281,8 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
       deployment: s.type === "app" ? s.currentDeploymentId : null,
       network: envNetworkName(s.environmentId),
       allow,
-      // A copy answers with the current version once it runs on this server, else with what runs there.
-      ...(copy ? { slot: copy.slot, prefer: true } : {}),
+      // A copy answers with the current version once this server switched to it, with the previous one before.
+      ...(copy ? (s.switched?.includes(self.id) ? { slot: copy.slot, prefer: true } : { slot: copy.slot, avoid: true }) : {}),
     });
   }
 
@@ -325,7 +338,7 @@ function imports(serverId: string, near: Set<string>, services: PlanService[], l
   }
   // The copies of this server's own apps on their extra servers: a link each, reached by its name only.
   for (const s of services) {
-    if (s.type !== "app" || s.serverId !== serverId || !envs.has(s.environmentId)) continue;
+    if (s.type !== "app" || !s.balance || s.serverId !== serverId || !envs.has(s.environmentId)) continue;
     for (const x of s.extraServerIds) {
       if (!near.has(x)) continue;
       for (let slot = 1; slot <= (s.replicas ?? 1); slot++) {

@@ -26,7 +26,7 @@ describe("Dockerfile sources", () => {
     expect(buildsImage("dockerfile")).toBe(true);
     expect(buildsImage("git")).toBe(true);
     expect(buildsImage("image")).toBe(false);
-    const dist = { buildServerId: "b", registryId: null, repository: null, tag: null, tagLatest: false, extraServerIds: [] };
+    const dist = { buildServerId: "b", registryId: null, repository: null, tag: null, tagLatest: false, extraServerIds: [], loadBalance: null };
     expect(needsRegistry(dist, "dockerfile")).toBe(true);
     expect(needsRegistry(dist, "image")).toBe(false);
   });

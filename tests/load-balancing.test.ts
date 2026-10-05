@@ -52,6 +52,8 @@ const app = (patch: Partial<PlanService> = {}): PlanService => ({
   composeSubnet: null,
   currentDeploymentId: "dep2ab",
   replicas: 3,
+  balance: true,
+  switched: ["b", "c"],
   ...patch,
 });
 
@@ -86,6 +88,12 @@ describe("the private network carries the app's copies", () => {
     const keys = neededAddresses([A, B, lonely], [app()]).map((n) => n.key);
     expect(keys).toContain("lb:web:b:1");
     expect(keys.some((k) => k.startsWith("lb:web:c"))).toBe(false);
+  });
+
+  it("gives no copy addresses while load balancing is off", () => {
+    expect(neededAddresses([A, B, C], [app({ balance: false })]).some((n) => n.key.startsWith("lb:"))).toBe(false);
+    const addresses: PlanAddress[] = [{ serverId: "b", key: copyKey("web", "b", 1), ip: "10.240.1.2" }];
+    expect(addressChanges(addresses, [app({ balance: false })]).remove.map((a) => a.ip)).toEqual(["10.240.1.2"]);
   });
 
   it("gives no copy addresses to databases or stacks, nor without extra servers", () => {
@@ -221,6 +229,38 @@ describe("the private network carries the app's copies", () => {
       { encoding: "utf8" },
     );
     expect(failed).toContain(`-d ${one}/32 -j DNAT --to-destination 172.20.0.6`);
+    // This server has not switched yet (its new containers still start): the old version keeps
+    // every visitor, and the new one gets none until the deploy switches over.
+    const waiting = agentConfig({ ...B, privateKey: "k" }, [A, B, C], [app({ switched: [] })], addresses, needs);
+    expect(waiting.exposures.find((e) => e.ip === one)).toMatchObject({ slot: 1, avoid: true });
+    const rolling = execFileSync(
+      "jq",
+      [
+        "-r",
+        "--arg",
+        "if",
+        "serve-mesh",
+        "--slurpfile",
+        "c",
+        write("c3.json", [
+          container("web-dep2ab-1", "172.20.0.5", { "serve.deployment": "dep2ab" }),
+          container("web-dep1cd-1", "172.20.0.6", { "serve.deployment": "dep1cd" }),
+          container("web-dep2ab-2", "172.20.0.7", { "serve.deployment": "dep2ab" }),
+        ]),
+        "--slurpfile",
+        "nets",
+        write("nets3.json", { "serve-env-env1": ["172.20.0.0/16"] }),
+        "-f",
+        write("rules3.jq", RULES_JQ),
+        write("config3.json", waiting),
+      ],
+      { encoding: "utf8" },
+    );
+    expect(rolling).toContain(`-d ${one}/32 -j DNAT --to-destination 172.20.0.6`);
+    expect(rolling).not.toContain("172.20.0.5");
+    // Replica 2 has no old version: refused, so the health check takes it out until the switch.
+    expect(rolling).not.toContain(`-d ${two}/32 -j DNAT`);
+    expect(rolling).toContain(`-d ${two}/32 -p tcp -j REJECT --reject-with tcp-reset`);
   });
 });
 
@@ -284,6 +324,8 @@ describe("which copies get traffic", () => {
     const first = nextBalance(null, "b", false, "Nothing answers on port 3000.", now)!;
     expect(first.copies.b).toEqual({ ok: false, since: now.toISOString(), error: "Nothing answers on port 3000." });
     expect(nextBalance(first, "b", false, "Nothing answers on port 3000.", new Date())).toBeNull();
+    // Still down with another message: nothing to save.
+    expect(nextBalance(first, "b", false, "No answer on port 3000 within a few seconds.", new Date())).toBeNull();
     const up = nextBalance(first, "b", true, null, new Date("2026-10-05T10:05:00Z"))!;
     expect(up.copies.b).toEqual({ ok: true, since: "2026-10-05T10:05:00.000Z", error: null });
     expect(nextBalance(up, "b", true, null, new Date())).toBeNull();

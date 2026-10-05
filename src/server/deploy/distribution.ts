@@ -13,6 +13,8 @@ export type Distribution = {
   tag: string | null;
   tagLatest: boolean;
   extraServerIds: string[];
+  /** Load balancing over the extra servers: true, false, or null when never chosen (off). */
+  loadBalance: boolean | null;
 };
 
 /** Canonical form: the primary never appears as build or extra server, no duplicates. */
@@ -26,8 +28,15 @@ export function normalizeDistribution(primaryId: string, dist: DistributionConfi
     tag: dist?.tag?.trim() || null,
     tagLatest: !!dist?.tagLatest,
     extraServerIds,
+    loadBalance: typeof dist?.loadBalance === "boolean" ? dist.loadBalance : null,
   };
 }
+
+/** Whether the service's own server balances visitors over its extra servers. */
+export const balances = (primaryId: string, dist: DistributionConfig | null | undefined) => {
+  const d = normalizeDistribution(primaryId, dist);
+  return d.loadBalance === true && d.extraServerIds.length > 0;
+};
 
 /** True when a built image must travel through a registry: built elsewhere or run on more than one server. */
 export function needsRegistry(dist: Distribution, sourceType: SourceType | null | undefined) {

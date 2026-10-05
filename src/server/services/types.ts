@@ -70,6 +70,12 @@ export type DistributionConfig = {
   tagLatest?: boolean;
   /** More servers that run the same image, next to the service's server. */
   extraServerIds?: string[];
+  /**
+   * The service's own server spreads visitors over the extra servers too (load balancing over the
+   * private network). Null or unset: never chosen, which counts as off, so apps set up before the
+   * load balancing existed keep working as they did until someone turns it on.
+   */
+  loadBalance?: boolean | null;
 };
 
 /**

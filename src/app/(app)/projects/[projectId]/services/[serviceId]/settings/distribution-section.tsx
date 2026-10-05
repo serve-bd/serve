@@ -87,7 +87,8 @@ export function DistributionSection(props: {
               name={s.name}
               note={s.status !== "ready" && !s.isLocal ? `Not ready (${s.status})` : s.isLocal ? "This server" : undefined}
               checked={value.extraServerIds.includes(s.id)}
-              disabled={!props.canEdit || (s.status !== "ready" && !s.isLocal)}
+              // A server that is not ready cannot be added, but can always be taken off (it may never come back).
+              disabled={!props.canEdit || (s.status !== "ready" && !s.isLocal && !value.extraServerIds.includes(s.id))}
               onChange={(on) => toggleExtra(s.id, on)}
               target={value.extraServerIds.includes(s.id) ? targetOf(s.id) : undefined}
               traffic={

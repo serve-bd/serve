@@ -118,7 +118,7 @@ async function ingestServerLog(ctx: ServerCtx, targets: Map<string, LogTarget>) 
 const containerNames = new Map<string, { at: number; names: Map<string, string> }>();
 
 /** Upstreams logged as "ip:port" become "container:port", so the request log can say which replica answered. */
-async function nameUpstreams(ctx: ServerCtx, rows: RequestRow[]) {
+export async function nameUpstreams(ctx: ServerCtx, rows: RequestRow[]) {
   const byIp = rows.filter((r) => r.upstream && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(r.upstream));
   if (!byIp.length) return;
   let cached = containerNames.get(ctx.id);

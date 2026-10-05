@@ -144,7 +144,7 @@ http {
 
     log_format serve escape=json '{"t":"$time_iso8601","h":"$host","m":"$request_method","u":"$request_uri",'
         '"s":$status,"b":$body_bytes_sent,"rt":$request_time,"ip":"$remote_addr","ua":"$http_user_agent","ref":"$http_referer","up":"$upstream_addr"}';
-    access_log ${proxyPaths.logs}/access.log serve buffer=32k flush=5s;
+    access_log ${proxyPaths.logs}/access.log serve buffer=32k flush=1s;
 
     gzip on;
     gzip_vary on;

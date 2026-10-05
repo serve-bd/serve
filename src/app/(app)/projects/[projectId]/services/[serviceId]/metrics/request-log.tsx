@@ -81,6 +81,28 @@ export function RequestLog({
     return () => globalThis.removeEventListener(REQUESTS_EVENT, onNew);
   }, [serviceId, mutate]);
 
+  // And at once: while the newest requests are shown, the proxy's log is followed and each request
+  // comes in as it happens. They stay until the saved copies replace them.
+  const [live, setLive] = React.useState<Row[]>([]);
+  const [streaming, setStreaming] = React.useState(false);
+  const following = enabled && !window;
+  React.useEffect(() => {
+    if (!following) return;
+    const es = new EventSource(`/api/services/${serviceId}/request-log/stream`);
+    es.addEventListener("ready", () => setStreaming(true));
+    es.addEventListener("requests", (e) => {
+      const batch = JSON.parse((e as MessageEvent<string>).data) as Row[];
+      setLive((l) => [...batch.reverse(), ...l].slice(0, 500));
+    });
+    es.addEventListener("problem", () => es.close());
+    es.onerror = () => setStreaming(false);
+    return () => {
+      es.close();
+      setStreaming(false);
+      setLive([]);
+    };
+  }, [following, serviceId]);
+
   if (!enabled)
     return (
       <Card className="flex flex-col gap-1 p-5">
@@ -95,14 +117,29 @@ export function RequestLog({
       </Card>
     );
 
-  const rows = data?.flatMap((p) => p.requests) ?? [];
+  const saved = data?.flatMap((p) => p.requests) ?? [];
+  // Live rows newer than the newest saved one, through the same filters as the list.
+  const newest = saved[0]?.time ?? "";
+  const pathFilter = search.toLowerCase();
+  const fresh = live.filter(
+    (r) =>
+      r.time > newest && (!shown.length || shown.includes(Math.floor(r.status / 100) as (typeof groups)[number])) && (!pathFilter || r.path.toLowerCase().includes(pathFilter)),
+  );
+  const rows = [...fresh, ...saved];
   const more = !!data?.at(-1)?.next;
   const filtered = shown.length > 0 || !!search || !!window;
 
   return (
     <Card className="flex flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">
-        <span className="mr-auto text-[13px] font-medium text-fg">Request log</span>
+        <span className="mr-auto flex items-center gap-2 text-[13px] font-medium text-fg">
+          Request log
+          {streaming && (
+            <span className="flex items-center gap-1.5 text-[11px] font-normal text-muted" title="New requests show as they happen.">
+              <span className="size-1.5 rounded-full bg-ok" /> Live
+            </span>
+          )}
+        </span>
         {window && (
           <Badge tone="accent" className="h-6 pr-1">
             {new Date(window.from).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} –{" "}

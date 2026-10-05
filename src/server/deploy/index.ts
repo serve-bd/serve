@@ -8,7 +8,7 @@ import { decryptOrNull, hmac } from "@/server/crypto";
 import { currentVersion } from "@/server/instance/version";
 import type Docker from "dockerode";
 import { type BuildConfig, buildsImage, defaultBuild, type ImageSource, type PortMapping, type VolumeMount } from "@/server/services/types";
-import { ensureNetwork, imageExists, imageExistsFor, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
+import { copyImage, ensureNetwork, imageExists, imageExistsFor, LABEL, listServiceContainers, pullImage, removeContainer } from "@/server/docker/client";
 import { forgetServer, getServer, serverOf, type ServerCtx } from "@/server/servers/context";
 import { paths } from "@/server/paths";
 import { claimBuildSlot } from "@/server/limits";
@@ -430,7 +430,16 @@ async function connectTo(serverId: string, log: StepLog, role: string) {
 }
 
 /** Make the deployment's image available on a server: already there, pulled from the registry, or pulled from its source. */
-async function ensureImageOn(target: ServerCtx, service: Service, prepared: PreparedImage, registry: RegistryRow | null, log: StepLog) {
+async function ensureImageOn(
+  target: ServerCtx,
+  service: Service,
+  prepared: PreparedImage,
+  registry: RegistryRow | null,
+  log: StepLog,
+  /** Servers that may hold the image, to copy it from when no registry has it (the build server first). */
+  holders: ServerCtx[] = [],
+  signal?: AbortSignal,
+) {
   const d = target.docker;
   if (await imageExists(prepared.image, d)) return;
   const [repo, tag] = [prepared.image.slice(0, prepared.image.lastIndexOf(":")), prepared.image.slice(prepared.image.lastIndexOf(":") + 1)];
@@ -462,10 +471,36 @@ async function ensureImageOn(target: ServerCtx, service: Service, prepared: Prep
     if (foreign) await dropForeignTag(ref, d);
     return;
   }
+  // No registry: copy the image straight from a server that has it (one build, the same image everywhere).
+  for (const from of holders) {
+    if (from.id === target.id) continue;
+    const info = await from.docker
+      .getImage(prepared.image)
+      .inspect()
+      .catch(() => null);
+    if (!info) continue;
+    // The same image under an older tag (a redeploy, a cached build): tag it, nothing to copy.
+    const same = await d
+      .getImage(info.Id)
+      .inspect()
+      .catch(() => null);
+    if (same) {
+      await d.getImage(info.Id).tag({ repo, tag });
+      log.line(`The image is already on ${target.name}`);
+      return;
+    }
+    log.line(`Copying the image from ${from.name}`);
+    const own = serverPlatform((await d.info().catch(() => null))?.Architecture);
+    const built = serverPlatform(info.Architecture);
+    if (own && built && own !== built)
+      log.line(`Warning: the image is ${built} and ${target.name} is ${own}. It runs under emulation, which is slow and needs QEMU (binfmt) on the server.`);
+    await copyImage(prepared.image, from.docker, d, { log: log.line, signal });
+    return;
+  }
   throw new Error(
     prepared.rollback
-      ? `The image for that deployment is not on ${target.name}. It was built on another server without a registry, or cleaned up. Redeploy instead.`
-      : `The image is not on ${target.name}. Choose a registry in Settings → Servers & registry so other servers can pull it.`,
+      ? `The image for that deployment is on no server any more (cleaned up). Redeploy instead.`
+      : `The image is not on ${target.name}, and no other server has it to copy.`,
   );
 }
 
@@ -584,7 +619,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   await saveTargets();
   try {
     if (multi) log.step(`Deploying to ${server.name}`);
-    await ensureImageOn(server, service, prepared, registry, log);
+    await ensureImageOn(server, service, prepared, registry, log, [buildServer, ...extras], signal);
     imageVolumes = await imageVolumePaths(image, server.docker);
     runtime = await keepImageVolumes(service, runtime, imageVolumes, log);
     await runOnServer({ service, dep, log, server, image, runtime, env, signal, primary: true, replicaOffset: 0, replicaTotal, imageVolumes, adopt: dep.adopt ?? null });
@@ -606,7 +641,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
       await saveTargets();
       try {
         slog.step(`Deploying to ${extra.name}`);
-        await ensureImageOn(extra, service, prepared, registry, slog);
+        await ensureImageOn(extra, service, prepared, registry, slog, [buildServer, server, ...extras], signal);
         // Replica numbers continue across servers, in the order the servers were added.
         const replicaOffset = (dist.extraServerIds.indexOf(extra.id) + 1) * replicasOf(runtime);
         await runOnServer({

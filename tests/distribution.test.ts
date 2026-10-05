@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { balances, distributionProblem, isDistributed, needsRegistry, normalizeDistribution, runServerIds } from "@/server/deploy/distribution";
+import { balances, distributionProblem, isDistributed, movesImage, normalizeDistribution, runServerIds } from "@/server/deploy/distribution";
 import { authServer, defaultRepository, imageRef, normalizeHost, normalizeRepository, parsePushDigest, renderTag } from "@/server/registries/refs";
 
 describe("normalizeDistribution", () => {
@@ -25,17 +25,18 @@ describe("normalizeDistribution", () => {
 });
 
 describe("distributionProblem", () => {
-  it("needs a registry to move a built image to other servers", () => {
+  it("moves a built image to other servers without a registry (it is copied)", () => {
     const extra = normalizeDistribution("a", { extraServerIds: ["b"] });
-    expect(needsRegistry(extra, "git")).toBe(true);
-    expect(distributionProblem(extra, "git")).toMatch(/registry/);
+    expect(movesImage(extra, "git")).toBe(true);
+    expect(distributionProblem(extra, "git")).toBeNull();
     const build = normalizeDistribution("a", { buildServerId: "b" });
-    expect(distributionProblem(build, "git")).toMatch(/built on another server/);
+    expect(movesImage(build, "git")).toBe(true);
+    expect(distributionProblem(build, "git")).toBeNull();
   });
 
   it("lets prebuilt images run on extra servers without a registry", () => {
     const extra = normalizeDistribution("a", { extraServerIds: ["b"] });
-    expect(needsRegistry(extra, "image")).toBe(false);
+    expect(movesImage(extra, "image")).toBe(false);
     expect(distributionProblem(extra, "image")).toBeNull();
   });
 

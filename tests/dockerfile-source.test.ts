@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dockerfileBase } from "@/lib/dockerfile";
-import { needsRegistry } from "@/server/deploy/distribution";
+import { movesImage } from "@/server/deploy/distribution";
 import { dockerfileSourceSchema } from "@/server/services/source-schema";
 import { buildsImage, DOCKERFILE_MAX_BYTES } from "@/server/services/types";
 
@@ -27,8 +27,8 @@ describe("Dockerfile sources", () => {
     expect(buildsImage("git")).toBe(true);
     expect(buildsImage("image")).toBe(false);
     const dist = { buildServerId: "b", registryId: null, repository: null, tag: null, tagLatest: false, extraServerIds: [], loadBalance: null };
-    expect(needsRegistry(dist, "dockerfile")).toBe(true);
-    expect(needsRegistry(dist, "image")).toBe(false);
+    expect(movesImage(dist, "dockerfile")).toBe(true);
+    expect(movesImage(dist, "image")).toBe(false);
   });
 });
 

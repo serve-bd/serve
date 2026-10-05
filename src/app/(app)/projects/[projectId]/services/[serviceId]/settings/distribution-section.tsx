@@ -65,7 +65,7 @@ export function DistributionSection(props: {
   const registry = props.registries.find((r) => r.id === value.registryId) ?? null;
   const repoPlaceholder = registry ? defaultRepository(registry, props.slug) : "team/app";
   const tagPreview = renderTag(value.tag, { commit: "4f2a9c1e8b7d", deployment: "k3j9x2pq", branch: "main", service: props.slug });
-  const needsRegistry = props.gitSource && (!!value.buildServerId || value.extraServerIds.length > 0);
+  const movesImage = props.gitSource && (!!value.buildServerId || value.extraServerIds.length > 0);
   const targetOf = (id: string) => props.last?.targets?.find((t) => t.serverId === id);
   // The first extra server turns load balancing on, unless it was chosen before (on or off).
   const toggleExtra = (id: string, on: boolean) =>
@@ -148,7 +148,7 @@ export function DistributionSection(props: {
           title="Registry"
           description={
             props.gitSource
-              ? "After each build, the image is pushed here. Every server pulls exactly that image, and rollbacks pull it again without rebuilding."
+              ? "Optional. After each build, the image is pushed here and every server pulls it. Without a registry, Serve copies the image from server to server."
               : "This app runs a prebuilt image, so each server pulls it from its own registry. A registry here is not needed."
           }
         />
@@ -157,8 +157,8 @@ export function DistributionSection(props: {
             label="Push to"
             description={
               props.registries.length ? (
-                needsRegistry && !value.registryId ? (
-                  <span className="text-warn">Needed: the image has to travel to another server.</span>
+                movesImage && !value.registryId ? (
+                  "None: each deploy copies the image to the other servers. A registry is faster for big images and many servers."
                 ) : undefined
               ) : (
                 <>

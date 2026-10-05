@@ -1,3 +1,5 @@
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
 import Docker from "dockerode";
 import { env } from "@/server/env";
 import { freeSharedSubnet } from "./subnets";
@@ -73,6 +75,52 @@ export async function imageExists(ref: string, d: Docker = docker): Promise<bool
 export type RegistryAuth = { username: string; password: string; serveraddress?: string };
 
 /** Pull an image and report compact progress through `log`. `platform` picks one of a multi-platform image. */
+/**
+ * Copy an image from one Docker to another without a registry: `docker save` streamed into
+ * `docker load`, gzipped on the way (Docker unpacks it). Logs progress every few seconds.
+ */
+export async function copyImage(ref: string, from: Docker, to: Docker, opts: { log?: LogFn; signal?: AbortSignal } = {}) {
+  const source = (await from.getImage(ref).get()) as NodeJS.ReadableStream & { destroy(error?: Error): void };
+  let bytes = 0;
+  let logged = Date.now();
+  source.on("data", (chunk: Buffer) => {
+    bytes += chunk.length;
+    if (Date.now() - logged > 5000) {
+      logged = Date.now();
+      opts.log?.(`Copied ${Math.round(bytes / 1e6)} MB`);
+    }
+  });
+  const gzip = createGzip({ level: 1 });
+  const abort = () => source.destroy(new Error("Cancelled"));
+  opts.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const [, res] = await Promise.all([pipeline(source, gzip), to.loadImage(gzip, { quiet: true })]);
+    // docker load answers 200 and puts its errors in the body.
+    const body = await new Promise<string>((resolve, reject) => {
+      let out = "";
+      (res as NodeJS.ReadableStream).on("data", (c: Buffer) => (out += c.toString()));
+      (res as NodeJS.ReadableStream).on("end", () => resolve(out));
+      (res as NodeJS.ReadableStream).on("error", reject);
+    });
+    const failed = body
+      .split("\n")
+      .map((line) => {
+        try {
+          return (JSON.parse(line) as { error?: string }).error;
+        } catch {
+          return undefined;
+        }
+      })
+      .find(Boolean);
+    if (failed) throw new Error(failed);
+    opts.log?.(`Copied ${Math.round(bytes / 1e6)} MB`);
+  } finally {
+    opts.signal?.removeEventListener("abort", abort);
+    // A load that failed early must not leave the save stream open on the source server.
+    source.destroy();
+  }
+}
+
 export async function pullImage(ref: string, log?: LogFn, auth?: RegistryAuth | null, d: Docker = docker, platform?: string | null) {
   const image = ref.includes(":") || ref.includes("@") ? ref : `${ref}:latest`;
   const stream = await d.pull(image, { ...(auth ? { authconfig: auth } : {}), ...(platform ? { platform } : {}) });

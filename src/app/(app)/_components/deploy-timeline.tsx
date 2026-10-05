@@ -57,7 +57,7 @@ export function DeployTimeline({ rows }: { rows: DeploymentTableRow[] }) {
                   {i < g.rows.length - 1 && <span aria-hidden className="absolute top-[25px] -bottom-[11px] left-[3.75rem] w-px bg-line" />}
                   <Link
                     href={`/projects/${d.projectId}/services/${d.serviceId}/deployments/${d.id}`}
-                    className="group -mx-2 grid grid-cols-[2.5rem_1rem_minmax(0,1fr)] items-start gap-x-3 rounded-lg px-2 py-2 transition-colors hover:bg-hover/60 sm:grid-cols-[2.5rem_1rem_minmax(0,1fr)_auto]"
+                    className="group -mx-2 grid grid-cols-[2.5rem_1rem_minmax(0,1fr)] items-start gap-x-3 rounded-lg px-2 py-2 transition-colors hover:bg-hover/60"
                   >
                     <time className="text-left font-mono text-[12px] leading-5 text-faint tabular-nums" dateTime={new Date(d.createdAt).toISOString()}>
                       {now ? new Date(d.createdAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}
@@ -73,8 +73,9 @@ export function DeployTimeline({ rows }: { rows: DeploymentTableRow[] }) {
                         </span>
                       </span>
                       <span className="truncate text-[12.5px] text-muted">{d.commitMessage || (d.status === "failed" ? "Deployment failed" : "Redeployed")}</span>
+                      {/* How long it took, under the message: on the right it read like a time ago. */}
+                      {duration && <span className="text-[11.5px] text-faint tabular-nums">Took {duration}</span>}
                     </span>
-                    <span className="hidden text-right font-mono text-[12px] leading-5 text-faint tabular-nums sm:block">{duration ?? ""}</span>
                   </Link>
                 </li>
               );

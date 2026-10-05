@@ -86,7 +86,7 @@ export function DeploymentsList({ serviceId, projectId, type }: { serviceId: str
                         <User className="size-3" />
                         {d.userName ?? (d.trigger === "webhook" ? (d.commitAuthor ?? "Git push") : "System")}
                       </span>
-                      {duration && <span className="tabular-nums">{duration}</span>}
+                      {duration && <span className="tabular-nums">Took {duration}</span>}
                     </span>
                     {d.status === "failed" && d.error && <span className="line-clamp-1 text-xs text-bad/90">{d.error.split("\n")[0]}</span>}
                     {d.status === "cancelled" && d.error && <span className="line-clamp-1 text-xs text-muted">{d.error.split("\n")[0]}</span>}

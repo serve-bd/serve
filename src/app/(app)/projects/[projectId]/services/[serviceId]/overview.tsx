@@ -134,7 +134,7 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
   // Docker reports a limit (the host's RAM at least) whenever it can measure memory; none means it cannot.
   // Docker on some servers never reports memory (limit 0); judged by the latest point, so a change mid-window shows.
   const memUnknown = series.length > 0 && !series.at(-1)!.memoryLimit;
-  const [openContainer, setOpenContainer] = React.useState<string | null>(null);
+  const [openContainer, setOpenContainer] = React.useState<{ id: string; name: string; server: { id: string; name: string } | null } | null>(null);
   const rx = counterRate(series, "netRx").map((p) => ({ t: p.t, v: p.v ?? 0 }));
   const lastRx = counterRate(series.slice(-2), "netRx")[0]?.v ?? null;
   const lastTx = counterRate(series.slice(-2), "netTx")[0]?.v ?? null;
@@ -142,7 +142,22 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <ContainerDialog serviceId={service.id} base={base} containerId={openContainer} onOpenChange={(o) => !o && setOpenContainer(null)} />
+      <ContainerDialog
+        serviceId={service.id}
+        base={base}
+        containerId={openContainer?.id ?? null}
+        serverId={openContainer?.server?.id ?? null}
+        // An app on several servers names its replicas by server on the Logs page ("<server>:<n>").
+        logsContainer={
+          openContainer && service.type === "app"
+            ? service.serverCount > 1
+              ? `${openContainer.server?.id ?? data.server.id}:${openContainer.name.split("-").pop()}`
+              : openContainer.name.split("-").pop()
+            : null
+        }
+        consoleTarget={openContainer ? (openContainer.server ? `${openContainer.server.id}:${openContainer.name}` : openContainer.name) : null}
+        onOpenChange={(o) => !o && setOpenContainer(null)}
+      />
       <div className="flex min-w-0 flex-col gap-6">
         {/* Current deployment */}
         <Card>
@@ -310,35 +325,20 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
           )}
           {(live?.containers.length ?? 0) > 0 && (
             <div className="divide-y divide-line border-t border-line">
-              {live!.containers.slice(0, 12).map((c) =>
-                // A replica on another server: its logs (the container panel reads the service's own server).
-                c.server ? (
-                  <Link
-                    key={`${c.server.id}:${c.id}`}
-                    href={`/projects/${data.projectId}/services/${service.id}/logs?container=${encodeURIComponent(`${c.server.id}:${c.name.split("-").pop()}`)}`}
-                    className="group flex w-full items-center gap-3 px-5 py-2.5 text-left text-[13px] transition-colors hover:bg-hover"
-                  >
-                    <span className={cn("size-1.5 flex-none rounded-full", c.state === "running" ? "bg-ok" : c.state === "restarting" ? "bg-warn" : "bg-idle")} />
-                    <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-2">{c.name}</span>
-                    <Badge>{c.server.name}</Badge>
-                    <span className="hidden flex-none text-xs text-muted sm:inline">{c.status}</span>
-                    <ChevronRight className="size-3.5 flex-none text-faint transition-colors group-hover:text-muted" />
-                  </Link>
-                ) : (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setOpenContainer(c.id)}
-                    className="group flex w-full items-center gap-3 px-5 py-2.5 text-left text-[13px] transition-colors hover:bg-hover"
-                  >
-                    <span className={cn("size-1.5 flex-none rounded-full", c.state === "running" ? "bg-ok" : c.state === "restarting" ? "bg-warn" : "bg-idle")} />
-                    <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-2">{c.composeService ?? c.name}</span>
-                    {service.serverCount > 1 && <Badge>{data.server.name}</Badge>}
-                    <span className="flex-none text-xs text-muted">{c.status}</span>
-                    <ChevronRight className="size-3.5 flex-none text-faint transition-colors group-hover:text-muted" />
-                  </button>
-                ),
-              )}
+              {live!.containers.slice(0, 12).map((c) => (
+                <button
+                  key={`${c.server?.id ?? ""}:${c.id}`}
+                  type="button"
+                  onClick={() => setOpenContainer({ id: c.id, name: c.name, server: c.server })}
+                  className="group flex w-full items-center gap-3 px-5 py-2.5 text-left text-[13px] transition-colors hover:bg-hover"
+                >
+                  <span className={cn("size-1.5 flex-none rounded-full", c.state === "running" ? "bg-ok" : c.state === "restarting" ? "bg-warn" : "bg-idle")} />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-2">{c.composeService ?? c.name}</span>
+                  {service.serverCount > 1 && <Badge>{c.server?.name ?? data.server.name}</Badge>}
+                  <span className="hidden flex-none text-xs text-muted sm:inline">{c.status}</span>
+                  <ChevronRight className="size-3.5 flex-none text-faint transition-colors group-hover:text-muted" />
+                </button>
+              ))}
               {(live?.previews ?? []).flatMap((p) =>
                 p.containers
                   .filter((c) => c.deployment === p.currentDeploymentId)

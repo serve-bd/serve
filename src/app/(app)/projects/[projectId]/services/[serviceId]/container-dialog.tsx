@@ -26,17 +26,29 @@ export function ContainerDialog({
   serviceId,
   base,
   containerId,
+  serverId = null,
+  logsContainer,
+  consoleTarget,
   onOpenChange,
 }: {
   serviceId: string;
   /** /projects/<p>/services/<s> */
   base: string;
   containerId: string | null;
+  /** The extra server a replica runs on (null: the service's own server). */
+  serverId?: string | null;
+  /** What the Logs and Console pages pick for this container, when it is not its compose service. */
+  logsContainer?: string | null;
+  consoleTarget?: string | null;
   onOpenChange: (open: boolean) => void;
 }) {
   const can = useCan();
-  const { data, error, isLoading, mutate } = useSWR(containerId ? `/api/services/${serviceId}/containers/${containerId}` : null, fetcher, { refreshInterval: 5000 });
-  const restart = useAction(() => restartContainer(serviceId, containerId!), { onSuccess: () => mutate() });
+  const { data, error, isLoading, mutate } = useSWR(
+    containerId ? `/api/services/${serviceId}/containers/${containerId}${serverId ? `?server=${encodeURIComponent(serverId)}` : ""}` : null,
+    fetcher,
+    { refreshInterval: 5000 },
+  );
+  const restart = useAction(() => restartContainer(serviceId, containerId!, serverId), { onSuccess: () => mutate() });
   const d = data?.id.startsWith(containerId ?? "-") ? data : undefined;
   const key = d?.composeService ?? d?.name;
 
@@ -176,7 +188,7 @@ export function ContainerDialog({
           <div className="flex flex-col gap-2 sm:flex-row">
             {can("logs.view") && (
               <Link
-                href={`${base}/logs${d?.composeService ? `?container=${encodeURIComponent(d.composeService)}` : ""}`}
+                href={`${base}/logs${(d?.composeService ?? logsContainer) ? `?container=${encodeURIComponent((d?.composeService ?? logsContainer)!)}` : ""}`}
                 className={buttonVariants({ size: "sm" })}
                 onClick={() => onOpenChange(false)}
               >
@@ -185,7 +197,7 @@ export function ContainerDialog({
             )}
             {d?.state === "running" && can("console.access") && (
               <Link
-                href={`${base}/console${d.composeService ? `?container=${encodeURIComponent(d.composeService)}` : ""}`}
+                href={`${base}/console${(d.composeService ?? consoleTarget) ? `?container=${encodeURIComponent((d.composeService ?? consoleTarget)!)}` : ""}`}
                 className={buttonVariants({ size: "sm" })}
                 onClick={() => onOpenChange(false)}
               >

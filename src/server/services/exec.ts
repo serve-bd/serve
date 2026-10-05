@@ -4,30 +4,50 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import type Docker from "dockerode";
 import { docker as localDocker, LABEL, listServiceContainers } from "@/server/docker/client";
-import { serverOf } from "@/server/servers/context";
+import { getServer, serverOf } from "@/server/servers/context";
+import { runServerIds } from "@/server/deploy/distribution";
 
 type Service = typeof schema.service.$inferSelect;
 
-/** Running containers a command can be executed in, with a readable label. */
+/**
+ * Running containers a command can be executed in, with a readable label. An app on several
+ * servers has its replicas on the extra servers too: their names repeat per server, so they are
+ * picked as "<server id>:<name>" and labeled with the server.
+ */
 export async function execTargets(service: Service) {
+  const current = (c: { Labels: Record<string, string> }) =>
+    service.type === "app" && service.currentDeploymentId ? c.Labels[LABEL.deployment] === service.currentDeploymentId : true;
   const server = await serverOf(service);
-  const containers = (await listServiceContainers(service.id, false, server.docker)).filter((c) =>
-    service.type === "app" && service.currentDeploymentId ? c.Labels[LABEL.deployment] === service.currentDeploymentId : true,
+  const own = (await listServiceContainers(service.id, false, server.docker)).filter(current).map((c) => {
+    const name = c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12);
+    const composeService = c.Labels["com.docker.compose.service"] ?? null;
+    return { id: c.Id, name, composeService, key: composeService ?? name, server: null as { id: string; name: string } | null, docker: server.docker };
+  });
+  const extras = service.type === "app" ? runServerIds(service.serverId, service.distribution).slice(1) : [];
+  const remote = await Promise.all(
+    extras.map(async (id) => {
+      try {
+        const ctx = await getServer(id);
+        return (await listServiceContainers(service.id, false, ctx.docker))
+          .filter((c) => current(c) && c.Labels[LABEL.kind] !== "predeploy")
+          .map((c) => {
+            const name = c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12);
+            return { id: c.Id, name, composeService: null, key: `${id}:${name}`, server: { id, name: ctx.name }, docker: ctx.docker };
+          });
+      } catch {
+        // An extra server that cannot be reached offers no containers.
+        return [];
+      }
+    }),
   );
-  return containers.map((c) => ({
-    id: c.Id,
-    name: c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12),
-    composeService: c.Labels["com.docker.compose.service"] ?? null,
-    /** Docker client of the server the container runs on. */
-    docker: server.docker,
-  }));
+  return [...own, ...remote.flat()];
 }
 
 export async function pickContainer(service: Service, target?: string | null) {
   const targets = await execTargets(service);
   if (!targets.length) throw new Error("No running container. Deploy or start the service first.");
   if (!target) return targets[0];
-  const match = targets.find((t) => t.composeService === target || t.name === target || t.id.startsWith(target));
+  const match = targets.find((t) => t.key === target) ?? targets.find((t) => !t.server && (t.composeService === target || t.name === target || t.id.startsWith(target)));
   if (!match) throw new Error(`No running container matches "${target}".`);
   return match;
 }

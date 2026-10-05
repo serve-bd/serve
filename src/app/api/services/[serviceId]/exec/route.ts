@@ -17,7 +17,9 @@ export async function GET(_req: NextRequest, ctx: RouteContext<"/api/services/[s
   if (!org.can("console.access")) return new Response(cannotMessage("console.access"), { status: 403 });
   try {
     const { service } = await serviceInOrg(serviceId, org.org.id);
-    return NextResponse.json({ targets: (await execTargets(service)).map((t) => ({ name: t.name, composeService: t.composeService })) });
+    return NextResponse.json({
+      targets: (await execTargets(service)).map((t) => ({ name: t.name, composeService: t.composeService, key: t.key, server: t.server?.name ?? null })),
+    });
   } catch {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

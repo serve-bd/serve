@@ -4,7 +4,8 @@ import { requireOrg } from "@/server/auth";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
 import { composeServiceNames } from "@/server/deploy/compose";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
+import { requestLogConfig } from "@/server/request-log";
 import { db, schema } from "@/server/db";
 import { runServerIds } from "@/server/deploy/distribution";
 import { RuntimeLogs } from "./runtime-logs";
@@ -40,6 +41,13 @@ export default async function LogsPage(props: PageProps<"/projects/[projectId]/s
           }),
         )
       : null;
+  // Requests through the proxy, next to the app's own output (apps and stacks with a domain).
+  const [domain] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.serviceId, service.id)).limit(1);
+  const hasDomain = !!domain;
+  const [owner] = service.parentServiceId
+    ? await db.select({ requestLog: schema.service.requestLog }).from(schema.service).where(eq(schema.service.id, service.parentServiceId))
+    : [service];
+  const log = requestLogConfig(owner?.requestLog);
   return (
     <PageBody>
       <RuntimeLogs
@@ -58,6 +66,15 @@ export default async function LogsPage(props: PageProps<"/projects/[projectId]/s
         replicas={service.type === "app"}
         labels={addonLabels ?? serverLabels ?? undefined}
         initialContainer={typeof container === "string" ? container : null}
+        requestLog={
+          service.type !== "database" && hasDomain
+            ? {
+                enabled: log.enabled,
+                statuses: log.statuses,
+                settingsHref: `/projects/${projectId}/services/${service.parentServiceId ?? service.id}/settings/monitoring#request-log`,
+              }
+            : null
+        }
       />
     </PageBody>
   );

@@ -1,14 +1,21 @@
 import { dockerRestartPolicy } from "@/server/deploy/containers";
 import { LABEL } from "@/server/docker/client";
 import { type Stats, statsToSample } from "@/server/metrics";
-import { serverOf } from "@/server/servers/context";
+import { getServer, serverOf } from "@/server/servers/context";
+import { runServerIds } from "@/server/deploy/distribution";
+import type { DistributionConfig } from "@/server/services/types";
 import { maskCommand } from "@/server/security";
 
-type Service = Parameters<typeof serverOf>[0] & { id: string };
+type Service = Parameters<typeof serverOf>[0] & { id: string; type: string; distribution: DistributionConfig | null };
 
-/** A container of this service, or null when the id belongs to something else. */
-async function ownContainer(service: Service, containerId: string) {
-  const { docker } = await serverOf(service);
+/**
+ * A container of the service, on its own server or (an app's replica) on one of its extra servers.
+ * Any other server is refused: the id names the server to look on, not what may be read there.
+ */
+async function ownContainer(service: Service, containerId: string, serverId?: string | null) {
+  const extra = serverId && serverId !== service.serverId;
+  if (extra && !(service.type === "app" && runServerIds(service.serverId, service.distribution).includes(serverId))) return null;
+  const { docker } = extra ? await getServer(serverId) : await serverOf(service);
   const container = docker.getContainer(containerId);
   const info = await container.inspect().catch(() => null);
   if (!info || info.Config.Labels?.[LABEL.service] !== service.id) return null;
@@ -16,8 +23,8 @@ async function ownContainer(service: Service, containerId: string) {
 }
 
 /** Everything the container details dialog shows. Environment values are never included. */
-export async function containerDetails(service: Service, containerId: string) {
-  const own = await ownContainer(service, containerId);
+export async function containerDetails(service: Service, containerId: string, serverId?: string | null) {
+  const own = await ownContainer(service, containerId, serverId);
   if (!own) return null;
   const { container, info } = own;
   const running = info.State.Running;
@@ -67,8 +74,8 @@ export async function containerDetails(service: Service, containerId: string) {
 
 export type ContainerDetails = NonNullable<Awaited<ReturnType<typeof containerDetails>>>;
 
-export async function restartOwnContainer(service: Service & { type: string; runtime: { restartPolicy: string } }, containerId: string) {
-  const own = await ownContainer(service, containerId);
+export async function restartOwnContainer(service: Service & { type: string; runtime: { restartPolicy: string } }, containerId: string, serverId?: string | null) {
+  const own = await ownContainer(service, containerId, serverId);
   if (!own) return false;
   // A replica the crash limit stopped has restart policy "no": give it the service's policy back.
   if (service.type === "app") await own.container.update({ RestartPolicy: dockerRestartPolicy(service.runtime.restartPolicy) }).catch(() => {});

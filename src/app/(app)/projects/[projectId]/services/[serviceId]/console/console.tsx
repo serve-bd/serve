@@ -27,15 +27,31 @@ const KEYS: { label: string; data: string }[] = [
   { label: "→", data: "\x1b[C" },
 ];
 
-export function Console({ serviceId, suggestions, initialTarget = null }: { serviceId: string; suggestions: string[]; initialTarget?: string | null }) {
-  const { data, isLoading } = useSWR<{ targets: { name: string; composeService: string | null }[] }>(`/api/services/${serviceId}/exec`, { refreshInterval: 15000 });
+export function Console({
+  serviceId,
+  suggestions,
+  initialTarget = null,
+  ownServer,
+}: {
+  serviceId: string;
+  suggestions: string[];
+  initialTarget?: string | null;
+  /** Name of the service's own server (labels its replicas next to those of other servers). */
+  ownServer: string;
+}) {
+  const { data, isLoading } = useSWR<{ targets: { name: string; composeService: string | null; key: string; server: string | null }[] }>(`/api/services/${serviceId}/exec`, {
+    refreshInterval: 15000,
+  });
   const targets = data?.targets ?? [];
   const [target, setTarget] = React.useState<string | null>(initialTarget);
   const [session, setSession] = React.useState(0);
   const [status, setStatus] = React.useState<TerminalStatus>("connecting");
   const terminal = React.useRef<TerminalHandle>(null);
-  const selected = target ?? targets[0]?.composeService ?? targets[0]?.name ?? null;
-  const selectedName = targets.find((t) => (t.composeService ?? t.name) === selected)?.name ?? selected;
+  const selected = target ?? targets[0]?.key ?? null;
+  const selectedName = targets.find((t) => t.key === selected)?.name ?? selected;
+  // Replicas on several servers share names: each says its server.
+  const several = targets.some((t) => t.server);
+  const labelOf = (t: (typeof targets)[number]) => (several ? `${t.composeService ?? t.name} · ${t.server ?? ownServer}` : (t.composeService ?? t.name));
   const ended = status === "exited" || status === "error";
 
   const restart = () => {
@@ -55,8 +71,8 @@ export function Console({ serviceId, suggestions, initialTarget = null }: { serv
               setTarget(v);
               setStatus("connecting");
             }}
-            options={targets.map((t) => ({ value: t.composeService ?? t.name, label: t.composeService ?? t.name }))}
-            className="w-full sm:w-56"
+            options={targets.map((t) => ({ value: t.key, label: labelOf(t) }))}
+            className={cn("w-full", several ? "sm:w-80" : "sm:w-56")}
           />
         )}
       </div>

@@ -1308,11 +1308,11 @@ export async function deployedCompose(serviceId: string) {
 }
 
 /** Restart one container of a service (for example one compose service), without a deployment. */
-export async function restartContainer(serviceId: string, containerId: string) {
+export async function restartContainer(serviceId: string, containerId: string, serverId?: string | null) {
   return act(async () => {
     const ctx = await requirePermission("services.deploy");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
-    if (!(await restartOwnContainer(service, containerId))) throw new UserError("This container is not part of the service any more.");
+    if (!(await restartOwnContainer(service, containerId, serverId))) throw new UserError("This container is not part of the service any more.");
     await logActivity({
       userId: ctx.user.id,
       projectId: service.projectId,

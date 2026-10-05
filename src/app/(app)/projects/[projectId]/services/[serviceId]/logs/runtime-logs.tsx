@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+import { RequestLog } from "../metrics/request-log";
 import * as React from "react";
 import { Pause, Play, Trash2 } from "lucide-react";
 import { LogViewer, type LogLine } from "@/components/log-viewer";
@@ -31,6 +33,7 @@ export function RuntimeLogs({
   replicas = false,
   labels,
   initialContainer = null,
+  requestLog = null,
 }: {
   serviceId: string;
   name: string;
@@ -43,7 +46,10 @@ export function RuntimeLogs({
    */
   labels?: Record<string, string>;
   initialContainer?: string | null;
+  /** The service's request log, shown next to the app's output (null: no domain, no requests). */
+  requestLog?: { enabled: boolean; statuses: number[]; settingsHref: string } | null;
 }) {
+  const [mode, setMode] = React.useState<"logs" | "requests">("logs");
   const [container, setContainer] = React.useState<string | null>(
     initialContainer && containers.includes(initialContainer) ? initialContainer : labels && !replicas ? (containers[0] ?? null) : null,
   );
@@ -159,28 +165,61 @@ export function RuntimeLogs({
     />
   );
 
-  if (containers.length < 2) return viewer;
+  const picker = containers.length > 1 && (
+    <div className="w-full sm:w-64">
+      <Select
+        aria-label={replicas ? "Replica" : "Container"}
+        // "" reads as no choice to the select: "all" stands for every container.
+        value={container ?? "all"}
+        onValueChange={(v) => setContainer(v === "all" ? null : v)}
+        options={[
+          ...(labels && !replicas ? [] : [{ value: "all", label: replicas ? "All replicas" : "All containers" }]),
+          ...containers.map((c) => ({ value: c, label: labels ? (labels[c] ?? c) : replicas ? `Replica ${c}` : c })),
+        ]}
+      />
+    </div>
+  );
+  if (!requestLog && !picker) return viewer;
   return (
     <div className="flex flex-col gap-3">
-      <div role="tablist" aria-label={replicas ? "Replicas" : "Containers"} className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-        {(labels && !replicas ? containers : [null, ...containers]).map((c) => (
-          <button
-            key={c ?? "all"}
-            type="button"
-            role="tab"
-            aria-selected={container === c}
-            onClick={() => setContainer(c)}
-            className={cn(
-              "h-8 flex-none rounded-lg px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
-              container === c ? "bg-fg/[0.07] text-fg" : "text-muted hover:bg-fg/[0.04] hover:text-fg",
-              c && !replicas && "font-mono text-[12.5px]",
-            )}
-          >
-            {c === null ? (replicas ? "All replicas" : "All containers") : labels ? (labels[c] ?? c) : replicas ? `Replica ${c}` : c}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {requestLog ? (
+          <div className="flex gap-1 rounded-xl bg-sunken p-1" role="tablist" aria-label="Logs">
+            {(
+              [
+                ["logs", "App logs"],
+                ["requests", "Requests"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={mode === id}
+                onClick={() => setMode(id)}
+                className={cn("h-7 rounded-lg px-3 text-[13px] font-medium transition-all", mode === id ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span />
+        )}
+        {mode === "logs" && picker}
       </div>
-      {viewer}
+      {mode === "logs" ? (
+        viewer
+      ) : (
+        <RequestLog
+          serviceId={serviceId}
+          enabled={requestLog!.enabled}
+          statuses={requestLog!.statuses}
+          settingsHref={requestLog!.settingsHref}
+          window={null}
+          onClearWindow={() => {}}
+        />
+      )}
     </div>
   );
 }

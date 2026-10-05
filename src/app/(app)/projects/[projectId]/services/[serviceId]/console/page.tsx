@@ -2,6 +2,7 @@ import { NoAccess } from "@/components/no-access";
 import { requireOrg } from "@/server/auth";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
+import { getServerRow } from "@/server/servers/context";
 import { Console } from "./console";
 
 export const metadata = { title: "Console" };
@@ -26,6 +27,7 @@ export default async function ConsolePage(props: PageProps<"/projects/[projectId
       <Console
         serviceId={service.id}
         initialTarget={typeof container === "string" ? container : null}
+        ownServer={(await getServerRow(service.serverId).catch(() => null))?.name ?? "This server"}
         suggestions={service.database ? (hints[service.database.engine] ?? []) : ["ls -la", "env | sort", "df -h", "top"]}
       />
     </PageBody>

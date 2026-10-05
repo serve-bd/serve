@@ -3,7 +3,7 @@ import { dashboardAddresses, passwordLoginAllowed, requireOrg } from "@/server/a
 import { db, schema } from "@/server/db";
 import { isEmailConfigured } from "@/server/email/send";
 import { getSetting } from "@/server/settings";
-import { activeProviders, providerNames } from "@/server/sso/config";
+import { activeProviders, displayName } from "@/server/sso/config";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { AccountView } from "./account-view";
 import { PasskeysCard } from "./passkeys";
@@ -40,7 +40,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
       <PageBody className="max-w-3xl">
         <AccountView
           user={{ name: ctx.user.name, email: ctx.user.email, twoFactorEnabled: !!(ctx.user as { twoFactorEnabled?: boolean }).twoFactorEnabled }}
-          providers={activeProviders(signIn).map((id) => ({ id, label: id === "oidc" ? signIn.providers.oidc?.label || providerNames.oidc : providerNames[id] }))}
+          providers={activeProviders(signIn).map((id) => ({ id, label: displayName(id, signIn.providers[id]) }))}
           // A failed "Confirm it's you" sign-in comes back with ?reauth=failed; other errors are from linking.
           linkError={typeof error === "string" && reauth !== "failed" ? error : null}
           reauthError={reauth === "failed" ? (typeof error === "string" ? error : "") : null}

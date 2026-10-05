@@ -21,6 +21,7 @@ import { getSetting, getSettings } from "@/server/settings";
 import { dashboardVisitorIp } from "@/server/proxy/trusted-proxies";
 import { guardProfileEmail, matchedGithubOrgs, signInRefused } from "@/server/sso/domain-guard";
 import { githubMembersOnly } from "@/server/sso/github-orgs";
+import { BITBUCKET, bitbucketUserInfo } from "@/server/sso/bitbucket";
 import {
   activeProviders,
   callbackUrl,
@@ -32,6 +33,7 @@ import {
   type SignInSettings,
   type SsoProvider,
   type SsoProviderId,
+  providerEmailsTrusted,
   signUpAllowed,
 } from "@/server/sso/config";
 import { cannotMessage, type Permission } from "@/lib/permissions";
@@ -80,8 +82,14 @@ type SocialConfig = {
   redirectURI: string;
   disableImplicitSignUp: boolean;
   scope?: string[];
-  mapProfileToUser?: (profile: { email?: string | null }) => Record<string, unknown>;
+  // biome-ignore lint/suspicious/noExplicitAny: each provider's profile has its own shape.
+  mapProfileToUser?: (profile: any) => Record<string, unknown>;
   getUserInfo?: ReturnType<typeof githubMembersOnly>;
+  /** Microsoft. */
+  tenantId?: string;
+  disableProfilePhoto?: boolean;
+  /** GitLab: a GitLab of your own. */
+  issuer?: string;
 };
 type SsoRuntime = { social: Record<string, SocialConfig>; oidc: GenericOAuthConfig[] };
 
@@ -102,7 +110,36 @@ function ssoRuntime(settings: SignInSettings, base: string): SsoRuntime {
       // Allowed domains apply to every sign-in and link through the provider, not only new accounts.
       mapProfileToUser: guardProfileEmail(p.allowedDomains),
     };
-    if (id === "oidc") {
+    if (id === "microsoft") {
+      // Any work or school account by default; a tenant limits it to one organization.
+      out.social[id] = {
+        ...common,
+        tenantId: p.tenantId || "organizations",
+        disableProfilePhoto: true,
+        // Its emails are trusted for new accounts only from one named organization (see providerEmailsTrusted).
+        disableImplicitSignUp: !p.allowSignUp || !providerEmailsTrusted(id, p),
+      };
+    } else if (id === "gitlab") {
+      out.social[id] = {
+        ...common,
+        ...(p.issuer ? { issuer: p.issuer.replace(/\/+$/, "") } : {}),
+        // GitLab's profile says when the email was confirmed, not whether: count that as verified.
+        mapProfileToUser: (profile: { email?: string | null; confirmed_at?: string | null }) => ({
+          ...common.mapProfileToUser(profile),
+          ...(profile.confirmed_at ? { emailVerified: true } : {}),
+        }),
+      };
+    } else if (id === "bitbucket") {
+      out.oidc.push({
+        ...common,
+        providerId: "bitbucket",
+        name: providerNames.bitbucket,
+        authorizationUrl: BITBUCKET.authorizationUrl,
+        tokenUrl: BITBUCKET.tokenUrl,
+        scopes: BITBUCKET.scopes,
+        getUserInfo: bitbucketUserInfo,
+      });
+    } else if (id === "oidc") {
       out.oidc.push({
         ...common,
         providerId: "oidc",
@@ -420,7 +457,8 @@ function createAuth(sso: SsoRuntime, addresses: DashboardAddresses = appOnly, se
             // GitHub account can show any address before its owner confirms it. (A company login
             // is set up by an admin, who decides what its emails mean.)
             const id = providerIdOf(ctx?.path, ctx?.params as Record<string, unknown> | undefined);
-            if (provider.allowedDomains.length && LINK_BY_EMAIL.has(id ?? "") && !user.emailVerified) return false;
+            if (id && !providerEmailsTrusted(id, provider)) return false;
+            if (provider.allowedDomains.length && id !== "oidc" && !user.emailVerified) return false;
           },
           // New provider accounts can join a default organization.
           after: async (user, ctx) => {

@@ -15,7 +15,15 @@ import { useFreshSession, useResumeAfterConfirm } from "./confirm-identity";
 
 type Linked = { id: string; providerId: string; accountId: string; createdAt: string | Date };
 
-const names: Record<string, string> = { credential: "Email and password", github: "GitHub", google: "Google", oidc: "Company login" };
+const names: Record<string, string> = {
+  credential: "Email and password",
+  github: "GitHub",
+  google: "Google",
+  microsoft: "Microsoft",
+  gitlab: "GitLab",
+  bitbucket: "Bitbucket",
+  oidc: "Company login",
+};
 
 /** Ways the user can sign in: password and linked providers, with link and unlink. */
 export function SignInMethods({ providers, error }: { providers: { id: string; label: string }[]; error: string | null }) {

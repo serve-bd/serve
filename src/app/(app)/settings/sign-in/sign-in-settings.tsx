@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, ArrowUpRight, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Mail, Plus, Trash2 } from "lucide-react";
 import { SsoMark } from "@/components/sso-mark";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -16,13 +16,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/toast";
 import { useAction } from "@/hooks/use-action";
 import { removeSsoProvider, saveSsoProvider, setPasswordLogin, setSsoProviderEnabled, testOidcIssuer } from "@/server/actions/sign-in";
-import type { ProviderView, SsoProviderId } from "@/server/sso/config";
+import { displayName, MICROSOFT_SHARED_TENANTS, OIDC_PRESETS, type ProviderView, providerNames, type SsoProviderId } from "@/server/sso/config";
 
 type Org = { id: string; name: string; roles: { id: string; name: string }[] };
 
 type ProviderRow = { id: SsoProviderId; callbackUrl: string; config: ProviderView | null; people: number };
 
-const titles: Record<SsoProviderId, string> = { github: "GitHub", google: "Google", oidc: "OpenID Connect" };
+const titles: Record<SsoProviderId, string> = providerNames;
 
 const help: Record<SsoProviderId, React.ReactNode> = {
   github: (
@@ -36,10 +36,28 @@ const help: Record<SsoProviderId, React.ReactNode> = {
       authorized redirect URI.
     </>
   ),
+  microsoft: (
+    <>
+      In the Microsoft Entra admin center open <b>App registrations → New registration</b>. Choose <b>Web</b> as the platform, paste the callback URL below as the redirect URI,
+      then add a secret under <b>Certificates &amp; secrets</b>. The <b>User.Read</b> permission it starts with is enough.
+    </>
+  ),
+  gitlab: (
+    <>
+      On GitLab open <b>Preferences → Applications → Add new application</b> (or a group&apos;s or the admin area&apos;s applications). Paste the callback URL below, keep it{" "}
+      <b>Confidential</b>, and tick only the <b>read_user</b> scope.
+    </>
+  ),
+  bitbucket: (
+    <>
+      In Bitbucket open your workspace&apos;s <b>Settings → OAuth consumers → Add consumer</b>. Paste the callback URL below, tick <b>This is a private consumer</b>, and give it
+      only the <b>Account: Email</b> and <b>Account: Read</b> permissions.
+    </>
+  ),
   oidc: (
     <>
-      For your company login, like Okta, Microsoft Entra ID, Authentik or Keycloak. Create an OpenID Connect web application there, add the callback URL below as a redirect URI,
-      and paste its issuer URL, client ID and secret.
+      For your company login, like Keycloak, Authentik, Okta, Auth0 or Zitadel. Create an OpenID Connect web application there, add the callback URL below as a redirect URI, and
+      paste its issuer URL, client ID and secret.
     </>
   ),
 };
@@ -73,35 +91,40 @@ export function SignInSettingsView({
   const active = providers.filter((p) => p.config?.enabled && p.config.hasSecret);
 
   return (
-    <>
-      <Card>
-        <CardHeader title="Sign-in methods" description="How people sign in to this dashboard. Changes apply at once; nobody needs to restart anything." />
-        <CardBody className="flex flex-col gap-4 py-5">
-          <SwitchRow
-            title="Email and password"
-            description={
-              active.length
-                ? "Turn off to allow only the providers below. A Root admin must have linked one of them on their Account page first."
-                : "The only way in until a provider below is on."
-            }
+    <Card>
+      <CardHeader title="Sign-in methods" description="How people sign in to this dashboard. Changes apply at once; nobody needs to restart anything." />
+      <div className="divide-y divide-line">
+        {/* Email and password: the first way in, like a provider that is always set up. */}
+        <div className="flex items-center gap-3.5 px-5 py-4">
+          <span className="flex size-10 flex-none items-center justify-center rounded-xl border border-line bg-surface-2">
+            <Mail className="size-5 text-fg-2" />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex items-center gap-2">
+              <span className="text-[14px] font-medium text-fg">Email and password</span>
+              {passwordEnabled || forcedPassword ? <Badge tone="ok">On</Badge> : <Badge>Off</Badge>}
+            </span>
+            <span className="text-[13px] text-muted">
+              {!active.length
+                ? "The only way in until a provider below is on."
+                : passwordEnabled
+                  ? "Turn off to allow only the providers below. A Root admin must have linked one of them on their Account page first."
+                  : "Only the providers below can sign in."}
+            </span>
+          </div>
+          <Switch
             checked={passwordEnabled}
             disabled={togglePassword.pending || (passwordEnabled && !active.length)}
             onCheckedChange={(on) => (on ? togglePassword.run(true) : setPasswordOff(true))}
+            aria-label="Email and password sign-in on or off"
           />
-          <TurnOffDialog
-            open={passwordOff}
-            onOpenChange={setPasswordOff}
-            title="Turn off password sign-in?"
-            description={
-              forcedPassword
-                ? "SERVE_ALLOW_PASSWORD_LOGIN keeps password sign-in on while it is set. This setting takes effect once you remove it."
-                : "Nobody can sign in with a password until you turn it on again. The saved passwords stay."
-            }
-            people={passwordPeople}
-            method="a password"
-            signOutPossible={!forcedPassword}
-            onConfirm={(signOut) => togglePassword.run(false, signOut)}
-          />
+        </div>
+        {providers.map((p) => (
+          <ProviderItem key={p.id} row={p} organizations={organizations} />
+        ))}
+      </div>
+      {(forcedPassword || (!passwordEnabled && !forcedPassword) || httpsWarning) && (
+        <CardBody className="flex flex-col gap-3 border-t border-line py-4">
           {forcedPassword && (
             <p className="text-xs text-muted">
               <span className="font-mono">SERVE_ALLOW_PASSWORD_LOGIN=1</span> is set, so password sign-in stays available whatever this switch says.
@@ -119,17 +142,22 @@ export function SignInSettingsView({
             </p>
           )}
         </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader title="Providers" description="Let people sign in with an account they already have." />
-        <div className="divide-y divide-line">
-          {providers.map((p) => (
-            <ProviderItem key={p.id} row={p} organizations={organizations} />
-          ))}
-        </div>
-      </Card>
-    </>
+      )}
+      <TurnOffDialog
+        open={passwordOff}
+        onOpenChange={setPasswordOff}
+        title="Turn off password sign-in?"
+        description={
+          forcedPassword
+            ? "SERVE_ALLOW_PASSWORD_LOGIN keeps password sign-in on while it is set. This setting takes effect once you remove it."
+            : "Nobody can sign in with a password until you turn it on again. The saved passwords stay."
+        }
+        people={passwordPeople}
+        method="a password"
+        signOutPossible={!forcedPassword}
+        onConfirm={(signOut) => togglePassword.run(false, signOut)}
+      />
+    </Card>
   );
 }
 
@@ -204,13 +232,22 @@ function TurnOffDialog({
 const consoles: Partial<Record<SsoProviderId, { label: string; href: string }>> = {
   github: { label: "Open GitHub", href: "https://github.com/settings/applications/new" },
   google: { label: "Open Google Cloud", href: "https://console.cloud.google.com/apis/credentials" },
+  microsoft: { label: "Open Microsoft Entra", href: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" },
+  gitlab: { label: "Open GitLab", href: "https://gitlab.com/-/user_settings/applications" },
+  bitbucket: { label: "Open Bitbucket", href: "https://bitbucket.org/account/workspaces/" },
 };
 
 const blurb: Record<SsoProviderId, string> = {
   github: "Sign in with a GitHub account.",
   google: "Sign in with a Google or Workspace account.",
-  oidc: "Your company login, over OpenID Connect.",
+  microsoft: "Sign in with a Microsoft work or school account (Entra ID).",
+  gitlab: "Sign in with GitLab.com or a GitLab of your own.",
+  bitbucket: "Sign in with a Bitbucket account.",
+  oidc: "Your company login: Keycloak, Authentik, Okta, Auth0 and more.",
 };
+
+/** Where to start on a GitLab server, gitlab.com when none is set. */
+const gitlabApps = (server: string) => `${(server.trim() || "https://gitlab.com").replace(/\/+$/, "")}/-/user_settings/applications`;
 
 /** One provider in the list: logo, status and a button that opens its setup. */
 function ProviderItem({ row, organizations }: { row: ProviderRow; organizations: Org[] }) {
@@ -234,7 +271,7 @@ function ProviderItem({ row, organizations }: { row: ProviderRow; organizations:
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-center gap-2">
-          <span className="text-[14px] font-medium text-fg">{row.id === "oidc" && c?.label ? c.label : titles[row.id]}</span>
+          <span className="text-[14px] font-medium text-fg">{row.id === "oidc" && c ? displayName(row.id, { ...c, clientSecret: "" }) : titles[row.id]}</span>
           {on ? <Badge tone="ok">On</Badge> : c ? <Badge>Off</Badge> : null}
         </span>
         <span className="text-[13px] text-muted sm:truncate">{sub}</span>
@@ -297,7 +334,12 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
     issuer: c?.issuer ?? "",
     scopes: (c?.scopes ?? []).join(" "),
     label: c?.label ?? "",
+    tenantId: c?.tenantId ?? "",
+    preset: c?.preset ?? "",
   });
+  // Microsoft without one named organization: its emails cannot be trusted for new accounts or domain rules.
+  const sharedTenant = row.id === "microsoft" && (!v.tenantId.trim() || MICROSOFT_SHARED_TENANTS.includes(v.tenantId.trim().toLowerCase()));
+  const preset = OIDC_PRESETS.find((x) => x.id === v.preset);
   const set =
     <K extends keyof typeof v>(k: K) =>
     (value: (typeof v)[K]) =>
@@ -311,8 +353,8 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
         enabled: v.enabled,
         clientId: v.clientId,
         clientSecret: v.clientSecret || undefined,
-        allowSignUp: v.allowSignUp,
-        allowedDomains: list(v.allowedDomains),
+        allowSignUp: v.allowSignUp && !sharedTenant,
+        allowedDomains: sharedTenant ? [] : list(v.allowedDomains),
         allowedOrgs: [],
         githubOrgs:
           row.id === "github"
@@ -326,14 +368,18 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
         defaultOrganizationId: v.defaultOrganizationId || null,
         defaultRole: v.role === "admin" ? "admin" : "member",
         defaultRoleId: v.role === "admin" ? null : v.role,
-        ...(row.id === "oidc" ? { issuer: v.issuer, scopes: list(v.scopes), label: v.label } : {}),
+        ...(row.id === "oidc"
+          ? { issuer: v.issuer, scopes: list(v.scopes), label: v.label, preset: (v.preset || undefined) as (typeof OIDC_PRESETS)[number]["id"] | undefined }
+          : {}),
+        ...(row.id === "gitlab" ? { issuer: v.issuer.trim() } : {}),
+        ...(row.id === "microsoft" ? { tenantId: v.tenantId.trim() || undefined } : {}),
       }),
     { onSuccess: () => onOpenChange(false) },
   );
   const remove = useAction(() => removeSsoProvider(row.id), { onSuccess: () => onOpenChange(false) });
   const test = useAction(testOidcIssuer, { refresh: false });
   const ready = !!v.clientId.trim() && (!!v.clientSecret || !!c?.hasSecret) && (row.id !== "oidc" || !!v.issuer.trim());
-  const where = consoles[row.id];
+  const where = row.id === "gitlab" ? { label: "Open GitLab", href: gitlabApps(v.issuer) } : consoles[row.id];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -355,6 +401,28 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
           />
           <DialogBody className="max-h-[65vh] gap-6 overflow-y-auto">
             <Step n={1} title={row.id === "oidc" ? "Create a web application at your provider" : `Create an OAuth app on ${titles[row.id]}`}>
+              {row.id === "oidc" && (
+                <Field label="Provider" description="Picks the right hints. Any provider that speaks OpenID Connect works.">
+                  <Select
+                    value={v.preset || "other"}
+                    onValueChange={(x) => set("preset")(x === "other" ? "" : x)}
+                    options={[...OIDC_PRESETS.map((x) => ({ value: x.id, label: x.name })), { value: "other", label: "Another provider" }]}
+                  />
+                </Field>
+              )}
+              {row.id === "gitlab" && (
+                <Field label="GitLab server" optional description="For a GitLab of your own. Empty: gitlab.com.">
+                  <Input value={v.issuer} onChange={(e) => set("issuer")(e.target.value)} placeholder="https://gitlab.example.com" className="font-mono text-[13px]" />
+                </Field>
+              )}
+              <a
+                href={`https://serve.bd/docs/sign-in#${row.id === "oidc" ? (preset ? preset.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") : "openid-connect") : row.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-fit text-[13px] text-accent hover:underline"
+              >
+                Step-by-step guide for {row.id === "oidc" ? (preset?.name ?? "OpenID Connect") : titles[row.id]}
+              </a>
               {where && (
                 <a href={where.href} target="_blank" rel="noreferrer" className={cn(buttonVariants({ size: "sm" }), "w-fit")}>
                   {where.label} <ArrowUpRight />
@@ -368,7 +436,12 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
               {row.id === "oidc" && (
                 <Field label="Issuer URL" description="Its /.well-known/openid-configuration is read.">
                   <div className="flex gap-2">
-                    <Input value={v.issuer} onChange={(e) => set("issuer")(e.target.value)} placeholder="https://login.example.com" className="font-mono text-[13px]" />
+                    <Input
+                      value={v.issuer}
+                      onChange={(e) => set("issuer")(e.target.value)}
+                      placeholder={preset?.issuer ?? "https://login.example.com"}
+                      className="font-mono text-[13px]"
+                    />
                     <Button
                       type="button"
                       loading={test.pending}
@@ -383,11 +456,23 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
                   </div>
                 </Field>
               )}
+              {row.id === "microsoft" && (
+                <Field
+                  label="Organization (tenant ID)"
+                  optional
+                  description="From the app's Overview page. Only that organization's people can sign in. Empty: any work or school account, for people who already have an account here."
+                >
+                  <Input value={v.tenantId} onChange={(e) => set("tenantId")(e.target.value)} placeholder="1b2c3d4e-5f6a-…" className="font-mono text-[13px]" />
+                </Field>
+              )}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="Client ID">
+                <Field label={row.id === "microsoft" ? "Application (client) ID" : row.id === "bitbucket" ? "Key" : "Client ID"}>
                   <Input value={v.clientId} onChange={(e) => set("clientId")(e.target.value)} className="font-mono text-[13px]" autoComplete="off" />
                 </Field>
-                <Field label="Client secret" description={c?.hasSecret ? "Saved. Leave empty to keep it." : undefined}>
+                <Field
+                  label={row.id === "bitbucket" ? "Secret" : row.id === "microsoft" ? "Client secret value" : "Client secret"}
+                  description={c?.hasSecret ? "Saved. Leave empty to keep it." : undefined}
+                >
                   <Input
                     type="password"
                     value={v.clientSecret}
@@ -460,14 +545,23 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
                   </p>
                 </div>
               )}
-              <Field
-                label="Only allow emails from"
-                optional
-                description="Comma separated, like example.com or *@example.com; subdomains count. Applies to every sign-in and link with this provider. Empty allows any email."
-              >
-                <Input value={v.allowedDomains} onChange={(e) => set("allowedDomains")(e.target.value)} placeholder="example.com" className="font-mono text-[13px]" />
-              </Field>
-              {!hasRules && (
+              {sharedTenant && (
+                <p className="flex gap-2 rounded-xl border border-warn/30 bg-warn-soft/40 p-3 text-xs leading-relaxed text-fg-2">
+                  <AlertTriangle className="mt-0.5 size-3.5 flex-none text-warn" />
+                  Without a tenant ID, only people who already have an account here can sign in, after linking Microsoft on their Account page. Microsoft accounts can carry any
+                  email their organization lets them set, so new accounts and email rules need one named organization.
+                </p>
+              )}
+              {!sharedTenant && (
+                <Field
+                  label="Only allow emails from"
+                  optional
+                  description="Comma separated, like example.com or *@example.com; subdomains count. Applies to every sign-in and link with this provider. Empty allows any email."
+                >
+                  <Input value={v.allowedDomains} onChange={(e) => set("allowedDomains")(e.target.value)} placeholder="example.com" className="font-mono text-[13px]" />
+                </Field>
+              )}
+              {!hasRules && !sharedTenant && (
                 <SwitchRow
                   title="Allow new accounts"
                   description="Off: only people who already have an account, or were invited, can sign in."
@@ -475,7 +569,7 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
                   onCheckedChange={set("allowSignUp")}
                 />
               )}
-              {v.allowSignUp && !hasRules && (
+              {v.allowSignUp && !hasRules && !sharedTenant && (
                 <div className="flex flex-col gap-4 rounded-xl border border-line bg-surface-2 p-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
                     <Field label="New accounts join">
@@ -502,7 +596,12 @@ function ProviderDialog({ row, organizations, open, onOpenChange }: { row: Provi
               {row.id === "oidc" && (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Button text" optional>
-                    <Input value={v.label} onChange={(e) => set("label")(e.target.value)} placeholder="Sign in with SSO" maxLength={60} />
+                    <Input
+                      value={v.label}
+                      onChange={(e) => set("label")(e.target.value)}
+                      placeholder={preset ? `Continue with ${preset.name}` : "Sign in with SSO"}
+                      maxLength={60}
+                    />
                   </Field>
                   <Field label="Scopes" optional description="Default: openid email profile.">
                     <Input value={v.scopes} onChange={(e) => set("scopes")(e.target.value)} placeholder="openid email profile" className="font-mono text-[13px]" />

@@ -19,6 +19,8 @@ import {
   type SsoProvider,
   type SsoProviderId,
   SSO_PROVIDERS,
+  microsoftSingleTenant,
+  normalizeGitlab,
 } from "@/server/sso/config";
 
 function assertProvider(id: string): asserts id is SsoProviderId {
@@ -48,19 +50,21 @@ async function assertAdminCanSignIn(next: SignInSettings, unlinked?: SsoProvider
 
 /**
  * The company login matches accounts by the subject its issuer sends, and a new issuer could send
- * an existing subject for someone else. After an issuer change, links are removed from people who
+ * an existing subject for someone else (the same for GitLab: another GitLab server numbers its users
+ * from 1 too). After an issuer change, links are removed from people who
  * have another way in (a password, or a GitHub or Google link): they link again from their Account
  * page. People who only sign in with the company login keep theirs, or they could never get back in.
  * Root owners and admins always lose theirs: the Root admin who changes the issuer must not be able
  * to take over another Root admin (assertAdminCanSignIn makes sure one can still sign in).
  */
-async function dropOidcLinks() {
+async function dropLinks(id: "oidc" | "gitlab") {
   const rootId = await getSetting("rootOrganizationId");
-  const otherWayIn = sql`select ${schema.account.userId} from ${schema.account} where ${schema.account.providerId} in ('credential', 'github', 'google')`;
+  const others = ["credential", ...SSO_PROVIDERS.filter((p) => p !== id)];
+  const otherWayIn = sql`select ${schema.account.userId} from ${schema.account} where ${inArray(schema.account.providerId, others)}`;
   const rootAdmins = sql`select ${schema.member.userId} from ${schema.member} where ${schema.member.organizationId} = ${rootId ?? ""} and ${schema.member.role} in ('owner', 'admin')`;
   await db
     .delete(schema.account)
-    .where(and(eq(schema.account.providerId, "oidc"), or(sql`${schema.account.userId} in (${otherWayIn})`, sql`${schema.account.userId} in (${rootAdmins})`)));
+    .where(and(eq(schema.account.providerId, id), or(sql`${schema.account.userId} in (${otherWayIn})`, sql`${schema.account.userId} in (${rootAdmins})`)));
 }
 
 /** Reads the OpenID discovery document so a wrong issuer fails on save, not at sign-in. */
@@ -107,6 +111,12 @@ export async function saveSsoProvider(id: string, input: ProviderInput) {
       if (!v.issuer) throw new UserError("Enter the issuer URL.");
       await checkIssuer(v.issuer);
     }
+    // Microsoft accounts can carry any email their organization lets them set: new accounts and
+    // email domain rules need one named organization (see providerEmailsTrusted).
+    if (id === "microsoft" && !microsoftSingleTenant(v.tenantId)) {
+      if (v.allowSignUp) throw new UserError("To allow new accounts with Microsoft, enter your organization's tenant ID.");
+      if (v.allowedDomains.length) throw new UserError("To allow only some email domains with Microsoft, enter your organization's tenant ID.");
+    }
     const { organizationRoles } = await import("@/server/permissions");
     /** Checks an organization and role pick; returns the role id to store (null for Admin or none). */
     const checkRole = async (organizationId: string | null, role: "member" | "admin", roleId: string | null) => {
@@ -138,16 +148,23 @@ export async function saveSsoProvider(id: string, input: ProviderInput) {
       defaultOrganizationId: v.defaultOrganizationId,
       defaultRole: v.defaultRole,
       defaultRoleId,
-      ...(id === "oidc" ? { issuer: v.issuer, scopes: v.scopes?.length ? v.scopes : undefined, label: v.label || undefined } : {}),
+      ...(id === "oidc" ? { issuer: v.issuer, scopes: v.scopes?.length ? v.scopes : undefined, label: v.label || undefined, preset: v.preset } : {}),
+      ...(id === "gitlab" && v.issuer ? { issuer: v.issuer.replace(/\/+$/, "") } : {}),
+      ...(id === "microsoft" && v.tenantId ? { tenantId: v.tenantId } : {}),
     };
     const next: SignInSettings = { ...settings, providers: { ...settings.providers, [id]: provider } };
     const linkedIssuer = settings.oidcLinkedIssuer ?? (before?.issuer ? normalizeIssuer(before.issuer) : undefined);
     const newIssuer = id === "oidc" && !!v.issuer && linkedIssuer !== normalizeIssuer(v.issuer);
     if (id === "oidc" && v.issuer) next.oidcLinkedIssuer = normalizeIssuer(v.issuer);
-    // Root admins' company login links are always dropped on a new issuer (see dropOidcLinks).
-    await assertAdminCanSignIn(next, newIssuer ? "oidc" : undefined);
+    // GitLab: links made on gitlab.com (or another server) belong to that server.
+    const linkedGitlab = settings.gitlabLinkedServer ?? (before ? normalizeGitlab(before.issuer) : undefined);
+    const newGitlab = id === "gitlab" && !!linkedGitlab && linkedGitlab !== normalizeGitlab(v.issuer);
+    if (id === "gitlab") next.gitlabLinkedServer = normalizeGitlab(v.issuer);
+    // Root admins' links are always dropped on a new issuer or GitLab server (see dropLinks).
+    await assertAdminCanSignIn(next, newIssuer ? "oidc" : newGitlab ? "gitlab" : undefined);
     await updateSettings({ signIn: next });
-    if (newIssuer) await dropOidcLinks();
+    if (newIssuer) await dropLinks("oidc");
+    if (newGitlab) await dropLinks("gitlab");
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "sign-in.provider", message: `Updated ${providerNames[id]} sign-in` });
     return null;
   });
@@ -162,6 +179,7 @@ export async function removeSsoProvider(id: string) {
     const next: SignInSettings = { ...settings, providers: rest };
     // Links stay; the issuer they belong to is kept so setting the company login up again can compare.
     if (id === "oidc" && !next.oidcLinkedIssuer && settings.providers.oidc?.issuer) next.oidcLinkedIssuer = normalizeIssuer(settings.providers.oidc.issuer);
+    if (id === "gitlab" && !next.gitlabLinkedServer && settings.providers.gitlab) next.gitlabLinkedServer = normalizeGitlab(settings.providers.gitlab.issuer);
     await assertAdminCanSignIn(next);
     await updateSettings({ signIn: next });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "sign-in.provider", message: `Removed ${providerNames[id]} sign-in` });

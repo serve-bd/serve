@@ -8,7 +8,7 @@ import { tooManyAttempts } from "@/server/attempts";
 import { authFor, passwordLoginAllowed } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { getSetting } from "@/server/settings";
-import { activeProviders, providerNames } from "@/server/sso/config";
+import { activeProviders, displayName } from "@/server/sso/config";
 import { type ReauthMethods, reauthMethods } from "@/lib/reauth";
 
 const SIGNED_OUT = "You were signed out. Sign in again to continue.";
@@ -31,7 +31,7 @@ async function methodsFor(userId: string): Promise<ReauthMethods> {
   return reauthMethods({
     linked: rows.map((r) => r.providerId),
     passwordSignIn,
-    activeProviders: activeProviders(signIn).map((id) => ({ id, label: id === "oidc" ? signIn.providers.oidc?.label || providerNames.oidc : providerNames[id] })),
+    activeProviders: activeProviders(signIn).map((id) => ({ id, label: displayName(id, signIn.providers[id]) })),
   });
 }
 

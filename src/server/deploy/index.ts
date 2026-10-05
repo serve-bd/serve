@@ -131,6 +131,9 @@ type PreparedImage = {
   rollback: boolean;
 };
 
+/** A build for servers of another CPU type than the build server, running on one of them. */
+type NativeBuild = { server: ServerCtx; platform: string; done: Promise<unknown> };
+
 /**
  * Produce the image of a deployment: build it (on the build server), pull it
  * (image sources), or reuse an earlier one (rollbacks). Servers other than
@@ -145,6 +148,11 @@ async function prepareAppImage(
   buildNetwork?: BuildNetwork | null,
   /** A second build of the same deployment (for a server of another CPU type) gets its own work directory. */
   workSuffix?: string,
+  /**
+   * Builds running side by side must build one commit. The first build reports the commit it
+   * cloned (onCommit); a second one checks its clone against it (expected).
+   */
+  commitSync?: { onCommit?: (sha: string | null) => void; expected?: Promise<string | null> },
 ): Promise<PreparedImage> {
   const target = `${imageRepo(service.slug)}:${dep.id}`;
   const d = server.docker;
@@ -244,8 +252,10 @@ async function prepareAppImage(
       const clone = await cloneRepository(source, workDir, log.line, buildSignal, await orgIdOf(service), { submodules: build.submodules });
       if (workSuffix) {
         // A second build must be of the commit the first one built: every server runs the same code.
-        const [first] = await db.select({ commitSha: schema.deployment.commitSha }).from(schema.deployment).where(eq(schema.deployment.id, dep.id));
-        if (first?.commitSha && clone.commitSha && first.commitSha !== clone.commitSha) {
+        const first = commitSync?.expected
+          ? await commitSync.expected
+          : (await db.select({ commitSha: schema.deployment.commitSha }).from(schema.deployment).where(eq(schema.deployment.id, dep.id)))[0]?.commitSha;
+        if (first && clone.commitSha && first !== clone.commitSha) {
           throw new Error(`${source.branch} moved to another commit during this deploy. Redeploy to build the same commit everywhere.`);
         }
       } else {
@@ -255,6 +265,7 @@ async function prepareAppImage(
           commitAuthor: clone.commitAuthor,
           branch: source.branch,
         });
+        commitSync?.onCommit?.(clone.commitSha || null);
       }
       const repo = repoUrlWithoutLogin(source.repository);
       if (repo) origin["org.opencontainers.image.source"] = repo;
@@ -450,14 +461,27 @@ async function ensureImageOn(
   /** Servers that may hold the image, to copy it from when no registry has it (the build server first). */
   holders: ServerCtx[] = [],
   signal?: AbortSignal,
+  /** The build of the target's CPU type running on another server (or on the target itself): waited for, then copied. */
+  native?: NativeBuild,
 ) {
   const d = target.docker;
+  if (native) {
+    if (native.server.id === target.id) {
+      await native.done;
+      return;
+    }
+    await native.done.catch((error: Error) => {
+      throw new Error(`The ${native.platform} build on ${native.server.name} failed: ${error.message}`);
+    });
+    // Built on a server of the same type: copy it from there, not the build server's image of another type.
+    holders = [native.server];
+  }
   if (await imageExists(prepared.image, d)) return;
   const [repo, tag] = [prepared.image.slice(0, prepared.image.lastIndexOf(":")), prepared.image.slice(prepared.image.lastIndexOf(":") + 1)];
   // A built image runs only on servers of its CPU type (others need slow emulation, often missing:
   // "exec format error"). A server of another type builds it itself, from the same commit. Not when
   // the service names a platform on purpose, and not for a rollback (nothing to build from).
-  if (buildsImage(service.source?.type) && !prepared.rollback && !service.runtime.platform) {
+  if (!native && buildsImage(service.source?.type) && !prepared.rollback && !service.runtime.platform) {
     const own = serverPlatform((await d.info().catch(() => null))?.Architecture);
     const built = await builtPlatform(
       prepared.image,
@@ -469,7 +493,8 @@ async function ensureImageOn(
       return;
     }
   }
-  if (prepared.registryImage) {
+  // The registry holds the build server's image, of its CPU type only.
+  if (prepared.registryImage && !native) {
     log.line(`Pulling ${prepared.registryImage}`);
     await foreignPlatform(service.runtime.platform ?? null, target, log.line);
     await pullImage(prepared.registryImage, log.line, registry ? registryAuth(registry) : null, d, service.runtime.platform);
@@ -498,13 +523,19 @@ async function ensureImageOn(
     return;
   }
   // No registry: copy the image straight from a server that has it (one build, the same image everywhere).
+  const ownType = serverPlatform((await d.info().catch(() => null))?.Architecture);
+  const found: { from: ServerCtx; info: Docker.ImageInspectInfo }[] = [];
   for (const from of holders) {
     if (from.id === target.id) continue;
     const info = await from.docker
       .getImage(prepared.image)
       .inspect()
       .catch(() => null);
-    if (!info) continue;
+    if (info) found.push({ from, info });
+  }
+  // A copy of the target's own CPU type first: servers of several types each hold their own build.
+  found.sort((a, b) => Number(serverPlatform(b.info.Architecture) === ownType) - Number(serverPlatform(a.info.Architecture) === ownType));
+  for (const { from, info } of found) {
     // The same image under an older tag (a redeploy, a cached build): tag it, nothing to copy.
     const same = await d
       .getImage(info.Id)
@@ -516,10 +547,9 @@ async function ensureImageOn(
       return;
     }
     log.line(`Copying the image from ${from.name}`);
-    const own = serverPlatform((await d.info().catch(() => null))?.Architecture);
     const built = serverPlatform(info.Architecture);
-    if (own && built && own !== built)
-      log.line(`Warning: the image is ${built} and ${target.name} is ${own}. It runs under emulation, which is slow and needs QEMU (binfmt) on the server.`);
+    if (ownType && built && ownType !== built)
+      log.line(`Warning: the image is ${built} and ${target.name} is ${ownType}. It runs under emulation, which is slow and needs QEMU (binfmt) on the server.`);
     await copyImage(prepared.image, from.docker, d, { log: log.line, signal });
     return;
   }
@@ -615,7 +645,52 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
 
   // Git builds may happen on a dedicated build server; image sources are pulled where they run.
   const buildServer = buildsImage(sourceType) && dist.buildServerId && !dep.rollbackOf ? await connectTo(dist.buildServerId, log, "build") : server;
-  const prepared = await prepareAppImage(service, dep, log, buildServer, signal, buildServer === server ? await buildNetworkOf(service, server, log) : null);
+
+  // Servers of another CPU type than the build server cannot run its image. One server of each
+  // such type (the app's own server first) builds it at the same time as the main build; the
+  // others of that type copy it from there. Different servers, so the builds do not slow each other.
+  const natives = new Map<string, NativeBuild>();
+  const sideBuilds = new AbortController();
+  const stopSideBuilds = () => sideBuilds.abort();
+  signal?.addEventListener("abort", stopSideBuilds);
+  let reportCommit: (sha: string | null) => void = () => {};
+  const firstCommit = new Promise<string | null>((resolve) => {
+    reportCommit = resolve;
+  });
+  if (buildsImage(sourceType) && !dep.rollbackOf && !service.runtime.platform && extras.length + (buildServer === server ? 0 : 1) > 0) {
+    const typeOf = async (s: ServerCtx) => serverPlatform((await s.docker.info().catch(() => null))?.Architecture);
+    const [buildType, ...types] = await Promise.all([buildServer, server, ...extras].map(typeOf));
+    if (buildType) {
+      [server, ...extras].forEach((s, i) => {
+        const type = types[i];
+        if (!type || type === buildType || natives.has(type)) return;
+        const slog = log.scoped(s.name);
+        slog.line(`${s.name} is ${type} and ${buildServer.name} is ${buildType}: building the ${type} image on ${s.name} at the same time.`);
+        const done = (async () => prepareAppImage(service, dep, slog, s, sideBuilds.signal, await buildNetworkOf(service, s, slog), s.id, { expected: firstCommit }))();
+        // Awaited by the servers that need it; a failure is theirs, not an unhandled rejection.
+        done.catch(() => {});
+        natives.set(type, { server: s, platform: type, done });
+      });
+    }
+  }
+  const nativeFor = async (s: ServerCtx) => {
+    if (!natives.size) return undefined;
+    const type = serverPlatform((await s.docker.info().catch(() => null))?.Architecture);
+    return type ? natives.get(type) : undefined;
+  };
+
+  let prepared: PreparedImage;
+  try {
+    prepared = await prepareAppImage(service, dep, log, buildServer, signal, buildServer === server ? await buildNetworkOf(service, server, log) : null, undefined, {
+      onCommit: reportCommit,
+    });
+  } catch (error) {
+    stopSideBuilds();
+    throw error;
+  } finally {
+    // Not a git build, or it failed before cloning: the side builds stop waiting.
+    reportCommit(null);
+  }
   checkCancelled(signal);
   const { image, detectedPort } = prepared;
   if (registry && buildsImage(sourceType) && !prepared.rollback) {
@@ -657,7 +732,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   await saveTargets();
   try {
     if (multi) log.step(`Deploying to ${server.name}`);
-    await ensureImageOn(server, service, dep, prepared, registry, log, [buildServer, ...extras], signal);
+    await ensureImageOn(server, service, dep, prepared, registry, log, [buildServer, ...extras], signal, await nativeFor(server));
     imageVolumes = await imageVolumePaths(image, server.docker);
     runtime = await keepImageVolumes(service, runtime, imageVolumes, log);
     await runOnServer({ service, dep, log, server, image, runtime, env, signal, primary: true, replicaOffset: 0, replicaTotal, imageVolumes, adopt: dep.adopt ?? null });
@@ -666,6 +741,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
     primaryTarget.status = "failed";
     primaryTarget.error = (error as Error).message.slice(0, 500);
     await saveTargets();
+    stopSideBuilds();
     throw error;
   }
   await saveTargets();
@@ -679,7 +755,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
       await saveTargets();
       try {
         slog.step(`Deploying to ${extra.name}`);
-        await ensureImageOn(extra, service, dep, prepared, registry, slog, [buildServer, server, ...extras], signal);
+        await ensureImageOn(extra, service, dep, prepared, registry, slog, [buildServer, server, ...extras], signal, await nativeFor(extra));
         // Replica numbers continue across servers, in the order the servers were added.
         const replicaOffset = (dist.extraServerIds.indexOf(extra.id) + 1) * replicasOf(runtime);
         await runOnServer({

@@ -6,6 +6,12 @@ import { serviceInOrg } from "@/server/services/access";
 import { LABEL, listServiceContainers } from "@/server/docker/client";
 import { getServer, serverOf } from "@/server/servers/context";
 import { replicaInstances } from "@/server/services/types";
+import type Docker from "dockerode";
+import { inArray } from "drizzle-orm";
+import { db, schema } from "@/server/db";
+import { runServerIds } from "@/server/deploy/distribution";
+
+const serverNames = async (ids: string[]) => (await db.select({ name: schema.server.name }).from(schema.server).where(inArray(schema.server.id, ids))).map((s) => s.name);
 
 export const dynamic = "force-dynamic";
 
@@ -53,23 +59,53 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
   // A database's tabs: "database", "pooler" or "replica-<id>" (a replica may run on another server).
   const only = request.nextUrl.searchParams.get("container");
   const replica = service.type === "database" && only?.startsWith("replica-") ? replicaInstances(service).find((r) => `replica-${r.id}` === only) : undefined;
-  let docker;
-  let all;
+  // An app on several servers: the replicas of every server, each named "<server> · <number>".
+  const runOn = service.type === "app" ? runServerIds(service.serverId, service.distribution) : [service.serverId];
+  const multiServer = runOn.length > 1;
+  type Found = Awaited<ReturnType<typeof listServiceContainers>>[number] & { docker: Docker; server: { id: string; name: string } };
+  let all: Found[] = [];
+  const unreachable: string[] = [];
   try {
-    docker = (replica ? await getServer(replica.serverId) : await serverOf(service)).docker;
-    all = await listServiceContainers(serviceId, true, docker);
+    if (multiServer) {
+      const found = await Promise.all(
+        runOn.map(async (id, i) => {
+          try {
+            const server = await getServer(id);
+            const list = await listServiceContainers(serviceId, true, server.docker);
+            // Each server runs the current version once it switched; one whose deploy failed keeps an older one.
+            const app = list.filter((c) => c.Labels[LABEL.kind] === "app" || !c.Labels[LABEL.kind]);
+            const current = app.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId);
+            return (i === 0 || current.length ? current : app.filter((c) => c.State === "running")).map((c) => ({
+              ...c,
+              docker: server.docker,
+              server: { id, name: server.name },
+            }));
+          } catch {
+            unreachable.push(id);
+            return [];
+          }
+        }),
+      );
+      all = found.flat();
+      if (unreachable.length === runOn.length) throw new Error("no server answered");
+    } else {
+      const server = replica ? await getServer(replica.serverId) : await serverOf(service);
+      const list = await listServiceContainers(serviceId, true, server.docker);
+      const current = service.type === "app" && service.currentDeploymentId ? list.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : list;
+      all = current.map((c) => ({ ...c, docker: server.docker, server: { id: server.id, name: server.name } }));
+    }
   } catch (e) {
     return problem(`The server of this service cannot be reached: ${(e as Error).message}`);
   }
-  const current = service.type === "app" && service.currentDeploymentId ? all.filter((c) => c.Labels[LABEL.deployment] === service.currentDeploymentId) : all;
-  // One compose service, one app replica (the number its container name ends with), or one of a
-  // database's containers by kind, when the page asks for it.
-  const replicaOf = (c: (typeof current)[number]) => c.Names[0]?.replace(/^\//, "").split("-").pop();
+  // One compose service, one app replica (the number its container name ends with, with its server
+  // when there are several), or one of a database's containers by kind, when the page asks for it.
+  const replicaOf = (c: Found) => c.Names[0]?.replace(/^\//, "").split("-").pop();
+  const keyOf = (c: Found) => (multiServer ? `${c.server.id}:${replicaOf(c)}` : replicaOf(c));
   const containers = only
-    ? current.filter((c) =>
-        service.type === "database" ? c.Labels[LABEL.kind] === only : (c.Labels["com.docker.compose.service"] ?? (service.type === "app" ? replicaOf(c) : undefined)) === only,
+    ? all.filter((c) =>
+        service.type === "database" ? c.Labels[LABEL.kind] === only : (c.Labels["com.docker.compose.service"] ?? (service.type === "app" ? keyOf(c) : undefined)) === only,
       )
-    : current;
+    : all;
 
   const encoder = new TextEncoder();
   const streams: NodeJS.ReadableStream[] = [];
@@ -102,6 +138,10 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
           stop();
         }
       };
+      if (unreachable.length && !resume) {
+        const names = await serverNames(unreachable);
+        send("info", { message: `Not showing ${names.join(", ")}: the server cannot be reached.` });
+      }
       if (!containers.length) {
         // Said once: resumed connections keep quiet while there is still nothing to show.
         if (!resume) send("info", { message: only ? `No container is running for ${only}.` : "No containers are running for this service." });
@@ -112,7 +152,8 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/services
         if (closed) break;
         const id = c.Id.slice(0, 12);
         const after = since.get(id);
-        const label = c.Labels["com.docker.compose.service"] ?? (multi ? replicaOf(c) : null);
+        const docker = c.docker;
+        const label = c.Labels["com.docker.compose.service"] ?? (multiServer ? `${c.server.name} · ${replicaOf(c)}` : multi ? replicaOf(c) : null);
         try {
           const raw = (await docker.getContainer(c.Id).logs({
             follow: true,

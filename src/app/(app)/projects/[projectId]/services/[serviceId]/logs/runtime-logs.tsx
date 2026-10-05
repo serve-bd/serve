@@ -38,14 +38,14 @@ export function RuntimeLogs({
   containers?: string[];
   replicas?: boolean;
   /**
-   * Names for the tabs, by container (a database's: its own, its pooler and its replicas). With
-   * labels there is no "all" tab: each container's log stands on its own, the first one opens.
+   * Names for the tabs, by container (a database's: its own, its pooler and its replicas; an app's
+   * replicas on several servers). A database's have no "all" tab: each log stands on its own.
    */
   labels?: Record<string, string>;
   initialContainer?: string | null;
 }) {
   const [container, setContainer] = React.useState<string | null>(
-    initialContainer && containers.includes(initialContainer) ? initialContainer : labels ? (containers[0] ?? null) : null,
+    initialContainer && containers.includes(initialContainer) ? initialContainer : labels && !replicas ? (containers[0] ?? null) : null,
   );
   const [lines, setLines] = React.useState<LogLine[]>([]);
   const [connected, setConnected] = React.useState(false);
@@ -135,7 +135,7 @@ export function RuntimeLogs({
     <LogViewer
       lines={lines}
       showTime
-      filename={`${container ? `${name}-${replicas ? `replica-${container}` : container}` : name}.log`}
+      filename={`${container ? `${name}-${(labels?.[container] ?? (replicas ? `replica-${container}` : container)).replace(/[^\w.-]+/g, "-").toLowerCase()}` : name}.log`}
       emptyText={problem ?? (connected ? "No output yet." : "Connecting…")}
       height="calc(100vh - 290px)"
       toolbar={
@@ -163,7 +163,7 @@ export function RuntimeLogs({
   return (
     <div className="flex flex-col gap-3">
       <div role="tablist" aria-label={replicas ? "Replicas" : "Containers"} className="scrollbar-none -mx-4 flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-        {(labels ? containers : [null, ...containers]).map((c) => (
+        {(labels && !replicas ? containers : [null, ...containers]).map((c) => (
           <button
             key={c ?? "all"}
             type="button"

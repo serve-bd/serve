@@ -28,18 +28,19 @@ import {
   Menu as MenuIcon,
   Moon,
   Network,
+  RadioTower,
+  ScrollText,
   Search,
   Server,
   Settings,
   ShieldCheck,
   Sun,
+  Tag,
   User,
   Users,
   Variable,
   Vault,
   Waypoints,
-  ScrollText,
-  Tag,
 } from "lucide-react";
 import { Logo, useBrand } from "@/components/brand";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
@@ -80,6 +81,7 @@ const mainNav: NavItem[] = [
   { href: "/domains", label: "Domains", icon: Globe },
   { href: "/certificates", label: "Certificates", icon: ShieldCheck },
   { href: "/monitoring", label: "Monitoring", icon: HeartPulse },
+  { href: "/status-pages", label: "Status pages", icon: RadioTower },
   { href: "/activity", label: "Activity", icon: Activity },
 ];
 

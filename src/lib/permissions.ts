@@ -14,6 +14,7 @@ export const PERMISSIONS = [
   "databases.backups",
   "console.access",
   "logs.view",
+  "status-pages.manage",
   "members.manage",
   "integrations.manage",
 ] as const;
@@ -23,7 +24,7 @@ export type Permission = (typeof PERMISSIONS)[number];
 export const PERMISSION_GROUPS: { title: string; permissions: Permission[] }[] = [
   { title: "Projects and services", permissions: ["projects.view", "projects.manage", "services.deploy", "deploys.approve", "services.manage", "domains.manage"] },
   { title: "Variables and data", permissions: ["variables.edit", "variables.view-secrets", "databases.backups"] },
-  { title: "Operations", permissions: ["logs.view", "console.access"] },
+  { title: "Operations", permissions: ["logs.view", "console.access", "status-pages.manage"] },
   { title: "Organization", permissions: ["members.manage", "integrations.manage"] },
 ];
 
@@ -46,6 +47,11 @@ export const PERMISSION_INFO: Record<Permission, { label: string; description: s
   },
   "databases.backups": { label: "Database backups", description: "Run, download, restore and import database backups.", verb: "manage backups" },
   "logs.view": { label: "View logs", description: "Read build, runtime and request logs.", verb: "view logs" },
+  "status-pages.manage": {
+    label: "Status pages",
+    description: "Create and change public status pages, and post incidents and maintenance on them.",
+    verb: "manage status pages",
+  },
   "console.access": { label: "Console", description: "Open a shell inside containers and servers.", verb: "open the console" },
   "members.manage": { label: "Manage members", description: "Invite and remove members, change roles and project access.", verb: "manage members" },
   "integrations.manage": {
@@ -69,7 +75,7 @@ export const BUILTIN_ROLE_INFO: Record<BuiltinRole, { name: string; description:
 export const BUILTIN_PERMISSIONS: Record<BuiltinRole, readonly Permission[]> = {
   owner: PERMISSIONS,
   admin: PERMISSIONS,
-  developer: ["projects.view", "services.deploy", "services.manage", "domains.manage", "variables.edit", "databases.backups", "logs.view", "console.access"],
+  developer: ["projects.view", "services.deploy", "services.manage", "domains.manage", "variables.edit", "databases.backups", "logs.view", "console.access", "status-pages.manage"],
   viewer: ["projects.view", "logs.view"],
 };
 

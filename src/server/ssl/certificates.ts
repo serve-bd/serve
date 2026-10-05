@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { and, asc, eq, lt, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { newId } from "@/server/id";
@@ -10,7 +10,7 @@ import { proxyPaths } from "@/server/paths";
 import { run } from "@/server/process";
 import { getSettings } from "@/server/settings";
 import { getServer, type ServerCtx } from "@/server/servers/context";
-import { ensureServerProxy, reloadProxy, servicesUsingCertificate, syncDashboardProxy, syncServiceProxy } from "@/server/proxy/nginx";
+import { ensureServerProxy, reloadProxy, servicesUsingCertificate, syncDashboardProxy, syncServiceProxy, syncStatusProxy } from "@/server/proxy/nginx";
 import { accountToken } from "@/server/cloudflare/oauth";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { notify } from "@/server/notify";
@@ -311,6 +311,9 @@ export async function applyCertificate(cert: Cert) {
   if (cert.serverId === LOCAL_SERVER_ID && settings.dashboardDomain && certificateCovers(cert.domains, settings.dashboardDomain)) {
     await syncDashboardProxy().catch(() => {});
   }
+  if (cert.serverId === LOCAL_SERVER_ID && (await statusDomainsOf(cert.organizationId)).some((d) => certificateCovers(cert.domains, d))) {
+    await syncStatusProxy().catch(() => {});
+  }
   // A renewal writes the same file paths: sites with their own proxy config would keep the old one.
   if (cert.serverId) {
     await getServer(cert.serverId)
@@ -574,8 +577,18 @@ async function certificateInUse(cert: Cert) {
     const replicas = a.database?.replica?.public;
     if (replicas?.domain && certificateCovers(cert.domains, replicas.domain) && replicaInstances(a).some((r) => r.serverId === cert.serverId)) return true;
   }
+  if (cert.serverId === LOCAL_SERVER_ID && (await statusDomainsOf(cert.organizationId)).some((d) => certificateCovers(cert.domains, d))) return true;
   const settings = await getSettings();
   return cert.serverId === LOCAL_SERVER_ID && !!settings.dashboardDomain && certificateCovers(cert.domains, settings.dashboardDomain);
+}
+
+/** Domains of an organization's status pages (served by the local proxy). */
+async function statusDomainsOf(organizationId: string) {
+  const rows = await db
+    .select({ domain: schema.statusPage.domain })
+    .from(schema.statusPage)
+    .where(and(eq(schema.statusPage.organizationId, organizationId), isNotNull(schema.statusPage.domain)));
+  return rows.map((r) => r.domain!);
 }
 
 /**

@@ -122,6 +122,12 @@ export async function assertNotDashboardHost(org: { isRoot: boolean }, hostname:
   }
 }
 
+/** A status page's own domain is served by the dashboard's proxy: no service or database may take it. */
+export async function assertNotStatusHost(hostname: string) {
+  const [page] = await db.select({ id: schema.statusPage.id }).from(schema.statusPage).where(eq(schema.statusPage.domain, hostname.toLowerCase()));
+  if (page) throw new UserError("That domain belongs to a status page.");
+}
+
 /** The message shown when a domain still needs its TXT record. */
 export function ownershipMessage(hostname: string, o: Extract<Ownership, { verified: false }>) {
   return `Prove you own ${hostname.replace(/^\*\./, "")}: add a TXT record named ${o.recordName} with the value ${o.recordValue} (a record on a parent domain like _serve-verify.example.com covers all its subdomains), then try again.`;

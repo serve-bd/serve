@@ -21,6 +21,7 @@ import type { ChannelScope, MessageTemplate, NotificationKind, QuietHours, Sever
 import type { OrgLimits } from "@/lib/limits";
 import type { TrustedProxies } from "@/lib/trusted-proxies";
 import type { DashboardLayout } from "@/lib/dashboard";
+import type { IncidentImpact, IncidentState, NoticeKind, StatusDesign, StatusImage, StatusVisibility } from "@/lib/status-page";
 import type { SecretProviderAccess, SecretProviderConfig, SecretProviderKind } from "@/lib/secret-providers";
 
 const id = () => text("id").primaryKey();
@@ -1516,6 +1517,90 @@ export const incident = pgTable(
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   },
   (t) => [index("incident_org_idx").on(t.organizationId, t.startedAt), index("incident_key_idx").on(t.key, t.resolvedAt)],
+);
+
+/* -------------------------------------------------------------------------- */
+/*                                Status pages                                */
+/* -------------------------------------------------------------------------- */
+
+/** A public page that shows how an organization's services are doing. */
+export const statusPage = pgTable("status_page", {
+  id: id(),
+  organizationId: orgRef(),
+  name: text("name").notNull(),
+  /** The page is at /status/<slug> on the dashboard's domain. */
+  slug: text("slug").notNull().unique(),
+  /** Its own domain, like status.example.com, served by the dashboard's proxy. */
+  domain: text("domain").unique(),
+  https: boolean("https").notNull().default(true),
+  certificateId: text("certificate_id").references(() => certificate.id, { onDelete: "set null" }),
+  visibility: text("visibility").$type<StatusVisibility>().notNull().default("draft"),
+  /** bcrypt hash, for visibility "password". */
+  passwordHash: text("password_hash"),
+  design: jsonb("design").$type<Partial<StatusDesign>>().notNull().default({}),
+  /** Uploaded logos: { light, dark } as base64 with their type. */
+  images: jsonb("images").$type<{ logo?: StatusImage & { data: string }; logoDark?: StatusImage & { data: string } }>().notNull().default({}),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** One line on a status page: a service with an uptime check, or a manual entry. */
+export const statusComponent = pgTable(
+  "status_component",
+  {
+    id: id(),
+    pageId: text("page_id")
+      .notNull()
+      .references(() => statusPage.id, { onDelete: "cascade" }),
+    /** Null for a component without a check (only posted notices change it). */
+    serviceId: text("service_id").references(() => service.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    /** Section heading it shows under; null shows it on its own. */
+    group: text("group_name"),
+    position: integer("position").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index("status_component_page_idx").on(t.pageId, t.position)],
+);
+
+/** An incident or a maintenance window posted on a status page. */
+export const statusNotice = pgTable(
+  "status_notice",
+  {
+    id: id(),
+    pageId: text("page_id")
+      .notNull()
+      .references(() => statusPage.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<NoticeKind>().notNull(),
+    title: text("title").notNull(),
+    impact: text("impact").$type<IncidentImpact>().notNull().default("major"),
+    /** Incidents only; maintenance goes by its times. */
+    state: text("state").$type<IncidentState>().notNull().default("investigating"),
+    componentIds: jsonb("component_ids").$type<string[]>().notNull().default([]),
+    /** Maintenance window; for incidents the time it started. */
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("status_notice_page_idx").on(t.pageId, t.createdAt)],
+);
+
+/** One message on a notice, newest last. */
+export const statusNoticeUpdate = pgTable(
+  "status_notice_update",
+  {
+    id: id(),
+    noticeId: text("notice_id")
+      .notNull()
+      .references(() => statusNotice.id, { onDelete: "cascade" }),
+    state: text("state").notNull(),
+    body: text("body").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("status_notice_update_notice_idx").on(t.noticeId, t.createdAt)],
 );
 
 /** Per-server thresholds for resource alerts. */

@@ -9,7 +9,7 @@ import { db, schema } from "@/server/db";
 import { logActivity } from "@/server/activity";
 import { serviceInOrg } from "@/server/services/access";
 import { type AddonAccess, hasHostAccess, replicaInstances } from "@/server/services/types";
-import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
+import { assertNotDashboardHost, assertNotStatusHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 import { hostnamePattern } from "@/lib/database-domains";
 import { normalizeTrustedRanges } from "@/lib/trusted-proxies";
 
@@ -90,6 +90,7 @@ export async function setAddonAccess(serviceId: string, which: Which, input: z.i
         const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, hostname);
         if (!ownership.verified) throw new UserError(ownershipMessage(hostname, ownership));
         await assertNotDashboardHost(ctx, hostname);
+        await assertNotStatusHost(hostname);
         const [web] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, hostname));
         if (web || (await domainTaken(hostname, { serviceId, which }))) throw new UserError("That domain is already in use.");
         // A domain leads to servers' public IPs: one without any reaches nothing.

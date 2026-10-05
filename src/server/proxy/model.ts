@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LABEL } from "@/server/docker/client";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
@@ -191,6 +191,49 @@ export async function dashboardModel(): Promise<SiteModel | null> {
     options: null,
     certificates: certificateStamp(certs, [tls]),
   };
+}
+
+/** Status pages on their own domains: served like the dashboard, by the proxy of the machine Serve runs on. */
+export async function statusModel(): Promise<SiteModel | null> {
+  const pages = await statusPageHosts();
+  if (!pages.length) return null;
+  const certs = (await Promise.all([...new Set(pages.map((p) => p.organizationId))].map((org) => orgCertificates(org, LOCAL_SERVER_ID)))).flat();
+  const hosts: HostModel[] = pages.map((p) => ({
+    hostname: p.domain,
+    upstream: "status",
+    redirectTo: null,
+    https: p.https,
+    forceHttps: true,
+    tunnel: false,
+    tls: p.https ? certificateFor(p.domain, p.certificateId, certs) : null,
+  }));
+  return {
+    name: "_status",
+    title: "status pages",
+    serviceId: null,
+    stopped: false,
+    upstreams: [{ key: "status", targets: [env.dashboardUpstream] }],
+    hosts,
+    options: null,
+    certificates: certificateStamp(
+      certs,
+      hosts.map((h) => h.tls),
+    ),
+  };
+}
+
+/** Status pages with their own domain. */
+export async function statusPageHosts() {
+  const rows = await db
+    .select({
+      domain: schema.statusPage.domain,
+      https: schema.statusPage.https,
+      certificateId: schema.statusPage.certificateId,
+      organizationId: schema.statusPage.organizationId,
+    })
+    .from(schema.statusPage)
+    .where(isNotNull(schema.statusPage.domain));
+  return rows.map((r) => ({ ...r, domain: r.domain! })).sort((a, b) => a.domain.localeCompare(b.domain));
 }
 
 /**

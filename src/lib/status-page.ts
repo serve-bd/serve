@@ -1,0 +1,213 @@
+/**
+ * Public status pages: the look a page can take, the status levels it shows and the pure rules
+ * that turn checks and notices into those levels. No database here, so the editor's preview and
+ * the tests use the same rules as the public page.
+ */
+
+export type StatusLevel = "operational" | "maintenance" | "degraded" | "partial" | "major" | "unknown";
+
+/** Worse levels win. Unknown (no checks yet) never hides a real state. */
+const RANK: Record<StatusLevel, number> = { unknown: -1, operational: 0, maintenance: 1, degraded: 2, partial: 3, major: 4 };
+
+export const LEVEL_TEXT: Record<StatusLevel, string> = {
+  operational: "Operational",
+  maintenance: "Under maintenance",
+  degraded: "Degraded performance",
+  partial: "Partial outage",
+  major: "Major outage",
+  unknown: "No data yet",
+};
+
+/** The banner over the page. */
+export const OVERALL_TEXT: Record<StatusLevel, string> = {
+  operational: "All systems operational",
+  maintenance: "Maintenance in progress",
+  degraded: "Some systems are slow",
+  partial: "Some systems are down",
+  major: "Major outage",
+  unknown: "Waiting for the first checks",
+};
+
+export function worst(levels: StatusLevel[]): StatusLevel {
+  let out: StatusLevel = "unknown";
+  for (const l of levels) if (RANK[l] > RANK[out]) out = l;
+  return out;
+}
+
+export type IncidentImpact = "minor" | "major" | "critical";
+export type IncidentState = "investigating" | "identified" | "monitoring" | "resolved";
+export type NoticeKind = "incident" | "maintenance";
+
+export const INCIDENT_STATES: IncidentState[] = ["investigating", "identified", "monitoring", "resolved"];
+export const STATE_TEXT: Record<IncidentState | "scheduled" | "in-progress" | "completed", string> = {
+  investigating: "Investigating",
+  identified: "Identified",
+  monitoring: "Monitoring",
+  resolved: "Resolved",
+  scheduled: "Scheduled",
+  "in-progress": "In progress",
+  completed: "Completed",
+};
+export const IMPACT_TEXT: Record<IncidentImpact, string> = { minor: "Slow or partly broken", major: "Partly down", critical: "Fully down" };
+export const IMPACT_LEVEL: Record<IncidentImpact, StatusLevel> = { minor: "degraded", major: "partial", critical: "major" };
+
+export type MaintenancePhase = "scheduled" | "in-progress" | "completed";
+
+/** Where a maintenance window is now: by its times, unless it was completed early. */
+export function maintenancePhase(n: { startsAt: string | null; endsAt: string | null; resolvedAt: string | null }, now = Date.now()): MaintenancePhase {
+  if (n.resolvedAt) return "completed";
+  if (n.startsAt && Date.parse(n.startsAt) > now) return "scheduled";
+  if (n.endsAt && Date.parse(n.endsAt) <= now) return "completed";
+  return "in-progress";
+}
+
+/** A notice as the page's rules see it. */
+export type NoticeFacts = {
+  kind: NoticeKind;
+  impact: IncidentImpact;
+  componentIds: string[];
+  startsAt: string | null;
+  endsAt: string | null;
+  resolvedAt: string | null;
+};
+
+export function noticeActive(n: NoticeFacts, now = Date.now()) {
+  return n.kind === "maintenance" ? maintenancePhase(n, now) === "in-progress" : !n.resolvedAt;
+}
+
+/**
+ * The level of one component now. Maintenance wins over a failing check: the owner said it would
+ * be down. A posted incident sets at least its impact; a failing check means a major outage.
+ */
+export function componentLevel(input: { componentId: string; check: "up" | "down" | "pending" | "paused" | null; notices: NoticeFacts[]; now?: number }): StatusLevel {
+  const active = input.notices.filter((n) => n.componentIds.includes(input.componentId) && noticeActive(n, input.now));
+  if (active.some((n) => n.kind === "maintenance")) return "maintenance";
+  const fromNotices = active.filter((n) => n.kind === "incident").map((n) => IMPACT_LEVEL[n.impact]);
+  const fromCheck: StatusLevel = input.check === "down" ? "major" : input.check === "up" ? "operational" : "unknown";
+  const level = worst([fromCheck, ...fromNotices]);
+  // A component without a check and nothing posted is fine as far as anyone said.
+  return level === "unknown" && input.check === null ? "operational" : level;
+}
+
+/** Bar color of one day: the monitor's uptime, made worse by incidents posted for that day. */
+export function dayLevel(uptime: number | null, posted: IncidentImpact[]): StatusLevel {
+  const fromUptime: StatusLevel = uptime === null ? "unknown" : uptime >= 99.9 ? "operational" : uptime >= 95 ? "degraded" : "major";
+  return worst([fromUptime, ...posted.map((i) => IMPACT_LEVEL[i])]);
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                    Look                                    */
+/* -------------------------------------------------------------------------- */
+
+export type StatusTheme = "auto" | "light" | "dark";
+export type StatusFont = "sans" | "serif" | "mono";
+export type StatusCorners = "round" | "square";
+export type StatusDensity = "comfortable" | "compact";
+export const BAR_DAYS = [30, 60, 90] as const;
+
+export type StatusImage = { hash: string; mime: string };
+
+export type StatusDesign = {
+  theme: StatusTheme;
+  /** Hex color of links, buttons and the operational banner; null keeps the default green. */
+  accent: string | null;
+  /** Text under the page name. */
+  description: string | null;
+  logo: StatusImage | null;
+  logoDark: StatusImage | null;
+  /** Where the logo links to, like the company's website. */
+  website: string | null;
+  /** Show the page name next to the logo. */
+  showName: boolean;
+  days: (typeof BAR_DAYS)[number];
+  showBars: boolean;
+  showUptime: boolean;
+  /** Average response time over the last day, per component. */
+  showLatency: boolean;
+  /** Days of past incidents to list; 0 hides the history. */
+  historyDays: number;
+  /** Outages found by uptime checks show up as incidents on their own. */
+  autoIncidents: boolean;
+  announcement: { text: string; tone: "info" | "warn" } | null;
+  links: { label: string; url: string }[];
+  footer: string | null;
+  hideBadge: boolean;
+  font: StatusFont;
+  corners: StatusCorners;
+  density: StatusDensity;
+  /** Extra CSS for the page only. */
+  css: string | null;
+  /** Ask search engines not to list the page. */
+  noindex: boolean;
+};
+
+export const defaultDesign: StatusDesign = {
+  theme: "auto",
+  accent: null,
+  description: null,
+  logo: null,
+  logoDark: null,
+  website: null,
+  showName: true,
+  days: 90,
+  showBars: true,
+  showUptime: true,
+  showLatency: false,
+  historyDays: 14,
+  autoIncidents: true,
+  announcement: null,
+  links: [],
+  footer: null,
+  hideBadge: false,
+  font: "sans",
+  corners: "round",
+  density: "comfortable",
+  css: null,
+  noindex: false,
+};
+
+export function designOf(saved: Partial<StatusDesign> | null | undefined): StatusDesign {
+  return { ...defaultDesign, ...(saved ?? {}) };
+}
+
+export type StatusVisibility = "public" | "password" | "draft";
+
+export const RESERVED_SLUGS = ["new", "api", "admin", "login", "status"];
+
+/** A slug from a name: "Acme Cloud" → "acme-cloud". */
+export function slugify(name: string) {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+export const slugPattern = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
+
+/** Custom CSS goes inside a <style> element: it must not be able to close it. */
+export function cleanCss(css: string | null | undefined) {
+  const out = (css ?? "").replace(/<\/?\s*style/gi, "").trim();
+  return out || null;
+}
+
+/** Only web links: no javascript: or data: URLs on a public page. */
+export function cleanUrl(url: string | null | undefined): string | null {
+  const v = (url ?? "").trim();
+  if (!v) return null;
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:/i.test(v) ? v : `https://${v}`);
+    if (u.protocol !== "https:" && u.protocol !== "http:" && u.protocol !== "mailto:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function formatPercent(value: number | null) {
+  if (value === null) return "—";
+  if (value >= 99.995) return "100%";
+  return `${value.toFixed(value >= 99 ? 2 : 1)}%`;
+}

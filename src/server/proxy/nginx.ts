@@ -35,7 +35,7 @@ import { ensureTunnelNetwork } from "./tunnel-network";
 import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker/networks";
 import crypto from "node:crypto";
 import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type ProxyFile, type ProxyKind, type RunningKind, type ServerProxyConfig } from "./config";
-import { appTargets, certificateStamp, dashboardModel, serviceModel, type SiteModel } from "./model";
+import { appTargets, certificateStamp, dashboardModel, serviceModel, type SiteModel, statusModel, statusPageHosts } from "./model";
 import { forgetDashboardTrusted, visitorIpOf } from "./trusted-proxies";
 import { headerTrusted, usesProxyProtocol, type TrustedProxies } from "@/lib/trusted-proxies";
 import { balancingOf } from "@/lib/balancing";
@@ -969,6 +969,35 @@ async function renderNginxDashboard(): Promise<string | null> {
   ].join("\n");
 }
 
+/** Status pages on their own domains, like the dashboard: only the proxy of the machine Serve runs on. */
+async function renderNginxStatus(): Promise<string | null> {
+  const pages = await statusPageHosts();
+  if (!pages.length) return null;
+  const certs = (await Promise.all([...new Set(pages.map((p) => p.organizationId))].map((org) => usableCertificates(org, LOCAL_SERVER_ID)))).flat();
+  const upstream: SiteUpstream = { name: "serve_status", servers: [env.dashboardUpstream] };
+  const visitor = await visitorIpOf(await local());
+  const tls = pages.map((p) => (p.https ? tlsFor(p.domain, p.certificateId, certs) : null));
+  return [
+    "# Managed by Serve — status pages.",
+    ...certificateStamp(certs, tls),
+    upstreamBlock(upstream),
+    ...pages.map((p, i) =>
+      serverBlocks({
+        hostname: p.domain,
+        upstream: upstream.name,
+        forceHttps: true,
+        tls: tls[i],
+        ...(usesProxyProtocol(visitor) ? { proxyProtocol: true } : {}),
+      }),
+    ),
+  ].join("\n");
+}
+
+async function renderStatus(kind: RunningKind, ctx: ServerCtx) {
+  if (kind === "nginx") return renderNginxStatus();
+  return renderModel(kind, ctx, await statusModel());
+}
+
 async function renderModel(kind: RunningKind, ctx: ServerCtx, model: SiteModel | null) {
   if (!model) return null;
   const { config } = await proxyStateOf(ctx.id);
@@ -978,7 +1007,13 @@ async function renderModel(kind: RunningKind, ctx: ServerCtx, model: SiteModel |
   if (kind === "caddy")
     return (
       stamp +
-      renderCaddySite(model, defaultsOf(config.caddy?.defaults), !!visitor.header || model.name === "_dashboard", visitor.header ? tunnelTrustFor(visitor) : [], visitor.tunnel)
+      renderCaddySite(
+        model,
+        defaultsOf(config.caddy?.defaults),
+        !!visitor.header || model.name === "_dashboard" || model.name === "_status",
+        visitor.header ? tunnelTrustFor(visitor) : [],
+        visitor.tunnel,
+      )
     );
   const settings = await getSettings();
   return (
@@ -1141,7 +1176,10 @@ async function siteChanges(ctx: ServerCtx, kind: RunningKind) {
     const page = await maintenancePageContent(s.id);
     if (page) changes.set(maintenanceFile(ctx, s.id), page);
   }
-  if (ctx.local) changes.set(siteFile(ctx, "_dashboard", kind), await renderDashboard(kind, ctx));
+  if (ctx.local) {
+    changes.set(siteFile(ctx, "_dashboard", kind), await renderDashboard(kind, ctx));
+    changes.set(siteFile(ctx, "_status", kind), await renderStatus(kind, ctx));
+  }
   if (kind === "nginx") {
     for (const s of services) {
       const [row] = await db.select({ proxy: schema.service.proxy }).from(schema.service).where(eq(schema.service.id, s.id));
@@ -1222,6 +1260,16 @@ export async function syncDashboardProxy() {
     const { kind } = await proxyStateOf(ctx.id);
     if (kind === "none") return;
     await applySites(ctx, new Map([[siteFile(ctx, "_dashboard", kind), await renderDashboard(kind, ctx)]]));
+  });
+}
+
+/** Rewrite only the status pages' site (after a page's domain or HTTPS changed). */
+export async function syncStatusProxy() {
+  const ctx = await local();
+  return serialized(ctx.id, async () => {
+    const { kind } = await proxyStateOf(ctx.id);
+    if (kind === "none") return;
+    await applySites(ctx, new Map([[siteFile(ctx, "_status", kind), await renderStatus(kind, ctx)]]));
   });
 }
 

@@ -5,7 +5,7 @@ import { act, UserError } from "@/server/action";
 import { requirePermission } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { serviceInOrg } from "@/server/services/access";
-import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
+import { assertNotDashboardHost, assertNotStatusHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 import { ensureDatabaseCertificate, freePublicPort } from "@/server/databases/domain-tls";
 import { retireCertificateFor } from "@/server/ssl/certificates";
 import { engines } from "@/server/databases/engines";
@@ -70,6 +70,7 @@ export async function saveDatabaseDomain(serviceId: string, raw: string | null, 
       const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, hostname);
       if (!ownership.verified) throw new UserError(ownershipMessage(hostname, ownership));
       await assertNotDashboardHost(ctx, hostname);
+      await assertNotStatusHost(hostname);
       const [web] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, hostname));
       if (web) throw new UserError("That domain is already in use.");
       // Databases of the same organization on the same server can share a name on their own ports:

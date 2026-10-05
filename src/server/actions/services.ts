@@ -29,7 +29,7 @@ import { removeServiceProxy, syncServiceProxy } from "@/server/proxy/nginx";
 import { ensureCertificateFor } from "@/server/ssl/certificates";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { getSettings } from "@/server/settings";
-import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
+import { assertNotDashboardHost, assertNotStatusHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 import { teardownServices } from "@/server/services/teardown";
 import { composeNameClashes, composeSecurityIssues, safeRedirectUrl } from "@/server/security";
 import type { OrgContext } from "@/server/auth";
@@ -1748,6 +1748,7 @@ export async function addDomain(serviceId: string, input: z.input<typeof domainS
       .where(and(eq(schema.service.type, "database"), dsql`lower(${schema.service.database}->>'domain') = ${data.hostname}`));
     if (taken || databaseOnIt) throw new UserError("That domain is already connected to a service.");
     await assertNotDashboardHost(ctx, data.hostname);
+    await assertNotStatusHost(data.hostname);
     // Other organizations than Root prove they control the domain first (DNS TXT record or their Cloudflare zone).
     const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, data.hostname);
     if (!ownership.verified) throw new UserError(ownershipMessage(data.hostname, ownership));

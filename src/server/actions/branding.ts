@@ -7,7 +7,7 @@ import { requireInstanceAdmin } from "@/server/auth";
 import { logActivity } from "@/server/activity";
 import { getSetting, updateSettings } from "@/server/settings";
 import { writeBrandAsset } from "@/server/branding";
-import { type BrandAssetKind, type BrandingConfig, brandAssetKinds, checkBrandImage, cleanProductName, DEFAULT_PRODUCT_NAME, defaultBranding, normalizeHex } from "@/lib/branding";
+import { type BrandAssetKind, type BrandingConfig, brandAssetKinds, checkBrandImage, cleanProductName, defaultBranding, normalizeHex } from "@/lib/branding";
 
 const assetLabel: Record<BrandAssetKind, string> = { logo: "logo", logoDark: "dark mode logo", favicon: "favicon" };
 
@@ -26,8 +26,8 @@ export async function saveBranding(input: z.input<typeof brandingInput>) {
   return act(async () => {
     const ctx = await requireInstanceAdmin();
     const v = brandingInput.parse(input);
-    // Left empty: the default name stays (a logo or colour alone is fine).
-    const name = cleanProductName(v.name) || DEFAULT_PRODUCT_NAME;
+    // Saved as given, even blank: a blank name shows the default one (brandFromConfig).
+    const name = cleanProductName(v.name);
     let accent: string | null = null;
     if (v.accent?.trim()) {
       accent = normalizeHex(v.accent);
@@ -35,7 +35,7 @@ export async function saveBranding(input: z.input<typeof brandingInput>) {
     }
     const config = await currentConfig();
     await updateSettings({ instanceName: name, branding: { ...config, showName: v.showName, accent } });
-    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "branding.update", message: `Updated branding (${name})` });
+    await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "branding.update", message: name ? `Updated branding (${name})` : "Updated branding" });
     // The proxy's error pages carry the product name too.
     void import("@/server/proxy/nginx").then((m) => m.refreshErrorPages()).catch(() => {});
     return null;

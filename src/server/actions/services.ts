@@ -2202,16 +2202,19 @@ export async function pointDomainAtMain(domainId: string) {
     const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
     if (!domain) throw new UserError("Domain not found.");
     const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
-    if (!domain.cloudflareAccountId || !domain.cloudflareZoneId || domain.tunnelId) throw new UserError("Serve can only change this record in a connected Cloudflare account.");
+    if (domain.tunnelId) throw new UserError("This domain goes through a Cloudflare Tunnel: it has no record to point at a server.");
+    const { domainCloudflare } = await import("@/server/cloudflare/domain-link");
+    const link = await domainCloudflare(domain, ctx.org.id);
+    if (!link) throw new UserError(`None of your connected Cloudflare accounts holds the zone of ${domain.hostname}. Connect it in Cloudflare, or change the record yourself.`);
     const ip = await serverPublicIp(service.serverId);
     if (!ip) throw new UserError("The main server has no public IP to point the domain at.");
     const otherIds = service.type === "app" ? runServerIds(service.serverId, service.distribution).filter((id) => id !== service.serverId) : [];
     const others = (await Promise.all(otherIds.map((id) => serverPublicIp(id).catch(() => null)))).filter((x): x is string => !!x && x !== ip);
     const { Cloudflare } = await import("@/server/cloudflare/api");
-    const cf = await Cloudflare.forAccount(domain.cloudflareAccountId);
+    const cf = await Cloudflare.forAccount(link.accountId);
     let moved = false;
     for (const from of others) {
-      const r = await cf.moveARecords(domain.cloudflareZoneId, domain.hostname, from, ip);
+      const r = await cf.moveARecords(link.zoneId, domain.hostname, from, ip);
       if (r.result !== "untouched") moved = true;
     }
     if (!moved) throw new UserError(`${domain.hostname} does not point at another server of this app. Change its record in Cloudflare yourself.`);

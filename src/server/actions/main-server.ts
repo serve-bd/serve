@@ -67,6 +67,11 @@ export async function setMainServer(serviceId: string, serverId: string) {
     if (!next || !old) throw new UserError("Server not found.");
     const problem = entryProblem(next);
     if (problem) throw new UserError(problem);
+    // Domains whose Cloudflare account was connected again find it first, so their records move too.
+    const { domainCloudflare } = await import("@/server/cloudflare/domain-link");
+    for (const d of await db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId))) {
+      if (d.cloudflareZoneId && !d.tunnelId && !d.generated) await domainCloudflare(d, ctx.org.id).catch(() => null);
+    }
     const domains = await entryDomains(serviceId);
     const plan = entryPlan(next, domains);
     if (plan.blockers.length) throw new UserError(plan.blockers.join(" "));

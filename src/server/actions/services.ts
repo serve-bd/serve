@@ -2191,6 +2191,42 @@ export async function checkDomainDns(domainId: string) {
   });
 }
 
+/**
+ * Point a domain's DNS at the app's main server, when its record points at another server the app
+ * runs on (made by hand, or left from before a switch). Only through the connected Cloudflare
+ * account of its zone, and only records that point at one of the app's servers.
+ */
+export async function pointDomainAtMain(domainId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("domains.manage");
+    const [domain] = await db.select().from(schema.domain).where(eq(schema.domain.id, domainId));
+    if (!domain) throw new UserError("Domain not found.");
+    const { service } = await serviceInOrg(domain.serviceId, ctx.org.id);
+    if (!domain.cloudflareAccountId || !domain.cloudflareZoneId || domain.tunnelId) throw new UserError("Serve can only change this record in a connected Cloudflare account.");
+    const ip = await serverPublicIp(service.serverId);
+    if (!ip) throw new UserError("The main server has no public IP to point the domain at.");
+    const otherIds = service.type === "app" ? runServerIds(service.serverId, service.distribution).filter((id) => id !== service.serverId) : [];
+    const others = (await Promise.all(otherIds.map((id) => serverPublicIp(id).catch(() => null)))).filter((x): x is string => !!x && x !== ip);
+    const { Cloudflare } = await import("@/server/cloudflare/api");
+    const cf = await Cloudflare.forAccount(domain.cloudflareAccountId);
+    let moved = false;
+    for (const from of others) {
+      const r = await cf.moveARecords(domain.cloudflareZoneId, domain.hostname, from, ip);
+      if (r.result !== "untouched") moved = true;
+    }
+    if (!moved) throw new UserError(`${domain.hostname} does not point at another server of this app. Change its record in Cloudflare yourself.`);
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "domain.dns",
+      targetType: "service",
+      targetId: service.id,
+      message: `Pointed ${domain.hostname} at ${ip} in Cloudflare`,
+    });
+    return null;
+  });
+}
+
 export async function retryCertificate(domainId: string) {
   return act(async () => {
     const ctx = await requirePermission("domains.manage");

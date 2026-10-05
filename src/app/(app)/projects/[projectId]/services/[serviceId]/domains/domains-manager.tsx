@@ -35,6 +35,7 @@ import { useAction, showError } from "@/hooks/use-action";
 import {
   addDomain,
   checkDomainDns,
+  pointDomainAtMain,
   generateDomain,
   removeDomain,
   reconnectDomainTunnel,
@@ -264,7 +265,8 @@ function dnsHint(state: { status: string; records: string[]; server?: string; ex
   return to;
 }
 
-function DnsBadge({ domainId }: { domainId: string }) {
+/** What public DNS says about a domain; when it points at another server of the app, a way to fix it in Cloudflare. */
+function DnsBadge({ domainId, canFix }: { domainId: string; canFix?: boolean }) {
   const {
     data: state,
     isValidating: loading,
@@ -287,12 +289,36 @@ function DnsBadge({ domainId }: { domainId: string }) {
     unknown: { tone: "neutral", label: "DNS unknown" },
   };
   const m = state ? map[state.status] : null;
+  const confirm = useConfirm();
+  const fix = useAction(() => pointDomainAtMain(domainId), { onSuccess: () => void mutate(), refresh: false });
+  const main = state?.main ?? "the main server";
   return (
-    <Tooltip content={dnsHint(state)}>
-      <button type="button" onClick={check} className="inline-flex">
-        <Badge tone={m?.tone ?? "neutral"}>{loading && !m ? "Checking…" : m?.label}</Badge>
-      </button>
-    </Tooltip>
+    <span className="inline-flex items-center gap-1.5">
+      <Tooltip content={dnsHint(state)}>
+        <button type="button" onClick={check} className="inline-flex">
+          <Badge tone={m?.tone ?? "neutral"}>{loading && !m ? "Checking…" : m?.label}</Badge>
+        </button>
+      </Tooltip>
+      {canFix && state?.status === "other" && (
+        <Button
+          size="sm"
+          variant="secondary"
+          loading={fix.pending}
+          onClick={async () => {
+            if (
+              await confirm({
+                title: `Point it at ${main}?`,
+                description: `Serve changes the record in Cloudflare from ${state.server} to ${state.expected ?? main}. Its Cloudflare proxy setting stays as it is. Visitors move over as soon as Cloudflare has the change.`,
+                confirmLabel: `Point to ${main}`,
+              })
+            )
+              fix.run();
+          }}
+        >
+          Point to {main}
+        </Button>
+      )}
+    </span>
   );
 }
 
@@ -1067,7 +1093,7 @@ export function DomainsManager(props: Props) {
                 <TunnelNotice d={d} tunnels={props.tunnels} serverName={props.serverName} />
               </div>
               <div className="flex flex-none items-center gap-2 pt-0.5">
-                <DnsBadge domainId={d.id} />
+                <DnsBadge domainId={d.id} canFix={canManage && d.cloudflare && !d.tunnel} />
                 <Menu>
                   <MenuTrigger
                     className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-fg disabled:opacity-40"

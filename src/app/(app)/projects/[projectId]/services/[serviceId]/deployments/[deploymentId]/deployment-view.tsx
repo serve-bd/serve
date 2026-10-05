@@ -226,7 +226,8 @@ export function DeploymentView({
                         if (
                           await confirm({
                             title: "Start this deployment now?",
-                            description: "It skips the queue and builds next to the builds already running, past the server's limit of concurrent builds.",
+                            description:
+                              "It skips the queue and builds next to the builds already running, past the server's limit of concurrent builds. A deployment of this service that is running or waiting before it is cancelled.",
                             confirmLabel: "Force start",
                           })
                         )

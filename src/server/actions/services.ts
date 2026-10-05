@@ -1,7 +1,7 @@
 "use server";
 
 import { ALL_DATABASES, SKIP_PREFIX } from "@/lib/backup-databases";
-import { and, asc, isNotNull, eq, inArray, ne, sql as dsql } from "drizzle-orm";
+import { and, asc, isNotNull, eq, inArray, lt, ne, or, sql as dsql } from "drizzle-orm";
 import { runServerIds } from "@/server/deploy/distribution";
 import { z } from "zod";
 import { PASSWORD_PATTERN } from "@/server/databases/password";
@@ -1209,8 +1209,9 @@ export async function cancelDeployment(deploymentId: string) {
 }
 
 /**
- * Starts a queued deployment now, past its build server's limit of concurrent builds. It still
- * waits for a deployment of the same service that is running: two at once would fight over it.
+ * Starts a queued deployment now, past its build server's limit of concurrent builds. Deployments
+ * of the same service that run or wait ahead of it are cancelled: two at once would fight over the
+ * service, and the newer one wins. It starts as soon as the cancelled one has stopped.
  */
 export async function forceStartDeployment(deploymentId: string) {
   return act(async () => {
@@ -1225,12 +1226,38 @@ export async function forceStartDeployment(deploymentId: string) {
       .where(and(eq(schema.job.type, "deploy"), eq(schema.job.status, "pending"), dsql`${schema.job.payload}->>'deploymentId' = ${deploymentId}`));
     if (!job) throw new UserError("This deployment is starting already.");
     if (job.concurrencyKey) {
-      const [busy] = await db
-        .select({ id: schema.job.id })
+      // Something else of the service runs (a start, a restart): that is not ours to cancel.
+      const running = await db
+        .select({ type: schema.job.type, payload: schema.job.payload })
         .from(schema.job)
-        .where(and(eq(schema.job.status, "running"), eq(schema.job.concurrencyKey, job.concurrencyKey)))
-        .limit(1);
-      if (busy) throw new UserError(`Another deployment of ${service.name} is running. This one starts when it ends; cancel that one to start this one now.`);
+        .where(and(eq(schema.job.status, "running"), eq(schema.job.concurrencyKey, job.concurrencyKey)));
+      if (running.some((j) => j.type !== "deploy")) throw new UserError(`${service.name} is busy with another task. This deployment starts when it ends.`);
+    }
+    // The deployments in the way: the one running, and older ones still queued (they would run first).
+    const ahead = await db
+      .select({ id: schema.deployment.id, status: schema.deployment.status })
+      .from(schema.deployment)
+      .where(
+        and(
+          eq(schema.deployment.serviceId, dep.serviceId),
+          ne(schema.deployment.id, dep.id),
+          or(inArray(schema.deployment.status, ["building", "deploying"]), and(eq(schema.deployment.status, "queued"), lt(schema.deployment.createdAt, dep.createdAt))),
+        ),
+      );
+    for (const other of ahead) {
+      if (other.status === "queued") {
+        const [cancelled] = await db
+          .update(schema.deployment)
+          .set({ status: "cancelled", finishedAt: new Date(), logs: "Cancelled: a newer deployment was force started.\n" })
+          .where(and(eq(schema.deployment.id, other.id), eq(schema.deployment.status, "queued")))
+          .returning({ id: schema.deployment.id });
+        if (cancelled) {
+          await queueCommitStatus(other.id);
+          continue;
+        }
+      }
+      // Running (or it just started): the worker stops it, and the previous version keeps running.
+      await sql.notify(CANCEL_CHANNEL, other.id);
     }
     await db
       .update(schema.job)
@@ -1243,7 +1270,7 @@ export async function forceStartDeployment(deploymentId: string) {
       action: "deployment.force-started",
       targetType: "service",
       targetId: service.id,
-      message: `Force started a deployment of ${service.name}`,
+      message: `Force started a deployment of ${service.name}${ahead.length ? `, cancelling ${ahead.length === 1 ? "the one before it" : `${ahead.length} before it`}` : ""}`,
     });
     return null;
   });

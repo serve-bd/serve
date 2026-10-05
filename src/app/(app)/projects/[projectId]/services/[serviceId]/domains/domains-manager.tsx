@@ -1,8 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUpRight, Cloud, Globe, Lock, LockOpen, MoreHorizontal, Pencil, Plus, RefreshCw, Sparkles, Star, Trash2, CornerDownRight, Waypoints } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import {
+  ArrowUpRight,
+  Cloud,
+  Globe,
+  Lock,
+  LockOpen,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Star,
+  Trash2,
+  CornerDownRight,
+  TriangleAlert,
+  Waypoints,
+} from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge, Card, CardHeader, CopyButton, EmptyState } from "@/components/ui/misc";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
@@ -70,6 +87,10 @@ type Props = {
   serviceId: string;
   /** Reverse proxy of the service's server. */
   proxyKind?: string;
+  /** Whether that proxy runs now: "stopped" by an admin, "down" (crashed or missing), or "none" (no proxy). */
+  proxyState?: "running" | "stopped" | "down" | "none";
+  /** The service's server, for the link to its proxy settings. */
+  serverId?: string;
   /** Host ports of the server's proxy. */
   proxyPorts?: { http: number; https: number };
   /** How Traefik's ACME resolver validates domains. */
@@ -103,6 +124,8 @@ function withEntry(props: Props, e: EntryServer): Props {
   return {
     ...props,
     proxyKind: e.proxyKind,
+    proxyState: e.proxyKind === "none" ? "none" : e.proxyStopped ? "stopped" : "running",
+    serverId: e.id,
     proxyPorts: e.proxyPorts,
     acmeChallenge: e.acmeChallenge,
     serverIp: e.publicIp,
@@ -262,6 +285,16 @@ function DnsBadge({ domainId }: { domainId: string }) {
 const CHALLENGE: Record<string, string> = { http: "HTTP challenge", tls: "TLS-ALPN challenge", "dns-cloudflare": "Cloudflare DNS" };
 
 /** Card subtitle for the server's proxy. */
+/** Why the domains get no visitors now (no proxy, or one that is not running), or null. */
+function notServed(props: Pick<Props, "proxyKind" | "proxyState" | "serverName">) {
+  const state = props.proxyKind === "none" ? "none" : props.proxyState;
+  if (state === "none")
+    return `No proxy runs on ${props.serverName}, so domains here are not served. Turn on a proxy in the server's Proxy settings, or reach the app through published ports.`;
+  if (state === "stopped") return `The proxy on ${props.serverName} is stopped, so domains here are not served. Start it in the server's Proxy settings.`;
+  if (state === "down") return `The proxy on ${props.serverName} is not running, so domains here are not served right now. Check the server's Proxy settings.`;
+  return null;
+}
+
 function proxySubtitle(kind = "nginx") {
   if (kind === "none") return "No proxy on this server — use published ports or your own proxy.";
   if (kind === "caddy") return "Traffic reaches your service through Caddy, which handles HTTPS automatically.";
@@ -405,6 +438,15 @@ function DnsRecordTable({ hostname, ip }: { hostname: string; ip: string }) {
   );
 }
 
+function NotServedNotice({ text }: { text: string }) {
+  return (
+    <div className="flex gap-2.5 rounded-xl border border-warn/25 bg-warn-soft p-3.5 text-xs leading-relaxed text-fg-2">
+      <TriangleAlert className="mt-0.5 size-4 flex-none text-warn" />
+      <p>{text}</p>
+    </div>
+  );
+}
+
 function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: boolean; onOpenChange: (o: boolean) => void }) {
   // Apps on several servers: visitors enter through one of them, picked here. The options below
   // (tunnels, IP, certificates) are those of the picked server.
@@ -447,7 +489,8 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
     return res.ok ? res.data : null;
   });
   const zone = p.hasCloudflare && /\.[a-z]{2,}$/i.test(hostname) ? (zoneData ?? null) : null;
-  const tunnel = p.isAdmin && zone ? p.tunnels.find((t) => t.accountId === zone.accountId) : undefined;
+  // A tunnel ends at the proxy: with none on the server, it would lead nowhere.
+  const tunnel = p.isAdmin && zone && p.proxyKind !== "none" ? p.tunnels.find((t) => t.accountId === zone.accountId) : undefined;
   // A tunnel, when the domain's Cloudflare account has one, is the default: it needs no public IP or open port.
   const [chosenRoute, setRoute] = React.useState<"ip" | "tunnel" | null>(null);
   const route = chosenRoute ?? (tunnel ? "tunnel" : "ip");
@@ -539,7 +582,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
             description={
               step === 1
                 ? p.proxyKind === "none"
-                  ? "Point a domain at this service. This server runs no proxy, so the domain is saved but not served."
+                  ? "Point a domain at this service. This server runs no proxy, so the domain is saved but not served until one runs."
                   : p.proxyKind === "caddy"
                     ? "Point a domain at this service. Caddy obtains and renews the certificate automatically."
                     : p.proxyKind === "traefik"
@@ -646,12 +689,10 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                     </p>
                   </div>
                 ) : p.proxyKind === "none" ? (
-                  <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
-                    <Globe className="mt-0.5 size-4 flex-none text-muted" />
-                    <p>No proxy on this server — use published ports or your own proxy. The domain is saved and served again when a proxy runs.</p>
-                  </div>
+                  <NotServedNotice text={`${notServed(p)} The domain is saved, and served once a proxy runs.`} />
                 ) : (
                   <>
+                    {notServed(p) && <NotServedNotice text={`${notServed(p)} The domain is saved, and served once it runs again.`} />}
                     <TlsChoice props={p} hostname={hostname} value={tls} onChange={setTls} certificateId={certificateId} onCertificate={setCertificateId} />
                     {tls === "auto" && !!hostname && challengeProblem(p, !!zone && (p.proxyKind ?? "nginx") === "nginx") && (
                       <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
@@ -913,6 +954,17 @@ export function DomainsManager(props: Props) {
           </>
         }
       />
+      {notServed(props) && props.domains.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-warn/25 bg-warn-soft px-4 py-2.5 text-[13px] text-fg-2 sm:px-5">
+          <TriangleAlert className="size-4 flex-none text-warn" />
+          <span className="min-w-0 flex-1">{notServed(props)}</span>
+          {props.isAdmin && props.serverId && (
+            <Link href={`/servers/${props.serverId}/proxy`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
+              Proxy settings
+            </Link>
+          )}
+        </div>
+      )}
       {mainEntry && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line bg-surface-2/60 px-4 py-2.5 text-[13px] sm:px-5">
           <span className="text-muted">Visitors enter through</span>
@@ -953,6 +1005,11 @@ export function DomainsManager(props: Props) {
                     <span className="truncate">{d.hostname}</span>
                     <ArrowUpRight className="size-3.5 shrink-0 text-faint" />
                   </a>
+                  {notServed(props) && (
+                    <Tooltip content={notServed(props)}>
+                      <Badge tone="warn">Not served</Badge>
+                    </Tooltip>
+                  )}
                   {d.primary && (
                     <Badge tone="info">
                       <Star /> Primary

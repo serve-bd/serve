@@ -76,6 +76,24 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
     if (d.composeService && d.port && !composePorts[d.composeService]?.includes(d.port)) composePorts[d.composeService] = [d.port, ...(composePorts[d.composeService] ?? [])];
   }
   const kind = server.proxyKind as RunningKind | "none";
+  // Whether the proxy serves these domains right now: checked live, briefly (an unreachable server counts as unknown, not down).
+  const proxyState: "running" | "stopped" | "down" | "none" =
+    kind === "none"
+      ? "none"
+      : server.proxyStopped
+        ? "stopped"
+        : await getServer(service.serverId)
+            .then((c) =>
+              Promise.race([
+                c.docker
+                  .getContainer(c.proxyContainer)
+                  .inspect()
+                  .then((i) => (i.State.Running ? ("running" as const) : ("down" as const)))
+                  .catch((e: { statusCode?: number }) => (e?.statusCode === 404 ? ("down" as const) : ("running" as const))),
+                new Promise<"running">((r) => setTimeout(() => r("running"), 2000)),
+              ]),
+            )
+            .catch(() => "running" as const);
   // The generated site is only shown to Root admins, who may replace it.
   const serverCtx = await getServer(service.serverId).catch(() => null);
   const generated = ctx.isInstanceAdmin && kind !== "none" && domains.length > 0 && serverCtx ? await generatedSite(kind, service.id, serverCtx).catch(() => null) : null;
@@ -90,6 +108,8 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
       <DomainsManager
         serviceId={service.id}
         proxyKind={server.proxyKind}
+        proxyState={proxyState}
+        serverId={service.serverId}
         proxyPorts={serverCtx ? { http: serverCtx.proxyHttpPort, https: serverCtx.proxyHttpsPort } : undefined}
         acmeChallenge={server.proxyConfig?.traefik?.acmeChallenge ?? "http"}
         type={service.type}

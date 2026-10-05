@@ -130,12 +130,21 @@ export function MainServerDialog({
   const server = servers.find((s) => s.id === chosen);
   const plan = server && !server.main ? entryPlan(server, domains) : null;
   const ok = !!server && !server.main && !entryProblem(server) && !plan?.blockers.length;
+  // Closed once the page shows the new main server, not before: the refresh takes a few seconds,
+  // and a closed dialog over the old values looks like the switch did nothing.
+  const [switched, setSwitched] = React.useState(false);
   const { run, pending } = useAction(() => setMainServer(serviceId, chosen), {
     onSuccess: (result) => {
       reportMainServer(result, server?.name ?? "the server");
-      onOpenChange(false);
+      setSwitched(true);
     },
   });
+  React.useEffect(() => {
+    if (switched && !pending) {
+      setSwitched(false);
+      onOpenChange(false);
+    }
+  }, [switched, pending, onOpenChange]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>

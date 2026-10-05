@@ -198,12 +198,19 @@ export async function setMainServer(serviceId: string, serverId: string) {
           manual.push({ hostname: d.hostname, ip: move.ip });
         } else if (move.kind === "record" && d.cloudflareAccountId && d.cloudflareZoneId) {
           const cf = await Cloudflare.forAccount(d.cloudflareAccountId);
-          const current = (await cf.dnsRecords(d.cloudflareZoneId, { name: d.hostname })).find((r) => r.id === d.cloudflareRecordId);
-          const record = await cf.upsertARecord(d.cloudflareZoneId, d.hostname, move.ip, current?.proxied ?? false);
-          await db
-            .update(schema.domain)
-            .set({ cloudflareRecordId: record?.id ?? null })
-            .where(eq(schema.domain.id, d.id));
+          if (d.cloudflareRecordId) {
+            const current = (await cf.dnsRecords(d.cloudflareZoneId, { name: d.hostname })).find((r) => r.id === d.cloudflareRecordId);
+            const record = await cf.upsertARecord(d.cloudflareZoneId, d.hostname, move.ip, current?.proxied ?? false);
+            await db
+              .update(schema.domain)
+              .set({ cloudflareRecordId: record?.id ?? null })
+              .where(eq(schema.domain.id, d.id));
+          } else {
+            // The user's own record: moved only when it pointed at the old main server.
+            const moved = old.publicIp ? await cf.moveARecords(d.cloudflareZoneId, d.hostname, old.publicIp, move.ip) : { result: "untouched" as const, record: null };
+            if (moved.result === "untouched") manual.push({ hostname: d.hostname, ip: move.ip });
+            else if (moved.result === "created" && moved.record) await db.update(schema.domain).set({ cloudflareRecordId: moved.record.id }).where(eq(schema.domain.id, d.id));
+          }
         } else if (move.kind === "tunnel" && d.cloudflareZoneId) {
           const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, move.tunnelId));
           if (!tunnel) continue;

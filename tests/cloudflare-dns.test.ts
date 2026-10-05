@@ -49,3 +49,36 @@ describe("upsertARecord", () => {
     expect(records).toEqual([expect.objectContaining({ id: "r1", content: "203.0.113.5", proxied: true })]);
   });
 });
+
+describe("moveARecords", () => {
+  const OLD = "152.53.195.199";
+  const NEW = "62.238.45.251";
+
+  it("moves the user's own A record from the old server, keeping its proxy setting and owner", async () => {
+    const { cf, records } = fakeZone([record({ name: "serve.bd", content: OLD, proxied: true, comment: null })]);
+    expect((await cf.moveARecords("z", "serve.bd", OLD, NEW)).result).toBe("moved");
+    expect(records).toEqual([expect.objectContaining({ id: "r1", content: NEW, proxied: true, comment: null })]);
+  });
+
+  it("leaves records that point anywhere else alone", async () => {
+    const { cf, records } = fakeZone([
+      record({ name: "serve.bd", content: "198.51.100.9" }),
+      record({ id: "r2", name: "serve.bd", type: "CNAME", content: "elsewhere.example.net" }),
+    ]);
+    expect((await cf.moveARecords("z", "serve.bd", OLD, NEW)).result).toBe("untouched");
+    expect(records.map((r) => r.content)).toEqual(["198.51.100.9", "elsewhere.example.net"]);
+  });
+
+  it("drops the old record when the new IP is already listed", async () => {
+    const { cf, records } = fakeZone([record({ name: "serve.bd", content: OLD }), record({ id: "r2", name: "serve.bd", content: NEW })]);
+    expect((await cf.moveARecords("z", "serve.bd", OLD, NEW)).result).toBe("moved");
+    expect(records.map((r) => r.content)).toEqual([NEW]);
+  });
+
+  it("creates Serve's own record when the name has none", async () => {
+    const { cf, records } = fakeZone([]);
+    const moved = await cf.moveARecords("z", "serve.bd", OLD, NEW);
+    expect(moved.result).toBe("created");
+    expect(records).toEqual([expect.objectContaining({ type: "A", name: "serve.bd", content: NEW, comment: "Managed by Serve" })]);
+  });
+});

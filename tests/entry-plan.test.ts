@@ -59,6 +59,11 @@ describe("entryPlan", () => {
     ]);
   });
 
+  it("moves the user's own record in a connected Cloudflare zone through the API", () => {
+    const plan = entryPlan(server(), [domain({ id: "c", cloudflareZoneId: "z", cloudflareAccountId: "acc" })]);
+    expect(plan.moves).toEqual([{ domainId: "c", hostname: "app.example.com", kind: "record", ip: "203.0.113.7" }]);
+  });
+
   it("keeps a tunnel domain on a tunnel of the same Cloudflare account", () => {
     const plan = entryPlan(server({ tunnels: [{ id: "t2", accountId: "acc" }] }), [domain({ tunnelId: "t1", tunnelAccountId: "acc", cloudflareZoneId: "z" })]);
     expect(plan.moves).toEqual([{ domainId: "d1", hostname: "app.example.com", kind: "tunnel", tunnelId: "t2" }]);

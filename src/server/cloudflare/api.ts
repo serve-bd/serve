@@ -196,6 +196,33 @@ export class Cloudflare {
   }
 
   /**
+   * Move a hostname's A records from one server to another: those pointing at `from` now point at
+   * `to`, keeping their Cloudflare proxy setting and their owner (a record the user made stays
+   * theirs). Records pointing anywhere else are left alone. A name with no record at all gets
+   * Serve's own A record. Returns "moved", "created", or "untouched" when nothing pointed at `from`.
+   */
+  async moveARecords(
+    zoneId: string,
+    hostname: string,
+    from: string,
+    to: string,
+    comment = "Managed by Serve",
+  ): Promise<{ result: "moved" | "created" | "untouched"; record: CfDnsRecord | null }> {
+    const existing = (await this.dnsRecords(zoneId, { name: hostname })).filter((r) => ["A", "AAAA", "CNAME"].includes(r.type));
+    if (!existing.length) return { result: "created", record: await this.createDnsRecord(zoneId, { type: "A", name: hostname, content: to, proxied: false, comment }) };
+    const atOld = existing.filter((r) => r.type === "A" && r.content === from);
+    if (!atOld.length) return { result: existing.some((r) => r.type === "A" && r.content === to) ? "moved" : "untouched", record: null };
+    // A record for the new IP already there (both servers listed): the old one goes, Cloudflare refuses duplicates.
+    const already = existing.some((r) => r.type === "A" && r.content === to);
+    let record: CfDnsRecord | null = null;
+    for (const r of atOld) {
+      if (already) await this.deleteDnsRecord(zoneId, r.id);
+      else record = await this.updateDnsRecord(zoneId, r.id, { content: to });
+    }
+    return { result: "moved", record: record?.comment === comment ? record : null };
+  }
+
+  /**
    * Point a hostname at several servers (one DNS-only A record each), for names that lead to every
    * server something runs on (a database's read replicas). Serve's own records follow the list;
    * records someone else made are never changed, and block the name unless they match.

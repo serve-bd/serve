@@ -58,7 +58,10 @@ export function entryProblem(s: EntryServer): string | null {
 export type DomainMove =
   /** Nothing to change: the name does not lead to a server (a redirect still needs one, and has it). */
   | { domainId: string; hostname: string; kind: "keep" }
-  /** Serve's A record now points at the new server's IP. */
+  /**
+   * The A record in a connected Cloudflare zone now points at the new server's IP: Serve's own
+   * record, or the user's own one when it pointed at the old main server (anything else is left alone).
+   */
   | { domainId: string; hostname: string; kind: "record"; ip: string }
   /** The user's own DNS: they point it at this IP. */
   | { domainId: string; hostname: string; kind: "manual"; ip: string }
@@ -100,7 +103,7 @@ export function entryPlan(target: Pick<EntryServer, "name" | "publicIp" | "tunne
       continue;
     }
     if (target.publicIp) {
-      moves.push({ ...base, kind: d.managedRecord && d.cloudflareZoneId ? "record" : "manual", ip: target.publicIp });
+      moves.push({ ...base, kind: d.cloudflareZoneId && (d.managedRecord || d.cloudflareAccountId) ? "record" : "manual", ip: target.publicIp });
       continue;
     }
     // No public IP: only a tunnel of the account that holds the domain's zone can carry it.

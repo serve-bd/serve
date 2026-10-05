@@ -30,7 +30,7 @@ export function requestLogConfig(raw: Partial<RequestLogConfig> | null | undefin
  * Hostnames whose requests are logged, with their service. A preview uses its parent's settings
  * (it has none of its own). Wildcard domains ("*.example.com") match one label below them.
  */
-export async function logTargets(): Promise<Map<string, LogTarget>> {
+export async function logTargets(): Promise<Map<string, LogTarget | null>> {
   const parent = schema.service;
   const rows = await db
     .select({
@@ -48,21 +48,26 @@ export async function logTargets(): Promise<Map<string, LogTarget>> {
   const parents = parentIds.length
     ? new Map((await db.select({ id: parent.id, requestLog: parent.requestLog }).from(parent).where(inArray(parent.id, parentIds))).map((p) => [p.id, p.requestLog]))
     : new Map();
-  const out = new Map<string, LogTarget>();
+  // Every domain is in the map, also those of services that keep no log (as null): a host that is
+  // some service's own domain must never fall to another service's wildcard (*.example.com).
+  const out = new Map<string, LogTarget | null>();
   for (const r of rows) {
     const config = requestLogConfig(r.parentId ? parents.get(r.parentId) : r.own);
-    if (!config.enabled || !config.statuses.length) continue;
-    out.set(r.hostname.toLowerCase(), { serviceId: r.serviceId, projectId: r.projectId, orgId: r.orgId, config });
+    const on = config.enabled && config.statuses.length > 0;
+    out.set(r.hostname.toLowerCase(), on ? { serviceId: r.serviceId, projectId: r.projectId, orgId: r.orgId, config } : null);
   }
   return out;
 }
 
-export function targetFor(targets: Map<string, LogTarget>, host: string) {
+/**
+ * The service whose log keeps a request to this host: the domain's own service, else the wildcard
+ * one label up, but only when no service has the host as a domain of its own.
+ */
+export function targetFor(targets: Map<string, LogTarget | null>, host: string) {
   const h = host.toLowerCase();
-  const exact = targets.get(h);
-  if (exact) return exact;
+  if (targets.has(h)) return targets.get(h) ?? undefined;
   const dot = h.indexOf(".");
-  return dot > 0 ? targets.get(`*${h.slice(dot)}`) : undefined;
+  return dot > 0 ? (targets.get(`*${h.slice(dot)}`) ?? undefined) : undefined;
 }
 
 const clean = (v: string | undefined, max: number) => (v && v !== "-" ? v.slice(0, max) : null);
@@ -105,10 +110,10 @@ export function requestRow(entry: AccessEntry, target: LogTarget, serverId: stri
 }
 
 /** Save rows and tell open request lists (live, one event per service). */
-export async function saveRequests(rows: RequestRow[], targets: Map<string, LogTarget>) {
+export async function saveRequests(rows: RequestRow[], targets: Map<string, LogTarget | null>) {
   for (let i = 0; i < rows.length; i += BATCH) await db.insert(schema.requestLog).values(rows.slice(i, i + BATCH));
   const services = new Set(rows.map((r) => r.serviceId));
-  for (const target of new Map([...targets.values()].map((t) => [t.serviceId, t])).values()) {
+  for (const target of new Map([...targets.values()].filter((t): t is LogTarget => !!t).map((t) => [t.serviceId, t])).values()) {
     if (!services.has(target.serviceId)) continue;
     // Not a table trigger: one notice per batch, and LiveUpdates hands it to the request list only.
     await db.execute(

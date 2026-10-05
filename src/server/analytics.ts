@@ -18,7 +18,7 @@ type Bucket = { requests: number; s2: number; s3: number; s4: number; s5: number
 export async function ingestAccessLog() {
   let total = 0;
   // Hostnames whose single requests are kept too (the request log), read once per round.
-  const targets = await logTargets().catch(() => new Map<string, LogTarget>());
+  const targets = await logTargets().catch(() => new Map<string, LogTarget | null>());
   for (const ctx of await activeServers()) {
     try {
       total += await ingestServerLog(ctx, targets);
@@ -29,7 +29,7 @@ export async function ingestAccessLog() {
   return total;
 }
 
-async function ingestServerLog(ctx: ServerCtx, targets: Map<string, LogTarget>) {
+async function ingestServerLog(ctx: ServerCtx, targets: Map<string, LogTarget | null>) {
   const file = path.posix.join(ctx.paths.proxyLogs, "access.log");
   const stat = await ctx.fs.stat(file);
   if (!stat) return 0;

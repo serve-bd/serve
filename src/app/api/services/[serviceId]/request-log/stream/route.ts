@@ -45,7 +45,11 @@ export async function GET(_request: NextRequest, ctx: RouteContext<"/api/service
   if (!config.enabled) return quiet("The request log is off.");
   const domains = await db.select({ hostname: schema.domain.hostname }).from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
   const target: LogTarget = { serviceId, projectId: service.projectId, orgId: org.org.id, config };
-  const targets = new Map(domains.map((d) => [d.hostname.toLowerCase(), target]));
+  // The service's own domains, and every other service's as "not this one": a wildcard of this
+  // service must not pick up a host that is another service's own domain.
+  const others = await db.select({ hostname: schema.domain.hostname }).from(schema.domain);
+  const targets = new Map<string, LogTarget | null>(others.map((d) => [d.hostname.toLowerCase(), null]));
+  for (const d of domains) targets.set(d.hostname.toLowerCase(), target);
   // Visitors come through the service's own server; an app's extra servers too when DNS points there.
   const serverIds = service.type === "app" ? runServerIds(service.serverId, service.distribution) : [service.serverId];
 

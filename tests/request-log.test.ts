@@ -126,7 +126,7 @@ describe("request log settings and filters", () => {
   });
 
   it("matches a domain exactly, else its wildcard", () => {
-    const targets = new Map([
+    const targets = new Map<string, LogTarget | null>([
       ["a.test", target()],
       ["*.apps.test", { ...target(), serviceId: "wild" }],
     ]);
@@ -134,6 +134,17 @@ describe("request log settings and filters", () => {
     expect(targetFor(targets, "x.apps.test")?.serviceId).toBe("wild");
     expect(targetFor(targets, "y.x.apps.test")).toBeUndefined();
     expect(targetFor(targets, "b.test")).toBeUndefined();
+  });
+
+  it("never gives a wildcard a host that is another service's own domain, log or no log", () => {
+    const targets = new Map<string, LogTarget | null>([
+      ["*.apps.test", { ...target(), serviceId: "wild" }],
+      ["shop.apps.test", null],
+      ["blog.apps.test", { ...target(), serviceId: "blog" }],
+    ]);
+    expect(targetFor(targets, "shop.apps.test")).toBeUndefined();
+    expect(targetFor(targets, "blog.apps.test")?.serviceId).toBe("blog");
+    expect(targetFor(targets, "other.apps.test")?.serviceId).toBe("wild");
   });
 
   it("reads filters from a query and ignores what it cannot use", () => {

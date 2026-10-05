@@ -1,3 +1,5 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
@@ -252,7 +254,34 @@ async function upstreamStep(ctx: ServerCtx): Promise<ConnectionStep> {
   return { id: "upstream", title, state: "fail", summary: `Could not reach ${upstream}`, detail: out || undefined };
 }
 
-async function httpsStep(domain: string, route: "ip" | "tunnel", https: boolean, rootOrg: string | null): Promise<ConnectionStep> {
+/**
+ * The dashboard's health page asked of the local proxy directly, under the domain's name (and its
+ * certificate checked for it): for servers that cannot reach their own public address (no hairpin
+ * NAT, common with cloud hosts), where the request from outside works but the one from here does not.
+ */
+export async function healthThroughProxy(domain: string, secure: boolean, ctx: ServerCtx): Promise<boolean> {
+  const request = secure ? httpsRequest : httpRequest;
+  // The proxy container on the Docker network, else its published port (Serve running outside Docker).
+  const targets = [
+    { host: ctx.proxyContainer, port: secure ? 443 : 80 },
+    { host: "127.0.0.1", port: secure ? ctx.proxyHttpsPort : ctx.proxyHttpPort },
+  ];
+  for (const t of targets) {
+    const ok = await new Promise<boolean>((resolve) => {
+      const req = request({ host: t.host, port: t.port, path: "/api/health", method: "GET", headers: { host: domain }, servername: domain, timeout: 4000 }, (res) => {
+        res.resume();
+        resolve((res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300);
+      });
+      req.on("timeout", () => req.destroy());
+      req.on("error", () => resolve(false));
+      req.end();
+    });
+    if (ok) return true;
+  }
+  return false;
+}
+
+async function httpsStep(domain: string, route: "ip" | "tunnel", https: boolean, rootOrg: string | null, ctx: ServerCtx): Promise<ConnectionStep> {
   const secure = route === "tunnel" || https;
   const url = `${secure ? "https" : "http"}://${domain}/api/health`;
   const title = secure ? "HTTPS" : "HTTP";
@@ -290,6 +319,21 @@ async function httpsStep(domain: string, route: "ip" | "tunnel", https: boolean,
   } catch (e) {
     const err = e as Error & { cause?: { code?: string; message?: string } };
     const code = err.cause?.code ?? "";
+    // No answer from the public address: the server may just not reach itself through it.
+    if (
+      route === "ip" &&
+      !cert &&
+      (err.name === "TimeoutError" || /ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|ECONNRESET/.test(code)) &&
+      (await healthThroughProxy(domain, secure, ctx))
+    ) {
+      return {
+        id: "https",
+        title,
+        state: "ok",
+        summary: `${url.replace(/\/api\/health$/, "")} answers through the proxy`,
+        detail: "This server cannot reach its own public address, which is common with cloud hosts, so Serve asked its proxy directly. Visitors from outside are not affected.",
+      };
+    }
     const summary =
       err.name === "TimeoutError"
         ? "No answer within 8 seconds"
@@ -326,7 +370,7 @@ export async function dashboardConnectionReport(): Promise<ConnectionReport> {
   const upstream: ConnectionStep = running
     ? await upstreamStep(ctx)
     : { id: "upstream", title: "Dashboard reachable from the proxy", state: "skip", summary: "Waiting for the proxy" };
-  const https = await httpsStep(domain, route, s.dashboardHttps, s.rootOrganizationId);
+  const https = await httpsStep(domain, route, s.dashboardHttps, s.rootOrganizationId, ctx);
   if (waiting) {
     report.steps = [
       {

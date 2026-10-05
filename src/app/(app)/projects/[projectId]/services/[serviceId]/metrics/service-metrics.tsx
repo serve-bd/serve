@@ -107,8 +107,11 @@ export function ServiceMetrics({
   hasDomains,
   resources,
   requestLog,
+  initialTab,
 }: {
   serviceId: string;
+  /** From the address (?tab=traffic), else Resources (Traffic when the server records no resources). */
+  initialTab: "traffic" | "resources";
   memoryLimit: number | null;
   hasDomains: boolean;
   /** The request log of the service: whether it is on, what it keeps, where to set it up. */
@@ -117,7 +120,16 @@ export function ServiceMetrics({
   resources: boolean;
 }) {
   const [hours, setHours] = React.useState(6);
-  const { data } = useSWR<{ series: Series }>(resources ? `/api/metrics?scope=${serviceId}&hours=${hours}` : null, { refreshInterval: 15000 });
+  // Traffic (requests through the proxy) and Resources (CPU, memory, network): one at a time,
+  // remembered in the address so a link or a reload opens the same one.
+  const [tab, setTab] = React.useState<"traffic" | "resources">(hasDomains ? initialTab : "resources");
+  const pick = (t: "traffic" | "resources") => {
+    setTab(t);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", t);
+    window.history.replaceState(window.history.state, "", url);
+  };
+  const { data } = useSWR<{ series: Series }>(resources && tab === "resources" ? `/api/metrics?scope=${serviceId}&hours=${hours}` : null, { refreshInterval: 15000 });
   const series = data?.series ?? [];
   const last = series.at(-1);
   const rx = counterRate(series, "netRx");
@@ -126,22 +138,47 @@ export function ServiceMetrics({
   // Docker reports a limit (the host's RAM at least) whenever it can measure memory; none means it cannot.
   // Docker on some servers never reports memory (limit 0); judged by the latest point, so a change mid-window shows.
   const memUnknown = series.length > 0 && !series.at(-1)!.memoryLimit;
-  const { data: req } = useSWR<Req>(hasDomains ? `/api/services/${serviceId}/requests?hours=${hours}` : null, { refreshInterval: 30000 });
+  const { data: req } = useSWR<Req>(hasDomains && tab === "traffic" ? `/api/services/${serviceId}/requests?hours=${hours}` : null, { refreshInterval: 30000 });
   const [picked, setPicked] = React.useState<number | null>(null);
   const points = req?.series ?? [];
   const step = points.length > 1 ? points[1].t - points[0].t : 60_000;
-  // A bar picked in another range is not on the chart any more.
-  React.useEffect(() => setPicked(null), [hours]);
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {hasDomains ? (
+          <div className="flex gap-1 rounded-xl bg-sunken p-1" role="tablist" aria-label="Metrics">
+            {(
+              [
+                ["resources", "Resources"],
+                ["traffic", "Traffic"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                onClick={() => pick(id)}
+                className={cn("h-7 rounded-lg px-3 text-[13px] font-medium transition-all", tab === id ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span />
+        )}
         <div className="flex gap-1 rounded-xl bg-sunken p-1">
           {ranges.map((r) => (
             <button
               key={r.hours}
               type="button"
-              onClick={() => setHours(r.hours)}
+              onClick={() => {
+                setHours(r.hours);
+                // A bar picked in another range is not on the chart any more.
+                setPicked(null);
+              }}
               className={cn("h-7 rounded-lg px-3 text-xs font-medium transition-all", hours === r.hours ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
             >
               {r.label}
@@ -149,7 +186,7 @@ export function ServiceMetrics({
           ))}
         </div>
       </div>
-      {hasDomains && (
+      {tab === "traffic" && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
           <Panel title="Requests" value={req ? compact(req.totals.requests) : "—"}>
             <StatusBars series={points} picked={picked} setPicked={setPicked} />
@@ -181,7 +218,7 @@ export function ServiceMetrics({
           </div>
         </div>
       )}
-      {hasDomains && requestLog && (
+      {tab === "traffic" && requestLog && (
         <RequestLog
           serviceId={serviceId}
           enabled={requestLog.enabled}
@@ -191,7 +228,7 @@ export function ServiceMetrics({
           onClearWindow={() => setPicked(null)}
         />
       )}
-      {!resources ? (
+      {tab !== "resources" ? null : !resources ? (
         <p className="px-1 text-xs text-muted">
           Its server does not collect metrics, so CPU, memory and network use are not shown. Admins turn them on in the server&apos;s settings.
         </p>

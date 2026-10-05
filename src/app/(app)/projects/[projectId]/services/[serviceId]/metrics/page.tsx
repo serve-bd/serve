@@ -11,6 +11,7 @@ export const metadata = { title: "Metrics" };
 
 export default async function MetricsPage(props: PageProps<"/projects/[projectId]/services/[serviceId]/metrics">) {
   const { projectId, serviceId } = await props.params;
+  const { tab } = await props.searchParams;
   const ctx = await requireOrg();
   const { service } = await pageService(serviceId, projectId, ctx.org.id);
   const [[server], domains] = await Promise.all([
@@ -35,6 +36,7 @@ export default async function MetricsPage(props: PageProps<"/projects/[projectId
         memoryLimit={service.runtime.memoryLimit ?? null}
         hasDomains={hasDomains}
         resources={resources}
+        initialTab={tab === "traffic" || (tab !== "resources" && !resources) ? "traffic" : "resources"}
         requestLog={
           hasDomains ? { enabled: log.enabled, statuses: log.statuses, settingsHref: `/projects/${projectId}/services/${logOwner}/settings/monitoring#request-log` } : null
         }

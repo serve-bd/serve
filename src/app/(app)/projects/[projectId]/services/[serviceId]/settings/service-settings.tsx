@@ -748,7 +748,7 @@ export function ServiceSettings(props: Props) {
           config={props.requestLog.config}
           kept={props.requestLog.kept}
           hasDomains={props.requestLog.hasDomains}
-          metricsHref={`/projects/${props.projectId}/services/${service.id}/metrics`}
+          metricsHref={`/projects/${props.projectId}/services/${service.id}/metrics?tab=traffic`}
         />
       )}
 

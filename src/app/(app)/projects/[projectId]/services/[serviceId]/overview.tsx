@@ -341,7 +341,15 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
         {/* Traffic */}
         {data.domains.length > 0 && (
           <Card>
-            <CardHeader title="Traffic" description="Requests through the proxy in the last 24 hours." />
+            <CardHeader
+              title="Traffic"
+              description="Requests through the proxy in the last 24 hours."
+              actions={
+                <Link href={`${base}/metrics?tab=traffic`} className={buttonVariants({ size: "sm", variant: "ghost" })}>
+                  Requests <ChevronRight />
+                </Link>
+              }
+            />
             <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-3">
               <Stat icon={<Globe />} label="Requests" value={req ? compact(req.totals.requests) : "—"} sub={req ? `${formatBytes(req.totals.bytes)} sent` : undefined}>
                 <AreaChart data={(req?.series ?? []).map((p) => ({ t: p.t, v: p.requests }))} format={(v) => compact(v)} height={44} />

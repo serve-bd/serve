@@ -68,8 +68,25 @@ export function EntryPlanNotice({ server, plan }: { server: EntryServer; plan: E
   );
 }
 
-function Notice({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">{children}</div>;
+function Notice({ children, tone = "bad" }: { children: React.ReactNode; tone?: "bad" | "warn" }) {
+  return (
+    <div className={cn("rounded-xl border px-3.5 py-2.5 text-xs leading-relaxed text-fg-2", tone === "warn" ? "border-warn/25 bg-warn-soft" : "border-bad/25 bg-bad-soft")}>
+      {children}
+    </div>
+  );
+}
+
+/** Load balancing from this server cannot reach some of the app's servers: the switch goes ahead, they just get no visitors. */
+export function ApartNotice({ server, servers }: { server: EntryServer; servers: EntryServer[] }) {
+  const names = (server.apartFrom ?? []).map((id) => servers.find((s) => s.id === id)?.name).filter((n): n is string => !!n);
+  if (!names.length) return null;
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return (
+    <Notice tone="warn">
+      {server.name} shares no private network with {list}, so every visitor will go to the replicas on {server.name}. Put them in the same private network to share the visitors
+      again.
+    </Notice>
+  );
 }
 
 /** Tell what is left for the user after a switch: DNS they manage, and anything that failed. */
@@ -133,6 +150,7 @@ export function MainServerDialog({
             ))}
           </div>
           {server && plan && <EntryPlanNotice server={server} plan={plan} />}
+          {server && !server.main && ok && <ApartNotice server={server} servers={servers} />}
           {server?.main && entryProblem(server) && <EntryPlanNotice server={server} plan={{ moves: [], blockers: [] }} />}
         </DialogBody>
         <DialogFooter>

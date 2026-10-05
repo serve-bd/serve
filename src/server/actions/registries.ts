@@ -192,7 +192,12 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     if (problem) throw new UserError(problem);
     // Load balancing reaches other servers only through a private network: refused without one.
     if (balances(service.serverId, dist)) {
-      const apart = await balanceProblem(service.serverId, dist.extraServerIds);
+      // Only servers added now: one that left the network later keeps running (Domains warns about it).
+      const already = normalizeDistribution(service.serverId, service.distribution).extraServerIds;
+      const apart = await balanceProblem(
+        service.serverId,
+        dist.extraServerIds.filter((id) => !already.includes(id) || !service.distribution?.loadBalance),
+      );
       if (apart) throw new UserError(apart);
     }
 

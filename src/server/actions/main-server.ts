@@ -7,7 +7,7 @@ import { requirePermission } from "@/server/auth";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { db, schema } from "@/server/db";
 import { balances, normalizeDistribution, runServerIds } from "@/server/deploy/distribution";
-import { balanceProblem } from "@/server/services/balance";
+import { balanceWarning } from "@/server/services/balance";
 import { LABEL } from "@/server/docker/client";
 import { requireServers } from "@/server/limits";
 import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
@@ -111,16 +111,16 @@ export async function setMainServer(serviceId: string, serverId: string) {
       }
     }
 
-    // With load balancing, the new main server must reach every other server it will balance over.
+    const warnings: string[] = [];
+    // With load balancing, servers the new main one cannot reach get no visitors. Allowed: the main
+    // server is how visitors leave a failing one, and they got none from the old main server either.
     if (balances(service.serverId, service.distribution)) {
-      const apart = await balanceProblem(
+      const apart = await balanceWarning(
         serverId,
         runsOn.filter((id) => id !== serverId),
       );
-      if (apart) throw new UserError(apart);
+      if (apart) warnings.push(apart);
     }
-
-    const warnings: string[] = [];
     // HTTPS keeps working at once: the new main server gets the certificates the old one serves.
     // Caddy and Traefik get their own (once DNS points at the server, or through Cloudflare DNS).
     // Domain id → its certificate on the new main server, for domains that picked one.

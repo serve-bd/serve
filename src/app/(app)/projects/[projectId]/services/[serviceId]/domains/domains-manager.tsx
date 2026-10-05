@@ -55,7 +55,7 @@ import { cannotMessage } from "@/lib/permissions";
 import { useDebounced } from "@/hooks/use-client";
 import { setMainServer } from "@/server/actions/main-server";
 import { type EntryDomain, type EntryServer, entryPlan, entryProblem } from "@/server/services/entry-plan";
-import { EntryPlanNotice, EntryServerOption, entryWays, MainServerDialog, reportMainServer } from "../main-server";
+import { ApartNotice, EntryPlanNotice, EntryServerOption, entryWays, MainServerDialog, reportMainServer } from "../main-server";
 
 type DomainRow = {
   id: string;
@@ -716,6 +716,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                     </div>
                     {entry && switching && mainEntry && <EntryPlanNotice server={entry} plan={entryPlan(entry, props.entryDomains ?? [])} />}
                     {entry && !switching && entryProblem(entry) && <EntryPlanNotice server={entry} plan={{ moves: [], blockers: [] }} />}
+                    {entry && switching && !entryBlocked && <ApartNotice server={entry} servers={entries} />}
                   </div>
                 )}
                 {zoneLoading && !zoneData && <p className="text-xs text-muted">Looking for {hostname} in your Cloudflare accounts…</p>}

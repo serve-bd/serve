@@ -24,6 +24,8 @@ export type EntryServer = {
   /** It runs the app's current deployment (the main server always does once deployed). */
   deployed: boolean;
   /** Host ports of its proxy, and how Traefik validates certificates there (for the domain dialog). */
+  /** With load balancing: the app's other servers it shares no private network with (they would get no visitors). */
+  apartFrom?: string[];
   proxyPorts?: { http: number; https: number };
   acmeChallenge?: "http" | "tls" | "dns-cloudflare";
 };

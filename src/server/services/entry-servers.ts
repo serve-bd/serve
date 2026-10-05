@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
-import { runServerIds } from "@/server/deploy/distribution";
+import { balances, runServerIds } from "@/server/deploy/distribution";
+import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
 import type { EntryDomain, EntryServer } from "./entry-plan";
 
 type ServiceRow = Pick<typeof schema.service.$inferSelect, "id" | "type" | "serverId" | "distribution" | "currentDeploymentId">;
@@ -43,6 +44,8 @@ export async function entryServers(service: ServiceRow, organizationId: string):
           .then((r) => r[0] ?? null)
       : null,
   ]);
+  // With load balancing, the main server reaches the others only through a private network.
+  const members = balances(service.serverId, service.distribution) ? await meshMemberIds() : null;
   return ids.flatMap((id) => {
     const s = servers.find((x) => x.id === id);
     if (!s) return [];
@@ -60,6 +63,7 @@ export async function entryServers(service: ServiceRow, organizationId: string):
         tunnels: tunnels.filter((t) => t.serverId === id).map(({ serverId: _, ...t }) => t),
         // Before any deploy (or one without targets) the main server is all there is.
         deployed: main || target?.status === "success",
+        ...(members ? { apartFrom: ids.filter((o) => o !== id && !privatelyConnected(members, id, o)) } : {}),
         proxyPorts: { http: s.httpPort, https: s.httpsPort },
         acmeChallenge: s.proxyConfig?.traefik?.acmeChallenge ?? "http",
       },

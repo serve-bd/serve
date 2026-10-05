@@ -83,7 +83,10 @@ export function DistributionSection(props: {
     });
   const balancing = !!value.loadBalance && value.extraServerIds.length > 0;
   // Ticked servers load balancing cannot reach: saving is refused until they join a private network.
-  const apartTicked = balancing ? others.filter((s) => value.extraServerIds.includes(s.id) && props.apart?.includes(s.id)) : [];
+  // Already balanced over before (it left the network later): a warning only, other changes still save.
+  const wasBalanced = (id: string) => !!props.initial.loadBalance && props.initial.extraServerIds.includes(id);
+  const apartTicked = balancing ? others.filter((s) => value.extraServerIds.includes(s.id) && props.apart?.includes(s.id) && !wasBalanced(s.id)) : [];
+  const apartSaved = balancing ? others.filter((s) => value.extraServerIds.includes(s.id) && props.apart?.includes(s.id) && wasBalanced(s.id)) : [];
   const apartNames = apartTicked.map((s) => s.name);
   const apartList = apartNames.length === 1 ? apartNames[0] : `${apartNames.slice(0, -1).join(", ")} and ${apartNames.at(-1)}`;
 
@@ -160,6 +163,18 @@ export function DistributionSection(props: {
               <span className="min-w-0 flex-1">
                 {apartList} {apartNames.length === 1 ? "is" : "are"} not in a private network with {props.primary.name}, so load balancing cannot send{" "}
                 {apartNames.length === 1 ? "it" : "them"} any visitors. Add {apartNames.length === 1 ? "it" : "them"} to the same private network first, or turn load balancing off.
+              </span>
+              <Link href="/private-networks" className="flex-none text-[13px] font-medium text-accent hover:underline">
+                Private networks
+              </Link>
+            </div>
+          )}
+          {apartSaved.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-[13px] text-fg-2">
+              <TriangleAlert className="size-4 flex-none text-warn" />
+              <span className="min-w-0 flex-1">
+                {apartSaved.map((s) => s.name).join(", ")} left the private network with {props.primary.name}, so every visitor goes to {props.primary.name}. Put{" "}
+                {apartSaved.length === 1 ? "it" : "them"} back in the same private network to share the visitors again.
               </span>
               <Link href="/private-networks" className="flex-none text-[13px] font-medium text-accent hover:underline">
                 Private networks

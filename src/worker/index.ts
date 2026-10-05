@@ -23,7 +23,7 @@ import { ensureProxy, ensureServerProxy, syncAllProxy, syncCloudflareTrusting, s
 import { anyServerTrustsCloudflare, refreshCloudflareRanges } from "@/server/proxy/trusted-proxies";
 import { buildServerForDeployment, CANCEL_CHANNEL, claimJob, enqueue, failJob, finishJob, JOB_CHANNEL, recoverStaleJobs, type Job, type JobPayloads } from "@/server/queue";
 import { recoverInterruptedDeployment, runDeployment, setServiceStatus } from "@/server/deploy";
-import { destroyService, restartService, startService, stopService } from "@/server/services/lifecycle";
+import { destroyService, extraCleanupKey, restartService, startService, stopService } from "@/server/services/lifecycle";
 import { queueDeployment } from "@/server/services/create";
 import { issueCertificate, renewDueCertificates, retireCertificate, retryFailedCertificates } from "@/server/ssl/certificates";
 import { backupFile, importBackup, restoreBackup, runBackup } from "@/server/backups";
@@ -623,7 +623,10 @@ async function recover() {
   }
   // A removal cut off half way: its service row is gone, so nothing else would ever remove the rest.
   for (const j of stale as unknown as { type: string; payload: JobPayloads["service.delete"] }[]) {
-    if (j.type === "service.delete") await enqueue("service.delete", j.payload, { concurrencyKey: `service:${j.payload.serviceId}` });
+    if (j.type === "service.delete")
+      await enqueue("service.delete", j.payload, {
+        concurrencyKey: j.payload.extraCleanup && j.payload.serverId ? extraCleanupKey(j.payload.serviceId, j.payload.serverId) : `service:${j.payload.serviceId}`,
+      });
   }
   // Task runs cut off by the restart: failed now, so "Run now" is not blocked by a run that never ends.
   const cutRuns = (stale as unknown as { type: string; payload: { runId?: string } }[]).filter((j) => j.type === "task.run" && j.payload?.runId).map((j) => j.payload.runId!);

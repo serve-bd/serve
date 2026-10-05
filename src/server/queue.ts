@@ -50,6 +50,8 @@ export type JobPayloads = {
     keepFiles?: boolean;
     keepServerFiles?: boolean;
     volumes?: string[];
+    /** An app taken off one of its extra servers: skipped if it runs there again by then. */
+    extraCleanup?: boolean;
   };
   "certificate.issue": { certificateId: string };
   "certificate.retire": { certificateId: string };

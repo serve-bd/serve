@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
+import { runServerIds } from "@/server/deploy/distribution";
 import type { ServiceStatus } from "@/server/db/schema";
 import { LABEL, listServiceContainers, removeContainer } from "@/server/docker/client";
 import { getServer, serversOfService, type ServerCtx } from "@/server/servers/context";
@@ -172,7 +173,31 @@ async function restartNow(serviceId: string) {
   await syncServiceProxy(service.id).catch(() => {});
 }
 
-export async function destroyService(opts: {
+/** Queue of the cleanup on a server an app was taken off (apart from the app's own deploys). */
+export const extraCleanupKey = (serviceId: string, serverId: string) => `service:${serviceId}@${serverId}`;
+
+/** How long a cleanup on a server an app left waits for that server (it may be gone for good). */
+const EXTRA_CLEANUP_MS = 120_000;
+
+export async function destroyService(opts: Parameters<typeof destroyOnServer>[0]) {
+  if (!opts.extraCleanup) return destroyOnServer(opts);
+  // Ticked again since: the next deploy runs it there, and this must not remove those replicas.
+  const [row] = await db.select({ serverId: schema.service.serverId, distribution: schema.service.distribution }).from(schema.service).where(eq(schema.service.id, opts.serviceId));
+  if (row && runServerIds(row.serverId, row.distribution).includes(opts.serverId ?? "")) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      destroyOnServer(opts),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("The server did not answer. Its containers of this app stay until it is back and cleaned up.")), EXTRA_CLEANUP_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function destroyOnServer(opts: {
   serviceId: string;
   slug: string;
   type: string;
@@ -186,6 +211,8 @@ export async function destroyService(opts: {
   keepServerFiles?: boolean;
   /** Volumes it owns under other names than its own (data started from a kept database), removed with removeVolumes. */
   volumes?: string[];
+  /** See extraCleanupKey. */
+  extraCleanup?: boolean;
 }) {
   const server = await getServer(opts.serverId);
   const { docker } = server;

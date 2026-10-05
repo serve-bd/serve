@@ -20,6 +20,7 @@ import { serviceInOrg } from "@/server/services/access";
 import { resolveServerForOrg } from "@/server/servers/access";
 import { queueDeployment } from "@/server/services/create";
 import { requireResourceChange, requireServers, runCopies } from "@/server/limits";
+import { extraCleanupKey } from "@/server/services/lifecycle";
 import { removeServiceProxy } from "@/server/proxy/nginx";
 
 /* -------------------------------------------------------------------------- */
@@ -207,10 +208,11 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
 
     for (const serverId of removed) {
       await removeServiceProxy(serviceId, serverId).catch(() => {});
+      // Its own queue: a server that went away must not hold up the app's next deploy.
       await enqueue(
         "service.delete",
-        { serviceId, slug: service.slug, type: service.type, removeVolumes: false, environmentId: service.environmentId, serverId, keepFiles: true },
-        { concurrencyKey: `service:${serviceId}` },
+        { serviceId, slug: service.slug, type: service.type, removeVolumes: false, environmentId: service.environmentId, serverId, keepFiles: true, extraCleanup: true },
+        { concurrencyKey: extraCleanupKey(serviceId, serverId) },
       );
     }
     const names = async (ids: string[]) =>

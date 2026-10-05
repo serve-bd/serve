@@ -277,6 +277,9 @@ export async function syncTunnelIngress(tunnelId: string) {
   // The dashboard can use a tunnel of the server Serve runs on, like any service domain.
   const settings = await getSettings();
   if (settings.dashboardTunnelId === tunnelId && settings.dashboardDomain) domains.push({ hostname: settings.dashboardDomain });
+  // Status pages with their own domain on this tunnel: the dashboard's proxy serves them too.
+  const pages = await db.select({ hostname: schema.statusPage.domain }).from(schema.statusPage).where(eq(schema.statusPage.tunnelId, tunnelId));
+  for (const p of pages) if (p.hostname) domains.push({ hostname: p.hostname });
   const origin = `http://${ctx.proxyContainer}:80`;
   const databases = await attachTunnelToDatabases(tunnel);
   const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);

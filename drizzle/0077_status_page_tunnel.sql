@@ -1,0 +1,2 @@
+ALTER TABLE "status_page" ADD COLUMN "tunnel_id" text;--> statement-breakpoint
+ALTER TABLE "status_page" ADD CONSTRAINT "status_page_tunnel_id_cloudflare_tunnel_id_fk" FOREIGN KEY ("tunnel_id") REFERENCES "public"."cloudflare_tunnel"("id") ON DELETE set null ON UPDATE no action;

@@ -1534,6 +1534,8 @@ export const statusPage = pgTable("status_page", {
   domain: text("domain").unique(),
   https: boolean("https").notNull().default(true),
   certificateId: text("certificate_id").references(() => certificate.id, { onDelete: "set null" }),
+  /** Reached through this Cloudflare Tunnel instead of the server's public IP (Cloudflare serves HTTPS). */
+  tunnelId: text("tunnel_id").references((): AnyPgColumn => cloudflareTunnel.id, { onDelete: "set null" }),
   visibility: text("visibility").$type<StatusVisibility>().notNull().default("draft"),
   /** bcrypt hash, for visibility "password". */
   passwordHash: text("password_hash"),

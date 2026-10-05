@@ -202,10 +202,10 @@ export async function statusModel(): Promise<SiteModel | null> {
     hostname: p.domain,
     upstream: "status",
     redirectTo: null,
-    https: p.https,
+    https: p.https && !p.tunnelId,
     forceHttps: true,
-    tunnel: false,
-    tls: p.https ? certificateFor(p.domain, p.certificateId, certs) : null,
+    tunnel: !!p.tunnelId,
+    tls: p.https && !p.tunnelId ? certificateFor(p.domain, p.certificateId, certs) : null,
   }));
   return {
     name: "_status",
@@ -229,6 +229,7 @@ export async function statusPageHosts() {
       domain: schema.statusPage.domain,
       https: schema.statusPage.https,
       certificateId: schema.statusPage.certificateId,
+      tunnelId: schema.statusPage.tunnelId,
       organizationId: schema.statusPage.organizationId,
     })
     .from(schema.statusPage)

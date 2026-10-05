@@ -1,18 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { CircleCheck, CircleX, Eye, Globe, Lock, Trash2, TriangleAlert } from "lucide-react";
+import { CircleCheck, CircleX, Eye, Globe, Lock, Trash2, TriangleAlert, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup } from "@/components/ui/input";
 import { Card, CardHeader, CopyField } from "@/components/ui/misc";
-import { SwitchRow } from "@/components/ui/switch";
+import { Select } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
 import { useRouter } from "@/hooks/use-router";
 import { checkStatusDomain, deleteStatusPage, saveStatusPage, setStatusDomain, setStatusVisibility } from "@/server/actions/status-pages";
 import type { EditorData } from "@/server/status-pages/admin";
 import type { StatusVisibility } from "@/lib/status-page";
+import { certificateCovers } from "@/server/ssl/match";
 import { cn } from "@/lib/utils";
 
 export function SettingsTab({ data, canManage }: { data: EditorData; canManage: boolean }) {
@@ -125,45 +126,108 @@ function AccessCard({ data, canManage }: { data: EditorData; canManage: boolean 
   );
 }
 
+const PUBLIC = "__public";
+const AUTO = "__auto";
+
 function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean }) {
   const [domain, setDomain] = React.useState(data.page.domain ?? "");
+  const [route, setRoute] = React.useState(data.page.tunnelId ?? PUBLIC);
   const [https, setHttps] = React.useState(data.page.https);
+  const [certificateId, setCertificateId] = React.useState(data.page.certificateId ?? AUTO);
   const [dns, setDns] = React.useState<{ status: string; records: string[]; expected: string | null } | null>(null);
   React.useEffect(() => {
     setDomain(data.page.domain ?? "");
-    setHttps(data.page.https);
+    setRoute(data.page.tunnelId ?? PUBLIC);
+    setHttps(data.page.tunnelId ? true : data.page.https);
+    setCertificateId(data.page.certificateId ?? AUTO);
     setDns(null);
-  }, [data.page.domain, data.page.https]);
-  const save = useAction(() => setStatusDomain(data.page.id, { domain, https }));
+  }, [data.page.domain, data.page.https, data.page.tunnelId, data.page.certificateId]);
+
+  const tunnel = route === PUBLIC ? null : data.domain.tunnels.find((t) => t.id === route);
+  const host = domain.trim().toLowerCase();
+  const usable = data.domain.certificates.filter((c) => host && certificateCovers(c.domains, host));
+  const cert = certificateId === AUTO ? null : certificateId;
+  const save = useAction(() =>
+    setStatusDomain(data.page.id, { domain, https: tunnel ? true : https, tunnelId: tunnel?.id ?? null, certificateId: tunnel || !https ? null : cert }),
+  );
   const check = useAction(() => checkStatusDomain(data.page.id), { refresh: false, onSuccess: setDns });
-  const dirty = domain.trim().toLowerCase() !== (data.page.domain ?? "") || https !== data.page.https;
-  const cert = data.domain.certificate;
+  const dirty =
+    host !== (data.page.domain ?? "") ||
+    (tunnel?.id ?? null) !== data.page.tunnelId ||
+    (!tunnel && (https !== data.page.https || (https ? cert : null) !== data.page.certificateId));
   const ip = data.domain.serverIp;
+  const auto = data.domain.proxy === "nginx" ? "Automatic (Let's Encrypt)" : `Automatic (${data.domain.proxy === "caddy" ? "Caddy" : "Traefik"} gets it)`;
+  const saved = data.domain.certificate;
 
   return (
     <Card>
       <CardHeader title="Own domain" description="Serve the page at an address like status.example.com. Nothing else of Serve answers there." />
       <div className="flex flex-col gap-4 px-5 py-4">
-        <Field
-          label="Domain"
-          optional
-          description={ip ? `Point an A record for it to ${ip}, the address of this dashboard's server.` : "Point an A record for it to this dashboard's server."}
-        >
+        <Field label="Domain" optional>
           <Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="status.example.com" className="font-mono" disabled={!canManage} />
         </Field>
-        <SwitchRow
-          title="HTTPS"
-          description={
-            data.domain.proxy === "nginx"
-              ? data.domain.acme
-                ? "Serve gets a Let's Encrypt certificate once the record points here."
-                : "Set a Let's Encrypt email in Server settings, or add a certificate yourself in Certificates."
-              : "The proxy gets the certificate itself."
-          }
-          checked={https}
-          onCheckedChange={setHttps}
-          disabled={!canManage}
-        />
+        {host && (
+          <>
+            <Field
+              label="Route"
+              description={
+                tunnel
+                  ? `Serve points ${host} at the tunnel in Cloudflare. Cloudflare serves HTTPS; no public IP or open port is needed.`
+                  : data.domain.tunnels.length
+                    ? `Point an A record for ${host} to ${ip ?? "this server's public IP"}.`
+                    : `Point an A record for ${host} to ${ip ?? "this server's public IP"}. No public IP? Create a Cloudflare Tunnel for this server in Integrations → Cloudflare.`
+              }
+            >
+              <Select
+                value={route}
+                onValueChange={setRoute}
+                disabled={!canManage}
+                options={[
+                  { value: PUBLIC, label: ip ? `Public IP (${ip})` : "Public IP", icon: <Globe className="size-3.5" /> },
+                  ...data.domain.tunnels.map((t) => ({
+                    value: t.id,
+                    label: `Cloudflare Tunnel · ${t.account}`,
+                    description: t.status === "healthy" ? t.name : `${t.name} · ${t.status}`,
+                    icon: <Waypoints className="size-3.5" />,
+                  })),
+                ]}
+              />
+            </Field>
+            {!tunnel && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Protocol">
+                  <Select
+                    value={https ? "https" : "http"}
+                    onValueChange={(v) => setHttps(v === "https")}
+                    disabled={!canManage}
+                    options={[
+                      { value: "https", label: "HTTPS" },
+                      { value: "http", label: "HTTP only" },
+                    ]}
+                  />
+                </Field>
+                {https && (
+                  <Field
+                    label="Certificate"
+                    description={
+                      !data.domain.acme && data.domain.proxy === "nginx" && !cert ? "Set a Let's Encrypt email in Server settings for automatic certificates." : undefined
+                    }
+                  >
+                    <Select
+                      value={certificateId}
+                      onValueChange={setCertificateId}
+                      disabled={!canManage}
+                      options={[
+                        { value: AUTO, label: auto },
+                        ...usable.map((c) => ({ value: c.id, label: c.name, description: `${c.domains.join(", ")}${c.status === "active" ? "" : ` · ${c.status}`}` })),
+                      ]}
+                    />
+                  </Field>
+                )}
+              </div>
+            )}
+          </>
+        )}
         {data.page.domain && (
           <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface-2 px-4 py-3 text-[13px]">
             <div className="flex flex-wrap items-center gap-2">
@@ -172,14 +236,14 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
                 Check DNS
               </Button>
             </div>
-            {data.page.https && data.domain.proxy === "nginx" && (
-              <p className={cn("text-xs", cert?.status === "failed" ? "text-bad" : "text-muted")}>
+            {data.page.https && !data.page.tunnelId && (data.domain.proxy === "nginx" || data.page.certificateId) && (
+              <p className={cn("text-xs", saved?.status === "failed" ? "text-bad" : "text-muted")}>
                 Certificate:{" "}
-                {cert
-                  ? cert.status === "active"
-                    ? "active"
-                    : cert.status === "failed"
-                      ? `failed. ${cert.error ?? ""} Fix the DNS record, then save again.`
+                {saved
+                  ? saved.status === "active"
+                    ? `${saved.name}, active`
+                    : saved.status === "failed"
+                      ? `failed. ${saved.error ?? ""} Fix the DNS record, then save again.`
                       : "on its way"
                   : "none yet"}
               </p>

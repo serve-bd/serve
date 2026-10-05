@@ -25,6 +25,7 @@ export const pageColumns = {
   domain: schema.statusPage.domain,
   https: schema.statusPage.https,
   certificateId: schema.statusPage.certificateId,
+  tunnelId: schema.statusPage.tunnelId,
   visibility: schema.statusPage.visibility,
   passwordHash: schema.statusPage.passwordHash,
   design: schema.statusPage.design,

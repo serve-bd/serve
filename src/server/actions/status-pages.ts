@@ -11,6 +11,8 @@ import { db, schema } from "@/server/db";
 import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
+import { Cloudflare } from "@/server/cloudflare/api";
+import { syncTunnelIngress } from "@/server/cloudflare/tunnels";
 import { getSettings } from "@/server/settings";
 import { domainDnsStatus } from "@/server/dns";
 import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
@@ -37,6 +39,8 @@ async function pageInOrg(pageId: string, organizationId: string) {
       slug: schema.statusPage.slug,
       domain: schema.statusPage.domain,
       https: schema.statusPage.https,
+      certificateId: schema.statusPage.certificateId,
+      tunnelId: schema.statusPage.tunnelId,
       visibility: schema.statusPage.visibility,
       passwordHash: schema.statusPage.passwordHash,
       design: schema.statusPage.design,
@@ -108,6 +112,10 @@ export async function deleteStatusPage(pageId: string) {
     const ctx = await requireStatusManager();
     const page = await pageInOrg(pageId, ctx.org.id);
     await db.delete(schema.statusPage).where(eq(schema.statusPage.id, pageId));
+    if (page.tunnelId && page.domain) {
+      await dropTunnelRecord(page.tunnelId, page.domain);
+      await syncTunnelIngress(page.tunnelId).catch(() => {});
+    }
     if (page.domain) {
       await retireCertificateFor(page.domain, LOCAL_SERVER_ID, ctx.org.id);
       await enqueue("proxy.sync", {});
@@ -257,12 +265,13 @@ const hostname = z
  * Give the page its own domain (or take it away). The dashboard's proxy serves it; with HTTPS on an
  * nginx proxy Serve asks Let's Encrypt for a certificate (Caddy and Traefik get their own).
  */
-export async function setStatusDomain(pageId: string, input: { domain: string; https: boolean }) {
+export async function setStatusDomain(pageId: string, input: { domain: string; https: boolean; tunnelId?: string | null; certificateId?: string | null }) {
   return act(async () => {
     const ctx = await requireStatusManager();
     const page = await pageInOrg(pageId, ctx.org.id);
     const https = z.boolean().parse(input.https);
     const domain = input.domain.trim() ? hostname.parse(input.domain) : null;
+    const tunnelId = domain ? (z.string().nullish().parse(input.tunnelId) ?? null) : null;
     if (domain) {
       await assertNotDashboardHost({ isRoot: false }, domain);
       const [service] = await db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.hostname, domain));
@@ -275,20 +284,74 @@ export async function setStatusDomain(pageId: string, input: { domain: string; h
       const ownership = await domainOwnership({ id: ctx.org.id, isRoot: ctx.isRoot }, domain);
       if (!ownership.verified) throw new UserError(ownershipMessage(domain, ownership));
     }
+    // Through a tunnel: one of the organization's on the server the dashboard runs on. Serve points
+    // the name at it in Cloudflare; Cloudflare serves HTTPS, so no certificate here.
+    const tunnel = tunnelId ? await localTunnel(tunnelId, ctx.org.id) : null;
+    // A chosen certificate: the organization's, on the server the dashboard runs on, covering the name.
+    const certificateId = domain && https && !tunnel ? (z.string().nullish().parse(input.certificateId) ?? null) : null;
+    if (certificateId) {
+      const [cert] = await db
+        .select({ name: schema.certificate.name, domains: schema.certificate.domains })
+        .from(schema.certificate)
+        .where(and(eq(schema.certificate.id, certificateId), eq(schema.certificate.organizationId, ctx.org.id), eq(schema.certificate.serverId, LOCAL_SERVER_ID)));
+      if (!cert) throw new UserError("Choose a certificate of your organization on the dashboard's server.");
+      if (!certificateCovers(cert.domains, domain!)) throw new UserError(`${cert.name} does not cover ${domain}.`);
+    }
+    if (tunnel && domain && (tunnel.id !== page.tunnelId || domain !== page.domain)) {
+      const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+      const zone = await cf.zoneFor(domain).catch(() => null);
+      if (!zone) throw new UserError(`${domain} is not in a zone of the tunnel's Cloudflare account.`);
+      try {
+        await cf.upsertTunnelRecord(zone.id, domain, tunnel.cfTunnelId);
+      } catch (e) {
+        throw new UserError(`Could not point ${domain} at the tunnel: ${(e as Error).message}`);
+      }
+    }
     if (page.domain && page.domain !== domain) await retireCertificateFor(page.domain, LOCAL_SERVER_ID, ctx.org.id);
-    await db.update(schema.statusPage).set({ domain, https, updatedAt: new Date() }).where(eq(schema.statusPage.id, pageId));
-    if (domain && https) await requestCertificate(ctx.org.id, domain);
+    // Off the tunnel, or to another name: the record Serve made for the old route goes.
+    if (page.tunnelId && page.domain && (page.tunnelId !== tunnelId || page.domain !== domain)) await dropTunnelRecord(page.tunnelId, page.domain);
+    await db
+      .update(schema.statusPage)
+      .set({ domain, https: tunnel ? false : https, tunnelId: tunnel?.id ?? null, certificateId, updatedAt: new Date() })
+      .where(eq(schema.statusPage.id, pageId));
+    for (const id of new Set([page.tunnelId, tunnel?.id].filter((t): t is string => !!t))) await syncTunnelIngress(id).catch(() => {});
+    if (domain && https && !tunnel && !certificateId) await requestCertificate(ctx.org.id, domain);
     await enqueue("proxy.sync", {});
     await logActivity({
       userId: ctx.user.id,
       organizationId: ctx.org.id,
       action: "status-page.domain",
-      message: domain ? `Set the domain of the status page ${page.name} to ${domain}` : `Removed the domain of the status page ${page.name}`,
+      message: domain
+        ? `Set the domain of the status page ${page.name} to ${domain}${tunnel ? " through a Cloudflare Tunnel" : ""}`
+        : `Removed the domain of the status page ${page.name}`,
       targetType: "status-page",
       targetId: pageId,
     });
     return null;
   });
+}
+
+async function localTunnel(tunnelId: string, organizationId: string) {
+  const [tunnel] = await db
+    .select()
+    .from(schema.cloudflareTunnel)
+    .where(and(eq(schema.cloudflareTunnel.id, tunnelId), eq(schema.cloudflareTunnel.organizationId, organizationId)));
+  if (!tunnel) throw new UserError("Tunnel not found.");
+  if (tunnel.serverId !== LOCAL_SERVER_ID) throw new UserError("Choose a tunnel on the server the dashboard runs on: it serves the status page.");
+  return tunnel;
+}
+
+/** Remove the CNAME Serve made to point a name at a tunnel. Records someone else made stay. */
+async function dropTunnelRecord(tunnelId: string, hostname: string) {
+  const [tunnel] = await db.select().from(schema.cloudflareTunnel).where(eq(schema.cloudflareTunnel.id, tunnelId));
+  if (!tunnel) return;
+  await (async () => {
+    const cf = await Cloudflare.forAccount(tunnel.cloudflareAccountId);
+    const zone = await cf.zoneFor(hostname);
+    if (!zone) return;
+    for (const r of await cf.dnsRecords(zone.id, { name: hostname }))
+      if (r.type === "CNAME" && r.content === `${tunnel.cfTunnelId}.cfargotunnel.com` && r.comment === "Managed by Serve") await cf.deleteDnsRecord(zone.id, r.id);
+  })().catch(() => {});
 }
 
 /** A Let's Encrypt certificate for the page's domain on the local proxy, unless one covers it or the proxy gets its own. */
@@ -336,7 +399,10 @@ export async function checkStatusDomain(pageId: string) {
     if (!page.domain) throw new UserError("The page has no domain.");
     const settings = await getSettings();
     const expected = settings.serverIp ?? null;
-    const dns = await domainDnsStatus(page.domain, expected, { organizationId: ctx.org.id }).catch(() => ({ status: "unknown" as const, records: [] as string[] }));
+    const dns = await domainDnsStatus(page.domain, expected, { organizationId: ctx.org.id, tunnel: !!page.tunnelId }).catch(() => ({
+      status: "unknown" as const,
+      records: [] as string[],
+    }));
     return { status: dns.status, records: dns.records, expected };
   });
 }

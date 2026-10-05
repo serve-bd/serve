@@ -976,7 +976,8 @@ async function renderNginxStatus(): Promise<string | null> {
   const certs = (await Promise.all([...new Set(pages.map((p) => p.organizationId))].map((org) => usableCertificates(org, LOCAL_SERVER_ID)))).flat();
   const upstream: SiteUpstream = { name: "serve_status", servers: [env.dashboardUpstream] };
   const visitor = await visitorIpOf(await local());
-  const tls = pages.map((p) => (p.https ? tlsFor(p.domain, p.certificateId, certs) : null));
+  // Through a tunnel Cloudflare serves HTTPS: plain HTTP here.
+  const tls = pages.map((p) => (p.https && !p.tunnelId ? tlsFor(p.domain, p.certificateId, certs) : null));
   return [
     "# Managed by Serve — status pages.",
     ...certificateStamp(certs, tls),

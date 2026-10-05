@@ -84,14 +84,27 @@ export async function editorData(pageId: string, organizationId: string) {
         )
         .orderBy(desc(schema.statusNoticeUpdate.createdAt))
     : [];
-  const certificate = page.domain
-    ? (
-        await db
-          .select({ id: schema.certificate.id, status: schema.certificate.status, error: schema.certificate.lastError, domains: schema.certificate.domains })
-          .from(schema.certificate)
-          .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, LOCAL_SERVER_ID)))
-      ).find((c) => certificateCovers(c.domains, page.domain!))
-    : undefined;
+  // Certificates and tunnels the page's domain can use: the organization's, on the dashboard's server.
+  const [certificates, tunnels] = await Promise.all([
+    db
+      .select({
+        id: schema.certificate.id,
+        name: schema.certificate.name,
+        provider: schema.certificate.provider,
+        status: schema.certificate.status,
+        error: schema.certificate.lastError,
+        domains: schema.certificate.domains,
+        expiresAt: schema.certificate.expiresAt,
+      })
+      .from(schema.certificate)
+      .where(and(eq(schema.certificate.organizationId, organizationId), eq(schema.certificate.serverId, LOCAL_SERVER_ID))),
+    db
+      .select({ id: schema.cloudflareTunnel.id, name: schema.cloudflareTunnel.name, status: schema.cloudflareTunnel.status, account: schema.cloudflareAccount.name })
+      .from(schema.cloudflareTunnel)
+      .innerJoin(schema.cloudflareAccount, eq(schema.cloudflareTunnel.cloudflareAccountId, schema.cloudflareAccount.id))
+      .where(and(eq(schema.cloudflareTunnel.organizationId, organizationId), eq(schema.cloudflareTunnel.serverId, LOCAL_SERVER_ID))),
+  ]);
+  const certificate = page.domain ? (certificates.find((c) => c.id === page.certificateId) ?? certificates.find((c) => certificateCovers(c.domains, page.domain!))) : undefined;
 
   const serviceRows: EditorService[] = services.map((s) => ({ id: s.id, name: s.name, project: s.project, check: s.status ? (s.enabled ? s.status : "paused") : null }));
   return {
@@ -101,6 +114,8 @@ export async function editorData(pageId: string, organizationId: string) {
       slug: page.slug,
       domain: page.domain,
       https: page.https,
+      tunnelId: page.tunnelId,
+      certificateId: page.certificateId,
       visibility: page.visibility,
       hasPassword: !!page.passwordHash,
       url: await pageUrl(page),
@@ -131,7 +146,16 @@ export async function editorData(pageId: string, organizationId: string) {
       serverIp: settings.serverIp ?? null,
       proxy: local[0]?.kind ?? "nginx",
       acme: !!settings.acmeEmail,
-      certificate: certificate ? { status: certificate.status, error: certificate.error } : null,
+      certificate: certificate ? { name: certificate.name, status: certificate.status, error: certificate.error } : null,
+      certificates: certificates.map((c) => ({
+        id: c.id,
+        name: c.name,
+        provider: c.provider,
+        status: c.status,
+        domains: c.domains,
+        expiresAt: c.expiresAt?.toISOString() ?? null,
+      })),
+      tunnels: tunnels.map((t) => ({ id: t.id, name: t.name, status: t.status, account: t.account })),
     },
   };
 }

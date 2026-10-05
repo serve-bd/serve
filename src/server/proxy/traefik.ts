@@ -137,7 +137,15 @@ function hostRule(h: HostModel, deny: string[] | undefined, tunnelSubnets?: stri
 
 export function renderTraefikSite(
   site: SiteModel,
-  opts: { resolver: boolean; trusted: string[]; defaults?: Required<ProxyDefaults>; tunnelSubnets?: string[]; dnsChallenge?: boolean },
+  opts: {
+    resolver: boolean;
+    trusted: string[];
+    defaults?: Required<ProxyDefaults>;
+    tunnelSubnets?: string[];
+    dnsChallenge?: boolean;
+    /** The image knows passiveHealthCheck (Traefik 3.6+; an unknown field breaks every file, so never guess). */
+    passiveHealth?: boolean;
+  },
 ) {
   const defaults = opts.defaults ?? { catchAll: true, unknownRedirect: null, unavailablePage: true, httpsRedirect: true };
   const o = site.options;
@@ -219,6 +227,8 @@ export function renderTraefikSite(
         ...(o?.sticky && u.targets.length > 1 ? { sticky: { cookie: { name: `serve_${p.replace(/[^A-Za-z0-9_]/g, "_")}`, httpOnly: true, sameSite: "lax" } } } : {}),
         ...(o?.buffering === false ? { responseForwarding: { flushInterval: "1ms" } } : {}),
         ...(transport ? { serversTransport: transport } : {}),
+        // Replicas on other servers: one that fails is skipped for a while, as nginx and Caddy do.
+        ...(u.remote && opts.passiveHealth ? { passiveHealthCheck: { failureWindow: "10s", maxFailedAttempts: 1 } } : {}),
       },
     };
   }
@@ -333,4 +343,15 @@ export function traefikRouters(content: string): ExpectedRouter[] {
 
 export function traefikRouterNames(content: string) {
   return traefikRouters(content).map((r) => r.name);
+}
+
+/**
+ * Whether a Traefik image has the load balancer's passiveHealthCheck (3.6 and later). Tags that
+ * name no version (latest, a digest) count as no: one unknown field stops every site file loading.
+ */
+export function traefikPassiveHealth(image: string) {
+  const m = /:v?(\d+)\.(\d+)/.exec(image);
+  if (!m) return false;
+  const [major, minor] = [Number(m[1]), Number(m[2])];
+  return major > 3 || (major === 3 && minor >= 6);
 }

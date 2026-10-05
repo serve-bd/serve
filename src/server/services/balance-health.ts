@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { execInContainer } from "@/server/docker/client";
 import { statusMatcher } from "@/server/deploy/options";
@@ -64,9 +64,18 @@ export async function checkBalances(log: (...args: unknown[]) => void = () => {}
 
   const byServer = new Map<string, Row[]>();
   for (const r of rows) byServer.set(r.serverId, [...(byServer.get(r.serverId) ?? []), r]);
+  // Only servers whose proxy can balance: ready (or the dashboard's own machine) and running a proxy.
+  const servers = byServer.size
+    ? await db
+        .select({ id: schema.server.id, isLocal: schema.server.isLocal, status: schema.server.status, proxyKind: schema.server.proxyKind })
+        .from(schema.server)
+        .where(inArray(schema.server.id, [...byServer.keys()]))
+    : [];
+  const able = new Set(servers.filter((s) => (s.isLocal || s.status === "ready") && s.proxyKind !== "none").map((s) => s.id));
 
   await Promise.all(
     [...byServer].map(async ([serverId, services]) => {
+      if (!able.has(serverId)) return;
       const ctx = await getServer(serverId).catch(() => null);
       if (!ctx) return;
       for (const service of services) {
@@ -114,6 +123,8 @@ export async function checkBalances(log: (...args: unknown[]) => void = () => {}
             synced.set(service.id, sig);
           }
         } catch (error) {
+          // The proxy is not running (being switched or rebuilt): check again next time, quietly.
+          if (/No such container|is not running|409/i.test((error as Error).message)) continue;
           log(`load balancing: ${service.name}: ${(error as Error).message}`);
         }
       }

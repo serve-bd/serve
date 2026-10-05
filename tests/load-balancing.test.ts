@@ -21,7 +21,7 @@ import {
 import { balancedTargets, type Copy, copyProblem, decide, nextBalance, serverTraffic, step, targetsSignature } from "@/server/services/balance-rules";
 import { upstreamBlock } from "@/server/proxy/templates";
 import { renderCaddySite } from "@/server/proxy/caddy";
-import { renderTraefikSite } from "@/server/proxy/traefik";
+import { renderTraefikSite, traefikPassiveHealth } from "@/server/proxy/traefik";
 import type { SiteModel } from "@/server/proxy/model";
 import { buildProxyConfig, proxyInputSchema } from "@/server/services/proxy-config";
 
@@ -355,6 +355,21 @@ describe("the proxies balance over the copies", () => {
     const router = Object.values(y.http.routers as Record<string, { middlewares?: string[] }>).find((r) => r.middlewares?.includes("svc-web-retry"));
     expect(router).toBeTruthy();
     expect(y.http.serversTransports["svc-web-transport"].forwardingTimeouts.dialTimeout).toBe("3s");
+  });
+
+  it("Traefik: passive health for the copies only on 3.6 and later (an unknown field stops every file loading)", () => {
+    const lb = (passiveHealth: boolean) =>
+      YAML.parse(renderTraefikSite(site(false), { resolver: false, trusted: [], passiveHealth })).http.services["svc-web-app-3000"].loadBalancer;
+    expect(lb(true).passiveHealthCheck).toEqual({ failureWindow: "10s", maxFailedAttempts: 1 });
+    expect(lb(false).passiveHealthCheck).toBeUndefined();
+    expect(["traefik:v3.6.0", "traefik:v3.7.13", "traefik:3.10", "registry.example.com/traefik:v4.0", "traefik:v3.6-alpine"].map(traefikPassiveHealth)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(["traefik:v3.5.4", "traefik:v2.11", "traefik:latest", "traefik", "traefik@sha256:abcd"].map(traefikPassiveHealth)).toEqual([false, false, false, false, false]);
   });
 
   it("without copies nothing changes", () => {

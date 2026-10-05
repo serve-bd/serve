@@ -295,7 +295,9 @@ function ServerRow({
       : traffic?.problem === "down"
         ? `${traffic.error ?? "Not answering."}${traffic.since ? ` Since ${new Date(traffic.since).toLocaleString()}.` : ""}`
         : traffic?.problem === "deploy"
-          ? "Deploy to run the current version here."
+          ? target?.status === "failed" || target?.status === "skipped"
+            ? `The last deploy did not reach ${name}, so it still runs the previous version. Deploy again once it is fixed.`
+            : "Deploy to run the current version here."
           : traffic?.problem === "address"
             ? "Its private address is being set up."
             : traffic && traffic.up < traffic.total
@@ -310,7 +312,13 @@ function ServerRow({
       {traffic && (
         <Tooltip content={why}>
           <Badge tone={traffic.problem === null ? (traffic.up < traffic.total ? "warn" : "ok") : traffic.problem === "address" ? "info" : "warn"}>
-            {traffic.problem === null ? (traffic.up < traffic.total ? `Gets traffic (${traffic.up}/${traffic.total})` : "Gets traffic") : trafficLabel[traffic.problem]}
+            {traffic.problem === null
+              ? traffic.up < traffic.total
+                ? `Gets traffic (${traffic.up}/${traffic.total})`
+                : "Gets traffic"
+              : traffic.problem === "deploy" && (target?.status === "failed" || target?.status === "skipped")
+                ? `No traffic: deploy ${target.status === "failed" ? "failed" : "skipped"}`
+                : trafficLabel[traffic.problem]}
           </Badge>
         </Tooltip>
       )}

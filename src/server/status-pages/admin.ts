@@ -69,7 +69,8 @@ export async function editorData(pageId: string, organizationId: string) {
       .orderBy(asc(schema.project.name), asc(schema.service.name)),
     db.select().from(schema.statusNotice).where(eq(schema.statusNotice.pageId, pageId)).orderBy(desc(schema.statusNotice.createdAt)).limit(100),
     getSettings(),
-    statusView(page, base, design),
+    // Always with response times: the preview shows the chart as soon as its switch is on, before saving.
+    statusView(page, base, { ...design, showLatency: true }),
     db.select({ kind: schema.server.proxyKind }).from(schema.server).where(eq(schema.server.id, LOCAL_SERVER_ID)),
   ]);
   const updates = notices.length

@@ -12,7 +12,7 @@ import { LOCAL_SERVER_ID } from "@/server/db/schema";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { getSettings } from "@/server/settings";
-import { resolveA } from "@/server/dns";
+import { domainDnsStatus } from "@/server/dns";
 import { assertNotDashboardHost, domainOwnership, ownershipMessage } from "@/server/domains/ownership";
 import { cloudflareAccountFor, retireCertificateFor } from "@/server/ssl/certificates";
 import { certificateCovers } from "@/server/ssl/match";
@@ -325,15 +325,19 @@ async function requestCertificate(organizationId: string, domain: string) {
   await enqueue("certificate.issue", { certificateId: id }, { concurrencyKey: `cert:${id}`, maxAttempts: 2 });
 }
 
-/** Where the page's domain points now, and where it should. */
+/**
+ * Where the page's domain points now, and where it should. Behind Cloudflare's proxy the answer is
+ * Cloudflare's addresses: a connected Cloudflare account tells the real target, else it is "proxied".
+ */
 export async function checkStatusDomain(pageId: string) {
   return act(async () => {
     const ctx = await requireStatusManager();
     const page = await pageInOrg(pageId, ctx.org.id);
     if (!page.domain) throw new UserError("The page has no domain.");
     const settings = await getSettings();
-    const records = await resolveA(page.domain).catch(() => [] as string[]);
-    return { records, expected: settings.serverIp ?? null, ok: !!settings.serverIp && records.includes(settings.serverIp) };
+    const expected = settings.serverIp ?? null;
+    const dns = await domainDnsStatus(page.domain, expected, { organizationId: ctx.org.id }).catch(() => ({ status: "unknown" as const, records: [] as string[] }));
+    return { status: dns.status, records: dns.records, expected };
   });
 }
 

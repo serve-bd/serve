@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CircleCheck, CircleX, Globe, Lock, Eye, Trash2 } from "lucide-react";
+import { CircleCheck, CircleX, Eye, Globe, Lock, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm";
 import { Field } from "@/components/ui/field";
@@ -128,7 +128,7 @@ function AccessCard({ data, canManage }: { data: EditorData; canManage: boolean 
 function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean }) {
   const [domain, setDomain] = React.useState(data.page.domain ?? "");
   const [https, setHttps] = React.useState(data.page.https);
-  const [dns, setDns] = React.useState<{ records: string[]; expected: string | null; ok: boolean } | null>(null);
+  const [dns, setDns] = React.useState<{ status: string; records: string[]; expected: string | null } | null>(null);
   React.useEffect(() => {
     setDomain(data.page.domain ?? "");
     setHttps(data.page.https);
@@ -167,21 +167,7 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
         {data.page.domain && (
           <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface-2 px-4 py-3 text-[13px]">
             <div className="flex flex-wrap items-center gap-2">
-              {dns ? (
-                dns.ok ? (
-                  <span className="flex items-center gap-1.5 text-ok">
-                    <CircleCheck className="size-4" /> {data.page.domain} points here.
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1.5 text-bad">
-                    <CircleX className="size-4" />
-                    {dns.records.length ? `${data.page.domain} points to ${dns.records.join(", ")}` : `${data.page.domain} has no A record yet`}
-                    {dns.expected ? `, not ${dns.expected}.` : "."}
-                  </span>
-                )
-              ) : (
-                <span className="text-muted">Check that the record is in place.</span>
-              )}
+              {dns ? <DnsResult domain={data.page.domain} dns={dns} /> : <span className="text-muted">Check that the record is in place.</span>}
               <Button size="xs" className="ml-auto" loading={check.pending} onClick={() => check.run()}>
                 Check DNS
               </Button>
@@ -207,6 +193,34 @@ function DomainCard({ data, canManage }: { data: EditorData; canManage: boolean 
         )}
       </div>
     </Card>
+  );
+}
+
+function DnsResult({ domain, dns }: { domain: string; dns: { status: string; records: string[]; expected: string | null } }) {
+  if (dns.status === "ok")
+    return (
+      <span className="flex items-center gap-1.5 text-ok">
+        <CircleCheck className="size-4" /> {domain} points here.
+      </span>
+    );
+  // Behind the orange cloud only Cloudflare's addresses show: where it forwards is in the Cloudflare dashboard.
+  if (dns.status === "proxied")
+    return (
+      <span className="flex items-start gap-1.5 text-warn">
+        <TriangleAlert className="mt-0.5 size-4 flex-none" />
+        <span>
+          {domain} is behind Cloudflare's proxy, so Serve cannot see where it points. In Cloudflare, make sure its A record points to {dns.expected ?? "this server"}. Connect the
+          Cloudflare account in Integrations and Serve checks it for you.
+        </span>
+      </span>
+    );
+  return (
+    <span className="flex items-center gap-1.5 text-bad">
+      <CircleX className="size-4 flex-none" />
+      {dns.status === "missing" || !dns.records.length
+        ? `${domain} has no A record yet.`
+        : `${domain} points to ${dns.records.join(", ")}${dns.expected ? `, not ${dns.expected}` : ""}.`}
+    </span>
   );
 }
 

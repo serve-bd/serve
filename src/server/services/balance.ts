@@ -74,3 +74,23 @@ export async function remoteTargets(service: ServiceRow & Pick<typeof schema.ser
   if (local > 0 && balancingOf(service.proxy) === "main-first" && service.balance?.main?.ok !== false) return [];
   return balancedTargets(local, await appCopies(service)).map((host) => ({ server: `${host}:${port}`, weight: 1 }));
 }
+
+/**
+ * Why load balancing from `mainId` cannot reach these servers, or null when it can. The main
+ * server's proxy reaches other servers' replicas only through a private network they share, so
+ * without one those servers would run the app and never get a visitor.
+ */
+export async function balanceProblem(mainId: string, extraIds: string[]): Promise<string | null> {
+  if (!extraIds.length) return null;
+  const members = await meshMemberIds();
+  const apart = extraIds.filter((id) => !privatelyConnected(members, mainId, id));
+  if (!apart.length) return null;
+  const rows = await db
+    .select({ id: schema.server.id, name: schema.server.name })
+    .from(schema.server)
+    .where(inArray(schema.server.id, [mainId, ...apart]));
+  const name = (id: string) => rows.find((r) => r.id === id)?.name ?? "a server";
+  const list = apart.map(name);
+  const these = list.length === 1 ? list[0] : `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
+  return `${these} ${apart.length === 1 ? "is" : "are"} not in a private network with ${name(mainId)}, so load balancing cannot send ${apart.length === 1 ? "it" : "them"} any visitors. Add ${apart.length === 1 ? "it" : "them"} and ${name(mainId)} to the same private network in Servers → Private network first, then try again. Or turn load balancing off to run the app there without visitors.`;
+}

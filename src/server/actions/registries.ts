@@ -13,7 +13,8 @@ import { logActivity } from "@/server/activity";
 import type { RegistryKind } from "@/server/db/schema";
 import { checkRegistryLogin, getRegistry, registryAuth } from "@/server/registries";
 import { authServer, normalizeHost, normalizeRepository, registryPresets, renderTag } from "@/server/registries/refs";
-import { distributionProblem, normalizeDistribution, runServerIds } from "@/server/deploy/distribution";
+import { balances, distributionProblem, normalizeDistribution, runServerIds } from "@/server/deploy/distribution";
+import { balanceProblem } from "@/server/services/balance";
 import { pullsFromRegistry, usesRegistry } from "@/server/services/distribution-query";
 import { listImages, listTags } from "@/server/registries/browse";
 import { serviceInOrg } from "@/server/services/access";
@@ -189,6 +190,11 @@ export async function saveDistribution(serviceId: string, input: z.input<typeof 
     if (dist.tag) renderTag(dist.tag, { commit: "0000000000000", deployment: "abcdefgh", branch: "main", service: service.slug });
     const problem = distributionProblem(dist, service.source?.type);
     if (problem) throw new UserError(problem);
+    // Load balancing reaches other servers only through a private network: refused without one.
+    if (balances(service.serverId, dist)) {
+      const apart = await balanceProblem(service.serverId, dist.extraServerIds);
+      if (apart) throw new UserError(apart);
+    }
 
     const before = runServerIds(service.serverId, service.distribution).slice(1);
     const removed = before.filter((id) => !dist.extraServerIds.includes(id));

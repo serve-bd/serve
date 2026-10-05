@@ -6,7 +6,8 @@ import { logActivity } from "@/server/activity";
 import { requirePermission } from "@/server/auth";
 import { Cloudflare } from "@/server/cloudflare/api";
 import { db, schema } from "@/server/db";
-import { normalizeDistribution, runServerIds } from "@/server/deploy/distribution";
+import { balances, normalizeDistribution, runServerIds } from "@/server/deploy/distribution";
+import { balanceProblem } from "@/server/services/balance";
 import { LABEL } from "@/server/docker/client";
 import { requireServers } from "@/server/limits";
 import { meshMemberIds, reachesPrivately } from "@/server/mesh/members";
@@ -103,6 +104,15 @@ export async function setMainServer(serviceId: string, serverId: string) {
           `${lost.map((s) => s.name).join(", ")} ${lost.length === 1 ? "reaches" : "reach"} this app by its private name and ${lost.length === 1 ? "has" : "have"} no private network with ${next.name}. Connect the servers first.`,
         );
       }
+    }
+
+    // With load balancing, the new main server must reach every other server it will balance over.
+    if (balances(service.serverId, service.distribution)) {
+      const apart = await balanceProblem(
+        serverId,
+        runsOn.filter((id) => id !== serverId),
+      );
+      if (apart) throw new UserError(apart);
     }
 
     const warnings: string[] = [];

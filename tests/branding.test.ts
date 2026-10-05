@@ -130,4 +130,11 @@ describe("proxy error pages", () => {
     expect(pages["not-found.html"]).toContain("points to a Acme &lt;Cloud&gt; server");
     expect(errorPages()["unavailable.html"]).toContain("Served by Serve");
   });
+
+  it("carry the branding icon when there is one", async () => {
+    const { errorPages } = await import("@/server/proxy/templates");
+    const pages = errorPages("Acme", { icon: "data:image/png;base64,AAA" });
+    for (const html of Object.values(pages)) expect(html).toContain('<link rel="icon" href="data:image/png;base64,AAA">');
+    expect(errorPages("Acme")["unavailable.html"]).not.toContain('rel="icon"');
+  });
 });

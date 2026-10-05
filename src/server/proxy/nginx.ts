@@ -131,8 +131,12 @@ async function writeCustomConfig(ctx: ServerCtx, config: string | null) {
 
 async function writePages(ctx: ServerCtx) {
   let changed = false;
-  const { productName } = await import("@/server/branding");
-  for (const [name, html] of Object.entries(errorPages(await productName().catch(() => "Serve")))) {
+  const { productName, readBrandAsset } = await import("@/server/branding");
+  // The instance's icon (its favicon, else its logo), so a down app's tab carries its brand.
+  const icon = await readBrandAsset("favicon")
+    .then(async (f) => f ?? (await readBrandAsset("logo")))
+    .catch(() => null);
+  for (const [name, html] of Object.entries(errorPages(await productName().catch(() => "Serve"), { icon: icon ? `data:${icon.mime};base64,${icon.data}` : null }))) {
     changed = (await ctx.fs.writeIfChanged(path.posix.join(ctx.paths.proxy, "pages", name), html)) || changed;
   }
   return changed;

@@ -257,14 +257,17 @@ proxy_set_header Upgrade $http_upgrade;
 proxy_set_header Connection $connection_upgrade;
 `;
 
-function page(title: string, message: string, brand: string) {
+/** The branding icon for the error pages, as a data URL: the pages are static files, they load nothing else. */
+export type ErrorPageImages = { icon?: string | null };
+
+function page(title: string, message: string, brand: string, images: ErrorPageImages) {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title>
-<style>
+${images.icon ? `<link rel="icon" href="${images.icon}">\n` : ""}<style>
   :root { color-scheme: light dark; --bg: #fafafa; --fg: #0a0a0a; --muted: #737373; --line: #e5e5e5; }
   @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #fafafa; --muted: #a3a3a3; --line: #262626; } }
   * { box-sizing: border-box; }
@@ -285,18 +288,20 @@ function page(title: string, message: string, brand: string) {
 const escapeHtml = (v: string) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c);
 
 /** Error pages the proxy serves, with the instance's product name (white-label). */
-export function errorPages(productName = "Serve") {
+export function errorPages(productName = "Serve", images: ErrorPageImages = {}) {
   const brand = escapeHtml(productName);
   return {
     "not-found.html": page(
       "No app here",
       `<div class="code">404</div><h1>Nothing is deployed here</h1><p>This domain points to a ${brand} server, but no app is connected to it yet.</p>`,
       brand,
+      images,
     ),
     "unavailable.html": page(
       "App unavailable",
       `<div class="code">502</div><h1>This app is not running</h1><p>The app behind this domain is stopped, starting, or crashed. Try again in a moment.</p>`,
       brand,
+      images,
     ),
   };
 }

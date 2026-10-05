@@ -57,6 +57,8 @@ export async function uploadBrandImage(kind: BrandAssetKind, form: FormData) {
     const config = await currentConfig();
     await updateSettings({ branding: { ...config, [kind]: { hash, mime: checked.mime } } });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "branding.update", message: `Uploaded a new ${assetLabel[kind]}` });
+    // The proxy's error pages carry the icon and logo too.
+    void import("@/server/proxy/nginx").then((m) => m.refreshErrorPages()).catch(() => {});
     return { hash };
   });
 }
@@ -69,6 +71,7 @@ export async function removeBrandImage(kind: BrandAssetKind) {
     const config = await currentConfig();
     await updateSettings({ branding: { ...config, [kind]: null } });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "branding.update", message: `Removed the ${assetLabel[kind]}` });
+    void import("@/server/proxy/nginx").then((m) => m.refreshErrorPages()).catch(() => {});
     return null;
   });
 }

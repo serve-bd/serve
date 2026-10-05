@@ -366,8 +366,14 @@ export function DesignTab({ data, canManage, poweredBy }: { data: EditorData; ca
             <ThemeHint theme={form.theme} />
           </div>
         </div>
-        <div className="overflow-hidden rounded-xl border border-line-strong shadow-md">
-          <div className={cn("mx-auto max-h-[calc(100dvh-9rem)] overflow-y-auto transition-[max-width] duration-300", device === "phone" ? "max-w-[390px]" : "max-w-full")}>
+        {/* The frame itself takes the device's width, so its scrollbar sits at its edge. */}
+        <div
+          className={cn(
+            "mx-auto w-full overflow-hidden border border-line-strong shadow-md transition-[max-width] duration-300",
+            device === "phone" ? "max-w-[390px] rounded-[28px]" : "max-w-full rounded-xl",
+          )}
+        >
+          <div className="max-h-[calc(100dvh-9rem)] overflow-y-auto">
             <StatusView view={view} design={preview} base={`/status/${data.page.slug}`} poweredBy={poweredBy} />
           </div>
         </div>

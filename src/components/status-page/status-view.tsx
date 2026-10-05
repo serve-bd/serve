@@ -452,8 +452,25 @@ function Bars({ c, days, square }: { c: ComponentView; days: number; square: boo
   );
 }
 
+/** A date's day in the browser's own zone, as YYYY-MM-DD. */
+function localDay(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function History({ view, days }: { view: View; days: number }) {
   const { w, locale } = useWords();
+  // The server groups by UTC day; the browser regroups by the visitor's own day after loading,
+  // so an incident at 01:44 local time is not listed under the day before.
+  const [groups, setGroups] = React.useState(view.history);
+  React.useEffect(() => {
+    const byDay = new Map<string, View["history"][number]["notices"]>();
+    for (const n of view.history.flatMap((d) => d.notices)) {
+      const day = n.startsAt ? localDay(n.startsAt) : "";
+      byDay.set(day, [...(byDay.get(day) ?? []), n]);
+    }
+    setGroups([...byDay].sort(([a], [b]) => b.localeCompare(a)).map(([day, notices]) => ({ day, notices })));
+  }, [view.history]);
   return (
     <section className="sp-history mt-10" aria-label="Past incidents">
       <h2 className="text-[17px] font-semibold tracking-tight">{w.past}</h2>
@@ -461,7 +478,7 @@ function History({ view, days }: { view: View; days: number }) {
         <p className="mt-3 text-[14px] text-[var(--sp-muted)]">{fill(w.noIncidents, { days })}</p>
       ) : (
         <div className="mt-4 flex flex-col gap-6">
-          {view.history.map((d) => (
+          {groups.map((d) => (
             <div key={d.day}>
               <h3 className="border-b border-[var(--sp-line)] pb-2 text-[13px] font-semibold text-[var(--sp-fg2)]">{dayName(d.day, locale)}</h3>
               <div className="mt-3 flex flex-col gap-3">

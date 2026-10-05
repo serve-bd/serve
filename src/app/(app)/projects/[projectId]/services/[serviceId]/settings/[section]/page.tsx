@@ -131,6 +131,9 @@ async function distributionProps(service: typeof schema.service.$inferSelect, se
     multi ? entryServers(service, orgId) : undefined,
     multi ? entryDomains(service.id) : undefined,
   ]);
+  // Servers the main server shares no private network with: load balancing cannot reach them.
+  const members = await meshMemberIds();
+  const apart = servers.filter((s) => s.id !== service.serverId && !privatelyConnected(members, service.serverId, s.id)).map((s) => s.id);
   // Main server first: the others wait while the main server's replicas answer.
   const mainFirst = balancingOf(service.proxy) === "main-first";
   const standby = mainFirst && service.balance?.main?.ok !== false;
@@ -149,6 +152,7 @@ async function distributionProps(service: typeof schema.service.$inferSelect, se
     // Built images (git and Dockerfile sources) can come from a build server and a registry.
     gitSource: buildsImage(service.source?.type),
     servers: servers.map((s) => ({ id: s.id, name: s.name, status: s.status, isLocal: s.isLocal })),
+    apart,
     registries,
     initial: normalizeDistribution(service.serverId, service.distribution),
     last: last ?? null,

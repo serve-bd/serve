@@ -49,6 +49,8 @@ export function DistributionSection(props: {
   traffic?: Record<string, Traffic>;
   /** How visitors reach the service's own server. */
   entry?: { publicIp: string | null; domains: number; tunneled: number };
+  /** Servers that share no private network with the main server: load balancing cannot reach them. */
+  apart?: string[];
   /** Every server the app runs on, for Make main server. */
   entryServers?: EntryServer[];
   entryDomains?: EntryDomain[];
@@ -80,6 +82,10 @@ export function DistributionSection(props: {
       ...(on && value.loadBalance === null ? { loadBalance: true } : {}),
     });
   const balancing = !!value.loadBalance && value.extraServerIds.length > 0;
+  // Ticked servers load balancing cannot reach: saving is refused until they join a private network.
+  const apartTicked = balancing ? others.filter((s) => value.extraServerIds.includes(s.id) && props.apart?.includes(s.id)) : [];
+  const apartNames = apartTicked.map((s) => s.name);
+  const apartList = apartNames.length === 1 ? apartNames[0] : `${apartNames.slice(0, -1).join(", ")} and ${apartNames.at(-1)}`;
 
   return (
     <div className="flex flex-col gap-6">
@@ -94,7 +100,15 @@ export function DistributionSection(props: {
             <ServerRow
               key={s.id}
               name={s.name}
-              note={s.status !== "ready" && !s.isLocal ? `Not ready (${s.status})` : s.isLocal ? "This server" : undefined}
+              note={
+                s.status !== "ready" && !s.isLocal
+                  ? `Not ready (${s.status})`
+                  : props.apart?.includes(s.id)
+                    ? `No private network with ${props.primary.name}`
+                    : s.isLocal
+                      ? "This server"
+                      : undefined
+              }
               checked={value.extraServerIds.includes(s.id)}
               // A server that is not ready cannot be added, but can always be taken off (it may never come back).
               disabled={!props.canEdit || (s.status !== "ready" && !s.isLocal && !value.extraServerIds.includes(s.id))}
@@ -138,6 +152,18 @@ export function DistributionSection(props: {
                 onCheckedChange={(c) => set({ loadBalance: c })}
                 disabled={!props.canEdit}
               />
+            </div>
+          )}
+          {apartTicked.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-2.5 text-[13px] text-fg-2">
+              <TriangleAlert className="size-4 flex-none text-bad" />
+              <span className="min-w-0 flex-1">
+                {apartList} {apartNames.length === 1 ? "is" : "are"} not in a private network with {props.primary.name}, so load balancing cannot send{" "}
+                {apartNames.length === 1 ? "it" : "them"} any visitors. Add {apartNames.length === 1 ? "it" : "them"} to the same private network first, or turn load balancing off.
+              </span>
+              <Link href="/private-networks" className="flex-none text-[13px] font-medium text-accent hover:underline">
+                Private networks
+              </Link>
             </div>
           )}
           {others.length === 0 && (
@@ -255,10 +281,10 @@ export function DistributionSection(props: {
                 Discard
               </Button>
             )}
-            <Button type="button" size="sm" disabled={!dirty || !props.canEdit} loading={save.pending} onClick={() => save.run(false)}>
+            <Button type="button" size="sm" disabled={!dirty || !props.canEdit || apartTicked.length > 0} loading={save.pending} onClick={() => save.run(false)}>
               Save
             </Button>
-            <Button type="button" variant="primary" size="sm" disabled={!dirty || !props.canEdit} loading={save.pending} onClick={() => save.run(true)}>
+            <Button type="button" variant="primary" size="sm" disabled={!dirty || !props.canEdit || apartTicked.length > 0} loading={save.pending} onClick={() => save.run(true)}>
               <Rocket /> Save and deploy
             </Button>
           </div>

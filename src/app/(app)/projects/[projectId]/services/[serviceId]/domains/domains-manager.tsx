@@ -631,15 +631,8 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                         />
                       ))}
                     </div>
-                    {entry && switching && mainEntry && (
-                      <EntryPlanNotice
-                        server={entry}
-                        plan={entryPlan(entry, props.entryDomains ?? [])}
-                        oldName={mainEntry.name}
-                        https={(props.entryDomains ?? []).some((d) => d.https)}
-                      />
-                    )}
-                    {entry && !switching && entryProblem(entry) && <EntryPlanNotice server={entry} plan={{ moves: [], blockers: [] }} oldName={entry.name} />}
+                    {entry && switching && mainEntry && <EntryPlanNotice server={entry} plan={entryPlan(entry, props.entryDomains ?? [])} />}
+                    {entry && !switching && entryProblem(entry) && <EntryPlanNotice server={entry} plan={{ moves: [], blockers: [] }} />}
                   </div>
                 )}
                 {zoneLoading && !zoneData && <p className="text-xs text-muted">Looking for {hostname} in your Cloudflare accounts…</p>}

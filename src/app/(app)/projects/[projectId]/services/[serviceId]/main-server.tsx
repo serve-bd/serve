@@ -50,64 +50,25 @@ export function EntryServerOption({ server, selected, onSelect }: { server: Entr
   );
 }
 
-/** What switching to a server does to the domains, and what stops it. */
-export function EntryPlanNotice({ server, plan, oldName, https }: { server: EntryServer; plan: EntryPlan; oldName: string; https?: boolean }) {
+/** Why visitors cannot enter through a server, or which domains would stop working there. Nothing when it can take over. */
+export function EntryPlanNotice({ server, plan }: { server: EntryServer; plan: EntryPlan }) {
   const problem = entryProblem(server);
-  if (problem) return <Notice tone="bad">{problem}</Notice>;
-  if (plan.blockers.length)
-    return (
-      <Notice tone="bad">
-        <span className="font-medium text-fg">These domains would stop working on {server.name}:</span>
-        <ul className="mt-1 list-disc pl-4">
-          {plan.blockers.map((b) => (
-            <li key={b}>{b}</li>
-          ))}
-        </ul>
-      </Notice>
-    );
-  const count = (k: string) => plan.moves.filter((m) => m.kind === k);
-  const records = [...count("record"), ...count("untunnel")];
-  const tunnels = count("tunnel");
-  const manual = count("manual") as { hostname: string; ip: string }[];
-  const renamed = count("rename");
+  if (problem) return <Notice>{problem}</Notice>;
+  if (!plan.blockers.length) return null;
   return (
-    <Notice tone="info">
-      <p>
-        <span className="font-medium text-fg">{server.name} becomes the main server.</span> Its proxy takes the domains and spreads visitors over every server. {oldName} keeps
-        running the app as an extra server. Nothing is redeployed.
-      </p>
-      <ul className="mt-1.5 list-disc pl-4">
-        {records.length > 0 && (
-          <li>
-            Serve points {names(records)} at {server.publicIp} in Cloudflare.
-          </li>
-        )}
-        {tunnels.length > 0 && (
-          <li>
-            {names(tunnels)} move to the tunnel on {server.name}.
-          </li>
-        )}
-        {renamed.length > 0 && <li>Generated domains get the address of {server.name}.</li>}
-        {server.proxyKind === "nginx" && https && <li>HTTPS certificates are copied to {server.name}.</li>}
-        {manual.length > 0 && (
-          <li>
-            You change the DNS of {names(manual)}: point {manual.length === 1 ? "it" : "them"} at <span className="font-mono text-fg">{server.publicIp}</span>. Until then, visitors
-            still reach {oldName}, which serves its own replicas only.
-          </li>
-        )}
+    <Notice>
+      <span className="font-medium text-fg">These domains would stop working on {server.name}:</span>
+      <ul className="mt-1 list-disc pl-4">
+        {plan.blockers.map((b) => (
+          <li key={b}>{b}</li>
+        ))}
       </ul>
     </Notice>
   );
 }
 
-const names = (moves: { hostname: string }[]) => moves.map((m) => m.hostname).join(", ");
-
-function Notice({ tone, children }: { tone: "bad" | "info"; children: React.ReactNode }) {
-  return (
-    <div className={cn("rounded-xl border px-3.5 py-2.5 text-xs leading-relaxed text-fg-2", tone === "bad" ? "border-bad/25 bg-bad-soft" : "border-line bg-surface-2")}>
-      {children}
-    </div>
-  );
+function Notice({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-xl border border-bad/25 bg-bad-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">{children}</div>;
 }
 
 /** Tell what is left for the user after a switch: DNS they manage, and anything that failed. */
@@ -168,8 +129,8 @@ export function MainServerDialog({
               <EntryServerOption key={s.id} server={s} selected={s.id === chosen} onSelect={() => setChosen(s.id)} />
             ))}
           </div>
-          {server && plan && main && <EntryPlanNotice server={server} plan={plan} oldName={main.name} https={domains.some((d) => d.https)} />}
-          {server?.main && entryProblem(server) && <EntryPlanNotice server={server} plan={{ moves: [], blockers: [] }} oldName={server.name} />}
+          {server && plan && <EntryPlanNotice server={server} plan={plan} />}
+          {server?.main && entryProblem(server) && <EntryPlanNotice server={server} plan={{ moves: [], blockers: [] }} />}
         </DialogBody>
         <DialogFooter>
           <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>

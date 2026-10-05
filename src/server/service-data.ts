@@ -2,10 +2,34 @@ import { redeployNeeded } from "@/server/services/fingerprint";
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { listServiceContainers, LABEL } from "@/server/docker/client";
-import { getServerRow, serverOf } from "@/server/servers/context";
+import { getServer, getServerRow, serverOf } from "@/server/servers/context";
+import { runServerIds } from "@/server/deploy/distribution";
 import { shownServiceStatus } from "@/lib/server-services";
 
 export type ServiceLive = Awaited<ReturnType<typeof serviceLive>>;
+
+/**
+ * The service's containers: on its own server, and for an app on several servers its replicas on
+ * the extra ones too (marked with that server; a server that cannot be reached adds none).
+ */
+async function serviceContainers(service: typeof schema.service.$inferSelect) {
+  const own = await serverOf(service)
+    .then((server) => listServiceContainers(service.id, true, server.docker))
+    .catch(() => []);
+  const extras = service.type === "app" ? runServerIds(service.serverId, service.distribution).slice(1) : [];
+  const remote = await Promise.all(
+    extras.map(async (id) => {
+      try {
+        const server = await getServer(id);
+        const list = await listServiceContainers(service.id, true, server.docker);
+        return list.filter((c) => c.Labels[LABEL.kind] !== "predeploy").map((c) => ({ ...c, server: { id, name: server.name } }));
+      } catch {
+        return [];
+      }
+    }),
+  );
+  return [...own.map((c) => ({ ...c, server: null as { id: string; name: string } | null })), ...remote.flat()];
+}
 
 export async function serviceLive(serviceId: string) {
   const [service] = await db.select().from(schema.service).where(eq(schema.service.id, serviceId));
@@ -32,9 +56,7 @@ export async function serviceLive(serviceId: string) {
       .where(eq(schema.deployment.serviceId, serviceId))
       .orderBy(desc(schema.deployment.createdAt))
       .limit(30),
-    serverOf(service)
-      .then((server) => listServiceContainers(serviceId, true, server.docker))
-      .catch(() => []),
+    serviceContainers(service),
   ]);
   const previews = await previewsLive(service);
   return {
@@ -54,6 +76,8 @@ export async function serviceLive(serviceId: string) {
     })),
     deployments,
     containers: containers.map((c) => ({
+      /** Set for a replica on one of the app's extra servers (null on its own server). */
+      server: c.server,
       id: c.Id.slice(0, 12),
       name: c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12),
       state: c.State,

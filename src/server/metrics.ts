@@ -9,7 +9,7 @@ import { getServer, LOCAL_SERVER_ID, type ServerCtx } from "@/server/servers/con
 import { sh } from "@/server/servers/ssh";
 import { AGENT_FRESH_MS, drainAgent } from "@/server/metrics-agent";
 import { RAW_HOURS } from "@/server/metrics-agent/ingest";
-import { ROLLUP_ABOVE_HOURS } from "@/server/metric-rollups";
+import { extraScope, ROLLUP_ABOVE_HOURS } from "@/server/metric-rollups";
 
 type CpuTimes = { idle: number; total: number };
 
@@ -192,17 +192,20 @@ async function collectFor(ctx: ServerCtx) {
     }),
   );
   // Only record services that belong to this server: another Serve instance may share the Docker host.
+  // An app's replicas on one of its extra servers are recorded as "<service>@<server>": the
+  // service's charts add up every server (metricSeries), per-server views keep their own.
   const ids = [...byService.keys()];
-  const owned = ids.length
-    ? new Set(
-        (
-          await db
-            .select({ id: schema.service.id })
-            .from(schema.service)
-            .where(and(inArray(schema.service.id, ids), eq(schema.service.serverId, ctx.id)))
-        ).map((r) => r.id),
-      )
-    : new Set<string>();
+  const rows = ids.length
+    ? await db
+        .select({ id: schema.service.id, serverId: schema.service.serverId, distribution: schema.service.distribution })
+        .from(schema.service)
+        .where(inArray(schema.service.id, ids))
+    : [];
+  const scopes = new Map<string, string>();
+  for (const r of rows) {
+    if (r.serverId === ctx.id) scopes.set(r.id, r.id);
+    else if (r.distribution?.extraServerIds?.includes(ctx.id)) scopes.set(r.id, extraScope(r.id, ctx.id));
+  }
   const server = await serverSnapshot(ctx);
   return [
     {
@@ -214,9 +217,9 @@ async function collectFor(ctx: ServerCtx) {
       diskTotal: server.disk.total,
     },
     ...[...byService.entries()]
-      .filter(([scope]) => owned.has(scope))
-      .map(([scope, s]) => ({
-        scope,
+      .filter(([id]) => scopes.has(id))
+      .map(([id, s]) => ({
+        scope: scopes.get(id)!,
         cpu: Math.round(s.cpu * 100),
         memory: s.memory,
         memoryLimit: s.memoryLimit,
@@ -312,13 +315,19 @@ export async function metricSeries(scope: string, hours = 6, buckets = 72) {
     disk: number | null;
     disk_total: number | null;
   }>(dsql`
-    SELECT to_timestamp(floor(extract(epoch FROM created_at) / ${bucketSeconds}) * ${bucketSeconds}) AS t,
-      avg(cpu)::float / 100 AS cpu, avg(memory)::float AS memory, max(memory_limit)::float AS memory_limit,
-      max(net_rx)::float AS net_rx, max(net_tx)::float AS net_tx,
-      avg(disk)::float AS disk, max(disk_total)::float AS disk_total
-    FROM ${hours > ROLLUP_ABOVE_HOURS ? dsql`(SELECT scope, bucket AS created_at, cpu, memory, memory_limit, net_rx, net_tx, disk, disk_total FROM metric_rollup) m` : dsql`metric m`}
-    WHERE scope = ${scope} AND created_at >= ${since.toISOString()}::timestamptz
-    GROUP BY 1 ORDER BY 1
+    SELECT t, sum(cpu) AS cpu, sum(memory) AS memory, sum(memory_limit) AS memory_limit,
+      sum(net_rx) AS net_rx, sum(net_tx) AS net_tx, sum(disk) AS disk, sum(disk_total) AS disk_total
+    FROM (
+      SELECT scope, to_timestamp(floor(extract(epoch FROM created_at) / ${bucketSeconds}) * ${bucketSeconds}) AS t,
+        avg(cpu)::float / 100 AS cpu, avg(memory)::float AS memory, max(memory_limit)::float AS memory_limit,
+        max(net_rx)::float AS net_rx, max(net_tx)::float AS net_tx,
+        avg(disk)::float AS disk, max(disk_total)::float AS disk_total
+      FROM ${hours > ROLLUP_ABOVE_HOURS ? dsql`(SELECT scope, bucket AS created_at, cpu, memory, memory_limit, net_rx, net_tx, disk, disk_total FROM metric_rollup) m` : dsql`metric m`}
+      -- A service's replicas on its extra servers ("<service>@<server>") add to its own.
+      WHERE (scope = ${scope} OR scope LIKE ${`${scope.replace(/[\\%_]/g, (c) => `\\${c}`)}@%`}) AND created_at >= ${since.toISOString()}::timestamptz
+      GROUP BY scope, 2
+    ) per_server
+    GROUP BY t ORDER BY t
   `);
   return [...rows].map((r) => ({
     t: new Date(r.t).getTime(),
@@ -337,7 +346,7 @@ export async function latestServiceSamples(maxAgeSeconds = 180) {
   const rows = await db.execute<{ scope: string; cpu: number; memory: number; memory_limit: number | null; created_at: string }>(dsql`
     SELECT DISTINCT ON (scope) scope, cpu, memory, memory_limit, created_at
     FROM metric
-    WHERE scope <> 'server' AND scope NOT LIKE 'server:%' AND created_at >= now() - make_interval(secs => ${maxAgeSeconds}::int)
+    WHERE scope <> 'server' AND scope NOT LIKE 'server:%' AND scope NOT LIKE '%@%' AND created_at >= now() - make_interval(secs => ${maxAgeSeconds}::int)
     ORDER BY scope, created_at DESC
   `);
   return [...rows].map((r) => ({

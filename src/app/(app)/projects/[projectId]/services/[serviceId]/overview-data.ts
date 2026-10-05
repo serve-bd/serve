@@ -1,3 +1,4 @@
+import { runServerIds } from "@/server/deploy/distribution";
 import { monitorSummary } from "@/server/monitoring/queries";
 import "server-only";
 import { privateHost } from "@/lib/hostname";
@@ -97,6 +98,8 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
       createdAt: service.createdAt.toISOString(),
       port: service.runtime.port,
       replicas: service.runtime.replicas,
+      /** Servers the app runs on (its own and the extra ones): each runs every replica. */
+      serverCount: service.type === "app" ? runServerIds(service.serverId, service.distribution).length : 1,
       restartPolicy: service.runtime.restartPolicy,
       cpuLimit: service.runtime.cpuLimit ?? null,
       memoryLimit: service.runtime.memoryLimit ?? null,

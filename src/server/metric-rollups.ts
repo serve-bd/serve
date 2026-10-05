@@ -2,6 +2,10 @@ import { sql } from "drizzle-orm";
 import { db } from "@/server/db";
 
 /** Width of one rollup bucket. */
+
+/** Metric scope for an app's replicas on one of its extra servers (added to its own in charts). */
+export const extraScope = (serviceId: string, serverId: string) => `${serviceId}@${serverId}`;
+
 export const ROLLUP_MINUTES = 5;
 /** Charts over more hours than this read the rollups. */
 export const ROLLUP_ABOVE_HOURS = 24;

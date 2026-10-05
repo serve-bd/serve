@@ -1,9 +1,9 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/server/db";
 import { type AgentSnapshot, LOCAL_SERVER_ID, type ServerAgent } from "@/server/db/schema";
 import { metricsCutoff } from "@/lib/server-limits";
-import { rollupRange } from "@/server/metric-rollups";
+import { extraScope, rollupRange } from "@/server/metric-rollups";
 
 /* What agent/main.go sends: samples of the machine and of each service, numbered per agent run. */
 
@@ -81,17 +81,19 @@ async function store(serverId: string, batch: AgentBatch, via: "push" | "ssh", n
 
     const cutoff = metricsCutoff(Math.min(row.hours, RAW_HOURS), now).getTime();
     const ids = [...new Set(fresh.flatMap((s) => s.services.map((x) => x.id)))];
-    // Only this server's services: an extra server of a distributed service reports it too.
-    const owned = ids.length
-      ? new Set(
-          (
-            await tx
-              .select({ id: schema.service.id })
-              .from(schema.service)
-              .where(and(inArray(schema.service.id, ids), eq(schema.service.serverId, serverId)))
-          ).map((r) => r.id),
-        )
-      : new Set<string>();
+    // This server's services, and the apps it runs as an extra server ("<service>@<server>", added
+    // to the service's own in its charts). Containers of anything else (another Serve) are skipped.
+    const scopes = new Map<string, string>();
+    if (ids.length) {
+      const found = await tx
+        .select({ id: schema.service.id, serverId: schema.service.serverId, distribution: schema.service.distribution })
+        .from(schema.service)
+        .where(inArray(schema.service.id, ids));
+      for (const r of found) {
+        if (r.serverId === serverId) scopes.set(r.id, r.id);
+        else if (r.distribution?.extraServerIds?.includes(serverId)) scopes.set(r.id, extraScope(r.id, serverId));
+      }
+    }
     const scope = serverId === LOCAL_SERVER_ID ? "server" : `server:${serverId}`;
     const rows: (typeof schema.metric.$inferInsert)[] = [];
     let oldest: number | null = null;
@@ -111,9 +113,10 @@ async function store(serverId: string, batch: AgentBatch, via: "push" | "ssh", n
         createdAt,
       });
       for (const x of s.services) {
-        if (!owned.has(x.id)) continue;
+        const own = scopes.get(x.id);
+        if (!own) continue;
         rows.push({
-          scope: x.id,
+          scope: own,
           cpu: Math.round(x.cpu * 100),
           memory: Math.round(x.memory),
           memoryLimit: Math.round(x.memoryLimit),

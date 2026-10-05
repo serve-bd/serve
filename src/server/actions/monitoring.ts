@@ -152,6 +152,8 @@ export async function saveRequestLog(serviceId: string, input: z.input<typeof re
         message: `${config.enabled ? "Turned on" : "Turned off"} the request log of ${service.name}`,
       });
     }
+    // Not undefined: the settings card takes undefined for a failed save and stays unsaved.
+    return null;
   });
 }
 
@@ -170,5 +172,6 @@ export async function deleteRequestLog(serviceId: string) {
       targetId: serviceId,
       message: `Deleted the request log of ${service.name}`,
     });
+    return null;
   });
 }

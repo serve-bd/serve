@@ -115,7 +115,9 @@ export function useAction<A extends unknown[], T>(action: (...args: A) => Promis
         }
         return res.data;
       } catch (error) {
-        showError(error instanceof Error ? error.message : "Something went wrong");
+        const message = error instanceof Error ? error.message : "Something went wrong";
+        // The dashboard was updated since this page loaded: its actions are gone from the server.
+        showError(/was not found on the server/.test(message) ? "Serve was updated since this page loaded. Reload the page and try again." : message);
         return undefined;
       } finally {
         setPending(false);

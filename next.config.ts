@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
+import pkg from "./package.json" with { type: "json" };
 
 const nextConfig: NextConfig = {
+  // Each release is its own deployment: a tab opened before an update reloads instead of calling
+  // actions the new version no longer has ("Failed to find Server Action").
+  deploymentId: `serve-${pkg.version.replace(/[^A-Za-z0-9_-]/g, "_")}`,
   // Lets a second dev instance (e2e tests) run next to the main one.
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   output: "standalone",

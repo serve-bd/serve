@@ -35,7 +35,12 @@ export function BrandingSettings({ initial, brand, has }: { initial: Values; bra
   const tokens = hex ? accentTokens(hex)?.[theme] : null;
 
   const save = useAction(() => saveBranding({ name: v.name, showName: v.showName, accent: v.accent.trim() || null }), {
-    onSuccess: () => setSaved(JSON.stringify(v)),
+    onSuccess: () => {
+      // An empty name saves the default one: show it.
+      const next = { ...v, name: v.name.trim() || DEFAULT_PRODUCT_NAME };
+      setV(next);
+      setSaved(JSON.stringify(next));
+    },
   });
   const reset = useAction(resetBranding, {
     onSuccess: () => {
@@ -63,8 +68,8 @@ export function BrandingSettings({ initial, brand, has }: { initial: Values; bra
           <CardHeader title="Branding" description="Your name, logo and colour replace the defaults across the dashboard, the sign-in page, the browser tab and emails." />
           <CardBody className="grid grid-cols-1 gap-6 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
             <div className="flex min-w-0 flex-col gap-5">
-              <Field label="Product name" description="Shown next to the logo, in page titles and in emails.">
-                <Input value={v.name} onChange={(e) => set("name")(e.target.value)} maxLength={40} placeholder={DEFAULT_PRODUCT_NAME} className="sm:max-w-sm" required />
+              <Field label="Product name" optional description={`Shown next to the logo, in page titles and in emails. Empty keeps ${DEFAULT_PRODUCT_NAME}.`}>
+                <Input value={v.name} onChange={(e) => set("name")(e.target.value)} maxLength={40} placeholder={DEFAULT_PRODUCT_NAME} className="sm:max-w-sm" />
               </Field>
               <Field
                 label="Accent colour"
@@ -145,7 +150,7 @@ export function BrandingSettings({ initial, brand, has }: { initial: Values; bra
                   Discard
                 </Button>
               )}
-              <Button type="submit" size="sm" variant="primary" loading={save.pending} disabled={!dirty || accentInvalid || !v.name.trim()}>
+              <Button type="submit" size="sm" variant="primary" loading={save.pending} disabled={!dirty || accentInvalid}>
                 Save
               </Button>
             </div>

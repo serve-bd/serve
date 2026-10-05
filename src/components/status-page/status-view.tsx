@@ -310,7 +310,8 @@ function Components({ view, design }: { view: View; design: StatusDesign }) {
 
 function ComponentRow({ c, design }: { c: ComponentView; design: StatusDesign }) {
   const { w } = useWords();
-  const series = design.showLatency && c.latencySeries.some((v) => v !== null);
+  // A chart needs some history: with under two hours of checks the average alone says more.
+  const series = design.showLatency && c.latencySeries.filter((v) => v !== null).length >= 4;
   return (
     <div className="sp-component p-[var(--sp-pad)]" data-level={c.level}>
       <div className="flex items-start justify-between gap-4">
@@ -359,24 +360,40 @@ function Latency({ series, average }: { series: (number | null)[]; average: numb
   const values = series.filter((v): v is number => v !== null);
   const max = Math.max(...values, 1) * 1.15;
   const W = 480;
-  const H = 40;
+  const H = 32;
   const x = (i: number) => (i / Math.max(1, series.length - 1)) * W;
   const y = (v: number) => H - (v / max) * H;
-  // One path per run of buckets with data.
-  const runs: string[] = [];
-  let run = "";
+  // One line per run of half hours with data, with a soft fill under it. A lone half hour (checks
+  // that just started, or a gap on both sides) is a short dash: a line needs two points to show.
+  const runs: { x: number; y: number }[][] = [];
+  let run: { x: number; y: number }[] = [];
   series.forEach((v, i) => {
     if (v === null) {
-      if (run) runs.push(run);
-      run = "";
+      if (run.length) runs.push(run);
+      run = [];
       return;
     }
-    run += `${run ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+    run.push({ x: x(i), y: y(v) });
   });
-  if (run) runs.push(run);
+  if (run.length) runs.push(run);
+  const half = W / Math.max(1, series.length - 1) / 2;
+  const lineOf = (r: { x: number; y: number }[]) =>
+    r.length === 1
+      ? `M${(r[0].x - half).toFixed(1)},${r[0].y.toFixed(1)}L${(r[0].x + half).toFixed(1)},${r[0].y.toFixed(1)}`
+      : r.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("");
+  const areaOf = (r: { x: number; y: number }[]) => {
+    const pts =
+      r.length === 1
+        ? [
+            { x: r[0].x - half, y: r[0].y },
+            { x: r[0].x + half, y: r[0].y },
+          ]
+        : r;
+    return `${pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("")}L${pts[pts.length - 1].x.toFixed(1)},${H}L${pts[0].x.toFixed(1)},${H}Z`;
+  };
   const shown = hover !== null ? series[hover] : null;
   return (
-    <div className="sp-latency mt-4">
+    <div className="sp-latency mt-3">
       <div className="mb-1.5 flex items-baseline justify-between text-[12px] text-[var(--sp-muted)]">
         <span>{w.responseTime}</span>
         <span className="tabular-nums">{shown !== null && shown !== undefined ? `${shown} ms` : average !== null ? `⌀ ${average} ms` : ""}</span>
@@ -384,7 +401,7 @@ function Latency({ series, average }: { series: (number | null)[]; average: numb
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
-        className="block h-10 w-full overflow-visible"
+        className="block h-8 w-full overflow-visible"
         role="img"
         aria-label={`${w.responseTime}: ${average ?? "—"} ms`}
         onMouseMove={(e) => {
@@ -393,8 +410,11 @@ function Latency({ series, average }: { series: (number | null)[]; average: numb
         }}
         onMouseLeave={() => setHover(null)}
       >
-        {runs.map((d) => (
-          <path key={d} d={d} fill="none" stroke="var(--sp-accent)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+        {runs.map((r) => (
+          <g key={`${r[0].x}`}>
+            <path d={areaOf(r)} fill="var(--sp-accent)" opacity={0.08} />
+            <path d={lineOf(r)} fill="none" stroke="var(--sp-accent)" strokeWidth={1.75} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+          </g>
         ))}
         {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={0} y2={H} stroke="var(--sp-line)" strokeWidth={1} vectorEffect="non-scaling-stroke" />}
       </svg>

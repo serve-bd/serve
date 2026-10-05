@@ -107,8 +107,22 @@ export type AgentConfig = {
   routes: string[];
   peers: { serverId: string; publicKey: string; endpoint: string | null; allowedIps: string[] }[];
   localAddresses: string[];
-  /** `slot`: only the app container with that replica number on this server (a copy address for load balancing). */
-  exposures: { ip: string; service: string; kind: string | null; compose: string | null; deployment: string | null; network: string | null; allow: string[]; slot?: number }[];
+  /**
+   * `slot`: only the app container with that replica number on this server (a copy address for load
+   * balancing). `prefer`: the containers of `deployment` when any run, else the others (an extra
+   * server whose deploy failed keeps its old version; during a deploy the old ones drain unused).
+   */
+  exposures: {
+    ip: string;
+    service: string;
+    kind: string | null;
+    compose: string | null;
+    deployment: string | null;
+    network: string | null;
+    allow: string[];
+    slot?: number;
+    prefer?: boolean;
+  }[];
   sources: { ip: string; networks: string[]; subnets: string[] }[];
   /** Services on other servers this server's environments use: a link container answers to their names. */
   imports: { name: string; ip: string; network: string; aliases: string[] }[];
@@ -251,12 +265,11 @@ export function agentConfig(self: PlanServer & { privateKey: string }, servers: 
       service: s.container ?? s.id,
       kind: s.kind ?? null,
       compose: compose ?? null,
-      // A copy answers with whatever runs of the app on this server: an extra server whose last deploy
-      // failed keeps its previous version (the proxy then leaves it out, see services/balance).
-      deployment: s.type === "app" && !copy ? s.currentDeploymentId : null,
+      deployment: s.type === "app" ? s.currentDeploymentId : null,
       network: envNetworkName(s.environmentId),
       allow,
-      ...(copy ? { slot: copy.slot } : {}),
+      // A copy answers with the current version once it runs on this server, else with what runs there.
+      ...(copy ? { slot: copy.slot, prefer: true } : {}),
     });
   }
 

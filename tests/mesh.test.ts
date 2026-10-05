@@ -377,6 +377,19 @@ describe.runIf(!!process.env.PATH && fs.existsSync("/usr/bin/jq"))("private netw
     expect(out).not.toContain("10.240.1.4/32 -j DNAT");
   });
 
+  it("refuses traffic to a service address with nothing running, instead of passing it on to the server's published ports", () => {
+    const out = run(containers);
+    const lines = out.split("\n");
+    // 10.240.1.4 has no container: it stops in the nat table (before Docker's port rules) and is refused.
+    const accept = lines.indexOf("-A SERVE-MESH-PRE -i serve-mesh -d 10.240.1.4/32 -j ACCEPT");
+    expect(accept).toBeGreaterThan(-1);
+    expect(out).toContain("-A SERVE-MESH-IN -i serve-mesh -d 10.240.1.4/32 -p tcp -j REJECT --reject-with tcp-reset");
+    // A running service is forwarded first; its ACCEPT only catches what no container takes.
+    expect(lines.findIndex((l) => l.includes("-d 10.240.1.2/32") && l.includes("DNAT"))).toBeLessThan(lines.indexOf("-A SERVE-MESH-PRE -i serve-mesh -d 10.240.1.2/32 -j ACCEPT"));
+    // Refusals come before the final drop.
+    expect(lines.indexOf("-A SERVE-MESH-IN -i serve-mesh -j DROP")).toBeGreaterThan(lines.findLastIndex((l) => l.includes("REJECT")));
+  });
+
   it("rewrites outgoing sources per environment and allows only listed sources in", () => {
     const out = run(containers);
     expect(out).toContain("-A SERVE-MESH-POST -o serve-mesh -s 172.20.0.0/16 -j SNAT --to-source 10.241.1.1");
@@ -426,7 +439,7 @@ describe.runIf(!!process.env.PATH && fs.existsSync("/usr/bin/jq"))("private netw
     expect(out).toContain("-d 10.240.1.5/32 -j DNAT --to-destination 172.20.0.20");
     expect(out).toContain("-d 10.240.1.6/32 -j DNAT --to-destination 172.20.0.21");
     expect(out).toContain("-d 10.240.1.7/32 -j DNAT --to-destination 172.20.0.22");
-    expect(out.match(/-d 10\.240\.1\.5\/32/g)).toHaveLength(1);
+    expect(out.match(/-d 10\.240\.1\.5\/32 -j DNAT/g)).toHaveLength(1);
   });
 
   it("falls back to every container of the service before its first deployment finished", () => {

@@ -251,7 +251,10 @@ export function renderTraefikSite(
         mws = chain;
         // Copies on other servers: a connection that fails is tried again on another copy.
         if (up?.remote) {
-          middlewares[`${p}-retry`] = { retry: { attempts: 3, initialInterval: "100ms" } };
+          // Traefik has no passive health: a retry can land on the same dead replica, so allow as many
+          // tries as there are replicas (a refused connection fails in a moment), up to 10.
+          const attempts = Math.min(Math.max(up.targets.length, 3), 10);
+          middlewares[`${p}-retry`] = { retry: { attempts, initialInterval: "50ms" } };
           mws = [...chain, `${p}-retry`];
         }
       } else if (defaults.unavailablePage) {

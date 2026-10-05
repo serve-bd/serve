@@ -617,9 +617,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
         slog.line(`Failed: ${t.error}`);
       }
       await saveTargets();
-      // The own server's proxy balances over this copy: forward its private address to the new
-      // containers now, then take the copy in (or out, after a failure) right away.
-      if (t.status === "success") await meshAfterStart(extra.id, (l) => slog.line(l));
+      // The own server's proxy balances over this copy: take it in (or out, after a failure) right away.
       await syncServiceProxy(service.id, server.id).catch((error) => slog.line(`Warning: load balancing on ${server.name}: ${(error as Error).message}`));
       return t;
     }),
@@ -797,11 +795,10 @@ async function runOnServer(opts: {
   }
 
   // Switch traffic.
-  if (primary) {
-    await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
-    // Other servers reach the new containers through the private network from now on.
-    await meshAfterStart(server.id, log.line);
-  }
+  if (primary) await db.update(schema.service).set({ currentDeploymentId: dep.id, status: "running" }).where(eq(schema.service.id, service.id));
+  // Other servers reach the new containers through the private network from now on (on an extra
+  // server: the load balancing from the service's own server), before the old ones are drained.
+  await meshAfterStart(server.id, log.line);
   log.step("Routing traffic");
   try {
     await syncServiceProxy(service.id, server.id);

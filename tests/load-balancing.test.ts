@@ -50,7 +50,7 @@ const app = (patch: Partial<PlanService> = {}): PlanService => ({
   composeServices: [],
   isolated: false,
   composeSubnet: null,
-  currentDeploymentId: "dep2",
+  currentDeploymentId: "dep2ab",
   replicas: 3,
   ...patch,
 });
@@ -123,11 +123,11 @@ describe("the private network carries the app's copies", () => {
   const addresses = addressesFor(needs);
   const ipOf = (serverId: string, key: string) => addresses.find((a) => a.serverId === serverId && a.key === key)!.ip;
 
-  it("on an extra server: forwards the copy's address to whatever runs of the app there, from the own server only", () => {
+  it("on an extra server: forwards each replica address to that replica, from the own server only", () => {
     const cfg = agentConfig({ ...B, privateKey: "k" }, [A, B, C], services, addresses, needs);
     const exposure = cfg.exposures.find((e) => e.ip === ipOf("b", copyKey("web", "b", 1)))!;
-    // Any version running there (a deploy in progress or a failed one keeps the old containers).
-    expect(exposure).toMatchObject({ service: "web", deployment: null, network: "serve-env-env1" });
+    // The current version once it runs there, else what runs (a failed deploy keeps the old one).
+    expect(exposure).toMatchObject({ service: "web", deployment: "dep2ab", network: "serve-env-env1", slot: 1, prefer: true });
     expect(exposure.allow).toContain(ipOf("a", environmentKey("env1")));
     expect(cfg.localAddresses).toContain(exposure.ip);
   });
@@ -190,8 +190,9 @@ describe("the private network carries the app's copies", () => {
     const one = ipOf("b", copyKey("web", "b", 1));
     const two = ipOf("b", copyKey("web", "b", 2));
     const three = ipOf("b", copyKey("web", "b", 3));
-    expect(out).toContain(`-d ${one}/32 -m statistic --mode random --probability 0.5 -j DNAT --to-destination 172.20.0.5`);
-    expect(out).toContain(`-d ${one}/32 -j DNAT --to-destination 172.20.0.6`);
+    // Replica 1 of the new version runs: only it gets traffic, the old one drains unused.
+    expect(out).toContain(`-d ${one}/32 -j DNAT --to-destination 172.20.0.5`);
+    expect(out).not.toContain("172.20.0.6");
     expect(out).toContain(`-d ${two}/32 -j DNAT --to-destination 172.20.0.7`);
     // Replica 11 is not replica 1, and a pre-deploy container never takes traffic.
     expect(out).not.toContain("172.20.0.8");
@@ -199,6 +200,27 @@ describe("the private network carries the app's copies", () => {
     // Replica 3 runs nowhere yet: no forwarding (the health check takes it out).
     expect(out).not.toContain(`-d ${three}/32 -j DNAT`);
     expect(out).toContain(`-s ${ipOf("a", environmentKey("env1"))}/32 -m conntrack --ctorigdst ${one}/32 -j ACCEPT`);
+    // The deploy failed on this server: only the old version runs, and it keeps answering.
+    const failed = execFileSync(
+      "jq",
+      [
+        "-r",
+        "--arg",
+        "if",
+        "serve-mesh",
+        "--slurpfile",
+        "c",
+        write("c2.json", [container("web-dep1cd-1", "172.20.0.6", { "serve.deployment": "dep1cd" })]),
+        "--slurpfile",
+        "nets",
+        write("nets2.json", { "serve-env-env1": ["172.20.0.0/16"] }),
+        "-f",
+        write("rules2.jq", RULES_JQ),
+        write("config2.json", cfg),
+      ],
+      { encoding: "utf8" },
+    );
+    expect(failed).toContain(`-d ${one}/32 -j DNAT --to-destination 172.20.0.6`);
   });
 });
 
@@ -326,7 +348,10 @@ describe("the proxies balance over the copies", () => {
   it("Traefik: server weights, a retry on another copy, a short dial timeout", () => {
     const y = YAML.parse(renderTraefikSite(site(false), { resolver: false, trusted: [] }));
     expect(y.http.services["svc-web-app-3000"].loadBalancer.servers).toEqual([{ url: "http://web-1:3000" }, { url: "http://serve-link-10-240-1-2:3000", weight: 3 }]);
-    expect(y.http.middlewares["svc-web-retry"]).toEqual({ retry: { attempts: 3, initialInterval: "100ms" } });
+    // As many tries as replicas (at least 3, at most 10): Traefik may pick a dead one again.
+    expect(y.http.middlewares["svc-web-retry"]).toEqual({ retry: { attempts: 3, initialInterval: "50ms" } });
+    const many: SiteModel = { ...site(false), upstreams: [{ key: "app-3000", targets: Array.from({ length: 14 }, (_, i) => `t${i}:3000`), remote: true }] };
+    expect(YAML.parse(renderTraefikSite(many, { resolver: false, trusted: [] })).http.middlewares["svc-web-retry"].retry.attempts).toBe(10);
     const router = Object.values(y.http.routers as Record<string, { middlewares?: string[] }>).find((r) => r.middlewares?.includes("svc-web-retry"));
     expect(router).toBeTruthy();
     expect(y.http.serversTransports["svc-web-transport"].forwardingTimeouts.dialTimeout).toBe("3s");

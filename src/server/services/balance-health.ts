@@ -27,11 +27,11 @@ async function probe(proxy: { container: string; docker: Parameters<typeof execI
   const rt = service.runtime;
   const port = rt.healthcheckPort || rt.port || 80;
   // No shell: the path comes from the service's settings and must never be run as code.
-  const cmd = rt.healthcheckPath ? ["wget", "-S", "-q", "-T", "4", "-O", "/dev/null", `http://${host}:${port}${rt.healthcheckPath}`] : ["nc", "-z", "-w", "3", host, String(port)];
+  const cmd = rt.healthcheckPath ? ["wget", "-S", "-q", "-T", "3", "-O", "/dev/null", `http://${host}:${port}${rt.healthcheckPath}`] : ["nc", "-z", "-w", "2", host, String(port)];
   try {
     const res = await Promise.race([
       execInContainer(proxy.container, cmd, {}, proxy.docker),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000).unref()),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 4500).unref()),
     ]);
     if (!rt.healthcheckPath) return res.exitCode === 0 ? { ok: true, error: null } : { ok: false, error: `Nothing answers on port ${port}.` };
     const statuses = [...res.output.matchAll(/HTTP\/[\d.]+\s+(\d{3})/g)].map((m) => Number(m[1]));
@@ -76,25 +76,25 @@ export async function checkBalances(log: (...args: unknown[]) => void = () => {}
           let state = service.balance;
           let changed = false;
           if (service.status !== "stopped") {
-            for (const c of copies) {
+            // Every replica at once: one that does not answer must not delay the others' checks.
+            const usable = copies.filter((c) => c.linked && c.host && c.deployed);
+            for (const c of copies) if (!usable.includes(c)) streaks.delete(`${service.id}|${copyId(c.serverId, c.slot)}`);
+            const results = await Promise.all(usable.map((c) => probe({ container: ctx.proxyContainer, docker: ctx.docker }, c.host!, service)));
+            usable.forEach((c, i) => {
+              const result = results[i];
               const id = copyId(c.serverId, c.slot);
               const key = `${service.id}|${id}`;
-              if (!c.linked || !c.host || !c.deployed) {
-                streaks.delete(key);
-                continue;
-              }
-              const result = await probe({ container: ctx.proxyContainer, docker: ctx.docker }, c.host, service);
               const streak = step(streaks.get(key), result.ok);
               streaks.set(key, streak);
               const verdict = decide(state?.copies?.[id]?.ok ?? null, streak);
-              if (verdict === null) continue;
+              if (verdict === null) return;
               const next = nextBalance(state, id, verdict, verdict ? null : result.error, now);
               if (next) {
                 if (state?.copies?.[id]?.ok !== verdict) log(`load balancing: ${service.name} replica ${c.slot} on ${c.serverId} is ${verdict ? "up" : `down (${result.error})`}`);
                 state = next;
                 changed = true;
               }
-            }
+            });
           }
           // Replicas that no longer exist (fewer replicas, a server removed) are forgotten.
           const ids = new Set(copies.map((c) => copyId(c.serverId, c.slot)));

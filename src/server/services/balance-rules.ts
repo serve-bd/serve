@@ -3,7 +3,7 @@ import type { BalanceState } from "./types";
 /* Pure rules of the load balancing across servers (see services/balance). */
 
 /** Seconds the proxy waits for a copy on another server to accept a connection before it tries the next one. */
-export const BALANCE_CONNECT_TIMEOUT = 3;
+export const BALANCE_CONNECT_TIMEOUT = 2;
 
 /** Why a copy gets no traffic, or null when it does. */
 export type CopyProblem = "network" | "address" | "deploy" | "down";
@@ -70,7 +70,7 @@ export function nextBalance(state: BalanceState | null | undefined, id: string, 
   return { copies: { ...(state?.copies ?? {}), [id]: { ok, since: cur && cur.ok === ok ? cur.since : now.toISOString(), error: ok ? null : error } } };
 }
 
-export const CHECK_INTERVAL_MS = 10_000;
+export const CHECK_INTERVAL_MS = 5_000;
 const DOWN_AFTER = 2;
 const UP_AFTER = 2;
 

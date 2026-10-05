@@ -200,9 +200,10 @@ export const RULES_JQ = String.raw`def targets($e):
     | select(.Labels["serve.service"] == $e.service and .Labels["serve.kind"] != "predeploy")
     | select($e.kind == null or .Labels["serve.kind"] == $e.kind)
     | select($e.compose == null or .Labels["com.docker.compose.service"] == $e.compose)
-    | select($e.deployment == null or .Labels["serve.deployment"] == null or .Labels["serve.deployment"] == $e.deployment)
-    | select($e.slot == null or .Labels["serve.kind"] == "app" and (.Names[0] | test("-[a-z0-9]{6}-\($e.slot)$")))
-    | (if $e.network then .NetworkSettings.Networks[$e.network].IPAddress else ([.NetworkSettings.Networks[].IPAddress | select(. != "")] | first) end)
+    | select($e.slot == null or .Labels["serve.kind"] == "app" and (.Names[0] | test("-[a-z0-9]{6}-\($e.slot)$")))] as $all
+  | [$all[] | select($e.deployment == null or .Labels["serve.deployment"] == null or .Labels["serve.deployment"] == $e.deployment)] as $current
+  | (if $e.prefer and ($current | length) == 0 then $all else $current end)
+  | [.[] | (if $e.network then .NetworkSettings.Networks[$e.network].IPAddress else ([.NetworkSettings.Networks[].IPAddress | select(. != "")] | first) end)
     | select(. != null and . != "")] | unique;
 def dnat($e):
   targets($e) as $t | ($t | length) as $n
@@ -212,7 +213,11 @@ def dnat($e):
     + " -j DNAT --to-destination \($t[$i])";
 . as $cfg
 | ([.sources[] | . as $s | ([.networks[] | $nets[0][.] // [] | .[]] + .subnets | unique | .[]) | "-A SERVE-MESH-POST -o \($if) -s \(.) -j SNAT --to-source \($s.ip)"]) as $snat
-| ([.exposures[] | dnat(.)]) as $dnat
+# A service address leads to its containers only. With none running (stopped, crashed, between
+# deploys), its traffic must not go on to Docker's published ports (this server's proxy, for one):
+# it stops here (ACCEPT ends the nat chain) and is refused below, so callers fail over at once.
+| ([.exposures[] | dnat(.), "-A SERVE-MESH-PRE -i \($if) -d \(.ip)/32 -j ACCEPT"]) as $dnat
+| ([.exposures[] | "-A SERVE-MESH-IN -i \($if) -d \(.ip)/32 -p tcp -j REJECT --reject-with tcp-reset", "-A SERVE-MESH-IN -i \($if) -d \(.ip)/32 -j REJECT"]) as $refuse
 | ([.exposures[] | . as $e | .allow[] | "-A SERVE-MESH-FWD -i \($if) -s \(.)/32 -m conntrack --ctorigdst \($e.ip)/32 -j ACCEPT"]) as $allow
 | (["*nat", ":SERVE-MESH-PRE - [0:0]", ":SERVE-MESH-POST - [0:0]"] + $dnat + $snat + ["COMMIT",
    "*filter", ":SERVE-MESH-FWD - [0:0]", ":SERVE-MESH-IN - [0:0]",
@@ -222,8 +227,9 @@ def dnat($e):
    + ["-A SERVE-MESH-FWD -i \($if) -j DROP",
    "-A SERVE-MESH-IN -p udp --dport \($cfg.listenPort) -j ACCEPT",
    "-A SERVE-MESH-IN -i \($if) -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
-   "-A SERVE-MESH-IN -i \($if) -p icmp -j ACCEPT",
-   "-A SERVE-MESH-IN -i \($if) -j DROP",
+   "-A SERVE-MESH-IN -i \($if) -p icmp -j ACCEPT"]
+   + $refuse
+   + ["-A SERVE-MESH-IN -i \($if) -j DROP",
    "COMMIT",
    "*mangle", ":SERVE-MESH-MSS - [0:0]",
    "-A SERVE-MESH-MSS -o \($if) -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu",

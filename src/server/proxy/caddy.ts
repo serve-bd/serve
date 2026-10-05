@@ -26,7 +26,22 @@ const tab = (lines: string[], depth = 1) =>
 
 const ON: Required<ProxyDefaults> = { catchAll: true, unknownRedirect: null, unavailablePage: true, httpsRedirect: true };
 
-export function caddyMainConfig(cfg: CaddySettings, opts: { email: string | null; staging: boolean; visitor: VisitorIp; defaults?: Required<ProxyDefaults> }) {
+/**
+ * Caddy 2.8 and later can add the upstream that answered to each access log line (log_append).
+ * Older versions reject the directive, which breaks the whole Caddyfile: only when the version is
+ * known (an image without one, like latest, counts as older).
+ */
+export function caddyLogAppend(image: string) {
+  const m = /:v?(\d+)\.(\d+)/.exec(image);
+  if (!m) return false;
+  const [major, minor] = [Number(m[1]), Number(m[2])];
+  return major > 2 || (major === 2 && minor >= 8);
+}
+
+export function caddyMainConfig(
+  cfg: CaddySettings,
+  opts: { email: string | null; staging: boolean; visitor: VisitorIp; defaults?: Required<ProxyDefaults> /** See caddyLogAppend. */; logUpstream?: boolean },
+) {
   const d = opts.defaults ?? ON;
   const global: string[] = ["admin localhost:2019", "grace_period 10s"];
   if (!d.httpsRedirect) global.push("auto_https disable_redirects");
@@ -97,7 +112,7 @@ ${tab(global)}
 			roll_disabled
 		}
 		format json
-	}
+	}${opts.logUpstream ? "\n\tlog_append upstream {http.reverse_proxy.upstream.hostport}" : ""}
 }
 
 (serve_errors) {

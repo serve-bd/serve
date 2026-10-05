@@ -1,4 +1,4 @@
-import { type AnyPgColumn, bigint, boolean, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, bigint, bigserial, boolean, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import type {
   BuildConfig,
@@ -8,6 +8,7 @@ import type {
   DbEngine,
   DeploymentTarget,
   BalanceState,
+  RequestLogConfig,
   DistributionConfig,
   MaintenanceConfig,
   PreviewDatabaseConfig,
@@ -548,6 +549,8 @@ export const service = pgTable(
     distribution: jsonb("distribution").$type<DistributionConfig>(),
     /** Health of the app's copies on its extra servers, for the load balancing on its own server. */
     balance: jsonb("balance").$type<BalanceState>(),
+    /** Request log settings; null: never set up (off). */
+    requestLog: jsonb("request_log").$type<RequestLogConfig>(),
     /** Per-service HTTP options for the nginx site (limits, auth, headers…). */
     proxy: jsonb("proxy").$type<ServiceProxyConfig>(),
     /** Full site configuration written instead of the generated one, per proxy kind. Root admins only. */
@@ -1392,6 +1395,35 @@ export const requestMetric = pgTable(
     maxMs: integer("max_ms").notNull().default(0),
   },
   (t) => [uniqueIndex("request_metric_pk").on(t.hostname, t.minute)],
+);
+
+/** Single requests through the proxy, for services with the request log on (see analytics). */
+export const requestLog = pgTable(
+  "request_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    time: timestamp("time", { withTimezone: true }).notNull(),
+    hostname: text("hostname").notNull(),
+    method: text("method"),
+    /** Path without the query string (it can hold tokens). */
+    path: text("path").notNull(),
+    /** The request had a query string (not kept). */
+    query: boolean("query").notNull().default(false),
+    status: integer("status").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    referer: text("referer"),
+    /** Where the proxy sent it ("host:port"), when the proxy logs it. */
+    upstream: text("upstream"),
+    /** The server whose proxy logged it. */
+    serverId: text("server_id"),
+  },
+  (t) => [index("request_log_service_time_idx").on(t.serviceId, t.time), index("request_log_service_status_time_idx").on(t.serviceId, t.status, t.time)],
 );
 
 /* -------------------------------------------------------------------------- */

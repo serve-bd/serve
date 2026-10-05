@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { AreaChart } from "@/components/charts/area-chart";
 import { Card } from "@/components/ui/misc";
 import { formatBytes, cn } from "@/lib/utils";
+import { RequestLog } from "./request-log";
 
 type Series = { t: number; cpu: number; memory: number; memoryLimit: number; netRx: number | null; netTx: number | null }[];
 
@@ -38,10 +39,10 @@ function compact(n: number) {
   return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
 }
 
-function StatusBars({ series }: { series: Req["series"] }) {
-  // Hovering a bar shows its numbers; a tap or click keeps them (phones have no hover).
+function StatusBars({ series, picked, setPicked }: { series: Req["series"]; picked: number | null; setPicked: React.Dispatch<React.SetStateAction<number | null>> }) {
+  // Hovering a bar shows its numbers; a tap or click keeps them (phones have no hover), and the
+  // request log below shows that bar's requests.
   const [hovered, setHovered] = React.useState<number | null>(null);
-  const [picked, setPicked] = React.useState<number | null>(null);
   const max = Math.max(1, ...series.map((p) => p.requests));
   if (series.length === 0) return <div className="flex h-[120px] items-center justify-center text-xs text-faint">No requests yet</div>;
   const shown = series.find((p) => p.t === (hovered ?? picked));
@@ -105,10 +106,13 @@ export function ServiceMetrics({
   memoryLimit,
   hasDomains,
   resources,
+  requestLog,
 }: {
   serviceId: string;
   memoryLimit: number | null;
   hasDomains: boolean;
+  /** The request log of the service: whether it is on, what it keeps, where to set it up. */
+  requestLog: { enabled: boolean; statuses: number[]; settingsHref: string } | null;
   /** Its server records CPU and memory; off shows request counts only. */
   resources: boolean;
 }) {
@@ -123,6 +127,11 @@ export function ServiceMetrics({
   // Docker on some servers never reports memory (limit 0); judged by the latest point, so a change mid-window shows.
   const memUnknown = series.length > 0 && !series.at(-1)!.memoryLimit;
   const { data: req } = useSWR<Req>(hasDomains ? `/api/services/${serviceId}/requests?hours=${hours}` : null, { refreshInterval: 30000 });
+  const [picked, setPicked] = React.useState<number | null>(null);
+  const points = req?.series ?? [];
+  const step = points.length > 1 ? points[1].t - points[0].t : 60_000;
+  // A bar picked in another range is not on the chart any more.
+  React.useEffect(() => setPicked(null), [hours]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -143,7 +152,7 @@ export function ServiceMetrics({
       {hasDomains && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
           <Panel title="Requests" value={req ? compact(req.totals.requests) : "—"}>
-            <StatusBars series={req?.series ?? []} />
+            <StatusBars series={points} picked={picked} setPicked={setPicked} />
             <div className="flex flex-wrap gap-4 text-xs text-muted">
               {[
                 ["2xx", "bg-ok"],
@@ -171,6 +180,16 @@ export function ServiceMetrics({
             </Panel>
           </div>
         </div>
+      )}
+      {hasDomains && requestLog && (
+        <RequestLog
+          serviceId={serviceId}
+          enabled={requestLog.enabled}
+          statuses={requestLog.statuses}
+          settingsHref={requestLog.settingsHref}
+          window={picked !== null ? { from: picked, to: picked + step } : null}
+          onClearWindow={() => setPicked(null)}
+        />
       )}
       {!resources ? (
         <p className="px-1 text-xs text-muted">

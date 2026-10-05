@@ -9,6 +9,9 @@ import { useSWRConfig } from "swr";
  * in this organization changes, refetches client data and re-renders server pages. Batched so a
  * burst of changes (a deploy moving through its steps) costs one refresh.
  */
+/** Window event for new requests in a service's request log (detail: the service id). */
+export const REQUESTS_EVENT = "serve:requests";
+
 export function LiveUpdates({ scope }: { scope: string }) {
   const router = useRouter();
   const { mutate } = useSWRConfig();
@@ -36,7 +39,17 @@ export function LiveUpdates({ scope }: { scope: string }) {
     const connect = () => {
       let opened = false;
       es = new EventSource("/api/events");
-      es.addEventListener("change", schedule);
+      es.addEventListener("change", (ev) => {
+        // New requests in a request log refresh only the lists that show them, not every page.
+        try {
+          const data = JSON.parse((ev as MessageEvent<string>).data) as { t?: string; service?: string | null };
+          if (data.t === "request") {
+            window.dispatchEvent(new CustomEvent(REQUESTS_EVENT, { detail: data.service }));
+            return;
+          }
+        } catch {}
+        schedule();
+      });
       es.onopen = () => {
         // After a reconnect, changes may have been missed while offline.
         if (opened || attempt > 0) schedule();

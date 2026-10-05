@@ -5,6 +5,7 @@ import { db } from "@/server/db";
 import { sh } from "@/server/servers/ssh";
 import type { ServerCtx } from "@/server/servers/context";
 import { activeServers } from "@/server/proxy/nginx";
+import { type LogTarget, logTargets, type RequestRow, requestRow, saveRequests, targetFor } from "@/server/request-log";
 
 const MAX_LOG_SIZE = 64 * 1024 * 1024;
 const CHUNK = 16 * 1024 * 1024;
@@ -16,9 +17,11 @@ type Bucket = { requests: number; s2: number; s3: number; s4: number; s5: number
 /** Read new access log lines from every proxy and fold them into per-minute counters. */
 export async function ingestAccessLog() {
   let total = 0;
+  // Hostnames whose single requests are kept too (the request log), read once per round.
+  const targets = await logTargets().catch(() => new Map<string, LogTarget>());
   for (const ctx of await activeServers()) {
     try {
-      total += await ingestServerLog(ctx);
+      total += await ingestServerLog(ctx, targets);
     } catch {
       // unreachable server: try again next round from the same offset
     }
@@ -26,7 +29,7 @@ export async function ingestAccessLog() {
   return total;
 }
 
-async function ingestServerLog(ctx: ServerCtx) {
+async function ingestServerLog(ctx: ServerCtx, targets: Map<string, LogTarget>) {
   const file = path.posix.join(ctx.paths.proxyLogs, "access.log");
   const stat = await ctx.fs.stat(file);
   if (!stat) return 0;
@@ -43,6 +46,7 @@ async function ingestServerLog(ctx: ServerCtx) {
   offsets.set(ctx.id, offset);
 
   const buckets = new Map<string, Bucket>();
+  const kept: RequestRow[] = [];
   let count = 0;
   for (const line of text.slice(0, lastNewline).split("\n")) {
     if (!line) continue;
@@ -66,6 +70,9 @@ async function ingestServerLog(ctx: ServerCtx) {
     b.max = Math.max(b.max, ms);
     buckets.set(key, b);
     count++;
+    const target = targets.size ? targetFor(targets, entry.h) : undefined;
+    const row = target && requestRow(entry, target, ctx.id);
+    if (row) kept.push(row);
   }
 
   for (const [key, b] of buckets) {
@@ -85,6 +92,12 @@ async function ingestServerLog(ctx: ServerCtx) {
     `);
   }
 
+  // The counts above are saved; a failure here loses these single requests, not the counts.
+  if (kept.length) {
+    await nameUpstreams(ctx, kept).catch(() => {});
+    await saveRequests(kept, targets).catch(() => {});
+  }
+
   // Keep the log small; nginx appends, so truncating in place is safe.
   if (stat.size > MAX_LOG_SIZE && offset >= stat.size) {
     try {
@@ -101,7 +114,51 @@ async function ingestServerLog(ctx: ServerCtx) {
   return count;
 }
 
-export type AccessEntry = { t: string; h: string; s: number; b: number; rt: number; u?: string; ip?: string };
+/** Container names by IP address per server, for a minute: nginx logs the upstream's address. */
+const containerNames = new Map<string, { at: number; names: Map<string, string> }>();
+
+/** Upstreams logged as "ip:port" become "container:port", so the request log can say which replica answered. */
+async function nameUpstreams(ctx: ServerCtx, rows: RequestRow[]) {
+  const byIp = rows.filter((r) => r.upstream && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(r.upstream));
+  if (!byIp.length) return;
+  let cached = containerNames.get(ctx.id);
+  if (!cached || Date.now() - cached.at > 60_000) {
+    const names = new Map<string, string>();
+    for (const c of await ctx.docker.listContainers()) {
+      const name = c.Names?.[0]?.replace(/^\//, "");
+      if (!name) continue;
+      for (const n of Object.values(c.NetworkSettings?.Networks ?? {})) if (n.IPAddress) names.set(n.IPAddress, name);
+    }
+    cached = { at: Date.now(), names };
+    containerNames.set(ctx.id, cached);
+  }
+  for (const r of byIp) {
+    const [ip, port] = r.upstream!.split(":");
+    const name = cached.names.get(ip);
+    if (name) r.upstream = `${name}:${port}`;
+  }
+}
+
+export type AccessEntry = {
+  t: string;
+  h: string;
+  s: number;
+  b: number;
+  rt: number;
+  u?: string;
+  ip?: string;
+  /** Method, user agent, referer and upstream ("host:port"), when the proxy logs them. */
+  m?: string;
+  ua?: string;
+  ref?: string;
+  up?: string;
+};
+
+const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+const header = (headers: unknown, name: string) => {
+  const v = (headers as Record<string, unknown> | undefined)?.[name];
+  return str(Array.isArray(v) ? v[0] : v);
+};
 
 /**
  * One access-log line from any proxy, in the fields analytics needs:
@@ -116,7 +173,7 @@ export function normalizeAccessLine(line: string): AccessEntry | null {
   }
   if (typeof raw.h === "string") return raw as unknown as AccessEntry;
   if (raw.request && typeof raw.request === "object") {
-    const req = raw.request as { host?: string; uri?: string; client_ip?: string; remote_ip?: string };
+    const req = raw.request as { host?: string; uri?: string; method?: string; client_ip?: string; remote_ip?: string; headers?: unknown };
     return {
       t: new Date(Number(raw.ts) * 1000).toISOString(),
       h: String(req.host ?? "").replace(/:\d+$/, ""),
@@ -125,6 +182,10 @@ export function normalizeAccessLine(line: string): AccessEntry | null {
       b: Number(raw.size) || 0,
       rt: Number(raw.duration) || 0,
       ip: req.client_ip ?? req.remote_ip,
+      m: str(req.method),
+      ua: header(req.headers, "User-Agent"),
+      ref: header(req.headers, "Referer"),
+      up: str(raw.upstream),
     };
   }
   if (typeof raw.RequestHost === "string") {
@@ -136,6 +197,10 @@ export function normalizeAccessLine(line: string): AccessEntry | null {
       b: Number(raw.DownstreamContentSize) || 0,
       rt: (Number(raw.Duration) || 0) / 1e9,
       ip: typeof raw.ClientHost === "string" ? raw.ClientHost : undefined,
+      m: str(raw.RequestMethod),
+      ua: str(raw["request_User-Agent"]),
+      ref: str(raw.request_Referer),
+      up: str(raw.ServiceAddr),
     };
   }
   return null;

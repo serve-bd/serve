@@ -37,6 +37,7 @@ import { getSettings, updateSettings } from "@/server/settings";
 import { notify, orgOfService } from "@/server/notify";
 import { runTask, scheduleTasks } from "@/server/services/tasks";
 import { ingestAccessLog } from "@/server/analytics";
+import { pruneRequestLog } from "@/server/request-log";
 import { runCleanup, scheduleCleanup } from "@/server/cleanup";
 import { probeServer, setupServer } from "@/server/servers/setup";
 import { getServer, serverOf } from "@/server/servers/context";
@@ -854,6 +855,8 @@ async function main() {
   every(60_000, "update-check", () => periodicUpdateCheck((to) => enqueue("instance.update", { to }, { concurrencyKey: "instance-update" })), true);
   every(60_000, "tasks", scheduleTasks);
   every(20_000, "analytics", ingestAccessLog, true);
+  // Its own job, hourly: cleanup can be turned off, and the request log must still expire.
+  every(60 * 60_000, "request-log", pruneRequestLog, true);
   every(6 * 3600_000, "certificates", renewDueCertificates, true);
   // A certificate that failed (its name did not resolve yet) is asked for again once it does.
   every(5 * 60_000, "certificate-retries", retryFailedCertificates);

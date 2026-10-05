@@ -82,6 +82,22 @@ export type DistributionConfig = {
  * Load balancing state of an app's copies on its extra servers, as the health checks last saw it
  * (written only when a copy goes down or comes back, so pages do not refresh on every check).
  */
+/** Status groups the request log can keep: 2 for 2xx, 3 for 3xx, 4 for 4xx, 5 for 5xx. */
+export type StatusGroup = 2 | 3 | 4 | 5;
+
+/** The request log of a service: every request through the proxy that matches, kept for some days. */
+export type RequestLogConfig = {
+  enabled: boolean;
+  /** Days to keep; older requests are deleted. */
+  days: number;
+  /** Status groups to keep (other requests are only counted, as always). */
+  statuses: StatusGroup[];
+  /** Keep the visitor's IP address with each request. */
+  ips: boolean;
+};
+
+export const REQUEST_LOG_DEFAULTS: RequestLogConfig = { enabled: false, days: 7, statuses: [4, 5], ips: true };
+
 export type BalanceState = {
   copies: Record<string, { ok: boolean; since: string; error: string | null }>;
 };

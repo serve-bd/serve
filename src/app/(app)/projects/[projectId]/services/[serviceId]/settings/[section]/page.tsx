@@ -1,6 +1,6 @@
 import { referenceName } from "@/lib/refs";
 import { NoAccess } from "@/components/no-access";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { privateHost } from "@/lib/hostname";
 import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
@@ -19,6 +19,7 @@ import { monitorUrl } from "@/server/monitoring/checks";
 import { logDrainsProps } from "@/server/log-drains/view";
 import { needsApproval } from "@/lib/deploy-rules";
 import { normalizeDistribution } from "@/server/deploy/distribution";
+import { requestLogConfig } from "@/server/request-log";
 import { appCopies, serverTraffic } from "@/server/services/balance";
 import { buildsImage, replicaInstances, replicasSupported } from "@/server/services/types";
 import { meshMemberIds, privatelyConnected } from "@/server/mesh/members";
@@ -91,6 +92,14 @@ function dbProps(
     dataPath: cfg.dataMountPath || engine.dataPath,
     defaultDataPath: engine.dataPath,
   };
+}
+
+async function requestLogProps(service: typeof schema.service.$inferSelect) {
+  const [[kept], domains] = await Promise.all([
+    db.select({ n: count() }).from(schema.requestLog).where(eq(schema.requestLog.serviceId, service.id)),
+    db.select({ id: schema.domain.id }).from(schema.domain).where(eq(schema.domain.serviceId, service.id)).limit(1),
+  ]);
+  return { config: requestLogConfig(service.requestLog), kept: kept?.n ?? 0, hasDomains: domains.length > 0 };
 }
 
 async function distributionProps(service: typeof schema.service.$inferSelect, servers: Awaited<ReturnType<typeof serversForOrg>>, orgId: string, isAdmin: boolean) {
@@ -260,6 +269,7 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
             }
           : undefined
       }
+      requestLog={section === "monitoring" && service.type !== "database" && !service.parentServiceId ? await requestLogProps(service) : undefined}
       monitoring={
         section === "monitoring" ? { monitor: (await monitorSummary(service.id)).monitor, defaultUrl: await monitorUrl({ url: null, path: "/" }, service.id) } : undefined
       }

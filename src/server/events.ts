@@ -2,7 +2,7 @@ import { sql } from "@/server/db";
 
 /** A change announced by the database triggers (see drizzle/0024_live_events.sql). */
 export type LiveEvent = {
-  t: "deployment" | "service" | "domain" | "backup" | "task_run" | "tunnel" | "certificate" | "server" | "setting";
+  t: "deployment" | "service" | "domain" | "backup" | "task_run" | "tunnel" | "certificate" | "server" | "setting" | "request";
   op: string;
   org: string | null;
   project: string | null;

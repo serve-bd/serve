@@ -12,6 +12,7 @@ import { logActivity } from "@/server/activity";
 import { serviceInOrg } from "@/server/services/access";
 import { MONITOR_INTERVALS } from "@/server/monitoring/config";
 import { parseExpectedStatus } from "@/server/monitoring/state";
+import { clearRequestLog, requestLogConfig } from "@/server/request-log";
 
 const monitorSchema = z.object({
   enabled: z.boolean(),
@@ -115,5 +116,59 @@ export async function saveServerAlerts(serverId: string, input: z.input<typeof a
       .onConflictDoUpdate({ target: schema.serverAlerts.serverId, set: { config: data } });
     await logActivity({ userId: ctx.user.id, organizationId: ctx.org.id, action: "server.alerts", message: `Updated resource alerts of ${server.name}` });
     return null;
+  });
+}
+
+const requestLogSchema = z.object({
+  enabled: z.boolean(),
+  days: z.number().int().min(1, "Keep requests for at least 1 day."),
+  statuses: z.array(z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5)])),
+  ips: z.boolean(),
+});
+
+/** Turn the request log of a service on or off, and choose what it keeps and for how long. */
+export async function saveRequestLog(serviceId: string, input: z.input<typeof requestLogSchema>) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    if (service.type === "database") throw new UserError("Databases get no requests through the proxy.");
+    if (service.parentServiceId) throw new UserError("Previews use the request log settings of their service.");
+    const data = requestLogSchema.parse(input);
+    if (data.enabled && !data.statuses.length) throw new UserError("Choose at least one kind of response to keep.");
+    const config = requestLogConfig(data);
+    await db.update(schema.service).set({ requestLog: config }).where(eq(schema.service.id, serviceId));
+    // Visitor IPs turned off: the ones already kept go too.
+    if (!config.ips && requestLogConfig(service.requestLog).ips) {
+      await db.update(schema.requestLog).set({ ip: null }).where(eq(schema.requestLog.serviceId, serviceId));
+    }
+    const was = requestLogConfig(service.requestLog);
+    if (was.enabled !== config.enabled) {
+      await logActivity({
+        userId: ctx.user.id,
+        projectId: service.projectId,
+        action: "service.request_log",
+        targetType: "service",
+        targetId: serviceId,
+        message: `${config.enabled ? "Turned on" : "Turned off"} the request log of ${service.name}`,
+      });
+    }
+  });
+}
+
+/** Delete every request kept for a service (and its previews). */
+export async function deleteRequestLog(serviceId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("services.manage");
+    const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    const previews = await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.parentServiceId, serviceId));
+    for (const id of [serviceId, ...previews.map((p) => p.id)]) await clearRequestLog(id);
+    await logActivity({
+      userId: ctx.user.id,
+      projectId: service.projectId,
+      action: "service.request_log",
+      targetType: "service",
+      targetId: serviceId,
+      message: `Deleted the request log of ${service.name}`,
+    });
   });
 }

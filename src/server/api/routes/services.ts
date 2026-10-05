@@ -851,6 +851,34 @@ export const serviceRoutes: ApiRoute[] = [
     },
   }),
 
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/request-log",
+    tag: "Logs",
+    summary: "Request log",
+    description:
+      "Single requests through the proxy, newest first, when the service keeps a request log (Settings → Monitoring). Filters: status (like 5xx or 4,5), path (contains), method, from and to (RFC 3339 or Unix seconds), limit (1-500, default 100). Pass next as before for the next page.",
+    needs: ["logs.view"],
+    query: z.object({
+      status: z.string().optional(),
+      path: z.string().optional(),
+      method: z.string().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      before: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(500).optional(),
+    }),
+    handler: async ({ auth, params, query }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      const { filterFromQuery, requestLogPage } = await import("@/server/request-log");
+      const q = new URLSearchParams(
+        Object.entries(query)
+          .filter((e): e is [string, string] => e[1] !== undefined)
+          .map(([k, v]) => [k, String(v)]),
+      );
+      return requestLogPage(service.id, filterFromQuery(q));
+    },
+  }),
   // Logs
   route({
     method: "GET",

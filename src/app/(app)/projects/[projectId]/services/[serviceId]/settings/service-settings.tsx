@@ -32,13 +32,13 @@ import { DeployedCompose } from "./deployed-compose";
 import { addPendingApply, clearPendingApply, usePendingApply } from "./pending-apply";
 import { StorageSection } from "./storage-section";
 import { ComposeStorageSection } from "./compose-storage-section";
-import { MonitoringSection } from "./monitoring-section";
+import { MonitoringSection, RequestLogSection } from "./monitoring-section";
 import { LogDrainsSection } from "./log-drains-section";
 import { ApprovalSection } from "./approval-section";
 import type { DrainItem, DrainProject } from "@/app/(app)/integrations/log-drains/log-drains";
 import { MaintenanceSection } from "./maintenance-section";
 import { PreviewDatabaseSection } from "./preview-database-section";
-import type { MaintenanceConfig, PreviewDatabaseConfig } from "@/server/services/types";
+import type { MaintenanceConfig, PreviewDatabaseConfig, RequestLogConfig } from "@/server/services/types";
 import { DistributionSection } from "./distribution-section";
 import type { MonitorSummary } from "@/server/monitoring/queries";
 import { updateDatabaseSettings } from "@/server/actions/databases";
@@ -94,6 +94,8 @@ type Props = {
   section: string;
   /** Uptime check (only loaded for the Monitoring page). */
   monitoring?: { monitor: MonitorSummary["monitor"]; defaultUrl: string | null };
+  /** Request log settings (apps and stacks that are not previews). */
+  requestLog?: { config: RequestLogConfig; kept: number; hasDomains: boolean };
   /** The service's own deploy approval (apps and stacks). */
   approval?: { mode: "always" | "never" | null; projectWaits: boolean; canChange: boolean };
   /** The service's tags and the organization's (only loaded for the General page). */
@@ -739,6 +741,15 @@ export function ServiceSettings(props: Props) {
 
       {show("monitoring") && props.monitoring && (
         <MonitoringSection serviceId={service.id} type={service.type} monitor={props.monitoring.monitor} defaultUrl={props.monitoring.defaultUrl} />
+      )}
+      {show("monitoring") && props.requestLog && (
+        <RequestLogSection
+          serviceId={service.id}
+          config={props.requestLog.config}
+          kept={props.requestLog.kept}
+          hasDomains={props.requestLog.hasDomains}
+          metricsHref={`/projects/${props.projectId}/services/${service.id}/metrics`}
+        />
       )}
 
       {show("log-drains") && props.logDrains && <LogDrainsSection serviceId={service.id} projectId={props.projectId} {...props.logDrains} />}

@@ -43,8 +43,8 @@ import { removeHostRelay, syncHostRelay } from "./host-relay";
 import { runServerIds } from "@/server/deploy/distribution";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { BALANCE_CONNECT_TIMEOUT, remoteTargets } from "@/server/services/balance";
-import { caddyMainConfig, renderCaddySite, tunnelTrustFor } from "./caddy";
-import { renderTraefikSite, TRAEFIK_API, traefikBaseDynamic, traefikPassiveHealth, traefikRouters, traefikStaticArgs, type ExpectedRouter } from "./traefik";
+import { caddyLogAppend, caddyMainConfig, renderCaddySite, tunnelTrustFor } from "./caddy";
+import { renderTraefikSite, TRAEFIK_API, traefikBaseDynamic, traefikRouters, traefikStaticArgs, type ExpectedRouter } from "./traefik";
 
 /**
  * Reverse proxies, one per server: nginx, Caddy or Traefik. Every server has
@@ -215,7 +215,13 @@ async function writeStaticFiles(ctx: ServerCtx, kind: ProxyKind, config: ServerP
     changed =
       (await ctx.fs.writeIfChanged(
         path.posix.join(p.proxy, "caddy", "Caddyfile"),
-        caddyMainConfig(c, { email: settings.acmeEmail, staging: settings.acmeStaging, visitor, defaults: defaultsOf(c.defaults) }),
+        caddyMainConfig(c, {
+          email: settings.acmeEmail,
+          staging: settings.acmeStaging,
+          visitor,
+          defaults: defaultsOf(c.defaults),
+          logUpstream: caddyLogAppend(c.container?.image || proxyImages.caddy),
+        }),
       )) || changed;
     changed = (await writeOrRemove(ctx, caddyExtraFile(ctx), null)) || changed;
     changed = (await writeUserFiles(ctx, p.proxyCustom, c.files, customFilePattern.caddy)) || changed;
@@ -977,7 +983,6 @@ async function renderModel(kind: RunningKind, ctx: ServerCtx, model: SiteModel |
       defaults: defaultsOf(config.traefik?.defaults),
       tunnelSubnets: visitor.tunnel,
       dnsChallenge: config.traefik?.acmeChallenge === "dns-cloudflare" && !!config.traefik.cloudflareAccountId,
-      passiveHealth: traefikPassiveHealth(config.traefik?.container?.image || proxyImages.traefik),
     })
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { Tooltip } from "@/components/ui/tooltip";
-import { HiddenIp } from "@/components/ui/hidden-ip";
 import Link from "next/link";
 import { ArrowRight, Plus, Server } from "lucide-react";
 import { Badge, Card, EmptyState } from "@/components/ui/misc";
@@ -91,8 +90,9 @@ function SharedCard({ server: s, isDefault }: { server: SharedRow; isDefault: bo
           <Server className="size-5" />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-[15px] font-semibold text-fg">{s.name}</span>
+          {/* Badges wrap below a long name instead of squeezing it. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="max-w-full truncate text-[15px] font-semibold text-fg">{s.name}</span>
             {s.own ? <Badge>View only</Badge> : <Badge tone="info">Shared</Badge>}
             {isDefault && <DefaultBadge />}
           </div>
@@ -101,7 +101,6 @@ function SharedCard({ server: s, isDefault }: { server: SharedRow; isDefault: bo
         <ArrowRight className="size-4 flex-none text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-fg-2" />
       </div>
       <div className="flex flex-1 flex-col gap-1.5 px-4 pb-4">
-        <StatusLabel status={s.status} kind="server" className="text-xs" />
         <p className="text-xs leading-relaxed text-muted">{s.own ? "Admins of this organization manage it." : "You deploy services here. Its owner manages the server."}</p>
       </div>
       <div className="border-t border-line px-4 py-2.5 text-xs text-muted">
@@ -130,7 +129,12 @@ function AddCard() {
 }
 
 function ServerCard({ server: s, isDefault }: { server: Row; isDefault: boolean }) {
-  const facts = [s.info.os, s.info.cpus ? `${s.info.cpus} CPU` : null, s.info.memory ? formatBytes(s.info.memory, 0) : null].filter(Boolean);
+  const facts = [
+    s.info.os,
+    s.info.cpus ? `${s.info.cpus} CPU` : null,
+    s.info.memory ? formatBytes(s.info.memory, 0) : null,
+    s.info.docker ? `Docker ${s.info.docker}` : null,
+  ].filter(Boolean);
   const problem = s.status === "unreachable" || s.status === "error";
   return (
     <Link
@@ -145,31 +149,20 @@ function ServerCard({ server: s, isDefault }: { server: Row; isDefault: boolean 
           <Server className="size-5" />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-[15px] font-semibold text-fg">{s.name}</span>
-            {s.isLocal && <Badge tone="accent">This server</Badge>}
-            {isDefault && <DefaultBadge />}
-            {s.mesh && <Badge>Private network</Badge>}
-            {s.owner && <Badge tone="info">{s.owner}</Badge>}
-          </div>
-          <span className="truncate font-mono text-[12px] text-muted">
-            <HiddenIp
-              text={
-                s.isLocal
-                  ? (s.publicIp ?? "Local Docker")
-                  : s.tailnetAddress
-                    ? `${s.username}@${s.tailnetAddress} · via Tailscale`
-                    : s.tunnel
-                      ? `${s.username}@${s.host} · via tunnel`
-                      : `${s.username}@${s.host}${s.port === 22 ? "" : `:${s.port}`}`
-              }
-            />
-          </span>
+          <span className="truncate text-[15px] font-semibold text-fg">{s.name}</span>
+          {/* Own row under the name, so a long name keeps its whole line. */}
+          {(s.isLocal || isDefault || s.mesh || s.owner) && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {s.isLocal && <Badge tone="accent">This server</Badge>}
+              {isDefault && <DefaultBadge />}
+              {s.mesh && <Badge>Private network</Badge>}
+              {s.owner && <Badge tone="info">{s.owner}</Badge>}
+            </div>
+          )}
         </div>
         <ArrowRight className="size-4 flex-none text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-fg-2" />
       </div>
       <div className="flex flex-1 flex-col gap-1.5 px-4 pb-4">
-        <StatusLabel status={s.status} kind="server" className="text-xs" />
         {s.statusMessage && s.status !== "ready" ? (
           <p className={cn("line-clamp-2 text-xs leading-relaxed", problem ? "text-bad" : "text-muted")}>{s.statusMessage}</p>
         ) : (
@@ -179,14 +172,16 @@ function ServerCard({ server: s, isDefault }: { server: Row; isDefault: boolean 
         )}
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-xs text-muted">
-        <span>{serverServicesText(s)}</span>
-        {s.alerts > 0 ? (
-          <span className="inline-flex items-center gap-1.5 font-medium text-warn">
+        <span className="flex min-w-0 items-center gap-2">
+          <StatusLabel status={s.status} kind="server" className="flex-none text-xs" />
+          <span className="text-faint">·</span>
+          <span className="truncate">{serverServicesText(s)}</span>
+        </span>
+        {s.alerts > 0 && (
+          <span className="inline-flex flex-none items-center gap-1.5 font-medium text-warn">
             <span className="size-1.5 rounded-full bg-warn" />
             {s.alerts} alert{s.alerts === 1 ? "" : "s"}
           </span>
-        ) : (
-          s.info.docker && <span className="font-mono text-[11px] text-faint">Docker {s.info.docker}</span>
         )}
       </div>
     </Link>

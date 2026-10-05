@@ -60,7 +60,8 @@ export type NoticeView = {
   postmortem: string | null;
 };
 
-export type DayView = { day: string; level: StatusLevel; uptime: number | null; notes: string[] };
+/** One bar; `notes` are the incidents that touched the day, with the level each one gave it. */
+export type DayView = { day: string; level: StatusLevel; uptime: number | null; notes: { title: string; level: StatusLevel }[] };
 
 export type ComponentView = {
   id: string;
@@ -273,7 +274,7 @@ export async function statusView(
       const posted = touching.filter((n) => n.kind === "incident").map((n) => n.impact);
       // Without a check: fine since it was added, unless an incident said otherwise.
       const level = m ? dayLevel(b.uptime, posted) : dayEnd <= c.createdAt.getTime() ? "unknown" : worst(["operational", ...posted.map((p) => IMPACT_LEVEL[p])]);
-      return { day: b.day, level, uptime: m ? b.uptime : null, notes: touching.map((n) => n.title) };
+      return { day: b.day, level, uptime: m ? b.uptime : null, notes: touching.map((n) => ({ title: n.title, level: n.kind === "outage" ? "major" : IMPACT_LEVEL[n.impact] })) };
     });
     return {
       id: c.id,

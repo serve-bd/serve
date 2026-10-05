@@ -442,8 +442,11 @@ function Bars({ c, days, square }: { c: ComponentView; days: number; square: boo
             {bar.uptime !== null ? `${formatPercent(bar.uptime)} ${w.uptime}` : bar.level === "unknown" ? w.noData : w[`level.${bar.level}`]}
           </p>
           {bar.notes.map((n) => (
-            <p key={n} className="mt-1 text-[var(--sp-fg2)]">
-              {n}
+            <p key={n.title} className="mt-1.5 flex items-start gap-1.5 text-[var(--sp-fg2)]">
+              <span className="mt-[5px] size-1.5 flex-none rounded-full" style={{ background: LEVEL_COLOR[n.level] }} />
+              <span>
+                {n.title} <span style={{ color: LEVEL_COLOR[n.level] }}>· {w[`level.${n.level}`]}</span>
+              </span>
             </p>
           ))}
         </div>

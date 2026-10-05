@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import os from "node:os";
-import { and, eq, inArray, lt, or, sql as dsql } from "drizzle-orm";
+import { and, eq, inArray, like, lt, or, sql as dsql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { LABEL } from "@/server/docker/client";
 import { metricsCutoff } from "@/lib/server-limits";
@@ -10,6 +10,7 @@ import { sh } from "@/server/servers/ssh";
 import { AGENT_FRESH_MS, drainAgent } from "@/server/metrics-agent";
 import { RAW_HOURS } from "@/server/metrics-agent/ingest";
 import { extraScope, ROLLUP_ABOVE_HOURS } from "@/server/metric-rollups";
+import { combineScopes } from "@/lib/metric-combine";
 
 type CpuTimes = { idle: number; total: number };
 
@@ -289,12 +290,21 @@ export async function pruneMetrics() {
   const servers = await db.select({ id: schema.server.id, hours: schema.server.metricsRetentionHours }).from(schema.server);
   for (const s of servers) {
     const onServer = db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.serverId, s.id));
-    await db
-      .delete(schema.metric)
-      .where(and(lt(schema.metric.createdAt, metricsCutoff(Math.min(s.hours, RAW_HOURS))), or(eq(schema.metric.scope, serverScope(s.id)), inArray(schema.metric.scope, onServer))));
+    await db.delete(schema.metric).where(
+      and(
+        lt(schema.metric.createdAt, metricsCutoff(Math.min(s.hours, RAW_HOURS))),
+        // Also the apps it runs as an extra server: their samples there follow this server's history.
+        or(eq(schema.metric.scope, serverScope(s.id)), inArray(schema.metric.scope, onServer), like(schema.metric.scope, `%@${s.id}`)),
+      ),
+    );
     await db
       .delete(schema.metricRollup)
-      .where(and(lt(schema.metricRollup.bucket, metricsCutoff(s.hours)), or(eq(schema.metricRollup.scope, serverScope(s.id)), inArray(schema.metricRollup.scope, onServer))));
+      .where(
+        and(
+          lt(schema.metricRollup.bucket, metricsCutoff(s.hours)),
+          or(eq(schema.metricRollup.scope, serverScope(s.id)), inArray(schema.metricRollup.scope, onServer), like(schema.metricRollup.scope, `%@${s.id}`)),
+        ),
+      );
   }
   const longest = Math.max(48, ...servers.map((s) => s.hours));
   await db.delete(schema.metric).where(lt(schema.metric.createdAt, metricsCutoff(Math.min(longest, RAW_HOURS))));
@@ -306,6 +316,7 @@ export async function metricSeries(scope: string, hours = 6, buckets = 72) {
   const since = new Date(Date.now() - hours * 3600_000);
   const bucketSeconds = Math.max(30, Math.floor((hours * 3600) / buckets));
   const rows = await db.execute<{
+    scope: string;
     t: string;
     cpu: number;
     memory: number;
@@ -315,30 +326,29 @@ export async function metricSeries(scope: string, hours = 6, buckets = 72) {
     disk: number | null;
     disk_total: number | null;
   }>(dsql`
-    SELECT t, sum(cpu) AS cpu, sum(memory) AS memory, sum(memory_limit) AS memory_limit,
-      sum(net_rx) AS net_rx, sum(net_tx) AS net_tx, sum(disk) AS disk, sum(disk_total) AS disk_total
-    FROM (
-      SELECT scope, to_timestamp(floor(extract(epoch FROM created_at) / ${bucketSeconds}) * ${bucketSeconds}) AS t,
-        avg(cpu)::float / 100 AS cpu, avg(memory)::float AS memory, max(memory_limit)::float AS memory_limit,
-        max(net_rx)::float AS net_rx, max(net_tx)::float AS net_tx,
-        avg(disk)::float AS disk, max(disk_total)::float AS disk_total
-      FROM ${hours > ROLLUP_ABOVE_HOURS ? dsql`(SELECT scope, bucket AS created_at, cpu, memory, memory_limit, net_rx, net_tx, disk, disk_total FROM metric_rollup) m` : dsql`metric m`}
-      -- A service's replicas on its extra servers ("<service>@<server>") add to its own.
-      WHERE (scope = ${scope} OR scope LIKE ${`${scope.replace(/[\\%_]/g, (c) => `\\${c}`)}@%`}) AND created_at >= ${since.toISOString()}::timestamptz
-      GROUP BY scope, 2
-    ) per_server
-    GROUP BY t ORDER BY t
+    SELECT scope, to_timestamp(floor(extract(epoch FROM created_at) / ${bucketSeconds}) * ${bucketSeconds}) AS t,
+      avg(cpu)::float / 100 AS cpu, avg(memory)::float AS memory, max(memory_limit)::float AS memory_limit,
+      max(net_rx)::float AS net_rx, max(net_tx)::float AS net_tx,
+      avg(disk)::float AS disk, max(disk_total)::float AS disk_total
+    FROM ${hours > ROLLUP_ABOVE_HOURS ? dsql`(SELECT scope, bucket AS created_at, cpu, memory, memory_limit, net_rx, net_tx, disk, disk_total FROM metric_rollup) m` : dsql`metric m`}
+    -- A service's replicas on its extra servers ("<service>@<server>") add to its own (combineScopes).
+    WHERE (scope = ${scope} OR scope LIKE ${`${scope.replace(/[\\%_]/g, (c) => `\\${c}`)}@%`}) AND created_at >= ${since.toISOString()}::timestamptz
+    GROUP BY scope, 2 ORDER BY 2
   `);
-  return [...rows].map((r) => ({
-    t: new Date(r.t).getTime(),
-    cpu: Number(r.cpu),
-    memory: Number(r.memory),
-    memoryLimit: Number(r.memory_limit),
-    netRx: r.net_rx === null ? null : Number(r.net_rx),
-    netTx: r.net_tx === null ? null : Number(r.net_tx),
-    disk: r.disk === null ? null : Number(r.disk),
-    diskTotal: r.disk_total === null ? null : Number(r.disk_total),
-  }));
+  return combineScopes(
+    [...rows].map((r) => ({
+      scope: r.scope,
+      t: new Date(r.t).getTime(),
+      cpu: Number(r.cpu),
+      memory: Number(r.memory),
+      memoryLimit: Number(r.memory_limit),
+      netRx: r.net_rx === null ? null : Number(r.net_rx),
+      netTx: r.net_tx === null ? null : Number(r.net_tx),
+      disk: r.disk === null ? null : Number(r.disk),
+      diskTotal: r.disk_total === null ? null : Number(r.disk_total),
+    })),
+    bucketSeconds * 1000,
+  );
 }
 
 /** Most recent sample per service from the last few minutes (excludes the server scope). */

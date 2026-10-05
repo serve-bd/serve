@@ -2,7 +2,7 @@
 
 import { requireServerAdmin } from "@/server/servers/access";
 
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { requirePermission } from "@/server/auth";
@@ -137,9 +137,13 @@ export async function saveRequestLog(serviceId: string, input: z.input<typeof re
     if (data.enabled && !data.statuses.length) throw new UserError("Choose at least one kind of response to keep.");
     const config = requestLogConfig(data);
     await db.update(schema.service).set({ requestLog: config }).where(eq(schema.service.id, serviceId));
-    // Visitor IPs turned off: the ones already kept go too.
+    // Visitor IPs turned off: the ones already kept go too, also those of its previews (kept under their own id).
     if (!config.ips && requestLogConfig(service.requestLog).ips) {
-      await db.update(schema.requestLog).set({ ip: null }).where(eq(schema.requestLog.serviceId, serviceId));
+      const previews = await db.select({ id: schema.service.id }).from(schema.service).where(eq(schema.service.parentServiceId, serviceId));
+      await db
+        .update(schema.requestLog)
+        .set({ ip: null })
+        .where(and(inArray(schema.requestLog.serviceId, [serviceId, ...previews.map((p) => p.id)]), isNotNull(schema.requestLog.ip)));
     }
     const was = requestLogConfig(service.requestLog);
     if (was.enabled !== config.enabled) {

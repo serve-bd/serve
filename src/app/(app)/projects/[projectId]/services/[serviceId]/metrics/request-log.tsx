@@ -88,16 +88,40 @@ export function RequestLog({
   const following = enabled && !window;
   React.useEffect(() => {
     if (!following) return;
-    const es = new EventSource(`/api/services/${serviceId}/request-log/stream`);
-    es.addEventListener("ready", () => setStreaming(true));
-    es.addEventListener("requests", (e) => {
-      const batch = JSON.parse((e as MessageEvent<string>).data) as Row[];
-      setLive((l) => [...batch.reverse(), ...l].slice(0, 500));
-    });
-    es.addEventListener("problem", () => es.close());
-    es.onerror = () => setStreaming(false);
+    let es: EventSource | null = null;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    let stopped = false;
+    // Reconnects on its own, slower each time (up to a minute): a server that stays unreachable
+    // must not be asked again every few seconds by every open tab.
+    const connect = () => {
+      es = new EventSource(`/api/services/${serviceId}/request-log/stream`);
+      es.addEventListener("ready", () => {
+        attempt = 0;
+        setStreaming(true);
+      });
+      es.addEventListener("requests", (e) => {
+        const batch = JSON.parse((e as MessageEvent<string>).data) as Row[];
+        setLive((l) => [...batch.reverse(), ...l].slice(0, 500));
+      });
+      // Off, no access or gone: nothing to follow until the page is opened again.
+      es.addEventListener("problem", () => {
+        stopped = true;
+        es?.close();
+      });
+      es.onerror = () => {
+        setStreaming(false);
+        es?.close();
+        if (stopped) return;
+        attempt++;
+        retry = setTimeout(connect, Math.min(60_000, 2000 * 2 ** Math.min(attempt, 5)));
+      };
+    };
+    connect();
     return () => {
-      es.close();
+      stopped = true;
+      clearTimeout(retry);
+      es?.close();
       setStreaming(false);
       setLive([]);
     };

@@ -178,29 +178,6 @@ export function LoginForm({
 
   return (
     <AuthCard greeting title="Welcome back" description="Sign in to manage your deployments.">
-      {providers.length > 0 && (
-        <div className="flex flex-col gap-2.5">
-          {providers.map((p) => (
-            <Button
-              key={p.id}
-              type="button"
-              size="lg"
-              className="w-full"
-              loading={redirecting === p.id}
-              disabled={!!redirecting && redirecting !== p.id}
-              onClick={() => void withProvider(p.id)}
-            >
-              <SsoMark provider={p.id} /> {p.label}
-            </Button>
-          ))}
-          {!password && <AuthError>{error}</AuthError>}
-        </div>
-      )}
-      {providers.length > 0 && password && (
-        <div className="my-5 flex items-center gap-3 text-xs text-faint">
-          <span className="h-px flex-1 bg-line" /> or with your password <span className="h-px flex-1 bg-line" />
-        </div>
-      )}
       {!password && providers.length === 0 && (
         <p className="text-[13px] leading-relaxed text-muted">No sign-in method is available. An admin can allow password sign-in again with SERVE_ALLOW_PASSWORD_LOGIN=1.</p>
       )}
@@ -227,6 +204,29 @@ export function LoginForm({
             </Button>
           )}
         </form>
+      )}
+      {providers.length > 0 && password && (
+        <div className="my-5 flex items-center gap-3 text-xs text-faint">
+          <span className="h-px flex-1 bg-line" /> or <span className="h-px flex-1 bg-line" />
+        </div>
+      )}
+      {providers.length > 0 && (
+        <div className="flex flex-col gap-2.5">
+          {providers.map((p) => (
+            <Button
+              key={p.id}
+              type="button"
+              size="lg"
+              className="w-full"
+              loading={redirecting === p.id}
+              disabled={!!redirecting && redirecting !== p.id}
+              onClick={() => void withProvider(p.id)}
+            >
+              <SsoMark provider={p.id} /> {p.label}
+            </Button>
+          ))}
+          {!password && <AuthError>{error}</AuthError>}
+        </div>
       )}
     </AuthCard>
   );

@@ -72,18 +72,6 @@ const lines = (v: string) =>
     .filter(Boolean);
 const seconds = (v: string) => (v.trim() ? Number(v.replace(/\D/g, "")) || null : null);
 
-function Group({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
-  return (
-    <section className="flex flex-col gap-4 border-t border-line px-5 py-5 first:border-t-0">
-      <div>
-        <h3 className="text-[13px] font-semibold text-fg">{title}</h3>
-        {description && <p className="mt-0.5 text-xs text-muted">{description}</p>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
 /** What the picked strategy does, in the words of this proxy. */
 function balancingHelp(b: Balancing, proxyKind: "nginx" | "caddy" | "traefik", across?: { main: string; others: number }) {
   if (b === "least-busy") return "Each visitor goes to the replica with the fewest open requests. Good when some requests are slow, like uploads, streams or AI calls.";
@@ -125,61 +113,21 @@ export function ProxyOptionsCard({
   /** The app is load balanced over several servers: the main one and these others. */
   across?: { main: string; others: number };
 }) {
-  const proxyLabel = KIND_LABEL[proxyKind];
-  const [form, setForm] = React.useState<Form>(() => toForm(initial));
-  const [saved, setSaved] = React.useState(() => JSON.stringify(toForm(initial)));
-  const [error, setError] = React.useState<string | null>(null);
-  const dirty = JSON.stringify(form) !== saved;
-  const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
-
-  const save = useAction(
-    async () => {
-      setError(null);
-      const res = await updateServiceProxy(serviceId, {
-        maxBodySize: form.maxBodySize.trim() || null,
-        connectTimeout: seconds(form.connectTimeout),
-        readTimeout: seconds(form.readTimeout),
-        websockets: form.websockets,
-        buffering: form.buffering,
-        balancing: form.balancing,
-        basicAuth: { enabled: form.authOn, username: form.authUser.trim() || undefined, password: form.authPassword || undefined },
-        allow: lines(form.allow),
-        deny: lines(form.deny),
-        headers: form.headers.filter((h) => h.name.trim()).map((h) => ({ name: h.name.trim(), value: h.value })),
-        securityHeaders: form.securityHeaders,
-        corsOrigins: lines(form.cors),
-        wwwRedirect: form.wwwRedirect,
-        gzip: form.gzip,
-        cacheStatic: form.cacheStatic,
-        customDirectives: form.customDirectives.trim() || null,
-        caddyDirectives: form.caddyDirectives.trim() || null,
-        traefikMiddlewares: form.traefikMiddlewares.trim() || null,
-      });
-      if (!res.ok) setError(res.error);
-      return res;
-    },
-    {
-      onSuccess: () => {
-        const next = { ...form, authPassword: "" };
-        setForm(next);
-        setSaved(JSON.stringify(next));
-      },
-    },
-  );
-
+  const [saved, setSaved] = React.useState<Form>(() => toForm(initial));
   const disabled = !isAdmin;
+  // Each card saves only its own fields; the others go along as they were saved.
+  const props = { serviceId, saved, onSaved: setSaved, disabled, proxyLabel: KIND_LABEL[proxyKind] };
+  const showBalancing = replicas > 1 || !!across || balancingOf(initial) !== "round-robin";
   return (
-    <Card>
-      <form
-        method="post"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save.run();
-        }}
+    <>
+      <OptionsCard
+        {...props}
+        title="Limits and timeouts"
+        description="Raise these for large uploads, long requests or streaming."
+        keys={["maxBodySize", "connectTimeout", "readTimeout", "websockets", "buffering"]}
       >
-        <CardHeader title="HTTP options" description="How the proxy handles requests for this service's domains. Defaults suit most apps." />
-        <fieldset disabled={disabled} className={cn("min-w-0", disabled && "opacity-70")}>
-          <Group title="Limits and timeouts" description="Raise these for large uploads, long requests or streaming.">
+        {(form, set) => (
+          <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Max request body" optional description="Like 10m or 1g. Server default otherwise.">
                 <Input value={form.maxBodySize} onChange={(e) => set("maxBodySize", e.target.value)} placeholder="100m" className="font-mono" />
@@ -202,26 +150,33 @@ export function ProxyOptionsCard({
               checked={form.buffering}
               onCheckedChange={(v) => set("buffering", v)}
             />
-            {(replicas > 1 || across || balancingOf(initial) !== "round-robin") && (
-              <Field label="Load balancing" description={balancingHelp(form.balancing, proxyKind, across)}>
-                <Select
-                  value={form.balancing}
-                  onValueChange={(v) => set("balancing", v as Balancing)}
-                  options={[
-                    { value: "round-robin", label: "Round robin", description: "Each replica in turn." },
-                    { value: "least-busy", label: "Least busy", description: "The replica with the fewest open requests." },
-                    { value: "sticky", label: "Sticky sessions", description: "Each visitor keeps the same replica." },
-                    ...(across || form.balancing === "main-first"
-                      ? [{ value: "main-first", label: "Main server first", description: "Other servers only take over when it fails." }]
-                      : []),
-                  ]}
-                  className="sm:max-w-sm"
-                />
-              </Field>
-            )}
-          </Group>
-
-          <Group title="Access control" description="Protect previews, admin panels or staging sites.">
+          </>
+        )}
+      </OptionsCard>
+      {showBalancing && (
+        <OptionsCard {...props} title="Load balancing" description="How visitors are spread over the replicas." keys={["balancing"]}>
+          {(form, set) => (
+            <Field label="Strategy" description={balancingHelp(form.balancing, proxyKind, across)}>
+              <Select
+                value={form.balancing}
+                onValueChange={(v) => set("balancing", v as Balancing)}
+                options={[
+                  { value: "round-robin", label: "Round robin", description: "Each replica in turn." },
+                  { value: "least-busy", label: "Least busy", description: "The replica with the fewest open requests." },
+                  { value: "sticky", label: "Sticky sessions", description: "Each visitor keeps the same replica." },
+                  ...(across || form.balancing === "main-first"
+                    ? [{ value: "main-first", label: "Main server first", description: "Other servers only take over when it fails." }]
+                    : []),
+                ]}
+                className="sm:max-w-sm"
+              />
+            </Field>
+          )}
+        </OptionsCard>
+      )}
+      <OptionsCard {...props} title="Access control" description="Protect previews, admin panels or staging sites." keys={["authOn", "authUser", "authPassword", "allow", "deny"]}>
+        {(form, set) => (
+          <>
             <SwitchRow
               title="Password protection"
               description="Browsers ask for a user name and password (HTTP Basic Auth)."
@@ -275,9 +230,12 @@ export function ProxyOptionsCard({
                 <Textarea value={form.deny} onChange={(e) => set("deny", e.target.value)} placeholder="198.51.100.0/24" rows={3} className="min-h-20 font-mono text-[12.5px]" />
               </Field>
             </div>
-          </Group>
-
-          <Group title="Headers" description="Response headers added to every request.">
+          </>
+        )}
+      </OptionsCard>
+      <OptionsCard {...props} title="Headers" description="Response headers added to every request." keys={["securityHeaders", "cors", "headers"]}>
+        {(form, set) => (
+          <>
             <SwitchRow
               title="Security headers"
               description={`Adds X-Content-Type-Options, Referrer-Policy and X-Frame-Options${hasTls ? ", and HSTS with subdomains" : ""}.`}
@@ -341,9 +299,12 @@ export function ProxyOptionsCard({
                 <Plus /> Add header
               </Button>
             </div>
-          </Group>
-
-          <Group title="Performance and routing">
+          </>
+        )}
+      </OptionsCard>
+      <OptionsCard {...props} title="Performance and routing" description="Compression, browser caching and the www redirect." keys={["gzip", "cacheStatic", "wwwRedirect"]}>
+        {(form, set) => (
+          <>
             <SwitchRow title="Compression" description="Gzip text responses." checked={form.gzip} onCheckedChange={(v) => set("gzip", v)} />
             <SwitchRow
               title="Cache static files"
@@ -363,18 +324,23 @@ export function ProxyOptionsCard({
                 className="sm:max-w-sm"
               />
             </Field>
-          </Group>
-
-          <Group
-            title="Advanced"
-            description={
-              proxyKind === "nginx"
-                ? "Raw nginx directives inside this service's location block. Tested before they apply."
-                : proxyKind === "caddy"
-                  ? "Raw Caddyfile directives inside this service's route, before the request reaches the app. Tested before they apply."
-                  : "Extra Traefik middlewares as YAML (name: definition). They run after the built-in ones. Checked against Traefik before they apply."
-            }
-          >
+          </>
+        )}
+      </OptionsCard>
+      <OptionsCard
+        {...props}
+        title="Advanced"
+        description={
+          proxyKind === "nginx"
+            ? "Raw nginx directives inside this service's location block. Tested before they apply."
+            : proxyKind === "caddy"
+              ? "Raw Caddyfile directives inside this service's route, before the request reaches the app. Tested before they apply."
+              : "Extra Traefik middlewares as YAML (name: definition). They run after the built-in ones. Checked against Traefik before they apply."
+        }
+        keys={["customDirectives", "caddyDirectives", "traefikMiddlewares"]}
+      >
+        {(form, set) => (
+          <>
             <Textarea
               value={proxyKind === "nginx" ? form.customDirectives : proxyKind === "caddy" ? form.caddyDirectives : form.traefikMiddlewares}
               onChange={(e) => set(proxyKind === "nginx" ? "customDirectives" : proxyKind === "caddy" ? "caddyDirectives" : "traefikMiddlewares", e.target.value)}
@@ -393,7 +359,92 @@ export function ProxyOptionsCard({
               className="font-mono text-[12.5px]"
             />
             <p className="text-xs text-muted">Directives for the other proxies are kept and used if this server switches proxy.</p>
-          </Group>
+          </>
+        )}
+      </OptionsCard>
+    </>
+  );
+}
+
+/** The request the server action takes, from the whole form. */
+function toInput(form: Form) {
+  return {
+    maxBodySize: form.maxBodySize.trim() || null,
+    connectTimeout: seconds(form.connectTimeout),
+    readTimeout: seconds(form.readTimeout),
+    websockets: form.websockets,
+    buffering: form.buffering,
+    balancing: form.balancing,
+    basicAuth: { enabled: form.authOn, username: form.authUser.trim() || undefined, password: form.authPassword || undefined },
+    allow: lines(form.allow),
+    deny: lines(form.deny),
+    headers: form.headers.filter((h) => h.name.trim()).map((h) => ({ name: h.name.trim(), value: h.value })),
+    securityHeaders: form.securityHeaders,
+    corsOrigins: lines(form.cors),
+    wwwRedirect: form.wwwRedirect,
+    gzip: form.gzip,
+    cacheStatic: form.cacheStatic,
+    customDirectives: form.customDirectives.trim() || null,
+    caddyDirectives: form.caddyDirectives.trim() || null,
+    traefikMiddlewares: form.traefikMiddlewares.trim() || null,
+  };
+}
+
+type Set = <K extends keyof Form>(key: K, value: Form[K]) => void;
+
+/** One card of HTTP options with its own Apply: it changes only `keys`, the rest stays as saved. */
+function OptionsCard({
+  serviceId,
+  saved,
+  onSaved,
+  disabled,
+  proxyLabel,
+  title,
+  description,
+  keys,
+  children,
+}: {
+  serviceId: string;
+  saved: Form;
+  onSaved: (form: Form) => void;
+  disabled: boolean;
+  proxyLabel: string;
+  title: string;
+  description: React.ReactNode;
+  keys: (keyof Form)[];
+  children: (form: Form, set: Set) => React.ReactNode;
+}) {
+  const [draft, setDraft] = React.useState<Partial<Form>>({});
+  const [error, setError] = React.useState<string | null>(null);
+  const form = { ...saved, ...draft };
+  const dirty = keys.some((k) => JSON.stringify(form[k]) !== JSON.stringify(saved[k]));
+  const set: Set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
+  const save = useAction(
+    async () => {
+      setError(null);
+      const res = await updateServiceProxy(serviceId, toInput(form));
+      if (!res.ok) setError(res.error);
+      return res;
+    },
+    {
+      onSuccess: () => {
+        onSaved({ ...form, authPassword: "" });
+        setDraft({});
+      },
+    },
+  );
+  return (
+    <Card>
+      <form
+        method="post"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save.run();
+        }}
+      >
+        <CardHeader title={title} description={description} />
+        <fieldset disabled={disabled} className={cn("flex min-w-0 flex-col gap-4 px-5 py-5", disabled && "opacity-70")}>
+          {children(form, set)}
         </fieldset>
         {error && <p className="border-t border-line bg-bad-soft/50 px-5 py-3 font-mono text-[12px] leading-relaxed break-words text-bad">{error}</p>}
         {disabled ? (
@@ -403,11 +454,11 @@ export function ProxyOptionsCard({
             <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : `${proxyLabel} checks the configuration before applying it`}</span>
             <div className="flex flex-none gap-2">
               {dirty && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setForm(JSON.parse(saved))}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setDraft({})}>
                   Discard
                 </Button>
               )}
-              <Button type="submit" size="sm" variant="primary" disabled={!dirty || disabled} loading={save.pending}>
+              <Button type="submit" size="sm" variant="primary" disabled={!dirty} loading={save.pending}>
                 Apply
               </Button>
             </div>

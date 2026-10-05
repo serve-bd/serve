@@ -1,6 +1,7 @@
 "use server";
 
 import { and, count, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { requireDeleteProof } from "@/server/delete-proof";
 import { runsAsExtraOn } from "@/server/services/distribution-query";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
@@ -423,7 +424,7 @@ export async function resetHostKey(id: string) {
  */
 export async function deleteServer(
   id: string,
-  opts: { removeTailnetDevice?: boolean; services?: "stop" | "keep"; removeData?: boolean; removeProxy?: boolean; removeTunnels?: boolean } = {},
+  opts: { removeTailnetDevice?: boolean; services?: "stop" | "keep"; removeData?: boolean; removeProxy?: boolean; removeTunnels?: boolean; password?: string | null } = {},
 ) {
   return act(async () => {
     const { ctx, row } = await requireServerAdmin(id);
@@ -455,6 +456,7 @@ export async function deleteServer(
         `${extraOf.map((s) => s.name).join(", ")} ${extraOf.length === 1 ? "uses" : "use"} this server to build or run. Remove it in their Servers & registry settings first.`,
       );
     }
+    await requireDeleteProof(ctx, opts.password);
     if (row.mesh && row.mesh.state !== "off") {
       // Take the private network down there while Serve can still reach the server.
       const { teardownMesh } = await import("@/server/mesh");

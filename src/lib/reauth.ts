@@ -45,3 +45,6 @@ export function authErrorMessage(error: AuthError, fallback: string) {
 /** The OAuth return of a provider confirmation: back to the Account page, which resumes. */
 export const REAUTH_RETURN = "/account";
 export const REAUTH_ERROR_RETURN = "/account?reauth=failed";
+
+/** A delete refused until the user signs in again (accounts without a password): the page asks, then tries again. */
+export const DELETE_REAUTH = "Confirm it's you to delete this: sign in again.";

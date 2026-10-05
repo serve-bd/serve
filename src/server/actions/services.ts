@@ -8,6 +8,7 @@ import { normalizeTrustedRanges } from "@/lib/trusted-proxies";
 import { act, UserError } from "@/server/action";
 import { cannotMessage } from "@/lib/permissions";
 import { requirePermission } from "@/server/auth";
+import { requireDeleteProof } from "@/server/delete-proof";
 import { db, schema, sql } from "@/server/db";
 import { encrypt, randomPassword } from "@/server/crypto";
 import { newId } from "@/server/id";
@@ -1470,10 +1471,11 @@ export async function moveService(serviceId: string, serverId: string, opts: { f
   });
 }
 
-export async function deleteService(serviceId: string, removeVolumes: boolean) {
+export async function deleteService(serviceId: string, removeVolumes: boolean, password?: string | null) {
   return act(async () => {
     const ctx = await requirePermission("services.manage");
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
+    await requireDeleteProof(ctx, password);
     const domains = await db.select().from(schema.domain).where(eq(schema.domain.serviceId, serviceId));
     // Remove DNS records Serve created.
     for (const d of domains) {

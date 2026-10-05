@@ -5,11 +5,9 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
 import { tooManyAttempts } from "@/server/attempts";
-import { authFor, passwordLoginAllowed } from "@/server/auth";
+import { authFor } from "@/server/auth";
 import { db, schema } from "@/server/db";
-import { getSetting } from "@/server/settings";
-import { activeProviders, displayName } from "@/server/sso/config";
-import { type ReauthMethods, reauthMethods } from "@/lib/reauth";
+import { methodsFor } from "@/server/delete-proof";
 
 const SIGNED_OUT = "You were signed out. Sign in again to continue.";
 
@@ -20,19 +18,6 @@ async function currentSession(h: Headers) {
     .catch(() => null);
   if (!session) throw new UserError(SIGNED_OUT);
   return session;
-}
-
-async function methodsFor(userId: string): Promise<ReauthMethods> {
-  const [rows, signIn, passwordSignIn] = await Promise.all([
-    db.select({ providerId: schema.account.providerId }).from(schema.account).where(eq(schema.account.userId, userId)),
-    getSetting("signIn"),
-    passwordLoginAllowed(),
-  ]);
-  return reauthMethods({
-    linked: rows.map((r) => r.providerId),
-    passwordSignIn,
-    activeProviders: activeProviders(signIn).map((id) => ({ id, label: displayName(id, signIn.providers[id]) })),
-  });
 }
 
 /** How the signed-in user can confirm it is them, and who they are (a provider return resumes only for the same user). */

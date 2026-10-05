@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useDeleteGuard } from "@/app/(app)/account/confirm-identity";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
@@ -431,8 +432,10 @@ export function AccessCard({
 export function DangerZone({ server }: { server: ServerDetails }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const deleteGuard = useDeleteGuard();
   const remove = useAction(
-    (opts: { removeTailnetDevice: boolean; services?: "stop" | "keep"; removeData?: boolean; removeProxy?: boolean; removeTunnels?: boolean }) => deleteServer(server.id, opts),
+    (opts: { removeTailnetDevice: boolean; services?: "stop" | "keep"; removeData?: boolean; removeProxy?: boolean; removeTunnels?: boolean; password: string | null }) =>
+      deleteGuard.guard(() => deleteServer(server.id, opts)),
     {
       refresh: false,
       onSuccess: () => router.push("/servers"),
@@ -458,6 +461,7 @@ export function DangerZone({ server }: { server: ServerDetails }) {
           loading={remove.pending}
           onClick={async () => {
             let removeDevice = false;
+            let password: string | null = null;
             const choice: ServicesChoiceValue = { services: "stop", removeData: false, removeProxy: true, removeTunnels: true };
             if (
               await confirm({
@@ -482,13 +486,17 @@ export function DangerZone({ server }: { server: ServerDetails }) {
                 ),
                 confirmLabel: "Remove server",
                 danger: true,
+                password: (p) => {
+                  password = p;
+                },
               })
             )
-              void remove.run({ removeTailnetDevice: removeDevice, ...(server.services > 0 ? choice : {}) });
+              void remove.run({ removeTailnetDevice: removeDevice, password, ...(server.services > 0 ? choice : {}) });
           }}
         >
           <Trash2 /> Remove server
         </Button>
+        {deleteGuard.dialog}
       </CardBody>
     </Card>
   );

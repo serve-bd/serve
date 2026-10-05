@@ -1,6 +1,7 @@
 "use client";
 
 import { TagsSection } from "./tags-section";
+import { useDeleteGuard } from "@/app/(app)/account/confirm-identity";
 import { ImagePicker, type PickerRegistry } from "@/components/image-picker";
 import { typedServiceName } from "@/lib/service-name";
 import { BranchField } from "@/components/branch-field";
@@ -232,7 +233,8 @@ export function ServiceSettings(props: Props) {
     return r;
   };
   const regen = useAction(() => regenerateWebhookSecret(service.id));
-  const remove = useAction((volumes: boolean) => deleteService(service.id, volumes), {
+  const deleteGuard = useDeleteGuard();
+  const remove = useAction((volumes: boolean, password: string | null) => deleteGuard.guard(() => deleteService(service.id, volumes, password)), {
     refresh: false,
     onSuccess: () => router.replace(`/projects/${props.projectId}`),
   });
@@ -731,6 +733,8 @@ export function ServiceSettings(props: Props) {
       )}
       {show("servers") && props.distribution && (
         <DistributionSection
+          // A new main server (Make main) changes the saved servers: start the form again from them.
+          key={`${props.server.id}:${JSON.stringify(props.distribution.initial)}`}
           serviceId={service.id}
           projectId={props.projectId}
           slug={service.slug}
@@ -772,8 +776,12 @@ export function ServiceSettings(props: Props) {
               size="sm"
               loading={remove.pending}
               onClick={async () => {
+                let password: string | null = null;
                 if (
                   await confirm({
+                    password: (p) => {
+                      password = p;
+                    },
                     title: `Delete ${service.name}?`,
                     description: removeVolumes
                       ? "All data stored in volumes is permanently deleted. This cannot be undone."
@@ -785,11 +793,12 @@ export function ServiceSettings(props: Props) {
                     typeToConfirm: service.name,
                   })
                 )
-                  remove.run(removeVolumes);
+                  remove.run(removeVolumes, password);
               }}
             >
               <Trash2 /> Delete service
             </Button>
+            {deleteGuard.dialog}
           </CardFooter>
         </Card>
       )}

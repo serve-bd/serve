@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { clearError, showError } from "@/hooks/use-action";
 import { useLatest } from "@/hooks/use-client";
 import { authClient } from "@/lib/auth-client";
-import { needsFreshSession, REAUTH_ERROR_RETURN, REAUTH_RETURN } from "@/lib/reauth";
+import { DELETE_REAUTH, needsFreshSession, REAUTH_ERROR_RETURN, REAUTH_RETURN } from "@/lib/reauth";
+import type { ActionResult } from "@/server/action";
 import { ssoErrorMessage } from "@/lib/sso-errors";
 import { confirmPassword, identityMethods } from "@/server/actions/reauth";
 
@@ -84,9 +85,12 @@ export function ConfirmIdentity({
   resume,
   onConfirmed,
   cancel,
+  returnTo = REAUTH_RETURN,
 }: {
   description?: string;
   resume: { key: string; data?: string };
+  /** Where a provider sign-in comes back to (the Account page, else the page that asked). */
+  returnTo?: string;
   onConfirmed: () => void | Promise<void>;
   /** The way back: a Cancel button that closes the dialog, or another one. */
   cancel?: React.ReactNode;
@@ -121,7 +125,11 @@ export function ConfirmIdentity({
     setPending(id);
     clearError();
     saveResume({ key: resume.key, data: resume.data, userId: methods.userId, at: Date.now() });
-    const { error } = await authClient.signIn.social({ provider: id as "github", callbackURL: REAUTH_RETURN, errorCallbackURL: REAUTH_ERROR_RETURN });
+    const { error } = await authClient.signIn.social({
+      provider: id as "github",
+      callbackURL: returnTo,
+      errorCallbackURL: returnTo === REAUTH_RETURN ? REAUTH_ERROR_RETURN : returnTo,
+    });
     // Success leaves the page; only a failure to start comes back here.
     if (error) {
       takeResume();
@@ -188,7 +196,7 @@ export function ConfirmIdentity({
             onClick={async () => {
               setPending("signout");
               await authClient.signOut().catch(() => {});
-              window.location.href = `/login?next=${encodeURIComponent(REAUTH_RETURN)}`;
+              window.location.href = `/login?next=${encodeURIComponent(returnTo)}`;
             }}
           >
             Sign in again
@@ -209,9 +217,12 @@ export function ConfirmIdentity({
  * when they cancel. Render `dialog` once.
  */
 export function useFreshSession() {
-  const [asking, setAsking] = React.useState<{ resume: { key: string; data?: string }; description?: string; done: (ok: boolean) => void } | null>(null);
+  const [asking, setAsking] = React.useState<{ resume: { key: string; data?: string }; description?: string; returnTo?: string; done: (ok: boolean) => void } | null>(null);
 
-  const ask = React.useCallback((resume: { key: string; data?: string }, description?: string) => new Promise<boolean>((done) => setAsking({ resume, description, done })), []);
+  const ask = React.useCallback(
+    (resume: { key: string; data?: string }, description?: string, returnTo?: string) => new Promise<boolean>((done) => setAsking({ resume, description, returnTo, done })),
+    [],
+  );
 
   const fresh = React.useCallback(
     async <T extends { error: { code?: string | null } | null }>(call: () => Promise<T>, resume: { key: string; data?: string }, description?: string) => {
@@ -237,6 +248,7 @@ export function useFreshSession() {
           <ConfirmIdentity
             resume={asking.resume}
             description={asking.description}
+            returnTo={asking.returnTo}
             onConfirmed={() => {
               asking.done(true);
               setAsking(null);
@@ -248,4 +260,25 @@ export function useFreshSession() {
   );
 
   return { fresh, ask, dialog };
+}
+
+/**
+ * Deleting servers, services and projects: an account without a password needs a recent sign-in.
+ * `guard(call)` runs the delete, and when the server asks for that, has the user sign in again
+ * with their provider (they come back to this page and delete again), then tries once more.
+ */
+export function useDeleteGuard() {
+  const { ask, dialog } = useFreshSession();
+  const guard = React.useCallback(
+    async <T,>(call: () => Promise<ActionResult<T>>): Promise<ActionResult<T>> => {
+      const first = await call();
+      if (first.ok || first.error !== DELETE_REAUTH) return first;
+      if (!(await ask({ key: "delete" }, "Deleting needs a sign-in from the last few minutes.", window.location.pathname))) {
+        return { ok: false, error: "Nothing was deleted. Confirm it's you to delete." };
+      }
+      return call();
+    },
+    [ask],
+  );
+  return { guard, dialog };
 }

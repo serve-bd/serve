@@ -1,6 +1,7 @@
 "use server";
 
 import { requireRoom } from "@/server/limits";
+import { requireDeleteProof } from "@/server/delete-proof";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
@@ -61,11 +62,13 @@ export async function updateProject(projectId: string, input: z.input<typeof pro
   });
 }
 
-export async function deleteProject(projectId: string) {
+export async function deleteProject(projectId: string, password?: string | null) {
   return act(async () => {
     const ctx = await requirePermission("projects.manage");
     const project = await projectInOrg(projectId, ctx.org.id);
     const services = await db.select().from(schema.service).where(eq(schema.service.projectId, projectId));
+    // An empty project has nothing to lose; one with services needs the same proof as deleting them.
+    if (services.length) await requireDeleteProof(ctx, password);
     const { teardownServices } = await import("@/server/services/teardown");
     await teardownServices(services, true);
     await db.delete(schema.project).where(eq(schema.project.id, projectId));
@@ -95,7 +98,7 @@ export async function createEnvironment(projectId: string, name: string) {
   });
 }
 
-export async function deleteEnvironment(environmentId: string) {
+export async function deleteEnvironment(environmentId: string, password?: string | null) {
   return act(async () => {
     const ctx = await requirePermission("projects.manage");
     const [env] = await db.select().from(schema.environment).where(eq(schema.environment.id, environmentId));
@@ -104,6 +107,8 @@ export async function deleteEnvironment(environmentId: string) {
     const all = await db.select().from(schema.environment).where(eq(schema.environment.projectId, env.projectId));
     if (all.length <= 1) throw new UserError("A project needs at least one environment.");
     const services = await db.select().from(schema.service).where(eq(schema.service.environmentId, environmentId));
+    // Its services go with it: the same proof as deleting them.
+    if (services.length) await requireDeleteProof(ctx, password);
     const { teardownServices } = await import("@/server/services/teardown");
     await teardownServices(services, true);
     await db.delete(schema.environment).where(eq(schema.environment.id, environmentId));

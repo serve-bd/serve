@@ -8,6 +8,8 @@ import { Check, Copy } from "lucide-react";
 import { actionsRunning, addErrorSink, onActionsChange } from "@/hooks/use-action";
 import { DialogError } from "./dialog";
 import { copyText } from "./clipboard";
+import useSWR from "swr";
+import { identityMethods } from "@/server/actions/reauth";
 
 /** The text to type, as a chip that copies itself when clicked. */
 function CopyChip({ text }: { text: string }) {
@@ -39,6 +41,11 @@ type ConfirmOptions = {
   danger?: boolean;
   /** Require typing this text to enable the confirm button. */
   typeToConfirm?: string;
+  /**
+   * Ask for the account's password too (deleting servers, services, projects). Accounts without
+   * one get no field: a recent sign-in counts instead. The typed password goes to this callback.
+   */
+  password?: (password: string) => void;
   children?: React.ReactNode;
 };
 
@@ -54,6 +61,15 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = React.useState<Pending | null>(null);
   const [open, setOpen] = React.useState(false);
   const [typed, setTyped] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  // Whether the account has a password to ask for; loaded when a dialog asks for one.
+  const wantsPassword = !!pending?.password && open;
+  const { data: methods } = useSWR(wantsPassword ? "identity-methods" : null, async () => {
+    const res = await identityMethods();
+    if (!res.ok) throw new Error(res.error);
+    return res.data;
+  });
+  const askPassword = wantsPassword && !!methods?.password;
   const [busy, setBusy] = React.useState(false);
   // The action the dialog waited for failed: it stays open with the error until closed.
   const [error, setError] = React.useState<string | null>(null);
@@ -76,6 +92,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       new Promise<boolean>((resolve) => {
         shown.current++;
         setTyped("");
+        setPassword("");
         setBusy(false);
         setError(null);
         failed.current = false;
@@ -99,6 +116,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
    * until every action in flight (and the page refresh after it) is done.
    */
   const confirmAndWait = () => {
+    if (askPassword) pending?.password?.(password);
     pending?.resolve(true);
     setBusy(true);
     const mine = shown.current;
@@ -122,7 +140,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     }, 80);
   };
 
-  const blocked = !!pending?.typeToConfirm && typed !== pending.typeToConfirm;
+  const blocked = (!!pending?.typeToConfirm && typed !== pending.typeToConfirm) || (askPassword && !password) || (wantsPassword && !methods);
 
   return (
     <ConfirmContext.Provider value={confirm}>
@@ -150,6 +168,12 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                       <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
                     </label>
                   )}
+                  {askPassword && (
+                    <label className="mt-2 flex flex-col gap-1.5 text-[13px] text-fg-2">
+                      <span>Your password</span>
+                      <Input type="password" autoFocus={!pending?.typeToConfirm} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+                    </label>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-2xl border-t border-line bg-surface-2 px-5 py-3">
                   <DialogError message={error} className="w-full" />
@@ -158,7 +182,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                   ) : (
                     <>
                       <AlertDialog.Close render={<Button variant="ghost" size="sm" disabled={busy} />}>Cancel</AlertDialog.Close>
-                      <Button type="submit" size="sm" variant={pending?.danger ? "danger" : "primary"} disabled={blocked} loading={busy} autoFocus={!pending?.typeToConfirm}>
+                      <Button
+                        type="submit"
+                        size="sm"
+                        variant={pending?.danger ? "danger" : "primary"}
+                        disabled={blocked}
+                        loading={busy}
+                        autoFocus={!pending?.typeToConfirm && !askPassword}
+                      >
                         {pending?.confirmLabel ?? "Confirm"}
                       </Button>
                     </>

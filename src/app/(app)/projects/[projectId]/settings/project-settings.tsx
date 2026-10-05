@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useDeleteGuard } from "@/app/(app)/account/confirm-identity";
 import Link from "next/link";
 import { useRouter } from "@/hooks/use-router";
 import { Trash2 } from "lucide-react";
@@ -62,11 +63,23 @@ export function ProjectSettings({
   const redeploy = useAction(() => redeployEnvironment(environment.id), {
     result: (d) => (d.count ? `Redeploying ${d.count} service${d.count === 1 ? "" : "s"}` : "No running service to redeploy"),
   });
-  const removeEnv = useAction(deleteEnvironment, { onSuccess: () => router.replace(`/projects/${project.id}/settings/environments`) });
-  const remove = useAction(() => deleteProject(project.id), { refresh: false, onSuccess: () => router.replace("/projects") });
+  const deleteGuard = useDeleteGuard();
+  const removeEnv = useAction((id: string, password: string | null) => deleteGuard.guard(() => deleteEnvironment(id, password)), {
+    onSuccess: () => router.replace(`/projects/${project.id}/settings/environments`),
+  });
+  const remove = useAction((password: string | null) => deleteGuard.guard(() => deleteProject(project.id, password)), {
+    refresh: false,
+    onSuccess: () => router.replace("/projects"),
+  });
+  // The typed password, read once the confirmation closes.
+  const password = React.useRef<string | null>(null);
+  const takePassword = (p: string) => {
+    password.current = p;
+  };
 
   return (
     <div className="flex flex-col gap-6">
+      {deleteGuard.dialog}
       {section === "general" && (
         <Card>
           <form
@@ -177,6 +190,7 @@ export function ProjectSettings({
                     variant="ghost"
                     aria-label={`Delete ${e.name}`}
                     onClick={async () => {
+                      password.current = null;
                       if (
                         await confirm({
                           title: `Delete the ${e.name} environment?`,
@@ -185,9 +199,10 @@ export function ProjectSettings({
                           danger: true,
                           // Typing the name guards data; an empty environment has none to lose.
                           typeToConfirm: e.services ? e.name : undefined,
+                          password: e.services ? takePassword : undefined,
                         })
                       )
-                        removeEnv.run(e.id);
+                        removeEnv.run(e.id, password.current);
                     }}
                   >
                     <Trash2 />
@@ -208,6 +223,7 @@ export function ProjectSettings({
               variant="danger"
               loading={remove.pending}
               onClick={async () => {
+                password.current = null;
                 if (
                   await confirm({
                     title: `Delete ${project.name}?`,
@@ -216,9 +232,10 @@ export function ProjectSettings({
                     danger: true,
                     // Typing the name guards data; an empty project has none to lose.
                     typeToConfirm: serviceCount ? project.name : undefined,
+                    password: serviceCount ? takePassword : undefined,
                   })
                 )
-                  remove.run();
+                  remove.run(password.current);
               }}
             >
               <Trash2 /> Delete project

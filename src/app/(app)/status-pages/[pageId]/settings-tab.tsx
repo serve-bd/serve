@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 
 export function SettingsTab({ data, canManage }: { data: EditorData; canManage: boolean }) {
   return (
-    <div className="flex max-w-3xl flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <NameCard data={data} canManage={canManage} />
       <AccessCard data={data} canManage={canManage} />
       <DomainCard data={data} canManage={canManage} />

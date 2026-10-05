@@ -198,11 +198,11 @@ export async function saveStatusPage(pageId: string, input: { name: string; slug
   });
 }
 
-export async function uploadStatusLogo(pageId: string, kind: "logo" | "logoDark", form: FormData) {
+export async function uploadStatusLogo(pageId: string, kind: "logo" | "logoDark" | "favicon", form: FormData) {
   return act(async () => {
     const ctx = await requireStatusManager();
     const page = await pageInOrg(pageId, ctx.org.id);
-    if (kind !== "logo" && kind !== "logoDark") throw new UserError("Unknown image.");
+    if (kind !== "logo" && kind !== "logoDark" && kind !== "favicon") throw new UserError("Unknown image.");
     const file = form.get("file");
     if (!(file instanceof File)) throw new UserError("Choose a file.");
     const buf = new Uint8Array(await file.arrayBuffer());
@@ -215,7 +215,7 @@ export async function uploadStatusLogo(pageId: string, kind: "logo" | "logoDark"
   });
 }
 
-export async function removeStatusLogo(pageId: string, kind: "logo" | "logoDark") {
+export async function removeStatusLogo(pageId: string, kind: "logo" | "logoDark" | "favicon") {
   return act(async () => {
     const ctx = await requireStatusManager();
     const page = await pageInOrg(pageId, ctx.org.id);

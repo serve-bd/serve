@@ -66,10 +66,12 @@ export function DesignTab({ data, canManage, poweredBy }: { data: EditorData; ca
         <Card>
           <CardHeader title="Brand" />
           <div className="flex flex-col gap-4 px-5 py-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <LogoSlot pageId={data.page.id} kind="logo" title="Logo" url={data.logos.logo} surface="light" disabled={!canManage} />
               <LogoSlot pageId={data.page.id} kind="logoDark" title="Logo on dark" url={data.logos.logoDark} surface="dark" disabled={!canManage} />
+              <LogoSlot pageId={data.page.id} kind="favicon" title="Favicon" url={data.logos.favicon} surface="light" disabled={!canManage} />
             </div>
+            <p className="-mt-2 text-xs leading-relaxed text-muted">The favicon is the tab icon. Without one the logo stands in, then your instance's branding.</p>
             <SwitchRow title="Show the name next to the logo" checked={form.showName} onCheckedChange={(v) => set("showName", v)} disabled={!canManage} />
             <Field label="Description" optional>
               <Textarea
@@ -390,7 +392,7 @@ function LogoSlot({
   disabled,
 }: {
   pageId: string;
-  kind: "logo" | "logoDark";
+  kind: "logo" | "logoDark" | "favicon";
   title: string;
   url: string | null;
   surface: "light" | "dark";
@@ -428,7 +430,7 @@ function LogoSlot({
       <input
         ref={input}
         type="file"
-        accept={acceptedTypes.logo.join(",")}
+        accept={kind === "favicon" ? `${acceptedTypes.favicon.join(",")},.ico` : acceptedTypes.logo.join(",")}
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

@@ -75,6 +75,8 @@ export type StatusView = {
   slug: string;
   logoUrl: string | null;
   logoDarkUrl: string | null;
+  /** The tab icon: the page's favicon, else its logo, else the instance's branding (iconOf). */
+  iconUrl: string;
   overall: StatusLevel;
   groups: { name: string | null; components: ComponentView[] }[];
   active: NoticeView[];
@@ -288,6 +290,7 @@ export async function statusView(
     slug: page.slug,
     logoUrl: img.logo ? `${base}/logo?v=${img.logo.hash}` : null,
     logoDarkUrl: img.logoDark ? `${base}/logo?dark=1&v=${img.logoDark.hash}` : null,
+    iconUrl: await pageIconUrl(page.id, base, img),
     overall: views.length ? worst([...views.map((v) => v.level), ...(active.some((n) => n.kind === "maintenance") ? (["maintenance"] as const) : [])]) : "unknown",
     groups,
     active,
@@ -298,3 +301,16 @@ export async function statusView(
 }
 
 export { noticeActive };
+
+/** The page's tab icon route, versioned by the image it serves so a new upload shows at once. */
+export async function pageIconUrl(pageId: string, base: string, images?: { favicon?: { hash: string }; logo?: { hash: string } }) {
+  const img = images ?? (await db.select({ images: schema.statusPage.images }).from(schema.statusPage).where(eq(schema.statusPage.id, pageId)))[0]?.images ?? {};
+  return `${base}/icon?v=${(img.favicon ?? img.logo)?.hash ?? (await brandIconHash()) ?? "default"}`;
+}
+
+/** Hash of the instance's branding icon (its favicon, else its logo), if one was uploaded. */
+async function brandIconHash() {
+  const [row] = await db.select({ value: schema.setting.value }).from(schema.setting).where(eq(schema.setting.key, "branding"));
+  const b = row?.value as { favicon?: { hash: string } | null; logo?: { hash: string } | null } | undefined;
+  return (b?.favicon ?? b?.logo)?.hash ?? null;
+}

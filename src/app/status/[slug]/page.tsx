@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { designOf } from "@/lib/status-page";
-import { statusView } from "@/server/status-pages/data";
+import { pageIconUrl, statusView } from "@/server/status-pages/data";
 import { poweredBy, publicPage } from "@/server/status-pages/public";
 import { StatusView } from "@/components/status-page/status-view";
 import { LockedPage } from "./locked-page";
@@ -12,15 +12,15 @@ export async function generateMetadata(props: PageProps<"/status/[slug]">): Prom
   const { slug } = await props.params;
   const found = await publicPage(slug);
   if (!found) return { title: { absolute: "Not found" }, robots: { index: false } };
-  const { page, access, base } = found;
+  const { page, base } = found;
   const design = designOf(page.design);
-  const view = access === "open" ? await statusView(page, base, design) : null;
-  const icon = view?.logoUrl ?? null;
+  // Always the page's own icon route: on its own domain the dashboard's icon paths do not answer.
+  const icon = await pageIconUrl(page.id, base);
   return {
     title: { absolute: `${page.name} status` },
     description: design.description ?? `Current status of ${page.name}.`,
     robots: design.noindex || page.visibility !== "public" ? { index: false, follow: false } : undefined,
-    icons: icon ? { icon, apple: icon } : undefined,
+    icons: { icon, apple: icon },
     alternates: { types: { "application/rss+xml": `${base}/feed.xml` } },
   };
 }

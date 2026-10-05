@@ -125,6 +125,7 @@ export async function editorData(pageId: string, organizationId: string) {
     logos: {
       logo: page.images.logo ? `${base}/logo?v=${page.images.logo.hash}` : null,
       logoDark: page.images.logoDark ? `${base}/logo?dark=1&v=${page.images.logoDark.hash}` : null,
+      favicon: page.images.favicon ? `${base}/icon?v=${page.images.favicon.hash}` : null,
     },
     components: components.map((c) => ({ id: c.id, serviceId: c.serviceId, name: c.name, description: c.description, group: c.group })),
     services: serviceRows,

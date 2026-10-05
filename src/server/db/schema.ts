@@ -1540,8 +1540,11 @@ export const statusPage = pgTable("status_page", {
   /** bcrypt hash, for visibility "password". */
   passwordHash: text("password_hash"),
   design: jsonb("design").$type<Partial<StatusDesign>>().notNull().default({}),
-  /** Uploaded logos: { light, dark } as base64 with their type. */
-  images: jsonb("images").$type<{ logo?: StatusImage & { data: string }; logoDark?: StatusImage & { data: string } }>().notNull().default({}),
+  /** Uploaded logos (light, dark) and favicon, as base64 with their type. */
+  images: jsonb("images")
+    .$type<{ logo?: StatusImage & { data: string }; logoDark?: StatusImage & { data: string }; favicon?: StatusImage & { data: string } }>()
+    .notNull()
+    .default({}),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

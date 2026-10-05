@@ -7,16 +7,19 @@ export function AuthCard({
   eyebrow,
   children,
   className,
+  greeting,
 }: {
   title: React.ReactNode;
   description?: React.ReactNode;
   eyebrow?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  /** A plain welcome (the sign-in page): white-labeled pages keep it for screen readers only. */
+  greeting?: boolean;
 }) {
   return (
     <section className={cn("w-full", className)}>
-      <header data-auth-head className="mb-7 flex flex-col gap-1.5">
+      <header data-auth-greeting={greeting || undefined} className="mb-7 flex flex-col gap-1.5">
         {eyebrow && <p className="text-[11px] font-medium tracking-[0.08em] text-faint uppercase">{eyebrow}</p>}
         <h1 className="font-display text-[26px] leading-tight font-semibold tracking-tight text-fg">{title}</h1>
         {description && <p className="text-[14px] leading-relaxed text-muted">{description}</p>}

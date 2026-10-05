@@ -19,13 +19,13 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
   if (brand.name !== DEFAULT_PRODUCT_NAME || brand.logoUrl)
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center bg-surface px-4 py-10 sm:px-8">
-        {/* Centered: the brand and each page's title (AuthCard's header); the form stays as it is. */}
-        <div className="flex w-full max-w-[360px] animate-rise flex-col gap-8 [&_[data-auth-head]]:items-center [&_[data-auth-head]]:text-center">
+        {/* The sign-in greeting is for screen readers only: the brand above says where you are. */}
+        <div className="flex w-full max-w-[360px] animate-rise flex-col gap-8 [&_[data-auth-greeting]]:sr-only">
           {brand.logoUrl ? (
-            <Logo className="gap-2.5 self-center" logoClassName="h-10" textClassName="text-[18px]" />
+            <Logo className="gap-2.5 self-start" logoClassName="h-10" textClassName="text-[18px]" />
           ) : (
             // No logo of their own: their name alone, not Serve's mark.
-            <span className="self-center font-display text-[20px] font-semibold tracking-tight text-fg">{name}</span>
+            <span className="self-start font-display text-[20px] font-semibold tracking-tight text-fg">{name}</span>
           )}
           {children}
         </div>

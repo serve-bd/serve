@@ -177,7 +177,7 @@ export function LoginForm({
   }
 
   return (
-    <AuthCard title="Welcome back" description="Sign in to manage your deployments.">
+    <AuthCard greeting title="Welcome back" description="Sign in to manage your deployments.">
       {providers.length > 0 && (
         <div className="flex flex-col gap-2.5">
           {providers.map((p) => (

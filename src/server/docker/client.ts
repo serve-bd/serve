@@ -79,7 +79,12 @@ export type RegistryAuth = { username: string; password: string; serveraddress?:
  * Copy an image from one Docker to another without a registry: `docker save` streamed into
  * `docker load`, gzipped on the way (Docker unpacks it). Logs progress every few seconds.
  */
-export async function copyImage(ref: string, from: Docker, to: Docker, opts: { log?: LogFn; signal?: AbortSignal } = {}) {
+/** How long an image copy may move no data before it fails. */
+export const COPY_STALL_MS = 120_000;
+/** How long the target may take to load a fully sent image. */
+const COPY_UNPACK_MS = 15 * 60_000;
+
+export async function copyImage(ref: string, from: Docker, to: Docker, opts: { log?: LogFn; signal?: AbortSignal; stallMs?: number } = {}) {
   const source = (await from.getImage(ref).get()) as NodeJS.ReadableStream & { destroy(error?: Error): void };
   let bytes = 0;
   let logged = Date.now();
@@ -93,14 +98,46 @@ export async function copyImage(ref: string, from: Docker, to: Docker, opts: { l
   const gzip = createGzip({ level: 1 });
   const abort = () => source.destroy(new Error("Cancelled"));
   opts.signal?.addEventListener("abort", abort, { once: true });
+  // A copy that stops moving (a connection that hangs without closing) fails instead of waiting forever.
+  let stalled: Error | null = null;
+  let last = Date.now();
+  source.on("data", () => {
+    last = Date.now();
+  });
+  // Once every byte is sent, the other server unpacks the image without a word: that may take longer.
+  let sent = false;
+  source.on("end", () => {
+    sent = true;
+    last = Date.now();
+  });
+  let res: NodeJS.ReadableStream | null = null;
+  const watchdog = setInterval(() => {
+    const limit = sent ? COPY_UNPACK_MS : (opts.stallMs ?? COPY_STALL_MS);
+    if (Date.now() - last < limit) return;
+    stalled = new Error(
+      sent
+        ? `The other server took more than ${Math.round(limit / 60_000)} minutes to load the copied image. Check its disk and Docker, then deploy again.`
+        : `Copying the image stopped: nothing moved for ${Math.round(limit / 1000)} seconds. Check the connection to both servers and deploy again.`,
+    );
+    source.destroy(stalled);
+    gzip.destroy(stalled);
+    (res as unknown as { destroy?: (e: Error) => void } | null)?.destroy?.(stalled);
+  }, 1000);
   try {
-    const [, res] = await Promise.all([pipeline(source, gzip), to.loadImage(gzip, { quiet: true })]);
+    const [, loaded] = await Promise.all([pipeline(source, gzip), to.loadImage(gzip, { quiet: true })]);
+    res = loaded as NodeJS.ReadableStream;
+    // The load's answer counts as progress too: a big image takes a while to unpack there.
+    last = Date.now();
     // docker load answers 200 and puts its errors in the body.
     const body = await new Promise<string>((resolve, reject) => {
       let out = "";
-      (res as NodeJS.ReadableStream).on("data", (c: Buffer) => (out += c.toString()));
-      (res as NodeJS.ReadableStream).on("end", () => resolve(out));
-      (res as NodeJS.ReadableStream).on("error", reject);
+      res!.on("data", (c: Buffer) => {
+        last = Date.now();
+        out += c.toString();
+      });
+      res!.on("end", () => resolve(out));
+      res!.on("error", reject);
+      res!.on("close", () => (stalled ? reject(stalled) : resolve(out)));
     });
     const failed = body
       .split("\n")
@@ -114,7 +151,10 @@ export async function copyImage(ref: string, from: Docker, to: Docker, opts: { l
       .find(Boolean);
     if (failed) throw new Error(failed);
     opts.log?.(`Copied ${Math.round(bytes / 1e6)} MB`);
+  } catch (error) {
+    throw stalled ?? error;
   } finally {
+    clearInterval(watchdog);
     opts.signal?.removeEventListener("abort", abort);
     // A load that failed early must not leave the save stream open on the source server.
     source.destroy();

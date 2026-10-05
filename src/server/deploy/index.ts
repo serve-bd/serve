@@ -28,7 +28,7 @@ import { extractArchive } from "./upload-archive";
 import { hasRoom, KEEP_UPLOADS, uploadExists, uploadPath } from "./uploads";
 import { NO_UPLOAD } from "@/server/services/create";
 import { formatBytes } from "@/lib/utils";
-import { DeployLogger, type StepLog } from "./logger";
+import { type BuildLog, DeployLogger, type StepLog } from "./logger";
 import { distributionProblem, normalizeDistribution, type Distribution } from "./distribution";
 import { getRegistry, pushImage, registryAuth, type RegistryRow } from "@/server/registries";
 import { defaultRepository, imageRef, normalizeRepository, renderTag } from "@/server/registries/refs";
@@ -139,10 +139,12 @@ type PreparedImage = {
 async function prepareAppImage(
   service: Service,
   dep: Deployment,
-  log: DeployLogger,
+  log: BuildLog,
   server: ServerCtx,
   signal?: AbortSignal,
   buildNetwork?: BuildNetwork | null,
+  /** A second build of the same deployment (for a server of another CPU type) gets its own work directory. */
+  workSuffix?: string,
 ): Promise<PreparedImage> {
   const target = `${imageRepo(service.slug)}:${dep.id}`;
   const d = server.docker;
@@ -190,7 +192,7 @@ async function prepareAppImage(
   stopOnFailedSecrets(env);
   // Said before the build: an empty build variable often breaks it, long before the container starts.
   if (env.missing.length) log.line(`Warning: unresolved variable references (left empty): ${env.missing.join(", ")}`);
-  const workDir = path.join(paths.builds, dep.id);
+  const workDir = path.join(paths.builds, workSuffix ? `${dep.id}-${workSuffix}` : dep.id);
   const saved = service.build ?? defaultBuild();
   const build: BuildConfig = {
     ...saved,
@@ -240,12 +242,20 @@ async function prepareAppImage(
       log.step("Cloning repository");
       if (build.noCache) log.line("Building without cache");
       const clone = await cloneRepository(source, workDir, log.line, buildSignal, await orgIdOf(service), { submodules: build.submodules });
-      await setDeployment(dep.id, {
-        commitSha: clone.commitSha,
-        commitMessage: clone.commitMessage,
-        commitAuthor: clone.commitAuthor,
-        branch: source.branch,
-      });
+      if (workSuffix) {
+        // A second build must be of the commit the first one built: every server runs the same code.
+        const [first] = await db.select({ commitSha: schema.deployment.commitSha }).from(schema.deployment).where(eq(schema.deployment.id, dep.id));
+        if (first?.commitSha && clone.commitSha && first.commitSha !== clone.commitSha) {
+          throw new Error(`${source.branch} moved to another commit during this deploy. Redeploy to build the same commit everywhere.`);
+        }
+      } else {
+        await setDeployment(dep.id, {
+          commitSha: clone.commitSha,
+          commitMessage: clone.commitMessage,
+          commitAuthor: clone.commitAuthor,
+          branch: source.branch,
+        });
+      }
       const repo = repoUrlWithoutLogin(source.repository);
       if (repo) origin["org.opencontainers.image.source"] = repo;
       if (clone.commitSha) origin["org.opencontainers.image.revision"] = clone.commitSha;
@@ -343,7 +353,7 @@ async function orgIdOf(service: Service) {
  * The environment network a build on the service's own server may reach, like the running app
  * does. A build on a separate build server has no such network and builds without it.
  */
-async function buildNetworkOf(service: Service, server: ServerCtx, log: DeployLogger): Promise<BuildNetwork | null> {
+async function buildNetworkOf(service: Service, server: ServerCtx, log: StepLog): Promise<BuildNetwork | null> {
   if (!buildsImage(service.source?.type) || service.type !== "app") return null;
   try {
     const name = await ensureEnvNetwork(service.environmentId, server);
@@ -433,9 +443,10 @@ async function connectTo(serverId: string, log: StepLog, role: string) {
 async function ensureImageOn(
   target: ServerCtx,
   service: Service,
+  dep: Deployment,
   prepared: PreparedImage,
   registry: RegistryRow | null,
-  log: StepLog,
+  log: BuildLog,
   /** Servers that may hold the image, to copy it from when no registry has it (the build server first). */
   holders: ServerCtx[] = [],
   signal?: AbortSignal,
@@ -443,6 +454,21 @@ async function ensureImageOn(
   const d = target.docker;
   if (await imageExists(prepared.image, d)) return;
   const [repo, tag] = [prepared.image.slice(0, prepared.image.lastIndexOf(":")), prepared.image.slice(prepared.image.lastIndexOf(":") + 1)];
+  // A built image runs only on servers of its CPU type (others need slow emulation, often missing:
+  // "exec format error"). A server of another type builds it itself, from the same commit. Not when
+  // the service names a platform on purpose, and not for a rollback (nothing to build from).
+  if (buildsImage(service.source?.type) && !prepared.rollback && !service.runtime.platform) {
+    const own = serverPlatform((await d.info().catch(() => null))?.Architecture);
+    const built = await builtPlatform(
+      prepared.image,
+      holders.filter((h) => h.id !== target.id),
+    );
+    if (own && built && own !== built) {
+      log.line(`${target.name} is ${own} and the image was built for ${built}. Building it on ${target.name} instead.`);
+      await prepareAppImage(service, dep, log, target, signal, await buildNetworkOf(service, target, log), target.id);
+      return;
+    }
+  }
   if (prepared.registryImage) {
     log.line(`Pulling ${prepared.registryImage}`);
     await foreignPlatform(service.runtime.platform ?? null, target, log.line);
@@ -502,6 +528,18 @@ async function ensureImageOn(
       ? `The image for that deployment is on no server any more (cleaned up). Redeploy instead.`
       : `The image is not on ${target.name}, and no other server has it to copy.`,
   );
+}
+
+/** The CPU platform an image was built for, read on the first server that has it. */
+async function builtPlatform(image: string, holders: ServerCtx[]) {
+  for (const h of holders) {
+    const info = await h.docker
+      .getImage(image)
+      .inspect()
+      .catch(() => null);
+    if (info) return serverPlatform(info.Architecture);
+  }
+  return null;
 }
 
 /** Push a freshly built image to the service's registry. Returns the reference other servers pull. */
@@ -619,7 +657,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
   await saveTargets();
   try {
     if (multi) log.step(`Deploying to ${server.name}`);
-    await ensureImageOn(server, service, prepared, registry, log, [buildServer, ...extras], signal);
+    await ensureImageOn(server, service, dep, prepared, registry, log, [buildServer, ...extras], signal);
     imageVolumes = await imageVolumePaths(image, server.docker);
     runtime = await keepImageVolumes(service, runtime, imageVolumes, log);
     await runOnServer({ service, dep, log, server, image, runtime, env, signal, primary: true, replicaOffset: 0, replicaTotal, imageVolumes, adopt: dep.adopt ?? null });
@@ -641,7 +679,7 @@ async function deployApp(service: Service, dep: Deployment, log: DeployLogger, s
       await saveTargets();
       try {
         slog.step(`Deploying to ${extra.name}`);
-        await ensureImageOn(extra, service, prepared, registry, slog, [buildServer, server, ...extras], signal);
+        await ensureImageOn(extra, service, dep, prepared, registry, slog, [buildServer, server, ...extras], signal);
         // Replica numbers continue across servers, in the order the servers were added.
         const replicaOffset = (dist.extraServerIds.indexOf(extra.id) + 1) * replicasOf(runtime);
         await runOnServer({

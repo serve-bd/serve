@@ -4,6 +4,8 @@ import { db, schema } from "@/server/db";
 const MAX_LOG_BYTES = 4_000_000;
 
 export type StepLog = { line: (text: string) => void; step: (title: string) => void };
+/** A log that can also hide secrets (a build on one of several servers). */
+export type BuildLog = StepLog & { redact: (values: string[]) => void };
 
 /** Buffers log lines and appends them to the deployment row in batches. */
 export class DeployLogger {
@@ -37,8 +39,9 @@ export class DeployLogger {
   step = (title: string) => this.line(`==> ${title}`);
 
   /** The same log with every line prefixed, for work on one of several servers. */
-  scoped(prefix: string): StepLog {
+  scoped(prefix: string): BuildLog {
     return {
+      redact: (values) => this.redact(values),
       line: (text) =>
         this.line(
           text

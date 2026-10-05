@@ -601,68 +601,82 @@ export function ResourcesSection({ runtime, save }: { runtime: RuntimeConfig; sa
 
 /* -------------------------------- Advanced -------------------------------- */
 
+/** Pressable chips for a list of Linux capabilities. */
+function CapabilityPicker({ all, value, onChange }: { all: readonly string[]; value: string[]; onChange: (v: string[]) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {all.map((cap) => {
+        const on = value.includes(cap);
+        return (
+          <button
+            key={cap}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(on ? value.filter((c) => c !== cap) : [...value, cap])}
+            className={`rounded-md px-2 py-1 font-mono text-[11.5px] ring-1 transition-colors ${on ? "bg-accent-soft text-accent ring-accent/40" : "text-muted ring-line hover:text-fg"}`}
+          >
+            {cap}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Container options most apps never need, one card per topic (each saves on its own): the
+ * process, logs, network, labels, security, and host access for the Root organization.
+ */
 export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: RuntimeConfig; save: Save; isRootAdmin: boolean }) {
   return (
-    <Section
-      id="advanced"
-      title="Advanced"
-      description="Container options most apps never need."
-      footerNote={REDEPLOY}
-      initial={{
-        init: runtime.init ?? true,
-        extraHosts: (runtime.extraHosts ?? []).join("\n"),
-        labels: runtime.labels ?? ([] as KeyValue[]),
-        logMaxSizeMb: String(runtime.logMaxSizeMb ?? 20),
-        logMaxFiles: String(runtime.logMaxFiles ?? 5),
-        privileged: runtime.privileged ?? false,
-        capAdd: runtime.capAdd ?? ([] as string[]),
-        noNewPrivileges: runtime.noNewPrivileges ?? false,
-        capDrop: runtime.capDrop ?? ([] as string[]),
-        securityOpt: (runtime.securityOpt ?? []).join("\n"),
-        ulimits: (runtime.ulimits ?? []).map((u) => `${u.name}=${u.soft === u.hard ? u.soft : `${u.soft}:${u.hard}`}`).join("\n"),
-        sysctls: Object.entries(runtime.sysctls ?? {}).map(([key, value]) => ({ key, value })),
-        dns: (runtime.dns ?? []).join("\n"),
-        dnsSearch: (runtime.dnsSearch ?? []).join(" "),
-        dnsOptions: (runtime.dnsOptions ?? []).join(" "),
-        gpus: runtime.gpus == null ? "" : String(runtime.gpus),
-        devices: (runtime.devices ?? []).map((d) => [d.host, d.container ?? "", d.permissions ?? ""].join(":").replace(/:+$/, "")).join("\n"),
-      }}
-      onSave={(v) =>
-        save({
-          runtime: {
-            init: v.init,
-            extraHosts: linesOf(v.extraHosts),
-            labels: v.labels.filter((l) => l.key.trim()),
-            logMaxSizeMb: num(v.logMaxSizeMb),
-            logMaxFiles: num(v.logMaxFiles),
-            ulimits: linesOf(v.ulimits).map(parseUlimit),
-            sysctls: Object.fromEntries(v.sysctls.filter((s) => s.key.trim()).map((s) => [s.key.trim(), s.value.trim()])),
-            dns: linesOf(v.dns),
-            dnsSearch: words(v.dnsSearch),
-            dnsOptions: words(v.dnsOptions),
-            noNewPrivileges: v.noNewPrivileges,
-            capDrop: v.capDrop as (typeof DROP_CAPABILITIES)[number][],
-            ...(isRootAdmin
-              ? {
-                  privileged: v.privileged,
-                  capAdd: v.capAdd as (typeof CAPABILITIES)[number][],
-                  securityOpt: linesOf(v.securityOpt),
-                  gpus: v.gpus === "" ? null : v.gpus === "all" ? "all" : Number(v.gpus),
-                  devices: linesOf(v.devices).map(parseDevice),
-                }
-              : {}),
-          },
-        })
-      }
-    >
-      {(v, set) => (
-        <>
-          <SwitchRow
-            title="Init process"
-            description="Runs a tiny init as PID 1 that forwards signals and reaps zombie processes."
-            checked={v.init}
-            onCheckedChange={(c) => set({ init: c })}
-          />
+    <>
+      <Section
+        id="advanced"
+        title="Process"
+        description="How the app's main process runs inside the container."
+        footerNote={REDEPLOY}
+        initial={{
+          init: runtime.init ?? true,
+          ulimits: (runtime.ulimits ?? []).map((u) => `${u.name}=${u.soft === u.hard ? u.soft : `${u.soft}:${u.hard}`}`).join("\n"),
+          sysctls: Object.entries(runtime.sysctls ?? {}).map(([key, value]) => ({ key, value })),
+        }}
+        onSave={(v) =>
+          save({
+            runtime: {
+              init: v.init,
+              ulimits: linesOf(v.ulimits).map(parseUlimit),
+              sysctls: Object.fromEntries(v.sysctls.filter((s) => s.key.trim()).map((s) => [s.key.trim(), s.value.trim()])),
+            },
+          })
+        }
+      >
+        {(v, set) => (
+          <>
+            <SwitchRow
+              title="Init process"
+              description="Runs a tiny init as PID 1 that forwards signals and reaps zombie processes."
+              checked={v.init}
+              onCheckedChange={(c) => set({ init: c })}
+            />
+            <Field label="Resource limits (ulimits)" optional description="One per line: name=limit or name=soft:hard, like nofile=65536. -1 is unlimited.">
+              <Textarea value={v.ulimits} onChange={(e) => set({ ulimits: e.target.value })} rows={2} placeholder="nofile=65536" className="font-mono text-[12.5px]" />
+            </Field>
+            <Field label="Kernel parameters (sysctls)" optional description="Only the container's own: net.*, kernel.shm*, kernel.msg*, kernel.sem and fs.mqueue.*.">
+              <KeyValueEditor value={v.sysctls} onChange={(sysctls) => set({ sysctls })} keyPlaceholder="net.core.somaxconn" valuePlaceholder="1024" addLabel="Add parameter" />
+            </Field>
+          </>
+        )}
+      </Section>
+
+      <Section
+        id="advanced-logs"
+        title="Log files"
+        description="How much output Docker keeps on the server for each container."
+        footerNote={REDEPLOY}
+        initial={{ logMaxSizeMb: String(runtime.logMaxSizeMb ?? 20), logMaxFiles: String(runtime.logMaxFiles ?? 5) }}
+        onSave={(v) => save({ runtime: { logMaxSizeMb: num(v.logMaxSizeMb), logMaxFiles: num(v.logMaxFiles) } })}
+      >
+        {(v, set) => (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Log file size" description="Per file, before rotating.">
               <InputGroup suffix="MB">
@@ -673,58 +687,115 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
               <Input value={v.logMaxFiles} onChange={(e) => set({ logMaxFiles: digits(e.target.value) })} inputMode="numeric" />
             </Field>
           </div>
-          <Field label="Extra hosts" optional description="Entries added to /etc/hosts, one hostname:ip per line.">
-            <Textarea value={v.extraHosts} onChange={(e) => set({ extraHosts: e.target.value })} rows={2} placeholder="db.internal:10.0.0.5" className="font-mono text-[12.5px]" />
-          </Field>
-          <Field label="Container labels" optional description="For external tools. Labels starting with serve. are reserved.">
+        )}
+      </Section>
+
+      <Section
+        id="advanced-network"
+        title="Hosts and DNS"
+        description="Names the container can look up, beyond what Docker gives it."
+        footerNote={REDEPLOY}
+        initial={{
+          extraHosts: (runtime.extraHosts ?? []).join("\n"),
+          dns: (runtime.dns ?? []).join("\n"),
+          dnsSearch: (runtime.dnsSearch ?? []).join(" "),
+          dnsOptions: (runtime.dnsOptions ?? []).join(" "),
+        }}
+        onSave={(v) => save({ runtime: { extraHosts: linesOf(v.extraHosts), dns: linesOf(v.dns), dnsSearch: words(v.dnsSearch), dnsOptions: words(v.dnsOptions) } })}
+      >
+        {(v, set) => (
+          <>
+            <Field label="Extra hosts" optional description="Entries added to /etc/hosts, one hostname:ip per line.">
+              <Textarea
+                value={v.extraHosts}
+                onChange={(e) => set({ extraHosts: e.target.value })}
+                rows={2}
+                placeholder="db.internal:10.0.0.5"
+                className="font-mono text-[12.5px]"
+              />
+            </Field>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="DNS servers" optional description="IP addresses, one per line (at most 3). Empty: Docker's resolver.">
+                <Textarea value={v.dns} onChange={(e) => set({ dns: e.target.value })} rows={2} placeholder="1.1.1.1" className="font-mono text-[12.5px]" />
+              </Field>
+              <div className="flex flex-col gap-4">
+                <Field label="DNS search domains" optional>
+                  <Input value={v.dnsSearch} onChange={(e) => set({ dnsSearch: e.target.value })} placeholder="corp.internal" className="font-mono text-[13px]" />
+                </Field>
+                <Field label="DNS options" optional>
+                  <Input value={v.dnsOptions} onChange={(e) => set({ dnsOptions: e.target.value })} placeholder="ndots:2 timeout:1" className="font-mono text-[13px]" />
+                </Field>
+              </div>
+            </div>
+          </>
+        )}
+      </Section>
+
+      <Section
+        id="advanced-labels"
+        title="Container labels"
+        description="Docker labels for external tools, like monitoring or backup agents."
+        footerNote={REDEPLOY}
+        initial={{ labels: runtime.labels ?? ([] as KeyValue[]) }}
+        onSave={(v) => save({ runtime: { labels: v.labels.filter((l) => l.key.trim()) } })}
+      >
+        {(v, set) => (
+          <Field label="Labels" optional description="Labels starting with serve. are reserved.">
             <KeyValueEditor value={v.labels} onChange={(labels) => set({ labels })} keyPlaceholder="com.example.team" valuePlaceholder="web" addLabel="Add label" />
           </Field>
-          <Field label="Resource limits (ulimits)" optional description="One per line: name=limit or name=soft:hard, like nofile=65536. -1 is unlimited.">
-            <Textarea value={v.ulimits} onChange={(e) => set({ ulimits: e.target.value })} rows={2} placeholder="nofile=65536" className="font-mono text-[12.5px]" />
-          </Field>
-          <Field label="Kernel parameters (sysctls)" optional description="Only the container's own: net.*, kernel.shm*, kernel.msg*, kernel.sem and fs.mqueue.*.">
-            <KeyValueEditor value={v.sysctls} onChange={(sysctls) => set({ sysctls })} keyPlaceholder="net.core.somaxconn" valuePlaceholder="1024" addLabel="Add parameter" />
-          </Field>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="DNS servers" optional description="IP addresses, one per line (at most 3). Empty: Docker's resolver.">
-              <Textarea value={v.dns} onChange={(e) => set({ dns: e.target.value })} rows={2} placeholder="1.1.1.1" className="font-mono text-[12.5px]" />
+        )}
+      </Section>
+
+      <Section
+        id="advanced-security"
+        title="Security"
+        description="Take rights away from the container. Safe to try: an app that needs a right fails at start."
+        footerNote={REDEPLOY}
+        initial={{ noNewPrivileges: runtime.noNewPrivileges ?? false, capDrop: runtime.capDrop ?? ([] as string[]) }}
+        onSave={(v) => save({ runtime: { noNewPrivileges: v.noNewPrivileges, capDrop: v.capDrop as (typeof DROP_CAPABILITIES)[number][] } })}
+      >
+        {(v, set) => (
+          <>
+            <SwitchRow
+              title="No new privileges"
+              description="Processes cannot gain rights after the start, such as through setuid programs. Safe for most apps."
+              checked={v.noNewPrivileges}
+              onCheckedChange={(c) => set({ noNewPrivileges: c })}
+            />
+            <Field label="Drop capabilities" optional description="Rights taken away from Docker's defaults. ALL drops every one: add back only what the app needs.">
+              <CapabilityPicker all={DROP_CAPABILITIES} value={v.capDrop} onChange={(capDrop) => set({ capDrop })} />
             </Field>
-            <div className="flex flex-col gap-4">
-              <Field label="DNS search domains" optional>
-                <Input value={v.dnsSearch} onChange={(e) => set({ dnsSearch: e.target.value })} placeholder="corp.internal" className="font-mono text-[13px]" />
-              </Field>
-              <Field label="DNS options" optional>
-                <Input value={v.dnsOptions} onChange={(e) => set({ dnsOptions: e.target.value })} placeholder="ndots:2 timeout:1" className="font-mono text-[13px]" />
-              </Field>
-            </div>
-          </div>
-          <SwitchRow
-            title="No new privileges"
-            description="Processes cannot gain rights after the start, such as through setuid programs. Safe for most apps."
-            checked={v.noNewPrivileges}
-            onCheckedChange={(c) => set({ noNewPrivileges: c })}
-          />
-          <Field label="Drop capabilities" optional description="Rights taken away from Docker's defaults. ALL drops every one: add back only what the app needs.">
-            <div className="flex flex-wrap gap-1.5">
-              {DROP_CAPABILITIES.map((cap) => {
-                const on = v.capDrop.includes(cap);
-                return (
-                  <button
-                    key={cap}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => set({ capDrop: on ? v.capDrop.filter((c) => c !== cap) : [...v.capDrop, cap] })}
-                    className={`rounded-md px-2 py-1 font-mono text-[11.5px] ring-1 transition-colors ${on ? "bg-accent-soft text-accent ring-accent/40" : "text-muted ring-line hover:text-fg"}`}
-                  >
-                    {cap}
-                  </button>
-                );
-              })}
-            </div>
-          </Field>
-          {isRootAdmin && (
-            <div className="flex flex-col gap-3 rounded-xl border border-warn/25 bg-warn-soft/40 p-4">
-              <p className="text-xs font-medium text-warn">Host access · Root organization only</p>
+          </>
+        )}
+      </Section>
+
+      {isRootAdmin && (
+        <Section
+          id="advanced-host"
+          title="Host access"
+          description="Gives the container parts of the server itself. Root organization only: only for tools that need it, like Docker-in-Docker."
+          footerNote={REDEPLOY}
+          initial={{
+            privileged: runtime.privileged ?? false,
+            capAdd: runtime.capAdd ?? ([] as string[]),
+            securityOpt: (runtime.securityOpt ?? []).join("\n"),
+            gpus: runtime.gpus == null ? "" : String(runtime.gpus),
+            devices: (runtime.devices ?? []).map((d) => [d.host, d.container ?? "", d.permissions ?? ""].join(":").replace(/:+$/, "")).join("\n"),
+          }}
+          onSave={(v) =>
+            save({
+              runtime: {
+                privileged: v.privileged,
+                capAdd: v.capAdd as (typeof CAPABILITIES)[number][],
+                securityOpt: linesOf(v.securityOpt),
+                gpus: v.gpus === "" ? null : v.gpus === "all" ? "all" : Number(v.gpus),
+                devices: linesOf(v.devices).map(parseDevice),
+              },
+            })
+          }
+        >
+          {(v, set) => (
+            <>
               <SwitchRow
                 title="Privileged"
                 description="Full access to the host's devices. Only for tools that need it, like Docker-in-Docker."
@@ -732,21 +803,7 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
                 onCheckedChange={(c) => set({ privileged: c })}
               />
               <Field label="Linux capabilities" optional description="Added on top of Docker's defaults.">
-                <div className="flex flex-wrap gap-1.5">
-                  {CAPABILITIES.map((cap) => {
-                    const on = v.capAdd.includes(cap);
-                    return (
-                      <button
-                        key={cap}
-                        type="button"
-                        onClick={() => set({ capAdd: on ? v.capAdd.filter((c) => c !== cap) : [...v.capAdd, cap] })}
-                        className={`rounded-md px-2 py-1 font-mono text-[11.5px] ring-1 transition-colors ${on ? "bg-accent-soft text-accent ring-accent/40" : "text-muted ring-line hover:text-fg"}`}
-                      >
-                        {cap}
-                      </button>
-                    );
-                  })}
-                </div>
+                <CapabilityPicker all={CAPABILITIES} value={v.capAdd} onChange={(capAdd) => set({ capAdd })} />
               </Field>
               <Field label="Security options" optional description="One per line, like apparmor=my-profile, seccomp=unconfined or label=disable.">
                 <Textarea
@@ -768,11 +825,11 @@ export function AdvancedSection({ runtime, save, isRootAdmin }: { runtime: Runti
               <Field label="Devices" optional description="One per line: host path, then optionally :container path and :permissions (r, rw or rwm).">
                 <Textarea value={v.devices} onChange={(e) => set({ devices: e.target.value })} rows={2} placeholder="/dev/ttyUSB0" className="font-mono text-[12.5px]" />
               </Field>
-            </div>
+            </>
           )}
-        </>
+        </Section>
       )}
-    </Section>
+    </>
   );
 }
 

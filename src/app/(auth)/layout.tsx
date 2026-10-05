@@ -22,10 +22,10 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
         {/* The sign-in greeting is for screen readers only: the brand above says where you are. */}
         <div className="flex w-full max-w-[360px] animate-rise flex-col gap-8 [&_[data-auth-greeting]]:sr-only">
           {brand.logoUrl ? (
-            <Logo className="gap-2.5 self-start" logoClassName="h-10" textClassName="text-[18px]" />
+            <Logo className="gap-2.5 self-center" logoClassName="h-10" textClassName="text-[18px]" />
           ) : (
             // No logo of their own: their name alone, not Serve's mark.
-            <span className="self-start font-display text-[20px] font-semibold tracking-tight text-fg">{name}</span>
+            <span className="self-center font-display text-[20px] font-semibold tracking-tight text-fg">{name}</span>
           )}
           {children}
         </div>

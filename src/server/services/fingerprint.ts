@@ -23,7 +23,7 @@ function stable(value: unknown): string {
  * maintenance and proxy settings apply on their own and are left out, and so are values stored
  * encrypted (they are compared decrypted: saving the same value again is no change).
  */
-export async function configFingerprint(service: Service) {
+export async function configFingerprint(service: Service, opts: { serverVarsOf?: string } = {}) {
   const [own, scope] = await Promise.all([
     db.select().from(schema.envVar).where(eq(schema.envVar.serviceId, service.id)),
     db
@@ -60,7 +60,7 @@ export async function configFingerprint(service: Service) {
       ? await db
           .select()
           .from(schema.serverVar)
-          .where(and(eq(schema.serverVar.serverId, service.serverId), eq(schema.serverVar.organizationId, scope.organizationId)))
+          .where(and(eq(schema.serverVar.serverId, opts.serverVarsOf ?? service.serverId), eq(schema.serverVar.organizationId, scope.organizationId)))
       : [];
   const sharedUsed = [
     ...shared.map((v) => ({ scope: v.environmentId ? "environment" : v.projectId ? "project" : "org", key: v.key, value: v.value })),

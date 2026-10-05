@@ -18,7 +18,7 @@ export const toast = {
   success: (title: string, description?: string) => add("success", title, description),
   error: (title: string, description?: string) => add("error", title, description),
   info: (title: string, description?: string) => add("info", title, description),
-  warning: (title: string, description?: string) => add("warning", title, description),
+  warning: (title: string, description?: string, timeout?: number) => add("warning", title, description, timeout),
   promise: <T,>(promise: Promise<T>, msgs: { loading: string; success: string | ((v: T) => string); error: string | ((e: unknown) => string) }) =>
     toastManager.promise(promise, {
       loading: { title: msgs.loading, type: "loading" },

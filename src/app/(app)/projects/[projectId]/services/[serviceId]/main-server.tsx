@@ -51,7 +51,7 @@ export function EntryServerOption({ server, selected, onSelect }: { server: Entr
 }
 
 /** What switching to a server does to the domains, and what stops it. */
-export function EntryPlanNotice({ server, plan, oldName }: { server: EntryServer; plan: EntryPlan; oldName: string }) {
+export function EntryPlanNotice({ server, plan, oldName, https }: { server: EntryServer; plan: EntryPlan; oldName: string; https?: boolean }) {
   const problem = entryProblem(server);
   if (problem) return <Notice tone="bad">{problem}</Notice>;
   if (plan.blockers.length)
@@ -88,7 +88,7 @@ export function EntryPlanNotice({ server, plan, oldName }: { server: EntryServer
           </li>
         )}
         {renamed.length > 0 && <li>Generated domains get the address of {server.name}.</li>}
-        {server.proxyKind === "nginx" && plan.moves.length > 0 && <li>HTTPS certificates are copied to {server.name}.</li>}
+        {server.proxyKind === "nginx" && https && <li>HTTPS certificates are copied to {server.name}.</li>}
         {manual.length > 0 && (
           <li>
             You change the DNS of {names(manual)}: point {manual.length === 1 ? "it" : "them"} at <span className="font-mono text-fg">{server.publicIp}</span>. Until then, visitors
@@ -118,8 +118,10 @@ export function reportMainServer(result: MainServerResult, name: string) {
     toast.warning(
       `Visitors now enter through ${name}`,
       [...byIp].map(([ip, hosts]) => `Point ${hosts.join(", ")} at ${ip} in your DNS.`).join(" ") + (result.warnings.length ? ` ${result.warnings.join(" ")}` : ""),
+      // Steps left for the user: long enough to read and copy.
+      20_000,
     );
-  } else if (result.warnings.length) toast.warning(`Visitors now enter through ${name}`, result.warnings.join(" "));
+  } else if (result.warnings.length) toast.warning(`Visitors now enter through ${name}`, result.warnings.join(" "), 20_000);
 }
 
 /** Pick the server visitors enter through. */
@@ -166,7 +168,7 @@ export function MainServerDialog({
               <EntryServerOption key={s.id} server={s} selected={s.id === chosen} onSelect={() => setChosen(s.id)} />
             ))}
           </div>
-          {server && plan && main && <EntryPlanNotice server={server} plan={plan} oldName={main.name} />}
+          {server && plan && main && <EntryPlanNotice server={server} plan={plan} oldName={main.name} https={domains.some((d) => d.https)} />}
           {server?.main && entryProblem(server) && <EntryPlanNotice server={server} plan={{ moves: [], blockers: [] }} oldName={server.name} />}
         </DialogBody>
         <DialogFooter>

@@ -84,7 +84,10 @@ export function DistributionSection(props: {
   return (
     <div className="flex flex-col gap-6">
       <Card id="servers" className="scroll-mt-6">
-        <CardHeader title="Servers" description={`${props.primary.name} is the main server: visitors enter through it, and it holds the domains and certificates. Extra servers run the same image next to it. Make main moves the visitors to another one, without a redeploy.`} />
+        <CardHeader
+          title="Servers"
+          description={`${props.primary.name} is the main server: visitors enter through it, and it holds the domains and certificates. Extra servers run the same image next to it. Make main moves the visitors to another one, without a redeploy.`}
+        />
         <CardBody className="flex flex-col gap-1 py-4">
           <ServerRow name={props.primary.name} note="Main server" checked disabled target={targetOf(props.primary.id)} />
           {others.map((s) => (

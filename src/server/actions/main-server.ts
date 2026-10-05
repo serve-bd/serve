@@ -141,6 +141,11 @@ export async function setMainServer(serviceId: string, serverId: string) {
       warnings.push(`${next.proxyKind === "caddy" ? "Caddy" : "Traefik"} on ${next.name} gets its own certificates. HTTPS can take a minute after DNS points there.`);
     }
 
+    // Up to date before the switch: still up to date after it, unless the ${{server.KEY}} values
+    // the app uses differ on the new server (the running replicas have the old server's).
+    const { configFingerprint, redeployNeeded } = await import("@/server/services/fingerprint");
+    const wasCurrent = (await redeployNeeded(service).catch(() => null)) === false;
+
     // The switch itself: one update, so every reader sees the old or the new roles.
     const balance = service.balance
       ? { ...service.balance, copies: Object.fromEntries(Object.entries(service.balance.copies ?? {}).filter(([k]) => !k.startsWith(`${serverId}:`))) }
@@ -160,6 +165,15 @@ export async function setMainServer(serviceId: string, serverId: string) {
         .where(eq(schema.service.id, serviceId));
       for (const [domainId, certificateId] of certIds) await tx.update(schema.domain).set({ certificateId }).where(eq(schema.domain.id, domainId));
     });
+
+    if (wasCurrent) {
+      const [after] = await db.select().from(schema.service).where(eq(schema.service.id, serviceId));
+      if (after) {
+        const [now, running] = await Promise.all([configFingerprint(after), configFingerprint(after, { serverVarsOf: old.id })]);
+        if (now === running) await db.update(schema.deployment).set({ configHash: now }).where(eq(schema.deployment.id, service.currentDeploymentId));
+        else warnings.push(`Server variables of ${next.name} differ from ${old.name}. Redeploy to use them.`);
+      }
+    }
 
     // The private network first: the new main server needs the links to the other servers' copies.
     const { syncMesh } = await import("@/server/mesh");

@@ -78,6 +78,7 @@ export async function entryDomains(serviceId: string): Promise<EntryDomain[]> {
     id: d.id,
     hostname: d.hostname,
     generated: d.generated,
+    https: d.https,
     tunnelId: d.tunnelId,
     wantsTunnel: d.wantsTunnel,
     tunnelAccountId,

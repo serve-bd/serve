@@ -32,6 +32,8 @@ export type EntryDomain = {
   id: string;
   hostname: string;
   generated: boolean;
+  /** Served over HTTPS by Serve's proxy (its certificate is copied to a new main server). */
+  https?: boolean;
   tunnelId: string | null;
   /** Meant for a tunnel; with no tunnelId it waits for one on the main server. */
   wantsTunnel?: boolean;

@@ -192,7 +192,7 @@ function ServerCard({ server: s, isDefault }: { server: Row; isDefault: boolean 
 function DefaultBadge() {
   return (
     <Tooltip content="New services go to this server unless you pick another" delay={0}>
-      <span>
+      <span className="inline-flex">
         <Badge tone="ok">Default</Badge>
       </span>
     </Tooltip>

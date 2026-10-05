@@ -40,7 +40,7 @@ export default async function ServerLayout({ children, params }: LayoutProps<"/s
             {row.isLocal && <Badge tone="accent">This server</Badge>}
             {isDefault && (
               <Tooltip content="New services go to this server unless you pick another" delay={0}>
-                <span>
+                <span className="inline-flex">
                   <Badge tone="ok">Default</Badge>
                 </span>
               </Tooltip>

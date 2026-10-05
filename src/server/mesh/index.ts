@@ -129,8 +129,15 @@ async function loadPlan() {
           ),
         )
     : [];
-  const switched = new Map(deployments.map((d) => [d.id, (d.targets ?? []).filter((t) => !t.primary && t.status === "success").map((t) => t.serverId)]));
-  const plan = services.flatMap(toPlanServices).map((p) => (p.balance ? { ...p, switched: switched.get(p.currentDeploymentId ?? "") ?? [] } : p));
+  // By server, not by the deployment's own "primary" flag: the main server can change without a deploy.
+  const targets = new Map(deployments.map((d) => [d.id, d.targets ?? []]));
+  const plan = services
+    .flatMap(toPlanServices)
+    .map((p) =>
+      p.balance
+        ? { ...p, switched: (targets.get(p.currentDeploymentId ?? "") ?? []).filter((t) => t.serverId !== p.serverId && t.status === "success").map((t) => t.serverId) }
+        : p,
+    );
   return { members, servers: members.map(toPlanServer), services: plan, addresses: addresses as (PlanAddress & { id: string })[] };
 }
 

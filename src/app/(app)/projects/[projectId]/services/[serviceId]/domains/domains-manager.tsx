@@ -35,6 +35,9 @@ import { cn } from "@/lib/utils";
 import { useCan } from "@/components/permissions";
 import { cannotMessage } from "@/lib/permissions";
 import { useDebounced } from "@/hooks/use-client";
+import { setMainServer } from "@/server/actions/main-server";
+import { type EntryDomain, type EntryServer, entryPlan, entryProblem } from "@/server/services/entry-plan";
+import { EntryPlanNotice, EntryServerOption, entryWays, MainServerDialog, reportMainServer } from "../main-server";
 
 type DomainRow = {
   id: string;
@@ -88,9 +91,26 @@ type Props = {
   /** Name of the service's server, for messages. */
   serverName: string;
   /** `here`: stored on this service's server, the only ones its proxy can serve. */
-  certificates: { id: string; name: string; domains: string[]; status: string; provider: string; serverName: string; here: boolean }[];
+  certificates: { id: string; name: string; domains: string[]; status: string; provider: string; serverId: string; serverName: string; here: boolean }[];
   domains: DomainRow[];
+  /** An app on several servers: each of them, main first, and its domains as a switch reads them. */
+  entryServers?: EntryServer[];
+  entryDomains?: EntryDomain[];
 };
+
+/** The dialog's view of another server: its proxy, address, tunnels and certificates. */
+function withEntry(props: Props, e: EntryServer): Props {
+  return {
+    ...props,
+    proxyKind: e.proxyKind,
+    proxyPorts: e.proxyPorts,
+    acmeChallenge: e.acmeChallenge,
+    serverIp: e.publicIp,
+    serverName: e.name,
+    tunnels: e.tunnels.map((t) => ({ id: t.id, accountId: t.accountId, accountName: t.accountName ?? "Cloudflare", status: t.status ?? "pending", statusMessage: null })),
+    certificates: props.certificates.map((c) => ({ ...c, here: c.serverId === e.id })),
+  };
+}
 
 type TunnelInfo = Props["tunnels"][number];
 
@@ -386,14 +406,23 @@ function DnsRecordTable({ hostname, ip }: { hostname: string; ip: string }) {
 }
 
 function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: boolean; onOpenChange: (o: boolean) => void }) {
+  // Apps on several servers: visitors enter through one of them, picked here. The options below
+  // (tunnels, IP, certificates) are those of the picked server.
+  const entries = props.entryServers ?? [];
+  const mainEntry = entries.find((e) => e.main);
+  const [entryId, setEntryId] = React.useState(mainEntry?.id ?? "");
+  const entry = entries.length > 1 ? entries.find((e) => e.id === entryId) : undefined;
+  const switching = !!entry && !entry.main;
+  const p: Props = entry && switching ? withEntry(props, entry) : props;
+  const entryBlocked = !!entry && (switching ? !!entryProblem(entry) || entryPlan(entry, props.entryDomains ?? []).blockers.length > 0 : false);
   const [hostname, setHostname] = React.useState("");
   // auto: the proxy gets a free certificate; custom: a stored certificate; none: plain HTTP, TLS ends in front of Serve.
   const [tls, setTls] = React.useState<"auto" | "custom" | "none">("auto");
   const [certificateId, setCertificateId] = React.useState<string>("");
   const https = tls !== "none";
-  const [port, setPort] = React.useState(() => (props.type === "compose" ? String(props.composePorts[props.composeServices[0] ?? ""]?.[0] ?? "") : ""));
-  const [composeService, setComposeService] = React.useState(props.composeServices[0] ?? "");
-  const defaultPortFor = (svc: string) => String(props.composePorts[svc]?.[0] ?? "");
+  const [port, setPort] = React.useState(() => (p.type === "compose" ? String(p.composePorts[p.composeServices[0] ?? ""]?.[0] ?? "") : ""));
+  const [composeService, setComposeService] = React.useState(p.composeServices[0] ?? "");
+  const defaultPortFor = (svc: string) => String(p.composePorts[svc]?.[0] ?? "");
   const [createRecord, setCreateRecord] = React.useState(true);
   const [proxied, setProxied] = React.useState(true);
   const [redirect, setRedirect] = React.useState("");
@@ -413,18 +442,18 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
     } else setProof({ recordName: res.data.recordName, recordValue: res.data.recordValue });
   };
   const lookup = useDebounced(hostname, 500);
-  const { data: zoneData, isLoading: zoneLoading } = useSWR(props.hasCloudflare && /\.[a-z]{2,}$/i.test(lookup) ? ["cf-zone", lookup] : null, async () => {
+  const { data: zoneData, isLoading: zoneLoading } = useSWR(p.hasCloudflare && /\.[a-z]{2,}$/i.test(lookup) ? ["cf-zone", lookup] : null, async () => {
     const res = await findCloudflareZone(lookup);
     return res.ok ? res.data : null;
   });
-  const zone = props.hasCloudflare && /\.[a-z]{2,}$/i.test(hostname) ? (zoneData ?? null) : null;
-  const tunnel = props.isAdmin && zone ? props.tunnels.find((t) => t.accountId === zone.accountId) : undefined;
+  const zone = p.hasCloudflare && /\.[a-z]{2,}$/i.test(hostname) ? (zoneData ?? null) : null;
+  const tunnel = p.isAdmin && zone ? p.tunnels.find((t) => t.accountId === zone.accountId) : undefined;
   // A tunnel, when the domain's Cloudflare account has one, is the default: it needs no public IP or open port.
   const [chosenRoute, setRoute] = React.useState<"ip" | "tunnel" | null>(null);
   const route = chosenRoute ?? (tunnel ? "tunnel" : "ip");
   const viaTunnel = !!tunnel && route === "tunnel";
   const validHost = /^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(hostname);
-  const step1Done = validHost && (mode === "redirect" ? !!redirect.trim() : props.type !== "compose" || (!!composeService && !!port));
+  const step1Done = validHost && (mode === "redirect" ? !!redirect.trim() : p.type !== "compose" || (!!composeService && !!port));
   const close = (o: boolean) => {
     onOpenChange(o);
     if (!o) {
@@ -434,18 +463,25 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
   };
 
   const { run, pending } = useAction(
-    () =>
-      addDomain(props.serviceId, {
+    async () => {
+      // The other server first: the domain is then added there, with its tunnel or IP.
+      if (switching) {
+        const res = await setMainServer(p.serviceId, entry.id);
+        if (!res.ok) return res;
+        reportMainServer(res.data, entry.name);
+      }
+      return addDomain(p.serviceId, {
         hostname,
         https,
         forceHttps: https,
         certificateId: tls === "custom" && certificateId ? certificateId : null,
         port: port ? Number(port) : null,
-        composeService: props.type === "compose" ? composeService : null,
+        composeService: p.type === "compose" ? composeService : null,
         redirectTo: mode === "redirect" ? redirect : null,
         cloudflare: zone && !viaTunnel ? { accountId: zone.accountId, zoneId: zone.zoneId, proxied, createRecord } : null,
         tunnelId: viaTunnel ? tunnel!.id : null,
-      }),
+      });
+    },
     {
       onSuccess: (d) => {
         if (d.warning) toast.warning("Domain added", d.warning);
@@ -477,8 +513,8 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
         <span className="text-xs leading-relaxed text-muted">
           {r === "tunnel"
             ? `Through the tunnel in ${tunnel?.accountName}. HTTPS by Cloudflare; no public IP or open port needed.`
-            : props.serverIp
-              ? `Visitors connect to ${props.serverIp}. Ports 80 and 443 must be reachable.`
+            : p.serverIp
+              ? `Visitors connect to ${p.serverIp}. Ports 80 and 443 must be reachable.`
               : "Visitors connect to the server's public IP. Set it in the server settings first."}
         </span>
       </span>
@@ -502,11 +538,11 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
             title={step === 1 ? "Add domain" : hostname}
             description={
               step === 1
-                ? props.proxyKind === "none"
+                ? p.proxyKind === "none"
                   ? "Point a domain at this service. This server runs no proxy, so the domain is saved but not served."
-                  : props.proxyKind === "caddy"
+                  : p.proxyKind === "caddy"
                     ? "Point a domain at this service. Caddy obtains and renews the certificate automatically."
-                    : props.proxyKind === "traefik"
+                    : p.proxyKind === "traefik"
                       ? "Point a domain at this service. Traefik issues and renews the certificate."
                       : "Point a domain at this service. HTTPS certificates are issued automatically."
                 : mode === "redirect"
@@ -552,7 +588,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                   </Field>
                 ) : (
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    {props.type === "compose" && (
+                    {p.type === "compose" && (
                       <Field label="Compose service">
                         <Select
                           value={composeService}
@@ -560,21 +596,17 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                             setComposeService(v);
                             setPort(defaultPortFor(v));
                           }}
-                          options={props.composeServices.map((s) => ({ value: s, label: s }))}
+                          options={p.composeServices.map((s) => ({ value: s, label: s }))}
                         />
                       </Field>
                     )}
-                    <Field
-                      label="Container port"
-                      optional={props.type !== "compose"}
-                      description={props.type === "app" && props.defaultPort ? `Defaults to ${props.defaultPort}` : undefined}
-                    >
+                    <Field label="Container port" optional={p.type !== "compose"} description={p.type === "app" && p.defaultPort ? `Defaults to ${p.defaultPort}` : undefined}>
                       <Input
                         value={port}
                         onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
-                        placeholder={String(props.defaultPort ?? 80)}
+                        placeholder={String(p.defaultPort ?? 80)}
                         inputMode="numeric"
-                        required={props.type === "compose"}
+                        required={p.type === "compose"}
                       />
                     </Field>
                   </div>
@@ -582,6 +614,27 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
               </>
             ) : (
               <>
+                {entries.length > 1 && (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[13px] font-medium text-fg">Visitors enter through</span>
+                    <div className="flex flex-col gap-2" role="radiogroup" aria-label="Visitors enter through">
+                      {entries.map((e) => (
+                        <EntryServerOption
+                          key={e.id}
+                          server={e}
+                          selected={e.id === entryId}
+                          onSelect={() => {
+                            setEntryId(e.id);
+                            setRoute(null);
+                            setCertificateId("");
+                          }}
+                        />
+                      ))}
+                    </div>
+                    {entry && switching && mainEntry && <EntryPlanNotice server={entry} plan={entryPlan(entry, props.entryDomains ?? [])} oldName={mainEntry.name} />}
+                    {entry && !switching && entryProblem(entry) && <EntryPlanNotice server={entry} plan={{ moves: [], blockers: [] }} oldName={entry.name} />}
+                  </div>
+                )}
                 {zoneLoading && !zoneData && <p className="text-xs text-muted">Looking for {hostname} in your Cloudflare accounts…</p>}
                 {tunnel && <div className="grid grid-cols-1 gap-2">{(["tunnel", "ip"] as const).map(routeCard)}</div>}
                 {viaTunnel ? (
@@ -592,20 +645,20 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                       open port is needed.
                     </p>
                   </div>
-                ) : props.proxyKind === "none" ? (
+                ) : p.proxyKind === "none" ? (
                   <div className="flex gap-2.5 rounded-xl border border-line bg-surface-2 p-4 text-[13px] leading-relaxed text-fg-2">
                     <Globe className="mt-0.5 size-4 flex-none text-muted" />
                     <p>No proxy on this server — use published ports or your own proxy. The domain is saved and served again when a proxy runs.</p>
                   </div>
                 ) : (
                   <>
-                    <TlsChoice props={props} hostname={hostname} value={tls} onChange={setTls} certificateId={certificateId} onCertificate={setCertificateId} />
-                    {tls === "auto" && !!hostname && challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx") && (
+                    <TlsChoice props={p} hostname={hostname} value={tls} onChange={setTls} certificateId={certificateId} onCertificate={setCertificateId} />
+                    {tls === "auto" && !!hostname && challengeProblem(p, !!zone && (p.proxyKind ?? "nginx") === "nginx") && (
                       <p className="rounded-xl border border-warn/25 bg-warn-soft px-3.5 py-2.5 text-xs leading-relaxed text-fg-2">
-                        {challengeProblem(props, !!zone && (props.proxyKind ?? "nginx") === "nginx")} Route the domain through a Cloudflare Tunnel
-                        {props.proxyKind === "traefik"
+                        {challengeProblem(p, !!zone && (p.proxyKind ?? "nginx") === "nginx")} Route the domain through a Cloudflare Tunnel
+                        {p.proxyKind === "traefik"
                           ? " or use the Cloudflare DNS challenge (Server → Proxy)"
-                          : props.proxyKind === "caddy"
+                          : p.proxyKind === "caddy"
                             ? ""
                             : " or add it from a Cloudflare zone for DNS validation"}
                         .
@@ -620,7 +673,7 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                     </div>
                     <SwitchRow
                       title="Create the DNS record"
-                      description={props.serverIp ? `A record → ${props.serverIp}` : "Set the server IP in Server settings first."}
+                      description={p.serverIp ? `A record → ${p.serverIp}` : "Set the server IP in Server settings first."}
                       checked={createRecord}
                       onCheckedChange={setCreateRecord}
                     />
@@ -630,17 +683,15 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                       checked={proxied}
                       onCheckedChange={setProxied}
                     />
-                    {https && (props.proxyKind ?? "nginx") === "nginx" && (
+                    {https && (p.proxyKind ?? "nginx") === "nginx" && (
                       <p className="text-xs text-muted">The certificate is validated through Cloudflare DNS, so it works even when proxied.</p>
                     )}
                   </div>
                 )}
-                {!zone && hostname && props.isAdmin && props.tunnels.length > 0 && (
-                  <p className="text-xs leading-relaxed text-muted">
-                    Domains in {props.tunnels.map((t) => t.accountName).join(" or ")} can use the Cloudflare Tunnel of this server.
-                  </p>
+                {!zone && hostname && p.isAdmin && p.tunnels.length > 0 && (
+                  <p className="text-xs leading-relaxed text-muted">Domains in {p.tunnels.map((t) => t.accountName).join(" or ")} can use the Cloudflare Tunnel of this server.</p>
                 )}
-                {!zone && hostname && props.serverIp && !viaTunnel && <DnsRecordTable hostname={hostname} ip={props.serverIp} />}
+                {!zone && hostname && p.serverIp && !viaTunnel && <DnsRecordTable hostname={hostname} ip={p.serverIp} />}
               </>
             )}
           </DialogBody>
@@ -657,8 +708,8 @@ function AddDomainDialog({ props, open, onOpenChange }: { props: Props; open: bo
                 <Button type="button" variant="ghost" size="sm" onClick={() => setStep(1)}>
                   Back
                 </Button>
-                <Button type="submit" variant="primary" size="sm" loading={pending}>
-                  Add domain
+                <Button type="submit" variant="primary" size="sm" loading={pending} disabled={entryBlocked}>
+                  {switching ? `Switch to ${entry.name} and add` : "Add domain"}
                 </Button>
               </>
             )}
@@ -812,8 +863,11 @@ function EditDomainDialog({ props, domain, onClose }: { props: Props; domain: Do
 }
 
 export function DomainsManager(props: Props) {
-  const canManage = useCan()("domains.manage");
+  const can = useCan();
+  const canManage = can("domains.manage");
   const [open, setOpen] = React.useState(false);
+  const [choosingMain, setChoosingMain] = React.useState(false);
+  const mainEntry = (props.entryServers?.length ?? 0) > 1 ? props.entryServers!.find((e) => e.main) : undefined;
   const [editing, setEditing] = React.useState<DomainRow | null>(null);
   const confirm = useConfirm();
   const generate = useAction(() => generateDomain(props.serviceId));
@@ -859,6 +913,29 @@ export function DomainsManager(props: Props) {
           </>
         }
       />
+      {mainEntry && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line bg-surface-2/60 px-4 py-2.5 text-[13px] sm:px-5">
+          <span className="text-muted">Visitors enter through</span>
+          <span className="font-medium text-fg">{mainEntry.name}</span>
+          <span className="text-xs text-faint">{entryWays(mainEntry)}</span>
+          {entryProblem(mainEntry) && (
+            <Tooltip content={entryProblem(mainEntry)}>
+              <Badge tone="bad">Can&apos;t take visitors</Badge>
+            </Tooltip>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            onClick={() => setChoosingMain(true)}
+            disabled={!can("services.manage")}
+            title={can("services.manage") ? undefined : cannotMessage("services.manage")}
+          >
+            Change
+          </Button>
+          <MainServerDialog serviceId={props.serviceId} servers={props.entryServers!} domains={props.entryDomains ?? []} open={choosingMain} onOpenChange={setChoosingMain} />
+        </div>
+      )}
       {props.domains.length === 0 ? (
         <EmptyState icon={<Globe />} title="No domains yet" description="Add your own domain or generate a free one to make this service reachable." />
       ) : (

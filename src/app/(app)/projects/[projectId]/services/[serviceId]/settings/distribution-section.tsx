@@ -19,6 +19,8 @@ import type { DeploymentTarget } from "@/server/services/types";
 import type { CopyProblem } from "@/server/services/balance-rules";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import type { EntryDomain, EntryServer } from "@/server/services/entry-plan";
+import { MainServerDialog } from "../main-server";
 
 type ServerOption = { id: string; name: string; status: string; isLocal: boolean };
 type RegistryOption = { id: string; name: string; host: string; namespace: string | null; username: string };
@@ -47,8 +49,12 @@ export function DistributionSection(props: {
   traffic?: Record<string, { problem: CopyProblem | null; up: number; total: number; error: string | null; since: string | null }>;
   /** How visitors reach the service's own server. */
   entry?: { publicIp: string | null; domains: number; tunneled: number };
+  /** Every server the app runs on, for Make main server. */
+  entryServers?: EntryServer[];
+  entryDomains?: EntryDomain[];
   canEdit: boolean;
 }) {
+  const [makeMain, setMakeMain] = React.useState<string | null>(null);
   const router = useRouter();
   const [value, setValue] = React.useState(props.initial);
   const [saved, setSaved] = React.useState(JSON.stringify(props.initial));
@@ -78,9 +84,9 @@ export function DistributionSection(props: {
   return (
     <div className="flex flex-col gap-6">
       <Card id="servers" className="scroll-mt-6">
-        <CardHeader title="Servers" description={`${props.primary.name} runs this app and keeps its domains, logs and metrics. Extra servers run the same image next to it.`} />
+        <CardHeader title="Servers" description={`${props.primary.name} is the main server: visitors enter through it, and it holds the domains and certificates. Extra servers run the same image next to it. Make main moves the visitors to another one, without a redeploy.`} />
         <CardBody className="flex flex-col gap-1 py-4">
-          <ServerRow name={props.primary.name} note="Service's server" checked disabled target={targetOf(props.primary.id)} />
+          <ServerRow name={props.primary.name} note="Main server" checked disabled target={targetOf(props.primary.id)} />
           {others.map((s) => (
             <ServerRow
               key={s.id}
@@ -95,8 +101,26 @@ export function DistributionSection(props: {
                 balancing && props.initial.loadBalance && value.extraServerIds.includes(s.id) && props.initial.extraServerIds.includes(s.id) ? props.traffic?.[s.id] : undefined
               }
               primaryName={props.primary.name}
+              action={
+                // Saved extra servers only: the switch works on what runs, not on unsaved ticks.
+                props.canEdit && props.entryServers && props.initial.extraServerIds.includes(s.id) && value.extraServerIds.includes(s.id) ? (
+                  <Button size="sm" variant="ghost" onClick={() => setMakeMain(s.id)}>
+                    Make main
+                  </Button>
+                ) : undefined
+              }
             />
           ))}
+          {props.entryServers && (
+            <MainServerDialog
+              serviceId={props.serviceId}
+              servers={props.entryServers}
+              domains={props.entryDomains ?? []}
+              open={!!makeMain}
+              onOpenChange={(o) => !o && setMakeMain(null)}
+              initial={makeMain ?? undefined}
+            />
+          )}
           {value.extraServerIds.length > 0 && (
             <div className="mt-2 border-t border-border pt-3">
               <SwitchRow
@@ -311,6 +335,7 @@ function ServerRow({
   target,
   traffic,
   primaryName,
+  action,
 }: {
   name: string;
   note?: string;
@@ -320,6 +345,7 @@ function ServerRow({
   target?: DeploymentTarget;
   traffic?: { problem: CopyProblem | null; up: number; total: number; error: string | null; since: string | null };
   primaryName?: string;
+  action?: React.ReactNode;
 }) {
   const why =
     traffic?.problem === "network"
@@ -336,29 +362,32 @@ function ServerRow({
               ? `${traffic.up} of ${traffic.total} replicas get traffic. ${traffic.error ?? ""}`.trim()
               : `${primaryName} sends its replicas a share of the visitors.`;
   return (
-    <label className={cn("flex items-center gap-3 rounded-lg px-2 py-2 transition-colors", !disabled && "cursor-pointer hover:bg-fg/[0.03]")}>
-      <Checkbox checked={checked} disabled={disabled} onCheckedChange={(c) => onChange?.(!!c)} />
-      <Server className="size-4 flex-none text-faint" />
-      <span className="min-w-0 flex-1 truncate text-[14px] text-fg">{name}</span>
-      {note && <span className="flex-none text-xs text-muted">{note}</span>}
-      {traffic && (
-        <Tooltip content={why}>
-          <Badge tone={traffic.problem === null ? (traffic.up < traffic.total ? "warn" : "ok") : traffic.problem === "address" ? "info" : "warn"}>
-            {traffic.problem === null
-              ? traffic.up < traffic.total
-                ? `Gets traffic (${traffic.up}/${traffic.total})`
-                : "Gets traffic"
-              : traffic.problem === "deploy" && (target?.status === "failed" || target?.status === "skipped")
-                ? `No traffic: deploy ${target.status === "failed" ? "failed" : "skipped"}`
-                : trafficLabel[traffic.problem]}
+    <div className="flex items-center gap-1">
+      <label className={cn("flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 transition-colors", !disabled && "cursor-pointer hover:bg-fg/[0.03]")}>
+        <Checkbox checked={checked} disabled={disabled} onCheckedChange={(c) => onChange?.(!!c)} />
+        <Server className="size-4 flex-none text-faint" />
+        <span className="min-w-0 flex-1 truncate text-[14px] text-fg">{name}</span>
+        {note && <span className="flex-none text-xs text-muted">{note}</span>}
+        {traffic && (
+          <Tooltip content={why}>
+            <Badge tone={traffic.problem === null ? (traffic.up < traffic.total ? "warn" : "ok") : traffic.problem === "address" ? "info" : "warn"}>
+              {traffic.problem === null
+                ? traffic.up < traffic.total
+                  ? `Gets traffic (${traffic.up}/${traffic.total})`
+                  : "Gets traffic"
+                : traffic.problem === "deploy" && (target?.status === "failed" || target?.status === "skipped")
+                  ? `No traffic: deploy ${target.status === "failed" ? "failed" : "skipped"}`
+                  : trafficLabel[traffic.problem]}
+            </Badge>
+          </Tooltip>
+        )}
+        {target && (
+          <Badge tone={statusTone[target.status]} title={target.error ?? undefined}>
+            {statusLabel[target.status]}
           </Badge>
-        </Tooltip>
-      )}
-      {target && (
-        <Badge tone={statusTone[target.status]} title={target.error ?? undefined}>
-          {statusLabel[target.status]}
-        </Badge>
-      )}
-    </label>
+        )}
+      </label>
+      {action}
+    </div>
   );
 }

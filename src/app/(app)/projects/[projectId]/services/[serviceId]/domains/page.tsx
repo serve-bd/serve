@@ -13,6 +13,8 @@ import { serverAddressing } from "@/server/proxy/addressing";
 import { getServerRow } from "@/server/servers/context";
 import { busyHostPorts, listeningPorts, publishedPorts } from "@/server/services/ports";
 import { DomainsManager } from "./domains-manager";
+import { runServerIds } from "@/server/deploy/distribution";
+import { entryDomains, entryServers } from "@/server/services/entry-servers";
 import { PortsCard } from "./ports-card";
 import { ProxyOptionsCard } from "./proxy-options-card";
 import { getTemplate } from "@/server/services/templates";
@@ -79,6 +81,9 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
   const generated = ctx.isInstanceAdmin && kind !== "none" && domains.length > 0 && serverCtx ? await generatedSite(kind, service.id, serverCtx).catch(() => null) : null;
   const appPort = service.type === "app" ? service.runtime.port : null;
   const primaryDomain = pickPrimaryDomain(domains);
+  // An app on several servers can take visitors through any of them (one at a time).
+  const multi = service.type === "app" && runServerIds(service.serverId, service.distribution).length > 1;
+  const [entries, entryDomainRows] = multi ? await Promise.all([entryServers(service, ctx.org.id), entryDomains(service.id)]) : [undefined, undefined];
   const here = certs.filter((c) => c.certificate.serverId === service.serverId).map((c) => c.certificate);
   return (
     <PageBody className="flex flex-col gap-6">
@@ -105,10 +110,13 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           domains: c.domains,
           status: c.status,
           provider: c.provider,
+          serverId: c.serverId,
           serverName,
           // The proxy only serves certificates stored on its own server.
           here: c.serverId === service.serverId,
         }))}
+        entryServers={entries}
+        entryDomains={entryDomainRows}
         domains={[...domains]
           .sort((a, b) => Number(b === primaryDomain) - Number(a === primaryDomain))
           .map((d) => {

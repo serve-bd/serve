@@ -1,4 +1,5 @@
 import { referenceName } from "@/lib/refs";
+import { entryDomains, entryServers } from "@/server/services/entry-servers";
 import { NoAccess } from "@/components/no-access";
 import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { privateHost } from "@/lib/hostname";
@@ -121,12 +122,18 @@ async function distributionProps(service: typeof schema.service.$inferSelect, se
           .where(eq(schema.deployment.id, service.currentDeploymentId))
       : Promise.resolve([]),
   ]);
-  const [copies, [primary], domains] = await Promise.all([
+  const multi = service.type === "app" && !service.parentServiceId && normalizeDistribution(service.serverId, service.distribution).extraServerIds.length > 0;
+  const [copies, [primary], domains, entryServerRows, entryDomainRows] = await Promise.all([
     appCopies(service),
     db.select({ publicIp: schema.server.publicIp, tunnel: schema.server.tunnel }).from(schema.server).where(eq(schema.server.id, service.serverId)),
     db.select({ tunnelId: schema.domain.tunnelId }).from(schema.domain).where(eq(schema.domain.serviceId, service.id)),
+    multi ? entryServers(service, orgId) : undefined,
+    multi ? entryDomains(service.id) : undefined,
   ]);
   return {
+    // Any server the app runs on can be made the main one (Make main server).
+    entryServers: entryServerRows,
+    entryDomains: entryDomainRows,
     // How each copy on an extra server takes part in the load balancing.
     // Only apps with a domain: without one, no proxy sends visitors anywhere.
     traffic: Object.fromEntries([...new Set((domains.length ? copies : []).map((c) => c.serverId))].map((id) => [id, serverTraffic(copies.filter((c) => c.serverId === id))])),

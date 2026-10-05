@@ -268,6 +268,40 @@ export async function saveCustomCertificate(id: string, certPem: string, keyPem:
   };
 }
 
+/**
+ * The same certificate, stored on another server too (its proxy only serves its own files). Used
+ * when an app's main server changes: visitors keep getting HTTPS at once. The copy is its own
+ * certificate on that server and renews there like any other.
+ */
+export async function copyCertificate(cert: Cert, serverId: string): Promise<Cert> {
+  const { certificate, privateKey } = await readCertificateFiles(cert);
+  const id = newId();
+  const ctx = await getServer(serverId);
+  const dir = path.posix.join(ctx.paths.certs, id);
+  await ctx.fs.writeFile(path.posix.join(dir, "fullchain.pem"), certificate + "\n");
+  await ctx.fs.writeFile(path.posix.join(dir, "privkey.pem"), privateKey + "\n", 0o600);
+  const [copy] = await db
+    .insert(schema.certificate)
+    .values({
+      id,
+      organizationId: cert.organizationId,
+      serverId,
+      name: cert.name,
+      domains: cert.domains,
+      provider: cert.provider,
+      status: "active",
+      certPath: `${proxyPaths.certs}/${id}/fullchain.pem`,
+      keyPath: `${proxyPaths.certs}/${id}/privkey.pem`,
+      issuer: cert.issuer,
+      expiresAt: cert.expiresAt,
+      autoRenew: cert.autoRenew,
+      cloudflareAccountId: cert.cloudflareAccountId,
+      logs: `Copied from the certificate on another server ${new Date().toISOString()}\n`,
+    })
+    .returning();
+  return copy;
+}
+
 /** Re-render every site that could use this certificate. */
 export async function applyCertificate(cert: Cert) {
   const services = await servicesUsingCertificate(cert);

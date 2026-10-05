@@ -68,7 +68,7 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
           <Logo className="gap-2.5" textClassName="text-[15px]" />
         </div>
         <div className="flex flex-1 items-center justify-center py-10">
-          <div className="w-full max-w-[360px] animate-rise">{children}</div>
+          <div className="w-full max-w-[360px] animate-rise [&_[data-auth-greeting]]:items-center [&_[data-auth-greeting]]:text-center">{children}</div>
         </div>
         <p className="text-center text-xs text-faint lg:hidden">
           {name} · v{pkg.version}

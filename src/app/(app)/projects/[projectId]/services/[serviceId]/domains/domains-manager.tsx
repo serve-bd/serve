@@ -115,6 +115,8 @@ type Props = {
   certificates: { id: string; name: string; domains: string[]; status: string; provider: string; serverId: string; serverName: string; here: boolean }[];
   domains: DomainRow[];
   /** An app on several servers: each of them, main first, and its domains as a switch reads them. */
+  /** Load balancing over servers that share no private network with the main one: all visitors stay there. */
+  balanceWarning?: string | null;
   entryServers?: EntryServer[];
   entryDomains?: EntryDomain[];
 };
@@ -973,6 +975,17 @@ export function DomainsManager(props: Props) {
           {props.isAdmin && props.serverId && (
             <Link href={`/servers/${props.serverId}/proxy`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
               Proxy settings
+            </Link>
+          )}
+        </div>
+      )}
+      {props.balanceWarning && props.domains.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-warn/25 bg-warn-soft px-4 py-2.5 text-[13px] text-fg-2 sm:px-5">
+          <TriangleAlert className="size-4 flex-none text-warn" />
+          <span className="min-w-0 flex-1">{props.balanceWarning}</span>
+          {props.isAdmin && (
+            <Link href="/private-networks" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+              Private networks
             </Link>
           )}
         </div>

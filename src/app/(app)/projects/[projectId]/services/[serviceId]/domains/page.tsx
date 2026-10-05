@@ -15,6 +15,7 @@ import { busyHostPorts, listeningPorts, publishedPorts } from "@/server/services
 import { DomainsManager } from "./domains-manager";
 import { balances, runServerIds } from "@/server/deploy/distribution";
 import { entryDomains, entryServers } from "@/server/services/entry-servers";
+import { balanceWarning } from "@/server/services/balance";
 import { PortsCard } from "./ports-card";
 import { ProxyOptionsCard } from "./proxy-options-card";
 import { getTemplate } from "@/server/services/templates";
@@ -103,6 +104,11 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
   const multi = service.type === "app" && runServerIds(service.serverId, service.distribution).length > 1;
   const [entries, entryDomainRows] = multi ? await Promise.all([entryServers(service, ctx.org.id), entryDomains(service.id)]) : [undefined, undefined];
   const here = certs.filter((c) => c.certificate.serverId === service.serverId).map((c) => c.certificate);
+  // Load balancing over servers that left the private network: visitors stay on the main server.
+  const apart =
+    service.type === "app" && balances(service.serverId, service.distribution)
+      ? await balanceWarning(service.serverId, runServerIds(service.serverId, service.distribution).slice(1)).catch(() => null)
+      : null;
   return (
     <PageBody className="flex flex-col gap-6">
       <DomainsManager
@@ -136,6 +142,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
           here: c.serverId === service.serverId,
         }))}
         entryServers={entries}
+        balanceWarning={apart}
         entryDomains={entryDomainRows}
         domains={[...domains]
           .sort((a, b) => Number(b === primaryDomain) - Number(a === primaryDomain))

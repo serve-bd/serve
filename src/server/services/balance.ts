@@ -76,11 +76,10 @@ export async function remoteTargets(service: ServiceRow & Pick<typeof schema.ser
 }
 
 /**
- * Why load balancing from `mainId` cannot reach these servers, or null when it can. The main
- * server's proxy reaches other servers' replicas only through a private network they share, so
- * without one those servers would run the app and never get a visitor.
+ * The servers among `extraIds` that load balancing from `mainId` cannot reach: they share no
+ * private network with it, so its proxy never sends them a visitor. Names included, for messages.
  */
-export async function balanceProblem(mainId: string, extraIds: string[]): Promise<string | null> {
+export async function serversApart(mainId: string, extraIds: string[]) {
   if (!extraIds.length) return null;
   const members = await meshMemberIds();
   const apart = extraIds.filter((id) => !privatelyConnected(members, mainId, id));
@@ -91,6 +90,20 @@ export async function balanceProblem(mainId: string, extraIds: string[]): Promis
     .where(inArray(schema.server.id, [mainId, ...apart]));
   const name = (id: string) => rows.find((r) => r.id === id)?.name ?? "a server";
   const list = apart.map(name);
-  const these = list.length === 1 ? list[0] : `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
-  return `${these} ${apart.length === 1 ? "is" : "are"} not in a private network with ${name(mainId)}, so load balancing cannot send ${apart.length === 1 ? "it" : "them"} any visitors. Add ${apart.length === 1 ? "it" : "them"} and ${name(mainId)} to the same private network in Servers → Private network first, then try again. Or turn load balancing off to run the app there without visitors.`;
+  return { main: name(mainId), names: list.length === 1 ? list[0] : `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`, one: list.length === 1 };
+}
+
+/** Why load balancing from `mainId` cannot reach these servers (a refusal), or null when it can. */
+export async function balanceProblem(mainId: string, extraIds: string[]): Promise<string | null> {
+  const a = await serversApart(mainId, extraIds);
+  if (!a) return null;
+  const it = a.one ? "it" : "them";
+  return `${a.names} ${a.one ? "is" : "are"} not in a private network with ${a.main}, so load balancing cannot send ${it} any visitors. Add ${it} and ${a.main} to the same private network in Servers → Private network first, then try again. Or turn load balancing off to run the app there without visitors.`;
+}
+
+/** The same, once the app runs there (a server left the network): what happens to visitors now. */
+export async function balanceWarning(mainId: string, extraIds: string[]): Promise<string | null> {
+  const a = await serversApart(mainId, extraIds);
+  if (!a) return null;
+  return `${a.names} ${a.one ? "is" : "are"} not in a private network with ${a.main}, so every visitor goes to the replicas on ${a.main}. Add ${a.one ? "it" : "them"} back to the same private network to share the visitors again.`;
 }

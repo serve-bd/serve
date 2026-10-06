@@ -9,7 +9,7 @@ import { Card, CardFooter, CardHeader } from "@/components/ui/misc";
 import { Field } from "@/components/ui/field";
 import { Input, InputGroup, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { SwitchRow } from "@/components/ui/switch";
+import { Switch, SwitchRow } from "@/components/ui/switch";
 import { useAction } from "@/hooks/use-action";
 import { updateServiceProxy } from "@/server/actions/service-proxy";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
@@ -17,7 +17,7 @@ import { type Balancing, balancingOf } from "@/lib/balancing";
 
 type Initial = Omit<ServiceProxyConfig, "basicAuth" | "guests"> & { basicAuthUser: string | null; basicAuthHasBcrypt?: boolean; guests?: { id: string; email: string }[] };
 /** password: empty keeps the saved one. */
-type Guest = { id?: string; email: string; password: string };
+type Guest = { id?: string; email: string; password: string /** A saved guest whose password is being changed. */; change?: boolean };
 
 type Form = {
   maxBodySize: string;
@@ -131,135 +131,150 @@ export function ProxyOptionsCard({
   const props = { serviceId, saved, onSaved: setSaved, disabled, proxyLabel: KIND_LABEL[proxyKind] };
   const showBalancing = replicas > 1 || !!across || balancingOf(initial) !== "round-robin";
   const access = (
-    <OptionsCard
-      {...props}
-      title="Access control"
-      description="Protect previews, admin panels or staging sites."
-      keys={["login", "guests", "authOn", "authUser", "authPassword", "allow", "deny"]}
-    >
-      {(form, set) => (
-        <>
-          <SwitchRow
-            title="Only my team"
-            description="Visitors sign in to Serve first. Members who can open this project get in; nobody else does."
-            checked={form.login}
-            onCheckedChange={(v) => set("login", v)}
-          />
-          <div className="flex flex-col gap-2">
-            <div>
-              <p className="text-[13px] font-medium text-fg-2">Guest logins</p>
-              <p className="text-xs text-muted">People without a Serve account. They sign in on a login page with the email and password you set here.</p>
-            </div>
-            {form.guests.map((g, i) => (
-              <div key={g.id ?? `new-${i}`} className="grid grid-cols-[minmax(0,1fr)_32px] gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px]">
-                <Input
-                  type="email"
-                  value={g.email}
-                  onChange={(e) =>
-                    set(
-                      "guests",
-                      form.guests.map((x, j) => (j === i ? { ...x, email: e.target.value } : x)),
-                    )
-                  }
-                  placeholder="name@company.com"
-                  aria-label="Guest email"
-                  className="h-8 text-[13px]"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="sm:order-3"
-                  onClick={() =>
-                    set(
-                      "guests",
-                      form.guests.filter((_, j) => j !== i),
-                    )
-                  }
-                  aria-label="Remove guest"
-                >
-                  <Trash2 />
-                </Button>
-                <Input
-                  type="password"
-                  autoComplete="new-password"
-                  value={g.password}
-                  onChange={(e) =>
-                    set(
-                      "guests",
-                      form.guests.map((x, j) => (j === i ? { ...x, password: e.target.value } : x)),
-                    )
-                  }
-                  placeholder={g.id ? "Unchanged" : "Password, 8+ characters"}
-                  aria-label="Guest password"
-                  className="col-span-2 h-8 text-[13px] sm:order-2 sm:col-span-1"
-                />
+    <>
+      <OptionsCard {...props} title="Login wall" description="Visitors sign in before they reach the app." keys={["login", "guests"]}>
+        {(form, set) => (
+          <>
+            <SwitchRow
+              title="Only my team"
+              description="Members who can open this project sign in with their Serve account; nobody else gets in."
+              checked={form.login}
+              onCheckedChange={(v) => set("login", v)}
+            />
+            <div className="flex flex-col gap-2">
+              <div>
+                <p className="text-[13px] font-medium text-fg-2">Guest logins</p>
+                <p className="text-xs text-muted">People without a Serve account. They sign in with the email and password you set here.</p>
               </div>
-            ))}
-            <Button size="sm" variant="secondary" className="w-fit" onClick={() => set("guests", [...form.guests, { email: "", password: "" }])}>
-              <Plus /> Add guest
-            </Button>
-          </div>
-          {(form.login || form.guests.some((g) => g.email.trim())) && !dashboardDomain && (
-            <p className="text-[12.5px] text-warn">Give the dashboard its own domain in Settings first. Visitors sign in there, and other servers check sign-ins there.</p>
-          )}
-          <SwitchRow
-            title="Password protection"
-            description="Browsers ask for a user name and password (HTTP Basic Auth)."
-            checked={form.authOn}
-            onCheckedChange={(v) => set("authOn", v)}
-          />
-          {form.authOn && (
+              {form.guests.map((g, i) => {
+                const update = (patch: Partial<Guest>) =>
+                  set(
+                    "guests",
+                    form.guests.map((x, j) => (j === i ? { ...x, ...patch } : x)),
+                  );
+                const remove = (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() =>
+                      set(
+                        "guests",
+                        form.guests.filter((_, j) => j !== i),
+                      )
+                    }
+                    aria-label={`Remove ${g.email || "guest"}`}
+                  >
+                    <Trash2 />
+                  </Button>
+                );
+                // A saved guest: the email, and a new password only when asked for.
+                if (g.id && !g.change)
+                  return (
+                    <div key={g.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-1.5">
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-fg-2">{g.email}</span>
+                      <Button size="sm" variant="ghost" onClick={() => update({ change: true })}>
+                        Change password
+                      </Button>
+                      {remove}
+                    </div>
+                  );
+                // A new guest (saved on Apply), or a saved one getting a new password.
+                return (
+                  <div key={g.id ?? `new-${i}`} className="flex items-center gap-2 rounded-lg border border-line px-3 py-1.5">
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-fg-2">{g.email}</span>
+                    {g.id ? (
+                      <Input
+                        type="password"
+                        autoFocus
+                        value={g.password}
+                        onChange={(e) => update({ password: e.target.value })}
+                        placeholder="New password, 8+ characters"
+                        aria-label={`New password for ${g.email}`}
+                        className="h-7 w-56 text-[13px]"
+                      />
+                    ) : (
+                      <span className="text-xs text-faint">New</span>
+                    )}
+                    {remove}
+                  </div>
+                );
+              })}
+              <GuestAdder taken={form.guests.map((g) => g.email.trim().toLowerCase())} onAdd={(g) => set("guests", [...form.guests, g])} />
+            </div>
+            {(form.login || form.guests.some((g) => g.email.trim())) && !dashboardDomain && (
+              <p className="text-[12.5px] text-warn">Give the dashboard its own domain in Settings first. Visitors sign in there, and other servers check sign-ins there.</p>
+            )}
+          </>
+        )}
+      </OptionsCard>
+      <OptionsCard
+        {...props}
+        title="HTTP Basic Auth"
+        description="One shared user name and password. The browser asks for it in its own pop-up."
+        keys={["authOn", "authUser", "authPassword"]}
+        toggle="authOn"
+      >
+        {(form, set) => (
+          <>
+            {form.authOn && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="User name">
+                  <Input value={form.authUser} onChange={(e) => set("authUser", e.target.value)} placeholder="admin" />
+                </Field>
+                <Field
+                  label="Password"
+                  error={
+                    proxyKind === "caddy" && initial?.basicAuthUser && !initial.basicAuthHasBcrypt && !form.authPassword
+                      ? "Enter the password again: Caddy needs a new hash. Until then the site answers 503."
+                      : undefined
+                  }
+                  description={initial?.basicAuthUser ? "Leave empty to keep the current password." : undefined}
+                >
+                  <Input
+                    type="password"
+                    value={form.authPassword}
+                    onChange={(e) => set("authPassword", e.target.value)}
+                    placeholder={initial?.basicAuthUser ? "••••••••" : "At least 6 characters"}
+                  />
+                </Field>
+              </div>
+            )}
+          </>
+        )}
+      </OptionsCard>
+      <OptionsCard {...props} title="IP rules" description="Let in or keep out addresses and networks." keys={["allow", "deny"]}>
+        {(form, set) => (
+          <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="User name">
-                <Input value={form.authUser} onChange={(e) => set("authUser", e.target.value)} placeholder="admin" />
+              <Field label="Allow only" optional description="One IP or CIDR per line. Everyone else gets 403.">
+                <Textarea
+                  value={form.allow}
+                  onChange={(e) => set("allow", e.target.value)}
+                  placeholder={"203.0.113.10\n10.0.0.0/8"}
+                  rows={3}
+                  className="min-h-20 font-mono text-[12.5px]"
+                />
               </Field>
               <Field
-                label="Password"
-                error={
-                  proxyKind === "caddy" && initial?.basicAuthUser && !initial.basicAuthHasBcrypt && !form.authPassword
-                    ? "Enter the password again: Caddy needs a new hash. Until then the site answers 503."
-                    : undefined
+                label="Block"
+                optional
+                description={
+                  proxyKind === "traefik" && behindProxy
+                    ? "One IP or CIDR per line. With Traefik behind a proxy this list does not see visitors' own addresses, so it blocks nobody. Use nginx or Caddy to block visitors."
+                    : proxyKind === "traefik"
+                      ? "One IP or CIDR per line. Traefik has no block list: blocked visitors get the 404 page, and visitors through a Cloudflare Tunnel cannot be blocked here."
+                      : "One IP or CIDR per line."
                 }
-                description={initial?.basicAuthUser ? "Leave empty to keep the current password." : undefined}
               >
-                <Input
-                  type="password"
-                  value={form.authPassword}
-                  onChange={(e) => set("authPassword", e.target.value)}
-                  placeholder={initial?.basicAuthUser ? "••••••••" : "At least 6 characters"}
-                />
+                <Textarea value={form.deny} onChange={(e) => set("deny", e.target.value)} placeholder="198.51.100.0/24" rows={3} className="min-h-20 font-mono text-[12.5px]" />
               </Field>
             </div>
-          )}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Allow only" optional description="One IP or CIDR per line. Everyone else gets 403.">
-              <Textarea
-                value={form.allow}
-                onChange={(e) => set("allow", e.target.value)}
-                placeholder={"203.0.113.10\n10.0.0.0/8"}
-                rows={3}
-                className="min-h-20 font-mono text-[12.5px]"
-              />
-            </Field>
-            <Field
-              label="Block"
-              optional
-              description={
-                proxyKind === "traefik" && behindProxy
-                  ? "One IP or CIDR per line. With Traefik behind a proxy this list does not see visitors' own addresses, so it blocks nobody. Use nginx or Caddy to block visitors."
-                  : proxyKind === "traefik"
-                    ? "One IP or CIDR per line. Traefik has no block list: blocked visitors get the 404 page, and visitors through a Cloudflare Tunnel cannot be blocked here."
-                    : "One IP or CIDR per line."
-              }
-            >
-              <Textarea value={form.deny} onChange={(e) => set("deny", e.target.value)} placeholder="198.51.100.0/24" rows={3} className="min-h-20 font-mono text-[12.5px]" />
-            </Field>
-          </div>
-        </>
-      )}
-    </OptionsCard>
+          </>
+        )}
+      </OptionsCard>
+    </>
   );
-  if (only === "access") return access;
+  if (only === "access") return <div className="flex flex-col gap-6">{access}</div>;
   return (
     <>
       <OptionsCard
@@ -488,6 +503,7 @@ function OptionsCard({
   title,
   description,
   keys,
+  toggle,
   children,
 }: {
   serviceId: string;
@@ -498,6 +514,8 @@ function OptionsCard({
   title: string;
   description: React.ReactNode;
   keys: (keyof Form)[];
+  /** An on/off option shown as a switch in the header; the body only shows while it is on. */
+  toggle?: "authOn";
   children: (form: Form, set: Set) => React.ReactNode;
 }) {
   const [draft, setDraft] = React.useState<Partial<Form>>({});
@@ -514,7 +532,7 @@ function OptionsCard({
     },
     {
       onSuccess: () => {
-        onSaved({ ...form, authPassword: "", guests: form.guests.filter((g) => g.email.trim()).map((g) => ({ ...g, password: "" })) });
+        onSaved({ ...form, authPassword: "", guests: form.guests.filter((g) => g.email.trim()).map((g) => ({ ...g, password: "", change: false })) });
         setDraft({});
       },
     },
@@ -528,10 +546,16 @@ function OptionsCard({
           void save.run();
         }}
       >
-        <CardHeader title={title} description={description} />
-        <fieldset disabled={disabled} className={cn("flex min-w-0 flex-col gap-4 px-5 py-5", disabled && "opacity-70")}>
-          {children(form, set)}
-        </fieldset>
+        <CardHeader
+          title={title}
+          description={description}
+          actions={toggle && <Switch aria-label={`Turn on ${title}`} checked={form[toggle]} disabled={disabled} onCheckedChange={(v) => set(toggle, v)} />}
+        />
+        {(!toggle || form[toggle]) && (
+          <fieldset disabled={disabled} className={cn("flex min-w-0 flex-col gap-4 px-5 py-5", disabled && "opacity-70")}>
+            {children(form, set)}
+          </fieldset>
+        )}
         {error && <p className="border-t border-line bg-bad-soft/50 px-5 py-3 font-mono text-[12px] leading-relaxed break-words text-bad">{error}</p>}
         {disabled ? (
           <ReadOnlyFooter message="Only organization admins can change HTTP options." />
@@ -552,5 +576,54 @@ function OptionsCard({
         )}
       </form>
     </Card>
+  );
+}
+
+/** Email and password first, then Add guest: the guest joins the list and is saved on Apply. */
+function GuestAdder({ taken, onAdd }: { taken: string[]; onAdd: (g: { email: string; password: string }) => void }) {
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const clean = email.trim().toLowerCase();
+  const problem = !clean ? null : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean) ? "Enter a valid email address." : taken.includes(clean) ? "This guest is already on the list." : null;
+  const ready = !!clean && !problem && password.length >= 8;
+  const add = () => {
+    if (!ready) return;
+    onAdd({ email: clean, password });
+    setEmail("");
+    setPassword("");
+  };
+  // Enter adds the guest instead of applying the whole card.
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    add();
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <Input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="name@company.com"
+          aria-label="Guest email"
+          className="h-8 text-[13px]"
+        />
+        <Input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Password, 8+ characters"
+          aria-label="Guest password"
+          className="h-8 text-[13px]"
+        />
+        <Button size="sm" variant="secondary" disabled={!ready} onClick={add}>
+          <Plus /> Add guest
+        </Button>
+      </div>
+      {problem && <p className="text-xs text-bad">{problem}</p>}
+    </div>
   );
 }

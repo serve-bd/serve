@@ -303,7 +303,13 @@ export function BackupsManager(props: {
           title={props.title ?? "Backups"}
           description={props.description ?? "Consistent dumps taken with the database's own tools. Download, restore or import one."}
           actions={
-            <Button size="sm" variant="primary" onClick={() => (props.target || (!choices && !props.isAdmin) ? run.run() : setPicking(true))} loading={run.pending && !picking} disabled={!props.running}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => (props.target || (!choices && !props.isAdmin) ? run.run() : setPicking(true))}
+              loading={run.pending && !picking}
+              disabled={!props.running}
+            >
               <Play /> Back up now
             </Button>
           }

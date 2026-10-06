@@ -2218,6 +2218,19 @@ export async function restoreFromBackup(
       throw new UserError("Restore into a database of the same kind.");
     for (const name of Object.values(opts.renames ?? {}))
       if (!RESTORE_NAME.test(name) || SYSTEM_DATABASES.has(name)) throw new UserError(`"${name}" cannot be a database name. Use letters, digits, _ and -.`);
+    // Two databases of the backup never go into one: their tables would mix.
+    if (!b.target && !opts.tables?.length) {
+      const { backupContents } = await import("@/server/backups");
+      const sources = opts.databases?.length ? opts.databases : ((await backupContents(b.id, opts.passphrase || null).catch(() => null))?.databases.map((d) => d.name) ?? []);
+      const main = service.database?.database ?? "";
+      const seen = new Map<string, string>();
+      for (const from of sources) {
+        const to = opts.renames?.[from] || from || main;
+        const other = seen.get(to);
+        if (other !== undefined) throw new UserError(`${other || main} and ${from || main} would both go into ${to}. Choose another database for one of them.`);
+        seen.set(to, from);
+      }
+    }
     if (opts.tables?.length) {
       if ((opts.databases?.length ?? 0) > 1) throw new UserError("Choose one database to restore single tables from.");
       if (!["postgres", "mysql", "mariadb"].includes(service.database?.engine ?? "")) throw new UserError("Single tables can be restored for Postgres, MySQL and MariaDB.");

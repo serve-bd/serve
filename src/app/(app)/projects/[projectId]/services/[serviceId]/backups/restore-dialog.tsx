@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { cn } from "@/lib/utils";
 import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -71,6 +72,10 @@ export function RestoreDialog({
   const defaultName = (d: { name: string; label: string }) =>
     target && chosen.length === 1 ? target.database : d.name === "" ? (target?.database ?? choices?.main ?? d.label) : d.name;
   const one = chosen.length === 1 ? chosen[0] : null;
+  // Where each chosen database goes; two never share one.
+  const goesTo = (d: { name: string; label: string }) => names[d.name]?.trim() || defaultName(d);
+  const takenBy = (x: string, d: { name: string }) => chosen.find((e) => e.name !== d.name && goesTo(e) === x)?.label;
+  const clash = chosen.find((d) => takenBy(goesTo(d), d));
   const tableList = one && choices?.tables ? one.tables : [];
   // Tables picked in one database never carry over to another.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the one database changes
@@ -79,7 +84,7 @@ export function RestoreDialog({
     setSomeTables(false);
   }, [one?.name]);
   const shown = tableList.filter((t) => t.toLowerCase().includes(query.trim().toLowerCase()));
-  const ready = !!choices && (dbs.length === 0 || chosen.length > 0) && (!someTables || tables.size > 0) && (!choices.encrypted || !choices.unreadable || !!passphrase);
+  const ready = !!choices && !clash && (dbs.length === 0 || chosen.length > 0) && (!someTables || tables.size > 0) && (!choices.encrypted || !choices.unreadable || !!passphrase);
 
   // An encrypted backup made with another passphrase: read again with the one typed in.
   const unlock = async () => {
@@ -179,11 +184,21 @@ export function RestoreDialog({
                           disabled={!picked[d.name]}
                           aria-label={`Restore ${d.label} into`}
                           options={[
-                            { value: "__own", label: `Into ${defaultName(d)}`, description: "Its own name" },
+                            {
+                              value: "__own",
+                              label: `Into ${defaultName(d)}`,
+                              description: takenBy(defaultName(d), d) ? `${takenBy(defaultName(d), d)} goes there` : "Its own name",
+                              disabled: !!takenBy(defaultName(d), d),
+                            },
                             // The server's databases (this service only): merged, tables of the same name replaced.
                             ...(target ? [] : (choices.existing ?? []))
                               .filter((x) => x !== defaultName(d))
-                              .map((x) => ({ value: x, label: `Into ${x}`, description: x === choices.main ? "The main database, merged" : "Merged" })),
+                              .map((x) => ({
+                                value: x,
+                                label: `Into ${x}`,
+                                description: takenBy(x, d) ? `${takenBy(x, d)} goes there` : x === choices.main ? "The main database, merged" : "Merged",
+                                disabled: !!takenBy(x, d),
+                              })),
                             { value: "__other", label: "Other name…" },
                           ]}
                         />
@@ -272,8 +287,12 @@ export function RestoreDialog({
           <DialogError message={error} />
         </DialogBody>
         <DialogFooter>
-          <span className="mr-auto truncate text-xs text-muted">
-            {someTables ? `Replaces ${tables.size === 1 ? "1 table" : `${tables.size} tables`} in ${targetName}` : `Replaces the data in ${targetName}`}
+          <span className={cn("mr-auto text-xs", clash ? "text-bad" : "truncate text-muted")}>
+            {clash
+              ? `${clash.label} and ${takenBy(goesTo(clash), clash)} both go into ${goesTo(clash)}. Choose another for one of them.`
+              : someTables
+                ? `Replaces ${tables.size === 1 ? "1 table" : `${tables.size} tables`} in ${targetName}`
+                : `Replaces the data in ${targetName}`}
           </span>
           <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
           <Button size="sm" variant="danger" disabled={!ready} loading={pending} onClick={() => void submit()}>

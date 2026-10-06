@@ -15,6 +15,8 @@ import * as templates from "@/server/actions/templates";
 import * as instance from "@/server/actions/instance";
 import { getTemplates } from "@/server/services/templates";
 import { getSettings } from "@/server/settings";
+import { defaultChannelEvents } from "@/lib/notifications";
+import { channelConfig } from "@/server/notifications/deliver";
 import { currentVersion } from "@/server/instance/version";
 import { iso, loadServer, orgServers, serverView } from "../data";
 import { ApiError, type ApiRoute, route, unwrap } from "../router";
@@ -574,20 +576,58 @@ export const infraRoutes: ApiRoute[] = [
     path: "/notification-channels",
     tag: "Integrations",
     summary: "Add a notification channel",
-    description: "kind: slack, discord, telegram, email, webhook, ... with its config, and the events it gets.",
+    description:
+      "kind: slack, discord, telegram, email, webhook, ... with its config. Left out like in the dashboard: events (the problems), scope (everything), quietHours (none), throttleMinutes (0), template (none).",
     needs: ["integrations.manage"],
     body: z.looseObject({ name: z.string(), kind: z.string(), config: z.record(z.string(), z.string()), events: z.array(z.string()).optional() }),
     status: 201,
-    handler: async ({ body }) => (await unwrap(notifications.saveNotificationChannel(null, body as never))) ?? { ok: true },
+    handler: async ({ auth, body }) =>
+      (await unwrap(
+        notifications.saveNotificationChannel(null, {
+          // Instance and server events belong to the Root organization's channels, as in the dashboard.
+          events:
+            (await getSettings()).rootOrganizationId === auth.organizationId
+              ? defaultChannelEvents
+              : defaultChannelEvents.filter((e) => !e.startsWith("instance.") && !e.startsWith("server.")),
+          scope: null,
+          quietHours: null,
+          throttleMinutes: 0,
+          template: null,
+          ...body,
+        } as never),
+      )) ?? { ok: true },
   }),
   route({
     method: "PUT",
     path: "/notification-channels/{channelId}",
     tag: "Integrations",
     summary: "Change a notification channel",
+    description: "Fields left out keep their saved value; an empty secret in config keeps the stored one.",
     needs: ["integrations.manage"],
-    body: z.looseObject({ name: z.string(), kind: z.string() }),
-    handler: async ({ params, body }) => (await unwrap(notifications.saveNotificationChannel(params.channelId, body as never))) ?? { ok: true },
+    body: z.looseObject({ name: z.string().optional(), kind: z.string().optional() }),
+    handler: async ({ auth, params, body }) => {
+      const [current] = await db
+        .select()
+        .from(schema.notificationChannel)
+        .where(and(eq(schema.notificationChannel.id, params.channelId), eq(schema.notificationChannel.organizationId, auth.organizationId)));
+      if (!current) throw new ApiError(404, "Notification channel not found");
+      const { name, kind, events, scope, quietHours, throttleMinutes, template } = current;
+      return (
+        (await unwrap(
+          notifications.saveNotificationChannel(params.channelId, {
+            name,
+            kind,
+            config: channelConfig(current),
+            events,
+            scope,
+            quietHours,
+            throttleMinutes,
+            template,
+            ...body,
+          } as never),
+        )) ?? { ok: true }
+      );
+    },
   }),
   route({
     method: "PATCH",

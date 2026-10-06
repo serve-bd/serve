@@ -2,10 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { databaseContainer } from "@/server/databases/container";
-import { PassThrough } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import readline from "node:readline";
 import zlib from "node:zlib";
-import { planSql, type SqlEngine, sqlFilterStream, sqlLineFilter } from "./sql-filter";
+import { accountsMergeSql, planSql, type SqlEngine, sqlFilterStream, sqlLineFilter } from "./sql-filter";
 import { pipeline } from "node:stream/promises";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type Docker from "dockerode";
@@ -291,9 +291,15 @@ async function restoreWith(t: Commands, file: string, log: (line: string) => voi
   const gz = /\.gz$/i.test(file) && t.engine !== "mongodb";
   const { command, format } = await restoreCommandFor(t, file, gz);
   log(`Format: ${format}${gz ? " (gzip)" : ""}`);
-  const filter = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb" ? await plainSqlFilter(t, file, gz, log, !!opts.keepNames) : undefined;
+  const sql = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb";
+  const filter = sql ? await plainSqlFilter(t, file, gz, log, opts) : undefined;
   // The command's output goes to the log while it runs, so a long or failing restore can be followed.
   const out = await runIn(t, command, fs.createReadStream(file), gz, log, filter);
+  if (opts.users && (t.engine === "mysql" || t.engine === "mariadb")) {
+    log("Restoring the dump's users and their rights; Serve's own accounts keep theirs");
+    const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+    await runIn(t, `export MYSQL_PWD=${q(t.password)}; ${t.engine} -uroot`, Readable.from([accountsMergeSql(protectedAccounts(t))]), false, log);
+  }
   // A backup of chosen databases (a packed folder) holds no users: they live in admin.
   if (opts.users && t.restoreUsers && !/\.dir\.tar\.gz$/i.test(file)) {
     log("Restoring the users of the dump; the account Serve connects with keeps its password");
@@ -624,12 +630,16 @@ export async function deleteBackupFiles(b: typeof schema.backup.$inferSelect, _s
  * Cleans a plain SQL dump on its way in (see sql-filter.ts): reads it once to find its databases,
  * then leaves out users, roles and system databases. Says in the log what it changed.
  */
-async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line: string) => void, keepNames: boolean) {
+/** Accounts a restore never changes: the one Serve connects with, and the engine's superuser. */
+const protectedAccounts = (t: Commands) => [...new Set([t.username, t.engine === "postgres" ? "postgres" : "root"].filter((u): u is string => !!u))];
+
+async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line: string) => void, opts: RestoreOptions) {
+  const keepNames = !!opts.keepNames;
   const engine = t.engine as SqlEngine;
   const src = fs.createReadStream(file);
   const lines = readline.createInterface({ input: gz ? src.pipe(zlib.createGunzip()) : src, crlfDelay: Number.POSITIVE_INFINITY });
   const plan = await planSql(engine, lines).finally(() => src.destroy());
-  const filter = sqlLineFilter(engine, plan, t.database, { keepNames, user: t.username });
+  const filter = sqlLineFilter(engine, plan, t.database, { keepNames, user: t.username, users: opts.users, protect: protectedAccounts(t) });
   const named = plan.databases.filter((d) => d !== "");
   log(
     named.length > 1 || (keepNames && named.length === 1)
@@ -638,7 +648,11 @@ async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line
         ? `Restoring the dump's database ${named[0]} into ${t.database}.`
         : `Restoring into ${t.database || "the database"}.`,
   );
-  log("Users, roles, grants and system databases of the dump are left out, so the account Serve connects with stays as it is.");
+  log(
+    opts.users
+      ? "The dump's users, roles and rights are restored too, except Serve's own accounts, which stay as they are."
+      : "Users, passwords, grants and system databases of the dump are left out, so the account Serve connects with stays as it is.",
+  );
   return sqlFilterStream(filter);
 }
 

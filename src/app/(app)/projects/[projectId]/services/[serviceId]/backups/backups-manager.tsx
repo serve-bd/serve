@@ -3,7 +3,7 @@
 import { ALL_DATABASES, readChoice } from "@/lib/backup-databases";
 import * as React from "react";
 import useSWR from "swr";
-import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2 } from "lucide-react";
+import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState, TimeAgo, Copyable } from "@/components/ui/misc";
 import { Led } from "@/components/ui/status";
@@ -70,8 +70,12 @@ function SafetyToggle({ valueRef, usersRef }: { valueRef: React.RefObject<boolea
             className="mt-0.5"
           />
           <span>
-            Also restore the dump&apos;s database users
-            <span className="block text-xs text-muted">Users and roles of the old server come back. The account Serve connects with keeps its password.</span>
+            Also restore the dump&apos;s users and passwords
+            <span className="mt-0.5 flex items-start gap-1 text-xs text-warn">
+              <TriangleAlert className="mt-px size-3.5 flex-none" /> Only when moving a whole server. The old server&apos;s accounts come back with their passwords and rights, and
+              anyone who had them can sign in to this database.
+            </span>
+            <span className="block text-xs text-muted">Serve&apos;s own accounts keep their passwords. Leave this off when you only want the data.</span>
           </span>
         </label>
       )}

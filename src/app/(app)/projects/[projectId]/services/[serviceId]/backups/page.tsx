@@ -86,7 +86,8 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
         isAdmin={ctx.isAdmin}
         running={service.status === "running"}
         engineLabel={engines[service.database.engine].label}
-        restoresUsers={!!engines[service.database.engine].restoreUsersCommand}
+        // Plain SQL dumps carry users too (a whole-server dump): Postgres, MySQL and MariaDB.
+        restoresUsers={!!engines[service.database.engine].restoreUsersCommand || ["postgres", "mysql", "mariadb"].includes(service.database.engine)}
         extensions={IMPORT_EXTENSIONS[service.database.engine]}
         maxUpload={maxUpload}
         schedule={service.database.backupSchedule ?? null}

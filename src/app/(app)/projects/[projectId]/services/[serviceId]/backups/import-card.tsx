@@ -21,7 +21,7 @@ export function ImportCard(props: {
   serviceId: string;
   running: boolean;
   engineLabel: string;
-  /** MongoDB: the dump's users can be restored too. */
+  /** The dump's users can be restored too (MongoDB, and plain SQL dumps of Postgres, MySQL, MariaDB). */
   restoresUsers?: boolean;
   extensions: string[];
   maxUpload: string | null;
@@ -178,8 +178,12 @@ export function ImportCard(props: {
           <label className="flex items-start gap-2 text-[13px] text-fg-2">
             <Checkbox checked={users} onCheckedChange={(c) => setUsers(!!c)} className="mt-0.5" />
             <span>
-              Also restore the dump&apos;s database users
-              <span className="block text-xs text-muted">Users and roles of the old server come back. The account Serve connects with keeps its password.</span>
+              Also restore the dump&apos;s users and passwords
+              <span className="mt-0.5 flex items-start gap-1 text-xs text-warn">
+                <TriangleAlert className="mt-px size-3.5 flex-none" /> Only when moving a whole server. The old server&apos;s accounts come back with their passwords and rights,
+                and anyone who had them can sign in to this database.
+              </span>
+              <span className="block text-xs text-muted">Serve&apos;s own accounts keep their passwords. Leave this off when you only want the data.</span>
             </span>
           </label>
         )}

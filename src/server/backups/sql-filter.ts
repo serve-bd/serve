@@ -15,6 +15,11 @@ import { pgConnectLine } from "@/server/databases/engines";
  *   single-database dump) goes into the service's database. Copied into another service, a dump
  *   with one database goes into that service's database.
  * - MySQL: the account apps connect with gets the databases the restore creates.
+ * - `users` (asked for when restoring): the dump's users, roles, passwords and rights come back
+ *   too, except Serve's own accounts (`protect`), which are never changed. MySQL keeps accounts as
+ *   rows of its mysql database: that goes into ACCOUNTS_DATABASE, merged afterwards (accountsMergeSql).
+ * - Postgres: the dump's roles are created either way (without login or password when users are
+ *   not restored), so row-level security policies and grants that name them still apply.
  *
  * Postgres COPY data passes through untouched.
  */
@@ -90,6 +95,40 @@ export async function planSql(engine: SqlEngine, lines: AsyncIterable<string> | 
   return { databases: used.filter((d) => !system.has(d)), cluster };
 }
 
+/** Where MySQL's own database from the dump goes when its accounts are restored. */
+export const ACCOUNTS_DATABASE = "serve_restore_accounts";
+/** Accounts of MySQL itself, never taken from a dump. */
+const MYSQL_OWN_ACCOUNTS = ["root", "mysql.sys", "mysql.session", "mysql.infoschema", "mariadb.sys"];
+
+/** MySQL's tables of accounts and rights, and the columns naming an account. Only tables and columns both servers have are copied. */
+const ACCOUNT_TABLES: [string, string[]][] = [
+  ["user", ["User"]],
+  ["global_priv", ["User"]],
+  ["db", ["User"]],
+  ["tables_priv", ["User"]],
+  ["columns_priv", ["User"]],
+  ["procs_priv", ["User"]],
+  ["proxies_priv", ["User"]],
+  ["global_grants", ["USER"]],
+  ["default_roles", ["USER"]],
+  ["role_edges", ["FROM_USER", "TO_USER"]],
+  ["roles_mapping", ["User"]],
+];
+const accountTable = new Set(ACCOUNT_TABLES.map(([t]) => t));
+
+/** Moves the dump's accounts (in ACCOUNTS_DATABASE) into mysql, leaving out `protect` and MySQL's own, then drops it. */
+export function accountsMergeSql(protect: string[]) {
+  const skip = [...MYSQL_OWN_ACCOUNTS, ...protect].map((u) => `'${u.replaceAll("'", "''")}'`).join(",");
+  const lines = ACCOUNT_TABLES.flatMap(([t, cols]) => [
+    `SET @c = (SELECT GROUP_CONCAT(CONCAT('\`', s.COLUMN_NAME, '\`') ORDER BY s.ORDINAL_POSITION) FROM information_schema.COLUMNS s JOIN information_schema.COLUMNS d ON d.TABLE_SCHEMA = 'mysql' AND d.TABLE_NAME = s.TABLE_NAME AND d.COLUMN_NAME = s.COLUMN_NAME JOIN information_schema.TABLES dt ON dt.TABLE_SCHEMA = 'mysql' AND dt.TABLE_NAME = s.TABLE_NAME AND dt.TABLE_TYPE = 'BASE TABLE' WHERE s.TABLE_SCHEMA = '${ACCOUNTS_DATABASE}' AND s.TABLE_NAME = '${t}');`,
+    `SET @s = IF(@c IS NULL, 'DO 0', CONCAT('REPLACE INTO mysql.\`${t}\` (', @c, ') SELECT ', @c, ' FROM \`${ACCOUNTS_DATABASE}\`.\`${t}\` WHERE ${cols.map((c) => `\`${c}\` NOT IN (${skip.replaceAll("'", "''")})`).join(" AND ")}'));`,
+    "PREPARE st FROM @s;",
+    "EXECUTE st;",
+    "DEALLOCATE PREPARE st;",
+  ]);
+  return [...lines, "FLUSH PRIVILEGES;", `DROP DATABASE IF EXISTS \`${ACCOUNTS_DATABASE}\`;`, ""].join("\n");
+}
+
 const pgQuote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 const pgLiteral = (name: string) => `'${name.replaceAll("'", "''")}'`;
 const myQuote = (name: string) => `\`${name.replaceAll("`", "``")}\``;
@@ -102,7 +141,26 @@ export type SqlFilterReport = { skipped: Set<string>; created: string[]; into: s
  * each line of the dump (none, the line itself, or replacements). `keepNames`: every database
  * keeps its name, even alone (a backup Serve took of chosen databases of this server).
  */
-export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, opts: { keepNames?: boolean; user?: string } = {}) {
+export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, opts: { keepNames?: boolean; user?: string; users?: boolean; protect?: string[] } = {}) {
+  const protect = new Set(opts.protect ?? []);
+  // A MySQL account named in a line (`'name'@'host'` or `` `name`@`host` ``) that must stay as it is.
+  const namesProtected = (line: string) =>
+    [...(line.matchAll(/[`'"]((?:[^`'"\\]|\\.)+)[`'"]\s*@/g) ?? [])].some((m) => protect.has(m[1]) || MYSQL_OWN_ACCOUNTS.includes(m[1]) || m[1].startsWith("mysql."));
+  /** Postgres role statements: kept (users), turned into a role without login (else), or left out. */
+  const pgRole = (line: string): string[] | null => {
+    const create = line.match(/^CREATE ROLE ("(?:[^"]|"")+"|[^\s;]+)\s*;\s*$/i);
+    if (create) {
+      const name = create[1].startsWith('"') ? create[1].slice(1, -1).replaceAll('""', '"') : create[1];
+      if (protect.has(name)) return [];
+      return [`DO $$BEGIN CREATE ROLE ${pgQuote(name)}; EXCEPTION WHEN duplicate_object THEN NULL; END$$;`];
+    }
+    const alter = line.match(/^ALTER ROLE ("(?:[^"]|"")+"|\S+)/i);
+    if (alter) {
+      const name = alter[1].startsWith('"') ? alter[1].slice(1, -1).replaceAll('""', '"') : alter[1];
+      return opts.users && !protect.has(name) ? [line] : [];
+    }
+    return null;
+  };
   const report: SqlFilterReport = { skipped: new Set(), created: [], into: null };
   const named = plan.databases.filter((d) => d !== "");
   // One database: its content goes into the service's database. Several: each keeps its name.
@@ -112,6 +170,7 @@ export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, 
 
   let copying = false;
   let skipping = false;
+  let accounts = false;
 
   const userLine = (line: string) =>
     engine === "postgres"
@@ -154,11 +213,25 @@ export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, 
         out.push(pgConnectLine(db));
         return out;
       }
-      if (skipping || userLine(line)) return [];
+      if (skipping) return [];
+      const role = pgRole(line);
+      if (role) return role;
+      if (/^DROP ROLE\b/i.test(line)) return [];
+      if (opts.users && userLine(line) && !/^(CREATE|ALTER|DROP|COMMENT ON) DATABASE\b/i.test(line) && !/^\\(un)?restrict\b/.test(line)) return [line];
+      if (userLine(line)) return [];
       return [line];
     }
 
     const db = mysqlDatabaseOf(line);
+    // The accounts of the dump, when asked for: its mysql database goes aside, merged after the restore.
+    if (db !== null) accounts = db === "mysql" && !!opts.users;
+    if (db === "mysql" && opts.users) {
+      skipping = false;
+      if (line.startsWith("--")) return [line];
+      const out = [`CREATE DATABASE IF NOT EXISTS ${myQuote(ACCOUNTS_DATABASE)};`];
+      if (/^USE\b/i.test(line)) out.push(`USE ${myQuote(ACCOUNTS_DATABASE)};`);
+      return out;
+    }
     if (db !== null) {
       skipping = MYSQL_SYSTEM.has(db) || !plan.databases.includes(db);
       if (skipping) {
@@ -177,7 +250,15 @@ export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, 
       if (/^USE\b/i.test(line)) out.push(`USE ${myQuote(to)};`);
       return out;
     }
-    if (skipping || userLine(line)) return [];
+    if (skipping) return [];
+    // MySQL's own tables live in its reserved tablespace, which no other database may use.
+    if (accounts) {
+      // Only the account tables are kept aside; statistics and the rest of mysql have no use here.
+      const table = line.match(/^(?:\/\*!\d+\s+)?(?:ALTER TABLE|INSERT\s+(?:IGNORE\s+)?INTO|LOCK TABLES)\s+`([^`]+)`/i)?.[1];
+      if (table && !accountTable.has(table)) return [];
+    }
+    if (accounts) line = line.replace(/\s*\/\*!\d+ TABLESPACE `mysql` \*\//i, "").replace(/\s*TABLESPACE\s*=?\s*`?mysql`?/i, "");
+    if (userLine(line)) return opts.users && !/^DROP\b/i.test(line) && !namesProtected(line) ? [line] : [];
     if (/^INSERT\b/i.test(line)) return [line];
     // Views, routines and triggers name the account that made them; it does not exist here.
     return [line.replace(/\s*DEFINER\s*=\s*(`[^`]*`|'[^']*'|\S+)@(`[^`]*`|'[^']*'|\S+)/i, "")];

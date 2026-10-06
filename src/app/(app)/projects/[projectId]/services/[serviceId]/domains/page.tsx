@@ -125,6 +125,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
         hasCloudflare={cfAccounts.length > 0}
         hasAcme={!!settings.acmeEmail}
         undeployed={!service.currentDeploymentId}
+        teamOnly={!!service.proxy?.login}
         serverIp={addressing.publicIp}
         tunnels={tunnels}
         isAdmin={ctx.isAdmin}

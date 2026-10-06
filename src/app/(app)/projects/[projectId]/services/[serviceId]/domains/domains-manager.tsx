@@ -17,6 +17,7 @@ import {
   Trash2,
   CornerDownRight,
   TriangleAlert,
+  Users,
   Waypoints,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -104,6 +105,8 @@ type Props = {
   hasAcme: boolean;
   /** Not deployed yet: certificates are requested on the first deploy. */
   undeployed?: boolean;
+  /** Only my team is on: visitors sign in to Serve first. */
+  teamOnly?: boolean;
   serverIp: string | null;
   canGenerate: boolean;
   /** Tunnels from this service's server (one per Cloudflare account). */
@@ -1068,6 +1071,11 @@ export function DomainsManager(props: Props) {
                     </Badge>
                   )}
                   {d.generated && <Badge>Generated</Badge>}
+                  {props.teamOnly && !d.redirectTo && (
+                    <Badge>
+                      <Users /> Team only
+                    </Badge>
+                  )}
                   {d.tunnel || d.wantsTunnel ? (
                     <TunnelBadge d={d} tunnels={props.tunnels} />
                   ) : (

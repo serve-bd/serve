@@ -22,6 +22,7 @@ import {
   ScrollText,
   Server,
   Timer,
+  Users,
   Waypoints,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -436,6 +437,11 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                 </span>
               </a>
             ))}
+            {data.teamOnly && (
+              <p className="flex items-center gap-2 text-xs text-muted">
+                <Users className="size-3.5 flex-none" /> Only my team: visitors sign in to Serve first
+              </p>
+            )}
             {data.redirects > 0 && (
               <p className="text-xs text-muted">
                 {data.redirects} redirect{data.redirects === 1 ? "" : "s"} to other URLs

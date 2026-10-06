@@ -149,6 +149,7 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
       }))
       .sort((a, b) => Number(b.primary) - Number(a.primary)),
     redirects: domains.filter((d) => d.redirectTo).length,
+    teamOnly: !!service.proxy?.login && domains.some((d) => !d.redirectTo),
     published,
     counts: { variables: counts[0][0].n, tasks: counts[1][0].n, shared: counts[2][0].n },
   };

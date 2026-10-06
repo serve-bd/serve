@@ -56,6 +56,7 @@ export function RestoreDialog({
     setLoadError(null);
     setInto("");
     setElsewhere(false);
+    setCustom({});
     setNames({});
     setSomeTables(false);
     setTables(new Set());
@@ -77,7 +78,12 @@ export function RestoreDialog({
   const targetName = target?.name ?? choices?.service.name ?? "";
   // Where a database goes when not renamed: its own name here; into another service a single one becomes that one's.
   const defaultName = (d: { name: string; label: string }) =>
-    target && chosen.length === 1 ? target.database : d.name === "" ? (target?.database ?? choices?.main ?? d.label) : d.name;
+    target && chosen.length === 1
+      ? target.database
+      : d.name === ""
+        ? // A backup of this service goes back where it was taken; an import of an unnamed dump into the main one.
+          (target?.database ?? (backup?.trigger === "import" ? choices?.main : d.label) ?? d.label)
+        : d.name;
   const one = chosen.length === 1 ? chosen[0] : null;
   // Where each chosen database goes; two never share one.
   const goesTo = (d: { name: string; label: string }) => names[d.name]?.trim() || defaultName(d);
@@ -131,7 +137,7 @@ export function RestoreDialog({
   };
 
   return (
-    <Dialog open={!!backup || !!preparing} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={!!backup || !!preparing} onOpenChange={(o) => !o && !pending && onClose()}>
       <DialogContent size="lg">
         <DialogHeader title="Restore backup" description={backup?.filename ?? preparing?.name} />
         <DialogBody>
@@ -305,8 +311,10 @@ export function RestoreDialog({
               <label className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] text-fg-2">
                 <Checkbox checked={backupFirst} onCheckedChange={(c) => setBackupFirst(!!c)} className="mt-0.5" />
                 <span>
-                  Back up {targetName} first
-                  <span className="block text-xs text-muted">If that backup fails, nothing is restored.</span>
+                  Back up current database
+                  <span className="block text-xs text-muted">
+                    Every database, table and user of {targetName}, before anything changes. If that backup fails, nothing is restored.
+                  </span>
                 </span>
               </label>
               {restoresUsers && !someTables && (
@@ -336,7 +344,7 @@ export function RestoreDialog({
                   ? `Replaces the data in ${targetName}`
                   : ""}
           </span>
-          <DialogClose render={<Button variant="ghost" size="sm" />}>Cancel</DialogClose>
+          <DialogClose render={<Button variant="ghost" size="sm" disabled={pending} />}>Cancel</DialogClose>
           <Button size="sm" variant="danger" disabled={!ready} loading={pending} onClick={() => void submit()}>
             Restore
           </Button>

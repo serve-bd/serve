@@ -7,7 +7,7 @@ import { encrypt } from "@/server/crypto";
 import { newId } from "@/server/id";
 import { enqueue } from "@/server/queue";
 import { logActivity } from "@/server/activity";
-import { backupFile, importFilenameFor, importTarget, takenFilenames } from "./index";
+import { backupFile, importFilenameFor, importTarget, restoreName, takenFilenames } from "./index";
 
 /** Largest file an upload import takes. */
 const MAX_BYTES = 20 * 1024 ** 3;
@@ -50,7 +50,7 @@ export async function receiveImport(opts: {
   } catch (e) {
     throw new ImportError(400, (e as Error).message);
   }
-  if (opts.intoDatabase && !/^[A-Za-z0-9_][A-Za-z0-9_$-]{0,62}$/.test(opts.intoDatabase)) throw new ImportError(400, "Choose a database name of letters, digits, _, $ and -.");
+  if (opts.intoDatabase && !restoreName(opts.intoDatabase)) throw new ImportError(400, "Choose a database name of letters, digits, _, $ and -, not a system one.");
   if (!opts.body) throw new ImportError(400, "Choose a file.");
   if (opts.declared > MAX_BYTES) throw new ImportError(413, "The file is larger than 20 GB.");
   const file = backupFile(service.id, filename);
@@ -86,7 +86,7 @@ export async function receiveImport(opts: {
       ...(opts.intoDatabase ? { intoDatabase: opts.intoDatabase } : {}),
       ...(opts.passphrase ? { passphrase: encrypt(opts.passphrase) } : {}),
     },
-    { concurrencyKey: `backup:${service.id}` },
+    { concurrencyKey: opts.receiveOnly ? `import:${id}` : `backup:${service.id}` },
   );
   await logActivity({
     userId: opts.userId,

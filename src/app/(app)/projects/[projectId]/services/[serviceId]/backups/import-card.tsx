@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tab, Tabs, TabsList } from "@/components/ui/tabs";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction, showError } from "@/hooks/use-action";
+import { toast } from "@/components/ui/toast";
 import { importBackupFromRemote } from "@/server/actions/databases";
 import { cn, formatBytes } from "@/lib/utils";
 
@@ -117,14 +118,17 @@ export function ImportCard(props: {
           props.onStarted(id);
         } else {
           prep?.(null);
-          showError(message || `Upload failed (HTTP ${xhr.status}).`);
+          // A toast: the window that showed the upload closes.
+          if (prep) toast.error(message || `Upload failed (HTTP ${xhr.status}).`);
+          else showError(message || `Upload failed (HTTP ${xhr.status}).`);
         }
         resolve();
       };
       xhr.onerror = () => {
         setProgress(null);
         prep?.(null);
-        showError("The upload was interrupted.");
+        if (prep) toast.error("The upload was interrupted.");
+        else showError("The upload was interrupted.");
         resolve();
       };
       xhr.send(f);
@@ -145,8 +149,9 @@ export function ImportCard(props: {
     if (!ok) return;
     if (source === "upload" && file) await upload(file);
     else {
-      if (twoStep) props.onPreparing?.({ name: (source === "url" ? url : key).split("/").pop() || "backup", progress: null });
-      if ((await remote.run()) === undefined) props.onPreparing?.(null);
+      // The window opens once the import is queued, so a refusal shows here as usual.
+      const r = await remote.run();
+      if (r !== undefined && twoStep) props.onPreparing?.({ name: (source === "url" ? url : key).split("/").pop() || "backup", progress: null });
     }
   };
 

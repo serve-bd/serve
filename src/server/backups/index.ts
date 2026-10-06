@@ -1,4 +1,5 @@
 import type { BackupChoice } from "@/server/queue";
+import { ALL_DATABASES } from "@/lib/backup-databases";
 import { POOLER_ROLE } from "@/server/databases/addon-scripts";
 import { REPLICATION_USER } from "@/server/databases/replica-engines";
 import crypto from "node:crypto";
@@ -761,7 +762,7 @@ export async function runBackup(backupId: string, protect?: string, choice?: Bac
     // Chosen for this backup only: in the bucket only, its file leaves the server once uploaded.
     if (service !== saved && !t.keepLocal && s3Status === "uploaded") await fs.promises.rm(file, { force: true });
     const kept = service === saved ? t : await targetOf(saved, null, databases);
-    await applyRetention(service.id, backup.target, kept.keepLocal ? kept.retention : 0, kept.retentionS3, protect).catch((e) =>
+    await applyRetention(service.id, backup.target, kept.keepLocal ? kept.retention : 0, kept.retentionS3, protect, backup.id).catch((e) =>
       logLine(backup.id, `Removing old backups failed: ${(e as Error).message}`).catch(() => {}),
     );
     // The backup is there, but not everywhere it should be: a bucket-only setup may have no copy off the server.
@@ -835,14 +836,15 @@ async function deleteS3Copies(b: typeof schema.backup.$inferSelect, slug: string
  * Removes old backups: the newest `keepLocal` stay on the server and the newest `keepS3` in the
  * buckets.
  */
-async function applyRetention(serviceId: string, target: string | null, keepLocal: number, keepS3: number, protect?: string) {
+/** `self`: the backup that was just made, kept whatever its date (a safety backup may carry an older one). */
+async function applyRetention(serviceId: string, target: string | null, keepLocal: number, keepS3: number, protect?: string, self?: string) {
   const rows = await db
     .select()
     .from(schema.backup)
     .where(and(eq(schema.backup.serviceId, serviceId), eq(schema.backup.status, "success"), target ? eq(schema.backup.target, target) : isNull(schema.backup.target)))
     .orderBy(desc(schema.backup.createdAt));
   // A backup queued for a restore (marked running when queued) waits for it, after this job.
-  const cleanable = rows.filter((b) => b.trigger !== "import" && b.id !== protect && b.restoreStatus !== "running");
+  const cleanable = rows.filter((b) => b.trigger !== "import" && b.id !== protect && b.id !== self && b.restoreStatus !== "running");
   const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, serviceId));
   // Backups before deploys count on their own: an app deploying often never pushes out the scheduled ones.
   await cleanGroup(
@@ -949,7 +951,7 @@ async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line
   );
   // The data lands in databases of the dump's own names, none of them the one the connection URL names.
   const landed = named.filter((d) => !opts.databases?.length || opts.databases.includes(d)).map((d) => opts.renames?.[d] || d);
-  if (keepNames && landed.length && !plan.databases.includes("") && !landed.includes(t.database))
+  if (keepNames && landed.length && !plan.databases.includes("") && !landed.includes(t.database) && !landed.some((d) => d.startsWith("serve_restore_")))
     log(`The connection URL names ${t.database}, which this dump does not fill. To connect to ${landed[0]} instead, open Settings → Credentials and choose Use another.`);
   log(
     opts.users
@@ -974,6 +976,10 @@ async function peek(file: string, gz: boolean, bytes = 8): Promise<Buffer> {
 }
 
 /** The command that restores this file: pg_restore for custom dumps, psql for plain SQL. */
+const SYSTEM_DATABASES = new Set(["mysql", "sys", "information_schema", "performance_schema", "postgres", "template0", "template1", "admin", "local", "config"]);
+/** A database name a restore may create or write into: letters, digits, _ $ and -, not the engines' own. */
+export const restoreName = (name: string) => /^[A-Za-z0-9_][A-Za-z0-9_$-]{0,62}$/.test(name) && !SYSTEM_DATABASES.has(name);
+
 /**
  * Why a SQL dump cannot go into this engine (a MySQL dump into Postgres, or the other way), from its
  * first bytes; null when it may. MySQL and MariaDB read each other's dumps.
@@ -1138,6 +1144,12 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
           `The file holds ${databases.length} databases${databases.length ? ` (${databases.map((d) => d.label).join(", ")})` : ""}. Restore it from the backups list to choose where each one goes.`,
         );
       opts = { ...opts, databases: [databases[0].name], renames: { [databases[0].name]: opts.intoDatabase } };
+    }
+    // A Postgres backup of one database (pg_dump -Fc) goes back into the database it was taken of,
+    // not the main one of today (which may have been switched to another since).
+    if (backup.trigger !== "import" && !opts.into && !opts.renames?.[""] && service.database?.engine === "postgres") {
+      const own = (await backupContents(backupId, opts.passphrase).catch(() => null))?.databases.find((d) => d.name === "");
+      if (own?.label && own.label !== service.database.database) opts = { ...opts, renames: { ...opts.renames, "": own.label } };
     }
     // Tables with no database named: the dump's one database, never the whole of it by its own
     // name (a MySQL dump names its database, and that would replace every table in it).
@@ -1340,18 +1352,22 @@ export async function importBackup(
 
   if (opts.backupFirst) {
     const id = newId();
-    // A backup of chosen databases replaces those: the safety backup takes the same ones, not only
-    // the service's usual choice (which may be the main database alone).
-    // Into another service: that one's usual backup.
-    await db.insert(schema.backup).values(
-      opts.into
-        ? { id, serviceId: opts.into, target: null, trigger: "pre-import", databases: null }
-        : // Listed under the import it was taken for: it holds what was there before.
-          { id, serviceId: service.id, target: backup.target, trigger: "pre-import", databases: backup.databases, createdAt: new Date(backup.createdAt.getTime() - 1000) },
-    );
-    await logLine(backupId, "Backing up the current data first");
+    // The whole server as it is: every database (whichever the restore touches) and, where the
+    // engine has them, its users. A stack's backup takes what it always takes.
+    const whole = backup.target ? backup.databases : [ALL_DATABASES];
+    const users = !backup.target && ["postgres", "mysql", "mariadb"].includes(service.database?.engine ?? "") ? { users: true } : undefined;
+    // An import that just came in lists its safety backup under it: what was there before.
+    const fresh = backup.trigger === "import" && Date.now() - backup.createdAt.getTime() < 10 * 60_000;
+    const own = { id, serviceId: service.id, target: backup.target, trigger: "pre-import" as const, databases: whole };
+    const row = opts.into
+      ? { id, serviceId: opts.into, target: null, trigger: "pre-import" as const, databases: [ALL_DATABASES] }
+      : fresh
+        ? { ...own, createdAt: new Date(backup.createdAt.getTime() - 1000) }
+        : own;
+    await db.insert(schema.backup).values(row);
+    await logLine(backupId, "Backing up the current database first: every database and its users");
     try {
-      await runBackup(id, backupId);
+      await runBackup(id, backupId, users);
     } catch (e) {
       await restoreNotRun(backupId, `The safety backup failed, so nothing was restored: ${(e as Error).message}`);
       throw new Error("The safety backup failed, so nothing was restored.");

@@ -322,7 +322,8 @@ export async function importBackupFromRemote(
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.status !== "running") throw new UserError(service.database ? "Start the database before importing." : "Start the stack before importing.");
     const source = remoteImportSchema.parse(input);
-    if (intoDatabase && (target || !/^[A-Za-z0-9_][A-Za-z0-9_$-]{0,62}$/.test(intoDatabase))) throw new UserError("Choose a database name of letters, digits, _, $ and -.");
+    const { restoreName } = await import("@/server/backups");
+    if (intoDatabase && (target || !restoreName(intoDatabase))) throw new UserError("Choose a database name of letters, digits, _, $ and -, not a system one.");
     if (source.kind === "s3") {
       const [dest] = await db
         .select({ id: schema.s3Destination.id })
@@ -355,7 +356,7 @@ export async function importBackupFromRemote(
         ...(passphrase ? { passphrase: encrypt(passphrase) } : {}),
         ...(source.kind === "url" ? { url: source.url } : { s3: { destinationId: source.destinationId, key: source.key } }),
       },
-      { concurrencyKey: `backup:${serviceId}` },
+      { concurrencyKey: receiveOnly ? `import:${id}` : `backup:${serviceId}` },
     );
     await logActivity({
       userId: ctx.user.id,

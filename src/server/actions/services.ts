@@ -2293,6 +2293,7 @@ export async function deleteBackup(backupId: string) {
     const ctx = await requirePermission("databases.backups");
     const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
     if (!b) throw new UserError("Backup not found.");
+    if (b.restoreStatus === "running") throw new UserError("This backup is being restored. Delete it once the restore ends.");
     const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
     const { deleteBackupFiles } = await import("@/server/backups");
     await deleteBackupFiles(b, b.target ? service.composeBackups?.[b.target]?.s3DestinationId : service.database?.s3DestinationId);

@@ -11,7 +11,8 @@ import { Led } from "@/components/ui/status";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Menu, MenuContent, MenuItem, MenuLinkItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
-import { showError, useAction } from "@/hooks/use-action";
+import { useAction } from "@/hooks/use-action";
+import { toast } from "@/components/ui/toast";
 import { createBackup, deleteBackup, restoreFromBackup, testBackup } from "@/server/actions/services";
 import { cn, formatBytes } from "@/lib/utils";
 import { type Places, ScheduleCard, StoragePlaces } from "./schedule-card";
@@ -302,8 +303,10 @@ export function BackupsManager(props: {
   // there (or failed), the import is deleted, as if it had never been uploaded.
   const [awaiting, setAwaiting] = React.useState<string | null>(null);
   const [preparing, setPreparing] = React.useState<Preparing | null>(null);
-  // Cancelled while the file was still on its way: discarded once it is in.
-  const dropped = React.useRef(false);
+  // Cancelled while the file was still on its way: that import (by id) is discarded once it is in.
+  // `cancelled`: cancelled before the import had an id; the id that comes next is dropped.
+  const dropped = React.useRef<string | null>(null);
+  const cancelled = React.useRef(false);
   const unconfirmed = React.useRef<string | null>(null);
   const discard = (id: string) => void deleteBackup(id).then(() => mutate());
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the import or the list changes
@@ -313,14 +316,15 @@ export function BackupsManager(props: {
     if (!b || b.status === "running") return;
     setAwaiting(null);
     setPreparing(null);
-    if (dropped.current) {
-      dropped.current = false;
+    if (dropped.current === b.id) {
+      dropped.current = null;
       discard(b.id);
     } else if (b.status === "success") {
       unconfirmed.current = b.id;
       setRestoring(b);
     } else {
-      showError(b.error ? `The import failed: ${b.error}` : "The import failed.");
+      // A toast: the window that showed the file coming in has just closed.
+      toast.error("The import failed", b.error ?? undefined);
       discard(b.id);
     }
   }, [awaiting, backups]);
@@ -401,12 +405,21 @@ export function BackupsManager(props: {
           extensions={props.extensions}
           maxUpload={props.maxUpload}
           destinations={props.destinations}
-          onPreparing={setPreparing}
+          onPreparing={(p) => {
+            // A new import starts fresh.
+            if (p && !preparing) cancelled.current = false;
+            setPreparing(p);
+          }}
           onStarted={(id) => {
             void mutate();
             // A database service chooses what to restore next, here; a stack's import restores at once.
-            if (id && !props.target) setAwaiting(id);
-            else if (props.view === "import") toList();
+            if (id && !props.target) {
+              if (cancelled.current) {
+                cancelled.current = false;
+                dropped.current = id;
+              }
+              setAwaiting(id);
+            } else if (props.view === "import") toList();
           }}
         />
       )}
@@ -451,9 +464,10 @@ export function BackupsManager(props: {
           setRestoring(null);
           if (unconfirmed.current) discard(unconfirmed.current);
           unconfirmed.current = null;
-          // Still uploading: stop it. Uploaded, not yet in: drop it once it is.
-          if (preparing?.progress != null) preparing.abort?.();
-          else if (awaiting) dropped.current = true;
+          // Still uploading: stop it. On its way in: drop it once it is (by id, or the next id).
+          if (preparing?.progress != null && preparing.progress < 1) preparing.abort?.();
+          else if (awaiting) dropped.current = awaiting;
+          else if (preparing) cancelled.current = true;
           setPreparing(null);
         }}
         onStarted={() => {

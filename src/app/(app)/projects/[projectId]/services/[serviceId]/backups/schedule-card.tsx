@@ -67,7 +67,7 @@ function nextRuns(cron: string, tz: string, count = 3, from?: number): Date[] | 
 function pickedLabel(dbs: string[]) {
   const { all, skip } = readChoice(dbs);
   if (all) return skip.length ? `every database except ${skip.join(", ")}` : "every database";
-  return dbs.length === 1 ? dbs[0] : `${dbs.length} databases`;
+  return dbs.length === 1 ? `the ${dbs[0]} database` : `${dbs.length} databases`;
 }
 
 type KeepKey = "days" | "daily" | "weekly" | "monthly" | "yearly";
@@ -397,21 +397,13 @@ export function ScheduleCard(props: {
 
         {!enabled && !open && !dirty ? (
           <div className="flex items-center gap-3 rounded-xl bg-surface-2 px-3.5 py-3">
-            <p className="min-w-0 flex-1 text-[12.5px] text-muted">
-              <span className="font-medium text-fg-2">Back up now: </span>
-              {[
-                choices ? pickedLabel(dbs) : null,
-                [local && "this server", ...[bucket, ...copies].filter(Boolean).map((id) => props.destinations.find((d) => d.id === id)?.name)].filter(Boolean).join(" + "),
-                encrypt ? "encrypted" : null,
-                users ? "with users" : null,
-                verify ? "tested daily" : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
+            <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-muted">
+              {`Backups take ${choices ? pickedLabel(dbs) : "the database"} and are kept on ${[local && "this server", ...[bucket, ...copies].filter(Boolean).map((id) => props.destinations.find((d) => d.id === id)?.name)].filter(Boolean).join(" and ")}`}
+              {[encrypt && ", encrypted", users && ", with users and passwords", verify && ", tested daily"].filter(Boolean).join("")}.
             </p>
             {props.canEdit && (
               <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
-                Edit
+                Change
               </Button>
             )}
           </div>

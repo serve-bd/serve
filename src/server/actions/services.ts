@@ -2121,7 +2121,8 @@ export async function createBackup(serviceId: string, target?: string | null, op
           .where(and(inArray(schema.s3Destination.id, buckets), eq(schema.s3Destination.organizationId, ctx.org.id)));
         if (own.length !== new Set(buckets).size) throw new UserError("Choose S3 storage of this organization.");
       }
-      if (choice.encrypt === false && service.database?.backupPassphrase && !ctx.isAdmin) throw new UserError("Only organization admins can back up without encryption.");
+      // Whatever the setting is now: a passphrase set before the job runs must still apply.
+      if (choice.encrypt === false && !ctx.isAdmin) throw new UserError("Only organization admins can back up without encryption.");
       if (choice.copies && choice.s3DestinationId) choice.copies = choice.copies.filter((c) => c !== choice.s3DestinationId);
     }
     await db.insert(schema.backup).values({ id, serviceId, target: target ?? null, trigger: "manual", databases });

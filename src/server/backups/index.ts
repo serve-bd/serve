@@ -52,7 +52,7 @@ export function backupFile(serviceId: string, filename: string) {
 }
 
 /** Appends a line to a backup's log (shown under the backup in the UI). */
-async function logLine(backupId: string, line: string) {
+export async function logLine(backupId: string, line: string) {
   const stamp = new Date().toISOString().slice(11, 19);
   await db
     .update(schema.backup)
@@ -154,7 +154,7 @@ async function databaseCommands(service: ServiceRow, databases?: string[] | null
 }
 
 /** Output of a short command in a container (reading a *_FILE secret). */
-async function execText(container: Docker.Container, docker: Docker, cmd: string[]) {
+export async function execText(container: Docker.Container, docker: Docker, cmd: string[]) {
   const exec = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
   const stream = await exec.start({ hijack: true, stdin: false });
   const out = new PassThrough();
@@ -599,7 +599,7 @@ export async function fileSha256(file: string) {
 }
 
 /** Fails when the file is not the one the backup wrote (damaged on disk, or in the bucket). Older backups have no checksum. */
-async function checkIntegrity(backup: { id: string; checksum: string | null }, file: string) {
+export async function checkIntegrity(backup: { id: string; checksum: string | null }, file: string) {
   if (!backup.checksum) return;
   const now = await fileSha256(file);
   if (now !== backup.checksum) throw new Error("The backup file is damaged: its checksum does not match the one recorded when it was made. Nothing was restored.");

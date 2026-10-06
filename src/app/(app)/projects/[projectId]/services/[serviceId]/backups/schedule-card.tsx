@@ -83,6 +83,8 @@ export function ScheduleCard(props: {
   lowPriority?: boolean;
   /** Backups are encrypted with a passphrase (never sent here, only whether there is one). */
   encrypted?: boolean;
+  /** Database services: the newest backup is test-restored each day. */
+  verify?: boolean;
 }) {
   const dumps = props.noun !== "copies";
   const choices = props.databaseChoices ?? null;
@@ -100,8 +102,9 @@ export function ScheduleCard(props: {
       lowPriority: !!props.lowPriority,
       encrypt: !!props.encrypted,
       passphrase: "",
+      verify: !!props.verify,
     }),
-    [props.schedule, props.retention, props.retentionS3, props.s3DestinationId, props.keepLocal, props.timeoutMinutes, props.lowPriority, props.encrypted],
+    [props.schedule, props.retention, props.retentionS3, props.s3DestinationId, props.keepLocal, props.timeoutMinutes, props.lowPriority, props.encrypted, props.verify],
   );
   const [enabled, setEnabled] = React.useState(initial.enabled);
   const [plan, setPlan] = React.useState<Plan>(initial.plan);
@@ -113,6 +116,7 @@ export function ScheduleCard(props: {
   const [lowPriority, setLowPriority] = React.useState(initial.lowPriority);
   const [encrypt, setEncrypt] = React.useState(initial.encrypt);
   const [passphrase, setPassphrase] = React.useState("");
+  const [verify, setVerify] = React.useState(initial.verify);
   // The plan only counts while the schedule is on: turned off, the saved schedule has none.
   const [saved, setSaved] = React.useState(() =>
     JSON.stringify({ ...initial, plan: initial.enabled ? initial.plan : null, dbs: props.databaseChoices?.selected?.length ? [...props.databaseChoices.selected].sort() : null }),
@@ -134,6 +138,7 @@ export function ScheduleCard(props: {
     lowPriority,
     encrypt,
     passphrase,
+    verify,
     dbs: choices ? savedChoice(choices, dbs) : null,
   });
   // Turning encryption on needs a passphrase; a new one replaces the saved one, empty keeps it.
@@ -169,6 +174,7 @@ export function ScheduleCard(props: {
           backupTimeoutMinutes: minutes,
           backupLowPriority: lowPriority,
           ...(backupPassphrase !== undefined ? { backupPassphrase } : {}),
+          backupVerify: verify,
           ...(choices ? { backupDatabases: savedChoice(choices, dbs) } : {}),
         },
       });
@@ -403,6 +409,17 @@ export function ScheduleCard(props: {
             />
           </div>
         )}
+        {!props.target && (
+          <div className="border-t border-line pt-5">
+            <SwitchRow
+              title="Test backups daily"
+              description="Each day the newest backup is restored into a throwaway database on the same server, to prove it works. You are notified when one fails."
+              checked={verify}
+              onCheckedChange={setVerify}
+              disabled={!props.canEdit}
+            />
+          </div>
+        )}
         <div className="flex flex-col gap-3 border-t border-line pt-5">
           <SwitchRow
             title="Encrypt backups"
@@ -452,6 +469,7 @@ export function ScheduleCard(props: {
                   setTimeoutValue(initial.timeout);
                   setLowPriority(initial.lowPriority);
                   setEncrypt(initial.encrypt);
+                  setVerify(initial.verify);
                   setPassphrase("");
                 }}
               >

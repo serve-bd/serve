@@ -694,6 +694,7 @@ const updateSchema = z.object({
       backupLowPriority: z.boolean(),
       /** A new passphrase encrypts the backups from now on; null stops encrypting. */
       backupPassphrase: z.string().min(8, "Use at least 8 characters for the passphrase").max(200).nullable(),
+      backupVerify: z.boolean(),
       s3DestinationId: z.string().nullable(),
     })
     .partial()
@@ -2197,6 +2198,20 @@ export async function restoreFromBackup(
       targetId: service.id,
       message: `Restoring ${service.name} from a backup`,
     });
+    return null;
+  });
+}
+
+/** Backup proof by hand: restores the backup into a throwaway database and counts what came back. */
+export async function testBackup(backupId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("databases.backups");
+    const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
+    if (b?.status !== "success" || b.target) throw new UserError("Only database backups can be tested.");
+    const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
+    if (b.verifyStatus === "running") throw new UserError("This backup is being tested already.");
+    await db.update(schema.backup).set({ verifyStatus: "running", verifyError: null }).where(eq(schema.backup.id, backupId));
+    await enqueue("backup.verify", { backupId }, { concurrencyKey: `backup-verify:${service.id}` });
     return null;
   });
 }

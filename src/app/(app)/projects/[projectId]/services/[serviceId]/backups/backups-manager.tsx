@@ -3,7 +3,7 @@
 import { ALL_DATABASES, readChoice } from "@/lib/backup-databases";
 import * as React from "react";
 import useSWR from "swr";
-import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2, TriangleAlert } from "lucide-react";
+import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2, TriangleAlert, Lock, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState, TimeAgo, Copyable } from "@/components/ui/misc";
 import { Led } from "@/components/ui/status";
@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Menu, MenuContent, MenuItem, MenuLinkItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
 import { useAction } from "@/hooks/use-action";
-import { createBackup, deleteBackup, restoreFromBackup } from "@/server/actions/services";
+import { createBackup, deleteBackup, restoreFromBackup, testBackup } from "@/server/actions/services";
 import { cn, formatBytes } from "@/lib/utils";
 import { ScheduleCard } from "./schedule-card";
 import { RestoreDialog } from "./restore-dialog";
@@ -36,6 +36,13 @@ type Backup = {
   local: boolean;
   createdAt: string;
   finishedAt: string | null;
+  /** Backup proof: restored into a throwaway database. */
+  verifyStatus: "running" | "passed" | "failed" | null;
+  verifiedAt: string | null;
+  verifyDetail: string | null;
+  verifyError: string | null;
+  /** Encrypted with a passphrase. */
+  keyHint: string | null;
 };
 
 const triggerLabel: Record<string, string> = { manual: "Manual", schedule: "Scheduled", import: "Imported", "pre-import": "Before restore" };
@@ -84,7 +91,20 @@ function SafetyToggle({ valueRef, usersRef }: { valueRef: React.RefObject<boolea
   );
 }
 
-function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: boolean; onRestore: (b: Backup) => void; onDelete: (b: Backup) => void }) {
+function BackupRow({
+  b,
+  isAdmin,
+  onRestore,
+  onDelete,
+  onTest,
+}: {
+  b: Backup;
+  isAdmin: boolean;
+  onRestore: (b: Backup) => void;
+  onDelete: (b: Backup) => void;
+  /** Database backups: restore into a throwaway database to prove it works. */
+  onTest?: (b: Backup) => void;
+}) {
   const busy = b.status === "running" || b.restoreStatus === "running";
   // The log opens by itself while something runs and when it failed, until it is closed by hand.
   const [choice, setChoice] = React.useState<boolean | null>(null);
@@ -118,9 +138,26 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
               </span>
             )}
             {b.restoreStatus === "failed" && <span className="text-bad">· Restore failed</span>}
+            {b.verifyStatus === "running" && <span className="text-info">· Testing…</span>}
+            {b.verifyStatus === "passed" && b.verifiedAt && (
+              <span className="text-ok" title={b.verifyDetail ?? undefined}>
+                · Tested <TimeAgo date={b.verifiedAt} />
+                {b.verifyDetail ? `: ${b.verifyDetail}` : ""}
+              </span>
+            )}
+            {b.verifyStatus === "failed" && (
+              <span className="truncate text-bad" title={b.verifyError ?? undefined}>
+                · Test failed{b.verifyError ? `: ${b.verifyError}` : ""}
+              </span>
+            )}
           </span>
         </div>
         <div className="hidden flex-none items-center gap-1.5 sm:flex">
+          {b.keyHint && (
+            <Badge>
+              <Lock /> Encrypted
+            </Badge>
+          )}
           {b.status === "success" && b.local && (
             <Badge>
               <HardDrive /> Local
@@ -162,6 +199,11 @@ function BackupRow({ b, isAdmin, onRestore, onDelete }: { b: Backup; isAdmin: bo
                   {isAdmin && (
                     <MenuItem onClick={() => onRestore(b)}>
                       <ArchiveRestore /> Restore
+                    </MenuItem>
+                  )}
+                  {onTest && b.verifyStatus !== "running" && (
+                    <MenuItem onClick={() => onTest(b)}>
+                      <FlaskConical /> Test restore
                     </MenuItem>
                   )}
                   <MenuSeparator />
@@ -210,6 +252,7 @@ export function BackupsManager(props: {
   lowPriority?: boolean;
   /** Backups are encrypted with a passphrase. */
   encrypted?: boolean;
+  verify?: boolean;
   s3DestinationId: string | null;
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
@@ -219,7 +262,7 @@ export function BackupsManager(props: {
   const confirm = useConfirm();
   const [picking, setPicking] = React.useState(false);
   const { data, mutate } = useSWR<{ backups: Backup[] }>(`/api/services/${props.serviceId}/backups${props.target ? `?target=${encodeURIComponent(props.target)}` : ""}`, {
-    refreshInterval: (d) => (d?.backups.some((b) => b.status === "running" || b.restoreStatus === "running") ? 1500 : 10000),
+    refreshInterval: (d) => (d?.backups.some((b) => b.status === "running" || b.restoreStatus === "running" || b.verifyStatus === "running") ? 1500 : 10000),
   });
 
   const run = useAction((databases?: string[]) => createBackup(props.serviceId, props.target ?? null, { databases }), {
@@ -233,6 +276,7 @@ export function BackupsManager(props: {
     onSuccess: () => void mutate(),
   });
   const remove = useAction(deleteBackup, { onSuccess: () => void mutate() });
+  const test = useAction(testBackup, { onSuccess: () => void mutate() });
   const backups = data?.backups ?? [];
   const safety = React.useRef(true);
   const users = React.useRef(false);
@@ -278,6 +322,7 @@ export function BackupsManager(props: {
                     });
                     if (ok) await restore.run(x.id, safety.current, users.current);
                   }}
+                  onTest={props.target ? undefined : (x) => void test.run(x.id)}
                   onDelete={async (x) => {
                     if (
                       await confirm({
@@ -322,6 +367,7 @@ export function BackupsManager(props: {
           timeoutMinutes={props.timeoutMinutes}
           lowPriority={props.lowPriority}
           encrypted={props.encrypted}
+          verify={props.verify}
           s3DestinationId={props.s3DestinationId}
           destinations={props.destinations}
           timezone={props.timezone}

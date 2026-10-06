@@ -97,6 +97,7 @@ export default async function BackupsPage(props: PageProps<"/projects/[projectId
         timeoutMinutes={service.database.backupTimeoutMinutes ?? null}
         lowPriority={!!service.database.backupLowPriority}
         encrypted={!!service.database.backupPassphrase}
+        verify={!!service.database.backupVerify}
         s3DestinationId={service.database.s3DestinationId ?? null}
         destinations={destinations}
         timezone={settings.timezone}

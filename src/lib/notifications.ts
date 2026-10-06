@@ -25,6 +25,8 @@ export const notifyEventCatalog = [
   { id: "container.crashloop", label: "Container restarting repeatedly", group: "Uptime & incidents", severity: "critical" },
   { id: "backup.success", label: "Backup succeeded", group: "Backups", severity: "info" },
   { id: "backup.failed", label: "Backup failed", group: "Backups", severity: "critical" },
+  { id: "backup.test.failed", label: "Backup test failed", group: "Backups", severity: "critical" },
+  { id: "backup.test.passed", label: "Backup test passed", group: "Backups", severity: "info" },
   { id: "restore.success", label: "Restore or import finished", group: "Backups", severity: "info" },
   { id: "restore.failed", label: "Restore or import failed", group: "Backups", severity: "critical" },
   { id: "certificate.renewed", label: "Certificate issued or renewed", group: "Certificates", severity: "info" },

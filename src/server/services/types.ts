@@ -401,6 +401,8 @@ export type DatabaseConfig = {
   backupLowPriority?: boolean;
   /** Backups are encrypted with this passphrase (stored encrypted with Serve's key); null: not encrypted. */
   backupPassphrase?: string | null;
+  /** Backup proof: each day the newest backup is restored into a throwaway database to prove it works. */
+  backupVerify?: boolean;
 
   /* Everything below is optional so older configs keep working. */
   description?: string | null;

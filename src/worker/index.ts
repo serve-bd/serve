@@ -96,6 +96,10 @@ async function handle(job: Job, signal: AbortSignal) {
       return renewDueCertificates();
     case "backup.run":
       return runBackup(p.backupId);
+    case "backup.verify": {
+      const { verifyBackup } = await import("@/server/backups/verify");
+      return void (await verifyBackup(p.backupId));
+    }
     case "backup.restore":
       return void (await restoreBackup(
         p.backupId,
@@ -626,6 +630,12 @@ async function scheduleBackups() {
 async function recover() {
   // A backup cut off by a restart left a partial file and a "running" record.
   await failInterruptedInstanceBackups().catch(() => {});
+  // Backup tests the last worker was running when it stopped: tested again on the next round.
+  await db
+    .update(schema.backup)
+    .set({ verifyStatus: null })
+    .where(eq(schema.backup.verifyStatus, "running"))
+    .catch(() => {});
   const stale = await recoverStaleJobs();
   if (stale.length) log(`Recovered ${stale.length} interrupted job(s)`);
   // Clones of builds and fetches cut off by the restart (none runs now). Their ".auth" folders
@@ -911,6 +921,11 @@ async function main() {
   every(10_000, "server-listener", () => syncTunnels(), true);
   // Uptime checks run every 15 s and pick the monitors that are due.
   every(15_000, "uptime", runUptimeChecks, true);
+  // Backup proof: once a day, the newest backup of each database that asks for it is test-restored.
+  every(10 * 60_000, "backup-proof", async () => {
+    const { dueBackupTests } = await import("@/server/backups/verify");
+    for (const backupId of await dueBackupTests()) await enqueue("backup.verify", { backupId }, { concurrencyKey: `backup-verify:${backupId}` });
+  });
   every(60_000, "status-maintenance", async () => {
     const { maintenanceTick, pruneSubscribers } = await import("@/server/status-pages/subscribers");
     await maintenanceTick();

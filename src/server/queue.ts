@@ -24,6 +24,7 @@ export type JobType =
   | "backup.run"
   | "backup.restore"
   | "backup.import"
+  | "backup.verify"
   | "proxy.sync"
   | "status.notify"
   | "status.outage"
@@ -69,6 +70,7 @@ export type JobPayloads = {
   "certificate.retire": { certificateId: string };
   "certificate.renew-all": Record<string, never>;
   "backup.run": { backupId: string };
+  "backup.verify": { backupId: string };
   "backup.restore": { backupId: string; users?: boolean } & RestoreChoice;
   "backup.import": { backupId: string; backupFirst?: boolean; users?: boolean; url?: string; s3?: { destinationId: string; key: string } } & RestoreChoice;
   "proxy.sync": Record<string, never>;

@@ -92,6 +92,13 @@ export type RestoreOptions = {
   keep?: string[];
   /** Putting a safety backup back after a failed restore: no notifications of its own. */
   rollback?: boolean;
+  /** Databases to empty as well (a rollback: ones the failed restore made that the safety backup lacks). */
+  alsoEmpty?: string[];
+  /**
+   * Called once, right before the restore first changes anything, with the databases it changes
+   * (null: the whole server or the whole target). A failure before it changed nothing.
+   */
+  onTouch?: (databases: string[] | null) => void;
   /** The passphrase of an encrypted backup made with another one (or imported). */
   passphrase?: string | null;
 };
@@ -385,9 +392,16 @@ export async function restoreWith(
   // or table of before is left over. The same for every engine that has databases.
   const spec = t.creds ? serverDatabases(t.engine, t.creds) : null;
   const sqlEngine = t.engine === "postgres" || t.engine === "mysql" || t.engine === "mariadb";
+  const targets = filter ? filter.targets : t.engine === "mongodb" ? (opts.databases ?? []).map((d) => opts.renames?.[d] || d) : sqlEngine ? [renamed || t.database] : [];
+  // What a failed restore changed, for putting it back: the databases it writes, or everything.
+  let touched = false;
+  const touch = () => {
+    if (touched) return;
+    touched = true;
+    opts.onTouch?.(opts.whole || !targets.length ? null : targets);
+  };
   let main: string | undefined;
   if (spec) {
-    const targets = filter ? filter.targets : t.engine === "mongodb" ? (opts.databases ?? []).map((d) => opts.renames?.[d] || d) : sqlEngine ? [renamed || t.database] : [];
     // Only plain names from the listing (its errors go nowhere): anything else is left alone.
     const listed = opts.whole
       ? (await runIn(t, `${spec.list} 2>/dev/null`, Readable.from([]), false))
@@ -395,9 +409,10 @@ export async function restoreWith(
           .map((l) => l.trim())
           .filter((l) => /^[A-Za-z0-9_][A-Za-z0-9_$-]{0,63}$/.test(l))
       : [];
-    const empty = [...new Set([...targets, ...listed.filter((d) => !opts.keep?.includes(d))])].filter((d) => d && !spec.system.includes(d));
+    const empty = [...new Set([...targets, ...(opts.alsoEmpty ?? []), ...listed.filter((d) => !opts.keep?.includes(d))])].filter((d) => d && !spec.system.includes(d));
     // The backup has no database of the main one's name: its first one becomes the main one.
     if (opts.whole && sqlEngine && !targets.includes(t.database)) main = targets.find((d) => d && !spec.system.includes(d));
+    touch();
     if (empty.length) log(`Emptying ${empty.join(", ")}: afterwards the server holds only what the backup holds`);
     for (const d of empty) await runIn(t, spec.drop(d), Readable.from([]), false);
     // The main database stays (empty) until the restore worked: a failed one leaves the service working.
@@ -409,6 +424,7 @@ export async function restoreWith(
     if (t.engine === "clickhouse" && t.database && !spec.system.includes(t.database) && spec.create) await runIn(t, spec.create(t.database), Readable.from([]), false);
   }
   // The command's output goes to the log while it runs, so a long or failing restore can be followed.
+  touch();
   const out = await runIn(t, command, fs.createReadStream(file), gz, log, filter);
   if (opts.users && (t.engine === "mysql" || t.engine === "mariadb")) {
     log("Restoring the dump's users and their rights; Serve's own accounts keep theirs");
@@ -501,6 +517,7 @@ async function restoreTables(t: Commands, file: string, log: (line: string) => v
       ...opts,
       tables: undefined,
       whole: undefined,
+      onTouch: undefined,
       users: false,
       keepNames: true,
       databases: src ? [src] : undefined,
@@ -508,6 +525,7 @@ async function restoreTables(t: Commands, file: string, log: (line: string) => v
     });
     await ensureDatabase(t, final);
     log(`Copying the tables into ${final}`);
+    opts.onTouch?.([final]);
     if (t.engine === "postgres") {
       const pgDump = `PGPASSWORD=${shq(t.password)} pg_dump -U ${shq(t.username ?? "postgres")} -d ${shq(pgDbname(tmp))} --clean --if-exists --no-owner --no-privileges ${tables.map((x) => `-t ${shq(x)}`).join(" ")}`;
       await runIn(t, `(set -o pipefail) 2>/dev/null && set -o pipefail; ${pgDump} | ${clientOf(t, final)}`, Readable.from([]), false, log);
@@ -1239,6 +1257,8 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
     const stored = await localBackupFile(backup);
     await checkIntegrity(backup, stored);
     const opened = await openBackupFile(backup, stored, opts.passphrase);
+    // A copy of a volume or folder changes it from the start: all of it.
+    if (backup.target && !backup.target.startsWith("db:")) opts.onTouch?.(null);
     const {
       out: clean,
       format,
@@ -1473,8 +1493,13 @@ export async function importBackup(
     await deleteBackupFiles(safety).catch(() => {});
     await db.delete(schema.backup).where(eq(schema.backup.id, id));
   };
+  // What the restore changed, once it started changing anything (null: everything).
+  let changed: string[] | null | undefined;
   try {
     await restoreBackup(backupId, {
+      onTouch: (databases) => {
+        changed = databases;
+      },
       users: opts.users,
       databases: opts.databases,
       renames: opts.renames,
@@ -1484,10 +1509,21 @@ export async function importBackup(
       passphrase: opts.passphrase,
     });
   } catch (error) {
-    // Put back what was there: the safety backup, whole (and its users), into the same place.
-    await logLine(backupId, "Putting the database back as it was before this restore, from the safety backup");
+    // It failed before changing anything (a wrong passphrase, a missing file…): nothing to put back.
+    if (changed === undefined) {
+      await logLine(backupId, "Nothing was changed: the database is as it was.");
+      await dropSafety();
+      throw error;
+    }
+    // Put back what it changed, from the safety backup: those databases (also ones it made, which
+    // the safety backup lacks, are removed), or everything, with the users when they were restored.
+    await logLine(backupId, `Putting ${changed ? changed.join(", ") : "the database"} back as it was before this restore, from the safety backup`);
     try {
-      await restoreBackup(id, { users: withUsers, rollback: true });
+      await restoreBackup(id, {
+        users: withUsers && (changed === null || !!opts.users),
+        rollback: true,
+        ...(changed ? { databases: changed, alsoEmpty: changed } : {}),
+      });
       await logLine(backupId, "Put back: the database is as it was before this restore.");
       await dropSafety();
     } catch (e) {

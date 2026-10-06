@@ -12,7 +12,8 @@ const LIMITS: Record<string, number> = {
   deploy: 2 * HOUR,
   "backup.run": 6 * HOUR,
   "backup.restore": 6 * HOUR,
-  "backup.import": 6 * HOUR,
+  // A safety backup, the restore and, when it fails, putting the safety backup back.
+  "backup.import": 18 * HOUR,
   "environment.copy-data": 6 * HOUR,
   "preview.database": 6 * HOUR,
   "database.branch": 6 * HOUR,

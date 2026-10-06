@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/serve-bd/serve/cli/internal/api"
@@ -144,16 +145,22 @@ backup settings choose (the main database by default); --database takes the ones
 	create.Flags().BoolVar(&all, "all", false, "take every database on the server, new ones included")
 
 	var restoreWait, restoreYes, backupFirst, users bool
+	var into, passphrase string
+	var only, renames, tables []string
 	restore := &cobra.Command{
 		Use:   "restore <backup>",
 		Short: "Restore a backup, replacing the database's data",
 		Long: `Restore a backup into the database it was taken from, replacing its data. <backup> is the
 backup's id (see serve db backups) or latest, the newest one that finished.
 
---backup-first backs up the current data before restoring. --users also restores users and
-roles. Asks for the database's name unless --yes. --wait waits until the restore ends. The
-database is the linked one, or --service. Only organization admins can restore.`,
-		Example: "  serve db backups restore latest --wait\n  serve db backups restore b_123 -s postgres --backup-first --yes",
+--backup-first backs up the current data before restoring. --users also restores the dump's
+users, passwords and roles (Serve's own accounts keep theirs). --into restores into another
+database service of the same kind. --database restores only the databases named, --as db=new
+under another name, --table only some tables of the one database. An encrypted backup made with
+another passphrase takes --passphrase (or SERVE_BACKUP_PASSPHRASE). Asks for the database's name
+unless --yes. --wait waits until the restore ends. The database is the linked one, or --service.
+Only organization admins can restore.`,
+		Example: "  serve db backups restore latest --wait\n  serve db backups restore b_123 -s postgres --backup-first --yes\n  serve db backups restore latest --into staging-db --yes\n  serve db backups restore latest --database shop --as shop=shop_copy\n  serve db backups restore latest --table public.orders --table public.items",
 		Args:    exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -177,7 +184,35 @@ database is the linked one, or --service. Only organization admins can restore.`
 			if err := confirmTyped("restore it", s.Name, restoreYes); err != nil {
 				return err
 			}
-			if err := a.client.Post(ctx, "/backups/"+api.P(b.ID)+"/restore", map[string]any{"backupFirst": backupFirst, "users": users}, nil); err != nil {
+			body := map[string]any{"backupFirst": backupFirst, "users": users}
+			if into != "" {
+				target, err := a.findService(ctx, into, s.ProjectID, s.EnvironmentID)
+				if err != nil {
+					return err
+				}
+				body["into"] = target.ID
+			}
+			if len(only) > 0 {
+				body["databases"] = only
+			}
+			if len(renames) > 0 {
+				m := map[string]string{}
+				for _, r := range renames {
+					from, to, ok := strings.Cut(r, "=")
+					if !ok || to == "" {
+						return usagef("write --as as <database>=<new name>")
+					}
+					m[from] = to
+				}
+				body["renames"] = m
+			}
+			if len(tables) > 0 {
+				body["tables"] = tables
+			}
+			if p := firstNonEmpty(passphrase, os.Getenv("SERVE_BACKUP_PASSPHRASE")); p != "" {
+				body["passphrase"] = p
+			}
+			if err := a.client.Post(ctx, "/backups/"+api.P(b.ID)+"/restore", body, nil); err != nil {
 				return err
 			}
 			hint := fmt.Sprintf("see the RESTORE column of `serve db backups -s %s`", s.Name)
@@ -209,7 +244,12 @@ database is the linked one, or --service. Only organization admins can restore.`
 	restore.Flags().BoolVar(&restoreWait, "wait", false, "wait until the restore ends")
 	restore.Flags().BoolVarP(&restoreYes, "yes", "y", false, "do not ask for the database's name")
 	restore.Flags().BoolVar(&backupFirst, "backup-first", false, "back up the current data first")
-	restore.Flags().BoolVar(&users, "users", false, "also restore users and roles")
+	restore.Flags().BoolVar(&users, "users", false, "also restore the dump's users and passwords")
+	restore.Flags().StringVar(&into, "into", "", "restore into another database service of the same kind")
+	restore.Flags().StringArrayVar(&only, "database", nil, "only this database of the backup (repeat for more)")
+	restore.Flags().StringArrayVar(&renames, "as", nil, "restore a database under another name: <database>=<new name> (repeat)")
+	restore.Flags().StringArrayVar(&tables, "table", nil, "only this table of the one database (repeat; Postgres as schema.table)")
+	restore.Flags().StringVar(&passphrase, "passphrase", "", "passphrase of an encrypted backup made with another one")
 
 	var rmYes bool
 	rm := &cobra.Command{
@@ -241,6 +281,6 @@ database is the linked one, or --service. Only organization admins can restore.`
 		},
 	}
 	rm.Flags().BoolVarP(&rmYes, "yes", "y", false, "do not ask for the backup's id")
-	cmd.AddCommand(create, restore, rm)
+	cmd.AddCommand(create, restore, rm, a.dbBackupTestCmd(), a.dbBackupDownloadCmd(), a.dbBackupSettingsCmd())
 	return cmd
 }

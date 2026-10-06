@@ -45,6 +45,17 @@ type Backup struct {
 	RestoredAt    *string  `json:"restoredAt"`
 	CreatedAt     string   `json:"createdAt"`
 	FinishedAt    *string  `json:"finishedAt"`
+	Checksum      *string  `json:"checksum"`
+	Encrypted     bool     `json:"encrypted"`
+	// Backup proof: running, passed or failed, and what the test restore found.
+	VerifyStatus *string `json:"verifyStatus"`
+	VerifiedAt   *string `json:"verifiedAt"`
+	VerifyDetail *string `json:"verifyDetail"`
+	VerifyError  *string `json:"verifyError"`
+	Copies       []struct {
+		DestinationID string `json:"destinationId"`
+		Status        string `json:"status"`
+	} `json:"copies"`
 }
 
 func (c *Client) Backups(ctx context.Context, serviceID string) ([]Backup, error) {

@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -379,17 +382,19 @@ Asks first unless --yes. --show prints the new connection string.`,
 
 func (a *App) dbImportCmd() *cobra.Command {
 	var yes, wait, noBackup, users bool
+	var passphrase string
 	cmd := &cobra.Command{
-		Use:   "import <url | s3://storage/key>",
-		Short: "Replace a database's data with a dump from a URL or S3",
-		Long: `Download a dump and restore it into the database, replacing its data. The source is
-an http(s) URL, or s3://<storage>/<key> where <storage> is the name, id or bucket of one of the
-organization's S3 storages (Settings) and <key> the object's path in the bucket.
+		Use:   "import <file | url | s3://storage/key>",
+		Short: "Replace a database's data with a dump from a file, a URL or S3",
+		Long: `Restore a dump into the database, replacing its data. The source is a file on this
+computer (uploaded), an http(s) URL, or s3://<storage>/<key> where <storage> is the name, id or
+bucket of one of the organization's S3 storages (Settings) and <key> the object's path in the
+bucket. An encrypted dump (.enc) takes --passphrase or SERVE_BACKUP_PASSPHRASE.
 
 The current data is backed up first unless --no-backup. --users also restores the database's
 users and roles. Asks for the database's name unless --yes. --wait waits until the restore ends.
 The database is the linked one, or --service.`,
-		Example: "  serve db import https://example.com/dump.sql.gz --wait\n  serve db import s3://backups/old/app.dump -s postgres --yes",
+		Example: "  serve db import ./dump.sql.gz --wait\n  serve db import https://example.com/dump.sql.gz --wait\n  serve db import s3://backups/old/app.dump -s postgres --yes",
 		Args:    exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -415,7 +420,9 @@ The database is the linked one, or --service.`,
 				}
 				source = map[string]any{"kind": "s3", "destinationId": id, "key": key}
 			default:
-				return usagef("the source is an http(s) URL or s3://<storage>/<key>")
+				if _, err := os.Stat(src); err != nil {
+					return usagef("the source is a file, an http(s) URL or s3://<storage>/<key> (%s was not found)", src)
+				}
 			}
 			s, err := a.database(ctx, nil)
 			if err != nil {
@@ -430,9 +437,42 @@ The database is the linked one, or --service.`,
 			var r struct {
 				ID string `json:"id"`
 			}
-			body := map[string]any{"source": source, "backupFirst": !noBackup, "users": users}
-			if err := a.client.Post(ctx, "/services/"+api.P(s.ID)+"/database/import", body, &r); err != nil {
-				return err
+			pass := firstNonEmpty(passphrase, os.Getenv("SERVE_BACKUP_PASSPHRASE"))
+			if source == nil {
+				// A file here: streamed up as it is read, never loaded into memory.
+				file, err := os.Open(src)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				info, err := file.Stat()
+				if err != nil {
+					return err
+				}
+				q := url.Values{"filename": {filepath.Base(src)}}
+				if !noBackup {
+					q.Set("backupFirst", "1")
+				}
+				if users {
+					q.Set("users", "1")
+				}
+				header := http.Header{}
+				if pass != "" {
+					header.Set("X-Backup-Passphrase", pass)
+				}
+				ui.Info("Uploading %s (%s)", filepath.Base(src), ui.Bytes(info.Size()))
+				err = a.client.Do(ctx, api.Request{Method: http.MethodPost, Path: "/services/" + api.P(s.ID) + "/backups/import", Query: q, Body: file, Length: info.Size(), ContentType: "application/octet-stream", Header: header}, &r)
+				if err != nil {
+					return err
+				}
+			} else {
+				body := map[string]any{"source": source, "backupFirst": !noBackup, "users": users}
+				if pass != "" {
+					body["passphrase"] = pass
+				}
+				if err := a.client.Post(ctx, "/services/"+api.P(s.ID)+"/database/import", body, &r); err != nil {
+					return err
+				}
 			}
 			hint := fmt.Sprintf("see `serve db backups -s %s`", s.Name)
 			if !wait || r.ID == "" {
@@ -469,7 +509,8 @@ The database is the linked one, or --service.`,
 	f.BoolVarP(&yes, "yes", "y", false, "do not ask for the database's name")
 	f.BoolVar(&wait, "wait", false, "wait until the restore ends")
 	f.BoolVar(&noBackup, "no-backup", false, "do not back up the current data first")
-	f.BoolVar(&users, "users", false, "also restore users and roles")
+	f.BoolVar(&users, "users", false, "also restore the dump's users and passwords")
+	f.StringVar(&passphrase, "passphrase", "", "passphrase of an encrypted dump (.enc)")
 	return cmd
 }
 

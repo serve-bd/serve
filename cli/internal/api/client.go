@@ -159,6 +159,8 @@ type Request struct {
 	Length      int64
 	// NoRetry returns a 429 to the caller instead of waiting it out.
 	NoRetry bool
+	// Header adds request headers (a secret that must not go in the URL, say).
+	Header http.Header
 }
 
 // Do sends the request and decodes a JSON answer into out (when not nil). A 429 answer is tried
@@ -231,6 +233,9 @@ func (c *Client) send(ctx context.Context, r Request) (*http.Response, error) {
 	}
 	if ctype != "" {
 		req.Header.Set("Content-Type", ctype)
+	}
+	for k, v := range r.Header {
+		req.Header[k] = v
 	}
 	req.Header.Set("Accept", "application/json")
 	if c.UserAgent != "" {
@@ -306,3 +311,24 @@ func (c *Client) Delete(ctx context.Context, path string, q url.Values, out any)
 
 // P escapes one path segment.
 func P(s string) string { return url.PathEscape(s) }
+
+// Download streams a raw answer (a file) into w and returns its headers.
+func (c *Client) Download(ctx context.Context, path string, w io.Writer) (http.Header, error) {
+	res, err := c.send(ctx, Request{Method: http.MethodGet, Path: path})
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 300 {
+		err := decode(res, nil)
+		var ae *Error
+		if errors.As(err, &ae) {
+			ae.URL = c.BaseURL
+		}
+		return nil, err
+	}
+	if _, err := io.Copy(w, res.Body); err != nil {
+		return nil, err
+	}
+	return res.Header, nil
+}

@@ -1,3 +1,4 @@
+import { ACCOUNT_TABLE_NAMES } from "@/server/backups/sql-filter";
 import type { DbEngine } from "@/server/services/types";
 
 export type EngineInfo = {
@@ -30,7 +31,7 @@ export type EngineInfo = {
    * A backup of several databases of the server (each restored as a database of its own), and its
    * file's extension. Without it, backups take the main database (MongoDB: every database).
    */
-  backupDatabasesCommand?: (c: EngineCreds, databases: string[]) => { command: string; extension: string };
+  backupDatabasesCommand?: (c: EngineCreds, databases: string[], users?: boolean) => { command: string; extension: string };
   /** MongoDB: restores that backup (a packed folder of dumps) from stdin. */
   restoreFolderCommand?: (c: EngineCreds) => string;
 
@@ -75,6 +76,13 @@ export const pgDbname = (database: string) => `dbname='${database.replace(/[\\']
 export const pgConnectLine = (database: string) => `\\connect -reuse-previous=on "${pgDbname(database).replace(/"/g, '""')}"`;
 
 // The password in the environment: an argument shows in the host's process list.
+/**
+ * MySQL's account tables (users, passwords, rights) as a dump of its mysql database, after the
+ * databases: a restore takes them only when asked for, and never Serve's own account.
+ */
+const myAccountsDump = (client: string, dump: string) =>
+  `T=$(${client} -uroot -N -B -e ${sh(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'mysql' AND table_type = 'BASE TABLE' AND table_name IN (${ACCOUNT_TABLE_NAMES.map((t) => `'${t}'`).join(", ")})`)}) && [ -n "$T" ] && printf '%s\\n' '' '-- Current Database: \`mysql\`' '' 'USE \`mysql\`;' && ${dump} -uroot --single-transaction --skip-triggers mysql $T`;
+
 const chClient = (c: EngineCreds) => `CLICKHOUSE_PASSWORD=${sh(c.password)} clickhouse-client -u ${sh(c.username)} -d ${sh(c.database)}`;
 /** A name as a ClickHouse identifier in a statement: backslashes escaped first, then backticks. */
 const chIdent = (name: string) => `\`${name.replaceAll("\\", "\\\\").replaceAll("`", "\\`")}\``;
@@ -210,13 +218,17 @@ export const engines: Record<DbEngine, EngineInfo> = {
     url: (c) => `postgresql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
     backupCommand: (c) => `PGPASSWORD=${sh(c.password)} pg_dump -U ${sh(c.username)} -d ${sh(pgDbname(c.database))} -Fc`,
     // Plain SQL, a \connect before each database: the restore keeps them apart and creates the missing ones.
-    backupDatabasesCommand: (c, databases) => ({
+    // users: the server's roles and their passwords first (restored only when asked for).
+    backupDatabasesCommand: (c, databases, users) => ({
       command: [
         "set -e",
         "(set -o pipefail) 2>/dev/null && set -o pipefail",
         `export PGPASSWORD=${sh(c.password)}`,
-        `{ ${databases
-          .map((d) => `printf '%s\\n' ${sh(pgConnectLine(d))}; pg_dump -U ${sh(c.username)} -d ${sh(pgDbname(d))} --clean --if-exists --no-owner --no-privileges -Fp`)
+        `{ ${users ? `pg_dumpall -U ${sh(c.username)} -l ${sh(c.database)} --roles-only; ` : ""}${databases
+          .map(
+            (d) =>
+              `printf '%s\\n' ${sh(pgConnectLine(d))}; pg_dump -U ${sh(c.username)} -d ${sh(pgDbname(d))} --clean --if-exists --no-owner${users ? "" : " --no-privileges"} -Fp`,
+          )
           .join("; ")}; } | gzip -c`,
       ].join("\n"),
       extension: "sql.gz",
@@ -262,8 +274,8 @@ export const engines: Record<DbEngine, EngineInfo> = {
     healthcheck: (c) => ["CMD-SHELL", `MYSQL_PWD=${sh(c.password)} mysqladmin ping -h 127.0.0.1 -uroot --silent`],
     url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
     backupCommand: (c) => `MYSQL_PWD=${sh(c.password)} mysqldump -uroot --single-transaction --routines --triggers --databases ${sh(c.database)}`,
-    backupDatabasesCommand: (c, databases) => ({
-      command: `MYSQL_PWD=${sh(c.password)} mysqldump -uroot --single-transaction --routines --triggers --databases ${databases.map(sh).join(" ")}`,
+    backupDatabasesCommand: (c, databases, users) => ({
+      command: `export MYSQL_PWD=${sh(c.password)}; mysqldump -uroot --single-transaction --routines --triggers --databases ${databases.map(sh).join(" ")}${users ? ` && ${myAccountsDump("mysql", "mysqldump")}` : ""}`,
       extension: "sql.gz",
     }),
     restoreCommand: (c) => `MYSQL_PWD=${sh(c.password)} mysql -uroot ${sh(c.database)}`,
@@ -301,8 +313,8 @@ export const engines: Record<DbEngine, EngineInfo> = {
     healthcheck: () => ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"],
     url: (c) => `mysql://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
     backupCommand: (c) => `MYSQL_PWD=${sh(c.password)} mariadb-dump -uroot --single-transaction --routines --triggers --databases ${sh(c.database)}`,
-    backupDatabasesCommand: (c, databases) => ({
-      command: `MYSQL_PWD=${sh(c.password)} mariadb-dump -uroot --single-transaction --routines --triggers --databases ${databases.map(sh).join(" ")}`,
+    backupDatabasesCommand: (c, databases, users) => ({
+      command: `export MYSQL_PWD=${sh(c.password)}; mariadb-dump -uroot --single-transaction --routines --triggers --databases ${databases.map(sh).join(" ")}${users ? ` && ${myAccountsDump("mariadb", "mariadb-dump")}` : ""}`,
       extension: "sql.gz",
     }),
     restoreCommand: (c) => `MYSQL_PWD=${sh(c.password)} mariadb -uroot ${sh(c.database)}`,

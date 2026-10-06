@@ -410,6 +410,8 @@ export type DatabaseConfig = {
   backupPassphrase?: string | null;
   /** Backup proof: each day the newest backup is restored into a throwaway database to prove it works. */
   backupVerify?: boolean;
+  /** Backups also take the server's users, passwords and rights (Postgres, MySQL, MariaDB), restored only when asked for. */
+  backupUsers?: boolean;
   /** More buckets each backup is copied to, besides s3DestinationId. */
   backupCopyDestinationIds?: string[];
   /** Kept on top of the newest backupRetention: by age, and one per day, week, month and year. */

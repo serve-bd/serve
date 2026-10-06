@@ -132,13 +132,22 @@ type Target = {
   restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>, opts?: RestoreOptions): Promise<{ out: string; format: string }>;
 };
 
+/** The command for chosen databases; a backup with users takes that form for the main database too. */
+function severalOf(cfg: NonNullable<ServiceRow["database"]>, creds: ReturnType<typeof databaseCreds>, databases?: string[] | null) {
+  const engine = engines[cfg.engine];
+  if (!engine.backupDatabasesCommand) return null;
+  const users = !!cfg.backupUsers && ["postgres", "mysql", "mariadb"].includes(cfg.engine);
+  const list = databases?.length ? databases : users ? [cfg.database ?? creds.database] : null;
+  return list ? engine.backupDatabasesCommand(creds, list, users) : null;
+}
+
 /** databases: the ones a backup takes when they are more (or other) than the main one. */
 async function databaseCommands(service: ServiceRow, databases?: string[] | null): Promise<Commands> {
   const cfg = service.database;
   if (!cfg) throw new Error(`${service.name} is not a database`);
   const engine = engines[cfg.engine];
   const creds = databaseCreds(cfg, decrypt(cfg.password));
-  const several = databases?.length && engine.backupDatabasesCommand ? engine.backupDatabasesCommand(creds, databases) : null;
+  const several = severalOf(cfg, creds, databases);
   const { docker } = await serverOf(service);
   const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
   return {
@@ -504,7 +513,7 @@ export async function targetOf(service: ServiceRow, key: string | null, database
     const cfg = service.database;
     if (!cfg) throw new Error(`${service.name} is not a database`);
     const engine = engines[cfg.engine];
-    const several = databases?.length && engine.backupDatabasesCommand ? engine.backupDatabasesCommand(databaseCreds(cfg, ""), databases) : null;
+    const several = severalOf(cfg, databaseCreds(cfg, ""), databases);
     return {
       label: service.name,
       stem: service.slug,

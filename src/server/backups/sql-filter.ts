@@ -131,7 +131,8 @@ const ACCOUNT_TABLES: [string, string[]][] = [
   ["role_edges", ["FROM_USER", "TO_USER"]],
   ["roles_mapping", ["User"]],
 ];
-const accountTable = new Set(ACCOUNT_TABLES.map(([t]) => t));
+export const ACCOUNT_TABLE_NAMES = ACCOUNT_TABLES.map(([t]) => t);
+const accountTable = new Set(ACCOUNT_TABLE_NAMES);
 
 /** Moves the dump's accounts (in ACCOUNTS_DATABASE) into mysql, leaving out `protect` and MySQL's own, then drops it. */
 export function accountsMergeSql(protect: string[]) {

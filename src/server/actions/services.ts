@@ -705,6 +705,7 @@ const updateSchema = z.object({
       /** A new passphrase encrypts the backups from now on; null stops encrypting. */
       backupPassphrase: z.string().min(8, "Use at least 8 characters for the passphrase").max(200).nullable(),
       backupVerify: z.boolean(),
+      backupUsers: z.boolean(),
       backupCopyDestinationIds: z.array(z.string().max(64)),
       backupKeep: keepRulesSchema.nullable(),
       s3DestinationId: z.string().nullable(),

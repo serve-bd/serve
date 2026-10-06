@@ -970,6 +970,7 @@ export const serviceRoutes: ApiRoute[] = [
         timeoutMinutes: c.backupTimeoutMinutes ?? null,
         lowPriority: !!c.backupLowPriority,
         verify: !!c.backupVerify,
+        users: !!c.backupUsers,
         encrypted: !!c.backupPassphrase,
       };
     },
@@ -980,7 +981,7 @@ export const serviceRoutes: ApiRoute[] = [
     tag: "Backups",
     summary: "Change backup settings of a database",
     description:
-      "Fields left out keep their value. passphrase: a new one encrypts backups from now on (at least 8 characters), null stops encrypting. keep: {days, daily, weekly, monthly, yearly}, kept on top of the newest retention.",
+      "Fields left out keep their value. passphrase: a new one encrypts backups from now on (at least 8 characters), null stops encrypting. users: backups also take the server's users, passwords and rights (Postgres, MySQL, MariaDB). keep: {days, daily, weekly, monthly, yearly}, kept on top of the newest retention.",
     needs: ["databases.backups", "services.manage"],
     body: z.object({
       schedule: z.string().nullable().optional(),
@@ -994,6 +995,7 @@ export const serviceRoutes: ApiRoute[] = [
       timeoutMinutes: z.number().int().nullable().optional(),
       lowPriority: z.boolean().optional(),
       verify: z.boolean().optional(),
+      users: z.boolean().optional(),
       passphrase: z.string().nullable().optional(),
     }),
     handler: async ({ auth, params, body }) => {
@@ -1011,6 +1013,7 @@ export const serviceRoutes: ApiRoute[] = [
         ["timeoutMinutes", "backupTimeoutMinutes"],
         ["lowPriority", "backupLowPriority"],
         ["verify", "backupVerify"],
+        ["users", "backupUsers"],
         ["passphrase", "backupPassphrase"],
       ];
       const database = Object.fromEntries(map.filter(([k]) => body[k] !== undefined).map(([k, to]) => [to, body[k]]));

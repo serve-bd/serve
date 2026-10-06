@@ -17,6 +17,7 @@ import { useNow } from "@/hooks/use-client";
 import { updateService } from "@/server/actions/services";
 import { saveComposeBackup } from "@/server/actions/compose-backups";
 import { cn } from "@/lib/utils";
+import { readChoice } from "@/lib/backup-databases";
 import { type DatabaseChoices, DatabasePicker, defaultDatabases, savedChoice } from "./database-picker";
 
 type Mode = "hourly" | "daily" | "weekly" | "custom";
@@ -62,6 +63,13 @@ function nextRuns(cron: string, tz: string, count = 3, from?: number): Date[] | 
   }
 }
 
+/** What a database choice takes, in a few words. */
+function pickedLabel(dbs: string[]) {
+  const { all, skip } = readChoice(dbs);
+  if (all) return skip.length ? `every database except ${skip.join(", ")}` : "every database";
+  return dbs.length === 1 ? dbs[0] : `${dbs.length} databases`;
+}
+
 type KeepKey = "days" | "daily" | "weekly" | "monthly" | "yearly";
 const KEEP_FIELDS: { key: KeepKey; prefix: string; suffix: string }[] = [
   { key: "days", prefix: "All from", suffix: "days" },
@@ -97,6 +105,8 @@ export function ScheduleCard(props: {
   verify?: boolean;
   /** More buckets each backup is copied to. */
   copyDestinationIds?: string[];
+  /** Postgres, MySQL, MariaDB: backups also take the server's users and passwords (left out: not offered). */
+  users?: boolean;
   /** Kept on top of the newest ones: by age, and one per day, week, month and year. */
   keep?: KeepRules | null;
 }) {
@@ -117,6 +127,7 @@ export function ScheduleCard(props: {
       encrypt: !!props.encrypted,
       passphrase: "",
       verify: !!props.verify,
+      users: !!props.users,
       copies: props.copyDestinationIds ?? [],
       keep: Object.fromEntries(KEEP_FIELDS.map((k) => [k.key, props.keep?.[k.key] ? String(props.keep[k.key]) : ""])) as Record<KeepKey, string>,
     }),
@@ -130,6 +141,7 @@ export function ScheduleCard(props: {
       props.lowPriority,
       props.encrypted,
       props.verify,
+      props.users,
       props.copyDestinationIds,
       props.keep,
     ],
@@ -145,34 +157,26 @@ export function ScheduleCard(props: {
   const [encrypt, setEncrypt] = React.useState(initial.encrypt);
   const [passphrase, setPassphrase] = React.useState("");
   const [verify, setVerify] = React.useState(initial.verify);
+  const [users, setUsers] = React.useState(initial.users);
+  // Off, the settings Back up now uses fold into one line until opened.
+  const [open, setOpen] = React.useState(false);
   const [copies, setCopies] = React.useState<string[]>(initial.copies);
   const [keepRules, setKeepRules] = React.useState(initial.keep);
   // The plan only counts while the schedule is on: turned off, the saved schedule has none.
-  const [saved, setSaved] = React.useState(() =>
-    JSON.stringify({ ...initial, plan: initial.enabled ? initial.plan : null, dbs: props.databaseChoices?.selected?.length ? [...props.databaseChoices.selected].sort() : null }),
-  );
+  // The form as it would be saved; Unsaved changes compares it with the last one saved.
+  const snap = (v: Omit<typeof initial, "keep"> & { keepRules: typeof initial.keep; dbs: string[] }) =>
+    JSON.stringify({ ...v, plan: v.enabled ? v.plan : null, dbs: choices ? savedChoice(choices, v.dbs) : null });
+  const [saved, setSaved] = React.useState(() => {
+    const { keep, ...rest } = initial;
+    return snap({ ...rest, keepRules: keep, dbs });
+  });
 
   const cron = toCron(plan);
   // The run times wait for the browser clock, so the server render matches the first client one.
   const now = useNow();
   const runs = enabled && now ? nextRuns(cron, props.timezone, 3, now) : null;
   const invalid = enabled && (!cron || !nextRuns(cron, props.timezone, 1));
-  const snapshot = JSON.stringify({
-    enabled,
-    plan: enabled ? plan : null,
-    retention,
-    retentionS3,
-    bucket,
-    local,
-    timeout,
-    lowPriority,
-    encrypt,
-    passphrase,
-    verify,
-    copies,
-    keepRules,
-    dbs: choices ? savedChoice(choices, dbs) : null,
-  });
+  const snapshot = snap({ enabled, plan, retention, retentionS3, bucket, local, timeout, lowPriority, encrypt, passphrase, verify, users, copies, keepRules, dbs });
   // Turning encryption on needs a passphrase; a new one replaces the saved one, empty keeps it.
   const needsPassphrase = encrypt && !props.encrypted && passphrase.length < 8;
   const backupPassphrase = encrypt ? passphrase || undefined : null;
@@ -212,6 +216,7 @@ export function ScheduleCard(props: {
           backupLowPriority: lowPriority,
           ...(backupPassphrase !== undefined ? { backupPassphrase } : {}),
           backupVerify: verify,
+          ...(props.users !== undefined ? { backupUsers: users } : {}),
           backupCopyDestinationIds: copyIds,
           backupKeep: keepSaved,
           ...(choices ? { backupDatabases: savedChoice(choices, dbs) } : {}),
@@ -390,137 +395,172 @@ export function ScheduleCard(props: {
           </>
         )}
 
-        {choices && (
-          <Field label="Databases to back up" description="Every backup takes these, also Back up now (which can pick others).">
-            <DatabasePicker choices={choices} value={dbs} onChange={setDbs} disabled={!props.canEdit} scheduled />
-          </Field>
-        )}
-
-        <Field label="Store backups in">
-          <div className="flex flex-col gap-2">
-            {[{ id: "local", name: "This server", bucket: null as string | null }, ...props.destinations].map((d) => {
-              // The server and any number of buckets; the first bucket picked is the main one, the
-              // others get copies. At least one place is always kept.
-              const on = d.id === "local" ? local : bucket === d.id || copies.includes(d.id);
-              const toggle = () => {
-                if (d.id === "local") {
-                  if (local && !bucket) return;
-                  setLocal(!local);
-                } else if (bucket === d.id) {
-                  const [next, ...rest] = copies.filter((c) => c !== d.id);
-                  setBucket(next ?? null);
-                  setCopies(rest);
-                  if (!next) setLocal(true);
-                } else if (copies.includes(d.id)) setCopies(copies.filter((c) => c !== d.id));
-                else if (!bucket) setBucket(d.id);
-                else setCopies([...copies, d.id]);
-              };
-              const last = on && (d.id === "local" ? !bucket : !local);
-              return (
-                <button
-                  key={d.id}
-                  type="button"
-                  disabled={!props.canEdit}
-                  onClick={toggle}
-                  title={last ? "Backups are kept somewhere: pick another place first." : undefined}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
-                    on ? "border-accent bg-accent-soft/40" : "border-line hover:bg-hover",
-                  )}
-                  aria-pressed={on}
-                >
-                  <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-surface-2 text-fg-2">
-                    {d.id === "local" ? <HardDrive className="size-4" /> : <Cloud className="size-4" />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-fg">{d.name}</span>
-                    <span className="block truncate text-xs text-muted">
-                      {d.bucket ? `Bucket ${d.bucket}${copies.includes(d.id) ? " · a copy" : ""}` : "Kept in the data directory; lost if the server is lost"}
-                    </span>
-                  </span>
-                  {on && <Check className="size-4 flex-none text-accent" />}
-                </button>
-              );
-            })}
-            {bucket && !local && (
-              <p className="text-xs leading-relaxed text-muted">In the bucket only: each copy leaves the server once it is uploaded. Restores download it first.</p>
-            )}
-            {props.destinations.length === 0 && (
-              <p className="text-xs text-muted">
-                Add S3, R2 or B2 in{" "}
-                <Link href="/integrations/storage" className="text-accent hover:underline">
-                  S3 storage
-                </Link>{" "}
-                for off-site copies.
-              </p>
+        {!enabled && !open && !dirty ? (
+          <div className="flex items-center gap-3 rounded-xl bg-surface-2 px-3.5 py-3">
+            <p className="min-w-0 flex-1 text-[12.5px] text-muted">
+              <span className="font-medium text-fg-2">Back up now: </span>
+              {[
+                choices ? pickedLabel(dbs) : null,
+                [local && "this server", ...[bucket, ...copies].filter(Boolean).map((id) => props.destinations.find((d) => d.id === id)?.name)].filter(Boolean).join(" + "),
+                encrypt ? "encrypted" : null,
+                users ? "with users" : null,
+                verify ? "tested daily" : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            {props.canEdit && (
+              <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+                Edit
+              </Button>
             )}
           </div>
-        </Field>
-        {dumps && (
-          <div className="flex flex-col gap-4 border-t border-line pt-5">
-            <Field label="Time limit" optional description="Longer backups are stopped and marked failed.">
-              <InputGroup suffix="min">
-                <Input
-                  value={timeout}
-                  onChange={(e) => setTimeoutValue(e.target.value.replace(/\D/g, "").slice(0, 5))}
-                  placeholder="No limit"
-                  inputMode="numeric"
-                  disabled={!props.canEdit}
-                />
-              </InputGroup>
-            </Field>
-            <SwitchRow
-              title="Low CPU priority"
-              description="Apps get the CPU first. Backups take longer."
-              checked={lowPriority}
-              onCheckedChange={setLowPriority}
-              disabled={!props.canEdit}
-            />
-          </div>
-        )}
-        {!props.target && (
-          <div className="border-t border-line pt-5">
-            <SwitchRow
-              title="Test backups daily"
-              description="Each day the newest backup is restored into a throwaway database on the same server, to prove it works. You are notified when one fails."
-              checked={verify}
-              onCheckedChange={setVerify}
-              disabled={!props.canEdit}
-            />
-          </div>
-        )}
-        <div className="flex flex-col gap-3 border-t border-line pt-5">
-          <SwitchRow
-            title="Encrypt backups"
-            description="With a passphrase you choose, before they are stored or uploaded. Serve decrypts them when restoring."
-            checked={encrypt}
-            onCheckedChange={setEncrypt}
-            disabled={!props.canEdit}
-          />
-          {encrypt && (
-            <>
-              <Field
-                label={props.encrypted ? "New passphrase" : "Passphrase"}
-                optional={props.encrypted}
-                description={props.encrypted ? "Leave empty to keep the current one. Older backups keep the passphrase they were made with." : "At least 8 characters."}
-              >
-                <Input
-                  type="password"
-                  value={passphrase}
-                  onChange={(e) => setPassphrase(e.target.value)}
-                  placeholder={props.encrypted ? "••••••••" : ""}
-                  disabled={!props.canEdit}
-                />
+        ) : (
+          <>
+            {choices && (
+              <Field label="Databases to back up" description="Every backup takes these, also Back up now (which can pick others).">
+                <DatabasePicker choices={choices} value={dbs} onChange={setDbs} disabled={!props.canEdit} scheduled />
               </Field>
-              <p className="text-xs text-muted">
-                Keep the passphrase somewhere safe: without it no one can restore these backups. To open one without Serve:{" "}
-                <code className="font-mono text-[11.5px] text-fg-2">openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in FILE.enc -out FILE</code>
-              </p>
-            </>
-          )}
-        </div>
+            )}
+
+            <Field label="Store backups in">
+              <div className="flex flex-col gap-2">
+                {[{ id: "local", name: "This server", bucket: null as string | null }, ...props.destinations].map((d) => {
+                  // The server and any number of buckets; the first bucket picked is the main one, the
+                  // others get copies. At least one place is always kept.
+                  const on = d.id === "local" ? local : bucket === d.id || copies.includes(d.id);
+                  const toggle = () => {
+                    if (d.id === "local") {
+                      if (local && !bucket) return;
+                      setLocal(!local);
+                    } else if (bucket === d.id) {
+                      const [next, ...rest] = copies.filter((c) => c !== d.id);
+                      setBucket(next ?? null);
+                      setCopies(rest);
+                      if (!next) setLocal(true);
+                    } else if (copies.includes(d.id)) setCopies(copies.filter((c) => c !== d.id));
+                    else if (!bucket) setBucket(d.id);
+                    else setCopies([...copies, d.id]);
+                  };
+                  const last = on && (d.id === "local" ? !bucket : !local);
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      disabled={!props.canEdit}
+                      onClick={toggle}
+                      title={last ? "Backups are kept somewhere: pick another place first." : undefined}
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+                        on ? "border-accent bg-accent-soft/40" : "border-line hover:bg-hover",
+                      )}
+                      aria-pressed={on}
+                    >
+                      <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-surface-2 text-fg-2">
+                        {d.id === "local" ? <HardDrive className="size-4" /> : <Cloud className="size-4" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-fg">{d.name}</span>
+                        <span className="block truncate text-xs text-muted">
+                          {d.bucket ? `Bucket ${d.bucket}${copies.includes(d.id) ? " · a copy" : ""}` : "Kept in the data directory; lost if the server is lost"}
+                        </span>
+                      </span>
+                      {on && <Check className="size-4 flex-none text-accent" />}
+                    </button>
+                  );
+                })}
+                {bucket && !local && (
+                  <p className="text-xs leading-relaxed text-muted">In the bucket only: each copy leaves the server once it is uploaded. Restores download it first.</p>
+                )}
+                {props.destinations.length === 0 && (
+                  <p className="text-xs text-muted">
+                    Add S3, R2 or B2 in{" "}
+                    <Link href="/integrations/storage" className="text-accent hover:underline">
+                      S3 storage
+                    </Link>{" "}
+                    for off-site copies.
+                  </p>
+                )}
+              </div>
+            </Field>
+            {dumps && (
+              <div className="flex flex-col gap-4 border-t border-line pt-5">
+                <Field label="Time limit" optional description="Longer backups are stopped and marked failed.">
+                  <InputGroup suffix="min">
+                    <Input
+                      value={timeout}
+                      onChange={(e) => setTimeoutValue(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                      placeholder="No limit"
+                      inputMode="numeric"
+                      disabled={!props.canEdit}
+                    />
+                  </InputGroup>
+                </Field>
+                <SwitchRow
+                  title="Low CPU priority"
+                  description="Apps get the CPU first. Backups take longer."
+                  checked={lowPriority}
+                  onCheckedChange={setLowPriority}
+                  disabled={!props.canEdit}
+                />
+              </div>
+            )}
+            {props.users !== undefined && (
+              <div className="border-t border-line pt-5">
+                <SwitchRow
+                  title="Include users and passwords"
+                  description="Backups also save the server's database users, their passwords and rights. A restore brings them back only when you ask."
+                  checked={users}
+                  onCheckedChange={setUsers}
+                  disabled={!props.canEdit}
+                />
+              </div>
+            )}
+            {!props.target && (
+              <div className="border-t border-line pt-5">
+                <SwitchRow
+                  title="Test backups daily"
+                  description="Each day the newest backup is restored into a throwaway database on the same server, to prove it works. You are notified when one fails."
+                  checked={verify}
+                  onCheckedChange={setVerify}
+                  disabled={!props.canEdit}
+                />
+              </div>
+            )}
+            <div className="flex flex-col gap-3 border-t border-line pt-5">
+              <SwitchRow
+                title="Encrypt backups"
+                description="With a passphrase you choose, before they are stored or uploaded. Serve decrypts them when restoring."
+                checked={encrypt}
+                onCheckedChange={setEncrypt}
+                disabled={!props.canEdit}
+              />
+              {encrypt && (
+                <>
+                  <Field
+                    label={props.encrypted ? "New passphrase" : "Passphrase"}
+                    optional={props.encrypted}
+                    description={props.encrypted ? "Leave empty to keep the current one. Older backups keep the passphrase they were made with." : "At least 8 characters."}
+                  >
+                    <Input
+                      type="password"
+                      value={passphrase}
+                      onChange={(e) => setPassphrase(e.target.value)}
+                      placeholder={props.encrypted ? "••••••••" : ""}
+                      disabled={!props.canEdit}
+                    />
+                  </Field>
+                  <p className="text-xs text-muted">
+                    Keep the passphrase somewhere safe: without it no one can restore these backups. To open one without Serve:{" "}
+                    <code className="font-mono text-[11.5px] text-fg-2">openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in FILE.enc -out FILE</code>
+                  </p>
+                </>
+              )}
+            </div>
+          </>
+        )}
       </CardBody>
-      {props.canEdit && (
+      {props.canEdit && (enabled || open || dirty) && (
         <CardFooter>
           <span className="truncate text-xs text-muted">{dirty ? "Unsaved changes" : ""}</span>
           <div className="flex flex-none gap-2">
@@ -539,6 +579,7 @@ export function ScheduleCard(props: {
                   setLowPriority(initial.lowPriority);
                   setEncrypt(initial.encrypt);
                   setVerify(initial.verify);
+                  setUsers(initial.users);
                   setCopies(initial.copies);
                   setKeepRules(initial.keep);
                   setPassphrase("");

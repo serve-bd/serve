@@ -141,14 +141,15 @@ func (a *App) dbBackupSettingsCmd() *cobra.Command {
 	var schedule, bucket, passphrase string
 	var retention, retentionS3, keepDays, keepDaily, keepWeekly, keepMonthly, keepYearly int
 	var copyTo []string
-	var verify, noVerify, encrypt, noEncrypt, noSchedule bool
+	var verify, noVerify, users, noUsers, encrypt, noEncrypt, noSchedule bool
 	cmd := &cobra.Command{
 		Use:   "settings [database]",
 		Short: "Show or change a database's backup settings",
 		Long: `Without flags, show the backup settings. With flags, change those: --schedule (cron),
 --retention and --retention-s3 (backups kept), --keep-days, --keep-daily, --keep-weekly,
 --keep-monthly and --keep-yearly (kept on top of those), --bucket and --copy-to (S3 storages by
-name or id), --verify (test the newest backup each day), --encrypt with --passphrase or
+name or id), --verify (test the newest backup each day), --users (also save the server's users
+and passwords; Postgres, MySQL, MariaDB), --encrypt with --passphrase or
 SERVE_BACKUP_PASSPHRASE (8 characters or more), --no-encryption.`,
 		Example: "  serve db backups settings\n  serve db backups settings --schedule '0 3 * * *' --retention 7 --keep-monthly 12\n  SERVE_BACKUP_PASSPHRASE=... serve db backups settings --encrypt --verify",
 		Args:    maxArgs(1),
@@ -208,6 +209,9 @@ SERVE_BACKUP_PASSPHRASE (8 characters or more), --no-encryption.`,
 			if verify || noVerify {
 				body["verify"] = verify
 			}
+			if users || noUsers {
+				body["users"] = users
+			}
 			if encrypt {
 				p := firstNonEmpty(passphrase, os.Getenv("SERVE_BACKUP_PASSPHRASE"))
 				if len(p) < 8 {
@@ -245,6 +249,8 @@ SERVE_BACKUP_PASSPHRASE (8 characters or more), --no-encryption.`,
 	f.StringArrayVar(&copyTo, "copy-to", nil, "also copy each backup to this S3 storage (repeat)")
 	f.BoolVar(&verify, "verify", false, "test-restore the newest backup each day")
 	f.BoolVar(&noVerify, "no-verify", false, "stop the daily backup test")
+	f.BoolVar(&users, "users", false, "also save the server's users and passwords in backups")
+	f.BoolVar(&noUsers, "no-users", false, "stop saving users and passwords in backups")
 	f.BoolVar(&encrypt, "encrypt", false, "encrypt backups with --passphrase or SERVE_BACKUP_PASSPHRASE")
 	f.StringVar(&passphrase, "passphrase", "", "the passphrase for --encrypt")
 	f.BoolVar(&noEncrypt, "no-encryption", false, "stop encrypting backups")

@@ -260,6 +260,7 @@ export function BackupsManager(props: {
   /** Backups are encrypted with a passphrase. */
   encrypted?: boolean;
   verify?: boolean;
+  users?: boolean;
   copyDestinationIds?: string[];
   keep?: KeepRules | null;
   s3DestinationId: string | null;
@@ -378,6 +379,7 @@ export function BackupsManager(props: {
           lowPriority={props.lowPriority}
           encrypted={props.encrypted}
           verify={props.verify}
+          users={props.users}
           copyDestinationIds={props.copyDestinationIds}
           keep={props.keep}
           s3DestinationId={props.s3DestinationId}

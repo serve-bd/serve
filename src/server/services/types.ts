@@ -320,6 +320,8 @@ export type ComposeBackupConfig = {
   timeoutMinutes?: number | null;
   /** Run the dump (and its compression) at the lowest CPU priority. Database dumps only. */
   lowPriority?: boolean;
+  /** Backups are encrypted with this passphrase (stored encrypted with Serve's key). */
+  passphrase?: string | null;
 };
 
 export type ReplicaInstance = { id: string; serverId: string };
@@ -397,6 +399,8 @@ export type DatabaseConfig = {
   backupTimeoutMinutes?: number | null;
   /** Run backups (the dump and its compression) at the lowest CPU priority, so the database's own work comes first. */
   backupLowPriority?: boolean;
+  /** Backups are encrypted with this passphrase (stored encrypted with Serve's key); null: not encrypted. */
+  backupPassphrase?: string | null;
 
   /* Everything below is optional so older configs keep working. */
   description?: string | null;

@@ -1180,6 +1180,8 @@ export const backup = pgTable(
     size: bigint("size", { mode: "number" }),
     /** SHA-256 of the file as it was written: checked before a restore, so a damaged copy is caught. */
     checksum: text("checksum"),
+    /** Encrypted with a passphrase (the file ends in .enc): which one, as keyHint() of it. */
+    keyHint: text("key_hint"),
     destination: text("destination").notNull().default("local"),
     error: text("error"),
     trigger: text("trigger").notNull().default("manual"),

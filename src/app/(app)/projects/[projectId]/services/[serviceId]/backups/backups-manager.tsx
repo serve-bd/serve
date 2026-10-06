@@ -208,6 +208,8 @@ export function BackupsManager(props: {
   keepLocal?: boolean;
   timeoutMinutes?: number | null;
   lowPriority?: boolean;
+  /** Backups are encrypted with a passphrase. */
+  encrypted?: boolean;
   s3DestinationId: string | null;
   destinations: { id: string; name: string; bucket: string }[];
   timezone: string;
@@ -319,6 +321,7 @@ export function BackupsManager(props: {
           keepLocal={props.keepLocal}
           timeoutMinutes={props.timeoutMinutes}
           lowPriority={props.lowPriority}
+          encrypted={props.encrypted}
           s3DestinationId={props.s3DestinationId}
           destinations={props.destinations}
           timezone={props.timezone}

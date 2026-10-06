@@ -36,20 +36,31 @@ export function ImportCard(props: {
   const [key, setKey] = React.useState("");
   const [backupFirst, setBackupFirst] = React.useState(true);
   const [users, setUsers] = React.useState(false);
+  const [passphrase, setPassphrase] = React.useState("");
   const [progress, setProgress] = React.useState<number | null>(null);
   const [drag, setDrag] = React.useState(false);
   const input = React.useRef<HTMLInputElement>(null);
-  const remote = useAction(() => importBackupFromRemote(props.serviceId, source === "url" ? { kind: "url", url } : { kind: "s3", destinationId: dest, key }, backupFirst, users), {
-    onSuccess: () => props.onStarted(),
-  });
+  const remote = useAction(
+    () => importBackupFromRemote(props.serviceId, source === "url" ? { kind: "url", url } : { kind: "s3", destinationId: dest, key }, backupFirst, users, passphrase || undefined),
+    {
+      onSuccess: () => props.onStarted(),
+    },
+  );
 
-  const extOk = (name: string) => props.extensions.some((e) => name.toLowerCase().endsWith(e));
-  const ready = props.running && (source === "upload" ? !!file && extOk(file.name) : source === "url" ? /^https?:\/\/.+/i.test(url) : !!dest && !!key.trim());
+  // Encrypted backups (from Serve, or openssl enc -aes-256-cbc -pbkdf2) end in .enc after the usual extension.
+  const extOk = (name: string) => props.extensions.some((e) => name.toLowerCase().endsWith(e) || name.toLowerCase().endsWith(`${e}.enc`));
+  const name = source === "upload" ? (file?.name ?? "") : source === "url" ? url.split("?")[0] : key;
+  const encrypted = name.toLowerCase().endsWith(".enc");
+  const ready =
+    props.running &&
+    (!encrypted || passphrase.length > 0) &&
+    (source === "upload" ? !!file && extOk(file.name) : source === "url" ? /^https?:\/\/.+/i.test(url) : !!dest && !!key.trim());
 
   const upload = (f: File) =>
     new Promise<void>((resolve) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `/api/services/${props.serviceId}/backups/import?filename=${encodeURIComponent(f.name)}${backupFirst ? "&backupFirst=1" : ""}${users ? "&users=1" : ""}`);
+      if (passphrase) xhr.setRequestHeader("x-backup-passphrase", passphrase);
       xhr.upload.onprogress = (e) => e.lengthComputable && setProgress(e.loaded / e.total);
       xhr.onload = () => {
         setProgress(null);
@@ -139,7 +150,13 @@ export function ImportCard(props: {
                 </>
               )}
             </button>
-            <input ref={input} type="file" className="hidden" accept={props.extensions.join(",")} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <input
+              ref={input}
+              type="file"
+              className="hidden"
+              accept={[...props.extensions, ...props.extensions.map((e) => `${e}.enc`)].join(",")}
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
             {file && !extOk(file.name) && <p className="text-xs text-bad">Choose a {props.extensions.join(", ")} file.</p>}
             {progress !== null && (
               <div className="flex flex-col gap-1">
@@ -174,6 +191,11 @@ export function ImportCard(props: {
             <span className="block text-xs text-muted">Recommended. The restore stops if this backup fails.</span>
           </span>
         </label>
+        {encrypted && (
+          <Field label="Backup passphrase" description="This file is encrypted. Enter the passphrase it was made with.">
+            <Input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
+          </Field>
+        )}
         {props.restoresUsers && (
           <label className="flex items-start gap-2 text-[13px] text-fg-2">
             <Checkbox checked={users} onCheckedChange={(c) => setUsers(!!c)} className="mt-0.5" />

@@ -3,7 +3,14 @@ import { db, schema, sql } from "@/server/db";
 import { newId } from "@/server/id";
 
 /** What a restore takes from a backup and where it goes (see RestoreOptions in backups). */
-export type RestoreChoice = { databases?: string[]; renames?: Record<string, string>; tables?: string[]; into?: string };
+export type RestoreChoice = {
+  databases?: string[];
+  renames?: Record<string, string>;
+  tables?: string[];
+  into?: string;
+  /** An encrypted backup's passphrase, encrypted with Serve's key (job payloads are stored). */
+  passphrase?: string;
+};
 
 export type JobType =
   | "deploy"

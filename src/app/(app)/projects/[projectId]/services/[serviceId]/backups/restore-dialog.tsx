@@ -37,6 +37,8 @@ export function RestoreDialog({
   const [backupFirst, setBackupFirst] = React.useState(true);
   const [users, setUsers] = React.useState(false);
   const [pending, setPending] = React.useState(false);
+  const [passphrase, setPassphrase] = React.useState("");
+  const [unlocking, setUnlocking] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -51,6 +53,7 @@ export function RestoreDialog({
     setBackupFirst(true);
     setUsers(false);
     setError(null);
+    setPassphrase("");
     void restoreChoices(backup.id).then((res) => {
       if (!res.ok) return setLoadError(res.error);
       setChoices(res.data);
@@ -68,7 +71,19 @@ export function RestoreDialog({
   const one = chosen.length === 1 ? chosen[0] : null;
   const tableList = one && choices?.tables ? one.tables : [];
   const shown = tableList.filter((t) => t.toLowerCase().includes(query.trim().toLowerCase()));
-  const ready = !!choices && (dbs.length === 0 || chosen.length > 0) && (!someTables || tables.size > 0);
+  const ready = !!choices && (dbs.length === 0 || chosen.length > 0) && (!someTables || tables.size > 0) && (!choices.encrypted || !choices.unreadable || !!passphrase);
+
+  // An encrypted backup made with another passphrase: read again with the one typed in.
+  const unlock = async () => {
+    if (!backup) return;
+    setUnlocking(true);
+    const res = await restoreChoices(backup.id, passphrase);
+    setUnlocking(false);
+    if (!res.ok) return setLoadError(res.error);
+    setChoices(res.data);
+    setPicked(Object.fromEntries(res.data.databases.map((d) => [d.name, true])));
+  };
+  const needsPassphrase = !!choices?.encrypted && !!choices.unreadable;
 
   const submit = async () => {
     if (!backup) return;
@@ -86,6 +101,7 @@ export function RestoreDialog({
       databases: chosen.length < dbs.length ? chosen.map((d) => d.name) : undefined,
       renames,
       tables: someTables && one ? [...tables] : undefined,
+      passphrase: passphrase || undefined,
     });
     setPending(false);
     if (!res.ok) return setError(res.error);
@@ -100,7 +116,19 @@ export function RestoreDialog({
         <DialogBody>
           {!choices && !loadError && <p className="text-[13px] text-muted">Reading the backup…</p>}
           {loadError && <p className="text-[13px] text-bad">{loadError}</p>}
-          {choices?.unreadable && (
+          {needsPassphrase && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[13px] font-medium text-fg-2">Backup passphrase</span>
+              <div className="flex gap-2">
+                <Input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="The passphrase it was made with" className="h-9" />
+                <Button size="sm" onClick={() => void unlock()} loading={unlocking} disabled={!passphrase}>
+                  Open
+                </Button>
+              </div>
+              <span className="text-xs text-muted">This backup is encrypted with a passphrase other than the current one.</span>
+            </div>
+          )}
+          {choices?.unreadable && !needsPassphrase && (
             <p className="flex items-start gap-1.5 text-xs text-warn">
               <TriangleAlert className="mt-px size-3.5 flex-none" /> Its databases and tables could not be listed, so the whole backup is restored: {choices.unreadable}
             </p>

@@ -5,6 +5,7 @@ import { databaseContainer } from "@/server/databases/container";
 import { PassThrough, Readable } from "node:stream";
 import readline from "node:readline";
 import zlib from "node:zlib";
+import { decryptFile, ENCRYPTED_SUFFIX, encryptFile, keyHint } from "./encrypt";
 import { accountsMergeSql, planSql, type SqlEngine, sqlFilterStream, sqlLineFilter } from "./sql-filter";
 import { pipeline } from "node:stream/promises";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -76,6 +77,8 @@ export type RestoreOptions = {
   renames?: Record<string, string>;
   tables?: string[];
   into?: string;
+  /** The passphrase of an encrypted backup made with another one (or imported). */
+  passphrase?: string | null;
 };
 
 export type Commands = {
@@ -115,6 +118,8 @@ type Target = {
   retentionS3: number;
   /** A copy stays on the server too; without it (a bucket only), it is removed once uploaded. */
   keepLocal: boolean;
+  /** Backups are encrypted with it. */
+  passphrase: string | null;
   dump(file: string): Promise<number>;
   /** `onStopped`: the containers a storage restore stopped (empty once they run again). */
   restore(file: string, log: (line: string) => void, onStopped?: (ids: string[]) => Promise<void>, opts?: RestoreOptions): Promise<{ out: string; format: string }>;
@@ -483,6 +488,7 @@ export async function targetOf(service: ServiceRow, key: string | null, database
       retention: cfg.backupRetention,
       retentionS3: cfg.backupRetentionS3 ?? cfg.backupRetention,
       keepLocal: !cfg.s3DestinationId || cfg.backupLocal !== false,
+      passphrase: cfg.backupPassphrase ? decrypt(cfg.backupPassphrase) : null,
       dump: async (file) => dumpWith(await databaseCommands(service, databases), file, { timeoutMinutes: cfg.backupTimeoutMinutes, lowPriority: cfg.backupLowPriority }),
       restore: async (file, log, _onStopped, opts) => restoreWith(await databaseCommands(service), file, log, opts),
     };
@@ -496,6 +502,7 @@ export async function targetOf(service: ServiceRow, key: string | null, database
     retention: cfg?.retention ?? 7,
     retentionS3: cfg?.retentionS3 ?? cfg?.retention ?? 7,
     keepLocal: !cfg?.s3DestinationId || cfg.local !== false,
+    passphrase: cfg?.passphrase ? decrypt(cfg.passphrase) : null,
   };
   if (parsed.kind === "db") {
     const commands = await composeCommands(service, parsed.name);
@@ -619,12 +626,28 @@ export async function runBackup(backupId: string, protect?: string) {
     // What it takes, not what was asked: chosen databases the server no longer has are not in it,
     // and with none left it is the usual backup of the main database (null).
     if (!backup.target && (databases || backup.databases)) await db.update(schema.backup).set({ databases }).where(eq(schema.backup.id, backup.id));
-    const filename = `${t.stem}-${stamp}.${t.extension}`;
+    let filename = `${t.stem}-${stamp}.${t.extension}`;
     file = backupFile(service.id, filename);
     // Known before the dump starts, so a restart mid-way can remove the partial file.
     await db.update(schema.backup).set({ filename }).where(eq(schema.backup.id, backup.id));
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
-    const size = await t.dump(file);
+    let size = await t.dump(file);
+    let hint: string | null = null;
+    if (t.passphrase) {
+      // Encrypted before it is stored or uploaded; the plain dump never stays on disk.
+      const plain = file;
+      file = `${plain}${ENCRYPTED_SUFFIX}`;
+      filename = `${filename}${ENCRYPTED_SUFFIX}`;
+      await db.update(schema.backup).set({ filename }).where(eq(schema.backup.id, backup.id));
+      try {
+        await encryptFile(plain, file, t.passphrase);
+      } finally {
+        await fs.promises.rm(plain, { force: true });
+      }
+      size = (await fs.promises.stat(file)).size;
+      hint = keyHint(t.passphrase);
+      await logLine(backup.id, "Encrypted with the backup passphrase");
+    }
     const checksum = await fileSha256(file);
 
     await logLine(backup.id, `Dumped ${filename} (${size} bytes, SHA-256 ${checksum.slice(0, 12)})`);
@@ -645,7 +668,7 @@ export async function runBackup(backupId: string, protect?: string) {
 
     await db
       .update(schema.backup)
-      .set({ status: "success", filename, size, checksum, destination: s3Status === "uploaded" ? s3!.id : "local", s3Status, finishedAt: new Date() })
+      .set({ status: "success", filename, size, checksum, keyHint: hint, destination: s3Status === "uploaded" ? s3!.id : "local", s3Status, finishedAt: new Date() })
       .where(eq(schema.backup.id, backup.id));
     // The backup is done: a failing cleanup of older ones must not undo it.
     await applyRetention(service.id, backup.target, t.keepLocal ? t.retention : 0, t.retentionS3, protect).catch((e) =>
@@ -848,7 +871,7 @@ const contentsCache = new Map<string, BackupContents>();
  * read once; a Postgres custom dump is listed by pg_restore in the database's container. Empty
  * when nothing can be chosen (Redis, Valkey, ClickHouse, compose targets, MongoDB without a list).
  */
-export async function backupContents(backupId: string): Promise<BackupContents> {
+export async function backupContents(backupId: string, passphrase?: string | null): Promise<BackupContents> {
   const hit = contentsCache.get(backupId);
   if (hit) return hit;
   const backup = await db.query.backup.findFirst({ where: eq(schema.backup.id, backupId), with: { service: true } });
@@ -859,28 +882,53 @@ export async function backupContents(backupId: string): Promise<BackupContents> 
   if (cfg.engine === "mongodb") {
     result = { databases: (backup.databases ?? []).filter((d) => d !== "*" && !d.startsWith("!")).map((d) => ({ name: d, label: d, tables: [] })), tables: false };
   } else if (cfg.engine === "postgres" || cfg.engine === "mysql" || cfg.engine === "mariadb") {
-    const file = await localBackupFile(backup);
-    await checkIntegrity(backup, file);
-    const gz = /\.gz$/i.test(file);
-    const custom = cfg.engine === "postgres" && (await peek(file, gz, 5)).toString("latin1") === "PGDMP";
-    if (custom) {
-      let listing = "";
-      await runIn(await databaseCommands(backup.service), "pg_restore -l", fs.createReadStream(file), gz, (text) => {
-        listing += `${text}\n`;
-      });
-      const name = listing.match(/^;\s+dbname:\s+(.+)$/m)?.[1]?.trim() ?? main;
-      const tables = [...listing.matchAll(/^\d+;\s+\d+\s+\d+\s+TABLE\s+(?!DATA\s)(\S+)\s+(\S+)\s/gm)].map((m) => `${m[1]}.${m[2]}`);
-      result = { databases: [{ name: "", label: name, tables: [...new Set(tables)] }], tables: true };
-    } else {
-      const src = fs.createReadStream(file);
-      const lines = readline.createInterface({ input: gz ? src.pipe(zlib.createGunzip()) : src, crlfDelay: Number.POSITIVE_INFINITY });
-      const plan = await planSql(cfg.engine, lines).finally(() => src.destroy());
-      result = { databases: plan.databases.map((d) => ({ name: d, label: d || main, tables: plan.tables?.[d] ?? [] })), tables: true };
+    const opened = await openBackupFile(backup, await localBackupFile(backup), passphrase);
+    const file = opened.file;
+    try {
+      const gz = /\.gz$/i.test(file);
+      const custom = cfg.engine === "postgres" && (await peek(file, gz, 5)).toString("latin1") === "PGDMP";
+      if (custom) {
+        let listing = "";
+        await runIn(await databaseCommands(backup.service), "pg_restore -l", fs.createReadStream(file), gz, (text) => {
+          listing += `${text}\n`;
+        });
+        const name = listing.match(/^;\s+dbname:\s+(.+)$/m)?.[1]?.trim() ?? main;
+        const tables = [...listing.matchAll(/^\d+;\s+\d+\s+\d+\s+TABLE\s+(?!DATA\s)(\S+)\s+(\S+)\s/gm)].map((m) => `${m[1]}.${m[2]}`);
+        result = { databases: [{ name: "", label: name, tables: [...new Set(tables)] }], tables: true };
+      } else {
+        const src = fs.createReadStream(file);
+        const lines = readline.createInterface({ input: gz ? src.pipe(zlib.createGunzip()) : src, crlfDelay: Number.POSITIVE_INFINITY });
+        const plan = await planSql(cfg.engine, lines).finally(() => src.destroy());
+        result = { databases: plan.databases.map((d) => ({ name: d, label: d || main, tables: plan.tables?.[d] ?? [] })), tables: true };
+      }
+    } finally {
+      await opened.done();
     }
   }
   if (contentsCache.size > 200) contentsCache.clear();
   contentsCache.set(backupId, result);
   return result;
+}
+
+/** The passphrase a service's backups are made with now (null when they are not encrypted). */
+function passphraseOf(service: ServiceRow, target: string | null) {
+  const stored = target ? service.composeBackups?.[target]?.passphrase : service.database?.backupPassphrase;
+  return stored ? decrypt(stored) : null;
+}
+
+/**
+ * The backup's file ready to read: an encrypted one is decrypted next to it into a temporary file
+ * (removed by `done`), with the passphrase given, else the service's when it is the one it was made with.
+ */
+export async function openBackupFile(backup: typeof schema.backup.$inferSelect & { service: ServiceRow }, file: string, given?: string | null) {
+  if (!file.endsWith(ENCRYPTED_SUFFIX)) return { file, done: async () => {} };
+  const own = passphraseOf(backup.service, backup.target);
+  const passphrase = given || (own && (!backup.keyHint || keyHint(own) === backup.keyHint) ? own : null);
+  if (!passphrase) throw new Error("This backup is encrypted with another passphrase. Enter it to restore.");
+  const plain = path.join(path.dirname(file), `.restoring-${crypto.randomBytes(4).toString("hex")}-${path.basename(file).slice(0, -ENCRYPTED_SUFFIX.length)}`);
+  await logLine(backup.id, "Decrypting");
+  await decryptFile(file, plain, passphrase);
+  return { file: plain, done: () => fs.promises.rm(plain, { force: true }) };
 }
 
 export async function restoreBackup(backupId: string, opts: RestoreOptions = {}) {
@@ -892,19 +940,23 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
   try {
     const t = await targetOf(service, opts.into ? null : backup.target);
     await logLine(backupId, `Restoring into ${t.label}`);
-    const file = await localBackupFile(backup);
-    const { out: clean, format } = await t.restore(
-      file,
-      (line) => void logLine(backupId, line),
-      async (ids) =>
-        void (await db
-          .update(schema.backup)
-          .set({ restoreStopped: ids.length ? ids : null })
-          .where(eq(schema.backup.id, backupId))),
-      // Into its own service (an import, a backup): every database the dump names keeps that name,
-      // as the apps' code may use it. Into another service, a single database becomes that one's.
-      { ...opts, keepNames: opts.into ? !!opts.keepNames : !backup.target },
-    );
+    const stored = await localBackupFile(backup);
+    await checkIntegrity(backup, stored);
+    const opened = await openBackupFile(backup, stored, opts.passphrase);
+    const { out: clean, format } = await t
+      .restore(
+        opened.file,
+        (line) => void logLine(backupId, line),
+        async (ids) =>
+          void (await db
+            .update(schema.backup)
+            .set({ restoreStopped: ids.length ? ids : null })
+            .where(eq(schema.backup.id, backupId))),
+        // Into its own service (an import, a backup): every database the dump names keeps that name,
+        // as the apps' code may use it. Into another service, a single database becomes that one's.
+        { ...opts, keepNames: opts.into ? !!opts.keepNames : !backup.target },
+      )
+      .finally(opened.done);
     // Database restores logged their format and output as they ran.
     if (format === "tar.gz" && clean) await logLine(backupId, clean.slice(-2000));
     await db.update(schema.backup).set({ restoreStatus: "success", restoredAt: new Date() }).where(eq(schema.backup.id, backupId));
@@ -960,7 +1012,8 @@ export function importFilename(engine: DatabaseConfig["engine"], slug: string, o
     .toLowerCase()
     .replace(/[^a-z0-9._-]/g, "-")
     .slice(-80);
-  const ext = IMPORT_EXTENSIONS[engine].find((e) => base.endsWith(e));
+  // An encrypted backup (.enc after the usual extension) is imported as it is, decrypted when restored.
+  const ext = IMPORT_EXTENSIONS[engine].find((e) => base.endsWith(e) || base.endsWith(`${e}${ENCRYPTED_SUFFIX}`));
   if (!ext) throw new Error(`Upload a ${IMPORT_EXTENSIONS[engine].join(", ")} file.`);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   return `${slug}-import-${stamp}-${base}`;
@@ -1044,7 +1097,7 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
       throw new Error("The safety backup failed, so nothing was restored.");
     }
   }
-  await restoreBackup(backupId, { users: opts.users, databases: opts.databases, renames: opts.renames, tables: opts.tables, into: opts.into });
+  await restoreBackup(backupId, { users: opts.users, databases: opts.databases, renames: opts.renames, tables: opts.tables, into: opts.into, passphrase: opts.passphrase });
 }
 
 /**

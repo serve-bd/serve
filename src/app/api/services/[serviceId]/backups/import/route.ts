@@ -1,3 +1,4 @@
+import { encrypt } from "@/server/crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -77,7 +78,13 @@ export async function POST(request: Request, ctx: RouteContext<"/api/services/[s
   await db.insert(schema.backup).values({ id, serviceId, trigger: "import", status: "running", filename, size, log: `Uploaded ${filename} (${size} bytes)\n` });
   await enqueue(
     "backup.import",
-    { backupId: id, backupFirst: url.searchParams.get("backupFirst") === "1", users: url.searchParams.get("users") === "1" },
+    {
+      backupId: id,
+      backupFirst: url.searchParams.get("backupFirst") === "1",
+      users: url.searchParams.get("users") === "1",
+      // An encrypted file's passphrase comes in a header (never the URL, which logs keep); stored encrypted.
+      ...(request.headers.get("x-backup-passphrase") ? { passphrase: encrypt(request.headers.get("x-backup-passphrase")!) } : {}),
+    },
     { concurrencyKey: `backup:${serviceId}` },
   );
   await logActivity({

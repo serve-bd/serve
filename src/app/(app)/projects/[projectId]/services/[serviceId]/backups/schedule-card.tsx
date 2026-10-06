@@ -81,6 +81,8 @@ export function ScheduleCard(props: {
   /** Database dumps: minutes a backup may take (null: no limit), and whether it runs at low CPU priority. */
   timeoutMinutes?: number | null;
   lowPriority?: boolean;
+  /** Backups are encrypted with a passphrase (never sent here, only whether there is one). */
+  encrypted?: boolean;
 }) {
   const dumps = props.noun !== "copies";
   const choices = props.databaseChoices ?? null;
@@ -96,8 +98,10 @@ export function ScheduleCard(props: {
       local: !props.s3DestinationId || props.keepLocal !== false,
       timeout: props.timeoutMinutes ? String(props.timeoutMinutes) : "",
       lowPriority: !!props.lowPriority,
+      encrypt: !!props.encrypted,
+      passphrase: "",
     }),
-    [props.schedule, props.retention, props.retentionS3, props.s3DestinationId, props.keepLocal, props.timeoutMinutes, props.lowPriority],
+    [props.schedule, props.retention, props.retentionS3, props.s3DestinationId, props.keepLocal, props.timeoutMinutes, props.lowPriority, props.encrypted],
   );
   const [enabled, setEnabled] = React.useState(initial.enabled);
   const [plan, setPlan] = React.useState<Plan>(initial.plan);
@@ -107,6 +111,8 @@ export function ScheduleCard(props: {
   const [local, setLocal] = React.useState(initial.local);
   const [timeout, setTimeoutValue] = React.useState(initial.timeout);
   const [lowPriority, setLowPriority] = React.useState(initial.lowPriority);
+  const [encrypt, setEncrypt] = React.useState(initial.encrypt);
+  const [passphrase, setPassphrase] = React.useState("");
   // The plan only counts while the schedule is on: turned off, the saved schedule has none.
   const [saved, setSaved] = React.useState(() =>
     JSON.stringify({ ...initial, plan: initial.enabled ? initial.plan : null, dbs: props.databaseChoices?.selected?.length ? [...props.databaseChoices.selected].sort() : null }),
@@ -126,8 +132,13 @@ export function ScheduleCard(props: {
     local,
     timeout,
     lowPriority,
+    encrypt,
+    passphrase,
     dbs: choices ? savedChoice(choices, dbs) : null,
   });
+  // Turning encryption on needs a passphrase; a new one replaces the saved one, empty keeps it.
+  const needsPassphrase = encrypt && !props.encrypted && passphrase.length < 8;
+  const backupPassphrase = encrypt ? passphrase || undefined : null;
   const dirty = snapshot !== saved;
   const set = (patch: Partial<Plan>) => setPlan((p) => ({ ...p, ...patch }));
 
@@ -146,6 +157,7 @@ export function ScheduleCard(props: {
           local: onServer,
           timeoutMinutes: minutes,
           lowPriority,
+          passphrase: backupPassphrase,
         });
       return updateService(props.serviceId, {
         database: {
@@ -156,11 +168,17 @@ export function ScheduleCard(props: {
           backupLocal: onServer,
           backupTimeoutMinutes: minutes,
           backupLowPriority: lowPriority,
+          ...(backupPassphrase !== undefined ? { backupPassphrase } : {}),
           ...(choices ? { backupDatabases: savedChoice(choices, dbs) } : {}),
         },
       });
     },
-    { onSuccess: () => setSaved(snapshot) },
+    {
+      onSuccess: () => {
+        setPassphrase("");
+        setSaved(JSON.stringify({ ...JSON.parse(snapshot), passphrase: "" }));
+      },
+    },
   );
 
   const fmt = new Intl.DateTimeFormat(undefined, { timeZone: props.timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -385,6 +403,36 @@ export function ScheduleCard(props: {
             />
           </div>
         )}
+        <div className="flex flex-col gap-3 border-t border-line pt-5">
+          <SwitchRow
+            title="Encrypt backups"
+            description="With a passphrase you choose, before they are stored or uploaded. Serve decrypts them when restoring."
+            checked={encrypt}
+            onCheckedChange={setEncrypt}
+            disabled={!props.canEdit}
+          />
+          {encrypt && (
+            <>
+              <Field
+                label={props.encrypted ? "New passphrase" : "Passphrase"}
+                optional={props.encrypted}
+                description={props.encrypted ? "Leave empty to keep the current one. Older backups keep the passphrase they were made with." : "At least 8 characters."}
+              >
+                <Input
+                  type="password"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                  placeholder={props.encrypted ? "••••••••" : ""}
+                  disabled={!props.canEdit}
+                />
+              </Field>
+              <p className="text-xs text-muted">
+                Keep the passphrase somewhere safe: without it no one can restore these backups. To open one without Serve:{" "}
+                <code className="font-mono text-[11.5px] text-fg-2">openssl enc -d -aes-256-cbc -pbkdf2 -in FILE.enc -out FILE</code>
+              </p>
+            </>
+          )}
+        </div>
       </CardBody>
       {props.canEdit && (
         <CardFooter>
@@ -403,12 +451,14 @@ export function ScheduleCard(props: {
                   setLocal(initial.local);
                   setTimeoutValue(initial.timeout);
                   setLowPriority(initial.lowPriority);
+                  setEncrypt(initial.encrypt);
+                  setPassphrase("");
                 }}
               >
                 Discard
               </Button>
             )}
-            <Button size="sm" variant="primary" onClick={() => save.run()} loading={save.pending} disabled={!dirty || invalid}>
+            <Button size="sm" variant="primary" onClick={() => save.run()} loading={save.pending} disabled={!dirty || invalid || needsPassphrase}>
               Save
             </Button>
           </div>

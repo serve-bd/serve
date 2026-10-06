@@ -692,6 +692,8 @@ const updateSchema = z.object({
       backupLocal: z.boolean(),
       backupTimeoutMinutes: z.number().int().min(1).max(10080).nullable(),
       backupLowPriority: z.boolean(),
+      /** A new passphrase encrypts the backups from now on; null stops encrypting. */
+      backupPassphrase: z.string().min(8, "Use at least 8 characters for the passphrase").max(200).nullable(),
       s3DestinationId: z.string().nullable(),
     })
     .partial()
@@ -917,6 +919,8 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         if ((await heldDatabasePorts(service.serverId, { serviceId, holder: "database" })).has(nextPort) || (await busyHostPorts(service)).includes(nextPort))
           throw new UserError(`Port ${nextPort} is already used on this server.`);
       }
+      // Kept encrypted with Serve's key; the browser never gets it back.
+      if (typeof data.database.backupPassphrase === "string") data.database.backupPassphrase = encrypt(data.database.backupPassphrase);
       patch.database = { ...service.database, ...data.database, publicPort: nextPort === undefined ? service.database.publicPort : nextPort };
       // Public access changed by hand: it is the user's now, not something the domain opened.
       const before = service.database;
@@ -2096,7 +2100,7 @@ export async function backupDatabaseChoices(serviceId: string) {
 }
 
 /** What a restore can choose from: the backup's databases and tables, and where else it can go. */
-export async function restoreChoices(backupId: string) {
+export async function restoreChoices(backupId: string, passphrase?: string) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
     const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
@@ -2105,7 +2109,7 @@ export async function restoreChoices(backupId: string) {
     const { backupContents } = await import("@/server/backups");
     // A backup that cannot be listed (the database is stopped, say) can still be restored whole.
     let unreadable: string | null = null;
-    const contents = await backupContents(backupId).catch((e: Error) => {
+    const contents = await backupContents(backupId, passphrase || null).catch((e: Error) => {
       unreadable = e.message.split("\n").at(-1)?.slice(0, 300) ?? e.message;
       return { databases: [], tables: false };
     });
@@ -2128,7 +2132,8 @@ export async function restoreChoices(backupId: string) {
         )
           .filter((r) => r.id !== service.id && r.database?.engine === service.database?.engine && ctx.canAccessProject(r.projectId))
           .map((r) => ({ id: r.id, name: r.name, project: r.project, running: r.status === "running", database: r.database?.database ?? "" }));
-    return { ...contents, unreadable: unreadable as string | null, main: service.database?.database ?? "", service: { id: service.id, name: service.name }, others };
+    const encrypted = !!b.filename?.endsWith(".enc");
+    return { ...contents, encrypted, unreadable: unreadable as string | null, main: service.database?.database ?? "", service: { id: service.id, name: service.name }, others };
   });
 }
 
@@ -2138,7 +2143,7 @@ const SYSTEM_DATABASES = new Set(["mysql", "sys", "information_schema", "perform
 
 export async function restoreFromBackup(
   backupId: string,
-  opts: { backupFirst?: boolean; users?: boolean; into?: string; databases?: string[]; renames?: Record<string, string>; tables?: string[] } = {},
+  opts: { backupFirst?: boolean; users?: boolean; into?: string; databases?: string[]; renames?: Record<string, string>; tables?: string[]; passphrase?: string } = {},
 ) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
@@ -2163,6 +2168,7 @@ export async function restoreFromBackup(
       ...(opts.databases?.length ? { databases: opts.databases } : {}),
       ...(opts.renames && Object.keys(opts.renames).length ? { renames: opts.renames } : {}),
       ...(opts.tables?.length ? { tables: opts.tables } : {}),
+      ...(opts.passphrase ? { passphrase: encrypt(opts.passphrase) } : {}),
     };
     if (service.status !== "running") throw new UserError(service.type === "database" ? "Start the database before restoring." : "Start the service before restoring.");
     // A restore marks its backup running when queued. A second one would run after it and replace

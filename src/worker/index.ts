@@ -1,4 +1,5 @@
 // Must stay first: every other import may read the environment when it loads.
+import { decrypt } from "@/server/crypto";
 import "dotenv/config";
 
 // A rejected promise nobody awaits must not take the worker down.
@@ -96,10 +97,13 @@ async function handle(job: Job, signal: AbortSignal) {
     case "backup.run":
       return runBackup(p.backupId);
     case "backup.restore":
-      return void (await restoreBackup(p.backupId, (({ backupId: _, ...opts }) => opts)(job.payload as JobPayloads["backup.restore"])));
+      return void (await restoreBackup(
+        p.backupId,
+        (({ backupId: _, passphrase, ...opts }) => ({ ...opts, passphrase: passphrase ? decrypt(passphrase) : undefined }))(job.payload as JobPayloads["backup.restore"]),
+      ));
     case "backup.import": {
-      const { backupId, ...opts } = job.payload as JobPayloads["backup.import"];
-      return importBackup(backupId, opts);
+      const { backupId, passphrase, ...opts } = job.payload as JobPayloads["backup.import"];
+      return importBackup(backupId, { ...opts, passphrase: passphrase ? decrypt(passphrase) : undefined });
     }
     case "proxy.sync":
       await ensureProxy();

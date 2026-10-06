@@ -1,5 +1,6 @@
 "use server";
 
+import { encrypt } from "@/server/crypto";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { act, UserError } from "@/server/action";
@@ -75,6 +76,8 @@ const configSchema = z.object({
   local: z.boolean().optional(),
   timeoutMinutes: z.number().int().min(1).max(10080).nullable().optional(),
   lowPriority: z.boolean().optional(),
+  /** A new passphrase encrypts the backups from now on; null stops encrypting; left out keeps it. */
+  passphrase: z.string().min(8, "Use at least 8 characters for the passphrase").max(200).nullable().optional(),
 });
 
 /** Schedule, retention and S3 storage of one backup of a stack. */
@@ -101,7 +104,9 @@ export async function saveComposeBackup(serviceId: string, key: string, input: z
     }
     await updateConfigs(service.id, (now) => {
       if (!now[key]) throw new UserError("This backup was removed. Reload the page.");
-      return { ...now, [key]: data };
+      const { passphrase, ...rest } = data;
+      // Kept encrypted with Serve's key; the browser never gets it back.
+      return { ...now, [key]: { ...rest, passphrase: passphrase === undefined ? (now[key].passphrase ?? null) : passphrase ? encrypt(passphrase) : null } };
     });
     return null;
   });

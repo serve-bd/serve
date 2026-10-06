@@ -1296,6 +1296,8 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
     throw error;
   }
 
+  // Restoring from here on (the safety backup first): the import shows it right away.
+  await db.update(schema.backup).set({ restoreStatus: "running" }).where(eq(schema.backup.id, backupId));
   // A dump of another engine fails before anything is backed up or replaced.
   const engine = opts.into ? null : service.database?.engine;
   const wrong = engine && !backup.target && !backup.filename.endsWith(ENCRYPTED_SUFFIX) ? await wrongEngine(engine, file, /\.gz$/i.test(file) && engine !== "mongodb") : null;

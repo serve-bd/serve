@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Cloud, Link2, TriangleAlert, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/misc";
@@ -123,7 +124,7 @@ export function ImportCard(props: {
             <Tab value="url">
               <Link2 /> From URL
             </Tab>
-            <Tab value="s3" disabled={!props.destinations.length}>
+            <Tab value="s3">
               <Cloud /> From bucket
             </Tab>
           </TabsList>
@@ -186,7 +187,16 @@ export function ImportCard(props: {
             <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/backups/app.dump" className="font-mono text-[13px]" />
           </Field>
         )}
-        {source === "s3" && (
+        {source === "s3" && !props.destinations.length && (
+          <p className="text-[13px] text-muted">
+            No S3 storage yet. Add one in{" "}
+            <Link href="/integrations/storage" className="text-accent hover:underline">
+              S3 storage
+            </Link>{" "}
+            to import a backup from a bucket.
+          </p>
+        )}
+        {source === "s3" && props.destinations.length > 0 && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_minmax(0,1fr)]">
             <Field label="Storage">
               <Select value={dest} onValueChange={setDest} options={props.destinations.map((d) => ({ value: d.id, label: d.name, description: d.bucket }))} />

@@ -4,7 +4,6 @@ import { requireOrg } from "@/server/auth";
 import { db, schema } from "@/server/db";
 import { pageService } from "@/server/services/access";
 import { PageBody } from "@/components/shell/page-header";
-import { AutoBackup } from "./auto-backup";
 import { BackupsManager } from "./backups-manager";
 import { ComposeBackups } from "./compose-backups";
 import { composeDatabases } from "@/server/backups/compose";
@@ -82,27 +81,6 @@ export async function backupsPage(params: Promise<{ projectId: string; serviceId
   const databaseChoices =
     choices?.ok && choices.data.supported ? { databases: choices.data.databases, selected: choices.data.selected, main: choices.data.main, engine: service.database.engine } : null;
   if (view === "import" && !ctx.isAdmin) redirect(`/projects/${projectId}/services/${serviceId}/backups`);
-  if (view === "auto")
-    return (
-      <AutoBackup
-        serviceId={service.id}
-        canEdit={ctx.isAdmin}
-        timezone={settings.timezone}
-        schedule={service.database.backupSchedule ?? null}
-        retention={service.database.backupRetention}
-        retentionS3={service.database.backupRetentionS3 ?? null}
-        s3DestinationId={service.database.s3DestinationId ?? null}
-        keepLocal={service.database.backupLocal !== false}
-        copyDestinationIds={service.database.backupCopyDestinationIds ?? []}
-        destinations={destinations}
-        databaseChoices={databaseChoices}
-        timeoutMinutes={service.database.backupTimeoutMinutes ?? null}
-        lowPriority={!!service.database.backupLowPriority}
-        users={["postgres", "mysql", "mariadb"].includes(service.database.engine) ? !!service.database.backupUsers : undefined}
-        verify={!!service.database.backupVerify}
-        encrypted={!!service.database.backupPassphrase}
-      />
-    );
   return (
     <BackupsManager
       view={view}

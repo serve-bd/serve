@@ -201,55 +201,22 @@ export function ScheduleCard(props: {
         description={`Scheduled ${props.noun ?? "dumps"} with automatic cleanup.`}
         actions={<Switch checked={enabled} onCheckedChange={setEnabled} disabled={!props.canEdit} aria-label="Automatic backups" />}
       />
-      <CardBody className="flex flex-col gap-5 py-5">
+      <CardBody className="@container py-0">
         {!enabled ? (
-          <p className="text-[13px] leading-relaxed text-muted">Off. Backups only run when you click Back up now. Turn this on to take them on a schedule.</p>
+          <p className="py-5 text-[13px] leading-relaxed text-muted">Off. Backups only run when you click Back up now. Turn this on to take them on a schedule.</p>
         ) : (
-          <>
-            <PlanEditor plan={plan} onChange={setPlan} timezone={props.timezone} />
+          <div className="flex flex-col divide-y divide-line">
+            <Group title="Schedule" description="When backups run.">
+              <PlanEditor plan={plan} onChange={setPlan} timezone={props.timezone} />
+            </Group>
 
-            {/* Two columns only when there are two fields: one alone takes the full width. */}
-            <div className={cn("grid grid-cols-1 gap-4", bucket && local && "sm:grid-cols-2")}>
-              {local && (
-                <Field label={bucket ? "Keep on this server" : "Keep the latest"} description="Older copies are deleted automatically.">
-                  <InputGroup suffix="backups" className="w-full">
-                    <Input
-                      value={retention}
-                      onChange={(e) => setRetention(e.target.value.replace(/\D/g, "").slice(0, 3))}
-                      inputMode="numeric"
-                      className="min-w-0 flex-1 font-mono"
-                    />
-                  </InputGroup>
-                </Field>
-              )}
-              {bucket && (
-                <Field
-                  label={local ? "Keep in bucket" : "Keep the latest"}
-                  description={local ? "Usually longer: off-site history." : "Older copies are deleted from the bucket automatically."}
-                >
-                  <InputGroup suffix="backups" className="w-full">
-                    <Input
-                      value={retentionS3}
-                      onChange={(e) => setRetentionS3(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                      inputMode="numeric"
-                      className="min-w-0 flex-1 font-mono"
-                    />
-                  </InputGroup>
-                </Field>
-              )}
-            </div>
-          </>
-        )}
-
-        {enabled && (
-          <>
             {choices && (
-              <Field label="Databases to back up" description="Every backup takes these, also Back up now (which can pick others).">
+              <Group title="Databases" description="What each backup takes. Back up now can pick others.">
                 <DatabasePicker choices={choices} value={dbs} onChange={setDbs} disabled={!props.canEdit} scheduled />
-              </Field>
+              </Group>
             )}
 
-            <Field label="Store backups in">
+            <Group title="Storage" description="Where backups are kept, and how many.">
               <StoragePlaces
                 destinations={props.destinations}
                 value={{ bucket, local, copies }}
@@ -260,59 +227,90 @@ export function ScheduleCard(props: {
                 }}
                 disabled={!props.canEdit}
               />
-            </Field>
-            {dumps && (
-              <div className="flex flex-col gap-4 border-t border-line pt-5">
-                <Field label="Time limit" optional description="Longer backups are stopped and marked failed.">
-                  <InputGroup suffix="min">
-                    <Input
-                      value={timeout}
-                      onChange={(e) => setTimeoutValue(e.target.value.replace(/\D/g, "").slice(0, 5))}
-                      placeholder="No limit"
-                      inputMode="numeric"
+              <div className="grid grid-cols-1 gap-4 @md:grid-cols-2">
+                {local && (
+                  <Field label={bucket ? "Keep on this server" : "Keep the latest"} description="Older backups are deleted.">
+                    <InputGroup suffix="backups" className="w-full">
+                      <Input
+                        value={retention}
+                        onChange={(e) => setRetention(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                        inputMode="numeric"
+                        className="min-w-0 flex-1 font-mono"
+                        disabled={!props.canEdit}
+                      />
+                    </InputGroup>
+                  </Field>
+                )}
+                {bucket && (
+                  <Field label={local ? "Keep in buckets" : "Keep the latest"} description="Older copies are deleted from the buckets.">
+                    <InputGroup suffix="backups" className="w-full">
+                      <Input
+                        value={retentionS3}
+                        onChange={(e) => setRetentionS3(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                        inputMode="numeric"
+                        className="min-w-0 flex-1 font-mono"
+                        disabled={!props.canEdit}
+                      />
+                    </InputGroup>
+                  </Field>
+                )}
+              </div>
+            </Group>
+
+            {(dumps || props.users !== undefined || !props.target) && (
+              <Group title="Options" description="How backups run.">
+                <div className="flex flex-col divide-y divide-line [&>*]:py-3 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
+                  {dumps && (
+                    <div className="flex items-start justify-between gap-6">
+                      <span className="flex flex-col gap-0.5">
+                        <span className="text-sm font-medium text-fg">Time limit</span>
+                        <span className="text-[13px] text-muted">A backup that runs longer is stopped and marked failed.</span>
+                      </span>
+                      <InputGroup suffix="min" className="w-32 flex-none">
+                        <Input
+                          value={timeout}
+                          onChange={(e) => setTimeoutValue(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                          placeholder="None"
+                          inputMode="numeric"
+                          aria-label="Time limit in minutes"
+                          disabled={!props.canEdit}
+                        />
+                      </InputGroup>
+                    </div>
+                  )}
+                  {dumps && (
+                    <SwitchRow
+                      title="Low CPU priority"
+                      description="Apps get the CPU first. Backups take longer."
+                      checked={lowPriority}
+                      onCheckedChange={setLowPriority}
                       disabled={!props.canEdit}
                     />
-                  </InputGroup>
-                </Field>
-                <SwitchRow
-                  title="Low CPU priority"
-                  description="Apps get the CPU first. Backups take longer."
-                  checked={lowPriority}
-                  onCheckedChange={setLowPriority}
-                  disabled={!props.canEdit}
-                />
-              </div>
+                  )}
+                  {props.users !== undefined && (
+                    <SwitchRow
+                      title="Include users and passwords"
+                      description="Also save the server's database users, passwords and rights. A restore brings them back only when you ask."
+                      checked={users}
+                      onCheckedChange={setUsers}
+                      disabled={!props.canEdit}
+                    />
+                  )}
+                  {!props.target && (
+                    <SwitchRow
+                      title="Test backups daily"
+                      description="Each day the newest backup is restored into a throwaway database to prove it works. You are notified when one fails."
+                      checked={verify}
+                      onCheckedChange={setVerify}
+                      disabled={!props.canEdit}
+                    />
+                  )}
+                </div>
+              </Group>
             )}
-            {props.users !== undefined && (
-              <div className="border-t border-line pt-5">
-                <SwitchRow
-                  title="Include users and passwords"
-                  description="Backups also save the server's database users, their passwords and rights. A restore brings them back only when you ask."
-                  checked={users}
-                  onCheckedChange={setUsers}
-                  disabled={!props.canEdit}
-                />
-              </div>
-            )}
-            {!props.target && (
-              <div className="border-t border-line pt-5">
-                <SwitchRow
-                  title="Test backups daily"
-                  description="Each day the newest backup is restored into a throwaway database on the same server, to prove it works. You are notified when one fails."
-                  checked={verify}
-                  onCheckedChange={setVerify}
-                  disabled={!props.canEdit}
-                />
-              </div>
-            )}
-            <div className="flex flex-col gap-3 border-t border-line pt-5">
-              <SwitchRow
-                title="Encrypt backups"
-                description="With a passphrase you choose, before they are stored or uploaded. Serve decrypts them when restoring."
-                checked={encrypt}
-                onCheckedChange={setEncrypt}
-                disabled={!props.canEdit}
-              />
+
+            <Group title="Encryption" description="With your passphrase, before backups are stored or uploaded.">
+              <SwitchRow title="Encrypt backups" checked={encrypt} onCheckedChange={setEncrypt} disabled={!props.canEdit} />
               {encrypt && (
                 <>
                   <Field
@@ -322,20 +320,21 @@ export function ScheduleCard(props: {
                   >
                     <Input
                       type="password"
+                      autoComplete="new-password"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
                       placeholder={props.encrypted ? "••••••••" : ""}
                       disabled={!props.canEdit}
                     />
                   </Field>
-                  <p className="text-xs text-muted">
-                    Keep the passphrase somewhere safe: without it no one can restore these backups. To open one without Serve:{" "}
-                    <code className="font-mono text-[11.5px] text-fg-2">openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in FILE.enc -out FILE</code>
+                  <p className="text-xs leading-relaxed text-muted">
+                    Keep it somewhere safe: without it no one can restore these backups. To open one without Serve:{" "}
+                    <code className="font-mono text-[11.5px] break-all text-fg-2">openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in FILE.enc -out FILE</code>
                   </p>
                 </>
               )}
-            </div>
-          </>
+            </Group>
+          </div>
         )}
       </CardBody>
       {props.canEdit && (enabled || dirty) && (
@@ -384,99 +383,104 @@ export function PlanEditor({ plan, onChange, timezone }: { plan: Plan; onChange:
   const now = useNow();
   const runs = now ? nextRuns(cron, timezone, 3, now) : null;
   const fmt = new Intl.DateTimeFormat(undefined, { timeZone: timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const zone = timezone.replace(/_/g, " ");
   return (
-    <>
-      <Field label="How often">
-        <div className="grid grid-cols-4 gap-1 rounded-xl bg-sunken p-1">
-          {(["hourly", "daily", "weekly", "custom"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => set({ mode: m, cron: m === "custom" && plan.mode !== "custom" ? cron : plan.cron })}
-              className={cn("h-8 rounded-lg text-[12.5px] font-medium capitalize transition-all", plan.mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-      </Field>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-start gap-4">
+        <Field label="Frequency">
+          <div className="inline-flex gap-1 rounded-xl bg-sunken p-1">
+            {(["hourly", "daily", "weekly", "custom"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={plan.mode === m}
+                onClick={() => set({ mode: m, cron: m === "custom" && plan.mode !== "custom" ? cron : plan.cron })}
+                className={cn(
+                  "h-8 rounded-lg px-3.5 text-[12.5px] font-medium capitalize transition-all",
+                  plan.mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg",
+                )}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </Field>
 
-      {plan.mode === "hourly" && (
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Every">
-            <Select
-              size="sm"
-              value={String(plan.everyHours)}
-              onValueChange={(v) => set({ everyHours: Number(v) })}
-              options={HOURS.map((h) => ({ value: String(h), label: h === 1 ? "hour" : `${h} hours` }))}
-            />
-          </Field>
-          <Field label="At minute">
-            <Select
-              size="sm"
-              value={String(plan.minute)}
-              onValueChange={(v) => set({ minute: Number(v) })}
-              options={[0, 15, 30, 45].map((m) => ({ value: String(m), label: `:${pad(m)}` }))}
-            />
-          </Field>
-        </div>
-      )}
-
-      {(plan.mode === "daily" || plan.mode === "weekly") && (
-        <>
-          {plan.mode === "weekly" && (
-            <Field label="On">
-              <div className="grid grid-cols-7 gap-1">
-                {DAYS.map((d, i) => {
-                  const on = plan.days.includes(i);
-                  return (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => set({ days: on ? plan.days.filter((x) => x !== i) : [...plan.days, i] })}
-                      className={cn(
-                        "h-8 rounded-lg text-[12px] font-medium ring-1 transition-colors",
-                        on ? "bg-accent text-accent-fg ring-accent" : "text-fg-2 ring-line hover:bg-hover",
-                      )}
-                      aria-pressed={on}
-                      aria-label={d}
-                      title={d}
-                    >
-                      {d.slice(0, 2)}
-                    </button>
-                  );
-                })}
-              </div>
+        {plan.mode === "hourly" && (
+          <>
+            <Field label="Every">
+              <Select
+                size="sm"
+                value={String(plan.everyHours)}
+                onValueChange={(v) => set({ everyHours: Number(v) })}
+                options={HOURS.map((h) => ({ value: String(h), label: h === 1 ? "hour" : `${h} hours` }))}
+              />
             </Field>
-          )}
-          <Field label="At" description={`Time in ${timezone.replace(/_/g, " ")}. Change it in Settings → General.`}>
+            <Field label="At minute">
+              <Select
+                size="sm"
+                value={String(plan.minute)}
+                onValueChange={(v) => set({ minute: Number(v) })}
+                options={[0, 15, 30, 45].map((m) => ({ value: String(m), label: `:${pad(m)}` }))}
+              />
+            </Field>
+          </>
+        )}
+
+        {(plan.mode === "daily" || plan.mode === "weekly") && (
+          <Field label="Time">
             <TimeInput value={plan.time} onChange={(time) => set({ time })} />
           </Field>
-        </>
-      )}
+        )}
 
-      {plan.mode === "custom" && (
-        <Field label="Cron expression" description="minute hour day-of-month month day-of-week" error={invalid ? "This is not a valid cron expression." : undefined}>
-          <Input value={plan.cron} onChange={(e) => set({ cron: e.target.value })} placeholder="30 2 * * *" className="font-mono" />
+        {plan.mode === "custom" && (
+          <Field label="Cron expression" className="min-w-56 flex-1" error={invalid ? "This is not a valid cron expression." : undefined}>
+            <Input value={plan.cron} onChange={(e) => set({ cron: e.target.value })} placeholder="30 2 * * *" className="font-mono" />
+          </Field>
+        )}
+      </div>
+
+      {plan.mode === "weekly" && (
+        <Field label="Days">
+          <div className="grid max-w-md grid-cols-7 gap-1">
+            {DAYS.map((d, i) => {
+              const on = plan.days.includes(i);
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => set({ days: on ? plan.days.filter((x) => x !== i) : [...plan.days, i] })}
+                  className={cn(
+                    "h-8 rounded-lg text-[12px] font-medium ring-1 transition-colors",
+                    on ? "bg-accent text-accent-fg ring-accent" : "text-fg-2 ring-line hover:bg-hover",
+                  )}
+                  aria-pressed={on}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
         </Field>
       )}
 
-      {runs && (
-        <div className="flex gap-2.5 rounded-xl bg-surface-2 px-3.5 py-3 text-[12.5px]">
-          <CalendarClock className="mt-0.5 size-4 flex-none text-accent" />
-          <div className="min-w-0">
-            <p className="font-medium text-fg">Next backup {fmt.format(runs[0])}</p>
-            <p className="text-muted">
-              Then{" "}
+      <p className="flex items-start gap-2 text-[12.5px] leading-relaxed text-muted">
+        <CalendarClock className="mt-0.5 size-3.5 flex-none text-accent" />
+        <span>
+          {runs ? (
+            <>
+              Next backup <span className="font-medium text-fg">{fmt.format(runs[0])}</span>, then{" "}
               {runs
                 .slice(1)
                 .map((d) => fmt.format(d))
-                .join(", ")}
-            </p>
-          </div>
-        </div>
-      )}
-    </>
+                .join(" and ")}
+              .{" "}
+            </>
+          ) : null}
+          Times are in {zone}, set in Settings → General.
+        </span>
+      </p>
+    </div>
   );
 }
 
@@ -549,5 +553,18 @@ export function StoragePlaces({
         </p>
       )}
     </div>
+  );
+}
+
+/** One part of the settings: its name on the left where the card is wide, above its controls where it is narrow. */
+function Group({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  return (
+    <section className="grid grid-cols-1 gap-4 py-6 @3xl:grid-cols-[13rem_minmax(0,1fr)] @3xl:gap-10">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-sm font-medium text-fg">{title}</h3>
+        <p className="text-[13px] leading-relaxed text-muted">{description}</p>
+      </div>
+      <div className="flex min-w-0 flex-col gap-4">{children}</div>
+    </section>
   );
 }

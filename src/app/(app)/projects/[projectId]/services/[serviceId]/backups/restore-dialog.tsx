@@ -22,7 +22,7 @@ export function RestoreDialog({
   onStarted,
   restoresUsers,
 }: {
-  backup: { id: string; filename: string | null } | null;
+  backup: { id: string; filename: string | null; trigger?: string } | null;
   onClose: () => void;
   onStarted: () => void;
   restoresUsers?: boolean;
@@ -30,6 +30,7 @@ export function RestoreDialog({
   const [choices, setChoices] = React.useState<Choices | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [into, setInto] = React.useState("");
+  const [elsewhere, setElsewhere] = React.useState(false);
   const [picked, setPicked] = React.useState<Record<string, boolean>>({});
   const [names, setNames] = React.useState<Record<string, string>>({});
   // A name typed in (Other name…) rather than picked from the server's databases.
@@ -49,6 +50,7 @@ export function RestoreDialog({
     setChoices(null);
     setLoadError(null);
     setInto("");
+    setElsewhere(false);
     setNames({});
     setSomeTables(false);
     setTables(new Set());
@@ -149,7 +151,13 @@ export function RestoreDialog({
           )}
           {choices && (
             <>
-              {choices.others.length > 0 && (
+              {/* This database, as a rule: another one (staging from production, say) only when asked for. */}
+              {choices.others.length > 0 && !elsewhere && backup?.trigger !== "import" && (
+                <button type="button" className="w-fit text-[13px] text-accent hover:underline" onClick={() => setElsewhere(true)}>
+                  Restore into another database…
+                </button>
+              )}
+              {choices.others.length > 0 && elsewhere && (
                 <div className="flex flex-col gap-1.5">
                   <span className="text-[13px] font-medium text-fg-2">Restore into</span>
                   <Select

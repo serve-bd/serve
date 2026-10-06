@@ -31,6 +31,8 @@ export type ServiceProxyConfig = {
    * which is stored too whenever a password is set (older configs lack it).
    */
   basicAuth?: { username: string; passwordHash: string; bcryptHash?: string | null } | null;
+  /** Login wall: only members who may reach the project get in, after signing in to Serve (src/server/gate.ts). */
+  login?: boolean;
   /** Only these IPs / CIDR ranges may connect. */
   allow?: string[];
   /** These IPs / CIDR ranges are refused. */
@@ -130,6 +132,7 @@ export const proxyInputSchema = z.object({
       password: z.string().min(6, "Use at least 6 characters").max(128).optional(),
     })
     .optional(),
+  login: z.boolean().optional(),
   allow: z.array(cidr).max(100).optional(),
   deny: z.array(cidr).max(100).optional(),
   headers: z
@@ -190,6 +193,8 @@ export function buildProxyConfig(input: z.output<typeof proxyInputSchema>, previ
     // Left out: the saved strategy stays (an API call with only the old sticky flag sets that).
     balancing: input.balancing ?? (input.sticky === undefined ? balancingOf(previous) : input.sticky ? "sticky" : "round-robin"),
     basicAuth,
+    // Left out (an older API caller): the wall stays as it was, never dropped by accident.
+    login: input.login ?? previous?.login ?? false,
     allow: input.allow ?? [],
     deny: input.deny ?? [],
     headers,

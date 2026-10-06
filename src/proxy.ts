@@ -18,11 +18,12 @@ const PUBLIC = [
   "/api/servers/join",
   "/api/agent",
   "/api/cli/login",
+  "/api/gate",
   "/status",
 ];
 
 /** Routes that go by a token or a signature, never the session cookie (better-auth checks its own origins). */
-const NOT_SESSION = ["/api/v1", "/api/webhooks", "/api/deploy-hooks", "/api/servers/join", "/api/agent", "/api/auth", "/api/github", "/api/cli/login"];
+const NOT_SESSION = ["/api/v1", "/api/webhooks", "/api/deploy-hooks", "/api/servers/join", "/api/agent", "/api/auth", "/api/github", "/api/cli/login", "/api/gate"];
 
 /**
  * A status page's own domain shows that page and nothing else: every path goes under

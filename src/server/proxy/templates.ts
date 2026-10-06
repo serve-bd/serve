@@ -364,6 +364,8 @@ export function maintenanceGeo(variable: string, allow: string[]) {
 export type SiteOptions = Omit<ServiceProxyConfig, "basicAuth"> & {
   /** htpasswd file path inside the proxy container when basic auth is on. */
   authFile?: string | null;
+  /** Login wall: the upstream block that reaches Serve (gateUpstreamBlock), and the service it asks about. */
+  gate?: { upstream: string; host: string; tls: boolean; serviceId: string } | null;
 };
 
 /** Params without WebSocket upgrade headers, for services that turn WebSockets off. */
@@ -460,6 +462,8 @@ function proxyLocation(target: string, o: SiteOptions | null | undefined, tls: b
     if (o.corsOrigins?.length) access.push("limit_except OPTIONS {", ...auth.map((l) => `    ${l}`), "}");
     else access.push(...auth);
   }
+  // Login wall: Serve answers each request; a 401 carries the sign-in address (gateLocations).
+  if (o?.gate) access.push("auth_request /__serve_gate_check;", "auth_request_set $serve_gate_to $upstream_http_location;");
   if (o?.corsOrigins?.length) {
     if (o.corsOrigins.includes("*")) access.push(`set $serve_cors "*";`);
     else {
@@ -484,7 +488,7 @@ function proxyLocation(target: string, o: SiteOptions | null | undefined, tls: b
   if (o?.customDirectives) inner.push("# Custom directives", o.customDirectives);
   const main = `    location / {
 ${indent(inner, 2)}
-    }`;
+    }${o?.gate ? `\n\n${gateLocations(o.gate)}` : ""}`;
   if (!errorPages) return main;
   return `${main}
 
@@ -493,6 +497,57 @@ ${indent(inner, 2)}
         internal;
         root ${proxyPaths.pages};
         try_files /unavailable.html =502;
+    }`;
+}
+
+/**
+ * The upstream block a site's login wall reaches Serve through (gateUpstream's URL). A block, not
+ * a variable: names from /etc/hosts (host.docker.internal) only resolve this way, and with
+ * `resolve` a dashboard name that does not resolve yet cannot stop nginx from loading.
+ */
+export function gateUpstreamBlock(name: string, url: string) {
+  const u = new URL(url);
+  const tls = u.protocol === "https:";
+  return { block: upstreamBlock({ name, servers: [`${u.hostname}:${u.port || (tls ? 443 : 80)}`] }), host: u.host, tls };
+}
+
+/**
+ * The login wall's server-level parts: the check and the ticket swap go to Serve. Only the wall's
+ * own cookie goes along, not the app's. The error_page sits here, not in the location, which would
+ * drop the server's 502 page.
+ */
+function gateLocations(g: NonNullable<SiteOptions["gate"]>) {
+  const host = g.host.replace(/[^A-Za-z0-9.:[\]-]/g, "");
+  const to = (path: string, extra: string[]) => [
+    `proxy_pass ${g.tls ? "https" : "http"}://${g.upstream}${path};`,
+    "proxy_http_version 1.1;",
+    `proxy_set_header Host "${host}";`,
+    'proxy_set_header Connection "";',
+    ...extra,
+    ...(g.tls
+      ? [`proxy_ssl_name ${host.replace(/:\d+$/, "")};`, "proxy_ssl_server_name on;", "proxy_ssl_verify on;", "proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;"]
+      : []),
+  ];
+  return `    error_page 401 = @serve_gate;
+    location @serve_gate {
+        add_header Cache-Control "no-store" always;
+        return 302 $serve_gate_to;
+    }
+    location = /__serve_gate_check {
+        internal;
+${indent(
+  to(`/api/gate/check?s=${encodeURIComponent(g.serviceId)}&r=401`, [
+    "proxy_pass_request_body off;",
+    'proxy_set_header Content-Length "";',
+    "proxy_set_header X-Serve-Host $host;",
+    "proxy_set_header X-Serve-Uri $request_uri;",
+    'proxy_set_header Cookie "__serve_gate=$cookie___serve_gate";',
+  ]),
+  2,
+)}
+    }
+    location = /__serve/gate {
+${indent(to("/api/gate/callback$is_args$args", []), 2)}
     }`;
 }
 

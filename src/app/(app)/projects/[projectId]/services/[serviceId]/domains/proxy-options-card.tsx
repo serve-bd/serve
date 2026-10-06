@@ -24,6 +24,7 @@ type Form = {
   websockets: boolean;
   buffering: boolean;
   balancing: Balancing;
+  login: boolean;
   authOn: boolean;
   authUser: string;
   authPassword: string;
@@ -48,6 +49,7 @@ function toForm(c: Initial | null): Form {
     websockets: c?.websockets ?? true,
     buffering: c?.buffering ?? true,
     balancing: balancingOf(c),
+    login: c?.login ?? false,
     authOn: !!c?.basicAuthUser,
     authUser: c?.basicAuthUser ?? "",
     authPassword: "",
@@ -99,6 +101,7 @@ export function ProxyOptionsCard({
   behindProxy = false,
   replicas = 0,
   across,
+  dashboardDomain = true,
 }: {
   serviceId: string;
   initial: Initial | null;
@@ -112,6 +115,8 @@ export function ProxyOptionsCard({
   replicas?: number;
   /** The app is load balanced over several servers: the main one and these others. */
   across?: { main: string; others: number };
+  /** The dashboard has its own domain: visitors (and other servers) reach the sign-in there. */
+  dashboardDomain?: boolean;
 }) {
   const [saved, setSaved] = React.useState<Form>(() => toForm(initial));
   const disabled = !isAdmin;
@@ -174,9 +179,23 @@ export function ProxyOptionsCard({
           )}
         </OptionsCard>
       )}
-      <OptionsCard {...props} title="Access control" description="Protect previews, admin panels or staging sites." keys={["authOn", "authUser", "authPassword", "allow", "deny"]}>
+      <OptionsCard
+        {...props}
+        title="Access control"
+        description="Protect previews, admin panels or staging sites."
+        keys={["login", "authOn", "authUser", "authPassword", "allow", "deny"]}
+      >
         {(form, set) => (
           <>
+            <SwitchRow
+              title="Only my team"
+              description="Visitors sign in to Serve first. Members who can open this project get in; nobody else does."
+              checked={form.login}
+              onCheckedChange={(v) => set("login", v)}
+            />
+            {form.login && !dashboardDomain && (
+              <p className="text-[12.5px] text-warn">Give the dashboard its own domain in Settings first. Visitors sign in there, and other servers check sign-ins there.</p>
+            )}
             <SwitchRow
               title="Password protection"
               description="Browsers ask for a user name and password (HTTP Basic Auth)."
@@ -375,6 +394,7 @@ function toInput(form: Form) {
     websockets: form.websockets,
     buffering: form.buffering,
     balancing: form.balancing,
+    login: form.login,
     basicAuth: { enabled: form.authOn, username: form.authUser.trim() || undefined, password: form.authPassword || undefined },
     allow: lines(form.allow),
     deny: lines(form.deny),

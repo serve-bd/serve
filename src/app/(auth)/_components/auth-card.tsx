@@ -12,7 +12,7 @@ export function AuthCard({
   title: React.ReactNode;
   description?: React.ReactNode;
   eyebrow?: React.ReactNode;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   className?: string;
   /** A plain welcome (the sign-in page): white-labeled pages keep it for screen readers only. */
   greeting?: boolean;

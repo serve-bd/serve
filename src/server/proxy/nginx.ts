@@ -25,6 +25,7 @@ import {
   tunnelRealIp,
   tunnelVar,
   upstreamBlock,
+  gateUpstreamBlock,
   type SiteOptions,
   type SiteServer,
   type SiteUpstream,
@@ -35,6 +36,7 @@ import { ensureTunnelNetwork } from "./tunnel-network";
 import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker/networks";
 import crypto from "node:crypto";
 import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type ProxyFile, type ProxyKind, type RunningKind, type ServerProxyConfig } from "./config";
+import { gateUpstream } from "@/server/gate";
 import { appTargets, certificateStamp, dashboardModel, serviceModel, type SiteModel, statusModel, statusPageHosts } from "./model";
 import { forgetDashboardTrusted, visitorIpOf } from "./trusted-proxies";
 import { headerTrusted, usesProxyProtocol, type TrustedProxies } from "@/lib/trusted-proxies";
@@ -871,7 +873,10 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
   const proxyProtocol = usesProxyProtocol(visitor);
   const upstreamName = upstreamNamer(await serverUpstreamKeys(server.id));
   const cfg = service.proxy;
-  const options: SiteOptions | null = cfg ? ({ ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null } as SiteOptions) : null;
+  const gateName = `serve_gate_${service.id.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+  const gateUp = cfg?.login ? gateUpstreamBlock(gateName, await gateUpstream(server.id)) : null;
+  const gate = gateUp ? { upstream: gateName, host: gateUp.host, tls: gateUp.tls, serviceId: service.id } : null;
+  const options: SiteOptions | null = cfg ? ({ ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null, gate } as SiteOptions) : null;
   // www ↔ apex redirect, only between hostnames that are both on this service.
   const hostnames = new Set(service.domains.map((d) => d.hostname));
   const wwwTarget = (hostname: string) => {
@@ -939,9 +944,14 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
     certs,
     servers.map((s) => s.tls),
   );
-  return [`# Managed by Serve — service "${service.name}" (${service.id}).`, ...stamp, ...geo, ...[...upstreams.values()].map(upstreamBlock), ...servers.map(serverBlocks)].join(
-    "\n",
-  );
+  return [
+    `# Managed by Serve — service "${service.name}" (${service.id}).`,
+    ...stamp,
+    ...geo,
+    ...[...upstreams.values()].map(upstreamBlock),
+    ...(gateUp ? [gateUp.block] : []),
+    ...servers.map(serverBlocks),
+  ].join("\n");
 }
 
 export { composeAlias };

@@ -7,6 +7,7 @@ import { serverScope } from "@/server/metrics";
 import { getSettings } from "@/server/settings";
 import { orgOfService } from "@/server/notify";
 import { publicGet } from "@/server/net/public-fetch";
+import { GATE_KEY_HEADER, gateKey } from "@/server/gate";
 import { pickPrimaryDomain } from "@/lib/domains";
 import { openIncident, openIncidentFor, resolveIncident } from "./incidents";
 import { enqueue } from "@/server/queue";
@@ -44,7 +45,8 @@ export async function httpCheck(m: Pick<Monitor, "url" | "path" | "expectedStatu
   const accept = parseExpectedStatus(m.expectedStatus) ?? parseExpectedStatus("200-399")!;
   const started = Date.now();
   try {
-    const res = await publicGet(url, { timeoutMs: m.timeoutMs, maxRedirects: 5 });
+    // The service's own domain: past its login wall, the check is about the app.
+    const res = await publicGet(url, { timeoutMs: m.timeoutMs, maxRedirects: 5, headers: m.url ? undefined : { [GATE_KEY_HEADER]: gateKey(serviceId) } });
     let latency = Date.now() - started;
     let error: string | null = accept(res.status) ? null : `HTTP ${res.status}`;
     if (!error && m.keyword) {

@@ -236,6 +236,13 @@ export function renderTraefikSite(
     };
   }
 
+  // Login wall: the ticket swap goes to Serve (its own router per host, below).
+  const gate = site.gate && site.serviceId ? site.gate : null;
+  if (gate) {
+    services[`${p}-gate`] = { loadBalancer: { passHostHeader: false, servers: [{ url: gate.upstream }] } };
+    middlewares[`${p}-gate-path`] = { replacePath: { path: "/api/gate/callback" } };
+  }
+
   const m = site.maintenance;
   if (m) {
     middlewares[`${p}-maintenance`] = { replacePath: { path: `/__maintenance/${site.serviceId}` } };
@@ -262,13 +269,20 @@ export function renderTraefikSite(
       if (targets?.length) {
         service = `${p}-${h.upstream}`;
         mws = chain;
+        if (gate) {
+          // Each request is checked by Serve first. The host goes in the query: a dashboard behind
+          // another proxy rewrites X-Forwarded-Host (a wildcard has no single host to name).
+          const q = new URLSearchParams({ s: site.serviceId!, ...(h.hostname.startsWith("*.") ? {} : { h: h.hostname }) });
+          middlewares[`${base}-gate`] = { forwardAuth: { address: `${gate.upstream}/api/gate/check?${q}`, authRequestHeaders: ["Cookie", "X-Serve-Gate"] } };
+          mws = [...chain, `${base}-gate`];
+        }
         // Copies on other servers: a connection that fails is tried again on another copy.
         if (up?.remote) {
           // Traefik has no passive health: a retry can land on the same dead replica, so allow as many
           // tries as there are replicas (a refused connection fails in a moment), up to 10.
           const attempts = Math.min(Math.max(up.targets.length, 3), 10);
           middlewares[`${p}-retry`] = { retry: { attempts, initialInterval: "50ms" } };
-          mws = [...chain, `${p}-retry`];
+          mws = [...mws, `${p}-retry`];
         }
       } else if (defaults.unavailablePage) {
         // Stopped or not running: Serve's 503 page.
@@ -315,7 +329,14 @@ export function renderTraefikSite(
       if (defaults.httpsRedirect) routers[`${base}-web`] = { rule, entryPoints: ["web"], service: "noop@internal", middlewares: ["serve-redirect-https"] };
     } else add(`${base}-web`, ["web"], {}, mws);
     if (h.https) add(`${base}-secure`, ["websecure"], { tls }, mws);
-    if (o?.cacheStatic && !h.redirectTo && mws === chain) {
+    // Also during maintenance: visitors on its allow list still pass the wall.
+    if (gate && !h.redirectTo && site.upstreams.find((u) => u.key === h.upstream)?.targets.length) {
+      const gateRule = `${rule} && Path(\`/__serve/gate\`)`;
+      const extra = { service: `${p}-gate`, middlewares: [`${p}-gate-path`] };
+      if (!(h.https && h.forceHttps)) routers[`${base}-web-gate`] = { rule: gateRule, entryPoints: ["web"], ...extra };
+      if (h.https) routers[`${base}-secure-gate`] = { rule: gateRule, entryPoints: ["websecure"], tls, ...extra };
+    }
+    if (o?.cacheStatic && !h.redirectTo && (mws === chain || (gate && mws.at(-1) === `${base}-gate`))) {
       const staticRule = `${rule} && PathRegexp(\`\\.(${STATIC_FILES})$\`)`;
       if (!(h.https && h.forceHttps)) add(`${base}-web-static`, ["web"], {}, [...mws, `${p}-static`], staticRule);
       if (h.https) add(`${base}-secure-static`, ["websecure"], { tls }, [...mws, `${p}-static`], staticRule);

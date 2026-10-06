@@ -8,6 +8,7 @@ import type { ServerCtx } from "@/server/servers/context";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import { certificateCovers } from "@/server/ssl/match";
 import { maintenanceOf, type ProxyMaintenance } from "@/server/services/maintenance";
+import { gateUpstream } from "@/server/gate";
 import { composeAlias, tunnelNetworkName } from "./names";
 import { BALANCE_CONNECT_TIMEOUT, localTargets, remoteTargets } from "@/server/services/balance";
 
@@ -50,6 +51,8 @@ export type SiteModel = {
   maintenance?: ProxyMaintenance | null;
   /** Comment lines naming the certificates served (certificateStamp). */
   certificates?: string[];
+  /** Login wall: where this proxy reaches Serve (gateUpstream). */
+  gate?: { upstream: string } | null;
 };
 
 type CertRow = typeof schema.certificate.$inferSelect;
@@ -155,6 +158,7 @@ export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<S
     hosts,
     options: cfg,
     maintenance: maintenanceOf(service.id, service.maintenance),
+    gate: cfg?.login ? { upstream: await gateUpstream(ctx.id) } : null,
     certificates: certificateStamp(
       certs,
       hosts.map((h) => h.tls),

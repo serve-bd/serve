@@ -65,15 +65,21 @@ const publicLookup: net.LookupFunction = (hostname, options, callback) => {
  */
 export async function publicGet(
   raw: string,
-  opts: { maxRedirects?: number; timeoutMs?: number } = {},
+  /** headers: sent only to the first URL's host, never to a host a redirect leads to. */
+  opts: { maxRedirects?: number; timeoutMs?: number; headers?: Record<string, string> } = {},
 ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Readable }> {
   let url = new URL(raw);
+  const origin = url.host;
   for (let hop = 0; hop <= (opts.maxRedirects ?? 5); hop++) {
     if (url.protocol !== "https:" && url.protocol !== "http:") throw new PublicFetchError("Only http and https URLs are allowed.");
     const host = url.hostname.replace(/^\[|\]$/g, "");
     if (net.isIP(host) && isPrivateAddress(host)) throw new PublicFetchError("That address points at a private network.");
     const res = await new Promise<http.IncomingMessage>((resolve, reject) => {
-      const req = (url.protocol === "https:" ? https : http).get(url, { lookup: publicLookup, timeout: opts.timeoutMs ?? 30_000 }, resolve);
+      const req = (url.protocol === "https:" ? https : http).get(
+        url,
+        { lookup: publicLookup, timeout: opts.timeoutMs ?? 30_000, headers: url.host === origin ? opts.headers : undefined },
+        resolve,
+      );
       req.on("timeout", () => req.destroy(new PublicFetchError("The server did not answer in time.")));
       req.on("error", reject);
     });

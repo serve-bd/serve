@@ -220,6 +220,25 @@ function routeBody(site: SiteModel, h: HostModel, targets: string[] | null, real
     // An apr1-only hash (saved before Caddy support) cannot be verified: fail closed.
     else lines.push(`respond "Password protection must be saved again in Serve for Caddy." 503`);
   }
+  if (site.gate && site.serviceId && targets) {
+    // Login wall: the ticket swap goes to Serve, every other request is checked there first.
+    const up = site.gate.upstream;
+    lines.push(
+      "handle /__serve/gate {",
+      tab(["rewrite * /api/gate/callback?{query}", `reverse_proxy ${up} {`, tab(["header_up Host {upstream_hostport}"]), "}"]),
+      "}",
+      `forward_auth ${up} {`,
+      tab([
+        `uri /api/gate/check?s=${encodeURIComponent(site.serviceId)}`,
+        "header_up Host {upstream_hostport}",
+        "header_up X-Serve-Host {host}",
+        "header_up X-Serve-Uri {uri}",
+        // Only the wall's own cookie goes to Serve, not the app's.
+        `header_up Cookie "__serve_gate={http.request.cookie.__serve_gate}"`,
+      ]),
+      "}",
+    );
+  }
   if (o?.cacheStatic) lines.push(`@serve_static path_regexp \\.(${STATIC_FILES})$`, `header @serve_static >Cache-Control "public, max-age=604800"`);
   if (o?.caddyDirectives?.trim()) lines.push("# Custom directives", o.caddyDirectives.trim());
   if (!targets) lines.push(site.stopped ? "error 503" : "error 502");

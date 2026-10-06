@@ -135,7 +135,7 @@ export const statusPageRoutes: ApiRoute[] = [
     tag: "Status pages",
     summary: "Report an incident or plan maintenance",
     description:
-      "kind incident needs a message (body); kind maintenance needs startsAt and endsAt. Subscribers are told unless notify is false; the page's team channels always are.",
+      "kind incident needs a message (body); kind maintenance needs startsAt and endsAt. Subscribers are told unless notify is false (subscriberTypes picks which types); the page's team channels always are, unless channels names others ([] for none).",
     needs: ["status-pages.manage"],
     status: 201,
     body: z.object({
@@ -148,6 +148,11 @@ export const statusPageRoutes: ApiRoute[] = [
       startsAt: when.optional(),
       endsAt: when.optional(),
       notify: z.boolean().default(true),
+      subscriberTypes: z
+        .array(z.enum(["email", "slack", "discord", "webhook"]))
+        .optional()
+        .describe("Only these subscriber types; left out: every type the page offers"),
+      channels: z.array(z.string()).optional().describe("Only these notification channel ids; left out: the page's team channels; [] for none"),
     }),
     handler: async ({ auth, params, body }) => {
       await pageOf(params.pageId, auth.organizationId);
@@ -162,6 +167,8 @@ export const statusPageRoutes: ApiRoute[] = [
           startsAt: body.startsAt ?? null,
           endsAt: body.endsAt ?? null,
           notify: body.notify,
+          kinds: body.subscriberTypes ?? null,
+          channels: body.channels ?? null,
         }),
       );
       return (await noticesOf(params.pageId, { limit: 200 })).find((n) => n.id === id);
@@ -180,10 +187,23 @@ export const statusPageRoutes: ApiRoute[] = [
       state: z.enum([...STATES, "scheduled", "in-progress", "completed"]),
       body: z.string(),
       notify: z.boolean().default(true),
+      subscriberTypes: z
+        .array(z.enum(["email", "slack", "discord", "webhook"]))
+        .optional()
+        .describe("Only these subscriber types; left out: every type the page offers"),
+      channels: z.array(z.string()).optional().describe("Only these notification channel ids; left out: the page's team channels; [] for none"),
     }),
     handler: async ({ auth, params, body }) => {
       await noticeOf(params.pageId, params.incidentId, auth.organizationId);
-      await unwrap(actions.addStatusUpdate(params.incidentId, { state: body.state, body: body.body, notify: body.notify }));
+      await unwrap(
+        actions.addStatusUpdate(params.incidentId, {
+          state: body.state,
+          body: body.body,
+          notify: body.notify,
+          kinds: body.subscriberTypes ?? null,
+          channels: body.channels ?? null,
+        }),
+      );
       return (await noticesOf(params.pageId, { limit: 200 })).find((n) => n.id === params.incidentId);
     },
   }),

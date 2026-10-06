@@ -234,23 +234,30 @@ async function deliver(page: Page, subscriber: Subscriber, m: Message) {
     .where(eq(schema.statusSubscriber.id, subscriber.id));
 }
 
+/**
+ * Who a post goes to: subscriber types (null: every type the page offers) and team channels
+ * (null: the page's own). Picked per post in the dashboard or the API.
+ */
+export type Audience = { kinds?: SubscriberKind[] | null; channels?: string[] | null };
+
 /** Send a message to the page's confirmed subscribers (those following an affected component) and its team channels. */
-async function broadcast(page: Page, componentIds: string[], m: Message, notify = true) {
-  if (notify) {
+async function broadcast(page: Page, componentIds: string[], m: Message, notify = true, audience: Audience = {}) {
+  if (notify && audience.kinds?.length !== 0) {
     const cfg = subscribeOf(page.subscribe);
     const subscribers = await db
       .select()
       .from(schema.statusSubscriber)
       .where(and(eq(schema.statusSubscriber.pageId, page.id), eq(schema.statusSubscriber.confirmed, true)));
     // Kinds the page no longer offers stay saved but quiet, so offering them again picks them back up.
-    const offered = subscribers.filter((s) => cfg[s.kind]);
+    const offered = subscribers.filter((s) => cfg[s.kind] && (!audience.kinds || audience.kinds.includes(s.kind)));
     const wanted = offered.filter((s) => !s.componentIds.length || !componentIds.length || s.componentIds.some((id) => componentIds.includes(id)));
     // A few at a time: a page with thousands of subscribers must not open thousands of connections.
     for (let i = 0; i < wanted.length; i += 8) await Promise.all(wanted.slice(i, i + 8).map((s) => deliver(page, s, m)));
   }
-  if (page.teamChannelIds.length) {
+  const channels = audience.channels ?? page.teamChannelIds;
+  if (channels.length) {
     const { notifyChannels } = await import("@/server/notifications/deliver");
-    await notifyChannels(page.organizationId, page.teamChannelIds, "status.incident", {
+    await notifyChannels(page.organizationId, channels, "status.incident", {
       title: `${page.name}: ${m.title}`,
       body: `${m.state}${m.message ? `\n${m.message}` : ""}`,
       url: m.url,
@@ -267,7 +274,7 @@ const levelOf = (kind: string, impact: string, done: boolean): Message["level"] 
   done ? "operational" : kind === "maintenance" ? "maintenance" : impact === "minor" ? "degraded" : impact === "major" ? "partial" : "major";
 
 /** Tell subscribers and team channels about a notice: posted, updated, or a maintenance window starting or ending. */
-export async function notifyNotice(noticeId: string, event: StatusEvent, opts: { notify?: boolean } = {}) {
+export async function notifyNotice(noticeId: string, event: StatusEvent, opts: { notify?: boolean } & Audience = {}) {
   const [row] = await db
     .select({ notice: schema.statusNotice, page: schema.statusPage })
     .from(schema.statusNotice)
@@ -322,7 +329,7 @@ export async function notifyNotice(noticeId: string, event: StatusEvent, opts: {
       resolvedAt: n.resolvedAt?.toISOString() ?? null,
     },
   };
-  await broadcast(page, n.componentIds, m, audience);
+  await broadcast(page, n.componentIds, m, audience, { kinds: opts.kinds, channels: opts.channels });
 }
 
 /**

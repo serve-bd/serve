@@ -547,7 +547,24 @@ const noticeInput = z.object({
   endsAt: date,
   /** Tell subscribers (default). Team channels hear every post. */
   notify: z.boolean().optional(),
+  /** Only these subscriber types; left out: every type the page offers. */
+  kinds: z.array(z.enum(["email", "slack", "discord", "webhook"])).nullish(),
+  /** Only these team channels; left out: the page's own. */
+  channels: z.array(z.string()).nullish(),
 });
+
+/** The organization's channels picked for one post (unknown ids are an error, not a silent skip). */
+async function orgChannels(organizationId: string, ids: string[] | null | undefined) {
+  if (!ids) return null;
+  const wanted = [...new Set(ids)];
+  if (!wanted.length) return [];
+  const rows = await db
+    .select({ id: schema.notificationChannel.id })
+    .from(schema.notificationChannel)
+    .where(and(eq(schema.notificationChannel.organizationId, organizationId), inArray(schema.notificationChannel.id, wanted)));
+  if (rows.length !== wanted.length) throw new UserError("A notification channel was not found.");
+  return wanted;
+}
 
 async function onlyPageComponents(pageId: string, ids: string[]) {
   if (!ids.length) return [];
@@ -569,6 +586,8 @@ export async function createStatusNotice(pageId: string, input: z.input<typeof n
       if (data.endsAt <= data.startsAt) throw new UserError("The maintenance must end after it starts.");
     }
     if (data.kind === "incident" && !data.body) throw new UserError("Write what is happening: visitors read this first.");
+    // Checked before anything is saved: a wrong channel must not leave a posted incident behind.
+    const channels = await orgChannels(ctx.org.id, data.channels);
     const id = newId();
     const resolved = data.kind === "incident" && data.state === "resolved";
     await db.transaction(async (tx) => {
@@ -598,13 +617,16 @@ export async function createStatusNotice(pageId: string, input: z.input<typeof n
       targetType: "status-page",
       targetId: pageId,
     });
-    await enqueue("status.notify", { noticeId: id, event: "created", notify: data.notify ?? true }, { maxAttempts: 1 });
+    await enqueue("status.notify", { noticeId: id, event: "created", notify: data.notify ?? true, kinds: data.kinds ?? null, channels }, { maxAttempts: 1 });
     return { id };
   });
 }
 
 /** A new message on an incident; "resolved" closes it. Maintenance messages keep its times. */
-export async function addStatusUpdate(noticeId: string, input: { state: string; body: string; notify?: boolean }) {
+export async function addStatusUpdate(
+  noticeId: string,
+  input: { state: string; body: string; notify?: boolean; kinds?: ("email" | "slack" | "discord" | "webhook")[] | null; channels?: string[] | null },
+) {
   return act(async () => {
     const ctx = await requireStatusManager();
     const notice = await noticeOfOrg(noticeId, ctx.org.id);
@@ -613,8 +635,11 @@ export async function addStatusUpdate(noticeId: string, input: { state: string; 
         state: z.enum(["investigating", "identified", "monitoring", "resolved", "scheduled", "in-progress", "completed"]),
         body: z.string().trim().min(1, "Write the update.").max(5000),
         notify: z.boolean().optional(),
+        kinds: noticeInput.shape.kinds,
+        channels: noticeInput.shape.channels,
       })
       .parse(input);
+    const channels = await orgChannels(ctx.org.id, data.channels);
     const patch: Partial<typeof schema.statusNotice.$inferInsert> = {};
     if (notice.kind === "incident") {
       if (!(INCIDENT_STATES as string[]).includes(data.state)) throw new UserError("Pick the incident's state.");
@@ -633,7 +658,7 @@ export async function addStatusUpdate(noticeId: string, input: { state: string; 
       await tx.insert(schema.statusNoticeUpdate).values({ id: newId(), noticeId, state: data.state, body: data.body });
     });
     await touch(notice.pageId);
-    await enqueue("status.notify", { noticeId, event: "updated", notify: data.notify ?? true }, { maxAttempts: 1 });
+    await enqueue("status.notify", { noticeId, event: "updated", notify: data.notify ?? true, kinds: data.kinds ?? null, channels }, { maxAttempts: 1 });
     return null;
   });
 }

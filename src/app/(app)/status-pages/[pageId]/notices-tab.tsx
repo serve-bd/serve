@@ -167,19 +167,56 @@ function NoticeRow({
   );
 }
 
-/** "Notify N subscribers": on by default, off for a quiet fix (a typo, a backfilled incident). */
-function NotifyBox({ data, checked, onChange }: { data: EditorData; checked: boolean; onChange: (v: boolean) => void }) {
-  const n = data.subscriberCounts.confirmed;
-  const team = data.teamChannelIds.length;
-  if (!n && !team) return null;
+type Kind = "email" | "slack" | "discord" | "webhook";
+const KIND_TEXT: Record<Kind, string> = { email: "Email", slack: "Slack", discord: "Discord", webhook: "Webhook" };
+
+/** Who a post goes to: subscriber types and team channels. */
+export type Audience = { kinds: Kind[]; channels: string[] };
+
+/** The usual audience: every subscriber type with subscribers, and the page's team channels. */
+function defaultPick(data: EditorData): Audience {
+  return { kinds: (Object.keys(data.subscriberCounts.byKind) as Kind[]).filter((k) => data.subscribe[k]), channels: data.teamChannelIds };
+}
+
+/** Pick who hears about this post: off for a quiet fix (a typo, a backfilled incident), or only some. */
+function NotifyPicker({ data, value, onChange }: { data: EditorData; value: Audience; onChange: (v: Audience) => void }) {
+  const kinds = (Object.entries(data.subscriberCounts.byKind) as [Kind, number][]).filter(([k, n]) => n > 0 && data.subscribe[k]);
+  const enabled = data.channels.filter((c) => c.enabled);
+  if (!kinds.length && !enabled.length) return null;
+  const toggle = <T,>(list: T[], item: T, on: boolean) => (on ? [...list, item] : list.filter((x) => x !== item));
   return (
-    <label className="flex items-start gap-2 text-[13px] text-fg-2">
-      <Checkbox checked={checked} onCheckedChange={(on) => onChange(!!on)} className="mt-0.5" disabled={!n} />
-      <span>
-        {n ? `Notify ${n} subscriber${n === 1 ? "" : "s"}` : "No subscribers yet"}
-        {team > 0 && <span className="block text-xs text-muted">Your {team === 1 ? "team channel gets" : `${team} team channels get`} it either way.</span>}
-      </span>
-    </label>
+    <div className="flex flex-col gap-1.5">
+      <Label>Notify</Label>
+      <div className="flex flex-col gap-3 rounded-lg border border-line p-3">
+        {kinds.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-semibold tracking-wide text-muted uppercase">Subscribers</span>
+            <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+              {kinds.map(([k, n]) => (
+                <label key={k} className="flex items-center gap-2 text-[13px] text-fg-2">
+                  <Checkbox checked={value.kinds.includes(k)} onCheckedChange={(on) => onChange({ ...value, kinds: toggle(value.kinds, k, !!on) })} />
+                  {KIND_TEXT[k]} <span className="text-xs text-muted tabular-nums">{n}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+        {enabled.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-semibold tracking-wide text-muted uppercase">Team channels</span>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {enabled.map((c) => (
+                <label key={c.id} className="flex min-w-0 items-center gap-2 text-[13px] text-fg-2">
+                  <Checkbox checked={value.channels.includes(c.id)} onCheckedChange={(on) => onChange({ ...value, channels: toggle(value.channels, c.id, !!on) })} />
+                  <span className="truncate">{c.name}</span>
+                  <span className="text-xs text-muted">{c.kind}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -207,14 +244,15 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
   const [endsAt, setEndsAt] = React.useState("");
   const [postmortem, setPostmortem] = React.useState("");
   const [keep, setKeep] = React.useState(false);
-  const [notify, setNotify] = React.useState(true);
+  const [pick, setPick] = React.useState<Audience>(() => defaultPick(data));
   const [templateName, setTemplateName] = React.useState("");
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the form resets when the dialog opens, not on each refresh of the page data
   React.useEffect(() => {
     if (!kind) return;
     setPostmortem(notice?.postmortem ?? "");
     setKeep(false);
-    setNotify(true);
+    setPick(defaultPick(data));
     setTemplateName("");
     // A new window starts at the next full hour and lasts one hour.
     const start = new Date();
@@ -248,7 +286,9 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
             state,
             componentIds: components,
             body,
-            notify,
+            notify: pick.kinds.length > 0,
+            kinds: pick.kinds,
+            channels: pick.channels,
             startsAt: kind === "maintenance" ? iso(startsAt) : null,
             endsAt: kind === "maintenance" ? iso(endsAt) : null,
           }),
@@ -355,7 +395,7 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
                 <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} maxLength={5000} />
               </Field>
             )}
-            {!notice && <NotifyBox data={data} checked={notify} onChange={setNotify} />}
+            {!notice && <NotifyPicker data={data} value={pick} onChange={setPick} />}
             {!notice && !maintenance && (
               <div className="flex flex-col gap-2">
                 <label className="flex items-center gap-2 text-[13px] text-fg-2">
@@ -391,19 +431,22 @@ function NoticeDialog({ data, kind, notice, onClose }: { data: EditorData; kind:
 }
 
 function UpdateDialog({ data, notice, onClose }: { data: EditorData; notice: Notice | null; onClose: () => void }) {
-  const [notify, setNotify] = React.useState(true);
+  const [pick, setPick] = React.useState<Audience>(() => defaultPick(data));
   const maintenance = notice?.kind === "maintenance";
   const [state, setState] = React.useState("monitoring");
   const [body, setBody] = React.useState("");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the form resets when the dialog opens, not on each refresh of the page data
   React.useEffect(() => {
     if (!notice) return;
     // The next step is the usual pick: investigating → identified → monitoring → resolved.
     const next = INCIDENT_STATES[Math.min(INCIDENT_STATES.indexOf(notice.state) + 1, INCIDENT_STATES.length - 1)];
     setState(notice.kind === "maintenance" ? (maintenancePhase(notice) === "scheduled" ? "scheduled" : "in-progress") : next);
     setBody("");
-    setNotify(true);
+    setPick(defaultPick(data));
   }, [notice]);
-  const save = useAction(() => addStatusUpdate(notice!.id, { state, body, notify }), { onSuccess: onClose });
+  const save = useAction(() => addStatusUpdate(notice!.id, { state, body, notify: pick.kinds.length > 0, kinds: pick.kinds, channels: pick.channels }), {
+    onSuccess: onClose,
+  });
   const states = maintenance ? (["scheduled", "in-progress", "completed"] as const) : INCIDENT_STATES;
   return (
     <Dialog open={!!notice} onOpenChange={(o) => !o && onClose()}>
@@ -425,7 +468,7 @@ function UpdateDialog({ data, notice, onClose }: { data: EditorData; notice: Not
             <Field label="Message">
               <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} maxLength={5000} autoFocus />
             </Field>
-            <NotifyBox data={data} checked={notify} onChange={setNotify} />
+            <NotifyPicker data={data} value={pick} onChange={setPick} />
           </DialogBody>
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" />}>Cancel</DialogClose>

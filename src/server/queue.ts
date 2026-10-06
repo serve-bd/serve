@@ -63,7 +63,14 @@ export type JobPayloads = {
   "backup.import": { backupId: string; backupFirst?: boolean; users?: boolean; url?: string; s3?: { destinationId: string; key: string } };
   "proxy.sync": Record<string, never>;
   /** A status page notice was posted or changed: tell its subscribers and team channels. */
-  "status.notify": { noticeId: string; event: import("@/server/status-pages/subscribers").StatusEvent; notify?: boolean };
+  "status.notify": {
+    noticeId: string;
+    event: import("@/server/status-pages/subscribers").StatusEvent;
+    notify?: boolean;
+    /** Subscriber types and team channels picked for this post; left out: the page's defaults. */
+    kinds?: import("@/lib/status-page").SubscriberKind[] | null;
+    channels?: string[] | null;
+  };
   /** An uptime check found a service down or back: status pages that send outages tell their subscribers. */
   "status.outage": { serviceId: string; incidentId: string };
   cleanup: { full?: boolean; serverId?: string };

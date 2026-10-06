@@ -129,7 +129,7 @@ async function handle(job: Job, signal: AbortSignal) {
     case "status.notify": {
       const { notifyNotice } = await import("@/server/status-pages/subscribers");
       const q = job.payload as JobPayloads["status.notify"];
-      return notifyNotice(q.noticeId, q.event, { notify: q.notify });
+      return notifyNotice(q.noticeId, q.event, { notify: q.notify, kinds: q.kinds, channels: q.channels });
     }
     case "status.outage": {
       const { notifyOutage } = await import("@/server/status-pages/subscribers");

@@ -19,14 +19,14 @@ import { cn } from "@/lib/utils";
 import { type DatabaseChoices, DatabasePicker, defaultDatabases, savedChoice } from "./database-picker";
 
 type Mode = "hourly" | "daily" | "weekly" | "custom";
-type Plan = { mode: Mode; everyHours: number; minute: number; time: string; days: number[]; cron: string };
+export type Plan = { mode: Mode; everyHours: number; minute: number; time: string; days: number[]; cron: string };
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const HOURS = [1, 2, 3, 4, 6, 8, 12];
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** Cron for a plan. */
-function toCron(p: Plan) {
+export function toCron(p: Plan) {
   const [h, m] = p.time.split(":").map(Number);
   if (p.mode === "hourly") return `${p.minute} ${p.everyHours === 1 ? "*" : `*/${p.everyHours}`} * * *`;
   if (p.mode === "daily") return `${m} ${h} * * *`;
@@ -35,7 +35,7 @@ function toCron(p: Plan) {
 }
 
 /** Best-effort reverse of toCron so saved schedules open in the friendly editor. */
-function fromCron(cron: string | null): Plan {
+export function fromCron(cron: string | null): Plan {
   const base: Plan = { mode: "daily", everyHours: 6, minute: 0, time: "03:00", days: [0], cron: cron ?? "" };
   if (!cron) return base;
   const [min, hour, dom, mon, dow] = cron.trim().split(/\s+/);
@@ -52,7 +52,7 @@ function fromCron(cron: string | null): Plan {
   return { ...base, mode: "custom" };
 }
 
-function nextRuns(cron: string, tz: string, count = 3, from?: number): Date[] | null {
+export function nextRuns(cron: string, tz: string, count = 3, from?: number): Date[] | null {
   try {
     const it = CronExpressionParser.parse(cron, { tz, currentDate: from });
     return Array.from({ length: count }, () => it.next().toDate());
@@ -143,9 +143,6 @@ export function ScheduleCard(props: {
   const [saved, setSaved] = React.useState(() => snap({ ...initial, dbs }));
 
   const cron = toCron(plan);
-  // The run times wait for the browser clock, so the server render matches the first client one.
-  const now = useNow();
-  const runs = enabled && now ? nextRuns(cron, props.timezone, 3, now) : null;
   const invalid = enabled && (!cron || !nextRuns(cron, props.timezone, 1));
   const snapshot = snap({ enabled, plan, retention, retentionS3, bucket, local, timeout, lowPriority, encrypt, passphrase, verify, users, copies, dbs });
   // Turning encryption on needs a passphrase; a new one replaces the saved one, empty keeps it.
@@ -153,7 +150,6 @@ export function ScheduleCard(props: {
   const backupPassphrase = encrypt ? passphrase || undefined : null;
   const copyIds = bucket ? copies.filter((c) => c !== bucket) : [];
   const dirty = snapshot !== saved;
-  const set = (patch: Partial<Plan>) => setPlan((p) => ({ ...p, ...patch }));
 
   const save = useAction(
     () => {
@@ -198,8 +194,6 @@ export function ScheduleCard(props: {
     },
   );
 
-  const fmt = new Intl.DateTimeFormat(undefined, { timeZone: props.timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-
   return (
     <Card className="h-fit">
       <CardHeader
@@ -212,99 +206,7 @@ export function ScheduleCard(props: {
           <p className="text-[13px] leading-relaxed text-muted">Off. Backups only run when you click Back up now. Turn this on to take them on a schedule.</p>
         ) : (
           <>
-            <Field label="How often">
-              <div className="grid grid-cols-4 gap-1 rounded-xl bg-sunken p-1">
-                {(["hourly", "daily", "weekly", "custom"] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => set({ mode: m, cron: m === "custom" && plan.mode !== "custom" ? cron : plan.cron })}
-                    className={cn(
-                      "h-8 rounded-lg text-[12.5px] font-medium capitalize transition-all",
-                      plan.mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg",
-                    )}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-            </Field>
-
-            {plan.mode === "hourly" && (
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Every">
-                  <Select
-                    size="sm"
-                    value={String(plan.everyHours)}
-                    onValueChange={(v) => set({ everyHours: Number(v) })}
-                    options={HOURS.map((h) => ({ value: String(h), label: h === 1 ? "hour" : `${h} hours` }))}
-                  />
-                </Field>
-                <Field label="At minute">
-                  <Select
-                    size="sm"
-                    value={String(plan.minute)}
-                    onValueChange={(v) => set({ minute: Number(v) })}
-                    options={[0, 15, 30, 45].map((m) => ({ value: String(m), label: `:${pad(m)}` }))}
-                  />
-                </Field>
-              </div>
-            )}
-
-            {(plan.mode === "daily" || plan.mode === "weekly") && (
-              <>
-                {plan.mode === "weekly" && (
-                  <Field label="On">
-                    <div className="grid grid-cols-7 gap-1">
-                      {DAYS.map((d, i) => {
-                        const on = plan.days.includes(i);
-                        return (
-                          <button
-                            key={d}
-                            type="button"
-                            onClick={() => set({ days: on ? plan.days.filter((x) => x !== i) : [...plan.days, i] })}
-                            className={cn(
-                              "h-8 rounded-lg text-[12px] font-medium ring-1 transition-colors",
-                              on ? "bg-accent text-accent-fg ring-accent" : "text-fg-2 ring-line hover:bg-hover",
-                            )}
-                            aria-pressed={on}
-                            aria-label={d}
-                            title={d}
-                          >
-                            {d.slice(0, 2)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </Field>
-                )}
-                <Field label="At" description={`Time in ${props.timezone.replace(/_/g, " ")}. Change it in Settings → General.`}>
-                  <TimeInput value={plan.time} onChange={(time) => set({ time })} />
-                </Field>
-              </>
-            )}
-
-            {plan.mode === "custom" && (
-              <Field label="Cron expression" description="minute hour day-of-month month day-of-week" error={invalid ? "This is not a valid cron expression." : undefined}>
-                <Input value={plan.cron} onChange={(e) => set({ cron: e.target.value })} placeholder="30 2 * * *" className="font-mono" />
-              </Field>
-            )}
-
-            {runs && (
-              <div className="flex gap-2.5 rounded-xl bg-surface-2 px-3.5 py-3 text-[12.5px]">
-                <CalendarClock className="mt-0.5 size-4 flex-none text-accent" />
-                <div className="min-w-0">
-                  <p className="font-medium text-fg">Next backup {fmt.format(runs[0])}</p>
-                  <p className="text-muted">
-                    Then{" "}
-                    {runs
-                      .slice(1)
-                      .map((d) => fmt.format(d))
-                      .join(", ")}
-                  </p>
-                </div>
-              </div>
-            )}
+            <PlanEditor plan={plan} onChange={setPlan} timezone={props.timezone} />
 
             {/* Two columns only when there are two fields: one alone takes the full width. */}
             <div className={cn("grid grid-cols-1 gap-4", bucket && local && "sm:grid-cols-2")}>
@@ -348,64 +250,16 @@ export function ScheduleCard(props: {
             )}
 
             <Field label="Store backups in">
-              <div className="flex flex-col gap-2">
-                {[{ id: "local", name: "This server", bucket: null as string | null }, ...props.destinations].map((d) => {
-                  // The server and any number of buckets; the first bucket picked is the main one, the
-                  // others get copies. At least one place is always kept.
-                  const on = d.id === "local" ? local : bucket === d.id || copies.includes(d.id);
-                  const toggle = () => {
-                    if (d.id === "local") {
-                      if (local && !bucket) return;
-                      setLocal(!local);
-                    } else if (bucket === d.id) {
-                      const [next, ...rest] = copies.filter((c) => c !== d.id);
-                      setBucket(next ?? null);
-                      setCopies(rest);
-                      if (!next) setLocal(true);
-                    } else if (copies.includes(d.id)) setCopies(copies.filter((c) => c !== d.id));
-                    else if (!bucket) setBucket(d.id);
-                    else setCopies([...copies, d.id]);
-                  };
-                  const last = on && (d.id === "local" ? !bucket : !local);
-                  return (
-                    <button
-                      key={d.id}
-                      type="button"
-                      disabled={!props.canEdit}
-                      onClick={toggle}
-                      title={last ? "Backups are kept somewhere: pick another place first." : undefined}
-                      className={cn(
-                        "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
-                        on ? "border-accent bg-accent-soft/40" : "border-line hover:bg-hover",
-                      )}
-                      aria-pressed={on}
-                    >
-                      <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-surface-2 text-fg-2">
-                        {d.id === "local" ? <HardDrive className="size-4" /> : <Cloud className="size-4" />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium text-fg">{d.name}</span>
-                        <span className="block truncate text-xs text-muted">
-                          {d.bucket ? `Bucket ${d.bucket}${copies.includes(d.id) ? " · a copy" : ""}` : "Kept in the data directory; lost if the server is lost"}
-                        </span>
-                      </span>
-                      {on && <Check className="size-4 flex-none text-accent" />}
-                    </button>
-                  );
-                })}
-                {bucket && !local && (
-                  <p className="text-xs leading-relaxed text-muted">In the bucket only: each copy leaves the server once it is uploaded. Restores download it first.</p>
-                )}
-                {props.destinations.length === 0 && (
-                  <p className="text-xs text-muted">
-                    Add S3, R2 or B2 in{" "}
-                    <Link href="/integrations/storage" className="text-accent hover:underline">
-                      S3 storage
-                    </Link>{" "}
-                    for off-site copies.
-                  </p>
-                )}
-              </div>
+              <StoragePlaces
+                destinations={props.destinations}
+                value={{ bucket, local, copies }}
+                onChange={(v) => {
+                  setBucket(v.bucket);
+                  setLocal(v.local);
+                  setCopies(v.copies);
+                }}
+                disabled={!props.canEdit}
+              />
             </Field>
             {dumps && (
               <div className="flex flex-col gap-4 border-t border-line pt-5">
@@ -518,5 +372,182 @@ export function ScheduleCard(props: {
         </CardFooter>
       )}
     </Card>
+  );
+}
+
+/** How often backups run and when, with the next run times. */
+export function PlanEditor({ plan, onChange, timezone }: { plan: Plan; onChange: (plan: Plan) => void; timezone: string }) {
+  const set = (patch: Partial<Plan>) => onChange({ ...plan, ...patch });
+  const cron = toCron(plan);
+  const invalid = !cron || !nextRuns(cron, timezone, 1);
+  // The run times wait for the browser clock, so the server render matches the first client one.
+  const now = useNow();
+  const runs = now ? nextRuns(cron, timezone, 3, now) : null;
+  const fmt = new Intl.DateTimeFormat(undefined, { timeZone: timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return (
+    <>
+      <Field label="How often">
+        <div className="grid grid-cols-4 gap-1 rounded-xl bg-sunken p-1">
+          {(["hourly", "daily", "weekly", "custom"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => set({ mode: m, cron: m === "custom" && plan.mode !== "custom" ? cron : plan.cron })}
+              className={cn("h-8 rounded-lg text-[12.5px] font-medium capitalize transition-all", plan.mode === m ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      {plan.mode === "hourly" && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Every">
+            <Select
+              size="sm"
+              value={String(plan.everyHours)}
+              onValueChange={(v) => set({ everyHours: Number(v) })}
+              options={HOURS.map((h) => ({ value: String(h), label: h === 1 ? "hour" : `${h} hours` }))}
+            />
+          </Field>
+          <Field label="At minute">
+            <Select
+              size="sm"
+              value={String(plan.minute)}
+              onValueChange={(v) => set({ minute: Number(v) })}
+              options={[0, 15, 30, 45].map((m) => ({ value: String(m), label: `:${pad(m)}` }))}
+            />
+          </Field>
+        </div>
+      )}
+
+      {(plan.mode === "daily" || plan.mode === "weekly") && (
+        <>
+          {plan.mode === "weekly" && (
+            <Field label="On">
+              <div className="grid grid-cols-7 gap-1">
+                {DAYS.map((d, i) => {
+                  const on = plan.days.includes(i);
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => set({ days: on ? plan.days.filter((x) => x !== i) : [...plan.days, i] })}
+                      className={cn(
+                        "h-8 rounded-lg text-[12px] font-medium ring-1 transition-colors",
+                        on ? "bg-accent text-accent-fg ring-accent" : "text-fg-2 ring-line hover:bg-hover",
+                      )}
+                      aria-pressed={on}
+                      aria-label={d}
+                      title={d}
+                    >
+                      {d.slice(0, 2)}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+          )}
+          <Field label="At" description={`Time in ${timezone.replace(/_/g, " ")}. Change it in Settings → General.`}>
+            <TimeInput value={plan.time} onChange={(time) => set({ time })} />
+          </Field>
+        </>
+      )}
+
+      {plan.mode === "custom" && (
+        <Field label="Cron expression" description="minute hour day-of-month month day-of-week" error={invalid ? "This is not a valid cron expression." : undefined}>
+          <Input value={plan.cron} onChange={(e) => set({ cron: e.target.value })} placeholder="30 2 * * *" className="font-mono" />
+        </Field>
+      )}
+
+      {runs && (
+        <div className="flex gap-2.5 rounded-xl bg-surface-2 px-3.5 py-3 text-[12.5px]">
+          <CalendarClock className="mt-0.5 size-4 flex-none text-accent" />
+          <div className="min-w-0">
+            <p className="font-medium text-fg">Next backup {fmt.format(runs[0])}</p>
+            <p className="text-muted">
+              Then{" "}
+              {runs
+                .slice(1)
+                .map((d) => fmt.format(d))
+                .join(", ")}
+            </p>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export type Places = { bucket: string | null; local: boolean; copies: string[] };
+
+/** Where backups are kept: this server and any number of buckets (the first is the main one, the others get copies). */
+export function StoragePlaces({
+  destinations,
+  value: { bucket, local, copies },
+  onChange,
+  disabled,
+}: {
+  destinations: { id: string; name: string; bucket: string }[];
+  value: Places;
+  onChange: (v: Places) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {[{ id: "local", name: "This server", bucket: null as string | null }, ...destinations].map((d) => {
+        // The server and any number of buckets; the first bucket picked is the main one, the
+        // others get copies. At least one place is always kept.
+        const on = d.id === "local" ? local : bucket === d.id || copies.includes(d.id);
+        const toggle = () => {
+          if (d.id === "local") {
+            if (local && !bucket) return;
+            onChange({ bucket, local: !local, copies });
+          } else if (bucket === d.id) {
+            const [next, ...rest] = copies.filter((c) => c !== d.id);
+            onChange({ bucket: next ?? null, local: next ? local : true, copies: rest });
+          } else if (copies.includes(d.id)) onChange({ bucket, local, copies: copies.filter((c) => c !== d.id) });
+          else if (!bucket) onChange({ bucket: d.id, local, copies });
+          else onChange({ bucket, local, copies: [...copies, d.id] });
+        };
+        const last = on && (d.id === "local" ? !bucket : !local);
+        return (
+          <button
+            key={d.id}
+            type="button"
+            disabled={disabled}
+            onClick={toggle}
+            title={last ? "Backups are kept somewhere: pick another place first." : undefined}
+            className={cn(
+              "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+              on ? "border-accent bg-accent-soft/40" : "border-line hover:bg-hover",
+            )}
+            aria-pressed={on}
+          >
+            <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-surface-2 text-fg-2">
+              {d.id === "local" ? <HardDrive className="size-4" /> : <Cloud className="size-4" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium text-fg">{d.name}</span>
+              <span className="block truncate text-xs text-muted">
+                {d.bucket ? `Bucket ${d.bucket}${copies.includes(d.id) ? " · a copy" : ""}` : "Kept in the data directory; lost if the server is lost"}
+              </span>
+            </span>
+            {on && <Check className="size-4 flex-none text-accent" />}
+          </button>
+        );
+      })}
+      {bucket && !local && <p className="text-xs leading-relaxed text-muted">In the bucket only: each copy leaves the server once it is uploaded. Restores download it first.</p>}
+      {destinations.length === 0 && (
+        <p className="text-xs text-muted">
+          Add S3, R2 or B2 in{" "}
+          <Link href="/integrations/storage" className="text-accent hover:underline">
+            S3 storage
+          </Link>{" "}
+          for off-site copies.
+        </p>
+      )}
+    </div>
   );
 }

@@ -169,9 +169,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                     </label>
                   )}
                   {askPassword && (
+                    // The account's email as the user name (outside the label, which names the password field):
+                    // password managers fill the password and pair it with this, not with the field above.
+                    <input type="email" autoComplete="username" value={methods?.email ?? ""} readOnly hidden />
+                  )}
+                  {askPassword && (
                     <label className="mt-2 flex flex-col gap-1.5 text-[13px] text-fg-2">
                       <span>Your password</span>
-                      <Input type="password" autoFocus={!pending?.typeToConfirm} value={password} onChange={(e) => setPassword(e.target.value)} />
+                      <Input type="password" autoComplete="current-password" autoFocus={!pending?.typeToConfirm} value={password} onChange={(e) => setPassword(e.target.value)} />
                     </label>
                   )}
                 </div>

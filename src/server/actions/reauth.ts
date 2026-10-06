@@ -24,7 +24,7 @@ async function currentSession(h: Headers) {
 export async function identityMethods() {
   return act(async () => {
     const session = await currentSession(await headers());
-    return { userId: session.user.id, ...(await methodsFor(session.user.id)) };
+    return { userId: session.user.id, email: session.user.email, ...(await methodsFor(session.user.id)) };
   });
 }
 

@@ -191,9 +191,9 @@ export function RestoreDialog({
               <label className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] text-fg-2">
                 <Checkbox checked={backupFirst} onCheckedChange={(c) => setBackupFirst(!!c)} className="mt-0.5" />
                 <span>
-                  Back up current database
+                  Keep a backup of the current database
                   <span className="block text-xs text-muted">
-                    Every database, table and user of {targetName}, before anything changes. If that backup fails, nothing is restored.
+                    A backup of everything in {targetName} is always made first, and put back if the restore fails. Keep it to undo this restore later.
                   </span>
                 </span>
               </label>

@@ -254,8 +254,8 @@ export function ImportCard(props: {
           <label className="flex items-start gap-2 text-[13px] text-fg-2">
             <Checkbox checked={backupFirst} onCheckedChange={(c) => setBackupFirst(!!c)} className="mt-0.5" />
             <span>
-              Back up the current data first
-              <span className="block text-xs text-muted">Recommended. The restore stops if this backup fails.</span>
+              Keep a backup of the current data
+              <span className="block text-xs text-muted">A backup is always made first, and put back if the restore fails. Keep it to undo this restore later.</span>
             </span>
           </label>
         )}

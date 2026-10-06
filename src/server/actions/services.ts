@@ -2258,10 +2258,9 @@ export async function restoreFromBackup(
       return true;
     });
     if (!started) throw new UserError(`A restore of ${service.name} is already queued or running. Wait for it to finish.`);
-    // With a safety backup, the import job takes the backup and restores only if it succeeded.
+    // Every restore takes a safety backup first and puts it back if the restore fails; backupFirst keeps it afterwards.
     const users = !!opts.users;
-    if (opts.backupFirst) await enqueue("backup.import", { backupId, backupFirst: true, users, ...choice }, { concurrencyKey: `backup:${service.id}` });
-    else await enqueue("backup.restore", { backupId, users, ...choice }, { concurrencyKey: `backup:${service.id}` });
+    await enqueue("backup.import", { backupId, backupFirst: !!opts.backupFirst, users, ...choice }, { concurrencyKey: `backup:${service.id}` });
     await logActivity({
       userId: ctx.user.id,
       projectId: service.projectId,

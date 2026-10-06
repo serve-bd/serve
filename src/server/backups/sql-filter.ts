@@ -320,7 +320,8 @@ export function sqlLineFilter(
   };
 
   // The databases this restore writes into (after renames): emptied before it starts.
-  const targets = [...new Set(kept.map(map))];
+  // Content before any database switch ("") counts only when the whole dump is restored, or it is renamed.
+  const targets = [...new Set(kept.filter((d) => d !== "" || !opts.only?.length || !!opts.renames?.[""]).map(map))];
   return { push, report, targets };
 }
 

@@ -52,7 +52,8 @@ describe("restoring a backup", () => {
   it("queues a restore and marks the backup restoring", async () => {
     expect(await restoreFromBackup("b1")).toMatchObject({ ok: true });
     expect(state.backups[0].restoreStatus).toBe("running");
-    expect(state.enqueued).toEqual(["backup.restore"]);
+    // Every restore goes through the safety backup (put back if the restore fails).
+    expect(state.enqueued).toEqual(["backup.import"]);
   });
 
   it("refuses the same backup or another one while a restore of the service is queued or running", async () => {
@@ -61,7 +62,7 @@ describe("restoring a backup", () => {
       const r = await restoreFromBackup(id, { backupFirst: true });
       expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/already queued or running/) });
     }
-    expect(state.enqueued).toEqual(["backup.restore"]);
+    expect(state.enqueued).toEqual(["backup.import"]);
     expect(state.backups[1].restoreStatus).toBeNull();
   });
 

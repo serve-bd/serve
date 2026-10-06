@@ -90,6 +90,8 @@ export type RestoreOptions = {
    */
   whole?: boolean;
   keep?: string[];
+  /** Putting a safety backup back after a failed restore: no notifications of its own. */
+  rollback?: boolean;
   /** The passphrase of an encrypted backup made with another one (or imported). */
   passphrase?: string | null;
 };
@@ -231,8 +233,6 @@ async function composeCommands(service: ServiceRow, name: string): Promise<Comma
     password: creds.password,
     database: creds.database ?? "",
     username: creds.username,
-    // For listing and emptying its databases on a restore.
-    creds: { username: creds.username ?? "", password: creds.password ?? "", database: creds.database ?? "", tlsRequired: false } as ReturnType<typeof databaseCreds>,
   };
 }
 
@@ -388,13 +388,20 @@ export async function restoreWith(
   let main: string | undefined;
   if (spec) {
     const targets = filter ? filter.targets : t.engine === "mongodb" ? (opts.databases ?? []).map((d) => opts.renames?.[d] || d) : sqlEngine ? [renamed || t.database] : [];
-    const listed = opts.whole ? (await runIn(t, spec.list, Readable.from([]), false)).split("\n").map((l) => l.trim()) : [];
+    // Only plain names from the listing (its errors go nowhere): anything else is left alone.
+    const listed = opts.whole
+      ? (await runIn(t, `${spec.list} 2>/dev/null`, Readable.from([]), false))
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => /^[A-Za-z0-9_][A-Za-z0-9_$-]{0,63}$/.test(l))
+      : [];
     const empty = [...new Set([...targets, ...listed.filter((d) => !opts.keep?.includes(d))])].filter((d) => d && !spec.system.includes(d));
     // The backup has no database of the main one's name: its first one becomes the main one.
     if (opts.whole && sqlEngine && !targets.includes(t.database)) main = targets.find((d) => d && !spec.system.includes(d));
     if (empty.length) log(`Emptying ${empty.join(", ")}: afterwards the server holds only what the backup holds`);
     for (const d of empty) await runIn(t, spec.drop(d), Readable.from([]), false);
-    if (sqlEngine) for (const d of new Set([main ?? t.database, ...targets])) if (d && !spec.system.includes(d)) await ensureDatabase(t, d);
+    // The main database stays (empty) until the restore worked: a failed one leaves the service working.
+    if (sqlEngine) for (const d of new Set([t.database, ...targets])) if (d && !spec.system.includes(d)) await ensureDatabase(t, d);
     // The restore connected to the main database, which is gone: it connects to the new one.
     if (main && format === "plain SQL" && t.engine === "postgres" && !renamed) command = `${clientOf(t, main)} -o /dev/null`;
     else if (main && t.engine !== "postgres" && !renamed) command = `MYSQL_PWD=${shq(t.password)} ${t.engine} -uroot ${shq(main)}`;
@@ -419,6 +426,8 @@ export async function restoreWith(
     log("Restarting to load the dump");
     await t.container.restart();
   }
+  // The backup did not hold the main database: the old one goes now that its first one is in.
+  if (main && spec && main !== t.database) await runIn(t, `${spec.drop(t.database)}`, Readable.from([]), false);
   return { out, format: `${format}${gz ? " (gzip)" : ""}`, main };
 }
 
@@ -1218,7 +1227,8 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
       if (own?.label && own.label !== service.database.database) opts = { ...opts, renames: { ...opts.renames, "": own.label } };
     }
     // The whole backup: the server ends up holding exactly what it holds (branches stay apart).
-    if (!opts.tables?.length && !opts.databases?.length) opts = { ...opts, whole: true, keep: backup.target ? [] : await branchDatabases(service.id) };
+    // Compose containers are left as they are beyond what the backup holds: Serve does not know them well enough.
+    if (!backup.target && !opts.tables?.length && !opts.databases?.length) opts = { ...opts, whole: true, keep: await branchDatabases(service.id) };
     // Tables with no database named: the dump's one database, never the whole of it by its own
     // name (a MySQL dump names its database, and that would replace every table in it).
     if (opts.tables?.length && !opts.databases?.length) {
@@ -1259,28 +1269,30 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
     }
     await db.update(schema.backup).set({ restoreStatus: "success", restoredAt: new Date() }).where(eq(schema.backup.id, backupId));
     await logLine(backupId, "Restore finished");
-    void notify(await orgOfService(service.id), "restore.success", {
-      ok: true,
-      title: `${backup.trigger === "import" ? "Import" : "Restore"} into ${t.label} finished`,
-      body: backup.filename,
-      url: `/projects/${service.projectId}/services/${service.id}/backups`,
-      serviceId: service.id,
-      data: { backupId },
-    });
+    if (!opts.rollback)
+      void notify(await orgOfService(service.id), "restore.success", {
+        ok: true,
+        title: `${backup.trigger === "import" ? "Import" : "Restore"} into ${t.label} finished`,
+        body: backup.filename,
+        url: `/projects/${service.projectId}/services/${service.id}/backups`,
+        serviceId: service.id,
+        data: { backupId },
+      });
     return clean;
   } catch (error) {
     const message = (error as Error).message;
     await db.update(schema.backup).set({ restoreStatus: "failed", restoredAt: new Date() }).where(eq(schema.backup.id, backupId));
     await logLine(backupId, `Restore failed: ${message.slice(0, 2000)}`);
-    void notify(await orgOfService(service.id), "restore.failed", {
-      ok: false,
-      title: `${backup.trigger === "import" ? "Import" : "Restore"} into ${service.name} failed`,
-      body: message.slice(0, 400),
-      url: `/projects/${service.projectId}/services/${service.id}/backups`,
-      error: message.slice(0, 2000),
-      serviceId: service.id,
-      data: { backupId },
-    });
+    if (!opts.rollback)
+      void notify(await orgOfService(service.id), "restore.failed", {
+        ok: false,
+        title: `${backup.trigger === "import" ? "Import" : "Restore"} into ${service.name} failed`,
+        body: message.slice(0, 400),
+        url: `/projects/${service.projectId}/services/${service.id}/backups`,
+        error: message.slice(0, 2000),
+        serviceId: service.id,
+        data: { backupId },
+      });
     throw error;
   }
 }
@@ -1430,38 +1442,61 @@ export async function importBackup(
     throw new Error(wrong);
   }
 
-  if (opts.backupFirst) {
-    const id = newId();
-    // The whole server as it is: every database (whichever the restore touches) and, where the
-    // engine has them, its users. A stack's backup takes what it always takes.
-    const whole = backup.target ? backup.databases : [ALL_DATABASES];
-    const users = !backup.target && ["postgres", "mysql", "mariadb"].includes(service.database?.engine ?? "") ? { users: true } : undefined;
-    // An import that just came in lists its safety backup under it: what was there before.
-    const fresh = backup.trigger === "import" && Date.now() - backup.createdAt.getTime() < 10 * 60_000;
-    const own = { id, serviceId: service.id, target: backup.target, trigger: "pre-import" as const, databases: whole };
-    const row = opts.into
-      ? { id, serviceId: opts.into, target: null, trigger: "pre-import" as const, databases: [ALL_DATABASES] }
-      : fresh
-        ? { ...own, createdAt: new Date(backup.createdAt.getTime() - 1000) }
-        : own;
-    await db.insert(schema.backup).values(row);
-    await logLine(backupId, "Backing up the current database first: every database and its users");
-    try {
-      await runBackup(id, backupId, users);
-    } catch (e) {
-      await restoreNotRun(backupId, `The safety backup failed, so nothing was restored: ${(e as Error).message}`);
-      throw new Error("The safety backup failed, so nothing was restored.");
-    }
+  // A safety backup always comes first, so a restore that fails is undone. `backupFirst` keeps it
+  // afterwards; without it, it is removed once the restore worked.
+  const id = newId();
+  // The whole server as it is: every database (whichever the restore touches) and, where the
+  // engine has them, its users. A stack's backup takes what it always takes.
+  const whole = backup.target ? backup.databases : [ALL_DATABASES];
+  const withUsers = !backup.target && ["postgres", "mysql", "mariadb"].includes(service.database?.engine ?? "");
+  // An import that just came in lists its safety backup under it: what was there before.
+  const fresh = backup.trigger === "import" && Date.now() - backup.createdAt.getTime() < 10 * 60_000;
+  const own = { id, serviceId: service.id, target: backup.target, trigger: "pre-import" as const, databases: whole };
+  const row = opts.into
+    ? { id, serviceId: opts.into, target: null, trigger: "pre-import" as const, databases: [ALL_DATABASES] }
+    : fresh
+      ? { ...own, createdAt: new Date(backup.createdAt.getTime() - 1000) }
+      : own;
+  await db.insert(schema.backup).values(row);
+  await logLine(backupId, "Backing up the current database first (every database, table and user), so a failed restore can be undone");
+  try {
+    await runBackup(id, backupId, withUsers ? { users: true } : undefined);
+  } catch (e) {
+    await restoreNotRun(backupId, `The safety backup failed, so nothing was restored: ${(e as Error).message}`);
+    throw new Error("The safety backup failed, so nothing was restored.");
   }
-  await restoreBackup(backupId, {
-    users: opts.users,
-    databases: opts.databases,
-    renames: opts.renames,
-    tables: opts.tables,
-    into: opts.into,
-    intoDatabase: opts.intoDatabase,
-    passphrase: opts.passphrase,
-  });
+  // Not asked to keep: the safety backup goes once it is not needed (the restore worked, or it was put back).
+  const dropSafety = async () => {
+    if (opts.backupFirst) return;
+    const [safety] = await db.select().from(schema.backup).where(eq(schema.backup.id, id));
+    if (!safety) return;
+    await deleteBackupFiles(safety).catch(() => {});
+    await db.delete(schema.backup).where(eq(schema.backup.id, id));
+  };
+  try {
+    await restoreBackup(backupId, {
+      users: opts.users,
+      databases: opts.databases,
+      renames: opts.renames,
+      tables: opts.tables,
+      into: opts.into,
+      intoDatabase: opts.intoDatabase,
+      passphrase: opts.passphrase,
+    });
+  } catch (error) {
+    // Put back what was there: the safety backup, whole (and its users), into the same place.
+    await logLine(backupId, "Putting the database back as it was before this restore, from the safety backup");
+    try {
+      await restoreBackup(id, { users: withUsers, rollback: true });
+      await logLine(backupId, "Put back: the database is as it was before this restore.");
+      await dropSafety();
+    } catch (e) {
+      // The only copy of what was there: kept, whatever was asked.
+      await logLine(backupId, `Putting it back failed too: ${(e as Error).message}. The safety backup (Before restore) is kept in the list: restore it to get the data back.`);
+    }
+    throw error;
+  }
+  await dropSafety();
 }
 
 /**

@@ -551,8 +551,9 @@ function myJson(engine: "mysql" | "mariadb", c: EngineCreds, sql: string) {
   const cli = myCli(engine, c, "-N -B -r");
   return [
     ...cli.env,
-    // MariaDB builds JSON_ARRAYAGG on GROUP_CONCAT, which stops at this length.
-    `${pipe(`SET SESSION group_concat_max_len = 67108864;\n${myTimeout(engine, QUERY_TIMEOUT)}\n${sql}`)} | ${cli.cmd}`,
+    // MariaDB builds JSON_ARRAYAGG on GROUP_CONCAT, which stops at this length. MySQL keeps row
+    // counts and sizes for 24 hours: a table seen empty once (a restore just started) showed 0 rows all day.
+    `${pipe(`SET SESSION group_concat_max_len = 67108864;\n${engine === "mysql" ? "SET SESSION information_schema_stats_expiry = 0;\n" : ""}${myTimeout(engine, QUERY_TIMEOUT)}\n${sql}`)} | ${cli.cmd}`,
   ];
 }
 

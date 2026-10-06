@@ -150,7 +150,7 @@ function SidebarContent({ props, onNavigate }: { props: ShellProps; onNavigate?:
     <div className="flex h-full flex-col">
       <div className="flex h-16 items-center gap-2.5 px-4">
         <Link href="/" onClick={onNavigate} className="flex flex-none" aria-label={brand.name}>
-          <Logo withText={false} />
+          <Logo withText={false} markClassName="size-9" logoClassName="h-9" />
         </Link>
         <div className="flex min-w-0 flex-1 flex-col items-start leading-tight">
           {(!brand.logoUrl || brand.showName) && (

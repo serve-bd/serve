@@ -1,0 +1,28 @@
+{
+  "name": "Piik",
+  "description": "Private screen sharing in the browser: share a screen with up to 20 viewers by room code, peer to peer.",
+  "category": "Communication",
+  "website": "https://piik.tv",
+  "color": "#22303E",
+  "hostAccess": true,
+  "note": "Publishes UDP port 3478 on the server for STUN, which viewers need to connect. Keep the domain's DNS record unproxied (no Cloudflare proxy), since STUN uses it too. Set a site password below to keep the site private.",
+  "expose": {
+    "service": "piik",
+    "port": 8787
+  },
+  "vars": [
+    {
+      "key": "PUBLIC_BASE_URL",
+      "publicUrl": true
+    },
+    {
+      "key": "PUBLIC_HOST",
+      "publicHost": true
+    },
+    {
+      "key": "SITE_ACCESS_PASSWORD",
+      "value": "",
+      "label": "Site password (optional)"
+    }
+  ]
+}

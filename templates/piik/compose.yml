@@ -1,0 +1,24 @@
+services:
+  piik:
+    image: ghcr.io/tntcrafthim/piik:latest
+    restart: unless-stopped
+    stop_grace_period: 20s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      PIIK_ENV: production
+      LISTEN_HOST: 0.0.0.0
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      # Viewers find each other through STUN on the same domain.
+      STUN_URLS: stun:${PUBLIC_HOST}:3478
+      MAX_VIEWERS_PER_ROOM: "20"
+      SITE_ACCESS_PASSWORD: ${SITE_ACCESS_PASSWORD}
+    # The web app is served on the domain; STUN needs its UDP port on the server.
+    ports:
+      - "3478:3478/udp"
+    volumes:
+      - piik-data:/home/nonroot
+
+volumes:
+  piik-data:

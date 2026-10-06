@@ -2,16 +2,16 @@
 
 import { ALL_DATABASES, readChoice } from "@/lib/backup-databases";
 import * as React from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import useSWR from "swr";
-import { ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2, TriangleAlert, Lock, FlaskConical } from "lucide-react";
+import { Loader2, ArchiveRestore, ChevronDown, Cloud, CloudOff, Download, HardDrive, MoreHorizontal, Play, Trash2, TriangleAlert, Lock, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, CardHeader, EmptyState, TimeAgo, Copyable } from "@/components/ui/misc";
 import { Led } from "@/components/ui/status";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Menu, MenuContent, MenuItem, MenuLinkItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { useConfirm } from "@/components/ui/confirm";
-import { useAction } from "@/hooks/use-action";
+import { showError, useAction } from "@/hooks/use-action";
 import { createBackup, deleteBackup, restoreFromBackup, testBackup } from "@/server/actions/services";
 import { cn, formatBytes } from "@/lib/utils";
 import { type Places, ScheduleCard, StoragePlaces } from "./schedule-card";
@@ -298,17 +298,25 @@ export function BackupsManager(props: {
   const users = React.useRef(false);
   // Database services get the full restore window; compose targets the plain confirmation.
   const [restoring, setRestoring] = React.useState<Backup | null>(null);
-  // An import waiting to be restored (?restore=id from the Import page): its window opens when the file is in.
-  const search = useSearchParams();
-  const [awaiting, setAwaiting] = React.useState<string | null>(() => search.get("restore"));
+  // An import of a database service: its restore window opens once the file is in. Cancelled
+  // there (or failed), the import is deleted, as if it had never been uploaded.
+  const [awaiting, setAwaiting] = React.useState<string | null>(null);
+  const unconfirmed = React.useRef<string | null>(null);
+  const discard = (id: string) => void deleteBackup(id).then(() => mutate());
   React.useEffect(() => {
     if (!awaiting) return;
     const b = backups.find((x) => x.id === awaiting);
     if (!b || b.status === "running") return;
     setAwaiting(null);
-    if (search.get("restore")) router.replace(pathname);
-    if (b.status === "success") setRestoring(b);
-  }, [awaiting, backups, search, router, pathname]);
+    if (b.status === "success") {
+      unconfirmed.current = b.id;
+      setRestoring(b);
+    } else {
+      showError(b.error ? `The import failed: ${b.error}` : "The import failed.");
+      discard(b.id);
+    }
+  }, [awaiting, backups]);
+  const toList = () => router.push(pathname.replace(/\/import$/, ""));
 
   const list = (
     <>
@@ -371,11 +379,15 @@ export function BackupsManager(props: {
           </div>
         )}
       </Card>
-      <RestoreDialog backup={restoring} onClose={() => setRestoring(null)} onStarted={() => void mutate()} restoresUsers={props.restoresUsers} />
     </>
   );
   const importCard = (
     <>
+      {awaiting && (
+        <p className="flex items-center gap-2 text-[13px] text-muted">
+          <Loader2 className="size-3.5 animate-spin" /> Getting the file ready. The restore window opens next.
+        </p>
+      )}
       {props.isAdmin && (
         <ImportCard
           target={props.target ?? null}
@@ -388,10 +400,9 @@ export function BackupsManager(props: {
           destinations={props.destinations}
           onStarted={(id) => {
             void mutate();
-            // A database service restores the import next: the restore window opens once it is in.
-            const list = pathname.replace(/\/import$/, "");
-            if (props.view === "import") router.push(id && !props.target ? `${list}?restore=${id}` : list);
-            else if (id && !props.target) setAwaiting(id);
+            // A database service chooses what to restore next, here; a stack's import restores at once.
+            if (id && !props.target) setAwaiting(id);
+            else if (props.view === "import") toList();
           }}
         />
       )}
@@ -429,6 +440,20 @@ export function BackupsManager(props: {
   const saved: Places = { bucket: props.s3DestinationId, local: !props.s3DestinationId || props.keepLocal !== false, copies: props.copyDestinationIds ?? [] };
   const dialogs = (
     <>
+      <RestoreDialog
+        backup={restoring}
+        onClose={() => {
+          setRestoring(null);
+          if (unconfirmed.current) discard(unconfirmed.current);
+          unconfirmed.current = null;
+        }}
+        onStarted={() => {
+          unconfirmed.current = null;
+          void mutate();
+          if (props.view === "import") toList();
+        }}
+        restoresUsers={props.restoresUsers}
+      />
       {picking && (
         <BackupNowDialog
           choices={choices}

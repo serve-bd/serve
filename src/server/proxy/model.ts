@@ -9,6 +9,7 @@ import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import { certificateCovers } from "@/server/ssl/match";
 import { maintenanceOf, type ProxyMaintenance } from "@/server/services/maintenance";
 import { gateUpstream } from "@/server/gate";
+import { gateOn } from "@/server/services/proxy-config";
 import { composeAlias, tunnelNetworkName } from "./names";
 import { BALANCE_CONNECT_TIMEOUT, localTargets, remoteTargets } from "@/server/services/balance";
 
@@ -158,7 +159,7 @@ export async function serviceModel(serviceId: string, ctx: ServerCtx): Promise<S
     hosts,
     options: cfg,
     maintenance: maintenanceOf(service.id, service.maintenance),
-    gate: cfg?.login ? { upstream: await gateUpstream(ctx.id) } : null,
+    gate: gateOn(cfg) ? { upstream: await gateUpstream(ctx.id) } : null,
     certificates: certificateStamp(
       certs,
       hosts.map((h) => h.tls),

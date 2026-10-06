@@ -437,9 +437,9 @@ export function ServiceOverview({ previewsCard, ...data }: OverviewData & { prev
                 </span>
               </a>
             ))}
-            {data.teamOnly && (
+            {data.wall && (
               <p className="flex items-center gap-2 text-xs text-muted">
-                <Users className="size-3.5 flex-none" /> Only my team: visitors sign in to Serve first
+                <Users className="size-3.5 flex-none" /> {data.wall}: visitors sign in first
               </p>
             )}
             {data.redirects > 0 && (

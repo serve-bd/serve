@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 process.env.BETTER_AUTH_SECRET ??= "test-secret-for-gate";
 vi.mock("@/server/db", () => ({ db: {}, schema: {} }));
 import { gateKey, gateKeyValid, signGate, verifyGate } from "@/server/gate";
+import { buildProxyConfig, gateOn, proxyInputSchema, wallLabel } from "@/server/services/proxy-config";
 import { serverBlocks } from "@/server/proxy/templates";
 import { renderCaddySite } from "@/server/proxy/caddy";
 import { renderTraefikSite } from "@/server/proxy/traefik";
@@ -25,6 +26,39 @@ describe("login wall tokens", () => {
     vi.useFakeTimers({ now: Date.now() + 61_000 });
     expect(verifyGate(ticket, "t")).toBeNull();
     vi.useRealTimers();
+  });
+});
+
+describe("guest logins", () => {
+  const build = (input: unknown, prev: ReturnType<typeof buildProxyConfig> | null) => buildProxyConfig(proxyInputSchema.parse(input), prev);
+  it("keeps a saved password, changes it only when a new one is sent", () => {
+    const first = build({ guests: [{ email: "Ann@Example.com", password: "secret123" }] }, null);
+    const [ann] = first.guests!;
+    expect(ann.email).toBe("ann@example.com");
+    expect(gateOn(first)).toBe(true);
+    expect(wallLabel(first)).toBe("1 guest");
+    // The form after saving: no id yet, no password.
+    expect(build({ guests: [{ email: "ann@example.com" }] }, first).guests![0]).toEqual(ann);
+    expect(build({ guests: [{ id: ann.id, email: "ann@new.com" }] }, first).guests![0]).toMatchObject({ id: ann.id, hash: ann.hash });
+    expect(build({ guests: [{ id: ann.id, email: "ann@example.com", password: "another123" }] }, first).guests![0].hash).not.toBe(ann.hash);
+    // Left out (another card, an older caller): the guests stay.
+    expect(build({}, first).guests).toEqual(first.guests);
+    expect(gateOn(build({ guests: [] }, first))).toBe(false);
+  });
+  it("refuses a new guest without a password and the same email twice", () => {
+    expect(() => build({ guests: [{ email: "a@b.co" }] }, null)).toThrow(/password/);
+    expect(() =>
+      build(
+        {
+          guests: [
+            { email: "a@b.co", password: "12345678" },
+            { email: "A@b.co", password: "12345678" },
+          ],
+        },
+        null,
+      ),
+    ).toThrow(/different email/);
+    expect(proxyInputSchema.safeParse({ guests: [{ email: "a@b.co", password: "short" }] }).success).toBe(false);
   });
 });
 

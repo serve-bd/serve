@@ -19,6 +19,7 @@ const PUBLIC = [
   "/api/agent",
   "/api/cli/login",
   "/api/gate",
+  "/gate",
   "/status",
 ];
 

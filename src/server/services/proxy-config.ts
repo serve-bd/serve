@@ -33,6 +33,8 @@ export type ServiceProxyConfig = {
   basicAuth?: { username: string; passwordHash: string; bcryptHash?: string | null } | null;
   /** Login wall: only members who may reach the project get in, after signing in to Serve (src/server/gate.ts). */
   login?: boolean;
+  /** Guest logins: people without a Serve account sign in on the wall's page with these (bcrypt hashes). */
+  guests?: { id: string; email: string; hash: string }[];
   /** Only these IPs / CIDR ranges may connect. */
   allow?: string[];
   /** These IPs / CIDR ranges are refused. */
@@ -56,6 +58,17 @@ export type ServiceProxyConfig = {
   /** Extra Traefik middlewares (YAML map of name → middleware) attached to the service's routers. Root admins only. */
   traefikMiddlewares?: string | null;
 };
+
+/** The login wall is on: for the team, for guests, or both. */
+export const gateOn = (c: ServiceProxyConfig | null | undefined) => !!c && (!!c.login || !!c.guests?.length);
+
+/** Who gets past the login wall, in a few words; null when it is off. */
+export function wallLabel(c: ServiceProxyConfig | null | undefined) {
+  if (!gateOn(c)) return null;
+  const guests = c!.guests?.length ?? 0;
+  const people = `${guests} guest${guests === 1 ? "" : "s"}`;
+  return c!.login ? (guests ? `Team and ${people}` : "Team only") : people;
+}
 
 /* -------------------------------------------------------------------------- */
 /*                                 Validation                                 */
@@ -133,6 +146,16 @@ export const proxyInputSchema = z.object({
     })
     .optional(),
   login: z.boolean().optional(),
+  /** id: a saved guest; its password may be left out to keep it. */
+  guests: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        email: z.string().trim().toLowerCase().email("Enter a valid email address").max(254),
+        password: z.string().min(8, "Use at least 8 characters").max(128).optional(),
+      }),
+    )
+    .optional(),
   allow: z.array(cidr).max(100).optional(),
   deny: z.array(cidr).max(100).optional(),
   headers: z
@@ -177,6 +200,15 @@ export function buildProxyConfig(input: z.output<typeof proxyInputSchema>, previ
     if (!input.basicAuth.password && !keep) throw new Error("Enter a password for basic auth.");
     basicAuth = keep ? { ...previous!.basicAuth! } : { username, passwordHash: apr1(input.basicAuth.password!), bcryptHash: bcrypt.hashSync(input.basicAuth.password!, 10) };
   }
+  // Left out: the saved guests stay. A guest without a new password keeps its hash (matched by id,
+  // or by email for one added before the form knew its id).
+  const guests = (input.guests ?? previous?.guests ?? []).map((g) => {
+    const saved = previous?.guests?.find((p) => ("id" in g && p.id === g.id) || p.email === g.email);
+    const password = "password" in g ? g.password : undefined;
+    if (!password && !saved) throw new Error(`Enter a password for ${g.email}.`);
+    return { id: saved?.id ?? crypto.randomBytes(9).toString("base64url"), email: g.email, hash: password ? bcrypt.hashSync(password, 10) : saved!.hash };
+  });
+  if (new Set(guests.map((g) => g.email)).size !== guests.length) throw new Error("Each guest needs a different email address.");
   const headers = (input.headers ?? []).filter((h) => h.name);
   const names = new Set<string>();
   for (const h of headers) {
@@ -195,6 +227,7 @@ export function buildProxyConfig(input: z.output<typeof proxyInputSchema>, previ
     basicAuth,
     // Left out (an older API caller): the wall stays as it was, never dropped by accident.
     login: input.login ?? previous?.login ?? false,
+    guests,
     allow: input.allow ?? [],
     deny: input.deny ?? [],
     headers,

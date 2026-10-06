@@ -1,3 +1,4 @@
+import { wallLabel } from "@/server/services/proxy-config";
 import { runServerIds } from "@/server/deploy/distribution";
 import { monitorSummary } from "@/server/monitoring/queries";
 import "server-only";
@@ -149,7 +150,8 @@ export async function loadOverview(service: Service, projectId: string, orgId: s
       }))
       .sort((a, b) => Number(b.primary) - Number(a.primary)),
     redirects: domains.filter((d) => d.redirectTo).length,
-    teamOnly: !!service.proxy?.login && domains.some((d) => !d.redirectTo),
+    // The login wall: who gets past it, for the line under the domains.
+    wall: domains.some((d) => !d.redirectTo) ? wallLabel(service.proxy) : null,
     published,
     counts: { variables: counts[0][0].n, tasks: counts[1][0].n, shared: counts[2][0].n },
   };

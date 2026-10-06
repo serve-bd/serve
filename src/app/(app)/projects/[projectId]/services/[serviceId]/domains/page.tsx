@@ -1,3 +1,4 @@
+import { wallLabel } from "@/server/services/proxy-config";
 import { and, asc, eq } from "drizzle-orm";
 import { privateHost } from "@/lib/hostname";
 import { pickPrimaryDomain } from "@/lib/domains";
@@ -56,7 +57,12 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
   ]);
   // Never send the password hash to the browser.
   const proxyInitial = service.proxy
-    ? (({ basicAuth, ...rest }) => ({ ...rest, basicAuthUser: basicAuth?.username ?? null, basicAuthHasBcrypt: !!basicAuth?.bcryptHash }))(service.proxy)
+    ? (({ basicAuth, guests, ...rest }) => ({
+        ...rest,
+        basicAuthUser: basicAuth?.username ?? null,
+        basicAuthHasBcrypt: !!basicAuth?.bcryptHash,
+        guests: (guests ?? []).map((g) => ({ id: g.id, email: g.email })),
+      }))(service.proxy)
     : null;
   const hasPorts = service.type === "app" || service.type === "compose";
   const [published, busy, listening] = hasPorts
@@ -125,7 +131,7 @@ export default async function DomainsPage(props: PageProps<"/projects/[projectId
         hasCloudflare={cfAccounts.length > 0}
         hasAcme={!!settings.acmeEmail}
         undeployed={!service.currentDeploymentId}
-        teamOnly={!!service.proxy?.login}
+        wall={wallLabel(service.proxy)}
         serverIp={addressing.publicIp}
         tunnels={tunnels}
         isAdmin={ctx.isAdmin}

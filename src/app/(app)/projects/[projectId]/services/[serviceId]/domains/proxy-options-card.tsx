@@ -15,7 +15,9 @@ import { updateServiceProxy } from "@/server/actions/service-proxy";
 import type { ServiceProxyConfig } from "@/server/services/proxy-config";
 import { type Balancing, balancingOf } from "@/lib/balancing";
 
-type Initial = Omit<ServiceProxyConfig, "basicAuth"> & { basicAuthUser: string | null; basicAuthHasBcrypt?: boolean };
+type Initial = Omit<ServiceProxyConfig, "basicAuth" | "guests"> & { basicAuthUser: string | null; basicAuthHasBcrypt?: boolean; guests?: { id: string; email: string }[] };
+/** password: empty keeps the saved one. */
+type Guest = { id?: string; email: string; password: string };
 
 type Form = {
   maxBodySize: string;
@@ -25,6 +27,7 @@ type Form = {
   buffering: boolean;
   balancing: Balancing;
   login: boolean;
+  guests: Guest[];
   authOn: boolean;
   authUser: string;
   authPassword: string;
@@ -50,6 +53,7 @@ function toForm(c: Initial | null): Form {
     buffering: c?.buffering ?? true,
     balancing: balancingOf(c),
     login: c?.login ?? false,
+    guests: (c?.guests ?? []).map((g) => ({ id: g.id, email: g.email, password: "" })),
     authOn: !!c?.basicAuthUser,
     authUser: c?.basicAuthUser ?? "",
     authPassword: "",
@@ -183,7 +187,7 @@ export function ProxyOptionsCard({
         {...props}
         title="Access control"
         description="Protect previews, admin panels or staging sites."
-        keys={["login", "authOn", "authUser", "authPassword", "allow", "deny"]}
+        keys={["login", "guests", "authOn", "authUser", "authPassword", "allow", "deny"]}
       >
         {(form, set) => (
           <>
@@ -193,7 +197,61 @@ export function ProxyOptionsCard({
               checked={form.login}
               onCheckedChange={(v) => set("login", v)}
             />
-            {form.login && !dashboardDomain && (
+            <div className="flex flex-col gap-2">
+              <div>
+                <p className="text-[13px] font-medium text-fg-2">Guest logins</p>
+                <p className="text-xs text-muted">People without a Serve account. They sign in on a login page with the email and password you set here.</p>
+              </div>
+              {form.guests.map((g, i) => (
+                <div key={g.id ?? `new-${i}`} className="grid grid-cols-[minmax(0,1fr)_32px] gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px]">
+                  <Input
+                    type="email"
+                    value={g.email}
+                    onChange={(e) =>
+                      set(
+                        "guests",
+                        form.guests.map((x, j) => (j === i ? { ...x, email: e.target.value } : x)),
+                      )
+                    }
+                    placeholder="name@company.com"
+                    aria-label="Guest email"
+                    className="h-8 text-[13px]"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="sm:order-3"
+                    onClick={() =>
+                      set(
+                        "guests",
+                        form.guests.filter((_, j) => j !== i),
+                      )
+                    }
+                    aria-label="Remove guest"
+                  >
+                    <Trash2 />
+                  </Button>
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    value={g.password}
+                    onChange={(e) =>
+                      set(
+                        "guests",
+                        form.guests.map((x, j) => (j === i ? { ...x, password: e.target.value } : x)),
+                      )
+                    }
+                    placeholder={g.id ? "Unchanged" : "Password, 8+ characters"}
+                    aria-label="Guest password"
+                    className="col-span-2 h-8 text-[13px] sm:order-2 sm:col-span-1"
+                  />
+                </div>
+              ))}
+              <Button size="sm" variant="secondary" className="w-fit" onClick={() => set("guests", [...form.guests, { email: "", password: "" }])}>
+                <Plus /> Add guest
+              </Button>
+            </div>
+            {(form.login || form.guests.some((g) => g.email.trim())) && !dashboardDomain && (
               <p className="text-[12.5px] text-warn">Give the dashboard its own domain in Settings first. Visitors sign in there, and other servers check sign-ins there.</p>
             )}
             <SwitchRow
@@ -395,6 +453,7 @@ function toInput(form: Form) {
     buffering: form.buffering,
     balancing: form.balancing,
     login: form.login,
+    guests: form.guests.filter((g) => g.email.trim()).map((g) => ({ id: g.id, email: g.email.trim(), password: g.password || undefined })),
     basicAuth: { enabled: form.authOn, username: form.authUser.trim() || undefined, password: form.authPassword || undefined },
     allow: lines(form.allow),
     deny: lines(form.deny),
@@ -448,7 +507,7 @@ function OptionsCard({
     },
     {
       onSuccess: () => {
-        onSaved({ ...form, authPassword: "" });
+        onSaved({ ...form, authPassword: "", guests: form.guests.filter((g) => g.email.trim()).map((g) => ({ ...g, password: "" })) });
         setDraft({});
       },
     },

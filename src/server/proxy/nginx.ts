@@ -37,6 +37,7 @@ import { connectProxy, connectProxyToAll, envNetworkName } from "@/server/docker
 import crypto from "node:crypto";
 import { customFilePattern, DEFAULT_MAX_BODY_SIZE, defaultsOf, proxyImages, type ProxyFile, type ProxyKind, type RunningKind, type ServerProxyConfig } from "./config";
 import { gateUpstream } from "@/server/gate";
+import { gateOn } from "@/server/services/proxy-config";
 import { appTargets, certificateStamp, dashboardModel, serviceModel, type SiteModel, statusModel, statusPageHosts } from "./model";
 import { forgetDashboardTrusted, visitorIpOf } from "./trusted-proxies";
 import { headerTrusted, usesProxyProtocol, type TrustedProxies } from "@/lib/trusted-proxies";
@@ -874,7 +875,7 @@ export async function renderServiceSite(serviceId: string, ctx?: ServerCtx): Pro
   const upstreamName = upstreamNamer(await serverUpstreamKeys(server.id));
   const cfg = service.proxy;
   const gateName = `serve_gate_${service.id.replace(/[^a-zA-Z0-9_]/g, "_")}`;
-  const gateUp = cfg?.login ? gateUpstreamBlock(gateName, await gateUpstream(server.id)) : null;
+  const gateUp = gateOn(cfg) ? gateUpstreamBlock(gateName, await gateUpstream(server.id)) : null;
   const gate = gateUp ? { upstream: gateName, host: gateUp.host, tls: gateUp.tls, serviceId: service.id } : null;
   const options: SiteOptions | null = cfg ? ({ ...cfg, basicAuth: undefined, authFile: cfg.basicAuth ? authFileInProxy(service.id) : null, gate } as SiteOptions) : null;
   // www ↔ apex redirect, only between hostnames that are both on this service.

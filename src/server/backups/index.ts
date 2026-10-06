@@ -15,6 +15,7 @@ import { pipeline } from "node:stream/promises";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type Docker from "dockerode";
 import { execExitCode, LABEL } from "@/server/docker/client";
+import { jobSignal } from "@/server/job-signal";
 import { credsFromEnv, DUMP_EXTENSION, dumpCommands, engineOfImage, parseBackupKey, requirePass } from "./compose";
 
 export { parseBackupKey };
@@ -256,12 +257,15 @@ async function dumpWith(t: Commands, file: string, opts: { timeoutMinutes?: numb
   const exec = await t.container.exec({ Cmd: ["sh", "-c", command], AttachStdout: true, AttachStderr: true, Env: [marker] });
   const stream = await exec.start({ hijack: true, stdin: false });
   let timedOut = false;
-  const timer = opts.timeoutMinutes
-    ? setTimeout(() => {
-        timedOut = true;
-        (stream as unknown as { destroy: (e?: Error) => void }).destroy(new Error("timeout"));
-      }, opts.timeoutMinutes * 60_000)
-    : undefined;
+  const stop = () => {
+    timedOut = true;
+    (stream as unknown as { destroy: (e?: Error) => void }).destroy(new Error("timeout"));
+  };
+  const timer = opts.timeoutMinutes ? setTimeout(stop, opts.timeoutMinutes * 60_000) : undefined;
+  // The job past its own time limit stops it the same way.
+  const signal = jobSignal();
+  if (signal?.aborted) stop();
+  else signal?.addEventListener("abort", stop, { once: true });
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   let errText = "";
@@ -282,11 +286,13 @@ async function dumpWith(t: Commands, file: string, opts: { timeoutMinutes?: numb
     if (!timedOut) throw e;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
   }
   if (timedOut) {
     // Docker has no call to stop an exec: its processes are found by the marker and killed.
     const { killMarked } = await import("@/server/services/exec");
     await killMarked(t.container, marker);
+    if (signal?.aborted) throw signal.reason;
     throw new Error(`The backup took longer than ${opts.timeoutMinutes} minutes and was stopped.`);
   }
   // The output ended; a large dump may still take a moment to exit.
@@ -307,61 +313,82 @@ const NOISE = /Using a password on the command line interface can be insecure|^\
  * may stop reading early (pg_restore -l reads only the table of contents).
  */
 async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream, gz: boolean, onOutput?: (text: string) => void, filter?: NodeJS.ReadWriteStream, partial = false) {
-  const exec = await t.container.exec({ Cmd: ["sh", "-c", command], AttachStdin: true, AttachStdout: true, AttachStderr: true });
+  const signal = jobSignal();
+  signal?.throwIfAborted();
+  const marker = `SERVE_EXEC=${crypto.randomBytes(8).toString("hex")}`;
+  const exec = await t.container.exec({ Cmd: ["sh", "-c", command], AttachStdin: true, AttachStdout: true, AttachStderr: true, Env: [marker] });
   const stream = await exec.start({ hijack: true, stdin: true });
-  let output = "";
-  let pending = "";
-  const mask = (text: string) => (t.password ? text.replaceAll(t.password, "***") : text);
-  const flush = () => {
-    const lines = pending.split("\n");
-    pending = lines.pop() ?? "";
-    const text = mask(lines.filter((l) => !NOISE.test(l)).join("\n")).trim();
-    if (text) onOutput?.(text);
+  // A job past its time limit: what it runs in the container stops too, so a restore started after it
+  // never meets it still writing.
+  let killed: Promise<void> | undefined;
+  const stop = () => {
+    killed = import("@/server/services/exec").then(({ killMarked }) => killMarked(t.container, marker));
+    (stream as unknown as { destroy: () => void }).destroy();
   };
-  const ticker = onOutput ? setInterval(flush, 1000) : null;
-  const sink = new PassThrough();
-  sink.on("data", (c: Buffer) => {
-    // Only the end is kept: a restore that reports progress for hours would otherwise fill memory.
-    output = (output + c.toString()).slice(-65536);
-    if (onOutput) pending += c.toString();
-  });
-  t.docker.modem.demuxStream(stream, sink, sink);
-  const done = new Promise<void>((resolve) => {
-    stream.on("end", resolve);
-    stream.on("close", resolve);
-  });
-  // A file that cannot be read to the end (a corrupt gzip) fails the restore, even when the command accepted what it got.
-  const stages: NodeJS.ReadWriteStream[] = [...(gz ? [zlib.createGunzip()] : []), ...(filter ? [filter] : [])];
-  const readError = await pipeline([input, ...stages, stream as unknown as NodeJS.WritableStream], { end: false }).then(
-    () => null,
-    (e: Error) => e,
-  );
-  (stream as unknown as { end: () => void }).end();
-  await done;
-  const exitCode = await execExitCode(exec, 60_000);
-  if (ticker) {
-    clearInterval(ticker);
-    pending += "\n";
-    flush();
+  signal?.addEventListener("abort", stop, { once: true });
+  let ticker: NodeJS.Timeout | null = null;
+  try {
+    let output = "";
+    let pending = "";
+    const mask = (text: string) => (t.password ? text.replaceAll(t.password, "***") : text);
+    const flush = () => {
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      const text = mask(lines.filter((l) => !NOISE.test(l)).join("\n")).trim();
+      if (text) onOutput?.(text);
+    };
+    ticker = onOutput ? setInterval(flush, 1000) : null;
+    const sink = new PassThrough();
+    sink.on("data", (c: Buffer) => {
+      // Only the end is kept: a restore that reports progress for hours would otherwise fill memory.
+      output = (output + c.toString()).slice(-65536);
+      if (onOutput) pending += c.toString();
+    });
+    t.docker.modem.demuxStream(stream, sink, sink);
+    const done = new Promise<void>((resolve) => {
+      stream.on("end", resolve);
+      stream.on("close", resolve);
+    });
+    // A file that cannot be read to the end (a corrupt gzip) fails the restore, even when the command accepted what it got.
+    const stages: NodeJS.ReadWriteStream[] = [...(gz ? [zlib.createGunzip()] : []), ...(filter ? [filter] : [])];
+    const readError = await pipeline([input, ...stages, stream as unknown as NodeJS.WritableStream], { end: false }).then(
+      () => null,
+      (e: Error) => e,
+    );
+    (stream as unknown as { end: () => void }).end();
+    await done;
+    if (signal?.aborted) {
+      await killed;
+      throw signal.reason;
+    }
+    const exitCode = await execExitCode(exec, 60_000);
+    if (ticker) {
+      clearInterval(ticker);
+      pending += "\n";
+      flush();
+    }
+    const clean = mask(output).trim();
+    // Output already in the log: the error names its last line only.
+    // The database's own ERROR line (and its DETAIL) says why; a HINT after it does not.
+    const lines = clean.split("\n").filter((l) => l.trim());
+    const errorAt = lines.findLastIndex((l) => /^(ERROR|FATAL)\b/.test(l.replace(/^[^A-Z]*/, "")));
+    const reason =
+      errorAt >= 0
+        ? lines
+            .slice(errorAt, errorAt + 2)
+            .filter((l, i) => i === 0 || /DETAIL/.test(l))
+            .join(" ")
+        : null;
+    const summary = onOutput ? (reason ?? lines.at(-1) ?? "") : clean.slice(-1500);
+    if (exitCode !== null && exitCode !== 0) throw new Error(summary || `Command exited with ${exitCode}`);
+    const stoppedEarly = partial && exitCode === 0 && (readError as NodeJS.ErrnoException | null)?.code === "EPIPE";
+    if (readError && !stoppedEarly) throw new Error(`Reading the file failed: ${readError.message}`);
+    if (exitCode === null) throw new Error(clean.slice(-1500) || "The command did not finish");
+    return clean;
+  } finally {
+    if (ticker) clearInterval(ticker);
+    signal?.removeEventListener("abort", stop);
   }
-  const clean = mask(output).trim();
-  // Output already in the log: the error names its last line only.
-  // The database's own ERROR line (and its DETAIL) says why; a HINT after it does not.
-  const lines = clean.split("\n").filter((l) => l.trim());
-  const errorAt = lines.findLastIndex((l) => /^(ERROR|FATAL)\b/.test(l.replace(/^[^A-Z]*/, "")));
-  const reason =
-    errorAt >= 0
-      ? lines
-          .slice(errorAt, errorAt + 2)
-          .filter((l, i) => i === 0 || /DETAIL/.test(l))
-          .join(" ")
-      : null;
-  const summary = onOutput ? (reason ?? lines.at(-1) ?? "") : clean.slice(-1500);
-  if (exitCode !== null && exitCode !== 0) throw new Error(summary || `Command exited with ${exitCode}`);
-  const stoppedEarly = partial && exitCode === 0 && (readError as NodeJS.ErrnoException | null)?.code === "EPIPE";
-  if (readError && !stoppedEarly) throw new Error(`Reading the file failed: ${readError.message}`);
-  if (exitCode === null) throw new Error(clean.slice(-1500) || "The command did not finish");
-  return clean;
 }
 
 /** Restores a dump into a database container; Redis and Valkey restart to load it. */
@@ -1418,7 +1445,7 @@ export async function importBackup(
           cb(size > MAX_IMPORT_BYTES ? new Error("The file is larger than 20 GB.") : null, chunk);
         },
       });
-      await pipeline(res.body, limit, fs.createWriteStream(file));
+      await pipeline(res.body, limit, fs.createWriteStream(file), { signal: jobSignal() });
     } else if (opts.s3) {
       const s3 = await s3For(opts.s3.destinationId);
       if (!s3) throw new Error("Backup storage not found.");

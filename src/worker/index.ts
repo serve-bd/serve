@@ -57,6 +57,7 @@ import { attemptDelivery, flushHeldNotifications, pruneDeliveries, retryDueDeliv
 import { recordSchedulerRun, recordSchedulerSkip } from "@/server/schedulers";
 import { ensureServerCli } from "@/server/server-cli";
 import { pruneCliLogins } from "@/server/cli-login";
+import { withJobSignal } from "@/server/job-signal";
 
 const log = (...args: unknown[]) => console.log(`[worker ${new Date().toISOString()}]`, ...args);
 
@@ -196,13 +197,14 @@ async function timeoutOf(job: Job) {
 
 /** After the abort, a deploy still puts the previous version back and records the outcome. */
 const TIMEOUT_GRACE_MS = 60_000;
+const STOP_BEFORE_FREEING = new Set<string>(["backup.run", "backup.restore", "backup.import"]);
 
 async function execute(job: Job, buildServer: string | null = null) {
   const controller = new AbortController();
   running.set(job.id, { job, controller, buildServer });
   const started = Date.now();
   const minutes = await timeoutOf(job).catch(() => jobTimeoutMinutes(job.type));
-  const work = handle(job, controller.signal);
+  const work = withJobSignal(controller.signal, () => handle(job, controller.signal));
   let timer: NodeJS.Timeout | undefined;
   const expired = new Promise<"expired">((resolve) => {
     timer = setTimeout(() => resolve("expired"), minutes * 60_000);
@@ -226,15 +228,21 @@ async function execute(job: Job, buildServer: string | null = null) {
  * A job past its time limit: aborted (handlers that take a signal stop there), given a moment to
  * wind down, then failed whether or not it returned, which frees its concurrency key for the jobs
  * waiting behind it. What it left half done is settled like after a restart. A handler that hangs
- * on regardless keeps running in the background, but nothing waits for it any more.
+ * on regardless keeps running in the background, but nothing waits for it any more (backup jobs
+ * excepted: their commands are killed, and the job ends when they have stopped).
  */
 async function giveUp(job: Job, controller: AbortController, work: Promise<unknown>, minutes: number) {
   const reason = job.type === "deploy" ? new JobTimeout(minutes, "the deployment ran past its time limit (its server's, or Serve's default)") : new JobTimeout(minutes);
   log(`${job.type} ${job.id} ran past its ${minutes} minute limit; stopping it`);
   controller.abort(reason);
-  let grace: NodeJS.Timeout | undefined;
-  await Promise.race([work.catch(() => {}), new Promise<void>((resolve) => (grace = setTimeout(resolve, TIMEOUT_GRACE_MS)))]);
-  clearTimeout(grace);
+  // A backup, restore or import left running would meet the next one on the same database: the abort
+  // killed its commands, and its concurrency key stays held until it has really returned.
+  if (STOP_BEFORE_FREEING.has(job.type)) await work.catch(() => {});
+  else {
+    let grace: NodeJS.Timeout | undefined;
+    await Promise.race([work.catch(() => {}), new Promise<void>((resolve) => (grace = setTimeout(resolve, TIMEOUT_GRACE_MS)))]);
+    clearTimeout(grace);
+  }
   await failJob(job.id, reason.message);
   await settleTimedOut(job, reason.message).catch((e: Error) => log(`settling ${job.type} ${job.id} failed: ${e.message}`));
 }

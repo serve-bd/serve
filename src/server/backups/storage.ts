@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import type Docker from "dockerode";
 import { imageExists, LABEL, pullImage } from "@/server/docker/client";
 import { env } from "@/server/env";
+import { jobSignal } from "@/server/job-signal";
 
 /** Small image that packs and unpacks storage; pinned like every image Serve runs itself. */
 export const STORAGE_HELPER_IMAGE = "alpine:3.22.6";
@@ -130,14 +131,32 @@ export async function dumpStorage(docker: Docker, s: { kind: "volume" | "dir"; s
       stderr.end();
     });
     await c.start();
-    await pipeline(stdout, fs.createWriteStream(file));
-    const { StatusCode } = (await c.wait()) as { StatusCode: number };
+    const { StatusCode } = await untilDone(c, pipeline(stdout, fs.createWriteStream(file)));
     if (StatusCode !== 0) throw new Error(errText.trim().slice(-1500) || `tar exited with ${StatusCode}`);
     const { size } = await fs.promises.stat(file);
     if (!size) throw new Error("The backup is empty.");
     return size;
   } finally {
     await c.remove({ force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Waits for a helper's streaming and its exit. A job past its time limit kills the helper, so a
+ * restore started after it never meets it still writing.
+ */
+async function untilDone(c: Docker.Container, streaming: Promise<unknown>) {
+  const signal = jobSignal();
+  const stop = () => void c.kill().catch(() => {});
+  signal?.addEventListener("abort", stop, { once: true });
+  try {
+    if (signal?.aborted) stop();
+    await streaming;
+    const result = (await c.wait()) as { StatusCode: number };
+    signal?.throwIfAborted();
+    return result;
+  } finally {
+    signal?.removeEventListener("abort", stop);
   }
 }
 
@@ -151,11 +170,14 @@ async function runHelper(docker: Docker, cmd: string, binds: string[], input?: s
     sink.on("data", (b: Buffer) => (output += b.toString()));
     docker.modem.demuxStream(stream, sink, sink);
     await c.start();
-    if (input) {
-      await pipeline(fs.createReadStream(input), stream, { end: false }).catch(() => {});
-      (stream as unknown as { end: () => void }).end();
-    }
-    const { StatusCode } = (await c.wait()) as { StatusCode: number };
+    const { StatusCode } = await untilDone(
+      c,
+      input
+        ? pipeline(fs.createReadStream(input), stream, { end: false })
+            .catch(() => {})
+            .then(() => (stream as unknown as { end: () => void }).end())
+        : Promise.resolve(),
+    );
     if (StatusCode !== 0) throw new Error(output.trim().slice(-1500) || `The helper exited with ${StatusCode}`);
     return output.trim();
   } finally {

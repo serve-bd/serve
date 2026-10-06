@@ -1,23 +1,11 @@
-import { encrypt } from "@/server/crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { Readable, Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { NextResponse } from "next/server";
 import { requirePermission } from "@/server/auth";
-import { db, schema } from "@/server/db";
-import { newId } from "@/server/id";
-import { enqueue } from "@/server/queue";
-import { logActivity } from "@/server/activity";
 import { serviceInOrg } from "@/server/services/access";
-import { backupFile, importFilenameFor, importTarget } from "@/server/backups";
+import { ImportError, receiveImport } from "@/server/backups/import-upload";
 import { crossSiteRequest } from "@/lib/same-origin";
 import { env } from "@/server/env";
 
 export const dynamic = "force-dynamic";
-
-/** Largest dump accepted through the dashboard. */
-const MAX_BYTES = 20 * 1024 ** 3;
 
 /**
  * Streams an uploaded dump to disk (never held in memory), then queues the restore.
@@ -44,59 +32,24 @@ export async function POST(request: Request, ctx: RouteContext<"/api/services/[s
   if (service.status !== "running")
     return NextResponse.json({ error: service.database ? "Start the database before importing." : "Start the stack before importing." }, { status: 409 });
   const url = new URL(request.url);
-  // A database service, or one backup of a compose stack (?target=db:postgres, volume:data…).
-  const target = url.searchParams.get("target") || null;
-  let filename: string;
   try {
-    const into = await importTarget(service, target);
-    filename = importFilenameFor(into.extensions, into.stem, url.searchParams.get("filename") ?? "");
+    return NextResponse.json(
+      await receiveImport({
+        service,
+        // A database service, or one backup of a compose stack (?target=db:postgres, volume:data…).
+        target: url.searchParams.get("target") || null,
+        filename: url.searchParams.get("filename") ?? "",
+        body: request.body,
+        declared: Number(request.headers.get("content-length") ?? 0),
+        backupFirst: url.searchParams.get("backupFirst") === "1",
+        users: url.searchParams.get("users") === "1",
+        // An encrypted file's passphrase comes in a header, never the URL, which logs keep.
+        passphrase: request.headers.get("x-backup-passphrase"),
+        userId: org.user.id,
+      }),
+    );
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    if (e instanceof ImportError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
-  if (!request.body) return NextResponse.json({ error: "Choose a file." }, { status: 400 });
-  const declared = Number(request.headers.get("content-length") ?? 0);
-  if (declared > MAX_BYTES) return NextResponse.json({ error: "The file is larger than 20 GB." }, { status: 413 });
-
-  const file = backupFile(service.id, filename);
-  await fs.promises.mkdir(path.dirname(file), { recursive: true });
-  let size = 0;
-  const limit = new Transform({
-    transform(chunk: Buffer, _enc, cb) {
-      size += chunk.length;
-      cb(size > MAX_BYTES ? new Error("The file is larger than 20 GB.") : null, chunk);
-    },
-  });
-  try {
-    await pipeline(Readable.fromWeb(request.body as never), limit, fs.createWriteStream(file));
-  } catch (e) {
-    await fs.promises.rm(file, { force: true });
-    return NextResponse.json({ error: `Upload failed: ${(e as Error).message}` }, { status: 400 });
-  }
-  if (!size) {
-    await fs.promises.rm(file, { force: true });
-    return NextResponse.json({ error: "The file is empty." }, { status: 400 });
-  }
-
-  const id = newId();
-  await db.insert(schema.backup).values({ id, serviceId, target, trigger: "import", status: "running", filename, size, log: `Uploaded ${filename} (${size} bytes)\n` });
-  await enqueue(
-    "backup.import",
-    {
-      backupId: id,
-      backupFirst: url.searchParams.get("backupFirst") === "1",
-      users: url.searchParams.get("users") === "1",
-      // An encrypted file's passphrase comes in a header (never the URL, which logs keep); stored encrypted.
-      ...(request.headers.get("x-backup-passphrase") ? { passphrase: encrypt(request.headers.get("x-backup-passphrase")!) } : {}),
-    },
-    { concurrencyKey: `backup:${serviceId}` },
-  );
-  await logActivity({
-    userId: org.user.id,
-    projectId: service.projectId,
-    action: "backup.import",
-    targetType: "service",
-    targetId: service.id,
-    message: `Importing a backup into ${service.name}`,
-  });
-  return NextResponse.json({ id });
 }

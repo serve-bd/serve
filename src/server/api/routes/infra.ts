@@ -955,6 +955,18 @@ export const infraRoutes: ApiRoute[] = [
     handler: async () => (await unwrap(instance.startInstanceBackup())) ?? { ok: true },
   }),
   route({
+    method: "DELETE",
+    path: "/instance/backups/{backupId}",
+    tag: "Instance",
+    summary: "Delete an instance backup",
+    description: "Its file on this server and its S3 copy.",
+    needs: ["instance"],
+    handler: async ({ params }) => {
+      await unwrap(instance.removeInstanceBackup(params.backupId));
+      return { ok: true };
+    },
+  }),
+  route({
     method: "GET",
     path: "/deployments",
     tag: "Deployments",

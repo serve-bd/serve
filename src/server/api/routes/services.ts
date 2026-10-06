@@ -808,6 +808,13 @@ export const serviceRoutes: ApiRoute[] = [
           error: b.error,
           restoreStatus: b.restoreStatus,
           restoredAt: b.restoredAt?.toISOString() ?? null,
+          checksum: b.checksum,
+          encrypted: !!b.keyHint || !!b.filename?.endsWith(".enc"),
+          copies: b.copies ?? [],
+          verifyStatus: b.verifyStatus,
+          verifiedAt: b.verifiedAt?.toISOString() ?? null,
+          verifyDetail: b.verifyDetail,
+          verifyError: b.verifyError,
           createdAt: b.createdAt.toISOString(),
           finishedAt: b.finishedAt?.toISOString() ?? null,
         })),
@@ -833,11 +840,231 @@ export const serviceRoutes: ApiRoute[] = [
     path: "/backups/{backupId}/restore",
     tag: "Backups",
     summary: "Restore a backup",
-    description: "backupFirst: true backs up the current data first. users: true also restores database users and roles.",
+    description: [
+      "backupFirst: true backs up the current data first. users: true also restores the dump's users, passwords and roles (Serve's own accounts keep theirs).",
+      'into: another database service of the same engine to restore into. databases: only these databases of the backup ("" is a dump\'s unnamed one); renames: a database restored under another name;',
+      "tables: only these tables of the one chosen database (Postgres as schema.table, MySQL, MariaDB). passphrase: for a backup encrypted with a passphrase other than the current one.",
+    ].join(" "),
     needs: ["databases.backups"],
-    body: z.object({ backupFirst: z.boolean().optional(), users: z.boolean().optional() }),
+    body: z.object({
+      backupFirst: z.boolean().optional(),
+      users: z.boolean().optional(),
+      into: z.string().optional(),
+      databases: z.array(z.string()).optional(),
+      renames: z.record(z.string(), z.string()).optional(),
+      tables: z.array(z.string()).optional(),
+      passphrase: z.string().optional(),
+    }),
     status: 202,
     handler: async ({ params, body }) => (await unwrap(actions.restoreFromBackup(params.backupId, body))) ?? { ok: true },
+  }),
+  route({
+    method: "GET",
+    path: "/backups/{backupId}/contents",
+    tag: "Backups",
+    summary: "What a backup holds",
+    description: "Its databases and, for Postgres, MySQL and MariaDB, their tables: what a restore can choose. passphrase (query) for one encrypted with another passphrase.",
+    needs: ["databases.backups"],
+    query: z.object({ passphrase: z.string().optional() }),
+    handler: async ({ params, query }) => unwrap(actions.restoreChoices(params.backupId, query.passphrase)),
+  }),
+  route({
+    method: "POST",
+    path: "/backups/{backupId}/test",
+    tag: "Backups",
+    summary: "Test a backup",
+    description: "Restores it into a throwaway database on the database's server and counts what came back. The result shows on the backup (verifyStatus, verifyDetail).",
+    needs: ["databases.backups"],
+    status: 202,
+    handler: async ({ params }) => (await unwrap(actions.testBackup(params.backupId))) ?? { ok: true },
+  }),
+  route({
+    method: "GET",
+    path: "/backups/{backupId}/download",
+    tag: "Backups",
+    summary: "Download a backup",
+    description: "The file as it is stored (encrypted ones stay encrypted). X-Checksum-SHA256 carries the checksum recorded when it was made.",
+    needs: ["databases.backups"],
+    produces: "application/octet-stream",
+    handler: async ({ auth, params }) => {
+      const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, params.backupId));
+      if (!b?.filename || b.status !== "success") throw new ApiError(404, "Backup not found");
+      await loadService(auth, b.serviceId);
+      const fs = await import("node:fs");
+      const { Readable } = await import("node:stream");
+      const { backupFile, openS3Backup } = await import("@/server/backups");
+      const headers = {
+        "content-type": "application/octet-stream",
+        "content-disposition": `attachment; filename="${b.filename}"`,
+        ...(b.checksum ? { "x-checksum-sha256": b.checksum } : {}),
+      };
+      const file = backupFile(b.serviceId, b.filename);
+      if (fs.existsSync(file))
+        return new Response(Readable.toWeb(fs.createReadStream(file)) as ReadableStream, { headers: { ...headers, "content-length": String(fs.statSync(file).size) } });
+      const remote = await openS3Backup(b).catch(() => null);
+      if (!remote) throw new ApiError(404, "The backup file is no longer stored.");
+      return new Response(remote.body as ReadableStream, { headers: { ...headers, ...(remote.size ? { "content-length": String(remote.size) } : {}) } });
+    },
+  }),
+  route({
+    method: "POST",
+    path: "/services/{serviceId}/backups/import",
+    tag: "Backups",
+    summary: "Import a backup file",
+    description: [
+      "The body is the file, streamed to disk (up to 20 GB), then restored: a dump for a database service, or for one backup of a compose stack (target).",
+      "Query: filename (its extension says the format), target (db:…, volume:…, dir:…), backupFirst=1, users=1. An encrypted file's passphrase goes in the X-Backup-Passphrase header.",
+    ].join(" "),
+    needs: ["databases.backups"],
+    query: z.object({
+      filename: z.string(),
+      target: z.string().optional(),
+      backupFirst: z.enum(["0", "1", "true", "false"]).optional(),
+      users: z.enum(["0", "1", "true", "false"]).optional(),
+    }),
+    status: 202,
+    handler: async ({ auth, params, query, request }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      // Importing overwrites live data: admins only, like restoring.
+      if (!auth.admin) throw new ApiError(403, "Only organization admins can import backups.");
+      const { ImportError, receiveImport } = await import("@/server/backups/import-upload");
+      const yes = (v?: string) => v === "1" || v === "true";
+      try {
+        return await receiveImport({
+          service,
+          target: query.target || null,
+          filename: query.filename,
+          body: request.body,
+          declared: Number(request.headers.get("content-length") ?? 0),
+          backupFirst: yes(query.backupFirst),
+          users: yes(query.users),
+          passphrase: request.headers.get("x-backup-passphrase"),
+          userId: auth.userId,
+        });
+      } catch (e) {
+        if (e instanceof ImportError) throw new ApiError(e.status, e.message);
+        throw e;
+      }
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/backups/settings",
+    tag: "Backups",
+    summary: "Backup settings of a database",
+    description: "Schedule, retention, buckets, encryption (whether it is on, never the passphrase), daily tests and more.",
+    needs: ["databases.backups"],
+    handler: async ({ auth, params }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      const c = service.database;
+      if (!c) throw new ApiError(400, "Not a database. Compose stacks: GET /services/{serviceId}/compose-backups.");
+      return {
+        schedule: c.backupSchedule ?? null,
+        databases: c.backupDatabases ?? null,
+        retention: c.backupRetention,
+        retentionS3: c.backupRetentionS3 ?? null,
+        keep: c.backupKeep ?? null,
+        s3DestinationId: c.s3DestinationId ?? null,
+        copyDestinationIds: c.backupCopyDestinationIds ?? [],
+        local: c.backupLocal !== false,
+        timeoutMinutes: c.backupTimeoutMinutes ?? null,
+        lowPriority: !!c.backupLowPriority,
+        verify: !!c.backupVerify,
+        encrypted: !!c.backupPassphrase,
+      };
+    },
+  }),
+  route({
+    method: "PATCH",
+    path: "/services/{serviceId}/backups/settings",
+    tag: "Backups",
+    summary: "Change backup settings of a database",
+    description:
+      "Fields left out keep their value. passphrase: a new one encrypts backups from now on (at least 8 characters), null stops encrypting. keep: {days, daily, weekly, monthly, yearly}, kept on top of the newest retention.",
+    needs: ["databases.backups", "services.manage"],
+    body: z.object({
+      schedule: z.string().nullable().optional(),
+      databases: z.array(z.string()).nullable().optional(),
+      retention: z.number().int().optional(),
+      retentionS3: z.number().int().nullable().optional(),
+      keep: z.record(z.string(), z.number().int().nullable()).nullable().optional(),
+      s3DestinationId: z.string().nullable().optional(),
+      copyDestinationIds: z.array(z.string()).optional(),
+      local: z.boolean().optional(),
+      timeoutMinutes: z.number().int().nullable().optional(),
+      lowPriority: z.boolean().optional(),
+      verify: z.boolean().optional(),
+      passphrase: z.string().nullable().optional(),
+    }),
+    handler: async ({ auth, params, body }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      if (!service.database) throw new ApiError(400, "Not a database. Compose stacks: PUT /services/{serviceId}/compose-backups/{key}.");
+      const map: [keyof typeof body, string][] = [
+        ["schedule", "backupSchedule"],
+        ["databases", "backupDatabases"],
+        ["retention", "backupRetention"],
+        ["retentionS3", "backupRetentionS3"],
+        ["keep", "backupKeep"],
+        ["s3DestinationId", "s3DestinationId"],
+        ["copyDestinationIds", "backupCopyDestinationIds"],
+        ["local", "backupLocal"],
+        ["timeoutMinutes", "backupTimeoutMinutes"],
+        ["lowPriority", "backupLowPriority"],
+        ["verify", "backupVerify"],
+        ["passphrase", "backupPassphrase"],
+      ];
+      const database = Object.fromEntries(map.filter(([k]) => body[k] !== undefined).map(([k, to]) => [to, body[k]]));
+      await unwrap(actions.updateService(params.serviceId, { database }));
+      return { ok: true };
+    },
+  }),
+  route({
+    method: "GET",
+    path: "/services/{serviceId}/compose-backups",
+    tag: "Backups",
+    summary: "Backups set up in a compose stack",
+    description: "Keyed by what they back up: db:<service> (a database container), volume:<name> or dir:<path>. encrypted says whether a passphrase is set; it is never returned.",
+    needs: ["databases.backups"],
+    handler: async ({ auth, params }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      return {
+        backups: Object.fromEntries(Object.entries(service.composeBackups ?? {}).map(([k, { passphrase, ...c }]) => [k, { ...c, encrypted: !!passphrase }])),
+      };
+    },
+  }),
+  route({
+    method: "PUT",
+    path: "/services/{serviceId}/compose-backups/{key}",
+    tag: "Backups",
+    summary: "Set up or change a backup of a compose stack",
+    description:
+      "key: db:<service>, volume:<name> or dir:<path> (URL-encoded). Adds it when missing. Body: schedule (cron or null), retention, retentionS3, s3DestinationId, copyDestinationIds, local, timeoutMinutes, lowPriority, keep, passphrase (null stops encrypting; left out keeps it).",
+    needs: ["databases.backups"],
+    body: z.looseObject({}),
+    handler: async ({ auth, params, body }) => {
+      const { service } = await loadService(auth, params.serviceId);
+      const key = decodeURIComponent(params.key);
+      const { addComposeBackup, saveComposeBackup } = await import("@/server/actions/compose-backups");
+      if (!service.composeBackups?.[key]) await unwrap(addComposeBackup(params.serviceId, key));
+      const fresh = (await loadService(auth, params.serviceId)).service.composeBackups?.[key];
+      const { passphrase: _, ...current } = fresh ?? { schedule: null, retention: 7 };
+      await unwrap(saveComposeBackup(params.serviceId, key, { retentionS3: null, s3DestinationId: null, ...current, ...(body as object) } as never));
+      return { ok: true };
+    },
+  }),
+  route({
+    method: "DELETE",
+    path: "/services/{serviceId}/compose-backups/{key}",
+    tag: "Backups",
+    summary: "Stop backing up part of a compose stack",
+    description: "Backups already taken stay until deleted.",
+    needs: ["databases.backups"],
+    handler: async ({ auth, params }) => {
+      await loadService(auth, params.serviceId);
+      const { removeComposeBackup } = await import("@/server/actions/compose-backups");
+      await unwrap(removeComposeBackup(params.serviceId, decodeURIComponent(params.key)));
+      return { ok: true };
+    },
   }),
   route({
     method: "DELETE",

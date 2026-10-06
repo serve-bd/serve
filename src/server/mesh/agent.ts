@@ -266,4 +266,3 @@ ENTRYPOINT ["/usr/local/bin/serve-mesh"]
 export const AGENT_VERSION = createHash("sha256").update(AGENT_SCRIPT).update(WG_JQ).update(RULES_JQ).update(LINKS_JQ).update(AGENT_DOCKERFILE).digest("hex").slice(0, 12);
 export const AGENT_IMAGE = `serve-mesh:${AGENT_VERSION}`;
 export const AGENT_CONTAINER = "serve-mesh";
-export const MESH_INTERFACE = "serve-mesh";

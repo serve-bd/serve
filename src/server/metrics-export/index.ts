@@ -31,12 +31,6 @@ export function metricsText(scope: ExportScope) {
   return outputCache.get(cacheKey(scope), async () => buildExposition(await gatherExport(scope)));
 }
 
-/** For tests. */
-export function clearMetricsCache() {
-  outputCache.clear();
-  containerCache.clear();
-}
-
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   return Promise.race([

@@ -1,4 +1,7 @@
+import type { NextRequest } from "next/server";
 import { designOf } from "@/lib/status-page";
+import { basePathFor } from "./public";
+import { subscriberByToken } from "./subscribers";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -27,4 +30,35 @@ a{color:var(--muted);font-size:13px}
 ${opts.button ? `<form method="post" action="${esc(opts.button.action)}"><button type="submit">${esc(opts.button.label)}</button></form><p style="margin:18px 0 0"><a href="${esc(opts.back)}">Back to the status page</a></p>` : `<a href="${esc(opts.back)}">Back to the status page</a>`}
 </main></body></html>`;
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+}
+
+type Ctx = { params: Promise<{ slug: string }> };
+
+/**
+ * GET and POST of a link route (confirm, unsubscribe): GET shows the button, POST does `act`.
+ * The token must belong to the page in the path.
+ */
+export function linkRoute(o: { path: string; title: string; text: string; button: string; doneTitle: string; doneText: string; act: (subscriberId: string) => Promise<void> }) {
+  const lookup = async (request: NextRequest, ctx: Ctx) => {
+    const { slug } = await ctx.params;
+    const token = request.nextUrl.searchParams.get("token") ?? "";
+    const found = await subscriberByToken(token);
+    if (!found || found.page.slug !== slug.toLowerCase()) return null;
+    return { ...found, token, base: (await basePathFor(found.page)) || "/" };
+  };
+  const gone = () => new Response("This link is not valid any more.", { status: 404 });
+  return {
+    GET: async (request: NextRequest, ctx: Ctx) => {
+      const f = await lookup(request, ctx);
+      if (!f) return gone();
+      const action = `${f.base === "/" ? "" : f.base}/${o.path}?token=${encodeURIComponent(f.token)}`;
+      return linkPage({ page: f.page, title: o.title, text: o.text, button: { label: o.button, action }, back: f.base });
+    },
+    POST: async (request: NextRequest, ctx: Ctx) => {
+      const f = await lookup(request, ctx);
+      if (!f) return gone();
+      await o.act(f.subscriber.id);
+      return linkPage({ page: f.page, title: o.doneTitle, text: o.doneText, back: f.base });
+    },
+  };
 }

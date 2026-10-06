@@ -26,13 +26,6 @@ export function webBase(provider: OAuthProvider, baseUrl: string | null) {
   return base;
 }
 
-/** Page where the user creates the OAuth application. */
-export function appSetupUrl(provider: OAuthProvider, baseUrl: string | null) {
-  if (provider === "gitlab") return `${webBase(provider, baseUrl)}/-/user_settings/applications`;
-  if (provider === "gitea") return baseUrl ? `${webBase(provider, baseUrl)}/user/settings/applications` : null;
-  return "https://bitbucket.org/account/workspaces/";
-}
-
 export function redirectUri(base: string, provider: OAuthProvider) {
   return `${base.replace(/\/$/, "")}/api/git/oauth/${provider}/callback`;
 }

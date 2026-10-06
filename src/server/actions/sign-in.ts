@@ -3,7 +3,7 @@
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { act, UserError } from "@/server/action";
 import { logActivity } from "@/server/activity";
-import { requireInstanceAdmin, requireUser } from "@/server/auth";
+import { requireInstanceAdmin } from "@/server/auth";
 import { encrypt } from "@/server/crypto";
 import { db, schema } from "@/server/db";
 import { publicGet } from "@/server/net/public-fetch";
@@ -245,17 +245,5 @@ export async function setPasswordLogin(enabled: boolean, signOut = false) {
       message: enabled ? "Turned on password sign-in" : `Turned off password sign-in${people ? ` and signed out ${people} ${people === 1 ? "person" : "people"}` : ""}`,
     });
     return { signedOut: people };
-  });
-}
-
-/** Sign-in methods of the current user, for the Account page. */
-export async function mySignInMethods() {
-  return act(async () => {
-    const user = await requireUser();
-    const rows = await db
-      .select({ id: schema.account.id, providerId: schema.account.providerId, accountId: schema.account.accountId, createdAt: schema.account.createdAt })
-      .from(schema.account)
-      .where(eq(schema.account.userId, user.id));
-    return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
   });
 }

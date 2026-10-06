@@ -244,11 +244,6 @@ export async function setMemberRole(memberId: string, roleId: string) {
   });
 }
 
-/** @deprecated Use setMemberRole; kept for callers that pass owner/admin/member. */
-export async function changeMemberRole(memberId: string, role: MemberRole) {
-  return setMemberRole(memberId, role === "member" ? "developer" : role);
-}
-
 /** Limit a member to some projects, or give back access to all (null). */
 export async function setMemberProjects(memberId: string, projectIds: string[] | null) {
   return act(async () => {

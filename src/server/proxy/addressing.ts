@@ -15,13 +15,6 @@ export async function serverAddressing(serverId: string | null | undefined = LOC
   return { publicIp: null, wildcardDomain: null, sslipFallback: true };
 }
 
-/** Addressing of the server a service runs on. */
-export async function serviceAddressing(serviceId: string): Promise<Addressing & { serverId: string }> {
-  const [svc] = await db.select({ serverId: schema.service.serverId }).from(schema.service).where(eq(schema.service.id, serviceId));
-  const serverId = svc?.serverId ?? LOCAL_SERVER_ID;
-  return { serverId, ...(await serverAddressing(serverId)) };
-}
-
 /**
  * Automatic domain for a new service on a server: `<slug>.<wildcard>` (HTTPS when
  * Let's Encrypt is set up) or `<slug>.<ip>.sslip.io`.

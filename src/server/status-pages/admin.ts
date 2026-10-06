@@ -11,8 +11,6 @@ import { subscribeOptions } from "./subscribers";
 import { pageColumns, statusView } from "./data";
 import { pageUrl } from "./urls";
 
-export { pageUrl };
-
 /** The organization's pages for the list. */
 export async function orgStatusPages(organizationId: string) {
   const pages = await db.select(pageColumns).from(schema.statusPage).where(eq(schema.statusPage.organizationId, organizationId)).orderBy(asc(schema.statusPage.name));
@@ -178,7 +176,7 @@ export async function editorData(pageId: string, organizationId: string) {
 
 export type EditorData = NonNullable<Awaited<ReturnType<typeof editorData>>>;
 
-export const SUBSCRIBERS_PER_PAGE = 25;
+const SUBSCRIBERS_PER_PAGE = 25;
 
 /** A page of a page's subscribers, newest first. `q` searches email addresses (webhook URLs are encrypted). */
 export async function subscriberRows(pageId: string, opts: { q?: string; kind?: string; offset?: number }) {
@@ -197,6 +195,7 @@ export async function subscriberRows(pageId: string, opts: { q?: string; kind?: 
     .limit(SUBSCRIBERS_PER_PAGE + 1)
     .offset(opts.offset ?? 0);
   return {
+    offset: opts.offset ?? 0,
     hasMore: rows.length > SUBSCRIBERS_PER_PAGE,
     rows: rows.slice(0, SUBSCRIBERS_PER_PAGE).map((r) => ({
       id: r.id,
@@ -212,8 +211,6 @@ export async function subscriberRows(pageId: string, opts: { q?: string; kind?: 
     })),
   };
 }
-
-export type SubscriberRow = Awaited<ReturnType<typeof subscriberRows>>["rows"][number];
 
 async function subscriberCounts(pageId: string) {
   const rows = await db

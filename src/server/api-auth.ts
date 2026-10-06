@@ -1,7 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { sha256 } from "@/server/crypto";
-import { serviceInOrg } from "@/server/services/access";
 import { tokenGrants } from "@/lib/api-scopes";
 import type { Permission } from "@/lib/permissions";
 import { memberAccess } from "@/server/permissions";
@@ -65,13 +64,3 @@ export async function authenticateToken(request: Request): Promise<{ auth: ApiAu
 }
 
 export const notFound = (what = "Not found") => json(404, what);
-
-/** A service the token may access (same organization and an allowed project), or null. */
-export async function tokenService(auth: ApiAuth, serviceId: string) {
-  try {
-    const row = await serviceInOrg(serviceId, auth.organizationId);
-    return auth.canAccessProject(row.project.id) ? row : null;
-  } catch {
-    return null;
-  }
-}

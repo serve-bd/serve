@@ -366,15 +366,6 @@ export async function failInterruptedCopy(payload: { environmentId: string; pair
 /*                          Databases for PR previews                          */
 /* -------------------------------------------------------------------------- */
 
-/** The database copy that belongs to a preview service. */
-export async function previewDatabaseOf(previewId: string) {
-  const [row] = await db
-    .select()
-    .from(schema.service)
-    .where(and(eq(schema.service.parentServiceId, previewId), eq(schema.service.type, "database")));
-  return row ?? null;
-}
-
 /**
  * Create the database copy of a new preview: a temporary database service of the same engine
  * and version as the source, in the same environment and on the preview's server. Its connection

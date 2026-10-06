@@ -7,9 +7,8 @@ import { db, schema } from "@/server/db";
 import { logActivity } from "@/server/activity";
 import { serviceInOrg } from "@/server/services/access";
 import { buildProxyConfig, proxyInputSchema, type ProxyInput } from "@/server/services/proxy-config";
-import { generatedSite, ProxyConfigError, proxyStateOf, syncServiceProxy } from "@/server/proxy/nginx";
+import { ProxyConfigError, proxyStateOf, syncServiceProxy } from "@/server/proxy/nginx";
 import { proxyLabels, type RunningKind } from "@/server/proxy/config";
-import { getServer } from "@/server/servers/context";
 
 /** Nginx error text without paths and repeated lines. */
 function nginxMessage(output: string) {
@@ -88,16 +87,6 @@ async function customTarget(serviceId: string) {
   if (service.type === "database") throw new UserError("Databases are reached over TCP; the proxy does not serve them.");
   const { kind } = await proxyStateOf(service.serverId);
   return { ctx, service, kind };
-}
-
-/** The configuration Serve generates for this service with the server's current proxy. */
-export async function getServiceProxyPreview(serviceId: string) {
-  return act(async () => {
-    const { service, kind } = await customTarget(serviceId);
-    if (kind === "none") return { kind, generated: null as string | null, custom: null as string | null };
-    const generated = await generatedSite(kind, serviceId, await getServer(service.serverId));
-    return { kind, generated, custom: service.proxyCustom?.[kind] ?? null };
-  });
 }
 
 /**

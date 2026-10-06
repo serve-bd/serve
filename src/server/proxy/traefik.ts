@@ -343,7 +343,3 @@ export function traefikRouters(content: string): ExpectedRouter[] {
     return [];
   }
 }
-
-export function traefikRouterNames(content: string) {
-  return traefikRouters(content).map((r) => r.name);
-}

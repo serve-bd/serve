@@ -255,11 +255,6 @@ async function remoteCompose(
   return clean(res.stdout);
 }
 
-export async function composeCommand(opts: Pick<ComposeRun, "projectName" | "dir" | "file" | "server">, args: string[], log?: (line: string) => void) {
-  if (opts.server && !opts.server.local) return remoteCompose(opts.server, opts, args, log);
-  return run("docker", [...composeArgs(opts), ...args], { isolatedEnv: true, cwd: opts.dir, onLine: log });
-}
-
 /** Label on an isolated stack's own network; the proxy joins every network carrying it. */
 export const STACK_NETWORK_LABEL = "serve.stack-network";
 

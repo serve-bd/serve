@@ -12,10 +12,6 @@ export function PermissionsProvider({ value, children }: { value: Access; childr
   return <PermissionsContext.Provider value={value}>{children}</PermissionsContext.Provider>;
 }
 
-export function useAccess() {
-  return React.useContext(PermissionsContext);
-}
-
 export function useCan() {
   const { permissions } = React.useContext(PermissionsContext);
   return React.useCallback((p: Permission) => permissions.includes(p), [permissions]);

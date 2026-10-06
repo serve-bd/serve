@@ -81,11 +81,6 @@ export function StatusLabel({ status, kind = "service", className }: { status: s
   );
 }
 
-/** The LED color of a status, for drawing it in other shapes. */
-export function statusColor(status: string, kind: keyof typeof maps = "service") {
-  return maps[kind][status]?.led ?? "var(--idle)";
-}
-
 export function statusText(status: string, kind: keyof typeof maps = "service") {
   return maps[kind][status]?.label ?? status;
 }

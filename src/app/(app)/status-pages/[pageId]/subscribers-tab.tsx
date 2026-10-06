@@ -158,13 +158,10 @@ function SubscriberList({ data, canManage }: { data: EditorData; canManage: bool
   const filtered = !!q.trim() || kind !== "all";
   const search = useAction((offset: number) => listStatusSubscribers(data.page.id, { q: q.trim() || undefined, kind: kind === "all" ? undefined : kind, offset }), {
     refresh: false,
-    onSuccess: (r) => setList((prev) => (r && prevOffset.current ? { hasMore: r.hasMore, rows: [...prev.rows, ...r.rows] } : r)),
+    // A later page adds to the list; a first page (a new search) replaces it.
+    onSuccess: (r) => setList((prev) => (r.offset ? { ...r, rows: [...prev.rows, ...r.rows] } : r)),
   });
-  const prevOffset = React.useRef(0);
-  const load = (offset: number) => {
-    prevOffset.current = offset;
-    void search.run(offset);
-  };
+  const load = (offset: number) => void search.run(offset);
   // A new search after a short pause in typing.
   // biome-ignore lint/correctness/useExhaustiveDependencies: a search runs when the words or the type change; load reads them itself
   React.useEffect(() => {

@@ -268,10 +268,6 @@ export async function updateSettings(patch: Partial<Settings>) {
     });
 }
 
-export async function deleteSettings(keys: (keyof Settings)[]) {
-  await db.delete(schema.setting).where(inArray(schema.setting.key, keys));
-}
-
 function sqlExcluded(column: string) {
   return sql.raw(`excluded.${column}`);
 }

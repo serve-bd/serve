@@ -23,25 +23,6 @@ async function stack(serviceId: string, adminOnly = false) {
 
 export type BackupOption = { key: string; kind: "db" | "volume" | "dir"; name: string; detail: string; containers: string[] };
 
-/**
- * What a stack can back up: its database containers (found by image) and every volume and host
- * directory its containers mount (read from Docker, so the stack must have been started once).
- */
-export async function composeBackupOptions(serviceId: string) {
-  return act(async () => {
-    const { service, content } = await stack(serviceId);
-    const databases: BackupOption[] = composeDatabases(content).map((d) => ({ key: `db:${d.service}`, kind: "db", name: d.service, detail: d.image, containers: [d.service] }));
-    const storage: BackupOption[] = (await stackStorage(await serverOf(service), service.id).catch(() => [])).map((m) => ({
-      key: `${m.kind}:${m.source}`,
-      kind: m.kind,
-      name: m.source,
-      detail: m.destinations.join(", "),
-      containers: m.containers,
-    }));
-    return { databases, storage };
-  });
-}
-
 async function validKey(service: { id: string; slug: string } & Parameters<typeof serverOf>[0], content: string, key: string) {
   const parsed = parseBackupKey(key);
   if (!parsed) throw new UserError("Unknown backup.");

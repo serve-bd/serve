@@ -9,7 +9,6 @@ import {
   type IncidentImpact,
   maintenancePhase,
   type NoticeFacts,
-  noticeActive,
   fill,
   labelsOf,
   type LabelKey,
@@ -327,8 +326,6 @@ export async function statusView(
     generatedAt: new Date(now).toISOString(),
   };
 }
-
-export { noticeActive };
 
 /** The page's tab icon route, versioned by the image it serves so a new upload shows at once. */
 export async function pageIconUrl(pageId: string, base: string, images?: { favicon?: { hash: string }; logo?: { hash: string } }) {

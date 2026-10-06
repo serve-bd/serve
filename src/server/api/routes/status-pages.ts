@@ -36,11 +36,11 @@ async function noticeOf(pageId: string, noticeId: string, organizationId: string
   if (!row) throw new ApiError(404, "Incident not found");
 }
 
-async function noticesOf(pageId: string, filter: { open?: boolean; limit?: number }) {
+async function noticesOf(pageId: string, filter: { open?: boolean; limit?: number; id?: string }) {
   const rows = await db
     .select()
     .from(schema.statusNotice)
-    .where(eq(schema.statusNotice.pageId, pageId))
+    .where(and(eq(schema.statusNotice.pageId, pageId), filter.id ? eq(schema.statusNotice.id, filter.id) : undefined))
     .orderBy(desc(schema.statusNotice.createdAt))
     .limit(Math.min(filter.limit ?? 50, 200));
   const list = filter.open ? rows.filter((n) => !n.resolvedAt && (n.kind === "incident" || !n.endsAt || n.endsAt > new Date())) : rows;
@@ -172,7 +172,7 @@ export const statusPageRoutes: ApiRoute[] = [
           channels: body.channels ?? null,
         }),
       );
-      return (await noticesOf(params.pageId, { limit: 200 })).find((n) => n.id === id);
+      return (await noticesOf(params.pageId, { id: id }))[0];
     },
   }),
   route({
@@ -205,7 +205,7 @@ export const statusPageRoutes: ApiRoute[] = [
           channels: body.channels ?? null,
         }),
       );
-      return (await noticesOf(params.pageId, { limit: 200 })).find((n) => n.id === params.incidentId);
+      return (await noticesOf(params.pageId, { id: params.incidentId }))[0];
     },
   }),
   route({
@@ -225,7 +225,7 @@ export const statusPageRoutes: ApiRoute[] = [
     }),
     handler: async ({ auth, params, body }) => {
       await noticeOf(params.pageId, params.incidentId, auth.organizationId);
-      const current = (await noticesOf(params.pageId, { limit: 200 })).find((n) => n.id === params.incidentId);
+      const current = (await noticesOf(params.pageId, { id: params.incidentId }))[0];
       if (!current) throw new ApiError(404, "Incident not found");
       await unwrap(
         actions.editStatusNotice(params.incidentId, {
@@ -237,7 +237,7 @@ export const statusPageRoutes: ApiRoute[] = [
           ...(body.postmortem !== undefined ? { postmortem: body.postmortem } : {}),
         }),
       );
-      return (await noticesOf(params.pageId, { limit: 200 })).find((n) => n.id === params.incidentId);
+      return (await noticesOf(params.pageId, { id: params.incidentId }))[0];
     },
   }),
   route({

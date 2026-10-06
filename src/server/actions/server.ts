@@ -208,14 +208,6 @@ export async function finishOnboarding() {
   });
 }
 
-export async function resyncProxy() {
-  return act(async () => {
-    await requireInstanceAdmin();
-    await enqueue("proxy.sync", {});
-    return null;
-  });
-}
-
 /** Queues a full cleanup on one server (the local server by default). */
 export async function runCleanup(serverId: string = LOCAL_SERVER_ID) {
   return act(async () => {

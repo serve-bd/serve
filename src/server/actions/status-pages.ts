@@ -789,14 +789,7 @@ export async function saveStatusSubscriptions(pageId: string, input: { subscribe
     const ctx = await requireStatusManager();
     const page = await pageInOrg(pageId, ctx.org.id);
     const subscribe = subscribeInput.parse(input.subscribe);
-    const wanted = [...new Set(z.array(z.string()).parse(input.teamChannelIds))];
-    const channels = wanted.length
-      ? await db
-          .select({ id: schema.notificationChannel.id })
-          .from(schema.notificationChannel)
-          .where(and(eq(schema.notificationChannel.organizationId, ctx.org.id), inArray(schema.notificationChannel.id, wanted)))
-      : [];
-    if (channels.length !== wanted.length) throw new UserError("A channel was not found. Reload the page and try again.");
+    const wanted = (await orgChannels(ctx.org.id, z.array(z.string()).parse(input.teamChannelIds))) ?? [];
     await db.update(schema.statusPage).set({ subscribe, teamChannelIds: wanted, updatedAt: new Date() }).where(eq(schema.statusPage.id, pageId));
     await logActivity({
       userId: ctx.user.id,

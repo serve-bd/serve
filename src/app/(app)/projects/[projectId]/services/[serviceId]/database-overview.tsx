@@ -10,6 +10,9 @@ import { StatusDot } from "@/components/ui/status";
 import { useServiceLive } from "./service-header";
 import { SecretField } from "@/components/ui/secret-field";
 import { ContainerDialog } from "./container-dialog";
+import { Select } from "@/components/ui/select";
+import { useAction } from "@/hooks/use-action";
+import { mainDatabaseChoices, setMainDatabase } from "@/server/actions/databases";
 import type { DatabaseDomainInfo } from "./database-domain-card";
 
 export function DatabaseOverview(props: {
@@ -43,6 +46,16 @@ export function DatabaseOverview(props: {
 }) {
   const { data } = useServiceLive(props.serviceId);
   const [openContainer, setOpenContainer] = React.useState<string | null>(null);
+  // The other databases on the server: pick one to copy a URL to it, or make it the main one.
+  const [databases, setDatabases] = React.useState<string[]>([]);
+  const [db, setDb] = React.useState(props.creds.database);
+  React.useEffect(() => {
+    if (!props.canManage || !props.engine.hasDatabase) return;
+    void mainDatabaseChoices(props.serviceId).then((r) => r.ok && setDatabases(r.data.databases));
+  }, [props.serviceId, props.canManage, props.engine.hasDatabase]);
+  const makeMain = useAction((name: string) => setMainDatabase(props.serviceId, name), {});
+  // The same URL, naming the chosen database (its last path part; the user name may match it).
+  const swap = (url: string) => (db === props.creds.database ? url : url.replace(/\/[^/?]*(?=\?|$)/, `/${encodeURIComponent(db)}`));
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex flex-col gap-6">
@@ -50,7 +63,7 @@ export function DatabaseOverview(props: {
           <CardHeader title="Connect" description="Other services in this environment connect over the private network." />
           <CardBody className="flex flex-col gap-4">
             <Field label="Private connection URL">
-              <SecretField value={props.internalUrl} hidden={props.hideSecrets} shape={props.internalUrl} />
+              <SecretField value={swap(props.internalUrl)} hidden={props.hideSecrets} shape={swap(props.internalUrl)} />
             </Field>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Host">
@@ -68,8 +81,29 @@ export function DatabaseOverview(props: {
                 <SecretField value={props.creds.password} hidden={props.hideSecrets} />
               </Field>
               {props.engine.hasDatabase && (
-                <Field label="Database">
-                  <CopyField value={props.creds.database} />
+                <Field
+                  label="Database"
+                  description={
+                    db !== props.creds.database ? (
+                      <>
+                        The URL above names {db}; apps get {props.creds.database}.{" "}
+                        <button type="button" className="text-accent hover:underline" disabled={makeMain.pending} onClick={() => makeMain.run(db)}>
+                          Make {db} the main database
+                        </button>
+                      </>
+                    ) : undefined
+                  }
+                >
+                  {databases.length > 1 ? (
+                    <Select
+                      value={db}
+                      onValueChange={setDb}
+                      options={databases.map((d) => ({ value: d, label: d, description: d === props.creds.database ? "Main database" : undefined }))}
+                      className="font-mono"
+                    />
+                  ) : (
+                    <CopyField value={props.creds.database} />
+                  )}
                 </Field>
               )}
             </div>

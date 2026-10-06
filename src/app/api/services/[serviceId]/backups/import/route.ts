@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Streams an uploaded dump to disk (never held in memory), then queues the restore.
- * Body: the raw file. Query: ?filename=…&backupFirst=1&users=1 (MongoDB: also its users)
+ * Body: the raw file. Query: ?filename=…&backupFirst=1&users=1&database=… (restore the file's one database into it) (MongoDB: also its users)
  */
 export async function POST(request: Request, ctx: RouteContext<"/api/services/[serviceId]/backups/import">) {
   // Outside the proxy matcher, so its cross-site check is done here.
@@ -43,6 +43,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/services/[s
         declared: Number(request.headers.get("content-length") ?? 0),
         backupFirst: url.searchParams.get("backupFirst") === "1",
         users: url.searchParams.get("users") === "1",
+        intoDatabase: url.searchParams.get("database") || null,
         // An encrypted file's passphrase comes in a header, never the URL, which logs keep.
         passphrase: request.headers.get("x-backup-passphrase"),
         userId: org.user.id,

@@ -205,18 +205,19 @@ export const databaseRoutes: ApiRoute[] = [
     tag: "Backups",
     summary: "Import a dump from a URL or S3 and restore it",
     description:
-      'source: {"kind":"url","url":"https://..."} or {"kind":"s3","destinationId":"...","key":"path/to/dump"}. passphrase: for an encrypted file (.enc). To upload a file instead: POST /services/{serviceId}/backups/import.',
+      'source: {"kind":"url","url":"https://..."} or {"kind":"s3","destinationId":"...","key":"path/to/dump"}. passphrase: for an encrypted file (.enc). database: restore the one database of the file into this database of the server (merged). To upload a file instead: POST /services/{serviceId}/backups/import.',
     needs: ["databases.backups"],
     body: z.object({
       source: z.union([z.object({ kind: z.literal("url"), url: z.string() }), z.object({ kind: z.literal("s3"), destinationId: z.string(), key: z.string() })]),
       backupFirst: z.boolean().default(true),
       users: z.boolean().default(false),
       passphrase: z.string().optional(),
+      database: z.string().optional(),
     }),
     status: 202,
     handler: async ({ auth, params, body }) => {
       await databaseOf(auth, params.serviceId);
-      return (await unwrap(databases.importBackupFromRemote(params.serviceId, body.source, body.backupFirst, body.users, body.passphrase))) ?? { ok: true };
+      return (await unwrap(databases.importBackupFromRemote(params.serviceId, body.source, body.backupFirst, body.users, body.passphrase, null, body.database))) ?? { ok: true };
     },
   }),
 

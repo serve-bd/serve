@@ -8,6 +8,8 @@ export type RestoreChoice = {
   renames?: Record<string, string>;
   tables?: string[];
   into?: string;
+  /** An import of one database: restored into this database of the server. */
+  intoDatabase?: string;
   /** An encrypted backup's passphrase, encrypted with Serve's key (job payloads are stored). */
   passphrase?: string;
 };

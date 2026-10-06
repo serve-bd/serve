@@ -33,6 +33,8 @@ export async function receiveImport(opts: {
   body: ReadableStream | null;
   declared: number;
   backupFirst: boolean;
+  /** Restore the file's one database into this database of the server. */
+  intoDatabase?: string | null;
   users: boolean;
   passphrase?: string | null;
   userId: string;
@@ -46,6 +48,7 @@ export async function receiveImport(opts: {
   } catch (e) {
     throw new ImportError(400, (e as Error).message);
   }
+  if (opts.intoDatabase && !/^[A-Za-z0-9_][A-Za-z0-9_$-]{0,62}$/.test(opts.intoDatabase)) throw new ImportError(400, "Choose a database name of letters, digits, _, $ and -.");
   if (!opts.body) throw new ImportError(400, "Choose a file.");
   if (opts.declared > MAX_BYTES) throw new ImportError(413, "The file is larger than 20 GB.");
   const file = backupFile(service.id, filename);
@@ -73,7 +76,13 @@ export async function receiveImport(opts: {
     .values({ id, serviceId: service.id, target: opts.target, trigger: "import", status: "running", filename, size, log: `Uploaded ${filename} (${size} bytes)\n` });
   await enqueue(
     "backup.import",
-    { backupId: id, backupFirst: opts.backupFirst, users: opts.users, ...(opts.passphrase ? { passphrase: encrypt(opts.passphrase) } : {}) },
+    {
+      backupId: id,
+      backupFirst: opts.backupFirst,
+      users: opts.users,
+      ...(opts.intoDatabase ? { intoDatabase: opts.intoDatabase } : {}),
+      ...(opts.passphrase ? { passphrase: encrypt(opts.passphrase) } : {}),
+    },
     { concurrencyKey: `backup:${service.id}` },
   );
   await logActivity({

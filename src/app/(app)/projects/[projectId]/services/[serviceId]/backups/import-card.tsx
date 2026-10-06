@@ -29,6 +29,9 @@ export function ImportCard(props: {
   extensions: string[];
   maxUpload: string | null;
   destinations: { id: string; name: string; bucket: string }[];
+  /** The databases on the server (Postgres, MySQL, MariaDB): the file's one database can go into one of them. */
+  databases?: string[];
+  main?: string;
   onStarted: () => void;
 }) {
   const confirm = useConfirm();
@@ -39,6 +42,8 @@ export function ImportCard(props: {
   const [key, setKey] = React.useState("");
   const [backupFirst, setBackupFirst] = React.useState(true);
   const [users, setUsers] = React.useState(false);
+  // "": every database the file holds keeps its own name.
+  const [intoDatabase, setIntoDatabase] = React.useState("");
   const [passphrase, setPassphrase] = React.useState("");
   const [progress, setProgress] = React.useState<number | null>(null);
   const [drag, setDrag] = React.useState(false);
@@ -52,6 +57,7 @@ export function ImportCard(props: {
         users,
         passphrase || undefined,
         props.target ?? null,
+        intoDatabase || null,
       ),
     {
       onSuccess: () => props.onStarted(),
@@ -72,7 +78,7 @@ export function ImportCard(props: {
       const xhr = new XMLHttpRequest();
       xhr.open(
         "POST",
-        `/api/services/${props.serviceId}/backups/import?filename=${encodeURIComponent(f.name)}${backupFirst ? "&backupFirst=1" : ""}${users ? "&users=1" : ""}${props.target ? `&target=${encodeURIComponent(props.target)}` : ""}`,
+        `/api/services/${props.serviceId}/backups/import?filename=${encodeURIComponent(f.name)}${backupFirst ? "&backupFirst=1" : ""}${users ? "&users=1" : ""}${intoDatabase ? `&database=${encodeURIComponent(intoDatabase)}` : ""}${props.target ? `&target=${encodeURIComponent(props.target)}` : ""}`,
       );
       if (passphrase) xhr.setRequestHeader("x-backup-passphrase", passphrase);
       xhr.upload.onprogress = (e) => e.lengthComputable && setProgress(e.loaded / e.total);
@@ -207,6 +213,22 @@ export function ImportCard(props: {
           </div>
         )}
 
+        {!props.target && props.databases && props.databases.length > 0 && (
+          <Field
+            label="Restore into"
+            description={
+              intoDatabase
+                ? `The file's database is merged into ${intoDatabase}: its tables replace ones of the same name, the others stay. A file of several databases is refused.`
+                : "Each database keeps the name it has in the file. A file without names goes into the main database."
+            }
+          >
+            <Select
+              value={intoDatabase}
+              onValueChange={setIntoDatabase}
+              options={[{ value: "", label: "The names in the file" }, ...props.databases.map((d) => ({ value: d, label: d === props.main ? `${d} (main)` : d }))]}
+            />
+          </Field>
+        )}
         <label className="flex items-start gap-2 text-[13px] text-fg-2">
           <Checkbox checked={backupFirst} onCheckedChange={(c) => setBackupFirst(!!c)} className="mt-0.5" />
           <span>

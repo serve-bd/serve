@@ -31,6 +31,8 @@ export function RestoreDialog({
   const [into, setInto] = React.useState("");
   const [picked, setPicked] = React.useState<Record<string, boolean>>({});
   const [names, setNames] = React.useState<Record<string, string>>({});
+  // A name typed in (Other name…) rather than picked from the server's databases.
+  const [custom, setCustom] = React.useState<Record<string, boolean>>({});
   const [someTables, setSomeTables] = React.useState(false);
   const [tables, setTables] = React.useState<Set<string>>(new Set());
   const [query, setQuery] = React.useState("");
@@ -166,14 +168,36 @@ export function RestoreDialog({
                         <span className="truncate font-mono text-[12.5px]">{d.label}</span>
                         {choices.tables && <span className="flex-none text-xs text-faint">{d.tables.length === 1 ? "1 table" : `${d.tables.length} tables`}</span>}
                       </label>
-                      <Input
-                        value={names[d.name] ?? ""}
-                        onChange={(e) => setNames((n) => ({ ...n, [d.name]: e.target.value }))}
-                        placeholder={`Restore as ${defaultName(d)}`}
-                        aria-label={`Restore ${d.label} as`}
-                        disabled={!picked[d.name]}
-                        className="h-8 font-mono text-[12.5px]"
-                      />
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <Select
+                          size="sm"
+                          value={custom[d.name] ? "__other" : (names[d.name] ?? "")}
+                          onValueChange={(v) => {
+                            setCustom((c) => ({ ...c, [d.name]: v === "__other" }));
+                            setNames((n) => ({ ...n, [d.name]: v === "__other" ? "" : v }));
+                          }}
+                          disabled={!picked[d.name]}
+                          aria-label={`Restore ${d.label} into`}
+                          options={[
+                            { value: "", label: `Into ${defaultName(d)}`, description: "Its own name" },
+                            // The server's databases (this service only): merged, tables of the same name replaced.
+                            ...(target ? [] : (choices.existing ?? []))
+                              .filter((x) => x !== defaultName(d))
+                              .map((x) => ({ value: x, label: `Into ${x}`, description: x === choices.main ? "The main database, merged" : "Merged" })),
+                            { value: "__other", label: "Other name…" },
+                          ]}
+                        />
+                        {custom[d.name] && (
+                          <Input
+                            value={names[d.name] ?? ""}
+                            onChange={(e) => setNames((n) => ({ ...n, [d.name]: e.target.value }))}
+                            placeholder="New database name"
+                            aria-label={`New name for ${d.label}`}
+                            className="h-8 font-mono text-[12.5px]"
+                            autoFocus
+                          />
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

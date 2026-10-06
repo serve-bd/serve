@@ -2182,7 +2182,18 @@ export async function restoreChoices(backupId: string, passphrase?: string) {
           .filter((r) => r.id !== service.id && r.database?.engine === service.database?.engine && ctx.canAccessProject(r.projectId))
           .map((r) => ({ id: r.id, name: r.name, project: r.project, running: r.status === "running", database: r.database?.database ?? "" }));
     const encrypted = !!b.filename?.endsWith(".enc");
-    return { ...contents, encrypted, unreadable: unreadable as string | null, main: service.database?.database ?? "", service: { id: service.id, name: service.name }, others };
+    // The databases on the server now: a backup's database can be restored into one of them.
+    const { backupableDatabases } = await import("@/server/backups");
+    const existing = !b.target && service.status === "running" ? ((await backupableDatabases(service).catch(() => null)) ?? []) : [];
+    return {
+      ...contents,
+      encrypted,
+      existing,
+      unreadable: unreadable as string | null,
+      main: service.database?.database ?? "",
+      service: { id: service.id, name: service.name },
+      others,
+    };
   });
 }
 

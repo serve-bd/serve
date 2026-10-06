@@ -80,6 +80,8 @@ export type RestoreOptions = {
   renames?: Record<string, string>;
   tables?: string[];
   into?: string;
+  /** An import of one database: restored into this database of the server (merged), whatever the file calls it. */
+  intoDatabase?: string;
   /** The passphrase of an encrypted backup made with another one (or imported). */
   passphrase?: string | null;
 };
@@ -1118,6 +1120,15 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
   try {
     const t = await targetOf(service, opts.into ? null : backup.target);
     await logLine(backupId, `Restoring into ${t.label}`);
+    // Into a chosen database: the file must hold one, which goes there under that name.
+    if (opts.intoDatabase) {
+      const { databases } = await backupContents(backupId, opts.passphrase);
+      if (databases.length !== 1)
+        throw new Error(
+          `The file holds ${databases.length} databases${databases.length ? ` (${databases.map((d) => d.label).join(", ")})` : ""}. Restore it from the backups list to choose where each one goes.`,
+        );
+      opts = { ...opts, databases: [databases[0].name], renames: { [databases[0].name]: opts.intoDatabase } };
+    }
     // Tables with no database named: the dump's one database, never the whole of it by its own
     // name (a MySQL dump names its database, and that would replace every table in it).
     if (opts.tables?.length && !opts.databases?.length) {
@@ -1329,7 +1340,15 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
       throw new Error("The safety backup failed, so nothing was restored.");
     }
   }
-  await restoreBackup(backupId, { users: opts.users, databases: opts.databases, renames: opts.renames, tables: opts.tables, into: opts.into, passphrase: opts.passphrase });
+  await restoreBackup(backupId, {
+    users: opts.users,
+    databases: opts.databases,
+    renames: opts.renames,
+    tables: opts.tables,
+    into: opts.into,
+    intoDatabase: opts.intoDatabase,
+    passphrase: opts.passphrase,
+  });
 }
 
 /**

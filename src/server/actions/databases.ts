@@ -310,6 +310,8 @@ export async function importBackupFromRemote(
   passphrase?: string,
   /** One backup of a compose stack (db:postgres, volume:data…) instead of a database service. */
   target?: string | null,
+  /** Restore the file's one database into this database of the server. */
+  intoDatabase?: string | null,
 ) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
@@ -318,6 +320,7 @@ export async function importBackupFromRemote(
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     if (service.status !== "running") throw new UserError(service.database ? "Start the database before importing." : "Start the stack before importing.");
     const source = remoteImportSchema.parse(input);
+    if (intoDatabase && (target || !/^[A-Za-z0-9_][A-Za-z0-9_$-]{0,62}$/.test(intoDatabase))) throw new UserError("Choose a database name of letters, digits, _, $ and -.");
     if (source.kind === "s3") {
       const [dest] = await db
         .select({ id: schema.s3Destination.id })
@@ -345,6 +348,7 @@ export async function importBackupFromRemote(
         backupId: id,
         backupFirst,
         users,
+        ...(intoDatabase ? { intoDatabase } : {}),
         ...(passphrase ? { passphrase: encrypt(passphrase) } : {}),
         ...(source.kind === "url" ? { url: source.url } : { s3: { destinationId: source.destinationId, key: source.key } }),
       },

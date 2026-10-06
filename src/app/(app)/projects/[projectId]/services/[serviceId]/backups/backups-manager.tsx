@@ -375,6 +375,9 @@ export function BackupsManager(props: {
           extensions={props.extensions}
           maxUpload={props.maxUpload}
           destinations={props.destinations}
+          // SQL dumps only: their databases can be told apart and renamed on the way in.
+          databases={["postgres", "mysql", "mariadb"].includes(props.databaseChoices?.engine ?? "") ? props.databaseChoices?.databases : undefined}
+          main={props.databaseChoices?.main}
           onStarted={() => {
             void mutate();
             // From its own page: on to the backups, where the import and its log show.

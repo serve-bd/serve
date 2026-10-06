@@ -925,7 +925,7 @@ export const serviceRoutes: ApiRoute[] = [
     summary: "Import a backup file",
     description: [
       "The body is the file, streamed to disk (up to 20 GB), then restored: a dump for a database service, or for one backup of a compose stack (target).",
-      "Query: filename (its extension says the format), target (db:…, volume:…, dir:…), backupFirst=1, users=1. An encrypted file's passphrase goes in the X-Backup-Passphrase header.",
+      "Query: filename (its extension says the format), target (db:…, volume:…, dir:…), backupFirst=1, users=1, database (restore the file's one database into this database of the server, merged). An encrypted file's passphrase goes in the X-Backup-Passphrase header.",
     ].join(" "),
     needs: ["databases.backups"],
     query: z.object({
@@ -933,6 +933,7 @@ export const serviceRoutes: ApiRoute[] = [
       target: z.string().optional(),
       backupFirst: z.enum(["0", "1", "true", "false"]).optional(),
       users: z.enum(["0", "1", "true", "false"]).optional(),
+      database: z.string().optional(),
     }),
     status: 202,
     handler: async ({ auth, params, query, request }) => {
@@ -950,6 +951,7 @@ export const serviceRoutes: ApiRoute[] = [
           declared: Number(request.headers.get("content-length") ?? 0),
           backupFirst: yes(query.backupFirst),
           users: yes(query.users),
+          intoDatabase: query.database || null,
           passphrase: request.headers.get("x-backup-passphrase"),
           userId: auth.userId,
         });

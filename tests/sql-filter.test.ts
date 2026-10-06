@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mysqlDatabaseOf, pgConnectTarget, planSql, type SqlEngine, sqlLineFilter } from "@/server/backups/sql-filter";
 import { pgConnectLine } from "@/server/databases/engines";
 
-async function clean(engine: SqlEngine, dump: string, target: string, opts: { keepNames?: boolean } = {}) {
+async function clean(engine: SqlEngine, dump: string, target: string, opts: { keepNames?: boolean; user?: string } = {}) {
   const lines = dump.split("\n");
   const plan = await planSql(engine, lines);
   const filter = sqlLineFilter(engine, plan, target, opts);
@@ -141,6 +141,18 @@ describe("mysql dumps", () => {
     expect(out).toContain("USE `shop`;");
     expect(out).not.toContain("`app`");
     expect(report.into).toBeNull();
+  });
+
+  it("restores a whole-server import under the dump's names, empty databases too, open to the app's account", async () => {
+    const dump = `${myAll}\n-- Current Database: \`shop_test\`\nCREATE DATABASE /*!32312 IF NOT EXISTS*/ \`shop_test\`;\nUSE \`shop_test\`;`;
+    const { out, report, plan } = await clean("mysql", dump, "app", { keepNames: true, user: "app" });
+    expect(plan.databases).toEqual(["shop", "shop_test"]);
+    expect(report.created).toEqual(["shop", "shop_test"]);
+    expect(out).toContain("INSERT INTO `orders` VALUES (1),(2);");
+    expect(out).toContain("GRANT ALL PRIVILEGES ON `shop_test`.* TO 'app'@'%';");
+    expect(out).not.toContain("`app`");
+    // Grants of the dump itself stay out.
+    expect(out).not.toContain("'extra'");
   });
 
   it("reads database names", () => {

@@ -63,8 +63,8 @@ type ServiceRow = typeof schema.service.$inferSelect;
 
 /** A database container and the commands that dump into and restore from it. */
 /**
- * `users`: also restore the dump's database users (MongoDB). `keepNames`: a backup of chosen
- * databases of this server; each goes back into the database of its name, even when it is one.
+ * `users`: also restore the dump's database users (MongoDB). `keepNames`: every database the dump
+ * names goes back into the database of that name, even when it is the only one.
  */
 export type RestoreOptions = { users?: boolean; keepNames?: boolean };
 
@@ -84,6 +84,8 @@ type Commands = {
   password: string;
   /** Database the service uses: plain SQL dumps from elsewhere are restored into it. */
   database: string;
+  /** The account apps connect with: databases a restore creates are opened to it (MySQL, MariaDB). */
+  username?: string;
 };
 
 /**
@@ -129,6 +131,7 @@ async function databaseCommands(service: ServiceRow, databases?: string[] | null
         : undefined,
     password: creds.password,
     database: creds.database,
+    username: creds.username,
   };
 }
 
@@ -169,7 +172,7 @@ async function composeCommands(service: ServiceRow, name: string): Promise<Comma
   if (typeof creds === "string") throw new Error(creds);
   // Redis and Valkey often get their password on the command line: redis-server --requirepass x.
   if ((engine === "redis" || engine === "valkey") && !creds.password) creds.password = requirePass([...(info.Config.Entrypoint ?? []), ...(info.Config.Cmd ?? [])]);
-  return { docker, container, engine, ...dumpCommands(engine, creds), password: creds.password, database: creds.database ?? "" };
+  return { docker, container, engine, ...dumpCommands(engine, creds), password: creds.password, database: creds.database ?? "", username: creds.username };
 }
 
 /**
@@ -626,7 +629,7 @@ async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line
   const src = fs.createReadStream(file);
   const lines = readline.createInterface({ input: gz ? src.pipe(zlib.createGunzip()) : src, crlfDelay: Number.POSITIVE_INFINITY });
   const plan = await planSql(engine, lines).finally(() => src.destroy());
-  const filter = sqlLineFilter(engine, plan, t.database, { keepNames });
+  const filter = sqlLineFilter(engine, plan, t.database, { keepNames, user: t.username });
   const named = plan.databases.filter((d) => d !== "");
   log(
     named.length > 1 || (keepNames && named.length === 1)
@@ -688,8 +691,9 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
           .update(schema.backup)
           .set({ restoreStopped: ids.length ? ids : null })
           .where(eq(schema.backup.id, backupId))),
-      // A backup of chosen databases (one that is not the main one, say) goes back where it came from.
-      { ...opts, keepNames: !backup.target && !!backup.databases?.length },
+      // Into its own service (an import, a backup): every database the dump names keeps that name,
+      // as the apps' code may use it. Into another service, a single database becomes that one's.
+      { ...opts, keepNames: !backup.target },
     );
     // Database restores logged their format and output as they ran.
     if (format === "tar.gz" && clean) await logLine(backupId, clean.slice(-2000));

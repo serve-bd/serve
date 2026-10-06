@@ -10,8 +10,11 @@ import { pgConnectLine } from "@/server/databases/engines";
  * - Users, roles, grants and owners are left out. Everything restored belongs to the account
  *   Serve connects with.
  * - System databases (MySQL's mysql and sys, Postgres' template1) are left out.
- * - A dump with one database is restored into the service's database, whatever it was called.
- *   With several, each becomes a database of its own, created when missing.
+ * - Restored into its own service, every database the dump names keeps its name, created when
+ *   missing (empty ones too): the apps' code may name it. Content before any database (a plain
+ *   single-database dump) goes into the service's database. Copied into another service, a dump
+ *   with one database goes into that service's database.
+ * - MySQL: the account apps connect with gets the databases the restore creates.
  *
  * Postgres COPY data passes through untouched.
  */
@@ -69,12 +72,17 @@ export async function planSql(engine: SqlEngine, lines: AsyncIterable<string> | 
         continue;
       }
       const target = pgConnectTarget(line);
-      if (target !== null) current = target;
-      else if (pgContent(line)) mark(current ?? "");
+      if (target !== null) {
+        current = target;
+        // A database the dump names counts even when empty; "postgres" only with content (every cluster dump has it).
+        if (target !== "postgres") mark(target);
+      } else if (pgContent(line)) mark(current ?? "");
     } else {
       const db = mysqlDatabaseOf(line);
-      if (db !== null) current = db;
-      else if (mysqlContent(line)) mark(current ?? "");
+      if (db !== null) {
+        current = db;
+        mark(db);
+      } else if (mysqlContent(line)) mark(current ?? "");
     }
   }
   const system = engine === "postgres" ? PG_SYSTEM : MYSQL_SYSTEM;
@@ -94,7 +102,7 @@ export type SqlFilterReport = { skipped: Set<string>; created: string[]; into: s
  * each line of the dump (none, the line itself, or replacements). `keepNames`: every database
  * keeps its name, even alone (a backup Serve took of chosen databases of this server).
  */
-export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, opts: { keepNames?: boolean } = {}) {
+export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, opts: { keepNames?: boolean; user?: string } = {}) {
   const report: SqlFilterReport = { skipped: new Set(), created: [], into: null };
   const named = plan.databases.filter((d) => d !== "");
   // One database: its content goes into the service's database. Several: each keeps its name.
@@ -159,10 +167,15 @@ export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, 
       }
       const to = map(db);
       if (line.startsWith("--")) return [line];
-      if (to !== target && !report.created.includes(to)) report.created.push(to);
+      const out = [`CREATE DATABASE IF NOT EXISTS ${myQuote(to)};`];
+      if (to !== target && !report.created.includes(to)) {
+        report.created.push(to);
+        // The account apps connect with only has its own database: open this one to it too.
+        if (opts.user && opts.user !== "root") out.push(`GRANT ALL PRIVILEGES ON ${myQuote(to)}.* TO '${opts.user.replaceAll("'", "''")}'@'%';`);
+      }
       // A dump that switches to a database without creating it: it may not exist here.
-      if (/^USE\b/i.test(line)) return [`CREATE DATABASE IF NOT EXISTS ${myQuote(to)};`, `USE ${myQuote(to)};`];
-      return [`CREATE DATABASE IF NOT EXISTS ${myQuote(to)};`];
+      if (/^USE\b/i.test(line)) out.push(`USE ${myQuote(to)};`);
+      return out;
     }
     if (skipping || userLine(line)) return [];
     if (/^INSERT\b/i.test(line)) return [line];

@@ -2113,6 +2113,8 @@ export async function createBackup(serviceId: string, target?: string | null, op
     // Settings for this backup only (a database service): buckets of this organization; only admins leave out encryption.
     const choice = !target && opts.choice ? backupChoiceSchema.parse(opts.choice) : undefined;
     if (choice) {
+      // Other settings than the saved ones: only roles that may change those settings.
+      if (Object.keys(choice).length && !ctx.can("services.manage")) throw new UserError("Your role can back up with the saved settings only.");
       const buckets = [choice.s3DestinationId, ...(choice.copies ?? [])].filter((b): b is string => !!b);
       if (buckets.length) {
         const own = await db

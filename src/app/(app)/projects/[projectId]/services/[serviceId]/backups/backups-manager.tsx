@@ -303,7 +303,7 @@ export function BackupsManager(props: {
           title={props.title ?? "Backups"}
           description={props.description ?? "Consistent dumps taken with the database's own tools. Download, restore or import one."}
           actions={
-            <Button size="sm" variant="primary" onClick={() => (props.target ? run.run() : setPicking(true))} loading={run.pending && !picking} disabled={!props.running}>
+            <Button size="sm" variant="primary" onClick={() => (props.target || (!choices && !props.isAdmin) ? run.run() : setPicking(true))} loading={run.pending && !picking} disabled={!props.running}>
               <Play /> Back up now
             </Button>
           }
@@ -408,6 +408,7 @@ export function BackupsManager(props: {
           saved={saved}
           users={props.users}
           encrypted={!!props.encrypted}
+          canChoose={props.isAdmin}
           pending={run.pending}
           onClose={() => setPicking(false)}
           onRun={(dbs, choice) => void run.run(choices ? dbs : undefined, choice)}
@@ -447,6 +448,8 @@ function BackupNowDialog(props: {
   /** Left out: the engine has no users to include. */
   users?: boolean;
   encrypted: boolean;
+  /** Settings other than the saved ones: admins only. */
+  canChoose: boolean;
   pending: boolean;
   onClose: () => void;
   onRun: (databases: string[], choice?: BackupChoice) => void;
@@ -465,17 +468,22 @@ function BackupNowDialog(props: {
   return (
     <Dialog open onOpenChange={(o) => !o && !props.pending && props.onClose()}>
       <DialogContent size="md">
-        <DialogHeader title="Back up now" description="Filled in from the backup settings. Changes here are for this backup only." />
+        <DialogHeader
+          title="Back up now"
+          description={props.canChoose ? "Filled in from the backup settings. Changes here are for this backup only." : "Taken with the backup settings."}
+        />
         <DialogBody className="flex flex-col gap-5">
           {choices && (
             <Field label="Databases">
               <DatabasePicker choices={choices} value={picked} onChange={setPicked} />
             </Field>
           )}
-          <Field label="Store in">
-            <StoragePlaces destinations={props.destinations} value={places} onChange={setPlaces} />
-          </Field>
-          {(props.users !== undefined || props.encrypted) && (
+          {props.canChoose && (
+            <Field label="Store in">
+              <StoragePlaces destinations={props.destinations} value={places} onChange={setPlaces} />
+            </Field>
+          )}
+          {props.canChoose && (props.users !== undefined || props.encrypted) && (
             <div className="flex flex-col gap-2">
               {props.users !== undefined && (
                 <SwitchRow title="Include users and passwords" description="A restore brings them back only when you ask." checked={users} onCheckedChange={setUsers} />

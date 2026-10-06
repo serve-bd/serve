@@ -125,7 +125,8 @@ const ACCOUNT_TABLES: [string, string[]][] = [
   ["tables_priv", ["User"]],
   ["columns_priv", ["User"]],
   ["procs_priv", ["User"]],
-  ["proxies_priv", ["User"]],
+  // Proxied_user too: a restored account must not act as one of Serve's or MySQL's own.
+  ["proxies_priv", ["User", "Proxied_user"]],
   ["global_grants", ["USER"]],
   ["default_roles", ["USER"]],
   ["role_edges", ["FROM_USER", "TO_USER"]],

@@ -207,6 +207,8 @@ export function ComposeBackups(props: {
             : `A .tar.gz copy of ${kind === "volume" ? "the volume" : "the folder"} ${name}${option ? `, mounted at ${option.detail} in ${option.containers.join(", ")}` : ""}. Taken while it runs; restoring stops the containers that use it.`
         }
         restoreWhat={kind === "db" ? `The current data in ${name}` : `Everything in ${name}`}
+        // Database containers: their users and passwords can come back too (Serve's login stays).
+        restoresUsers={kind === "db"}
         schedule={props.configs[current]?.schedule ?? null}
         retention={props.configs[current]?.retention ?? 7}
         retentionS3={props.configs[current]?.retentionS3 ?? null}

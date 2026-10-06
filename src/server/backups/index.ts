@@ -92,6 +92,8 @@ export type Commands = {
   restorePlain?: string;
   /** MongoDB: restores a backup of several databases (a packed folder of dumps). */
   restoreFolder?: string;
+  /** MongoDB: restores the users and roles of a backup of several databases (a packed folder). */
+  restoreFolderUsers?: string;
   /** MongoDB: restores the dump's users and roles, keeping Serve's account. */
   restoreUsers?: string;
   /** Masked in any output. */
@@ -146,6 +148,7 @@ async function databaseCommands(service: ServiceRow, databases?: string[] | null
     backup: several ? several.command : engine.backupCommand(creds),
     restore: engine.restoreCommand(creds),
     restoreUsers: engine.restoreUsersCommand?.(creds),
+    restoreFolderUsers: engine.restoreFolderUsersCommand?.(creds),
     restoreFolder: engine.restoreFolderCommand?.(creds),
     restorePlain:
       cfg.engine === "postgres"
@@ -195,7 +198,9 @@ async function composeCommands(service: ServiceRow, name: string): Promise<Comma
   if (typeof creds === "string") throw new Error(creds);
   // Redis and Valkey often get their password on the command line: redis-server --requirepass x.
   if ((engine === "redis" || engine === "valkey") && !creds.password) creds.password = requirePass([...(info.Config.Entrypoint ?? []), ...(info.Config.Cmd ?? [])]);
-  return { docker, container, engine, ...dumpCommands(engine, creds), password: creds.password, database: creds.database ?? "", username: creds.username };
+  // MongoDB in a stack: its users can be restored too, as for a database service.
+  const restoreUsers = engine === "mongodb" && creds.username ? engines.mongodb.restoreUsersCommand?.({ ...creds, tlsRequired: false }) : undefined;
+  return { docker, container, engine, ...dumpCommands(engine, creds), restoreUsers, password: creds.password, database: creds.database ?? "", username: creds.username };
 }
 
 /**
@@ -338,10 +343,11 @@ export async function restoreWith(t: Commands, file: string, log: (line: string)
     const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
     await runIn(t, `export MYSQL_PWD=${q(t.password)}; ${t.engine} -uroot`, Readable.from([accountsMergeSql(protectedAccounts(t))]), false, log);
   }
-  // A backup of chosen databases (a packed folder) holds no users: they live in admin.
-  if (opts.users && t.restoreUsers && !/\.dir\.tar\.gz$/i.test(file)) {
+  // A backup of chosen databases (a packed folder) has its users in admin's dump inside it.
+  const users = /\.dir\.tar\.gz$/i.test(file) ? t.restoreFolderUsers : t.restoreUsers;
+  if (opts.users && users) {
     log("Restoring the users of the dump; the account Serve connects with keeps its password");
-    await runIn(t, t.restoreUsers, fs.createReadStream(file), gz, log);
+    await runIn(t, users, fs.createReadStream(file), gz, log);
   }
   if (t.engine === "redis" || t.engine === "valkey") {
     log("Restarting to load the dump");

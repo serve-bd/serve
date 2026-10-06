@@ -1,3 +1,4 @@
+import { engines } from "@/server/databases/engines";
 import YAML from "yaml";
 import { pgDbname } from "@/server/databases/engines";
 import type { DatabaseConfig } from "@/server/services/types";
@@ -80,8 +81,10 @@ export function credsFromEnv(engine: Engine, env: Record<string, string>, files:
     case "redis":
     case "valkey":
       return { username: "", password: get("REDIS_PASSWORD", "VALKEY_PASSWORD"), database: "", root: true };
-    case "clickhouse":
-      return "ClickHouse inside a compose stack is not backed up yet.";
+    case "clickhouse": {
+      const username = get("CLICKHOUSE_USER") || "default";
+      return { username, password: get("CLICKHOUSE_PASSWORD"), database: get("CLICKHOUSE_DB") || "default", root: true };
+    }
   }
 }
 
@@ -151,8 +154,10 @@ export function dumpCommands(engine: Engine, c: ComposeCreds): { backup: string;
         ].join(" && "),
       };
     }
-    case "clickhouse":
-      throw new Error("ClickHouse inside a compose stack is not backed up yet.");
+    case "clickhouse": {
+      const creds = { username: c.username, password: c.password, database: c.database, tlsRequired: false };
+      return { backup: engines.clickhouse.backupCommand(creds), restore: engines.clickhouse.restoreCommand(creds) };
+    }
   }
 }
 

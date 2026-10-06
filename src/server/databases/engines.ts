@@ -23,6 +23,8 @@ export type EngineInfo = {
   restoreCommand: (c: EngineCreds) => string;
   /** MongoDB: restores only the users and roles of a dump from stdin, keeping Serve's account. */
   restoreUsersCommand?: (c: EngineCreds) => string;
+  /** The same for a backup of several databases (a packed folder of dumps). */
+  restoreFolderUsersCommand?: (c: EngineCreds) => string;
   backupExtension: string;
   /**
    * A backup of several databases of the server (each restored as a database of its own), and its
@@ -103,9 +105,11 @@ function clickhouseBackup(c: EngineCreds) {
  * script, so the file is fed to it in parts of about 16 MB, each ending at a line that ends a statement.
  */
 function clickhouseRestore(c: EngineCreds) {
+  // A dump of several databases switches with USE: each part starts in the database the last USE named.
   const awk = [
     'BEGIN { cmd = ENVIRON["SERVE_CH"] }',
-    "{ print | cmd; n += length($0) + 1 }",
+    "/^USE / { use = $0 }",
+    '{ if (n == 0 && use != "" && $0 !~ /^USE /) print use | cmd; print | cmd; n += length($0) + 1 }',
     "/;[ \\t\\r]*$/ && n >= 16777216 { if (close(cmd)) { failed = 1; exit 1 } n = 0 }",
     "END { if (failed) exit 1; if (n && close(cmd)) exit 1 }",
   ].join("\n");
@@ -124,7 +128,7 @@ export const mongoToolsTls = (c: EngineCreds) => (c.tlsRequired ? " --ssl --sslA
  * temporary admin restores them (merged, nothing is dropped), then sets Serve's account back to
  * its password and root role, and removes itself. A dump user with Serve's name is replaced too.
  */
-const mongoRestoreUsers = (c: EngineCreds) => {
+const mongoRestoreUsers = (c: EngineCreds, folder = false) => {
   const shell = (user: string, pass: string) => `mongosh --quiet${mongoTls(c)} -u ${user} -p ${pass} --authenticationDatabase admin`;
   const reset = [
     'const a = db.getSiblingDB("admin");',
@@ -134,10 +138,12 @@ const mongoRestoreUsers = (c: EngineCreds) => {
     "a.dropUser(process.env.T);",
   ].join(" ");
   return [
+    // A backup of several databases is a packed folder of dumps, its users in admin's.
+    ...(folder ? ["D=$(mktemp -d)", "trap 'rm -rf \"$D\"' EXIT", 'tar -xzf - -C "$D" || exit 1'] : []),
     `export SU=${sh(c.username)} SP=${sh(c.password)}`,
     "export T=serve-restore-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n') TP=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')",
     `${shell('"$SU"', '"$SP"')} --eval 'db.getSiblingDB("admin").createUser({ user: process.env.T, pwd: process.env.TP, roles: ["root"] })' >/dev/null || exit 1`,
-    `mongorestore${mongoToolsTls(c)} --archive --gzip --nsInclude='admin.system.users' --nsInclude='admin.system.roles' --nsInclude='admin.system.version' -u "$T" -p "$TP" --authenticationDatabase admin; rc=$?`,
+    `mongorestore${mongoToolsTls(c)} ${folder ? '--archive="$D/serve-users.archive.gz" --gzip' : "--archive --gzip"} --nsInclude='admin.system.users' --nsInclude='admin.system.roles' --nsInclude='admin.system.version' -u "$T" -p "$TP" --authenticationDatabase admin; rc=$?`,
     `${shell('"$T"', '"$TP"')} --eval ${sh(reset)} >/dev/null || rc=1`,
     "exit $rc",
   ].join("\n");
@@ -333,6 +339,10 @@ export const engines: Record<DbEngine, EngineInfo> = {
         "D=$(mktemp -d)",
         "trap 'rm -rf \"$D\"' EXIT",
         ...databases.map((d) => `mongodump --quiet${mongoToolsTls(c)} -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin --db ${sh(d)} --out "$D" >&2`),
+        // The users and roles too (they live in admin, with the auth schema mongorestore needs for them):
+        // restored only when asked for.
+        // As an archive: a dump folder of admin lacks the auth schema mongorestore needs for users.
+        `mongodump --quiet${mongoToolsTls(c)} -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin --db admin --archive="$D/serve-users.archive.gz" --gzip >&2 || true`,
         'tar -C "$D" -czf - .',
       ].join("\n"),
       extension: "dir.tar.gz",
@@ -350,6 +360,7 @@ export const engines: Record<DbEngine, EngineInfo> = {
     restoreCommand: (c) =>
       `mongorestore${mongoToolsTls(c)} --archive --gzip --drop --nsExclude='admin.system.*' -u ${sh(c.username)} -p ${sh(c.password)} --authenticationDatabase admin`,
     restoreUsersCommand: mongoRestoreUsers,
+    restoreFolderUsersCommand: (c) => mongoRestoreUsers(c, true),
     backupExtension: "archive.gz",
     server: ["mongod"],
     runAs: "mongodb",
@@ -448,6 +459,17 @@ export const engines: Record<DbEngine, EngineInfo> = {
     healthcheck: () => ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"],
     url: (c) => `clickhouse://${encodeURIComponent(c.username)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${c.database}`,
     backupCommand: clickhouseBackup,
+    // Several databases: each is created and switched to with USE, then dumped like the main one.
+    backupDatabasesCommand: (c, databases) => ({
+      command: [
+        "set -e",
+        ...databases.flatMap((d) => [
+          `printf '%s\\n' ${sh(`CREATE DATABASE IF NOT EXISTS \`${d.replaceAll("`", "\\`")}\`;`)} ${sh(`USE \`${d.replaceAll("`", "\\`")}\`;`)}`,
+          `( ${clickhouseBackup({ ...c, database: d })} )`,
+        ]),
+      ].join("\n"),
+      extension: "sql.gz",
+    }),
     restoreCommand: clickhouseRestore,
     backupExtension: "sql.gz",
     runAs: "clickhouse",

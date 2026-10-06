@@ -22,5 +22,5 @@ export async function GET(req: Request, ctx: RouteContext<"/api/services/[servic
     .orderBy(desc(schema.backup.createdAt))
     .limit(100);
   const { hasLocalCopy } = await import("@/server/backups");
-  return NextResponse.json({ backups: backups.map((b) => ({ ...b, local: hasLocalCopy(b) })) });
+  return NextResponse.json({ backups: backups.map(({ keyHint, ...b }) => ({ ...b, encrypted: !!keyHint, local: hasLocalCopy(b) })) });
 }

@@ -331,6 +331,8 @@ async function settleTimedOut(job: Job, error: string) {
         // A partial file; an uploaded import is complete and stays.
         if (b.filename && !(b.trigger === "import" && b.size != null)) {
           await fs.promises.rm(backupFile(b.serviceId, b.filename), { force: true }).catch(() => {});
+          // Cut off while it was encrypted: the plain dump next to it goes too.
+          if (b.filename.endsWith(".enc")) await fs.promises.rm(backupFile(b.serviceId, b.filename.slice(0, -4)), { force: true }).catch(() => {});
           await db.update(schema.backup).set({ filename: null }).where(eq(schema.backup.id, b.id));
         }
       }
@@ -757,6 +759,11 @@ async function recover() {
       .where(and(eq(schema.backup.serviceId, b.serviceId), eq(schema.backup.filename, b.filename)));
   }
 
+  // Decrypted copies of encrypted backups that a restart cut off mid-restore.
+  for (const dir of await fs.promises.readdir(paths.backups).catch(() => []))
+    for (const f of await fs.promises.readdir(path.join(paths.backups, dir)).catch(() => []))
+      if (f.startsWith(".restoring-")) await fs.promises.rm(path.join(paths.backups, dir, f), { force: true }).catch(() => {});
+
   // Restores cut off by a restart: mark them failed, and start containers a storage restore stopped.
   // Only restores whose job was running when the worker stopped had stopped anything.
   const wasRunning = new Set(
@@ -924,7 +931,11 @@ async function main() {
   // Backup proof: once a day, the newest backup of each database that asks for it is test-restored.
   every(10 * 60_000, "backup-proof", async () => {
     const { dueBackupTests } = await import("@/server/backups/verify");
-    for (const backupId of await dueBackupTests()) await enqueue("backup.verify", { backupId }, { concurrencyKey: `backup-verify:${backupId}` });
+    // Marked running when queued, like a test started by hand: the next tick does not queue it again.
+    for (const backupId of await dueBackupTests()) {
+      await db.update(schema.backup).set({ verifyStatus: "running" }).where(eq(schema.backup.id, backupId));
+      await enqueue("backup.verify", { backupId }, { concurrencyKey: `backup-verify:${backupId}` });
+    }
   });
   every(60_000, "status-maintenance", async () => {
     const { maintenanceTick, pruneSubscribers } = await import("@/server/status-pages/subscribers");

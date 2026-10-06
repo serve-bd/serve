@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
+import { hmac } from "@/server/crypto";
 
 /*
  * Backup encryption with a passphrase, in the format of `openssl enc -aes-256-cbc -pbkdf2`
@@ -25,8 +26,12 @@ async function keyOf(passphrase: string, salt: Buffer, iterations = ITERATIONS) 
   return { key: k.subarray(0, 32), iv: k.subarray(32, 48) };
 }
 
-/** A short fingerprint of a passphrase: tells which one a backup was made with, without storing it. */
-export const keyHint = (passphrase: string) => crypto.createHash("sha256").update(`serve-backup-key:${passphrase}`).digest("hex").slice(0, 12);
+/**
+ * A short fingerprint of a passphrase: tells which one a backup was made with, without storing it.
+ * Keyed with this instance's secret: a plain hash would let anyone who sees it guess passphrases
+ * fast, past the PBKDF2 rounds. Never sent to the browser.
+ */
+export const keyHint = (passphrase: string) => hmac(`serve-backup-key:${passphrase}`).slice(0, 12);
 
 export const ENCRYPTED_SUFFIX = ".enc";
 

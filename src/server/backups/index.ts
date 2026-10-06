@@ -332,7 +332,7 @@ export async function restoreWith(t: Commands, file: string, log: (line: string)
     else if (t.engine === "postgres") command = `${clientOf(t, renamed)} -o /dev/null`;
     else command = `MYSQL_PWD=${shq(t.password)} ${t.engine} -uroot ${shq(renamed)}`;
   }
-  if (t.engine === "mongodb" && !/\.dir\.tar\.gz$/i.test(file)) command += mongoNamespaces(opts);
+  if (t.engine === "mongodb") command += mongoNamespaces(opts);
   log(`Format: ${format}${gz ? " (gzip)" : ""}`);
   const sql = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb";
   const filter = sql ? await plainSqlFilter(t, file, gz, log, opts) : undefined;
@@ -343,14 +343,7 @@ export async function restoreWith(t: Commands, file: string, log: (line: string)
     const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
     await runIn(t, `export MYSQL_PWD=${q(t.password)}; ${t.engine} -uroot`, Readable.from([accountsMergeSql(protectedAccounts(t))]), false, log);
   }
-  // InnoDB keeps the row counts it saw while the tables were empty (0) until enough rows change:
-  // recount them, for the data explorer and for the query planner.
-  if (t.engine === "mysql" || t.engine === "mariadb") {
-    const id = (col: string) => `'\`', REPLACE(${col}, '\`', '\`\`'), '\`'`;
-    const list = `SELECT CONCAT('ANALYZE TABLE ', ${id("table_schema")}, '.', ${id("table_name")}, ';') FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('mysql', 'sys', 'information_schema', 'performance_schema')`;
-    const client = `MYSQL_PWD=${shq(t.password)} ${t.engine} -uroot`;
-    await runIn(t, `${client} -N -B -e ${shq(list)} | ${client} > /dev/null`, Readable.from([]), false).catch((e) => log(`Recounting rows failed: ${e.message}`));
-  }
+  await recountRows(t, log);
   // A backup of chosen databases (a packed folder) has its users in admin's dump inside it.
   const users = /\.dir\.tar\.gz$/i.test(file) ? t.restoreFolderUsers : t.restoreUsers;
   if (opts.users && users) {
@@ -365,6 +358,18 @@ export async function restoreWith(t: Commands, file: string, log: (line: string)
 }
 
 const shq = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * InnoDB keeps the row counts it saw while restored tables were empty (0) until enough rows change:
+ * recount them, for the data explorer and for the query planner.
+ */
+async function recountRows(t: Commands, log: (line: string) => void) {
+  if (t.engine !== "mysql" && t.engine !== "mariadb") return;
+  const id = (col: string) => `'\`', REPLACE(${col}, '\`', '\`\`'), '\`'`;
+  const list = `SELECT CONCAT('ANALYZE TABLE ', ${id("table_schema")}, '.', ${id("table_name")}, ';') FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('mysql', 'sys', 'information_schema', 'performance_schema')`;
+  const client = `MYSQL_PWD=${shq(t.password)} ${t.engine} -uroot`;
+  await runIn(t, `${client} -N -B -e ${shq(list)} | ${client} > /dev/null`, Readable.from([]), false).catch((e) => log(`Recounting rows failed: ${e.message}`));
+}
 
 /** A client in the database container, signed in as Serve: psql (to the postgres database) or mysql as root. */
 function clientOf(t: Commands, database = "postgres") {
@@ -423,17 +428,18 @@ async function restoreTables(t: Commands, file: string, log: (line: string) => v
     log(`Copying the tables into ${final}`);
     if (t.engine === "postgres") {
       const pgDump = `PGPASSWORD=${shq(t.password)} pg_dump -U ${shq(t.username ?? "postgres")} -d ${shq(pgDbname(tmp))} --clean --if-exists --no-owner --no-privileges ${tables.map((x) => `-t ${shq(x)}`).join(" ")}`;
-      await runIn(t, `${pgDump} | ${clientOf(t, final)}`, Readable.from([]), false, log);
+      await runIn(t, `(set -o pipefail) 2>/dev/null && set -o pipefail; ${pgDump} | ${clientOf(t, final)}`, Readable.from([]), false, log);
     } else {
       const dump = t.engine === "mariadb" ? "$(command -v mariadb-dump || echo mysqldump)" : "mysqldump";
       await runIn(
         t,
-        `export MYSQL_PWD=${shq(t.password)}; ${dump} -uroot --single-transaction ${shq(tmp)} ${tables.map(shq).join(" ")} | ${t.engine} -uroot ${shq(final)}`,
+        `(set -o pipefail) 2>/dev/null && set -o pipefail; export MYSQL_PWD=${shq(t.password)}; ${dump} -uroot --single-transaction ${shq(tmp)} ${tables.map(shq).join(" ")} | ${t.engine} -uroot ${shq(final)}`,
         Readable.from([]),
         false,
         log,
       );
     }
+    await recountRows(t, log);
     return { out: "", format };
   } finally {
     await dropDatabase(t, tmp);
@@ -678,6 +684,7 @@ export async function runBackup(backupId: string, protect?: string) {
     // A failed upload keeps the local copy; the backup still counts.
     const s3 = await s3For(t.s3DestinationId);
     let s3Status: "uploaded" | "failed" | null = null;
+    const failedBuckets: string[] = [];
     if (s3) {
       try {
         await s3Upload(s3, s3Key(s3.prefix, service.slug, filename), file);
@@ -685,6 +692,7 @@ export async function runBackup(backupId: string, protect?: string) {
         await logLine(backup.id, `Uploaded to S3 bucket ${s3.bucket}`);
       } catch (e) {
         s3Status = "failed";
+        failedBuckets.push(s3.bucket);
         await logLine(backup.id, `S3 upload failed: ${(e as Error).message}`);
       }
     }
@@ -700,6 +708,7 @@ export async function runBackup(backupId: string, protect?: string) {
         await logLine(backup.id, `Copied to S3 bucket ${extra.bucket}`);
       } catch (e) {
         copies.push({ destinationId: id, status: "failed" });
+        failedBuckets.push(extra.bucket);
         await logLine(backup.id, `Copy to S3 bucket ${extra.bucket} failed: ${(e as Error).message}`);
       }
     }
@@ -722,7 +731,18 @@ export async function runBackup(backupId: string, protect?: string) {
     await applyRetention(service.id, backup.target, t.keepLocal ? t.retention : 0, t.retentionS3, protect, t.keep).catch((e) =>
       logLine(backup.id, `Removing old backups failed: ${(e as Error).message}`).catch(() => {}),
     );
-    if (backup.trigger === "schedule") {
+    // The backup is there, but not everywhere it should be: a bucket-only setup may have no copy off the server.
+    if (failedBuckets.length) {
+      void notify(await orgOfService(service.id), "backup.failed", {
+        ok: false,
+        title: `Backup of ${label} was not uploaded to ${failedBuckets.join(", ")}`,
+        body: `${filename} is on the server; see its log for the error.`,
+        url: `/projects/${service.projectId}/services/${service.id}/backups`,
+        serviceId: service.id,
+        dedupKey: `backup-upload:${service.id}:${backup.target ?? ""}`,
+        data: { backupId: backup.id, filename, buckets: failedBuckets },
+      });
+    } else if (backup.trigger === "schedule") {
       void notify(await orgOfService(service.id), "backup.success", {
         ok: true,
         title: `Backup of ${label} finished`,
@@ -1052,6 +1072,13 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
   try {
     const t = await targetOf(service, opts.into ? null : backup.target);
     await logLine(backupId, `Restoring into ${t.label}`);
+    // Tables with no database named: the dump's one database, never the whole of it by its own
+    // name (a MySQL dump names its database, and that would replace every table in it).
+    if (opts.tables?.length && !opts.databases?.length) {
+      const { databases } = await backupContents(backupId, opts.passphrase);
+      if (databases.length !== 1) throw new Error("Choose the database the tables are in.");
+      opts = { ...opts, databases: [databases[0].name] };
+    }
     const stored = await localBackupFile(backup);
     await checkIntegrity(backup, stored);
     const opened = await openBackupFile(backup, stored, opts.passphrase);
@@ -1193,10 +1220,8 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
       await fs.promises.mkdir(path.dirname(file), { recursive: true });
       await s3Download(s3, opts.s3.key.replace(/^\/+/, ""), file);
     }
-    if (!fs.existsSync(file) && backup.destination !== "local") {
-      const s3 = await s3For(backup.destination);
-      if (s3) await s3Download(s3, s3Key(s3.prefix, service.slug, backup.filename), file);
-    }
+    // A backup restored with a safety backup first: its own file, from the main bucket or a copy.
+    if (!fs.existsSync(file) && backup.status === "success") await localBackupFile(backup);
     const { size } = await fs.promises.stat(file);
     if (!size) throw new Error("The file is empty.");
     if (backup.status !== "success") {

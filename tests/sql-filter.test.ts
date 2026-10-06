@@ -113,6 +113,16 @@ describe("restoring users", () => {
     expect(out).toContain("ALTER TABLE public.orders OWNER TO extra;");
     expect(out).not.toMatch(/ALTER ROLE postgres|CREATE ROLE "postgres"|CREATE DATABASE|restrict/);
   });
+
+  it("postgres: ALTER USER and DROP USER never touch Serve's own account", async () => {
+    const dump = pgCluster({ shop: "orders" }).replace(
+      "CREATE ROLE extra;",
+      "CREATE ROLE extra;\nALTER USER postgres PASSWORD 'x';\nALTER GROUP postgres RENAME TO y;\nDROP USER postgres;\nALTER USER extra PASSWORD 'e';",
+    );
+    const { out } = await clean("postgres", dump, "app", { users: true, protect: ["postgres"] });
+    expect(out).not.toMatch(/ALTER (USER|GROUP) postgres|DROP USER/);
+    expect(out).toContain("ALTER USER extra PASSWORD 'e';");
+  });
 });
 
 const myAll = [

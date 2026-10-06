@@ -77,6 +77,6 @@ describe("ClickHouse backups", () => {
     expect(cmd).toContain("FORMAT SQLInsert");
     expect(cmd).toContain("create_table_query");
     expect(cmd).toContain("set -e");
-    expect(cmd).toContain(`--password 'p'\\''x'`);
+    expect(cmd).toContain(`CLICKHOUSE_PASSWORD='p'\\''x'`);
   });
 });

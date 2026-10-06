@@ -70,6 +70,12 @@ export function RestoreDialog({
     target && chosen.length === 1 ? target.database : d.name === "" ? (target?.database ?? choices?.main ?? d.label) : d.name;
   const one = chosen.length === 1 ? chosen[0] : null;
   const tableList = one && choices?.tables ? one.tables : [];
+  // Tables picked in one database never carry over to another.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the one database changes
+  React.useEffect(() => {
+    setTables(new Set());
+    setSomeTables(false);
+  }, [one?.name]);
   const shown = tableList.filter((t) => t.toLowerCase().includes(query.trim().toLowerCase()));
   const ready = !!choices && (dbs.length === 0 || chosen.length > 0) && (!someTables || tables.size > 0) && (!choices.encrypted || !choices.unreadable || !!passphrase);
 
@@ -98,7 +104,8 @@ export function RestoreDialog({
       backupFirst,
       users,
       into: into || undefined,
-      databases: chosen.length < dbs.length ? chosen.map((d) => d.name) : undefined,
+      // Tables always name their database.
+      databases: someTables && one ? [one.name] : chosen.length < dbs.length ? chosen.map((d) => d.name) : undefined,
       renames,
       tables: someTables && one ? [...tables] : undefined,
       passphrase: passphrase || undefined,

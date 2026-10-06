@@ -74,7 +74,8 @@ export const pgDbname = (database: string) => `dbname='${database.replace(/[\\']
 /** psql's \connect to a database by name, keeping the user and host (a name alone may be read as options too). */
 export const pgConnectLine = (database: string) => `\\connect -reuse-previous=on "${pgDbname(database).replace(/"/g, '""')}"`;
 
-const chClient = (c: EngineCreds) => `clickhouse-client -u ${sh(c.username)} --password ${sh(c.password)} -d ${sh(c.database)}`;
+// The password in the environment: an argument shows in the host's process list.
+const chClient = (c: EngineCreds) => `CLICKHOUSE_PASSWORD=${sh(c.password)} clickhouse-client -u ${sh(c.username)} -d ${sh(c.database)}`;
 /** A name as a ClickHouse identifier in a statement: backslashes escaped first, then backticks. */
 const chIdent = (name: string) => `\`${name.replaceAll("\\", "\\\\").replaceAll("`", "\\`")}\``;
 /** A table name as a ClickHouse identifier: `name`, with ` and \ escaped. */

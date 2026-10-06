@@ -43,7 +43,7 @@ type Backup = {
   verifyDetail: string | null;
   verifyError: string | null;
   /** Encrypted with a passphrase. */
-  keyHint: string | null;
+  encrypted: boolean;
   copies: { destinationId: string; status: "uploaded" | "failed" | "deleted" }[] | null;
 };
 
@@ -155,7 +155,7 @@ function BackupRow({
           </span>
         </div>
         <div className="hidden flex-none items-center gap-1.5 sm:flex">
-          {b.keyHint && (
+          {b.encrypted && (
             <Badge>
               <Lock /> Encrypted
             </Badge>

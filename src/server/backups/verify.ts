@@ -22,7 +22,8 @@ const READY_MS = 180_000;
 /** What the restored copy holds, in a few words, by engine. */
 const COUNT: Record<string, (pw: string, database: string, user: string) => string> = {
   postgres: (pw, d, u) =>
-    `PGPASSWORD='${pw}' psql -X -Atq -U '${u}' -d '${d}' -c "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema')" | sed 's/$/ tables/'`,
+    // Every database: a dump of several restores each under its own name.
+    `export PGPASSWORD='${pw}'; for db in $(psql -X -Atq -U '${u}' -d '${d}' -c "select datname from pg_database where not datistemplate"); do psql -X -Atq -U '${u}' -d "$db" -c "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema')" || exit 1; done | awk '{ n += $1 } END { print n " tables" }'`,
   mysql: (pw) =>
     `MYSQL_PWD='${pw}' mysql -uroot -N -e "select count(*) from information_schema.tables where table_schema not in ('mysql','sys','information_schema','performance_schema')" | sed 's/$/ tables/'`,
   mariadb: (pw) =>
@@ -55,10 +56,10 @@ export async function verifyBackup(backupId: string) {
   const engine = engines[cfg.engine];
   const log = (line: string) => void logLine(backupId, `Test: ${line}`);
   await db.update(schema.backup).set({ verifyStatus: "running", verifyError: null }).where(eq(schema.backup.id, backupId));
-  const { docker } = await serverOf(service);
-  await sweep(docker);
   let container: Docker.Container | null = null;
   try {
+    const { docker } = await serverOf(service);
+    await sweep(docker);
     // The same image the database runs, else the one its version names.
     const live = await databaseContainer(docker, service).catch(() => null);
     const image = (live ? (await live.inspect()).Config.Image : null) ?? `${engine.image}:${cfg.version}`;
@@ -104,8 +105,10 @@ export async function verifyBackup(backupId: string) {
     } finally {
       await opened.done();
     }
-    const counted = (await execText(container, docker, ["sh", "-c", COUNT[cfg.engine](password, creds.database, creds.username)]).catch(() => null)) ?? "";
-    const detail = counted.trim().split("\n").at(-1) || "restored";
+    // A restore that "worked" but leaves nothing to count did not work.
+    const counted = await execText(container, docker, ["sh", "-c", COUNT[cfg.engine](password, creds.database, creds.username)]).catch(() => null);
+    const detail = counted?.trim().split("\n").at(-1);
+    if (!detail) throw new Error("The restore ran, but the throwaway database did not answer afterwards.");
     await db.update(schema.backup).set({ verifyStatus: "passed", verifiedAt: new Date(), verifyError: null, verifyDetail: detail }).where(eq(schema.backup.id, backupId));
     log(`passed: ${detail}`);
     void notify(await orgOfService(service.id), "backup.test.passed", {

@@ -58,6 +58,9 @@ id or latest. --wait waits for the result. The database is the linked one, or --
 			if deref(done.VerifyStatus) == "failed" {
 				return fmt.Errorf("the backup could not be restored: %s", firstNonEmpty(deref(done.VerifyError), "see its log in the dashboard"))
 			}
+			if deref(done.VerifyStatus) != "passed" {
+				return fmt.Errorf("the test of backup %s stopped before it ended (Serve restarted?). Run it again", b.ID)
+			}
 			ui.Success("Backup %s restores: %s.", b.ID, firstNonEmpty(deref(done.VerifyDetail), "it works"))
 			return nil
 		},
@@ -113,6 +116,10 @@ stdout). The database is the linked one, or --service.`,
 			want := header.Get("X-Checksum-Sha256")
 			got := hex.EncodeToString(hash.Sum(nil))
 			if want != "" && !strings.EqualFold(want, got) {
+				if f != nil {
+					f.Close()
+					os.Remove(name)
+				}
 				return fmt.Errorf("the download does not match the backup's checksum (%s). Try again", want)
 			}
 			if f != nil {

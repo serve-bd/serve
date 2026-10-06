@@ -742,11 +742,12 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     // Databases backed up before each deploy: database services of this organization.
     for (const id of data.runtime?.backupBeforeDeploy ?? []) {
       const [row] = await db
-        .select({ type: schema.service.type, org: schema.project.organizationId })
+        .select({ type: schema.service.type, org: schema.project.organizationId, projectId: schema.project.id })
         .from(schema.service)
         .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
         .where(eq(schema.service.id, id));
-      if (row?.type !== "database" || row.org !== ctx.org.id) throw new UserError("Choose databases of this organization to back up before deploys.");
+      if (row?.type !== "database" || row.org !== ctx.org.id || !ctx.canAccessProject(row.projectId))
+        throw new UserError("Choose databases of this organization to back up before deploys.");
     }
     if (data.name) {
       if (await serviceNameTaken(service.environmentId, data.name, service.id)) {
@@ -949,6 +950,8 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
         if ((await heldDatabasePorts(service.serverId, { serviceId, holder: "database" })).has(nextPort) || (await busyHostPorts(service)).includes(nextPort))
           throw new UserError(`Port ${nextPort} is already used on this server.`);
       }
+      // Whoever sets the passphrase decides who can restore: admins only, like restores.
+      if (data.database.backupPassphrase !== undefined && !ctx.isAdmin) throw new UserError("Only organization admins can change backup encryption.");
       // Kept encrypted with Serve's key; the browser never gets it back.
       if (typeof data.database.backupPassphrase === "string") data.database.backupPassphrase = encrypt(data.database.backupPassphrase);
       patch.database = { ...service.database, ...data.database, publicPort: nextPort === undefined ? service.database.publicPort : nextPort };

@@ -186,7 +186,7 @@ export function sqlLineFilter(
       if (protect.has(name)) return [];
       return [`DO $$BEGIN CREATE ROLE ${pgQuote(name)}; EXCEPTION WHEN duplicate_object THEN NULL; END$$;`];
     }
-    const alter = line.match(/^ALTER ROLE ("(?:[^"]|"")+"|\S+)/i);
+    const alter = line.match(/^ALTER (?:ROLE|USER|GROUP) ("(?:[^"]|"")+"|\S+)/i);
     if (alter) {
       const name = alter[1].startsWith('"') ? alter[1].slice(1, -1).replaceAll('""', '"') : alter[1];
       return opts.users && !protect.has(name) ? [line] : [];
@@ -248,7 +248,7 @@ export function sqlLineFilter(
       if (skipping) return [];
       const role = pgRole(line);
       if (role) return role;
-      if (/^DROP ROLE\b/i.test(line)) return [];
+      if (/^DROP (ROLE|USER|GROUP)\b/i.test(line)) return [];
       if (opts.users && userLine(line) && !/^(CREATE|ALTER|DROP|COMMENT ON) DATABASE\b/i.test(line) && !/^\\(un)?restrict\b/.test(line)) return [line];
       if (userLine(line)) return [];
       return [line];

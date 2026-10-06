@@ -863,10 +863,10 @@ export const serviceRoutes: ApiRoute[] = [
     path: "/backups/{backupId}/contents",
     tag: "Backups",
     summary: "What a backup holds",
-    description: "Its databases and, for Postgres, MySQL and MariaDB, their tables: what a restore can choose. passphrase (query) for one encrypted with another passphrase.",
+    description:
+      "Its databases and, for Postgres, MySQL and MariaDB, their tables: what a restore can choose. An encrypted backup made with another passphrase: that one in the X-Backup-Passphrase header.",
     needs: ["databases.backups"],
-    query: z.object({ passphrase: z.string().optional() }),
-    handler: async ({ params, query }) => unwrap(actions.restoreChoices(params.backupId, query.passphrase)),
+    handler: async ({ params, request }) => unwrap(actions.restoreChoices(params.backupId, request.headers.get("x-backup-passphrase") ?? undefined)),
   }),
   route({
     method: "POST",
@@ -1014,6 +1014,8 @@ export const serviceRoutes: ApiRoute[] = [
         ["passphrase", "backupPassphrase"],
       ];
       const database = Object.fromEntries(map.filter(([k]) => body[k] !== undefined).map(([k, to]) => [to, body[k]]));
+      // Keep rules left out keep their value too: --keep-monthly does not clear --keep-daily.
+      if (body.keep) database.backupKeep = { ...service.database.backupKeep, ...body.keep };
       await unwrap(actions.updateService(params.serviceId, { database }));
       return { ok: true };
     },

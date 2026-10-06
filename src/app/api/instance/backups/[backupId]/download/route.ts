@@ -20,7 +20,8 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/instance/backup
     const { size } = fs.statSync(file);
     return new Response(Readable.toWeb(fs.createReadStream(file)) as ReadableStream, { headers: { ...headers, "content-length": String(size) } });
   }
-  const s3 = b.s3Key ? await s3For(settings.instanceBackupS3DestinationId).catch(() => null) : null;
+  // The destination it was uploaded to, not today's setting (older records did not keep it).
+  const s3 = b.s3Key ? await s3For(b.s3DestinationId ?? settings.instanceBackupS3DestinationId).catch(() => null) : null;
   const remote = s3 && b.s3Key ? await s3Stream(s3, b.s3Key).catch(() => null) : null;
   if (!remote) return new Response("The backup file is no longer stored.", { status: 404 });
   return new Response(remote.body as ReadableStream, { headers: { ...headers, ...(remote.size ? { "content-length": String(remote.size) } : {}) } });

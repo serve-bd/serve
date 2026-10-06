@@ -116,10 +116,12 @@ export function dumpCommands(engine: Engine, c: ComposeCreds): { backup: string;
     case "mariadb": {
       const dump = engine === "mariadb" ? "$(command -v mariadb-dump || command -v mysqldump)" : "mysqldump";
       const cli = engine === "mariadb" ? "$(command -v mariadb || command -v mysql)" : "mysql";
-      const auth = `-u${sh(c.username)}${c.password ? ` -p${sh(c.password)}` : ""}`;
+      // The password goes in the environment: on the command line every process on the server could read it.
+      const env = c.password ? `MYSQL_PWD=${sh(c.password)} ` : "";
+      const auth = `-u${sh(c.username)}`;
       return {
-        backup: `${dump} ${auth} --single-transaction --routines --triggers${c.root ? "" : " --no-tablespaces"} --databases ${sh(c.database)}`,
-        restore: `${cli} ${auth}${c.database ? ` ${sh(c.database)}` : ""}`,
+        backup: `${env}${dump} ${auth} --single-transaction --routines --triggers${c.root ? "" : " --no-tablespaces"} --databases ${sh(c.database)}`,
+        restore: `${env}${cli} ${auth}${c.database ? ` ${sh(c.database)}` : ""}`,
       };
     }
     case "mongodb": {
@@ -129,7 +131,9 @@ export function dumpCommands(engine: Engine, c: ComposeCreds): { backup: string;
     case "redis":
     case "valkey": {
       const bin = engine === "valkey" ? "valkey-cli" : "redis-cli";
-      const cli = `${bin}${c.password ? ` -a ${sh(c.password)} --no-auth-warning` : ""}`;
+      // REDISCLI_AUTH, not -a: on the command line every process on the server could read the password.
+      // ponytail: needs redis-cli 6 or later (2020); a Redis 5 stack would need -a back.
+      const cli = `${c.password ? `REDISCLI_AUTH=${sh(c.password)} ` : ""}${bin}`;
       return {
         backup: `${cli} --rdb /tmp/serve-backup.rdb >/dev/null && cat /tmp/serve-backup.rdb && rm -f /tmp/serve-backup.rdb`,
         // Persistence stops first, so the shutdown before the restart cannot overwrite the restored

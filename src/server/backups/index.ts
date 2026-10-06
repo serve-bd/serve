@@ -343,6 +343,14 @@ export async function restoreWith(t: Commands, file: string, log: (line: string)
     const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
     await runIn(t, `export MYSQL_PWD=${q(t.password)}; ${t.engine} -uroot`, Readable.from([accountsMergeSql(protectedAccounts(t))]), false, log);
   }
+  // InnoDB keeps the row counts it saw while the tables were empty (0) until enough rows change:
+  // recount them, for the data explorer and for the query planner.
+  if (t.engine === "mysql" || t.engine === "mariadb") {
+    const id = (col: string) => `'\`', REPLACE(${col}, '\`', '\`\`'), '\`'`;
+    const list = `SELECT CONCAT('ANALYZE TABLE ', ${id("table_schema")}, '.', ${id("table_name")}, ';') FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('mysql', 'sys', 'information_schema', 'performance_schema')`;
+    const client = `MYSQL_PWD=${shq(t.password)} ${t.engine} -uroot`;
+    await runIn(t, `${client} -N -B -e ${shq(list)} | ${client} > /dev/null`, Readable.from([]), false).catch((e) => log(`Recounting rows failed: ${e.message}`));
+  }
   // A backup of chosen databases (a packed folder) has its users in admin's dump inside it.
   const users = /\.dir\.tar\.gz$/i.test(file) ? t.restoreFolderUsers : t.restoreUsers;
   if (opts.users && users) {

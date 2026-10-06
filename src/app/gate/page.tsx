@@ -1,4 +1,5 @@
 import { connection } from "next/server";
+import { Lock } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getSession } from "@/server/auth";
 import { GATE_PATH, gateAllows, gateTarget, signGate } from "@/server/gate";
@@ -28,7 +29,15 @@ export default async function GatePage(props: { searchParams: Promise<Record<str
   const login = `/login?next=${encodeURIComponent(`/gate?${new URLSearchParams({ s, h, p })}`)}`;
   if (target.guests.length)
     return (
-      <AuthCard eyebrow="Sign in to continue" title={target.name} description={`Sign in with the email and password you were given for ${h}.`}>
+      <AuthCard
+        title={`Sign in to ${target.name}`}
+        description={
+          <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-line bg-surface-2 px-2 py-0.5 font-mono text-[12px] text-muted">
+            <Lock className="size-3 flex-none" />
+            <span className="truncate">{h}</span>
+          </span>
+        }
+      >
         <GuestForm s={s} h={h} p={p} teamHref={target.team && !session ? login : null} />
       </AuthCard>
     );

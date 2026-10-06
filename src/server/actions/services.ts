@@ -2095,19 +2095,80 @@ export async function backupDatabaseChoices(serviceId: string) {
   });
 }
 
-export async function restoreFromBackup(backupId: string, opts: { backupFirst?: boolean; users?: boolean } = {}) {
+/** What a restore can choose from: the backup's databases and tables, and where else it can go. */
+export async function restoreChoices(backupId: string) {
+  return act(async () => {
+    const ctx = await requirePermission("databases.backups");
+    const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
+    if (b?.status !== "success") throw new UserError("Backup not found.");
+    const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
+    const { backupContents } = await import("@/server/backups");
+    // A backup that cannot be listed (the database is stopped, say) can still be restored whole.
+    let unreadable: string | null = null;
+    const contents = await backupContents(backupId).catch((e: Error) => {
+      unreadable = e.message.split("\n").at(-1)?.slice(0, 300) ?? e.message;
+      return { databases: [], tables: false };
+    });
+    // Other database services of the same engine, in projects the member can reach.
+    const others = b.target
+      ? []
+      : (
+          await db
+            .select({
+              id: schema.service.id,
+              name: schema.service.name,
+              status: schema.service.status,
+              database: schema.service.database,
+              project: schema.project.name,
+              projectId: schema.project.id,
+            })
+            .from(schema.service)
+            .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+            .where(and(eq(schema.project.organizationId, ctx.org.id), eq(schema.service.type, "database")))
+        )
+          .filter((r) => r.id !== service.id && r.database?.engine === service.database?.engine && ctx.canAccessProject(r.projectId))
+          .map((r) => ({ id: r.id, name: r.name, project: r.project, running: r.status === "running", database: r.database?.database ?? "" }));
+    return { ...contents, unreadable: unreadable as string | null, main: service.database?.database ?? "", service: { id: service.id, name: service.name }, others };
+  });
+}
+
+/** A database name a restore may create: letters, digits, _ $ and -, not the engines' own. */
+const RESTORE_NAME = /^[A-Za-z0-9_][A-Za-z0-9_$-]{0,62}$/;
+const SYSTEM_DATABASES = new Set(["mysql", "sys", "information_schema", "performance_schema", "postgres", "template0", "template1", "admin", "local", "config"]);
+
+export async function restoreFromBackup(
+  backupId: string,
+  opts: { backupFirst?: boolean; users?: boolean; into?: string; databases?: string[]; renames?: Record<string, string>; tables?: string[] } = {},
+) {
   return act(async () => {
     const ctx = await requirePermission("databases.backups");
     // Restoring overwrites live data: admins only, like the button.
     if (!ctx.isAdmin) throw new UserError("Only organization admins can restore backups.");
     const [b] = await db.select().from(schema.backup).where(eq(schema.backup.id, backupId));
     if (b?.status !== "success") throw new UserError("Backup not found.");
-    const { service } = await serviceInOrg(b.serviceId, ctx.org.id);
+    const { service: source } = await serviceInOrg(b.serviceId, ctx.org.id);
+    // Into another database service of the same engine, which the member can reach too.
+    const service = opts.into && opts.into !== source.id ? (await serviceInOrg(opts.into, ctx.org.id)).service : source;
+    if (service.id !== source.id && (b.target || service.type !== "database" || service.database?.engine !== source.database?.engine))
+      throw new UserError("Restore into a database of the same kind.");
+    for (const name of Object.values(opts.renames ?? {}))
+      if (!RESTORE_NAME.test(name) || SYSTEM_DATABASES.has(name)) throw new UserError(`"${name}" cannot be a database name. Use letters, digits, _ and -.`);
+    if (opts.tables?.length) {
+      if ((opts.databases?.length ?? 0) > 1) throw new UserError("Choose one database to restore single tables from.");
+      if (!["postgres", "mysql", "mariadb"].includes(service.database?.engine ?? "")) throw new UserError("Single tables can be restored for Postgres, MySQL and MariaDB.");
+      if (opts.tables.some((t) => !t || t.length > 200)) throw new UserError("A table name is not valid.");
+    }
+    const choice = {
+      ...(service.id !== source.id ? { into: service.id } : {}),
+      ...(opts.databases?.length ? { databases: opts.databases } : {}),
+      ...(opts.renames && Object.keys(opts.renames).length ? { renames: opts.renames } : {}),
+      ...(opts.tables?.length ? { tables: opts.tables } : {}),
+    };
     if (service.status !== "running") throw new UserError(service.type === "database" ? "Start the database before restoring." : "Start the service before restoring.");
     // A restore marks its backup running when queued. A second one would run after it and replace
     // what it restored (or restore the same backup twice): one at a time per service.
     const started = await db.transaction(async (tx) => {
-      await tx.execute(dsql`select pg_advisory_xact_lock(hashtext(${`serve-restore:${b.serviceId}`}))`);
+      await tx.execute(dsql`select pg_advisory_xact_lock(hashtext(${`serve-restore:${service.id}`}))`);
       const [busy] = await tx
         .select({ id: schema.backup.id })
         .from(schema.backup)
@@ -2120,8 +2181,8 @@ export async function restoreFromBackup(backupId: string, opts: { backupFirst?: 
     if (!started) throw new UserError(`A restore of ${service.name} is already queued or running. Wait for it to finish.`);
     // With a safety backup, the import job takes the backup and restores only if it succeeded.
     const users = !!opts.users;
-    if (opts.backupFirst) await enqueue("backup.import", { backupId, backupFirst: true, users }, { concurrencyKey: `backup:${b.serviceId}` });
-    else await enqueue("backup.restore", { backupId, users }, { concurrencyKey: `backup:${b.serviceId}` });
+    if (opts.backupFirst) await enqueue("backup.import", { backupId, backupFirst: true, users, ...choice }, { concurrencyKey: `backup:${service.id}` });
+    else await enqueue("backup.restore", { backupId, users, ...choice }, { concurrencyKey: `backup:${service.id}` });
     await logActivity({
       userId: ctx.user.id,
       projectId: service.projectId,

@@ -96,7 +96,7 @@ async function handle(job: Job, signal: AbortSignal) {
     case "backup.run":
       return runBackup(p.backupId);
     case "backup.restore":
-      return void (await restoreBackup(p.backupId, { users: (job.payload as JobPayloads["backup.restore"]).users }));
+      return void (await restoreBackup(p.backupId, (({ backupId: _, ...opts }) => opts)(job.payload as JobPayloads["backup.restore"])));
     case "backup.import": {
       const { backupId, ...opts } = job.payload as JobPayloads["backup.import"];
       return importBackup(backupId, opts);

@@ -2,6 +2,9 @@ import { sql as dsql } from "drizzle-orm";
 import { db, schema, sql } from "@/server/db";
 import { newId } from "@/server/id";
 
+/** What a restore takes from a backup and where it goes (see RestoreOptions in backups). */
+export type RestoreChoice = { databases?: string[]; renames?: Record<string, string>; tables?: string[]; into?: string };
+
 export type JobType =
   | "deploy"
   | "service.stop"
@@ -59,8 +62,8 @@ export type JobPayloads = {
   "certificate.retire": { certificateId: string };
   "certificate.renew-all": Record<string, never>;
   "backup.run": { backupId: string };
-  "backup.restore": { backupId: string; users?: boolean };
-  "backup.import": { backupId: string; backupFirst?: boolean; users?: boolean; url?: string; s3?: { destinationId: string; key: string } };
+  "backup.restore": { backupId: string; users?: boolean } & RestoreChoice;
+  "backup.import": { backupId: string; backupFirst?: boolean; users?: boolean; url?: string; s3?: { destinationId: string; key: string } } & RestoreChoice;
   "proxy.sync": Record<string, never>;
   /** A status page notice was posted or changed: tell its subscribers and team channels. */
   "status.notify": {

@@ -26,8 +26,11 @@ import { pgConnectLine } from "@/server/databases/engines";
 
 export type SqlEngine = "postgres" | "mysql" | "mariadb";
 
-/** What a first read of the dump found: its databases that hold anything, in order. */
-export type SqlPlan = { databases: string[]; cluster: boolean };
+/**
+ * What a first read of the dump found: its databases, in order ("" is content before any database
+ * switch), and the tables each creates (Postgres names them with their schema, like public.orders).
+ */
+export type SqlPlan = { databases: string[]; cluster: boolean; tables?: Record<string, string[]> };
 
 const MYSQL_SYSTEM = new Set(["mysql", "sys", "performance_schema", "information_schema"]);
 const PG_SYSTEM = new Set(["template0", "template1"]);
@@ -57,8 +60,13 @@ const mysqlContent = (line: string) => /^(CREATE TABLE|INSERT|CREATE .*VIEW|CREA
 /** Reads the dump once (line by line) to find which databases hold something. */
 export async function planSql(engine: SqlEngine, lines: AsyncIterable<string> | Iterable<string>): Promise<SqlPlan> {
   const used: string[] = [];
+  const tables: Record<string, string[]> = {};
   const mark = (db: string | null) => {
     if (db !== null && !used.includes(db)) used.push(db);
+  };
+  const table = (db: string, name: string) => {
+    const list = (tables[db] ??= []);
+    if (!list.includes(name)) list.push(name);
   };
   let current: string | null = null;
   let cluster = false;
@@ -81,18 +89,27 @@ export async function planSql(engine: SqlEngine, lines: AsyncIterable<string> | 
         current = target;
         // A database the dump names counts even when empty; "postgres" only with content (every cluster dump has it).
         if (target !== "postgres") mark(target);
-      } else if (pgContent(line)) mark(current ?? "");
+      } else if (pgContent(line)) {
+        mark(current ?? "");
+        const t = line.match(/^CREATE (?:UNLOGGED )?TABLE (?:ONLY )?([^\s(]+)/i);
+        if (t) table(current ?? "", t[1]);
+      }
     } else {
       const db = mysqlDatabaseOf(line);
       if (db !== null) {
         current = db;
         mark(db);
-      } else if (mysqlContent(line)) mark(current ?? "");
+      } else if (mysqlContent(line)) {
+        mark(current ?? "");
+        const t = line.match(/^CREATE TABLE (?:IF NOT EXISTS )?`((?:[^`]|``)+)`/i);
+        if (t) table(current ?? "", t[1].replaceAll("``", "`"));
+      }
     }
   }
   const system = engine === "postgres" ? PG_SYSTEM : MYSQL_SYSTEM;
   // "" is content before any database switch: it goes to the service's database.
-  return { databases: used.filter((d) => !system.has(d)), cluster };
+  const databases = used.filter((d) => !system.has(d));
+  return { databases, cluster, tables: Object.fromEntries(databases.map((d) => [d, tables[d] ?? []])) };
 }
 
 /** Where MySQL's own database from the dump goes when its accounts are restored. */
@@ -141,7 +158,22 @@ export type SqlFilterReport = { skipped: Set<string>; created: string[]; into: s
  * each line of the dump (none, the line itself, or replacements). `keepNames`: every database
  * keeps its name, even alone (a backup Serve took of chosen databases of this server).
  */
-export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, opts: { keepNames?: boolean; user?: string; users?: boolean; protect?: string[] } = {}) {
+export function sqlLineFilter(
+  engine: SqlEngine,
+  plan: SqlPlan,
+  target: string,
+  opts: {
+    keepNames?: boolean;
+    user?: string;
+    users?: boolean;
+    protect?: string[];
+    /** Only these databases of the dump ("" is content before any database switch, always kept). */
+    only?: string[];
+    /** A database of the dump restored under another name ("" for content before any switch). */
+    renames?: Record<string, string>;
+  } = {},
+) {
+  const kept = opts.only ? plan.databases.filter((d) => d === "" || opts.only!.includes(d)) : plan.databases;
   const protect = new Set(opts.protect ?? []);
   // A MySQL account named in a line (`'name'@'host'` or `` `name`@`host` ``) that must stay as it is.
   const namesProtected = (line: string) =>
@@ -162,10 +194,10 @@ export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, 
     return null;
   };
   const report: SqlFilterReport = { skipped: new Set(), created: [], into: null };
-  const named = plan.databases.filter((d) => d !== "");
+  const named = kept.filter((d) => d !== "");
   // One database: its content goes into the service's database. Several: each keeps its name.
   const single = named.length <= 1 && !opts.keepNames;
-  const map = (db: string) => (single || db === "" ? target : db);
+  const map = (db: string) => opts.renames?.[db] || (single || db === "" ? target : db);
   if (single && named[0] && named[0] !== target) report.into = named[0];
 
   let copying = false;
@@ -199,7 +231,7 @@ export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, 
       }
       const to = pgConnectTarget(line);
       if (to !== null) {
-        skipping = !plan.databases.includes(to);
+        skipping = !kept.includes(to);
         if (skipping) {
           if (!PG_SYSTEM.has(to) && to !== "postgres") report.skipped.add(to);
           return [];
@@ -233,7 +265,7 @@ export function sqlLineFilter(engine: SqlEngine, plan: SqlPlan, target: string, 
       return out;
     }
     if (db !== null) {
-      skipping = MYSQL_SYSTEM.has(db) || !plan.databases.includes(db);
+      skipping = MYSQL_SYSTEM.has(db) || !kept.includes(db);
       if (skipping) {
         if (!MYSQL_SYSTEM.has(db)) report.skipped.add(db);
         return [];

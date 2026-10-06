@@ -14,6 +14,7 @@ import { useAction } from "@/hooks/use-action";
 import { createBackup, deleteBackup, restoreFromBackup } from "@/server/actions/services";
 import { cn, formatBytes } from "@/lib/utils";
 import { ScheduleCard } from "./schedule-card";
+import { RestoreDialog } from "./restore-dialog";
 import { ImportCard } from "./import-card";
 import { type DatabaseChoices, DatabasePicker, defaultDatabases } from "./database-picker";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -233,6 +234,8 @@ export function BackupsManager(props: {
   const backups = data?.backups ?? [];
   const safety = React.useRef(true);
   const users = React.useRef(false);
+  // Database services get the full restore window; compose targets the plain confirmation.
+  const [restoring, setRestoring] = React.useState<Backup | null>(null);
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -261,6 +264,7 @@ export function BackupsManager(props: {
                   b={b}
                   isAdmin={props.isAdmin}
                   onRestore={async (x) => {
+                    if (!props.target) return setRestoring(x);
                     safety.current = true;
                     users.current = false;
                     const ok = await confirm({
@@ -288,6 +292,7 @@ export function BackupsManager(props: {
             </div>
           )}
         </Card>
+        <RestoreDialog backup={restoring} onClose={() => setRestoring(null)} onStarted={() => void mutate()} restoresUsers={props.restoresUsers} />
         {props.isAdmin && !props.target && (
           <ImportCard
             serviceId={props.serviceId}

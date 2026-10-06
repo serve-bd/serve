@@ -63,12 +63,22 @@ type ServiceRow = typeof schema.service.$inferSelect;
 
 /** A database container and the commands that dump into and restore from it. */
 /**
- * `users`: also restore the dump's database users (MongoDB). `keepNames`: every database the dump
- * names goes back into the database of that name, even when it is the only one.
+ * `users`: also restore the dump's users and passwords. `keepNames`: every database the dump names
+ * goes back into the database of that name, even when it is the only one. `databases`: only these
+ * of the dump ("" is a dump's unnamed database, the backup's main one). `renames`: a database of
+ * the dump restored under another name. `tables`: only these tables of the one chosen database.
+ * `into`: another database service of the same engine to restore into.
  */
-export type RestoreOptions = { users?: boolean; keepNames?: boolean };
+export type RestoreOptions = {
+  users?: boolean;
+  keepNames?: boolean;
+  databases?: string[];
+  renames?: Record<string, string>;
+  tables?: string[];
+  into?: string;
+};
 
-type Commands = {
+export type Commands = {
   docker: Docker;
   container: Docker.Container;
   engine: DatabaseConfig["engine"];
@@ -86,6 +96,8 @@ type Commands = {
   database: string;
   /** The account apps connect with: databases a restore creates are opened to it (MySQL, MariaDB). */
   username?: string;
+  /** A database service's credentials (not a compose container's): restores under other names and of tables use them. */
+  creds?: ReturnType<typeof databaseCreds>;
 };
 
 /**
@@ -132,6 +144,7 @@ async function databaseCommands(service: ServiceRow, databases?: string[] | null
     password: creds.password,
     database: creds.database,
     username: creds.username,
+    creds,
   };
 }
 
@@ -286,10 +299,21 @@ async function runIn(t: Commands, command: string, input: NodeJS.ReadableStream,
 }
 
 /** Restores a dump into a database container; Redis and Valkey restart to load it. */
-async function restoreWith(t: Commands, file: string, log: (line: string) => void = () => {}, opts: RestoreOptions = {}) {
+export async function restoreWith(t: Commands, file: string, log: (line: string) => void = () => {}, opts: RestoreOptions = {}): Promise<{ out: string; format: string }> {
+  if (opts.tables?.length) return restoreTables(t, file, log, opts);
   // Mongo archives are gzip streams already; everything else ending in .gz is unpacked on the way in.
   const gz = /\.gz$/i.test(file) && t.engine !== "mongodb";
-  const { command, format } = await restoreCommandFor(t, file, gz);
+  let { command, format } = await restoreCommandFor(t, file, gz);
+  // The dump's unnamed database (a custom dump, or SQL without a database switch) under another
+  // name: the restore connects to that one instead of the service's.
+  const renamed = opts.renames?.[""];
+  if (renamed && t.creds && t.engine !== "mongodb") {
+    await ensureDatabase(t, renamed);
+    if (format === "pg_dump custom format") command = engines.postgres.restoreCommand({ ...t.creds, database: renamed });
+    else if (t.engine === "postgres") command = `${clientOf(t, renamed)} -o /dev/null`;
+    else command = `MYSQL_PWD=${shq(t.password)} ${t.engine} -uroot ${shq(renamed)}`;
+  }
+  if (t.engine === "mongodb" && !/\.dir\.tar\.gz$/i.test(file)) command += mongoNamespaces(opts);
   log(`Format: ${format}${gz ? " (gzip)" : ""}`);
   const sql = format === "plain SQL" || t.engine === "mysql" || t.engine === "mariadb";
   const filter = sql ? await plainSqlFilter(t, file, gz, log, opts) : undefined;
@@ -310,6 +334,82 @@ async function restoreWith(t: Commands, file: string, log: (line: string) => voi
     await t.container.restart();
   }
   return { out, format: `${format}${gz ? " (gzip)" : ""}` };
+}
+
+const shq = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+
+/** A client in the database container, signed in as Serve: psql (to the postgres database) or mysql as root. */
+function clientOf(t: Commands, database = "postgres") {
+  if (t.engine === "postgres") return `PGPASSWORD=${shq(t.password)} psql -X -v ON_ERROR_STOP=1 -q -U ${shq(t.username ?? "postgres")} -d ${shq(pgDbname(database))}`;
+  return `MYSQL_PWD=${shq(t.password)} ${t.engine} -uroot`;
+}
+
+/** Runs SQL in the database container as Serve. */
+async function runSql(t: Commands, sqlText: string, database?: string) {
+  await runIn(t, clientOf(t, database), Readable.from([`${sqlText}\n`]), false);
+}
+
+const pgIdent = (v: string) => `"${v.replaceAll('"', '""')}"`;
+const myIdent = (v: string) => `\`${v.replaceAll("`", "``")}\``;
+
+/** Creates a database when it is missing; on MySQL the account apps connect with gets it too. */
+async function ensureDatabase(t: Commands, name: string) {
+  if (t.engine === "postgres") {
+    await runSql(
+      t,
+      `SELECT 'CREATE DATABASE ${pgIdent(name).replaceAll("'", "''")}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${name.replaceAll("'", "''")}')\\gexec`,
+    );
+    return;
+  }
+  const grant = t.username && t.username !== "root" ? ` GRANT ALL PRIVILEGES ON ${myIdent(name)}.* TO '${t.username.replaceAll("'", "''")}'@'%';` : "";
+  await runSql(t, `CREATE DATABASE IF NOT EXISTS ${myIdent(name)};${grant}`);
+}
+
+async function dropDatabase(t: Commands, name: string) {
+  await runSql(t, t.engine === "postgres" ? `DROP DATABASE IF EXISTS ${pgIdent(name)} WITH (FORCE);` : `DROP DATABASE IF EXISTS ${myIdent(name)};`).catch(() => {});
+}
+
+/** mongorestore flags for chosen databases and new names (its namespaces are database.collection). */
+function mongoNamespaces(opts: RestoreOptions) {
+  const flags: string[] = [];
+  for (const d of opts.databases ?? []) if (d) flags.push(`--nsInclude=${shq(`${d}.*`)}`);
+  for (const [from, to] of Object.entries(opts.renames ?? {})) if (from && to && from !== to) flags.push(`--nsFrom=${shq(`${from}.*`)}`, `--nsTo=${shq(`${to}.*`)}`);
+  return flags.length ? ` ${flags.join(" ")}` : "";
+}
+
+/**
+ * Only some tables: the chosen database goes into a temporary database first, then the tables are
+ * copied from there with the engine's own dump tool (indexes, keys and their data together), and
+ * the temporary database is dropped. Tables of the same name are replaced; others stay as they are.
+ */
+async function restoreTables(t: Commands, file: string, log: (line: string) => void, opts: RestoreOptions): Promise<{ out: string; format: string }> {
+  if (t.engine !== "postgres" && t.engine !== "mysql" && t.engine !== "mariadb") throw new Error("Restoring single tables works for Postgres, MySQL and MariaDB.");
+  const tables = opts.tables ?? [];
+  const src = opts.databases?.[0] ?? "";
+  const final = opts.renames?.[src] || (opts.keepNames && src ? src : t.database);
+  const tmp = `serve_restore_${crypto.randomBytes(4).toString("hex")}`;
+  log(`Restoring ${tables.length === 1 ? "1 table" : `${tables.length} tables`} into ${final}: ${tables.join(", ")}`);
+  try {
+    const { format } = await restoreWith(t, file, log, { ...opts, tables: undefined, users: false, keepNames: true, databases: src ? [src] : undefined, renames: { [src]: tmp } });
+    await ensureDatabase(t, final);
+    log(`Copying the tables into ${final}`);
+    if (t.engine === "postgres") {
+      const pgDump = `PGPASSWORD=${shq(t.password)} pg_dump -U ${shq(t.username ?? "postgres")} -d ${shq(pgDbname(tmp))} --clean --if-exists --no-owner --no-privileges ${tables.map((x) => `-t ${shq(x)}`).join(" ")}`;
+      await runIn(t, `${pgDump} | ${clientOf(t, final)}`, Readable.from([]), false, log);
+    } else {
+      const dump = t.engine === "mariadb" ? "$(command -v mariadb-dump || echo mysqldump)" : "mysqldump";
+      await runIn(
+        t,
+        `export MYSQL_PWD=${shq(t.password)}; ${dump} -uroot --single-transaction ${shq(tmp)} ${tables.map(shq).join(" ")} | ${t.engine} -uroot ${shq(final)}`,
+        Readable.from([]),
+        false,
+        log,
+      );
+    }
+    return { out: "", format };
+  } finally {
+    await dropDatabase(t, tmp);
+  }
 }
 
 /** Dump a database service into a file on this machine. Returns the size. */
@@ -639,7 +739,14 @@ async function plainSqlFilter(t: Commands, file: string, gz: boolean, log: (line
   const src = fs.createReadStream(file);
   const lines = readline.createInterface({ input: gz ? src.pipe(zlib.createGunzip()) : src, crlfDelay: Number.POSITIVE_INFINITY });
   const plan = await planSql(engine, lines).finally(() => src.destroy());
-  const filter = sqlLineFilter(engine, plan, t.database, { keepNames, user: t.username, users: opts.users, protect: protectedAccounts(t) });
+  const filter = sqlLineFilter(engine, plan, t.database, {
+    keepNames,
+    user: t.username,
+    users: opts.users,
+    protect: protectedAccounts(t),
+    only: opts.databases,
+    renames: opts.renames,
+  });
   const named = plan.databases.filter((d) => d !== "");
   log(
     named.length > 1 || (keepNames && named.length === 1)
@@ -681,22 +788,90 @@ async function restoreCommandFor(t: Commands, file: string, gz: boolean) {
   return { command: t.restore, format: DUMP_EXTENSION[t.engine] };
 }
 
+/** Another database service to restore into: same organization and engine. */
+async function intoService(source: ServiceRow, id: string) {
+  const [row] = await db
+    .select({ service: schema.service, org: schema.project.organizationId })
+    .from(schema.service)
+    .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+    .where(eq(schema.service.id, id));
+  const [from] = await db.select({ org: schema.project.organizationId }).from(schema.project).where(eq(schema.project.id, source.projectId));
+  if (!row || row.org !== from?.org || row.service.type !== "database" || row.service.database?.engine !== source.database?.engine)
+    throw new Error("Restore into a database service of the same kind in this organization.");
+  return row.service;
+}
+
+/** The backup's file on this machine, downloaded from S3 when only the copy there is left. */
+export async function localBackupFile(backup: typeof schema.backup.$inferSelect & { service: ServiceRow }) {
+  const file = backupFile(backup.serviceId, backup.filename!);
+  if (!fs.existsSync(file)) {
+    const s3 = await s3For(backup.destination !== "local" ? backup.destination : null);
+    if (!s3) throw new Error("The backup file is missing.");
+    await logLine(backup.id, "Downloading from S3");
+    await fs.promises.mkdir(path.dirname(file), { recursive: true });
+    await s3Download(s3, s3Key(s3.prefix, backup.service.slug, backup.filename!), file);
+  }
+  return file;
+}
+
+export type BackupContents = {
+  /** name: as the dump calls it ("" for its unnamed database); label: what to show. */
+  databases: { name: string; label: string; tables: string[] }[];
+  /** Whether tables can be chosen (Postgres, MySQL, MariaDB). */
+  tables: boolean;
+};
+
+const contentsCache = new Map<string, BackupContents>();
+
+/**
+ * The databases and tables inside a database backup, for choosing what to restore. SQL dumps are
+ * read once; a Postgres custom dump is listed by pg_restore in the database's container. Empty
+ * when nothing can be chosen (Redis, Valkey, ClickHouse, compose targets, MongoDB without a list).
+ */
+export async function backupContents(backupId: string): Promise<BackupContents> {
+  const hit = contentsCache.get(backupId);
+  if (hit) return hit;
+  const backup = await db.query.backup.findFirst({ where: eq(schema.backup.id, backupId), with: { service: true } });
+  const cfg = backup?.service.database;
+  if (!backup?.filename || backup.target || !cfg) return { databases: [], tables: false };
+  const main = cfg.database ?? "";
+  let result: BackupContents = { databases: [], tables: false };
+  if (cfg.engine === "mongodb") {
+    result = { databases: (backup.databases ?? []).filter((d) => d !== "*" && !d.startsWith("!")).map((d) => ({ name: d, label: d, tables: [] })), tables: false };
+  } else if (cfg.engine === "postgres" || cfg.engine === "mysql" || cfg.engine === "mariadb") {
+    const file = await localBackupFile(backup);
+    const gz = /\.gz$/i.test(file);
+    const custom = cfg.engine === "postgres" && (await peek(file, gz, 5)).toString("latin1") === "PGDMP";
+    if (custom) {
+      let listing = "";
+      await runIn(await databaseCommands(backup.service), "pg_restore -l", fs.createReadStream(file), gz, (text) => {
+        listing += `${text}\n`;
+      });
+      const name = listing.match(/^;\s+dbname:\s+(.+)$/m)?.[1]?.trim() ?? main;
+      const tables = [...listing.matchAll(/^\d+;\s+\d+\s+\d+\s+TABLE\s+(?!DATA\s)(\S+)\s+(\S+)\s/gm)].map((m) => `${m[1]}.${m[2]}`);
+      result = { databases: [{ name: "", label: name, tables: [...new Set(tables)] }], tables: true };
+    } else {
+      const src = fs.createReadStream(file);
+      const lines = readline.createInterface({ input: gz ? src.pipe(zlib.createGunzip()) : src, crlfDelay: Number.POSITIVE_INFINITY });
+      const plan = await planSql(cfg.engine, lines).finally(() => src.destroy());
+      result = { databases: plan.databases.map((d) => ({ name: d, label: d || main, tables: plan.tables?.[d] ?? [] })), tables: true };
+    }
+  }
+  if (contentsCache.size > 200) contentsCache.clear();
+  contentsCache.set(backupId, result);
+  return result;
+}
+
 export async function restoreBackup(backupId: string, opts: RestoreOptions = {}) {
   const backup = await db.query.backup.findFirst({ where: eq(schema.backup.id, backupId), with: { service: true } });
   if (!backup?.filename || (!backup.target && !backup.service.database)) throw new Error("Backup not found");
-  const service = backup.service;
-  const file = backupFile(service.id, backup.filename);
+  // `service` is where the data goes: the backup's own, or another database service (opts.into).
+  const service = opts.into ? await intoService(backup.service, opts.into) : backup.service;
   await db.update(schema.backup).set({ restoreStatus: "running" }).where(eq(schema.backup.id, backupId));
   try {
-    const t = await targetOf(service, backup.target);
+    const t = await targetOf(service, opts.into ? null : backup.target);
     await logLine(backupId, `Restoring into ${t.label}`);
-    if (!fs.existsSync(file)) {
-      const s3 = await s3For(backup.destination !== "local" ? backup.destination : null);
-      if (!s3) throw new Error("The backup file is missing.");
-      await logLine(backupId, "Downloading from S3");
-      await fs.promises.mkdir(path.dirname(file), { recursive: true });
-      await s3Download(s3, s3Key(s3.prefix, service.slug, backup.filename), file);
-    }
+    const file = await localBackupFile(backup);
     const { out: clean, format } = await t.restore(
       file,
       (line) => void logLine(backupId, line),
@@ -707,7 +882,7 @@ export async function restoreBackup(backupId: string, opts: RestoreOptions = {})
           .where(eq(schema.backup.id, backupId))),
       // Into its own service (an import, a backup): every database the dump names keeps that name,
       // as the apps' code may use it. Into another service, a single database becomes that one's.
-      { ...opts, keepNames: !backup.target },
+      { ...opts, keepNames: opts.into ? !!opts.keepNames : !backup.target },
     );
     // Database restores logged their format and output as they ran.
     if (format === "tar.gz" && clean) await logLine(backupId, clean.slice(-2000));
@@ -829,7 +1004,14 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
     const id = newId();
     // A backup of chosen databases replaces those: the safety backup takes the same ones, not only
     // the service's usual choice (which may be the main database alone).
-    await db.insert(schema.backup).values({ id, serviceId: service.id, target: backup.target, trigger: "pre-import", databases: backup.databases });
+    // Into another service: that one's usual backup.
+    await db
+      .insert(schema.backup)
+      .values(
+        opts.into
+          ? { id, serviceId: opts.into, target: null, trigger: "pre-import", databases: null }
+          : { id, serviceId: service.id, target: backup.target, trigger: "pre-import", databases: backup.databases },
+      );
     await logLine(backupId, "Backing up the current data first");
     try {
       await runBackup(id, backupId);
@@ -838,7 +1020,7 @@ export async function importBackup(backupId: string, opts: RestoreOptions & { ba
       throw new Error("The safety backup failed, so nothing was restored.");
     }
   }
-  await restoreBackup(backupId, { users: opts.users });
+  await restoreBackup(backupId, { users: opts.users, databases: opts.databases, renames: opts.renames, tables: opts.tables, into: opts.into });
 }
 
 /**

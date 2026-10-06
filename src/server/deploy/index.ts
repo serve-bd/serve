@@ -1,3 +1,4 @@
+import { newId } from "@/server/id";
 import { replicasSupported } from "@/server/services/types";
 import { configFingerprint } from "@/server/services/fingerprint";
 import fs from "node:fs/promises";
@@ -855,6 +856,9 @@ async function runOnServer(opts: {
   const network = await ensureEnvNetwork(service.environmentId, server);
   if (runtime.volumes.some((v) => v.kind !== "volume")) await prepareMounts(server, service.id, runtime.volumes, log.line);
   await meshBeforeStart(service, server.id, log.line);
+
+  // Backups of the chosen databases come first: what the new version (and its migrations) change can be undone.
+  if (runtime.backupBeforeDeploy?.length && !dep.rollbackOf && primary) await backupBeforeDeploy(runtime.backupBeforeDeploy, log);
 
   if (runtime.preDeployCommand && dep.rollbackOf && primary) log.line("Skipping the pre-deploy command for a rollback");
   // Migrations and similar run once, on the service's own server.
@@ -1840,4 +1844,27 @@ function stopOnFailedSecrets(env: { failedSecrets: string[] }) {
   throw new Error(
     `Could not read ${env.failedSecrets.length === 1 ? "a secret" : `${env.failedSecrets.length} secrets`} from a secret manager:\n${env.failedSecrets.map((f) => `  ${f}`).join("\n")}`,
   );
+}
+
+/** Backs up databases before a deploy; one that fails stops the deploy before anything changes. */
+async function backupBeforeDeploy(ids: string[], log: { step: (s: string) => void; line: (s: string) => void }) {
+  const { runBackup } = await import("@/server/backups");
+  for (const id of ids) {
+    const [svc] = await db.select({ name: schema.service.name, status: schema.service.status, type: schema.service.type }).from(schema.service).where(eq(schema.service.id, id));
+    if (svc?.type !== "database") continue;
+    if (svc.status !== "running") {
+      log.line(`Not backing up ${svc.name}: it is not running`);
+      continue;
+    }
+    log.step(`Backing up ${svc.name}`);
+    const backupId = newId();
+    await db.insert(schema.backup).values({ id: backupId, serviceId: id, target: null, trigger: "pre-deploy" });
+    try {
+      await runBackup(backupId);
+    } catch (e) {
+      throw new Error(`The backup of ${svc.name} failed, so nothing was deployed: ${(e as Error).message}`);
+    }
+    const [b] = await db.select({ filename: schema.backup.filename }).from(schema.backup).where(eq(schema.backup.id, backupId));
+    log.line(`Backed up ${svc.name}: ${b?.filename ?? ""}`);
+  }
 }

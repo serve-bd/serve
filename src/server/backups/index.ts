@@ -776,8 +776,36 @@ async function applyRetention(serviceId: string, target: string | null, keepLoca
     .where(and(eq(schema.backup.serviceId, serviceId), eq(schema.backup.status, "success"), target ? eq(schema.backup.target, target) : isNull(schema.backup.target)))
     .orderBy(desc(schema.backup.createdAt));
   // A backup queued for a restore (marked running when queued) waits for it, after this job.
-  const own = rows.filter((b) => b.trigger !== "import" && b.id !== protect && b.restoreStatus !== "running");
+  const cleanable = rows.filter((b) => b.trigger !== "import" && b.id !== protect && b.restoreStatus !== "running");
   const [svc] = await db.select({ slug: schema.service.slug }).from(schema.service).where(eq(schema.service.id, serviceId));
+  // Backups before deploys count on their own: an app deploying often never pushes out the scheduled ones.
+  await cleanGroup(
+    cleanable.filter((b) => b.trigger === "pre-deploy"),
+    serviceId,
+    svc?.slug,
+    keepLocal,
+    keepS3,
+    null,
+  );
+  await cleanGroup(
+    cleanable.filter((b) => b.trigger !== "pre-deploy"),
+    serviceId,
+    svc?.slug,
+    keepLocal,
+    keepS3,
+    keep,
+  );
+}
+
+async function cleanGroup(
+  own: (typeof schema.backup.$inferSelect)[],
+  serviceId: string,
+  slug: string | undefined,
+  keepLocal: number,
+  keepS3: number,
+  keep: KeepRules | null | undefined,
+) {
+  const svc = slug ? { slug } : null;
   const inBucket = own.filter((b) => s3Copies(b).length > 0);
   const keepRemote = keptBackups(inBucket, keepS3, keep);
   const keepHere = keptBackups(own, keepLocal === 0 ? 0 : keepLocal, inBucket.length ? null : keep);

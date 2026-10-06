@@ -111,6 +111,8 @@ type Props = {
   distribution?: Omit<React.ComponentProps<typeof DistributionSection>, "serviceId" | "projectId" | "slug" | "primary">;
   /** Why the git provider refused this service's commit statuses lately (only loaded for the Source page). */
   commitStatusProblem?: string | null;
+  /** Database services of the environment, for "back up before each deploy". */
+  deployDatabases?: { id: string; name: string }[];
 };
 
 function ServerCard({ service, server, servers }: { service: Props["service"]; server: Props["server"]; servers: Props["servers"] }) {
@@ -619,7 +621,7 @@ export function ServiceSettings(props: Props) {
 
       {service.type === "app" && (
         <>
-          {show("deploy") && <DeploySection runtime={service.runtime} save={save.run} />}
+          {show("deploy") && <DeploySection runtime={service.runtime} save={save.run} databases={props.deployDatabases ?? []} />}
           {show("deploy") && props.approval && <ApprovalSection serviceId={service.id} projectId={props.projectId} {...props.approval} />}
           {show("health") && <HealthSection runtime={service.runtime} save={save.run} />}
           {show("runtime") && <RuntimeSection runtime={service.runtime} save={save.run} />}

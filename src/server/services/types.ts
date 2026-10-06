@@ -213,6 +213,8 @@ export type RuntimeConfig = {
   /* Deploy */
   /** One-off command run from the new image before traffic switches, e.g. migrations. */
   preDeployCommand?: string | null;
+  /** Database services backed up before each deploy (before the pre-deploy command); a failed backup stops the deploy. */
+  backupBeforeDeploy?: string[];
   /** Command run in the new version's first container once it is live, e.g. cache warm-up. */
   postDeployCommand?: string | null;
   /** rolling: start new, then stop old (zero downtime). recreate: stop old first. */

@@ -626,6 +626,7 @@ const updateSchema = z.object({
         }),
       ),
       preDeployCommand: z.string().max(4000).nullable(),
+      backupBeforeDeploy: z.array(z.string().max(64)),
       postDeployCommand: z.string().max(4000).nullable(),
       deployStrategy: z.enum(["rolling", "recreate"]),
       drainSeconds: z.number().int().min(0).max(600).nullable(),
@@ -738,6 +739,15 @@ export async function updateService(serviceId: string, input: z.input<typeof upd
     const { service } = await serviceInOrg(serviceId, ctx.org.id);
     const data = updateSchema.parse(input);
     const patch: Partial<typeof schema.service.$inferInsert> = {};
+    // Databases backed up before each deploy: database services of this organization.
+    for (const id of data.runtime?.backupBeforeDeploy ?? []) {
+      const [row] = await db
+        .select({ type: schema.service.type, org: schema.project.organizationId })
+        .from(schema.service)
+        .innerJoin(schema.project, eq(schema.service.projectId, schema.project.id))
+        .where(eq(schema.service.id, id));
+      if (row?.type !== "database" || row.org !== ctx.org.id) throw new UserError("Choose databases of this organization to back up before deploys.");
+    }
     if (data.name) {
       if (await serviceNameTaken(service.environmentId, data.name, service.id)) {
         throw new UserError(`Another service in this environment is already called ${data.name}. References like \${{name.KEY}} need unique names.`);

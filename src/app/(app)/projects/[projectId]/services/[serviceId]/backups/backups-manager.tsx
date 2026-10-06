@@ -47,7 +47,7 @@ type Backup = {
   copies: { destinationId: string; status: "uploaded" | "failed" | "deleted" }[] | null;
 };
 
-const triggerLabel: Record<string, string> = { manual: "Manual", schedule: "Scheduled", import: "Imported", "pre-import": "Before restore" };
+const triggerLabel: Record<string, string> = { manual: "Manual", schedule: "Scheduled", import: "Imported", "pre-import": "Before restore", "pre-deploy": "Before deploy" };
 
 /** Confirm body with a "back up first" checkbox (and for MongoDB a users one), read through refs when the dialog closes. */
 function SafetyToggle({ valueRef, usersRef }: { valueRef: React.RefObject<boolean>; usersRef?: React.RefObject<boolean> }) {

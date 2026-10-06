@@ -343,6 +343,16 @@ export default async function SettingsSectionPage(props: PageProps<"/projects/[p
           : undefined
       }
       distribution={section === "servers" ? await distributionProps(service, servers, ctx.org.id, ctx.isAdmin) : undefined}
+      deployDatabases={
+        section === "deploy"
+          ? (
+              await db
+                .select({ id: schema.service.id, name: schema.service.name })
+                .from(schema.service)
+                .where(and(eq(schema.service.environmentId, service.environmentId), eq(schema.service.type, "database")))
+            ).sort((a, b) => a.name.localeCompare(b.name))
+          : undefined
+      }
       commitStatusProblem={section === "source" && source?.type === "git" ? await (await import("@/server/git/commit-status")).commitStatusProblem(source.credentialId) : null}
     />
   );

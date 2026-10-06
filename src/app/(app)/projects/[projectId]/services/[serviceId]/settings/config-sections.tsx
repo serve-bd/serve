@@ -1,5 +1,6 @@
 "use client";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -232,7 +233,7 @@ export function BuildSection({
 
 /* --------------------------------- Deploy --------------------------------- */
 
-export function DeploySection({ runtime, save }: { runtime: RuntimeConfig; save: Save }) {
+export function DeploySection({ runtime, save, databases = [] }: { runtime: RuntimeConfig; save: Save; databases?: { id: string; name: string }[] }) {
   return (
     <Section
       id="deploy"
@@ -245,6 +246,7 @@ export function DeploySection({ runtime, save }: { runtime: RuntimeConfig; save:
         deployStrategy: runtime.deployStrategy ?? "rolling",
         drainSeconds: String(runtime.drainSeconds ?? 3),
         restartSchedule: runtime.restartSchedule ?? "",
+        backupBeforeDeploy: (runtime.backupBeforeDeploy ?? []).filter((id) => databases.some((d) => d.id === id)),
       }}
       onSave={(v) =>
         save({
@@ -254,12 +256,32 @@ export function DeploySection({ runtime, save }: { runtime: RuntimeConfig; save:
             deployStrategy: v.deployStrategy,
             drainSeconds: num(v.drainSeconds),
             restartSchedule: v.restartSchedule.trim() || null,
+            backupBeforeDeploy: v.backupBeforeDeploy,
           },
         })
       }
     >
       {(v, set) => (
         <>
+          {databases.length > 0 && (
+            <Field
+              label="Back up before each deploy"
+              optional
+              description="These databases are backed up before the pre-deploy command runs. If a backup fails, nothing is deployed."
+            >
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {databases.map((d) => (
+                  <label key={d.id} className="flex items-center gap-2 text-[13px] text-fg-2">
+                    <Checkbox
+                      checked={v.backupBeforeDeploy.includes(d.id)}
+                      onCheckedChange={(c) => set({ backupBeforeDeploy: c ? [...v.backupBeforeDeploy, d.id] : v.backupBeforeDeploy.filter((x) => x !== d.id) })}
+                    />
+                    {d.name}
+                  </label>
+                ))}
+              </div>
+            </Field>
+          )}
           <Field label="Pre-deploy command" optional description="Runs once in a container from the new image, with its variables, before traffic switches. For migrations.">
             <Input value={v.preDeployCommand} onChange={(e) => set({ preDeployCommand: e.target.value })} placeholder="npm run migrate" className="font-mono text-[13px]" />
           </Field>
